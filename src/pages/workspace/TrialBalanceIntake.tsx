@@ -14,7 +14,8 @@ import { useMemo, useState } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { parseReportVersion, withContext } from "@/lib/workbench/context";
 import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
 import { LayoutEditor, type LayoutTemplateRow } from "@/components/workbench/intake/LayoutEditor";
 import { useGuardedRequest } from "@/components/workbench/useGuardedRequest";
@@ -39,6 +40,9 @@ export default function TrialBalanceIntake() {
   const [confirmedNo, setConfirmedNo] = useState<number | null>(null);
   const [recheck, setRecheck] = useState<{ busy: boolean; text: string | null }>({ busy: false, text: null });
   const periodLabel = `FY${periodYear}`;
+  // Navigation keeps the workbench context: company and period are in the path, the report version travels as ?v=.
+  const { search } = useLocation();
+  const reviewHref = withContext(`/workspace/${companyId}/${periodYear}/trial-balance/review`, { reportVersion: parseReportVersion(search) });
 
   const checkAgain = async () => {
     if (!upload?.id) return;
@@ -60,7 +64,7 @@ export default function TrialBalanceIntake() {
         <h2 id="tb-intake-upload" className="text-base font-semibold">Upload</h2>
         <p className="text-sm">
           {upload?.id ? `Current file: ${upload.file_name ?? "trial balance"}.` : "No trial balance uploaded for this period yet."}{" "}
-          <Link className="underline" to={`/workspace/${companyId}/${periodYear}/trial-balance/review`}>Upload or replace the file</Link>
+          <Link className="underline" to={reviewHref}>Upload or replace the file</Link>
         </p>
       </section>
       {upload?.id ? (

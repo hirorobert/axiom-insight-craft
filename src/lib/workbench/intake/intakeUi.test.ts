@@ -184,3 +184,13 @@ describe("PeriodSetup", () => {
     expect(document.body.textContent).toContain("Setting up a period with explicit dates is not available yet.");
   });
 });
+
+describe("Intake navigation keeps the workbench context", () => {
+  it("the link to the single uploader carries the company, the period and the report version", async () => {
+    const src = (await import("node:fs")).readFileSync((await import("node:path")).resolve(__dirname, "../../../pages/workspace/TrialBalanceIntake.tsx"), "utf8");
+    expect(src).toMatch(/withContext\(`\/workspace\/\$\{companyId\}\/\$\{periodYear\}\/trial-balance\/review`, \{ reportVersion: parseReportVersion\(search\) \}\)/);
+    expect(src).toContain("to={reviewHref}");
+    const { withContext, parseReportVersion } = await import("../context");
+    expect(withContext("/workspace/c/2025/trial-balance/review", { reportVersion: parseReportVersion("?v=3") })).toBe("/workspace/c/2025/trial-balance/review?v=3");
+  });
+});
