@@ -28,6 +28,8 @@ const S2 = "20261008100000_processing_attempt_authority.sql";
 const T30 = "0030_apply_20261008100000_processing_attempt_authority";
 const S2_CANONICAL = "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d";
 const S2_SUBMITTED = "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8";
+const I1A_A1 = "20261009100000_currency_registry_and_reporting_periods.sql";
+const I1A_A2 = "20261010100000_layout_templates_and_confirmations.sql";
 const S25 = "20261001120000_annual_commercial_term.sql";
 const D25 = "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa";
 
@@ -325,7 +327,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -362,5 +364,86 @@ describe("S2: both submission forms registered ahead of application; applied as 
     try {
       expect((checkMigrationAuthority(ROOT) as Result).errors.join("\n")).toMatch(/0030_apply_20261008100000[^\n]*only through a reviewed RELEASE_JOURNAL entry/);
     } finally { (RELEASE_JOURNAL as Record<string, unknown>)[T30] = saved; }
+  }, 120_000);   // full-repository guard runs
+});
+
+describe("I1-A A1/A2: both submission forms registered ahead of application (nothing applied)", () => {
+  const FORMS = [
+    { name: I1A_A1, bytes: 49199, canonical: "27970dfb5dcd84039d80424c0cb5c1bd8b6a672732967603b0b4a8a19a634509", submitted: "58d2df62f95aa99cd1e5a08aa9af6a58ed41b73d38d918a8fd6c5f8eb1bb374e" },
+    { name: I1A_A2, bytes: 31976, canonical: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21", submitted: "f5aa525f5bf4ce1f5068c3ecf4f3c1002c3b0d6ab1948cafb6cf371ea8e69ba7" },
+  ];
+  for (const f of FORMS) {
+    const src = () => srcBytes(f.name)!;
+    it(`${f.name}: registers exactly the unchanged source and the source minus its single final LF`, () => {
+      expect(SUBMISSION_FORMS[f.name]).toEqual({ identical: { bytes: f.bytes, sha256: f.canonical }, finalLfRemoved: { bytes: f.bytes - 1, sha256: f.submitted } });
+      // The source in the repository is exactly the registered canonical form (unchanged since main a57d26a).
+      expect([src().length, sha(src())]).toEqual([f.bytes, f.canonical]);
+      expect(src()[src().length - 1]).toBe(0x0a);
+      expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
+      expect(sha(src().subarray(0, src().length - 1))).toBe(f.submitted);
+    });
+    it(`${f.name}: accepts only those two forms; every other transformation is rejected`, () => {
+      const s = src();
+      expect(submittedForm(f.name, s, s)).toBe("identical");
+      expect(submittedForm(f.name, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
+      const text = s.toString("utf8");
+      const rejected: [string, Buffer][] = [
+        ["two final bytes removed", s.subarray(0, s.length - 2)],
+        ["an extra final LF", Buffer.concat([s, Buffer.from("\n")])],
+        ["final LF replaced by a space", Buffer.concat([s.subarray(0, s.length - 1), Buffer.from(" ")])],
+        ["final LF replaced by CRLF", Buffer.concat([s.subarray(0, s.length - 1), Buffer.from("\r\n")])],
+        ["CRLF line endings", Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")],
+        ["a UTF-8 byte-order mark", Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), s])],
+        ["leading whitespace", Buffer.concat([Buffer.from(" "), s])],
+        ["trailing whitespace trimmed on every line", Buffer.from(text.replace(/[ \t]+\n/g, "\n"), "utf8")],
+        ["comments stripped", Buffer.from(text.replace(/^--.*\n/gm, ""), "utf8")],
+        ["first line removed", s.subarray(s.indexOf(0x0a) + 1)],
+        ["one byte changed in the middle", (() => { const b = Buffer.from(s); b[Math.floor(b.length / 2)] ^= 0x01; return b; })()],
+        ["empty text", Buffer.alloc(0)],
+      ];
+      for (const [label, bad] of rejected) {
+        if (bad.equals(s) || bad.equals(s.subarray(0, s.length - 1))) continue; // a transformation that changed nothing is not a different text
+        expect(submittedForm(f.name, s, bad), label).toBeNull();
+      }
+    });
+    it(`${f.name}: a changed source no longer matches its registration (no form is accepted)`, () => {
+      const changed = Buffer.concat([src(), Buffer.from("-- note\n")]);
+      expect(submittedForm(f.name, changed, changed)).toBeNull();
+      expect(submittedForm(f.name, changed, changed.subarray(0, changed.length - 1))).toBeNull();
+    });
+  }
+  it("rule 9: without a reviewed RELEASE_JOURNAL entry, no Drizzle mirror is accepted — not even the registered forms, and never a normalised one", () => {
+    for (const f of FORMS) {
+      const s = src();
+      const text = s.toString("utf8");
+      const variants: [string, Buffer][] = [
+        ["byte for byte", s], ["final LF removed", s.subarray(0, s.length - 1)],
+        ["CRLF", Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")], ["trailing whitespace trimmed", Buffer.from(text.replace(/\s+$/, ""), "utf8")],
+      ];
+      for (const [label, body] of variants) {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-i1a-"));
+        try {
+          fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
+          fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+          const j = JSON.parse(fs.readFileSync(path.join(dir, "drizzle/migrations/meta/_journal.json"), "utf8"));
+          const idx = j.entries.length;
+          const tag = `${String(idx).padStart(4, "0")}_mirror_${f.name.slice(0, 14)}`;
+          j.entries.push({ ...j.entries[idx - 1], idx, tag });
+          fs.writeFileSync(path.join(dir, "drizzle/migrations/meta/_journal.json"), JSON.stringify(j, null, 2));
+          fs.writeFileSync(path.join(dir, `drizzle/migrations/${tag}.sql`), body);
+          fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
+          const r = checkMigrationAuthority(dir) as Result;
+          expect(r.ok, `${f.name} ${label}`).toBe(false);
+          expect(r.mirrored.some((m) => m.source === f.name), `${f.name} ${label}`).toBe(false);
+        } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+      }
+      function src() { return srcBytes(f.name)!; }
+    }
+  }, 600_000);   // full-repository guard runs (eight)
+  it("registering a form does not apply anything: both are still pending, and no journal entry mirrors them", () => {
+    const r = checkMigrationAuthority(ROOT) as Result;
+    expect(r.errors).toEqual([]);
+    expect(r.pending).toEqual([I1A_A1, I1A_A2]);
+    expect(Object.values(RELEASE_JOURNAL).some((e) => (e as { source?: string }).source === I1A_A1 || (e as { source?: string }).source === I1A_A2)).toBe(false);
   }, 120_000);   // full-repository guard runs
 });

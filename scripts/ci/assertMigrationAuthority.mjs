@@ -20,7 +20,7 @@
 //   8. the controlled PR #34 release entries (scripts/ci/releaseJournal.mjs) are each exactly their reviewed content and
 //      template: a wrapper applies exactly its named source migration, whose SHA-256 (and byte count) it pins; the probe
 //      and staging entries touch only release objects; an unreviewed release entry fails;
-//   9. a source migration with registered submission forms (SUBMISSION_FORMS in releaseJournal.mjs: H1, S2) is mirrored
+//   9. a source migration with registered submission forms (SUBMISSION_FORMS in releaseJournal.mjs: H1, S2, I1-A A1/A2) is mirrored
 //      only by a reviewed release entry — byte for byte, or with exactly its single final LF removed — never by the
 //      whitespace-normalised parity of rule 2;
 //   6. no source migration and no journal entry may grant the service-only workspace-authority predicates to anyone

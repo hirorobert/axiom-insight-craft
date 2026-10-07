@@ -201,6 +201,16 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 75683, sha256: "6ad6ac7d6aac244950a0e69bd1c278bea1eee5ac9e12c98e541ca9c961c9c25d" }),
     finalLfRemoved: Object.freeze({ bytes: 75682, sha256: "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994bb817b8" }),
   }),
+  // I1-A A1 (PR #70, merged in main a57d26a): both candidate forms registered BEFORE application. Not applied.
+  "20261009100000_currency_registry_and_reporting_periods.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 49199, sha256: "27970dfb5dcd84039d80424c0cb5c1bd8b6a672732967603b0b4a8a19a634509" }),
+    finalLfRemoved: Object.freeze({ bytes: 49198, sha256: "58d2df62f95aa99cd1e5a08aa9af6a58ed41b73d38d918a8fd6c5f8eb1bb374e" }),
+  }),
+  // I1-A A2 (PR #71, merged in main a57d26a): both candidate forms registered BEFORE application. Not applied.
+  "20261010100000_layout_templates_and_confirmations.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 31976, sha256: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21" }),
+    finalLfRemoved: Object.freeze({ bytes: 31975, sha256: "f5aa525f5bf4ce1f5068c3ecf4f3c1002c3b0d6ab1948cafb6cf371ea8e69ba7" }),
+  }),
 });
 
 /**
