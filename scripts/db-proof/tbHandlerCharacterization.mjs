@@ -49,7 +49,9 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   "REQ-E1-GENUINE-EQUATION", "REQ-E1-NONREPORTING-NONZERO", "REQ-E1-NONREPORTING-ZERO", "REQ-E1-PRECISION", "REQ-E1-INVARIANT",
   "REQ-E1-GENERATION", "REQ-E1-REPROCESS-REQUIRED", "X-E1-INV",
   // E2 / X8 (the previous engines on S2's schema)
-  "X8-PREVIOUS-ENGINE-FENCED", "X8-E1-ENGINE-FENCED", "X8-REPLAY-COMPLETES", "REQ-E2-DEPENDENCY-STALE"];
+  "X8-PREVIOUS-ENGINE-FENCED", "X8-E1-ENGINE-FENCED", "X8-REPLAY-COMPLETES", "REQ-E2-DEPENDENCY-STALE",
+  // R0 release: functions with an open registered defect refuse on the server (_shared/openDefectRestriction.ts)
+  "REQ-RESTRICTED-KINGA-FINDINGS", "REQ-RESTRICTED-MAONO-COMPUTE"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -517,6 +519,19 @@ async function main() {
     const now = await authoritative(A, 2028);
     return was && now === null && JSON.stringify(await latestCert(id)) === cert ? true : { was, now };
   });
+
+  // ── Open-defect restrictions: the real handlers refuse before authenticating, reading or writing ──
+  for (const [rid, fn] of [["REQ-RESTRICTED-KINGA-FINDINGS", "kinga-findings-engine"], ["REQ-RESTRICTED-MAONO-COMPUTE", "maono-compute"]]) {
+    await req1(rid, async () => {
+      const restricted = (await loadFunctionTree(REPO, fn)).handler;
+      const before = (await one("SELECT (SELECT count(*) FROM public.engine_runs)::int r, (SELECT count(*) FROM public.audit_logs)::int a")) ?? {};
+      const asOwner = await call(restricted, pool, mintTestJwt(U.owner), { company_id: A, upload_id: happy, uploadId: happy, companyId: A });
+      const anonymous = await call(restricted, pool, null, {});
+      const after = (await one("SELECT (SELECT count(*) FROM public.engine_runs)::int r, (SELECT count(*) FROM public.audit_logs)::int a")) ?? {};
+      return asOwner.http === 503 && asOwner.body?.code === "SERVICE_RESTRICTED" && anonymous.http === 503
+        && canon(before) === canon(after) && !/kinga|maono|defect/i.test(JSON.stringify(asOwner.body)) ? true : { asOwner, anonymous };
+    });
+  }
 
   // ── X8: the previous engines on S2's schema ──────────────────────────────────────────────────────────────────────
   console.log("\n== X8: the previous engines are refused at their first write; the accepted request is completed by the current one");

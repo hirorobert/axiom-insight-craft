@@ -18,13 +18,26 @@ export type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ d
 
 export interface UploadAuthorityState {
   loaded: boolean;
+  /**
+   * The backend does not have these reads yet (a database before S2: the function does not exist). The frontend is
+   * published once for the whole release, so it must stay silent at every earlier stage — this is a deployment stage,
+   * not an unreadable answer.
+   */
+  unavailable?: boolean;
   authority: UploadAuthority | null;
   attempts: AttemptHistoryEntry[] | null;
+}
+
+/** PostgREST "function not found" (PGRST202) or PostgreSQL undefined_function (42883). */
+export function isMissingFunction(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "PGRST202" || code === "42883";
 }
 
 /** Reads both answers; an error or an unreadable answer is "unknown" (never current). */
 export async function loadUploadAuthority(rpc: Rpc, uploadId: string): Promise<UploadAuthorityState> {
   const [a, h] = await Promise.all([rpc("tb_upload_authority", { p_upload_id: uploadId }), rpc("tb_upload_attempts", { p_upload_id: uploadId })]);
+  if (isMissingFunction(a.error) || isMissingFunction(h.error)) return { loaded: true, unavailable: true, authority: null, attempts: null };
   return {
     loaded: true,
     authority: a.error ? null : parseUploadAuthority(a.data),
@@ -45,7 +58,7 @@ export function ProcessingAuthorityNoticeView({ state, busy, canAct, onAction }:
   onAction: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  if (!state.loaded) return null;
+  if (!state.loaded || state.unavailable) return null;
   const notice = authorityNotice(state.authority);
   const attempts = state.attempts ?? [];
   if (!notice && attempts.length === 0) return null;
