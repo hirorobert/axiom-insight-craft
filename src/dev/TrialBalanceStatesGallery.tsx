@@ -5,12 +5,15 @@
  * production build's only input is index.html). No account reads or writes: nothing calls the server. Proven by src/dev/devGalleryIsolation.test.ts and the production-bundle scan.
  *
  *   /dev/trial-balance-states.html?state=blocked|accepted|accepted-tolerance|failed|review|home
+ *   &authority=recheck|legacy|stopped|retry|checking   — the processing-authority notice and history under the card (F2)
  */
 import { useSearchParams } from "react-router-dom";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { CurrentTrialBalanceCard } from "@/components/workspace/CurrentTrialBalanceCard";
 import { TrialBalanceChecks } from "@/components/workspace/TrialBalanceChecks";
 import { UploadHistory } from "@/components/workspace/UploadHistory";
+import { ProcessingAuthorityNoticeView } from "@/components/workspace/ProcessingAuthorityNoticeView";
+import { parseUploadAuthority, type AttemptHistoryEntry } from "@/lib/workspace/uploadAuthority";
 import { ManageTrialBalance } from "@/components/workspace/ManageTrialBalance";
 import { deriveTrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import type { PreflightCheck, PreflightVerdict } from "@/lib/workspace/computePreflight";
@@ -66,6 +69,19 @@ const HISTORY = [
   { id: "h4", file_name: "sample_trial_balance_draft.csv", uploaded_at: "2026-09-20T05:13:00Z", status: "complete", lifecycle_state: "superseded" },
 ];
 
+const AUTHORITY: Record<string, Record<string, unknown>> = {
+  recheck: { reason: "dependency_changed", current_attempt_status: "completed" },
+  legacy: { reason: "legacy_certification", current_attempt_status: null },
+  stopped: { reason: "attempt_failed", current_attempt_status: "failed", current_attempt_code: "INVARIANT_VIOLATION" },
+  retry: { reason: "attempt_running", current_attempt_status: "running", current_attempt_lease_expired: true },
+  checking: { reason: "attempt_running", current_attempt_status: "running" },
+};
+const ATTEMPTS: AttemptHistoryEntry[] = [
+  { attemptNo: 3, status: "failed", code: "INVARIANT_VIOLATION", startedAt: "2026-10-07T09:12:00Z", completedAt: "2026-10-07T09:12:04Z" },
+  { attemptNo: 2, status: "abandoned", code: "PREEMPTED", startedAt: "2026-10-07T09:05:00Z", completedAt: "2026-10-07T09:11:58Z" },
+  { attemptNo: 1, status: "completed", code: null, startedAt: "2026-10-06T16:40:00Z", completedAt: "2026-10-06T16:40:03Z" },
+];
+
 export default function TrialBalanceStatesGallery() {
   const [params] = useSearchParams();
   if (!import.meta.env.DEV) return null;
@@ -114,6 +130,19 @@ export default function TrialBalanceStatesGallery() {
               replacing={false} removing={false} focusRequested={false} onReplace={() => undefined} onRemove={() => undefined} />
           }
         />
+        {params.get("authority") && AUTHORITY[params.get("authority")!] && (
+          <ProcessingAuthorityNoticeView
+            state={{
+              loaded: true,
+              authority: parseUploadAuthority({ upload_id: "h1", authoritative: false, certification_id: "c", current_attempt_code: null,
+                current_attempt_lease_expired: false, processing_attempt: 3, ...AUTHORITY[params.get("authority")!] }),
+              attempts: ATTEMPTS,
+            }}
+            busy={false}
+            canAct={verdict.primaryAction?.kind !== "retry"}
+            onAction={() => undefined}
+          />
+        )}
         <TrialBalanceChecks verdict={verdict} />
         <section className="border border-border bg-card px-5 py-3.5 text-[13px] font-semibold text-foreground sm:px-7">Technical processing details</section>
         <UploadHistory uploads={HISTORY} currentId="h1" viewingId="h1" onOpen={() => undefined} />

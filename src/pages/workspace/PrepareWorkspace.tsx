@@ -17,7 +17,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import { mayRequestReprocess, requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import { ProcessingAuthorityNotice } from "@/components/workspace/ProcessingAuthorityNotice";
+import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
 import { buildPrepareUploadRoute, buildPrepareReviewRoute, canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import { toast } from "sonner";
 
@@ -135,6 +137,8 @@ export default function PrepareWorkspace() {
 
   // "Manage Trial Balance": what may be offered comes from the server (access + current plan + removal eligibility).
   const { state: capabilityState } = useWorkspaceCapabilities(companyId);
+  // F2: who may request a new check (the same authority tbu_request_reprocess checks: prepare_close and a current plan).
+  const { state: commercialState } = useWorkspaceCommercialState(companyId);
   const sourceMode = decideSourceManagementMode(access, capabilityState);
   const focusManage = searchParams.get(MANAGE_TRIAL_BALANCE_PARAM) === "source";
   const [removing, setRemoving] = useState(false);
@@ -587,6 +591,16 @@ export default function PrepareWorkspace() {
                     onRemove={handleRemove}
                   />
                 }
+              />
+              {/* F2: what the database says about this result beyond the verdict — Needs re-check, Processing stopped,
+                  Checking, New check requested — with at most one action, and the processing history. */}
+              <ProcessingAuthorityNotice
+                uploadId={upload.id}
+                refreshKey={`${upload.status}|${upload.version ?? ""}|${upload.processed_at ?? ""}`}
+                busy={retryingProcess}
+                // One action per state: when the card already offers "Retry processing", the notice only explains.
+                canAct={mayRequestReprocess(upload, capabilityState, commercialState) && verdict.primaryAction?.kind !== "retry"}
+                onAction={() => void handleRetry()}
               />
             </>
           )}

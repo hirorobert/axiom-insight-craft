@@ -151,6 +151,27 @@ async function main() {
   const legacyDecisions = [decision("1200", "Closing stock", "current_assets", "balance_sheet", "debit"), decision("1210", "Bank", "current_assets", "balance_sheet", "debit")];
   const legacyResult = await batch(U.owner, A, reviewUp, legacyReq, legacyDecisions);
 
+  section("Mixed versions — engines on today's schema (S1, before H1)");
+  {
+    // The release applies H1 before E1 is deployed. The wrong order must fail safe: the E1 engine's run insert names
+    // engine_generation, which this schema lacks, so no run, no certification, and the upload's status restored. The one
+    // field it records first is the observed source hash (write-once, the file's own bytes; E1 records it before its claim).
+    const pinned = JSON.parse(fs.readFileSync(path.join(HERE, "fixtures/h2-known-defects.json"), "utf8"));
+    const { handler: e1Early } = await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, pinned.e1_engine_commit, "process-trial-balance") });
+    const { handler: currentEarly } = await loadFunctionTree(REPO, "process-trial-balance");
+    for (const [label, h] of [["the E1 engine", e1Early], ["the current engine (E2)", currentEarly]]) {
+      await check(`${label} deployed before H1: refused, no run, no certification, status restored`, async () => {
+        const up = await upload(A, label.includes("E1") ? 2010 : 2011);
+        const before = await one("SELECT status, is_valid, processing_result, processed_at FROM public.trial_balance_uploads WHERE id=$1", [up]);
+        const r = await call(h, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
+        const after = await one("SELECT status, is_valid, processing_result, processed_at FROM public.trial_balance_uploads WHERE id=$1", [up]);
+        return r.http >= 500 && JSON.stringify(before) === JSON.stringify(after)
+          && (await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [up])) === 0
+          && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : { http: r.http, before, after };
+      });
+    }
+  }
+
   section("Upgrade — rollback leaves nothing; pre-H1 replay identity is preserved");
   await check("H1 applied inside a transaction and rolled back changes nothing (schema, grants, functions, decisions)", async () => {
     const before = await fingerprint();

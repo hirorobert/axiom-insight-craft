@@ -202,6 +202,8 @@ describe("database inertness — schema and functions", () => {
       // doubles of the attempt functions (test-only, never deployed).
       "supabase/migrations/20261008100000_processing_attempt_authority.sql",
       "supabase/functions/_shared/tbAuthority.ts",
+      // R0 release: the server-side restriction of the functions whose registered defects are open (refuse first).
+      "supabase/functions/_shared/openDefectRestriction.ts",
       "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
       // Official Reporting Pack bytes are generated, stored and sealed by the server (B-4, N-1): the Edge Function
       // and its pure handler. No financial-statements schema.
