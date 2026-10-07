@@ -63,6 +63,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -196,6 +197,11 @@ const corsHeaders = {
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+  // R0 release: restricted on the server while its registered defect is open (_shared/openDefectRestriction.ts).
+  {
+    const restricted = openDefectRefusal("kinga-findings-engine", corsHeaders);
+    if (restricted) return restricted;
   }
 
   // ── 1. Auth ──────────────────────────────────────────────────────────

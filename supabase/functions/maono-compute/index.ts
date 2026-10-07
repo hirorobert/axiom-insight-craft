@@ -45,6 +45,7 @@
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { computeVariance as computeVarianceContract, type AnalyticalValue } from "../_shared/maonoAnalyticalContract.ts";
 import { loadCertifiedTb, certifiedRowKey, type CertifiedTbClient } from "../_shared/certifiedTbSource.ts";
@@ -209,6 +210,11 @@ function computeAggregate(
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+  // R0 release: restricted on the server while its registered defect is open (_shared/openDefectRestriction.ts).
+  {
+    const restricted = openDefectRefusal("maono-compute", corsHeaders);
+    if (restricted) return restricted;
   }
 
   try {
