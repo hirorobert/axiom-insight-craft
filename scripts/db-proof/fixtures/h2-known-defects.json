@@ -6,7 +6,7 @@
     "A new defect is registered here with its exact signature and an independent oracle; a probe that matches the oracle (fixed) or any other value fails the gate."
   ],
   "engine_commit": "9b0c2fd7dc1ce897df97196a43cd491132f5590e",
-  "e1_engine_commit": "09b88bd61cf8f04c610d984d5d4d0a1a86f10799",
+  "e1_engine_commit": "602484d9d1c183a885da5b848e2b98188032485d",
   "handler_sha256": "f18e32cc6dfd08c76126590de5c55bd4ee75dbdabecec0ef98869ba064c270f8",
   "defects": []
 }
