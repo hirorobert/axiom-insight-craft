@@ -9,6 +9,7 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
 import { capturedHandler } from "./serverDouble.ts";
+import { installAttemptDoubles } from "./attemptDouble.ts";
 import { validateTbAmounts } from "../../_shared/tbAmounts.ts";
 import { treatmentRequestId } from "../../_shared/treatmentRequest.ts";
 
@@ -43,12 +44,8 @@ function setup(opts: { csv: string; fileName?: string; currency?: string | null;
   w.rpc.tbu_upload_source_bound = () => ({ data: true, error: null });
   w.rpc.get_effective_non_reporting_status = () => ({ data: [], error: null });
   w.rpc.get_authoritative_certification = () => ({ data: [], error: null });
-  w.rpc.commit_tb_certification = (args) => {
-    (w.tables.tb_certifications ??= []).push(args);
-    const key = (w.tables.idempotency_keys ?? []).find((k) => k.engine_run_id === args.p_engine_run_id);
-    if (key) { key.status = "completed"; key.replay_result = { status: "completed" }; }
-    return { data: { certification_id: "cert-1" }, error: null };
-  };
+  // E2: the handler records every outcome through the S2 attempt functions (doubles: ./attemptDouble.ts).
+  installAttemptDoubles(w);
   setWorld(w);
   return w;
 }
@@ -129,7 +126,9 @@ Deno.test("ambiguous duplicate code → blocked with an explanation; a transacti
   assertEquals(r2.status, 200);
   assertEquals(upload(w2).status, "blocked");
   assert(((upload(w2).accounting_errors as { code: string }[]).map((e) => e.code)).includes("UNSUPPORTED_LAYOUT"));
-  assertEquals(w2.tables.engine_runs, undefined); // refused before any engine run
+  // E2: the attempt began (after the read-only parse) and failed; nothing is certified.
+  assertEquals(w2.tables.engine_runs.map((r) => [r.status, r.error_code]), [["failed", "INGESTION_REFUSED"]]);
+  assertEquals((w2.tables.tb_certifications ?? []).length, 0);
 });
 
 Deno.test("three-decimal currency: amounts kept exact to 0.001 and recorded with exponent 3", async () => {
@@ -139,13 +138,14 @@ Deno.test("three-decimal currency: amounts kept exact to 0.001 and recorded with
   assertEquals([exact.currency, exact.currency_exponent, exact.total_debits], ["BHD", 3, "1.234"]);
 });
 
-Deno.test("no reporting period → refused before any engine run, and the upload is not left at 'validating'", async () => {
+Deno.test("no reporting period → the attempt fails (INGESTION_REFUSED), nothing certified, the upload is not left at 'validating'", async () => {
   const w = setup({ csv: BALANCED, currency: null, priorStatus: "processing" });
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r.status, 200);
   assertEquals(upload(w).status, "blocked");
   assert(((upload(w).accounting_errors as { code: string }[]).map((e) => e.code)).includes("CURRENCY_UNRESOLVED"));
-  assertEquals(w.tables.engine_runs, undefined);
+  assertEquals(w.tables.engine_runs.map((x) => [x.status, x.error_code]), [["failed", "INGESTION_REFUSED"]]);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
 });
 
 Deno.test("retry with the SAME request id replays: no second run or certification, and the recorded status is kept", async () => {
@@ -160,14 +160,16 @@ Deno.test("retry with the SAME request id replays: no second run or certificatio
   assertEquals(upload(w).status, "complete"); // previously left at "validating"
 });
 
-Deno.test("a database failure mid-run restores the prior status (never stuck at 'validating') and fails the engine run", async () => {
+Deno.test("a database failure mid-run fails the attempt (UNHANDLED_EXCEPTION): never stuck at 'validating', never the earlier result", async () => {
   const w = setup({ csv: BALANCED, mappings: REVIEWED, priorStatus: "needs_review" });
   w.failReads.add("keyword_dictionary");
   w.rpc.get_effective_non_reporting_status = () => { throw new Error("boom"); };
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r.status, 500);
-  assertEquals(upload(w).status, "needs_review");
+  // E2: a failure never re-exposes the status (or result) the upload had before this attempt.
+  assertEquals([upload(w).status, upload(w).is_valid], ["error", false]);
   assertEquals((w.tables.engine_runs ?? []).filter((e) => e.status === "failed" && e.error_code === "UNHANDLED_EXCEPTION").length, 1);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
   assert(!JSON.stringify(r.json).includes("boom")); // no raw error reaches the response
 });
 
@@ -282,7 +284,7 @@ Deno.test("E1 exact amounts: tb-amounts/1 validates, equation exact, cash claime
   const rows = w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[];
   const sales = rows.find((r) => r.accountCode === "4000")!;
   assertEquals([sales.rowContract, sales.debitMinor, sales.creditMinor, sales.classSideMinor, sales.netBalance], ["tb-row/1", "0", "90025", "90025", 900.25]);
-  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v2", 2]]);
+  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v3", 3]]);
 });
 
 Deno.test("E1 contra asset: accumulated depreciation (credit normal) reduces assets; balanced and certified (R3c)", async () => {
@@ -330,14 +332,14 @@ Deno.test("E1 treatment confirmed for exactly that request: complete, kept as ma
   assertEquals(cogs.length, 0); // never re-routed into cost of sales
 });
 
-Deno.test("E1 treatment lookup failure fails closed: no certification, run failed, prior status restored", async () => {
+Deno.test("E1 treatment lookup failure fails closed: no certification, the attempt failed, the upload shows an error", async () => {
   const w = setup({ csv: STOCK_CSV, mappings: STOCK_MAPPINGS });
   w.rpc.get_confirmed_treatments = () => ({ data: null, error: { code: "XX000", message: "down" } });
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r.status, 500);
   assertEquals((w.tables.tb_certifications ?? []).length, 0);
-  assertEquals(upload(w).status, "processing");
-  assertEquals((w.tables.engine_runs ?? []).filter((e) => e.status === "failed").length, 1);
+  assertEquals(upload(w).status, "error");
+  assertEquals((w.tables.engine_runs ?? []).filter((e) => e.status === "failed" && e.error_code === "UNHANDLED_EXCEPTION").length, 1);
 });
 
 Deno.test("E1 refuted pattern: a debit current asset named closing stock raises no question (R3b)", async () => {
@@ -386,14 +388,80 @@ Deno.test("E1 REPROCESS_REQUIRED: a new request on an upload whose latest certif
   w.tables.tb_certifications = [{ id: "cert-0", upload_id: UPLOAD, sequence_no: 1 }];
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals([r.status, r.json.code], [409, "REPROCESS_REQUIRED"]);
-  assertEquals(upload(w).status, "complete"); // restored, nothing processed
+  assertEquals(upload(w).status, "complete"); // nothing written: the attempt never began
   assertEquals(w.tables.tb_certifications.length, 1);
-  assertEquals(w.tables.engine_runs.map((e) => [e.status, e.error_code]), [["failed", "REPROCESS_REQUIRED"]]);
-  assertEquals(w.calls.filter((c) => c.kind === "download").length, 1); // the claim follows the read; no certification
+  assertEquals(w.tables.engine_runs ?? [], []); // E2: refused by tb_begin_attempt before any run exists
+  assertEquals(w.calls.filter((c) => c.kind === "update").length, 0);
 
   w.tables.tb_certification_invalidations = [{ id: "inv-0", certification_id: "cert-0" }];
   const r2 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r2.status, 200);
   assertEquals(upload(w).status, "complete");
   assertEquals(w.tables.tb_certifications.length, 2);
+});
+
+// ── E2: the attempt functions ─────────────────────────────────────────────────────────────────────────────────────
+Deno.test("E2 nothing is written before the attempt begins; begin, snapshot, finalize in that order; one finalize", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  const order = w.calls.filter((c) => c.kind === "update" || c.kind === "download" || ["tb_begin_attempt", "tb_snapshot_dependencies", "tb_finalize_attempt"].includes(c.target))
+    .map((c) => (c.kind === "rpc" ? c.target : c.kind));
+  assertEquals(order, ["download", "tb_begin_attempt", "tb_snapshot_dependencies", "tb_finalize_attempt"]);
+  assertEquals(upload(w).status, "complete");
+});
+
+Deno.test("E2 the snapshot names every account by code and by name, in the company's and the shared scope, plus framework, currency, dictionary", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  const keys = (w.tables.engine_run_dependencies as { scope: string; dep_key: string }[]).map((d) => `${d.scope === COMPANY ? "C" : d.scope}|${d.dep_key}`).sort();
+  for (const k of ["C|code:1000", "global|code:1000", "C|name:cash at bank", "global|name:cash at bank", "C|#framework", "C|#currency", "global|#dictionary"]) assert(keys.includes(k), k);
+  assertEquals(keys.length, 4 * 4 + 3);
+});
+
+Deno.test("E2 a preempted attempt (not current at finalize) records nothing and answers ATTEMPT_SUPERSEDED", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  const real = w.rpc.tb_snapshot_dependencies;
+  w.rpc.tb_snapshot_dependencies = (a) => {
+    const r = real(a);
+    upload(w).current_engine_run_id = "someone-else"; // a reprocess request preempted this attempt meanwhile
+    return r;
+  };
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "ATTEMPT_SUPERSEDED"]);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
+  assertEquals(upload(w).status, "validating"); // left to the attempt that replaced it
+});
+
+Deno.test("E2 a dependency changed while running: the database fails the attempt and the handler answers DEPENDENCY_CHANGED", async () => {
+  const w = setup({ csv: BALANCED, mappings: REVIEWED });
+  const real = w.rpc.tb_finalize_attempt;
+  w.rpc.tb_finalize_attempt = (a) => real({ ...a, p_result: { outcome: "failed", error_code: "DEPENDENCY_CHANGED", upload: { status: "error", is_valid: false, processing_result: {}, accounting_errors: [] } } });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r.status, r.json.code], [409, "DEPENDENCY_CHANGED"]);
+  assertEquals((w.tables.tb_certifications ?? []).length, 0);
+});
+
+Deno.test("E2 begin refusals answer without processing: hold (503), source changed, in progress, legacy upload outside a workspace", async () => {
+  const held = setup({ csv: BALANCED, mappings: REVIEWED });
+  held.rpc.tb_begin_attempt = () => ({ data: null, error: { code: "PT503", message: "PROCESSING_HELD" } });
+  const r1 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r1.status, r1.json.code], [503, "PROCESSING_HELD"]);
+  assertEquals(held.calls.filter((c) => c.kind === "update").length, 0);
+
+  const changed = setup({ csv: BALANCED, mappings: REVIEWED });
+  upload(changed).source_file_hash = "f".repeat(64);
+  const r2 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r2.status, r2.json.code], [409, "SOURCE_CHANGED"]);
+
+  const busy = setup({ csv: BALANCED, mappings: REVIEWED });
+  busy.tables.engine_runs = [{ id: "run-x", status: "running" }];
+  upload(busy).current_engine_run_id = "run-x";
+  const r3 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r3.status, r3.json.status], [409, "in_progress"]);
+
+  const personal = setup({ csv: BALANCED, mappings: REVIEWED });
+  upload(personal).company_id = null;
+  const r4 = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals([r4.status, r4.json.code], [409, "COMPANY_REQUIRED"]);
+  assertEquals(personal.calls.filter((c) => c.kind === "update" || c.target === "tb_begin_attempt").length, 0);
 });

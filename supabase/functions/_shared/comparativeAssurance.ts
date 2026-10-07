@@ -31,6 +31,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isNamedUserActive } from "./namedUserAccess.ts";
 import { requirePaidAction } from "./paidAction.ts";
 import { isActiveUploadLifecycle } from "../_shared/uploadLifecycle.ts";
+import { authorityRefusal, requireAuthoritativeUpload } from "./tbAuthority.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -335,13 +336,13 @@ export async function handleComparativeAssurance(req: Request): Promise<Response
     // ── STEP 2: Load processing_results for both periods ──────────────────────
     const { data: curUpload } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_name, company_id, lifecycle_state")
+      .select("processing_result, company_name, company_id, lifecycle_state, period_year")
       .eq("id", pairRows.current_upload_id)
       .single();
 
     const { data: priUpload } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_name, company_id, lifecycle_state")
+      .select("processing_result, company_name, company_id, lifecycle_state, period_year")
       .eq("id", pairRows.prior_upload_id)
       .single();
 
@@ -362,6 +363,12 @@ export async function handleComparativeAssurance(req: Request): Promise<Response
         JSON.stringify({ error: "One or both periods have no processed TB. Ensure both uploads are VALID." }),
         { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // E2 (W3): both periods are compared only from their authoritative trial balances (a legacy result is a re-check).
+    for (const [u, id] of [[curUpload, pairRows.current_upload_id], [priUpload, pairRows.prior_upload_id]] as const) {
+      const authority = await requireAuthoritativeUpload((fn, args) => supabase.rpc(fn, args), { companyId: company_id, periodYear: u.period_year, uploadId: id });
+      if (!authority.ok) return authorityRefusal(corsHeaders, authority);
     }
 
     const curPR  = curUpload.processing_result as Record<string, unknown>;

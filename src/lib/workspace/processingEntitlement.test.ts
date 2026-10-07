@@ -62,7 +62,7 @@ describe("static order contract: the refusal precedes every Storage read, bindin
       expect(before.includes(step), `${step} must not precede the entitlement refusal`).toBe(false);
     }
     // ...and each of them that the handler performs comes after it.
-    for (const later of ["processingRefusal(", 'rpc("tbu_upload_source_bound"', '.from("trial_balance_uploads").update(', ".download(", "sha256HexBytes(", "claimIdempotency("]) {
+    for (const later of ["processingRefusal(", 'rpc("tbu_upload_source_bound"', ".download(", "sha256HexBytes(", 'rpc("tb_begin_attempt"', "finishAttempt(supabase as never, runId,"]) {
       expect(src.indexOf(later, check), later).toBeGreaterThan(check);
     }
   });
@@ -70,16 +70,21 @@ describe("static order contract: the refusal precedes every Storage read, bindin
     expect(src.slice(check, check + 500)).toMatch(/if \(noPlan\) \{[\s\S]*noPlan\.httpStatus === 403 \? PROCESSING_FORBIDDEN : noPlan\.body[\s\S]*status: noPlan\.httpStatus/);
     expect(PROCESSING_FORBIDDEN).toEqual({ error: "Forbidden", message: "You don't have permission to process this trial balance." });
   });
-  it("the first write is checked: a database wall refusal answers the same 402 before Storage is touched", () => {
-    const claim = at('const { error: claimErr } = await supabase.from("trial_balance_uploads").update({ status: "validating" })');
-    const wall = at("if (isEntitlementWallError(claimErr))", claim);
-    expect(wall).toBeLessThan(at(".download(", claim));
+  it("E2: nothing is written before the attempt begins; the first write (tb_begin_attempt) answers a wall refusal with the same 402", () => {
+    // No write of any kind between the request and the attempt: the download, hashing and parsing are reads.
+    const begin = at('rpc("tb_begin_attempt"');
+    expect(at(".download(")).toBeLessThan(begin);
+    expect(src.slice(at("serve(async (req) => {"), begin)).not.toMatch(/\.update\(|\.insert\(|\.upsert\(|\.delete\(/);
+    // Its refusals are mapped by one function: the database wall (PT402) → the same structured 402.
+    const mapper = at("function attemptErrorResponse(");
+    expect(src.slice(mapper, mapper + 600)).toMatch(/isEntitlementWallError\(error\)[\s\S]*ENTITLEMENT_REQUIRED[\s\S]*wall\.httpStatus/);
+    expect(src.slice(begin, begin + 1500)).toMatch(/const refusal = attemptErrorResponse\(beginError\);[\s\S]*if \(refusal\) return refusal;/);
     // No unchecked status claim remains (a bare `await ... update(...)` statement whose error is dropped).
     expect(src).not.toMatch(/\n\s*await supabase\.from\("trial_balance_uploads"\)\.update\(\{ status: "validating" \}\)/);
   });
   it("a download failure (entitled account) is answered by the checked source-failure path (409 source_missing only for a confirmed not-found; see processingSource.test.ts), and never a raw error", () => {
     const dl = at(".download(upload.file_path)");
-    expect(src.slice(dl, dl + 1400)).toMatch(/sourceFailureOutcome\(classification, restoreErr, downloadError\)[\s\S]*status: outcome\.httpStatus/);
+    expect(src.slice(dl, dl + 1400)).toMatch(/sourceFailureOutcome\(classification, null, downloadError\)[\s\S]*status: outcome\.httpStatus/);
     expect(src).not.toMatch(/throw new Error\(`Failed to download file/);
     expect(src).not.toMatch(/error: error instanceof Error \? error\.message/);
   });

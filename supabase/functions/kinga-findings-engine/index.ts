@@ -62,6 +62,7 @@
 // ============================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -622,7 +623,7 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
 
   const { data: upload, error: uploadErr } = await supabase
     .from("trial_balance_uploads")
-    .select("id, processing_result, status, company_id, file_name")
+    .select("id, processing_result, status, company_id, file_name, period_year")
     .eq("id", uploadId)
     .single();
 
@@ -643,6 +644,16 @@ async function runModuleB(params: ModuleBParams): Promise<ModuleBResult> {
       trigger_category: null,
       error_message: `Upload ${uploadId} belongs to company ${upload.company_id}, not ${companyId}. Refusing to cross-company GL read.`,
       stage:            "gl_read",
+    });
+    return result;
+  }
+
+  // E2 (W3): findings are computed only from the period's authoritative trial balance.
+  const authorityB = await requireAuthoritativeUpload((fn, args) => supabase.rpc(fn, args), { companyId, periodYear: upload.period_year, uploadId });
+  if (!authorityB.ok) {
+    result.errors.push({
+      rule_id: null, trigger_category: null, stage: "gl_read",
+      error_message: `Trial balance upload ${uploadId} is not the period's authoritative trial balance (${authorityB.reason}). Check it again before computing findings.`,
     });
     return result;
   }
@@ -1291,7 +1302,7 @@ async function runModuleC(params: ModuleCParams): Promise<ModuleCResult> {
   // Fetch the processing_result for current_liabilities
   const { data: upload, error: uploadErr } = await supabase
     .from("trial_balance_uploads")
-    .select("processing_result, file_name, company_id")
+    .select("processing_result, file_name, company_id, period_year")
     .eq("id", uploadId)
     .single();
 
@@ -1301,6 +1312,16 @@ async function runModuleC(params: ModuleCParams): Promise<ModuleCResult> {
       trigger_category: null,
       error_message:    `Module C: failed to fetch upload ${uploadId}: ${uploadErr?.message ?? "not found"}`,
       stage:            "gl_read",
+    });
+    return result;
+  }
+
+  // E2 (W3): Module C reads the same authority, and refuses without it.
+  const authorityC = await requireAuthoritativeUpload((fn, args) => supabase.rpc(fn, args), { companyId: upload.company_id, periodYear: upload.period_year, uploadId });
+  if (!authorityC.ok) {
+    result.errors.push({
+      rule_id: null, trigger_category: null, stage: "gl_read",
+      error_message: `Module C: trial balance upload ${uploadId} is not the period's authoritative trial balance (${authorityC.reason}).`,
     });
     return result;
   }

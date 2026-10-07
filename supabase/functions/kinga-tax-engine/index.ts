@@ -85,6 +85,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isNamedUserActive } from "../_shared/namedUserAccess.ts";
 import { requirePaidAction } from "../_shared/paidAction.ts";
+import { authorityRefusal, requireAuthoritativeUpload } from "../_shared/tbAuthority.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ENGINE_VERSION = "Module E v1.3 — FA2026";
@@ -472,7 +473,7 @@ serve(async (req) => {
     // ── STEP 1: Load processing_result ───────────────────────────────────
     const { data: upload, error: upErr } = await supabase
       .from("trial_balance_uploads")
-      .select("processing_result, company_id")
+      .select("processing_result, company_id, period_year")
       .eq("id", uploadId).eq("company_id", companyId).single();
 
     if (upErr || !upload?.processing_result) {
@@ -480,6 +481,9 @@ serve(async (req) => {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // E2 (W3): computed only from the period's authoritative trial balance — otherwise refused (AUTHORITY_REQUIRED).
+    const authority = await requireAuthoritativeUpload((fn, args) => supabase.rpc(fn, args), { companyId, periodYear: upload.period_year, uploadId });
+    if (!authority.ok) return authorityRefusal(corsHeaders, authority);
 
     const pr = upload.processing_result as ProcessingResult;
     const is = pr?.statements?.income_statement;

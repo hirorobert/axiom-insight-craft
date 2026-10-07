@@ -51,7 +51,9 @@ describe("process-trial-balance uses user-based authority", () => {
   it("resolves the actor through tbu_resolve_processing_actor, never a firm_members-only check", () => {
     expect(ptb).toMatch(/import \{ resolveProcessingActor, type ProcessingActor \} from "\.\.\/_shared\/processingActor\.ts"/);
     expect(ptb).not.toMatch(/resolveFirmMemberActor/);
-    expect(ptb).toMatch(/actorType: resolvedActor\.actorType/);
+    // E2: the resolved actor is the attempt's actor (tb_begin_attempt), never a value from the request body.
+    expect(ptb).toMatch(/p_actor_type:\s+resolvedActor\.actorType/);
+    expect(ptb).toMatch(/p_firm_member_id:\s+resolvedActor\.actorType === "user" \? resolvedActor\.firmMemberId : null/);
   });
 });
 

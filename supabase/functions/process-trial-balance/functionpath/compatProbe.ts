@@ -6,6 +6,7 @@
 //     --import-map=<this dir>/import_map.json <this dir>/compatProbe.ts
 import { newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
 import { capturedHandler } from "./serverDouble.ts";
+import { installAttemptDoubles } from "./attemptDouble.ts";
 
 Deno.env.set("SUPABASE_URL", "http://compat.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "anon");
@@ -39,6 +40,7 @@ function world(csv: string, currency: string, mappings: Row[]): World {
     if (key) { key.status = "completed"; key.replay_result = { status: "completed" }; }
     return { data: { certification_id: "cert" }, error: null };
   };
+  installAttemptDoubles(w); // E2 engines record through the S2 attempt functions; older ones through the commit double above
   setWorld(w);
   return w;
 }

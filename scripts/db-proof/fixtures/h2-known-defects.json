@@ -1,39 +1,12 @@
 {
   "_doc": [
-    "Known-defect ledger of the PREVIOUS engine for scripts/db-proof/tbHandlerCharacterization.mjs (blueprint Revision 2 defect ledger; recorded in H2, kept by E1).",
-    "Each signature is the EXACT value the previous handler (process-trial-balance at engine_commit; its index.ts SHA-256 is handler_sha256, identical at main af8a96b and 9b0c2fd) produces for the probe's fixture, from a real-handler, real-PostgreSQL run.",
-    "Since E1 the gate runs THAT handler for these probes, beside the current one on the same database: a probe counts as 'defect reproduced' (never a pass) only when the previous handler's value equals this signature AND differs from the probe's independent oracle (bigint minor units, class-side table, computed in the test). This proves each fixture genuinely exercises its defect.",
-    "The current handler (E1) runs the same fixtures as REQUIREMENTS that must equal the oracle. Any other value fails the gate."
+    "Known-defect ledger for scripts/db-proof/tbHandlerCharacterization.mjs (blueprint Revision 2). EMPTY since E2.",
+    "H2 recorded nine defects of the engine at engine_commit (its index.ts SHA-256 is handler_sha256); E1 fixed every one, and E1's gate (this file and the characterization at e1_engine_commit) proved the previous engine reproduced each exact signature on the same fixtures while E1 matched the independent oracle. Those fixtures remain as requirements.",
+    "engine_commit and e1_engine_commit name the engines the proofs still run beside the current one: the H1 proof runs them on the pre-S2 chain; the characterization proves both are refused at their first write once S2 is applied (X8).",
+    "A new defect is registered here with its exact signature and an independent oracle; a probe that matches the oracle (fixed) or any other value fails the gate."
   ],
   "engine_commit": "9b0c2fd7dc1ce897df97196a43cd491132f5590e",
+  "e1_engine_commit": "09b88bd61cf8f04c610d984d5d4d0a1a86f10799",
   "handler_sha256": "f18e32cc6dfd08c76126590de5c55bd4ee75dbdabecec0ef98869ba064c270f8",
-  "defects": [
-    { "defect": "D7", "probe": "D7-CASH-ORDER-A",
-      "assertion": "cash total of three reviewed cash accounts equals their sum (file order 10,000.00 / 20,000.00 / 30,500.00)",
-      "signature": { "cash_total": 30500 } },
-    { "defect": "D7", "probe": "D7-CASH-ORDER-B",
-      "assertion": "cash total is independent of row order (reversed order)",
-      "signature": { "cash_total": 10000 } },
-    { "defect": "D6", "probe": "D6-CASH-SELF-COMPARE",
-      "assertion": "no cash reconciliation is claimed (nothing independent was compared): cash_reconciliation is null",
-      "signature": { "cash_reconciliation": { "bs_cash": 30500, "cf_ending_cash": 30500, "passed": true } } },
-    { "defect": "D5", "probe": "D5-CLOSING-STOCK-RESCUE",
-      "assertion": "a reviewed current-asset credit named 'Closing stock' stays a (negative) current asset as mapped; nothing is moved into cost of goods sold",
-      "signature": { "assets": 15000, "cogs_accounts": [["1200", 5000]], "expenses": 5000 } },
-    { "defect": "D8", "probe": "D8-CONTRA-SIGNING",
-      "assertion": "liabilities are summed class-side (credit positive) whatever the mapping's normal_balance; the equation difference is 0",
-      "signature": { "difference": 4000, "liabilities": 1000 } },
-    { "defect": "D1", "probe": "D1-EQUATION-FAILURE-CERTIFIED",
-      "assertion": "an authoritative certification never carries a BALANCE_SHEET_EQUATION_FAILED exception (for this fixture the correct engine has no failure)",
-      "signature": { "authoritative": true, "equation_failure_severity": "warning" } },
-    { "defect": "D1", "probe": "D1G-GENUINE-EQUATION-FAILURE",
-      "assertion": "a genuine equation failure (a legacy reviewed mapping to a cash-flow class leaves 500.00 out of the statements) never becomes authoritative: the account needs review",
-      "signature": { "authoritative": true, "equation_failure_severity": "warning", "status": "complete" } },
-    { "defect": "D1b", "probe": "D1B-NONREPORTING-NONZERO",
-      "assertion": "a non-reporting decision cannot remove a non-zero balance: the upload needs review and nothing is authoritative",
-      "signature": { "authoritative": true, "non_reporting": ["1410"], "status": "complete" } },
-    { "defect": "D10", "probe": "D10-EQUATION-MESSAGE-PRECISION",
-      "assertion": "an equation-failure message states the difference at the currency's exponent (BHD: 3 decimals)",
-      "signature": { "difference_text": "1.23" } }
-  ]
+  "defects": []
 }

@@ -22,7 +22,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { call, functionsAtCommit, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
-import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
+import { ATTEMPT_AUTHORITY_MIGRATION, chainBefore, currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 import { buildTreatmentRequest, canonicalTreatmentText, CLOSING_STOCK_RULE, treatmentRequestId } from "../../supabase/functions/_shared/treatmentRequest.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -108,7 +108,8 @@ async function main() {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;`);
   await admin.query(`CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
     CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
-  const files = currentChain(REPO);
+  // Up to, not including, S2 (see lib/parkedMigrations.mjs, chainBefore).
+  const files = chainBefore(currentChain(REPO), ATTEMPT_AUTHORITY_MIGRATION);
   const cut = files.indexOf(H1_FILE);
   const apply = async (f) => {
     let t = migrationSql(REPO, f);
@@ -211,9 +212,14 @@ async function main() {
     return r.outcome === "refused" && r.code === "PROCESSING_HELD" && rec.code === "PROCESSING_HELD" && before === JSON.stringify(await one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [heldUp])) ? true : r;
   });
 
-  const { handler } = await loadFunctionTree(REPO, "process-trial-balance");
+  // H1 is proven on the chain before S2, so its handler checks run the engines of that era, each at its recorded commit:
+  // the E1 engine (generation 2) as "the current handler", and the engine before E1 (no generation).
+  const engines = JSON.parse(fs.readFileSync(path.join(HERE, "fixtures/h2-known-defects.json"), "utf8"));
+  const { handler } = await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, engines.e1_engine_commit, "process-trial-balance") });
+  // The current handler (E2), for the mixed-version check: it needs S2's attempt functions, which this chain lacks.
+  const { handler: currentHandler } = await loadFunctionTree(REPO, "process-trial-balance");
   // The previous engine (before E1: it records no engine generation), at the commit the known-defect ledger names.
-  const priorCommit = JSON.parse(fs.readFileSync(path.join(HERE, "fixtures/h2-known-defects.json"), "utf8")).engine_commit;
+  const priorCommit = engines.engine_commit;
   const { handler: priorHandler } = await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, priorCommit, "process-trial-balance") });
   await check("the REAL handler is refused while held: no run, no certification, the upload unchanged", async () => {
     const runs = await count("SELECT count(*) n FROM public.engine_runs WHERE function_name='process-trial-balance'");
@@ -272,17 +278,27 @@ async function main() {
     const r = await call(priorHandler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
     return r.http >= 400 && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : r;
   });
-  await check("the REAL current handler (E1) runs at floor 2 and records generation 2 (an integer)", async () => {
+  await check("the REAL E1 handler runs at floor 2 and records generation 2 (an integer)", async () => {
     const up = await upload(A, 2007);
     const r = await call(handler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
     const run = await one("SELECT engine_generation g, pg_typeof(engine_generation)::text t FROM public.engine_runs WHERE source_record_id::text=$1 ORDER BY started_at DESC LIMIT 1", [up]);
     return r.http === 200 && run?.g === 2 && run?.t === "integer" && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 1 ? true : { http: r.http, run };
   });
-  await check("raising the floor to 3 retires the current handler too: refused, no certification", async () => {
+  await check("raising the floor to 3 retires the E1 handler too: refused, no certification", async () => {
     await control(U.opsAdmin, false, [], 3, "retire generation 2", await version());
     const up = await upload(A, 2008);
     const r = await call(handler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
     return r.http >= 400 && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : r;
+  });
+  await check("mixed versions: the CURRENT handler (E2) on a database without S2 starts nothing and writes nothing", async () => {
+    // The release order applies S2 before E2 is deployed; this is the safety of the wrong order.
+    const up = await upload(A, 2009);
+    const before = JSON.stringify(await one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [up]));
+    const runs = await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [up]);
+    const r = await call(currentHandler, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
+    return r.http >= 500 && before === JSON.stringify(await one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [up]))
+      && runs === (await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [up]))
+      && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : { http: r.http, body: r.body };
   });
   await refused("a run's generation cannot be rewritten on its terminal transition", "P0001", async () => {
     const id = await genRun(3);

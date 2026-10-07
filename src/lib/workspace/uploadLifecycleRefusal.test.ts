@@ -41,11 +41,12 @@ describe("process-trial-balance lifecycle refusal", () => {
   });
 
   const src = readFileSync(resolve(__dirname, "../../../supabase/functions/process-trial-balance/index.ts"), "utf8");
-  it("returns 409 after authorization and BEFORE the first write to the upload row", () => {
+  it("returns 409 after authorization and BEFORE the first write (E2: the attempt begins) and the download", () => {
     const refusal = src.indexOf("processingRefusal(");
     const status409 = src.indexOf("status: 409", refusal);
     const auth = src.indexOf("resolveProcessingActor(");
-    const firstWrite = src.indexOf('.from("trial_balance_uploads").update(');
+    const firstWrite = src.indexOf('rpc("tb_begin_attempt"');
+    expect(firstWrite).toBeGreaterThan(-1);
     const download = src.indexOf('.from("trial-balance-files").download(');
     expect(refusal).toBeGreaterThan(auth);
     expect(status409).toBeGreaterThan(refusal);
@@ -122,7 +123,7 @@ describe("N-02: process-trial-balance refuses an unbound source before touching 
     const refusal = src.indexOf("sourceBindingRefusal(", bind);
     expect(bind).toBeGreaterThan(life);
     expect(refusal).toBeGreaterThan(bind);
-    expect(refusal).toBeLessThan(src.indexOf('.from("trial_balance_uploads").update('));
+    expect(refusal).toBeLessThan(src.indexOf('rpc("tb_begin_attempt"')); // E2: the first write
     expect(refusal).toBeLessThan(src.indexOf('.from("trial-balance-files").download('));
     expect(src.slice(bind, refusal + 80)).toMatch(/bindErr \? null : sourceBound/); // an RPC error fails closed
   });
@@ -131,7 +132,7 @@ describe("N-02: process-trial-balance refuses an unbound source before touching 
 describe("N-01: the comparative engine fails closed on a stale period pointer", () => {
   const src = readFileSync(resolve(__dirname, "../../../supabase/functions/_shared/comparativeAssurance.ts"), "utf8");
   it("reads lifecycle_state and company_id for both periods and refuses a non-active or foreign upload before comparing", () => {
-    expect(src.match(/select\("processing_result, company_name, company_id, lifecycle_state"\)/g)?.length).toBe(2);
+    expect(src.match(/select\("processing_result, company_name, company_id, lifecycle_state, period_year"\)/g)?.length).toBe(2);
     const guard = src.indexOf("isActiveUploadLifecycle(u.lifecycle_state)");
     expect(guard).toBeGreaterThan(-1);
     expect(src.slice(guard, guard + 120)).toMatch(/u\.company_id !== company_id/);
