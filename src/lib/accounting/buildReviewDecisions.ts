@@ -9,7 +9,8 @@ export type ReviewProposalType = "NONE" | "MACHINE_SUGGESTION" | "AUTO_MAPPED_RU
 export type ReviewDecisionAction =
   | "USER_ACCEPTED_SUGGESTION"
   | "USER_MANUAL_CLASSIFICATION"
-  | "MARK_NON_REPORTING_ACCOUNT";
+  | "MARK_NON_REPORTING_ACCOUNT"
+  | "CONFIRM_ACCOUNT_TREATMENT";
 
 export interface ReviewDecisionAccount {
   account_code: string | null;
@@ -61,6 +62,39 @@ export interface ReviewDecisionPayload {
   is_retained_earnings?: boolean;
   is_payroll_account?: boolean;
   reason?: string;
+  /** CONFIRM_ACCOUNT_TREATMENT only (20261007100000): the engine's treatment request and the treatment kept. */
+  treatment_request_id?: string;
+  treatment?: "keep_as_mapped";
+}
+
+/** A treatment reason must be 3–500 characters after trimming (the RPC refuses anything else). */
+export function isTreatmentReasonValid(reason: string | undefined): boolean {
+  const n = (reason ?? "").trim().length;
+  return n >= 3 && n <= 500;
+}
+
+/**
+ * Confirms that an account flagged by the engine for a treatment decision is KEPT AS MAPPED, with a recorded reason
+ * (CONFIRM_ACCOUNT_TREATMENT, 20261007100000). The server binds the decision to the engine's request — company, upload,
+ * source bytes, account facts, mapping decision and rule version — and accepts it only for that exact, current request.
+ * It never changes the mapping; changing the classification is an ordinary review decision instead.
+ */
+export function buildTreatmentConfirmation(
+  account: ReviewDecisionAccount,
+  treatmentRequestId: string,
+  reason: string,
+): ReviewDecisionPayload {
+  if (!/^[0-9a-f]{64}$/.test(treatmentRequestId)) throw new Error("treatment request id must be a 64-character hex digest");
+  if (!isTreatmentReasonValid(reason)) throw new Error("a treatment confirmation needs a reason of 3–500 characters");
+  return {
+    account_code: account.account_code,
+    account_name: account.account_name,
+    proposal_type: "NONE",
+    decision_action: "CONFIRM_ACCOUNT_TREATMENT",
+    treatment_request_id: treatmentRequestId,
+    treatment: "keep_as_mapped",
+    reason: reason.trim(),
+  };
 }
 
 /**
@@ -121,4 +155,38 @@ export function buildReviewDecision(
   }
 
   return payload;
+}
+
+/** The "keep as mapped" choice value for a treatment row (never a classification). */
+export const KEEP_AS_MAPPED_CHOICE = "__keep_as_mapped__";
+
+export interface BatchAccount extends ReviewDecisionAccount {
+  /** Set only on rows the engine flagged for a treatment decision. */
+  treatment_request_id?: string;
+}
+
+/**
+ * The whole batch the panel submits, one payload per account:
+ *   excluded                         → MARK_NON_REPORTING_ACCOUNT (buildReviewDecision)
+ *   "keep as mapped" on a flagged row → CONFIRM_ACCOUNT_TREATMENT with the RECORDED reason (buildTreatmentConfirmation)
+ *   any classification               → USER_ACCEPTED_SUGGESTION / USER_MANUAL_CLASSIFICATION (buildReviewDecision)
+ * A "keep as mapped" choice on a row without a treatment request, or without a valid recorded reason, is refused here —
+ * the panel never submits it.
+ */
+export function buildBatchDecisions(
+  accounts: { key: string; account: BatchAccount }[],
+  excluded: ReadonlySet<string>,
+  choices: Readonly<Record<string, string>>,
+  keepReasons: Readonly<Record<string, string>>,
+  flagChoices: Readonly<Record<string, ReviewFlagDecisions>>,
+  classificationMeta: (cls: string) => { statement: string; normal_balance: "debit" | "credit" },
+): ReviewDecisionPayload[] {
+  return accounts.map(({ key, account }) => {
+    const identity: ReviewDecisionAccount = { account_code: account.account_code, account_name: account.account_name, suggested_classification: account.suggested_classification };
+    if (!excluded.has(key) && choices[key] === KEEP_AS_MAPPED_CHOICE) {
+      if (!account.treatment_request_id) throw new Error(`"keep as mapped" is only available for an account the engine flagged (${account.account_name})`);
+      return buildTreatmentConfirmation(identity, account.treatment_request_id, keepReasons[key] ?? "");
+    }
+    return buildReviewDecision(identity, excluded.has(key), choices[key], classificationMeta, flagChoices[key]);
+  });
 }
