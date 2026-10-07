@@ -3695,6 +3695,158 @@ export type Database = {
         }
         Relationships: []
       }
+      layout_confirmations: {
+        Row: {
+          actor_type: string
+          actor_user_id: string | null
+          company_id: string
+          confirmation_no: number
+          created_at: string
+          firm_member_id: string | null
+          format: string
+          id: string
+          profile: Json
+          profile_sha256: string
+          resolved_profile: Json
+          resolved_profile_sha256: string
+          row_dispositions: Json
+          rows_read: number
+          source_file_hash: string
+          template_id: string | null
+          upload_id: string
+          validation: Json
+        }
+        Insert: {
+          actor_type: string
+          actor_user_id?: string | null
+          company_id: string
+          confirmation_no: number
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          profile: Json
+          profile_sha256: string
+          resolved_profile: Json
+          resolved_profile_sha256: string
+          row_dispositions: Json
+          rows_read: number
+          source_file_hash: string
+          template_id?: string | null
+          upload_id: string
+          validation: Json
+        }
+        Update: {
+          actor_type?: string
+          actor_user_id?: string | null
+          company_id?: string
+          confirmation_no?: number
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          profile?: Json
+          profile_sha256?: string
+          resolved_profile?: Json
+          resolved_profile_sha256?: string
+          row_dispositions?: Json
+          rows_read?: number
+          source_file_hash?: string
+          template_id?: string | null
+          upload_id?: string
+          validation?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_lc_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_template"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "layout_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lc_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      layout_templates: {
+        Row: {
+          actor_type: string
+          actor_user_id: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          format: string
+          id: string
+          name: string
+          profile: Json
+          profile_sha256: string
+          template_key: string
+          version: number
+        }
+        Insert: {
+          actor_type: string
+          actor_user_id?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          name: string
+          profile: Json
+          profile_sha256: string
+          template_key: string
+          version: number
+        }
+        Update: {
+          actor_type?: string
+          actor_user_id?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          format?: string
+          id?: string
+          name?: string
+          profile?: Json
+          profile_sha256?: string
+          template_key?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_lt_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_lt_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       management_inputs: {
         Row: {
           company_id: string
@@ -7212,6 +7364,13 @@ export type Database = {
         }
         Returns: Json
       }
+      _layout_actor: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: {
+          actor_type: string
+          firm_member_id: string
+        }[]
+      }
       _member_capability_lock: {
         Args: { p_company_id: string; p_user: string }
         Returns: undefined
@@ -8271,6 +8430,34 @@ export type Database = {
           p_pack_kind: string
           p_period_year: number
           p_request_id: string
+        }
+        Returns: Json
+      }
+      layout_record_confirmation: {
+        Args: {
+          p_expected_confirmation_no: number
+          p_profile: Json
+          p_profile_sha256: string
+          p_resolved_profile: Json
+          p_resolved_profile_sha256: string
+          p_row_dispositions: Json
+          p_source_file_hash: string
+          p_template_id: string
+          p_upload_id: string
+          p_user_id: string
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      layout_save_template: {
+        Args: {
+          p_company_id: string
+          p_expected_version: number
+          p_name: string
+          p_profile: Json
+          p_profile_sha256: string
+          p_template_key: string
+          p_user_id: string
         }
         Returns: Json
       }
