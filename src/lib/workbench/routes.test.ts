@@ -13,10 +13,10 @@ const item = (id: NavItem["id"], disabled = false): NavItem => ({ id, label: Str
 const src = (p: string) => readFileSync(resolve(__dirname, "../../..", p), "utf8");
 
 describe("workbench gate", () => {
-  it("is off, and is a plain source constant (no env, storage, URL or server input)", () => {
-    expect(WORKBENCH_NAVIGATION_ENABLED).toBe(false);
+  it("is on (the reviewed activation commit), and is still a plain source constant (no env, storage, URL or server input)", () => {
+    expect(WORKBENCH_NAVIGATION_ENABLED).toBe(true);
     const gate = src("src/lib/workbench/gate.ts");
-    expect(gate).toMatch(/^export const WORKBENCH_NAVIGATION_ENABLED = false;$/m);
+    expect(gate).toMatch(/^export const WORKBENCH_NAVIGATION_ENABLED = true;$/m);
     expect(gate).not.toMatch(/import\.meta|process\.env|localStorage|sessionStorage|URLSearchParams|document\.cookie|fetch\(|supabase/);
   });
   it("App.tsx registers the canonical routes only under the gate, and keeps every existing route", () => {
@@ -25,7 +25,7 @@ describe("workbench gate", () => {
       expect(app).toMatch(new RegExp(`\\{WORKBENCH_NAVIGATION_ENABLED && <Route path="${seg.replace("/", "\\/")}"`));
     }
     for (const seg of ["prepare", "reconcile", "safisha", "hesabu", "kinga", "analytics", "issues"]) expect(app).toContain(`path="${seg}"`);
-    // With the gate off, prepare keeps its previous element exactly; safisha is untouched.
+    // The gate-off branch is kept intact (turning the gate off again restores today's routes exactly); safisha is untouched.
     expect(app).toContain('<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>');
     expect(app).toContain('<LegacySubRouteRedirect to="prepare" />');
   });
