@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -35,7 +35,8 @@ import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
-import { WORKBENCH_LEGACY_ALIASES } from "./lib/workbench/routes";
+// Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version).
+import { WorkbenchAliasRedirect } from "./components/workbench/WorkbenchAliasRedirect";
 
 // Command Center — partner-level cross-engagement view
 import CommandCenter from "./pages/command/CommandCenter";
@@ -56,12 +57,6 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
   return <Navigate to={`/workspace/${companyId}/${periodYear}/${to}`} replace />;
 }
 
-/** Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version). */
-function WorkbenchAliasRedirect({ segment }: { segment: string }) {
-  const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
-  const { search } = useLocation();
-  return <Navigate to={`/workspace/${companyId}/${periodYear}/${WORKBENCH_LEGACY_ALIASES[segment]}${search}`} replace />;
-}
 
 // Internal, development-only visual-acceptance page for the 7 classification states — never present in a
 // production build (see src/lib/workspace/classificationAcceptanceGate.ts). import.meta.env.DEV is a Vite

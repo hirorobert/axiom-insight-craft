@@ -199,7 +199,7 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     const app = code("src/App.tsx");
     const staged = [...app.matchAll(/<StageScopeGate stage="([a-z]+)">/g)].map((m) => m[1]);
     // Still exactly two stages. The workbench's canonical Trial Balance routes are the same Prepare stage, registered only
-    // under WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/gate.ts, false): with the gate off, App.tsx routes exactly as before.
+    // under WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/gate.ts): the same Prepare stage and scope gate either way.
     expect(new Set(staged)).toEqual(new Set(["prepare", "reconcile"]));
     const gated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2]]);
     expect(gated).toEqual([["trial-balance/intake", "prepare"], ["trial-balance/review", "prepare"]]);
