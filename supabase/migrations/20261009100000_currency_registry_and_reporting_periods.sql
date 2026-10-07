@@ -14,12 +14,20 @@
 --          (written by the legacy setup RPC). Existing rows are NOT backfilled: their provenance cannot be proven, so
 --          they stay unconfirmed (NULL) until confirmed with public.confirm_period_dates.
 --        · only server code sets currency, dates, provenance or the prior link (direct client writes are refused).
---        · a processed period's currency stays correctable only by a server writer (S2's '#currency' dependency then
---          makes current results "Needs re-check"); a legacy period with processed history stays datable.
+--        · PROCESSING LOCK: once any trial balance of the period has been processed, its currency and dates are fixed
+--          for every role (service role included). The one exception is step 6.
 --   3. fiscal_period_events — append-only history of period setup actions.
 --   4. public.open_engagement_with_period — explicit start/end, currency, optional prior period (adjacent).
 --      public.open_engagement_with_scope (v1) is retained, unchanged in behaviour, for existing callers.
---   5. public.confirm_period_dates — confirm or state the dates of an existing period.
+--   5. public.confirm_period_dates — confirm or state the dates of a period nothing has been processed in yet
+--      (prepare_close).
+--   6. public.complete_legacy_period_dates — the separate, audited operation that completes the dates of a LEGACY
+--      period (dates not confirmed, or set by the v1 calendar convention) that already has processed history:
+--      review_close, a stated reason, never the currency, never already-confirmed dates. When the dates change, every
+--      result in force for the period's trial balances is invalidated (tb_certification_invalidations,
+--      reason 'period_dates_completed') in the same transaction, so nothing computed before stays authoritative.
+--   Authorization: v2 setup and date confirmation need prepare_close (the preparer completes intake); granting a
+--   service other than FINANCIAL_STATEMENTS through v2 still needs review_close, as in v1. v1 is unchanged.
 --
 -- PREFLIGHT: incompatible existing data makes this migration REFUSE (nothing is changed or repaired):
 --   an unsupported or malformed currency, start after end, a period longer than the technical ceiling, or two dated
@@ -273,7 +281,7 @@ CREATE TABLE public.fiscal_period_events (
   actor_user_id    UUID        NULL,
   occurred_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT fiscal_period_events_pkey PRIMARY KEY (id),
-  CONSTRAINT chk_fpe_action CHECK (action IN ('created', 'dates_confirmed', 'prior_linked'))
+  CONSTRAINT chk_fpe_action CHECK (action IN ('created', 'dates_confirmed', 'prior_linked', 'legacy_dates_completed'))
 );
 CREATE INDEX idx_fpe_period ON public.fiscal_period_events (period_id, occurred_at);
 CREATE OR REPLACE FUNCTION public.fiscal_period_events_append_only()
@@ -322,11 +330,52 @@ $$;
 CREATE TRIGGER trg_fp_setup_fence BEFORE INSERT OR UPDATE ON public.fiscal_periods
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_setup_fence();
 
--- ── No processing lock ──────────────────────────────────────────────────────────────────────────────────────────────
--- A processed period's currency stays correctable by a server writer only (the fence above): S2 already records
--- '#currency' as a dependency of every result, so a change makes current results "Needs re-check" (proven by
--- s2Authority). Dates do not enter trial-balance processing, and a legacy period with processed history must remain
--- datable (confirm_period_dates) before it can serve as a comparative, so dates are not locked either.
+-- ── Processing lock: currency and dates are fixed once anything in the period has been processed ──────────────────────
+-- The trial balances of a period: linked by period_id, or (legacy rows without a period link) by company and year.
+CREATE OR REPLACE FUNCTION public._period_has_processing(p_period_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.fiscal_periods p
+      JOIN public.trial_balance_uploads t
+        ON t.period_id = p.id
+        OR (t.period_id IS NULL AND t.company_id = p.company_id AND t.period_year = EXTRACT(YEAR FROM p.fiscal_year_end)::integer)
+     WHERE p.id = p_period_id
+       AND (coalesce(t.processing_attempt, 0) > 0 OR EXISTS (SELECT 1 FROM public.tb_certifications c WHERE c.upload_id = t.id)));
+$$;
+REVOKE ALL ON FUNCTION public._period_has_processing(uuid) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fiscal_periods_processing_lock()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_legacy BOOLEAN := coalesce(current_setting('axiom.legacy_period_dates', true), '') = txid_current()::text;
+BEGIN
+  IF NEW.reporting_currency IS NOT DISTINCT FROM OLD.reporting_currency
+     AND NEW.reporting_start IS NOT DISTINCT FROM OLD.reporting_start
+     AND NEW.reporting_end IS NOT DISTINCT FROM OLD.reporting_end THEN
+    RETURN NEW;
+  END IF;
+  IF NOT public._period_has_processing(OLD.id) THEN
+    RETURN NEW;
+  END IF;
+  -- The only change allowed after processing: complete_legacy_period_dates completing a legacy period's dates
+  -- (never the currency, never dates that were already confirmed).
+  IF v_legacy AND NEW.reporting_currency IS NOT DISTINCT FROM OLD.reporting_currency
+     AND OLD.dates_basis IS DISTINCT FROM 'confirmed' THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'PERIOD_LOCKED_BY_PROCESSING: the currency and dates of a period are fixed once a trial balance in it has been processed. [period=%]', OLD.id
+    USING ERRCODE = '55000';
+END;
+$$;
+CREATE TRIGGER trg_fp_processing_lock BEFORE UPDATE OF reporting_currency, reporting_start, reporting_end ON public.fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_processing_lock();
+REVOKE ALL ON FUNCTION public.fiscal_periods_processing_lock() FROM PUBLIC, anon, authenticated;
+
+-- Results invalidated by completing a legacy period's dates are recorded with their own reason.
+ALTER TABLE public.tb_certification_invalidations DROP CONSTRAINT tb_certification_invalidations_reason_check;
+ALTER TABLE public.tb_certification_invalidations
+  ADD CONSTRAINT tb_certification_invalidations_reason_check CHECK (reason IN ('reprocess_requested', 'period_dates_completed'));
+
 REVOKE ALL ON FUNCTION public.fiscal_periods_setup_fence(), public.fiscal_period_events_append_only() FROM PUBLIC, anon, authenticated;
 
 -- ── v1, unchanged in behaviour (explicit TZS; provenance recorded) ───────────────────────────────────────────────────
@@ -442,6 +491,7 @@ DECLARE
   v_cur      TEXT := upper(btrim(coalesce(p_reporting_currency, '')));
   v_pcur     TEXT := upper(btrim(coalesce(p_prior_currency, p_reporting_currency, '')));
   v_year     INTEGER;
+  v_reviewer BOOLEAN;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'FORBIDDEN: an authenticated session is required' USING ERRCODE = '42501';
@@ -484,12 +534,18 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Authorise from the session (same rule as v1: review_close, an active named user and a current plan).
+  -- Authorise from the session: prepare_close (the preparer completes intake), an active named user and a current plan.
   SELECT fm.id INTO v_member FROM public.firm_members fm
    WHERE fm.user_id = auth.uid() AND fm.company_id = p_company_id AND fm.accepted_at IS NOT NULL AND public.named_user_access_active(fm.company_id, fm.user_id)
-     AND public.workspace_capability_allowed(fm.company_id, fm.user_id, 'review_close') LIMIT 1;
+     AND public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close') LIMIT 1;
   IF v_member IS NULL THEN
-    RAISE EXCEPTION 'FORBIDDEN: setting up a reporting period needs the review_close capability in this workspace and a current plan' USING ERRCODE = '42501';
+    RAISE EXCEPTION 'FORBIDDEN: setting up a reporting period needs the prepare_close capability in this workspace and a current plan' USING ERRCODE = '42501';
+  END IF;
+  -- Choosing services is a scope decision (review_close, as in v1). A preparer may set up the period with the trial
+  -- balance service only; anything else is refused before any write.
+  v_reviewer := public.workspace_capability_allowed(p_company_id, auth.uid(), 'review_close');
+  IF NOT v_reviewer AND EXISTS (SELECT 1 FROM unnest(v_caps) c WHERE c <> 'FINANCIAL_STATEMENTS') THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'SCOPE_REQUIRES_REVIEWER');
   END IF;
   FOREACH v_cap IN ARRAY v_caps LOOP PERFORM public.assert_capability_available(v_cap); END LOOP;
 
@@ -586,7 +642,14 @@ BEGIN
          WHERE e.engagement_id = v_eng AND e.capability = v_cap ORDER BY e.capability, e.sequence_no DESC
       ) l WHERE l.action = 'GRANT'
     ) THEN
-      PERFORM public.grant_engagement_capability(v_eng, v_cap, 'Selected when the workspace was set up');
+      IF v_reviewer THEN
+        PERFORM public.grant_engagement_capability(v_eng, v_cap, 'Selected when the workspace was set up');
+      ELSE
+        -- A preparer's period setup: the trial balance service only (checked above), recorded with the preparer as actor.
+        PERFORM public.assert_capability_available(v_cap);
+        INSERT INTO public.engagement_mandate_events (engagement_id, capability, action, sequence_no, actor_member_id, reason)
+        VALUES (v_eng, v_cap, 'GRANT', public.next_engagement_sequence(v_eng), v_member, 'Selected when the reporting period was set up');
+      END IF;
     END IF;
   END LOOP;
   SELECT COALESCE(array_agg(x.capability ORDER BY x.capability), ARRAY[]::TEXT[]) INTO v_granted FROM (
@@ -620,7 +683,7 @@ BEGIN
   END IF;
   SELECT fm.id INTO v_member FROM public.firm_members fm
    WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL AND public.named_user_access_active(fm.company_id, fm.user_id)
-     AND public.workspace_capability_allowed(fm.company_id, fm.user_id, 'review_close') LIMIT 1;
+     AND public.workspace_capability_allowed(fm.company_id, fm.user_id, 'prepare_close') LIMIT 1;
   IF v_member IS NULL THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002'; -- no existence leak to non-members
   END IF;
@@ -634,6 +697,10 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'confirmed', 'periodId', p_period_id, 'changed', false);
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('fiscal_periods:' || v_row.company_id::text, 0));
+  -- After processing, only complete_legacy_period_dates (review_close, audited, invalidating) may change dates.
+  IF public._period_has_processing(p_period_id) THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'PERIOD_LOCKED_BY_PROCESSING', 'periodId', p_period_id);
+  END IF;
   BEGIN
     PERFORM set_config('axiom.period_writer', txid_current()::text, true);
     UPDATE public.fiscal_periods
@@ -653,3 +720,97 @@ END;
 $function$;
 REVOKE ALL ON FUNCTION public.confirm_period_dates(uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.confirm_period_dates(uuid, date, date) TO authenticated;
+
+-- ── Complete the dates of a legacy period that already has processed history (separate, audited) ─────────────────────
+CREATE OR REPLACE FUNCTION public.complete_legacy_period_dates(p_period_id uuid, p_start date, p_end date, p_reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp' AS $function$
+DECLARE
+  v_row      public.fiscal_periods%ROWTYPE;
+  v_member   UUID;
+  v_changed  BOOLEAN;
+  v_op       UUID := gen_random_uuid();
+  v_ids      UUID[] := ARRAY[]::UUID[];
+  r          RECORD;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: an authenticated session is required' USING ERRCODE = '42501';
+  END IF;
+  IF p_period_id IS NULL OR p_start IS NULL OR p_end IS NULL THEN
+    RAISE EXCEPTION 'INVALID: the period and both dates are required' USING ERRCODE = '22023';
+  END IF;
+  IF p_reason IS NULL OR length(btrim(p_reason)) < 10 OR length(p_reason) > 500 OR p_reason ~ '[[:cntrl:]]' THEN
+    RAISE EXCEPTION 'INVALID: state why these dates are right (10 to 500 characters)' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_row FROM public.fiscal_periods WHERE id = p_period_id;
+  IF v_row.id IS NULL THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+  SELECT fm.id INTO v_member FROM public.firm_members fm
+   WHERE fm.user_id = auth.uid() AND fm.company_id = v_row.company_id AND fm.accepted_at IS NOT NULL AND public.named_user_access_active(fm.company_id, fm.user_id)
+     AND public.workspace_capability_allowed(fm.company_id, fm.user_id, 'review_close') LIMIT 1;
+  IF v_member IS NULL THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002'; -- no existence leak; preparers use confirm_period_dates
+  END IF;
+  IF p_start > p_end OR p_end >= p_start + make_interval(months => public.reporting_period_max_months()) THEN
+    RAISE EXCEPTION 'INVALID: the dates are not a valid reporting period' USING ERRCODE = '22023';
+  END IF;
+  IF p_end <> v_row.fiscal_year_end THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'END_DIFFERS_FROM_YEAR_END');
+  END IF;
+  IF v_row.dates_basis = 'confirmed' THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'NOT_A_LEGACY_PERIOD', 'periodId', p_period_id);
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fiscal_periods:' || v_row.company_id::text, 0));
+  -- The period's trial balances, locked (L4) in a stable order; a check running now is refused, not raced.
+  FOR r IN
+    SELECT t.id, t.current_engine_run_id FROM public.trial_balance_uploads t
+     WHERE t.period_id = p_period_id
+        OR (t.period_id IS NULL AND t.company_id = v_row.company_id AND t.period_year = EXTRACT(YEAR FROM v_row.fiscal_year_end)::integer)
+     ORDER BY t.id FOR UPDATE
+  LOOP
+    IF EXISTS (SELECT 1 FROM public.engine_runs er WHERE er.id = r.current_engine_run_id AND er.status = 'running' AND er.lease_expires_at > now()) THEN
+      RETURN jsonb_build_object('outcome', 'refused', 'code', 'IN_PROGRESS', 'periodId', p_period_id);
+    END IF;
+  END LOOP;
+  v_changed := v_row.reporting_start IS DISTINCT FROM p_start OR v_row.reporting_end IS DISTINCT FROM p_end;
+  BEGIN
+    PERFORM set_config('axiom.period_writer', txid_current()::text, true);
+    PERFORM set_config('axiom.legacy_period_dates', txid_current()::text, true);
+    UPDATE public.fiscal_periods
+       SET reporting_start = p_start, reporting_end = p_end, dates_basis = 'confirmed', dates_confirmed_by = v_member, dates_confirmed_at = now(), updated_at = now()
+     WHERE id = p_period_id;
+    PERFORM set_config('axiom.legacy_period_dates', '', true);
+    PERFORM set_config('axiom.period_writer', '', true);
+  EXCEPTION WHEN exclusion_violation THEN
+    PERFORM set_config('axiom.legacy_period_dates', '', true);
+    PERFORM set_config('axiom.period_writer', '', true);
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'PERIOD_OVERLAP');
+  END;
+  -- Dates that change invalidate every result in force for the period's trial balances (any engine generation).
+  IF v_changed THEN
+    FOR r IN
+      SELECT DISTINCT ON (c.upload_id) c.id, c.company_id, c.upload_id
+        FROM public.tb_certifications c
+        JOIN public.trial_balance_uploads t ON t.id = c.upload_id
+       WHERE t.period_id = p_period_id
+          OR (t.period_id IS NULL AND t.company_id = v_row.company_id AND t.period_year = EXTRACT(YEAR FROM v_row.fiscal_year_end)::integer)
+       ORDER BY c.upload_id, c.sequence_no DESC
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM public.tb_certification_invalidations i WHERE i.certification_id = r.id) THEN
+        INSERT INTO public.tb_certification_invalidations (certification_id, company_id, upload_id, reason, operation_id, actor_user_id)
+        VALUES (r.id, r.company_id, r.upload_id, 'period_dates_completed', v_op, auth.uid());
+        v_ids := v_ids || r.id;
+      END IF;
+    END LOOP;
+  END IF;
+  INSERT INTO public.fiscal_period_events (period_id, company_id, action, detail, actor_member_id, actor_user_id)
+  VALUES (p_period_id, v_row.company_id, 'legacy_dates_completed',
+          jsonb_build_object('start', p_start, 'end', p_end, 'previous_start', v_row.reporting_start, 'previous_end', v_row.reporting_end,
+                             'previous_basis', v_row.dates_basis, 'reason', btrim(p_reason), 'operation_id', v_op,
+                             'invalidated_certifications', to_jsonb(v_ids)),
+          v_member, auth.uid());
+  RETURN jsonb_build_object('outcome', 'completed', 'periodId', p_period_id, 'changed', v_changed, 'invalidated', to_jsonb(v_ids));
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.complete_legacy_period_dates(uuid, date, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.complete_legacy_period_dates(uuid, date, date, text) TO authenticated;

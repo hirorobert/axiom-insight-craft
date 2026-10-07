@@ -231,6 +231,18 @@ async function main() {
   const authoritativeFor = async (up) => (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [periods.get(up).company, periods.get(up).year]))?.id ?? null;
   const reason = async (up) => (await asUser(U.owner, "SELECT public.tb_upload_authority($1) r", [up]))[0].r.reason;
   const reprocess = async (uid, up, op = uuid()) => (await asUser(uid, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [up, op, (await row(up)).source_file_hash]))[0].r;
+  const lockPresent = async () => (await count("SELECT count(*) n FROM pg_trigger WHERE tgname='trg_fp_processing_lock'")) === 1;
+  async function withPeriodLockLifted(fn) {
+    if (!(await lockPresent())) return fn();
+    await admin.query("BEGIN");
+    try {
+      await admin.query("ALTER TABLE public.fiscal_periods DISABLE TRIGGER trg_fp_processing_lock");
+      const r = await fn();
+      await admin.query("ALTER TABLE public.fiscal_periods ENABLE TRIGGER trg_fp_processing_lock");
+      await admin.query("COMMIT");
+      return r;
+    } catch (e) { await admin.query("ROLLBACK"); throw e; }
+  }
   /** begin → snapshot → finalize(certified): returns { run, cert }. */
   async function certify(up, codes = ["1000", "3000"]) {
     const b = await begin(up);
@@ -387,7 +399,10 @@ async function main() {
     ["a mapping decision on a consulted account", async () => asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, reviewUp, uuid(), JSON.stringify([decision("3000", "Capital", "equity", "balance_sheet", "credit"), decision("1000", "Bank", "current_assets", "balance_sheet", "debit")])])],
     ["a non-reporting decision on a consulted account", async () => asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, reviewUp, uuid(), JSON.stringify([{ account_code: "3000", account_name: "Capital", decision_action: "MARK_NON_REPORTING_ACCOUNT" }])])],
     ["the reporting framework", async () => admin.query("UPDATE public.companies SET reporting_framework = CASE WHEN reporting_framework = 'full_ifrs' THEN 'ifrs_for_smes' ELSE 'full_ifrs' END WHERE id=$1", [A])],
-    ["the period currency", async () => admin.query("UPDATE public.fiscal_periods SET reporting_currency='KES' WHERE company_id=$1 AND reporting_currency='TZS' AND id = (SELECT min(id::text)::uuid FROM public.fiscal_periods WHERE company_id=$1)", [A])],
+    // A1 (20261009100000) locks a processed period's currency for every role. The dependency mechanism S2 adds is still
+    // proven here: the database owner lifts that lock for this one statement (the lock itself: the check below and
+    // periodsAuthority.mjs).
+    ["the period currency", async () => withPeriodLockLifted(() => admin.query("UPDATE public.fiscal_periods SET reporting_currency='KES' WHERE company_id=$1 AND reporting_currency='TZS' AND id = (SELECT min(id::text)::uuid FROM public.fiscal_periods WHERE company_id=$1)", [A]))],
     ["the keyword dictionary", async () => admin.query("INSERT INTO public.keyword_dictionary (term, language, classification, match_type) VALUES ($1,'en','current_assets','exact')", [`term-${uuid()}`])],
     ["a mapping created for an account that was absent", async () => asService(`INSERT INTO public.account_mappings (user_id, company_id, account_code, account_name, statement, classification, line_item, normal_balance) VALUES ($1,NULL,'7777','Shared new','balance_sheet','current_assets','x','debit')`, [U.owner])],
   ]) {
@@ -400,6 +415,13 @@ async function main() {
       return was && (await authoritativeFor(up)) === null && (await reason(up)) === "dependency_changed" ? true : { was, now: await authoritativeFor(up), reason: await reason(up) };
     });
   }
+  await check("with A1's processing lock in place, a processed period's currency cannot change at all (PERIOD_LOCKED_BY_PROCESSING), even for the database owner", async () => {
+    if (!(await lockPresent())) return true; // the chain under test predates A1
+    const up = await upload(A);
+    await certify(up);
+    try { await admin.query("UPDATE public.fiscal_periods SET reporting_currency='USD' WHERE id=(SELECT period_id FROM public.trial_balance_uploads WHERE id=$1)", [up]); return "applied"; }
+    catch (e) { return e.code === "55000" && /PERIOD_LOCKED_BY_PROCESSING/.test(e.message) ? true : `${e.code} ${e.message}`; }
+  });
   await check("a change to an account the run did NOT consult leaves authority intact", async () => {
     const up = await upload(A); const c = await certify(up, ["1000"]);
     await asService(`INSERT INTO public.account_mappings (user_id, company_id, account_code, account_name, statement, classification, line_item, normal_balance) VALUES ($1,NULL,'8888','Unrelated','balance_sheet','current_assets','x','debit')`, [U.owner]);

@@ -109,7 +109,11 @@ export type PeriodRefusalCode =
   | "PRIOR_DATES_UNCONFIRMED"
   | "PRIOR_YEAR_TAKEN"
   | "PRIOR_LINK_CONFLICT"
-  | "END_DIFFERS_FROM_YEAR_END";
+  | "END_DIFFERS_FROM_YEAR_END"
+  | "PERIOD_LOCKED_BY_PROCESSING"
+  | "SCOPE_REQUIRES_REVIEWER"
+  | "NOT_A_LEGACY_PERIOD"
+  | "IN_PROGRESS";
 
 export const PERIOD_REFUSAL_COPY: Readonly<Record<PeriodRefusalCode, string>> = Object.freeze({
   PERIOD_OVERLAP: "These dates overlap another reporting period of this company. Choose dates that do not overlap.",
@@ -121,6 +125,10 @@ export const PERIOD_REFUSAL_COPY: Readonly<Record<PeriodRefusalCode, string>> = 
   PRIOR_YEAR_TAKEN: "A different period already ends in the prior year. Use its dates, or leave the prior year out.",
   PRIOR_LINK_CONFLICT: "This period is already linked to a different prior period.",
   END_DIFFERS_FROM_YEAR_END: "The end date must be the period's recorded year end.",
+  PERIOD_LOCKED_BY_PROCESSING: "A trial balance in this period has already been checked, so its dates and currency are fixed. A reviewer can complete the dates of a legacy period, with a reason.",
+  SCOPE_REQUIRES_REVIEWER: "Choosing services other than the trial balance needs a reviewer. Set up the period with the trial balance only, or ask a reviewer.",
+  NOT_A_LEGACY_PERIOD: "This period's dates are already confirmed.",
+  IN_PROGRESS: "A trial balance in this period is being checked right now. Try again when the check has finished.",
 });
 
 /** The backend does not have this function yet (PGRST202 / 42883): the feature is unavailable, not failed. */
@@ -198,4 +206,25 @@ export async function confirmPeriodDates(client: RpcClient, periodId: string, st
     return x.outcome === "refused" ? { outcome: "refused", code: x.code, message: x.message } : (() => { throw new Error("unreachable"); })();
   }
   return { outcome: "confirmed", periodId: String(r.periodId), changed: r.changed === true };
+}
+
+export type CompleteLegacyDatesResult =
+  | { readonly outcome: "completed"; readonly periodId: string; readonly changed: boolean; readonly invalidated: readonly string[] }
+  | { readonly outcome: "refused"; readonly code: PeriodRefusalCode; readonly message: string };
+
+/**
+ * Completes the dates of a LEGACY period that already has processed history (review_close; a reason is recorded).
+ * When the dates change, the server invalidates every result in force for the period's trial balances in the same
+ * transaction; they need a new check.
+ */
+export async function completeLegacyPeriodDates(client: RpcClient, periodId: string, start: string, end: string, reason: string): Promise<CompleteLegacyDatesResult> {
+  if (!ISO_DATE.test(start) || !ISO_DATE.test(end)) throw new WorkspaceSetupError("INVALID", "Dates must be given as yyyy-mm-dd.");
+  if (reason.trim().length < 10) throw new WorkspaceSetupError("INVALID", "State why these dates are right (at least 10 characters).");
+  const r = await callPeriod<Record<string, unknown>>(client, "complete_legacy_period_dates", { p_period_id: periodId, p_start: start, p_end: end, p_reason: reason });
+  if (r.outcome === "refused") {
+    const x = refusal(r);
+    return x.outcome === "refused" ? { outcome: "refused", code: x.code, message: x.message } : (() => { throw new Error("unreachable"); })();
+  }
+  if (r.outcome !== "completed") throw new WorkspaceSetupError("UNKNOWN", "The request could not be completed.");
+  return { outcome: "completed", periodId: String(r.periodId), changed: r.changed === true, invalidated: Array.isArray(r.invalidated) ? (r.invalidated as string[]) : [] };
 }

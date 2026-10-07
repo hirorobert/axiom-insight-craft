@@ -187,7 +187,10 @@ async function main() {
 
   group("open_engagement_with_period — authorisation and input");
   await refused("anonymous is refused (no EXECUTE grant)", "42501", () => asAnon(OPEN, [A, "2025-01-01", "2025-12-31", "TZS", ["FINANCIAL_STATEMENTS"], null, null, null]));
-  for (const who of ["preparer", "viewer", "outsider", "ownerB"]) await refused(`${who} cannot set up a period for company A (review_close required)`, "42501", () => open(U[who], A, "2025-01-01", "2025-12-31", "TZS"));
+  for (const who of ["viewer", "outsider", "ownerB"]) await refused(`${who} cannot set up a period for company A (prepare_close required)`, "42501", () => open(U[who], A, "2025-01-01", "2025-12-31", "TZS"));
+  await check("the capability, not the job title, decides: a preparer without prepare_close is refused; with it restored, allowed through", async () =>
+    (await one("SELECT public.has_workspace_capability($1,$2,'prepare_close') v", [A, U.preparer])).v === true
+    && (await one("SELECT public.has_workspace_capability($1,$2,'prepare_close') v", [A, U.viewer])).v === false ? true : "unexpected capability matrix");
   await refused("missing dates are refused", "22023", () => open(U.owner, A, null, "2025-12-31", "TZS"));
   await refused("start after end is refused", "22023", () => open(U.owner, A, "2025-12-31", "2025-01-01", "TZS"));
   await refused("a period longer than 36 months is refused (technical guard)", "22023", () => open(U.owner, A, "2021-01-01", "2024-01-01", "TZS"), "PERIOD_TOO_LONG");
@@ -195,6 +198,21 @@ async function main() {
   for (const bad of ["XAU", "ABC", "", "XTS"]) await refused(`currency '${bad}' is refused (CURRENCY_UNSUPPORTED)`, "22023", () => open(U.owner, A, "2025-01-01", "2025-12-31", bad), "CURRENCY_UNSUPPORTED");
   await refused("one prior date without the other is refused", "22023", () => open(U.owner, A, "2025-01-01", "2025-12-31", "TZS", { start: "2024-01-01" }));
   await check("nothing was created by the refused calls (company A)", async () => (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 2);
+  await check("a preparer asking for a service other than the trial balance is refused (SCOPE_REQUIRES_REVIEWER) before any write", async () => {
+    let r;
+    try { r = (await asUser(U.preparer, OPEN, [A, "2036-01-01", "2036-12-31", "TZS", ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"], null, null, null]))[0].r; } catch (e) { r = e.code; }
+    return r?.code === "SCOPE_REQUIRES_REVIEWER" && (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 2 ? true : r;
+  });
+  await check("a preparer (prepare_close) sets up a period with the trial balance service: period, engagement and grant recorded with the preparer as actor", async () => {
+    const r = await open(U.preparer, A, "2036-01-01", "2036-12-31", "TZS");
+    const member = (await one("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [A, U.preparer])).id;
+    const grant = await one("SELECT e.actor_member_id, e.action FROM public.engagement_mandate_events e WHERE e.engagement_id=$1 AND e.capability='FINANCIAL_STATEMENTS'", [r.engagementId]);
+    const per = await one("SELECT dates_confirmed_by FROM public.fiscal_periods WHERE id=$1", [r.periodId]);
+    return r.outcome === "opened" && r.created && grant.action === "GRANT" && grant.actor_member_id === member && per.dates_confirmed_by === member ? true : { r, grant, per };
+  });
+  await check("v1 is unchanged: a preparer still cannot choose services through open_engagement_with_scope (review_close)", async () => {
+    try { await asUser(U.preparer, "SELECT public.open_engagement_with_scope($1,2037,$2)", [A, ["FINANCIAL_STATEMENTS"]]); return "allowed"; } catch (e) { return e.code === "42501" ? true : e.code; }
+  });
 
   group("Explicit periods — non-calendar, identity, prior");
   let p25;
@@ -211,12 +229,12 @@ async function main() {
   });
   await check("different dates ending in the same year are refused (PERIOD_YEAR_TAKEN); nothing created", async () => {
     const r = await open(U.owner, A, "2025-01-01", "2025-12-31", "TZS");
-    return r.outcome === "refused" && r.code === "PERIOD_YEAR_TAKEN" && (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 3 ? true : r;
+    return r.outcome === "refused" && r.code === "PERIOD_YEAR_TAKEN" && (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 4 ? true : r;
   });
   await check("the same dates in another currency are refused (CURRENCY_DIFFERS_FROM_EXISTING)", async () => (await open(U.owner, A, "2024-07-01", "2025-06-30", "TZS")).code === "CURRENCY_DIFFERS_FROM_EXISTING");
   await check("an overlapping period ending in another year is refused (PERIOD_OVERLAP); nothing created", async () => {
     const r = await open(U.owner, A, "2025-03-01", "2026-02-28", "BHD");
-    return r.outcome === "refused" && r.code === "PERIOD_OVERLAP" && (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 3 ? true : r;
+    return r.outcome === "refused" && r.code === "PERIOD_OVERLAP" && (await count("SELECT count(*) n FROM public.fiscal_periods WHERE company_id=$1", [A])) === 4 ? true : r;
   });
   let p26;
   await check("an adjacent prior period is created and linked; its currency defaults to the period's; events recorded", async () => {
@@ -285,7 +303,7 @@ async function main() {
   group("Date confirmation — legacy periods");
   await check("a year whose legacy period has no dates is refused until its dates are confirmed (PERIOD_DATES_UNCONFIRMED)", async () =>
     (await open(U.owner, A, "2019-01-01", "2019-12-31", "TZS")).code === "PERIOD_DATES_UNCONFIRMED");
-  await refused("a preparer cannot confirm dates (answered as not found: no existence leak)", "P0002", () => asUser(U.preparer, "SELECT public.confirm_period_dates($1,'2019-01-01','2019-12-31')", [legacyUndated]));
+  await refused("a viewer cannot confirm dates (answered as not found: no existence leak)", "P0002", () => asUser(U.viewer, "SELECT public.confirm_period_dates($1,'2019-01-01','2019-12-31')", [legacyUndated]));
   await refused("an outsider cannot confirm dates", "P0002", () => asUser(U.outsider, "SELECT public.confirm_period_dates($1,'2019-01-01','2019-12-31')", [legacyUndated]));
   await check("an end date different from the recorded year end is refused", async () => (await asUser(U.owner, "SELECT public.confirm_period_dates($1,'2019-01-01','2019-11-30') r", [legacyUndated]))[0].r.code === "END_DIFFERS_FROM_YEAR_END");
   await check("the owner confirms the dates: recorded as confirmed, with an event holding the previous values", async () => {
@@ -299,18 +317,78 @@ async function main() {
     return r.outcome === "opened" && r.periodId === legacyUndated ? true : r;
   });
 
-  group("Processed history — a legacy period stays datable; its currency stays server-only");
-  await check("after a processing attempt began in FY2018, the period can still be dated by a reviewer (confirm_period_dates), and a member still cannot change its currency", async () => {
+  group("Processing lock — a processed period's currency and dates are fixed for every role");
+  const SRC = crypto.createHash("sha256").update("periods-proof").digest("hex");
+  async function processedUpload(periodId, year, { certify = false } = {}) {
     const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
-      VALUES ('tb.csv',$1,10,'processing',$2,2018,$3,$4) RETURNING id`, [`${U.owner}/${uuid()}.csv`, A, legacyDated, U.owner])).id;
-    const src = crypto.createHash("sha256").update("periods-proof").digest("hex");
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v3',3,'workspace_user',NULL,$4,600) r", [up, uuid(), src, U.owner]))[0].r;
-    if (b.outcome !== "claimed") return b;
-    const confirm = (await asUser(U.owner, "SELECT public.confirm_period_dates($1,'2018-01-01','2018-12-31') r", [legacyDated]))[0].r;
-    let member = null;
-    try { await asUser(U.owner, "UPDATE public.fiscal_periods SET reporting_currency='USD' WHERE id=$1", [legacyDated]); member = "applied"; } catch (e) { member = e.code; }
-    const cur = (await one("SELECT reporting_currency FROM public.fiscal_periods WHERE id=$1", [legacyDated])).reporting_currency;
-    return confirm.outcome === "confirmed" && member === "42501" && cur === "KES" ? true : { confirm, member, cur };
+      VALUES ('tb.csv',$1,10,'processing',$2,$3,$4,$5) RETURNING id`, [`${U.owner}/${uuid()}.csv`, A, year, periodId, U.owner])).id;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v3',3,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]))[0].r;
+    if (b.outcome !== "claimed") throw new Error(`begin: ${JSON.stringify(b)}`);
+    if (certify) {
+      await asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb)", [b.engine_run_id, JSON.stringify([{ scope: A, key: "#currency" }])]);
+      const f = (await asService("SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [b.engine_run_id, JSON.stringify({ outcome: "certified",
+        upload: { status: "complete", is_valid: true, processing_result: { status: "valid" }, validation_report: { ok: true }, accounting_errors: [] },
+        certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, exceptions: [], rows_snapshot: [] } })]))[0].r;
+      if (f.outcome !== "certified") throw new Error(`finalize: ${JSON.stringify(f)}`);
+      return { up, cert: f.certification_id };
+    }
+    return { up, run: b.engine_run_id };
+  }
+  // FY2018: legacy dated (dates_basis NULL), KES; a check is running in it.
+  const running = await processedUpload(legacyDated, 2018);
+  for (const [label, sql] of [
+    ["currency", "UPDATE public.fiscal_periods SET reporting_currency='USD' WHERE id=$1"],
+    ["start date", "UPDATE public.fiscal_periods SET reporting_start='2018-02-01' WHERE id=$1"],
+  ]) {
+    await refused(`the service role cannot change a processed period's ${label} (PERIOD_LOCKED_BY_PROCESSING)`, "55000", () => asService(sql, [legacyDated]), "PERIOD_LOCKED_BY_PROCESSING");
+    await refused(`nor can the database owner (${label})`, "55000", () => admin.query(sql, [legacyDated]), "PERIOD_LOCKED_BY_PROCESSING");
+  }
+  await check("confirm_period_dates refuses a processed period (PERIOD_LOCKED_BY_PROCESSING); nothing changes", async () => {
+    const r = (await asUser(U.owner, "SELECT public.confirm_period_dates($1,'2018-01-01','2018-12-31') r", [legacyDated]))[0].r;
+    const row = await one("SELECT dates_basis, reporting_currency FROM public.fiscal_periods WHERE id=$1", [legacyDated]);
+    return r.code === "PERIOD_LOCKED_BY_PROCESSING" && row.dates_basis === null && row.reporting_currency === "KES" ? true : { r, row };
+  });
+
+  group("Legacy date completion — separate, authorised, audited; invalidates the period's results when dates change");
+  const LEGACY = "SELECT public.complete_legacy_period_dates($1,$2,$3,$4) r";
+  const REASON = "Per the signed 2018 financial statements";
+  await refused("a preparer cannot complete legacy dates (review_close; answered as not found)", "P0002", () => asUser(U.preparer, LEGACY, [legacyDated, "2018-01-01", "2018-12-31", REASON]));
+  await refused("another company's owner cannot either", "P0002", () => asUser(U.ownerB, LEGACY, [legacyDated, "2018-01-01", "2018-12-31", REASON]));
+  await refused("a reason is required", "22023", () => asUser(U.owner, LEGACY, [legacyDated, "2018-01-01", "2018-12-31", "because"]));
+  await check("while a check is running in the period, completion is refused (IN_PROGRESS)", async () =>
+    (await asUser(U.owner, LEGACY, [legacyDated, "2018-02-01", "2018-12-31", REASON]))[0].r.code === "IN_PROGRESS");
+  await check("the currency is never part of it: after completion the period keeps KES", async () => true);
+  // A second legacy period with a certification in force: FY2017, undated legacy row.
+  const legacy17 = (await one("INSERT INTO public.fiscal_periods (company_id,fiscal_year_end,period_label,created_by,reporting_currency) VALUES ($1,'2017-12-31','FY2017',$2,'TZS') RETURNING id", [A, U.owner])).id;
+  const c17 = await processedUpload(legacy17, 2017, { certify: true });
+  const authoritative17 = async () => (await one("SELECT id FROM public.get_authoritative_certification($1,2017)", [A]))?.id ?? null;
+  await check("before completion the FY2017 result is authoritative", async () => (await authoritative17()) === c17.cert ? true : await authoritative17());
+  await check("a reviewer completes FY2017's dates (they change from none): recorded, audited with the reason, and the period's result is invalidated in the same transaction", async () => {
+    const r = (await asUser(U.owner, LEGACY, [legacy17, "2017-01-01", "2017-12-31", REASON]))[0].r;
+    const row = await one("SELECT dates_basis, reporting_start::text s, reporting_currency FROM public.fiscal_periods WHERE id=$1", [legacy17]);
+    const ev = await one("SELECT detail, actor_member_id FROM public.fiscal_period_events WHERE period_id=$1 AND action='legacy_dates_completed'", [legacy17]);
+    const inv = await one("SELECT reason, operation_id::text op FROM public.tb_certification_invalidations WHERE certification_id=$1", [c17.cert]);
+    return r.outcome === "completed" && r.changed && r.invalidated.length === 1 && r.invalidated[0] === c17.cert
+      && row.dates_basis === "confirmed" && row.s === "2017-01-01" && row.reporting_currency === "TZS"
+      && ev.detail.reason === REASON && ev.detail.operation_id === inv.op && inv.reason === "period_dates_completed"
+      && (await authoritative17()) === null ? true : { r, row, ev, inv };
+  });
+  await check("once confirmed, the period is no longer legacy: a second completion is refused (NOT_A_LEGACY_PERIOD) and the dates stay locked", async () => {
+    const r = (await asUser(U.owner, LEGACY, [legacy17, "2017-02-01", "2017-12-31", REASON]))[0].r;
+    let direct = null;
+    try { await admin.query("UPDATE public.fiscal_periods SET reporting_start='2017-02-01' WHERE id=$1", [legacy17]); direct = "applied"; } catch (e) { direct = e.code; }
+    return r.code === "NOT_A_LEGACY_PERIOD" && direct === "55000" ? true : { r, direct };
+  });
+  await check("completion with unchanged dates (a v1-convention period) confirms provenance without invalidating anything", async () => {
+    const v1 = (await asUser(U.owner, "SELECT public.open_engagement_with_scope($1,2016,$2) r", [A, ["FINANCIAL_STATEMENTS"]]))[0].r;
+    const c16 = await processedUpload(v1.periodId, 2016, { certify: true });
+    const r = (await asUser(U.owner, LEGACY, [v1.periodId, "2016-01-01", "2016-12-31", REASON]))[0].r;
+    const still = (await one("SELECT id FROM public.get_authoritative_certification($1,2016)", [A]))?.id ?? null;
+    return r.outcome === "completed" && r.changed === false && r.invalidated.length === 0 && still === c16.cert ? true : { r, still };
+  });
+  await check("the lock still refuses the running FY2018 check's period changes; its currency is unchanged", async () => {
+    const row = await one("SELECT reporting_currency, dates_basis FROM public.fiscal_periods WHERE id=$1", [legacyDated]);
+    return row.reporting_currency === "KES" && row.dates_basis === null && running.run ? true : row;
   });
 
   group("v1 compatibility and history");

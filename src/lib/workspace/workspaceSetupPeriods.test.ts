@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { confirmPeriodDates, openEngagementWithPeriod, PERIOD_REFUSAL_COPY, SetupFeatureUnavailable, WorkspaceSetupError, type RpcClient } from "./workspaceSetupClient";
+import { completeLegacyPeriodDates, confirmPeriodDates, openEngagementWithPeriod, PERIOD_REFUSAL_COPY, SetupFeatureUnavailable, WorkspaceSetupError, type RpcClient } from "./workspaceSetupClient";
 
 const client = (answer: { data: unknown; error: { code?: string; message?: string } | null }) => {
   const rpc = vi.fn(async () => answer);
@@ -50,5 +50,18 @@ describe("confirmPeriodDates", () => {
     expect(await confirmPeriodDates(ok.c, "p", "2019-01-01", "2019-12-31")).toEqual({ outcome: "confirmed", periodId: "p", changed: true });
     const no = client({ data: { outcome: "refused", code: "PERIOD_OVERLAP" }, error: null });
     expect(await confirmPeriodDates(no.c, "p", "2019-01-01", "2019-12-31")).toEqual({ outcome: "refused", code: "PERIOD_OVERLAP", message: PERIOD_REFUSAL_COPY.PERIOD_OVERLAP });
+  });
+});
+
+describe("completeLegacyPeriodDates", () => {
+  it("sends the reason; reports the invalidated results; maps refusals; refuses a missing reason before any request", async () => {
+    const ok = client({ data: { outcome: "completed", periodId: "p", changed: true, invalidated: ["c1"] }, error: null });
+    expect(await completeLegacyPeriodDates(ok.c, "p", "2019-01-01", "2019-12-31", "Per the signed 2019 accounts")).toEqual({ outcome: "completed", periodId: "p", changed: true, invalidated: ["c1"] });
+    expect(ok.rpc).toHaveBeenCalledWith("complete_legacy_period_dates", { p_period_id: "p", p_start: "2019-01-01", p_end: "2019-12-31", p_reason: "Per the signed 2019 accounts" });
+    const no = client({ data: { outcome: "refused", code: "NOT_A_LEGACY_PERIOD" }, error: null });
+    expect(await completeLegacyPeriodDates(no.c, "p", "2019-01-01", "2019-12-31", "Per the signed accounts")).toEqual({ outcome: "refused", code: "NOT_A_LEGACY_PERIOD", message: PERIOD_REFUSAL_COPY.NOT_A_LEGACY_PERIOD });
+    const none = client({ data: null, error: null });
+    await expect(completeLegacyPeriodDates(none.c, "p", "2019-01-01", "2019-12-31", "short")).rejects.toMatchObject({ kind: "INVALID" });
+    expect(none.rpc).not.toHaveBeenCalled();
   });
 });
