@@ -35,7 +35,7 @@ import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
-import { RELEASED_WORKBENCH_PAGES } from "./lib/workbench/routes";
+import { RELEASED_WORKBENCH_PAGES, REPORTING_PAGES_SHIPPED } from "./lib/workbench/routes";
 // Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version).
 import { WorkbenchAliasRedirect } from "./components/workbench/WorkbenchAliasRedirect";
 
@@ -68,7 +68,10 @@ const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceInta
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
 // Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
-const ReportingWorkbenchPage = lazy(() => import("@/pages/workspace/ReportingWorkbenchPage"));
+// A literal gate (REPORTING_PAGES_SHIPPED): while it is false the chunk is not in the build at all.
+const ReportingWorkbenchPage = REPORTING_PAGES_SHIPPED
+  ? lazy(() => import("@/pages/workspace/ReportingWorkbenchPage"))
+  : (_: { page: "fs-statements" | "fs-notes" | "fs-schedules" | "fs-comparatives" | "signoff" | "exports" }) => null;
 
 const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))

@@ -44,3 +44,18 @@ opening + movements = closing. Any failure is named and nothing is stored.
   evidence store. The cash-flow reconciliation itself is the existing generator's, not re-derived here.
 - Comparative approval, account bridges and restatements are the comparatives increment.
 - Sign-off binding to `statusSha256` is the sign-off increment.
+
+## Comprehensive income (20261022100000)
+Paragraph 5.5 lists the comprehensive-income items. Section 5 is identical in both editions; the third edition's
+changes there are editorial. 5.4(b) lists every item an SME can recognise in other comprehensive income. None of these
+can be seen in a trial balance, so the notes status (contract `fs-notes-status/2`) evaluates them as follows.
+
+| Requirement | Undecided | Decided not applicable | Decided applicable |
+|---|---|---|---|
+| 5.5(e) discontinued operations | blocks (`REQUIREMENT_UNDECIDED`) | satisfied | **unsupported**: `REPORTING_CASE_UNSUPPORTED:smes.sci.5_5_e` blocks finalisation |
+| 5.5(g) items of OCI | blocks | satisfied | **unsupported** (also blocks 5.5(i)) |
+| 5.5(h) associates' OCI | blocks | satisfied | **unsupported** (also blocks 5.5(i)) |
+| 5.5(i) total comprehensive income | follows (g) and (h) | composed as profit or loss, and bound at sign-off | not composed |
+
+A missing decision is never treated as "not applicable". 5.5(i) cannot be decided by hand (`not_decidable`). On the
+Notes page, each unsupported case shows its limitation in plain words, and the next action names it first, as a stop.

@@ -106,6 +106,18 @@ export async function applyChain(db) {
   return null;
 }
 export const chainFiles = () => currentChain(REPO);
+/** Applies the chain BEFORE `file` (main's schema before a release). Returns null on success, or the first failure. */
+export async function applyChainBefore(db, file) {
+  const chain = currentChain(REPO);
+  const stop = chain.indexOf(file);
+  if (stop < 0) return `${file} is not in the chain`;
+  for (const f of chain.slice(0, stop)) {
+    let t = migrationSql(REPO, f);
+    if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+    try { await db.admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }
+  }
+  return null;
+}
 export const migrationText = (f) => migrationSql(REPO, f);
 
 // ── Synthetic world ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -224,17 +236,20 @@ export function clientDb(db, uid) {
   };
 }
 
-// ── Evidence a preparer would upload for FY2026 (ties to TB: bank 8,000.00 → 12,500.00; dividends 700.00) ────────────
+// ── Evidence a preparer would upload for FY2026, derived from the trial balances so every balance ties (corrected
+// 2026-10-08 after building the reviewer package: tax paid 700 = 700 + 900 − 900; interest paid 600 = the expense, no
+// accrual; customers 28,700 = 30,000 − (4,300 − 3,000); suppliers and employees 21,700 = 14,000 + 5,500 + 2,400
+// + (2,200 − 1,800) − (3,100 − 2,500)). Bank 8,000.00 → 12,500.00; dividends 700.00 ────────────────────────────────
 export const EVIDENCE_FY2026 = {
   TRANSACTION_LEDGER: [
     "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line",
-    "T1,2026-03-31,1000,Receipts from customers,29500.00,,OPERATING,Receipts from customers",
-    "T2,2026-06-30,1000,Payments to suppliers and employees,,22800.00,OPERATING,Payments to suppliers and employees",
+    "T1,2026-03-31,1000,Receipts from customers,28700.00,,OPERATING,Receipts from customers",
+    "T2,2026-06-30,1000,Payments to suppliers and employees,,21700.00,OPERATING,Payments to suppliers and employees",
     "T3,2026-07-15,1000,Interest received,500.00,,OPERATING,Interest received",
     "T4,2026-09-30,1000,Loan repayment,,1000.00,FINANCING,Repayment of borrowings",
     "T5,2026-11-30,1000,Dividend paid,,700.00,FINANCING,Dividends paid",
-    "T6,2026-12-15,1000,Income tax paid,,500.00,OPERATING,Income tax paid",
-    "T7,2026-12-20,1000,Interest paid,,500.00,OPERATING,Interest paid",
+    "T6,2026-12-15,1000,Income tax paid,,700.00,OPERATING,Income tax paid",
+    "T7,2026-12-20,1000,Interest paid,,600.00,OPERATING,Interest paid",
   ].join("\n") + "\n",
   EQUITY_MOVEMENTS: [
     "component,movement_type,amount,description",
@@ -275,6 +290,9 @@ export const EVIDENCE_FY2025_COMPARATIVE = {
   PRIOR_PERIOD_STATEMENTS: "statement_type,line_key,line_label,amount\nCASH_FLOWS,cash_and_cash_equivalents_opening_cf,Cash and cash equivalents at 1 January 2025,5000.00\n",
 };
 
+/** The three comprehensive-income line items a preparer decides (5.5(e), (g), (h)). */
+export const COMPREHENSIVE_INCOME_DECISIONS = ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"];
+
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
 export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true } = {}) {
   const { U, A } = W;
@@ -289,6 +307,8 @@ export async function prepareReporting(db, W, k, { year = 2026, comparativesAppr
     "smes.note.policies": "Historical cost.", "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives.", "smes.note.subclassifications": "All receivables from third parties.",
     "smes.note.share_capital": "10,000 ordinary shares, fully paid." };
   await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,'smes.note.share_capital','applicable','The entity has share capital',$3)", [A, year, uuid()]);
+  // Section 5: no discontinued operation and no other comprehensive income in either period presented (20261022100000).
+  for (const id of COMPREHENSIVE_INCOME_DECISIONS) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented',$4)", [A, year, id, uuid()]);
   for (const [id, text] of Object.entries(WORDS)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
   await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
     JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);

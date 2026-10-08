@@ -11,18 +11,22 @@ export const REQUIREMENT_STATUSES = [
   "provided", "missing", "undecided", "not_applicable", "satisfied", "dates_unknown",
   "composed", "incomplete", "evidence_present", "evidence_missing", "derived",
   "reconciled", "reconciled_opening_unverified", "closing_mismatch", "opening_mismatch",
+  // 20261022100000: a case the product cannot compose correctly (a discontinued operation, other comprehensive income).
+  "unsupported",
 ] as const;
 export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number];
 
 const requirementSchema = z.object({
-  requirementId: z.string(), kind: z.enum(["STATEMENT", "DISCLOSURE", "PERIOD", "SCHEDULE"]), blocking: z.boolean(), status: z.enum(REQUIREMENT_STATUSES),
+  requirementId: z.string(), kind: z.enum(["STATEMENT", "DISCLOSURE", "PERIOD", "SCHEDULE", "LINE_ITEM"]), blocking: z.boolean(), status: z.enum(REQUIREMENT_STATUSES),
   basis: z.string().optional(), decisionId: z.string().optional(), textId: z.string().optional(), sourceRef: z.string().nullable().optional(),
   scheduleId: z.string().optional(), submissionId: z.string().optional(), contentSha256: z.string().optional(),
   composedClosingMinor: MINOR.nullable().optional(), composedOpeningMinor: MINOR.nullable().optional(),
   scheduleOpeningMinor: MINOR.optional(), scheduleClosingMinor: MINOR.optional(), differenceMinor: MINOR.optional(),
+  // Total comprehensive income per complete period, when composed (5.5(i)).
+  totalsMinor: z.object({ current: MINOR.optional(), comparative: MINOR.optional() }).optional(),
 });
 const evaluatedSchema = z.object({
-  state: z.literal("evaluated"), contract: z.literal("fs-notes-status/1"), packId: z.enum(["ifrs-for-smes/2015", "ifrs-for-smes/2025"]),
+  state: z.literal("evaluated"), contract: z.literal("fs-notes-status/2"), packId: z.enum(["ifrs-for-smes/2015", "ifrs-for-smes/2025"]),
   compositionSha256: z.string().regex(/^[0-9a-f]{64}$/), periodYear: z.number().int(),
   requirements: z.array(requirementSchema), blockers: z.array(z.string()), statusSha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
@@ -46,11 +50,12 @@ export const STATUS_WORDS: Readonly<Record<RequirementStatus, string>> = {
   dates_unknown: "Period dates unknown", composed: "Composed", incomplete: "Incomplete", evidence_present: "Evidence held",
   evidence_missing: "Evidence missing", derived: "Follows its parts", reconciled: "Reconciled",
   reconciled_opening_unverified: "Reconciled — opening not verified", closing_mismatch: "Closing does not agree", opening_mismatch: "Opening does not agree",
+  unsupported: "Not supported — blocks finalisation",
 };
 
 /** Whether a status means the requirement still needs work (blocking ones block REVIEWED/FINAL). */
 export const needsWork = (r: RequirementState): boolean =>
-  ["missing", "undecided", "dates_unknown", "incomplete", "evidence_missing", "closing_mismatch", "opening_mismatch"].includes(r.status);
+  ["missing", "undecided", "dates_unknown", "incomplete", "evidence_missing", "closing_mismatch", "opening_mismatch", "unsupported"].includes(r.status);
 
 export interface ScheduleReconciliation {
   readonly scheduleId: string;

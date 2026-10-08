@@ -501,7 +501,17 @@ jobs:
         run: |
           createdb wrappers_proof
           git fetch --no-tags --depth=1 origin 993774cd129a4bfd16946f6be1c339aaf93ac5d4
+          git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
           node scripts/release/selfCheckingWrapper.mjs --check
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Reporting release wrappers proof (the same reviewed proof for the five reporting wrappers; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/reporting_wrappers_proof
+          RELEASE_BATCH: reporting-r1
+        run: |
+          createdb reporting_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
@@ -535,6 +545,23 @@ jobs:
         run: |
           createdb signoff_proof
           bun scripts/db-proof/signoffBinding.mjs
+
+      - name: Reporting closure proof (comprehensive income decided, composed or refused by name; the two-step evidence save survives failures before and after each step, retries, a concurrent edit and a concurrent save with no duplicate evidence; the authenticated approver recorded; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/closure_proof
+        run: |
+          createdb closure_proof
+          bun scripts/db-proof/reportingClosure.mjs
+
+      - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/release_proof
+        run: |
+          createdb release_proof
+          bun scripts/db-proof/reportingRelease.mjs
+          bun scripts/release/renderReviewPackage.mjs --check
 
       - name: Reporting workbench proof (the browser's own client code end to end on real certifications; evidence stored atomically with a version and re-bound; cash-flow and equity figures against hand-computed expectations including the comparative year; the canonical rule pack independently passes the assembled report; REVIEWED and FINAL by role; replay, stale version, tenancy; on the same throwaway container)
         env:

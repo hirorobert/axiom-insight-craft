@@ -72,3 +72,16 @@ version and its binding:
   authority.
 - Full IFRS and IPSAS reports have no pack yet. Their sign-off rules are unchanged.
 - XBRL is not part of this work.
+
+## The approver (20261022100000)
+Every REVIEWED and FINAL binding records:
+- the **authenticated** approver: the auth user, their membership of this company and their role;
+- the display name on record at that moment, or NULL when none is recorded (never invented);
+- the approval time;
+- the server's hash of the approved document.
+
+A publication written without a session is refused, and so is one naming another member's membership
+(`APPROVER_NOT_AUTHENTICATED`). Binding rows are append-only.
+
+The printed pack names the approver from this record. When no name is recorded, it shows the role and the stable
+membership reference, marked "no name on record".

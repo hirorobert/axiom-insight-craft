@@ -79,3 +79,12 @@ describe("groups derive from the existing navigation model", () => {
     expect(m.modules.map((x) => x.id)).toEqual(["reconcile"]);
   });
 });
+
+describe("the reporting pages' build gate", () => {
+  it("REPORTING_PAGES_SHIPPED is exactly 'every reporting page is released' (both change together)", async () => {
+    const { REPORTING_PAGES_SHIPPED, RELEASED_WORKBENCH_PAGES } = await import("./routes");
+    const reporting = ["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"] as const;
+    expect(REPORTING_PAGES_SHIPPED).toBe(reporting.every((id) => RELEASED_WORKBENCH_PAGES.has(id)));
+    expect(reporting.some((id) => RELEASED_WORKBENCH_PAGES.has(id))).toBe(REPORTING_PAGES_SHIPPED);
+  });
+});

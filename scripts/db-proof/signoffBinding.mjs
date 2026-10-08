@@ -15,7 +15,7 @@
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/signoffBinding.mjs
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) also works (CI).
 import crypto from "node:crypto";
-import { ASSIGN, FY2025, FY2026, applyChain, assignmentPairs, certifier, chainFiles, csv, makeWorld, migrationText, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
+import { ASSIGN, COMPREHENSIVE_INCOME_DECISIONS, FY2025, FY2026, applyChain, assignmentPairs, certifier, chainFiles, csv, makeWorld, migrationText, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
 import { composedStatements } from "../../src/lib/statements/canonicalDocument.ts";
 import { parseComposition } from "../../src/lib/statements/composition.ts";
 import { canonicalStringify } from "../../src/lib/canonicalStatement/serialization.ts";
@@ -53,6 +53,7 @@ async function main() {
       "smes.note.policies": "Historical cost.", "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives.", "smes.note.subclassifications": "All receivables from third parties.",
       "smes.note.share_capital": "10,000 ordinary shares, fully paid." };
     await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,'smes.note.share_capital','applicable','The entity has share capital',$3)", [A, Y, uuid()]);
+    for (const id of COMPREHENSIVE_INCOME_DECISIONS) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented',$4)", [A, Y, id, uuid()]);
     for (const [id, text] of Object.entries(WORDS)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, Y, id, text, uuid()]);
     await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, Y,
       JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);
@@ -79,7 +80,9 @@ async function main() {
     const comp = parseComposition((await asU(U.owner, "SELECT public.fs_statement_composition($1,$2) r", [A, Y])).r);
     const input = (await asU(U.owner, "SELECT public.fs_reporting_input($1,$2) r", [A, Y])).r;
     const deps = (await asU(U.owner, "SELECT public.fs_reporting_dependencies($1,$2) r", [A, Y])).r;
-    const built = composedStatements(comp, { start: input.comparative.reportingStart, end: input.comparative.reportingEnd });
+    const notes = (await asU(U.owner, "SELECT public.fs_notes_status($1,$2) r", [A, Y])).r;
+    const tci = notes.requirements?.find((r) => r.requirementId === "smes.sci.5_5_i" && r.status === "composed")?.totalsMinor ?? null;
+    const built = composedStatements(comp, { start: input.comparative.reportingStart, end: input.comparative.reportingEnd }, tci);
     const ev = (id, periodId) => ({ factId: id, version: 1, value: { currency: "TZS", scale: 2, minorUnits: 100n }, reportingPeriod: { periodId, isComparative: periodId !== "CURRENT" },
       signConvention: "NATURAL", provenance: { source: { sourceDocumentId: evidenceIds.TRANSACTION_LEDGER, sourceHash: "e".repeat(64), artifactKind: "EVIDENCE_BATCH" },
         locator: { kind: "EVIDENCE_ROW", batchId: evidenceIds.TRANSACTION_LEDGER, rowNumber: 1 }, extractionMethod: "EVIDENCE_BATCH_DERIVED", extractionConfidence: { kind: "CERTAIN" }, originalText: "1.00" }, supersedesVersion: null });

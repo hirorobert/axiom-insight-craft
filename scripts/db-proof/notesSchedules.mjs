@@ -95,6 +95,8 @@ async function main() {
       "smes.note.judgements": "missing", "smes.note.estimates": "missing", "smes.note.subclassifications": "missing", "smes.note.share_capital": "undecided",
       "smes.schedule.ppe": "missing", "smes.schedule.investment_property_cost": "not_applicable", "smes.schedule.investment_property_fair_value": "not_applicable",
       "smes.schedule.intangibles": "not_applicable", "smes.schedule.provisions": "not_applicable", "smes.note.early_application": "not_applicable",
+      // 20261022100000: Section 5 comprehensive income — nothing decided yet, so nothing is assumed "not applicable".
+      "smes.sci.5_5_e": "undecided", "smes.sci.5_5_g": "undecided", "smes.sci.5_5_h": "undecided", "smes.sci.5_5_i": "undecided",
     };
     const got = Object.fromEntries(initial.requirements.map((r) => [r.requirementId, r.status]));
     const bad = Object.entries(want).filter(([id, s]) => got[id] !== s);
@@ -104,7 +106,8 @@ async function main() {
     const want = ["STATEMENT_EVIDENCE_MISSING:smes.set.socie", "STATEMENT_EVIDENCE_MISSING:smes.set.scf",
       "REQUIRED_DISCLOSURE_MISSING:smes.note.compliance", "REQUIRED_DISCLOSURE_MISSING:smes.note.identification", "REQUIRED_DISCLOSURE_MISSING:smes.note.policies",
       "REQUIRED_DISCLOSURE_MISSING:smes.note.judgements", "REQUIRED_DISCLOSURE_MISSING:smes.note.estimates", "REQUIRED_DISCLOSURE_MISSING:smes.note.subclassifications",
-      "REQUIREMENT_UNDECIDED:smes.note.share_capital", "SCHEDULE_MISSING:ppe"];
+      "REQUIREMENT_UNDECIDED:smes.note.share_capital", "SCHEDULE_MISSING:ppe",
+      "REQUIREMENT_UNDECIDED:smes.sci.5_5_e", "REQUIREMENT_UNDECIDED:smes.sci.5_5_g", "REQUIREMENT_UNDECIDED:smes.sci.5_5_h"];
     return JSON.stringify(initial.blockers) === JSON.stringify(want) ? true : initial.blockers;
   });
   await check("the PPE schedule is applicable because the composed line has a carrying amount: 14,000.00 now, 16,000.00 a year ago", async () => {
@@ -254,6 +257,11 @@ async function main() {
 
   group("Complete — and the identity moves with every change");
   let done;
+  await check("Section 5 decided (no discontinued operation, no OCI): total comprehensive income is composed and equals profit or loss, 5,100.00 and 3,100.00 (hand-computed)", async () => {
+    for (const id of ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"]) await decide(U.preparer, id, "not_applicable");
+    const i = st(await status(U.owner), "smes.sci.5_5_i");
+    return i.status === "composed" && i.totalsMinor?.current === "510000" && i.totalsMinor?.comparative === "310000" ? true : i;
+  });
   await check("everything provided: no blocker; the status identity is deterministic", async () => {
     done = await status(U.owner);
     const again = await status(U.viewer);

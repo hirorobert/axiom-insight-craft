@@ -15,9 +15,12 @@ const EXACT: Readonly<Record<string, string>> = {
   BALANCE_DIFFERENCE: "The statement of financial position does not balance.",
   BUDGET_COMPARISON_GAP: "The budget comparison has a gap.",
   BUDGET_COMPARISON_MISSING: "The budget comparison is missing.",
+  TOTAL_COMPREHENSIVE_INCOME_NOT_COMPOSED: "Total comprehensive income is not composed because profit or loss is not.",
 };
 
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
+  ["REPORTING_CASE_UNSUPPORTED", (r) => `This reporting case is not supported, so the report cannot be finalised (${r}).`],
+  ["REQUIREMENT_UNDECIDED", (r) => `A requirement needs a recorded decision (${r}); missing is never treated as not applicable.`],
   ["STATEMENT_FIGURE_MISMATCH", (r) => `A statement figure differs from the composed figure (${r}).`],
   ["STATEMENT_FIGURE_NOT_COMPOSED", (r) => `A figure on the statements was not composed by the server (${r}).`],
   ["BLOCKING_FINDINGS", (r) => `${r} blocking finding(s) from the canonical rule pack.`],

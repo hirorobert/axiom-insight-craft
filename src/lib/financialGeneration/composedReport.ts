@@ -110,7 +110,8 @@ function recordedNotes(notes: NotesStatus, disclosures: readonly RecordedDisclos
 
 export function assembleComposedReport(input: ComposedReportInput): ComposedReportResult {
   const c = input.composition;
-  const built = composedStatements(c, input.comparativeDates);
+  const tci = input.notes.requirements.find((r) => r.requirementId === "smes.sci.5_5_i" && r.status === "composed")?.totalsMinor ?? null;
+  const built = composedStatements(c, input.comparativeDates, tci);
   const base: CanonicalFinancialStatementReport = {
     schemaVersion: CANONICAL_SCHEMA_VERSION,
     reportIdentity: { reportId: input.reportId, companyId: input.companyId, reportVersion: input.reportVersion },

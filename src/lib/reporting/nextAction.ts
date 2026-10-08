@@ -51,6 +51,8 @@ export function nextReportingAction(i: NextActionInput): NextAction {
   const open = (i.notes as NotesStatus).requirements.filter((r) => r.blocking && needsWork(r));
   const schedules = open.filter((r) => r.kind === "SCHEDULE");
   const evidence = open.filter((r) => r.status === "evidence_missing");
+  const unsupported = open.filter((r) => r.status === "unsupported");
+  if (unsupported.length > 0) return { page: "fs-notes", title: "This report cannot be finalised: a reporting case is not supported", detail: unsupported.map((r) => r.requirementId).join(", "), tone: "blocked" };
   const notes = open.filter((r) => r.kind !== "SCHEDULE" && r.status !== "evidence_missing");
   if (notes.length > 0) return { page: "fs-notes", title: `Complete ${notes.length} note requirement${notes.length === 1 ? "" : "s"}`, detail: notes.map((r) => r.requirementId).join(", "), tone: "todo" };
   if (schedules.length > 0) return { page: "fs-schedules", title: `Complete ${schedules.length} schedule${schedules.length === 1 ? "" : "s"}`, detail: schedules.map((r) => r.requirementId).join(", "), tone: "todo" };

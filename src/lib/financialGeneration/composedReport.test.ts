@@ -10,7 +10,7 @@ import { assembleComposedReport, compositionCoverage, evaluateComposedReport, re
 const H = (c: string) => c.repeat(64);
 const req = (requirementId: string, kind: "DISCLOSURE" | "SCHEDULE" | "STATEMENT", status: string, textId?: string) => ({ requirementId, kind, blocking: true, status, ...(textId ? { textId } : {}) });
 const notes = (over: Record<string, string> = {}): NotesStatus => ({
-  state: "evaluated", contract: "fs-notes-status/1", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
+  state: "evaluated", contract: "fs-notes-status/2", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
   requirements: [
     req("smes.note.compliance", "DISCLOSURE", over.compliance ?? "provided", "t-compliance"),
     req("smes.note.policies", "DISCLOSURE", over.policies ?? "provided", "t-policies"),

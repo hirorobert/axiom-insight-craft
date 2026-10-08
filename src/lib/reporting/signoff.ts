@@ -113,7 +113,10 @@ export function signoffClient(db: ReportingDb) {
       .map((r) => ({ reportVersion: Number(r.report_version), state: String(r.state), createdAt: String(r.created_at), seq: Number(r.seq) }))
       .sort((a, b) => a.seq - b.seq),
     bindings: async (reportId: string) => (await rows("fs_publication_bindings", { report_id: reportId }))
-      .map((r) => ({ reportVersion: Number(r.report_version), state: String(r.state), documentSha256: String(r.document_sha256), dependenciesSha256: String(r.dependencies_sha256) })),
+      .map((r) => ({ reportVersion: Number(r.report_version), state: String(r.state), documentSha256: String(r.document_sha256), dependenciesSha256: String(r.dependencies_sha256),
+        // The authenticated approver as recorded at approval (20261022100000); null on a binding recorded before it.
+        approverFirmMemberId: r.approver_firm_member_id == null ? null : String(r.approver_firm_member_id), approverRole: r.approver_role == null ? null : String(r.approver_role),
+        approverDisplayName: r.approver_display_name == null ? null : String(r.approver_display_name), approvedAt: r.approved_at == null ? null : String(r.approved_at) })),
     /** One atomic server call: new evidence + the new immutable version + its evaluation (or nothing). */
     commit: async (p: {
       companyId: string; reportId: string; expectedReportVersion: number; idempotencyKey: string; report: CanonicalFinancialStatementReport; contentHash: string;
@@ -134,3 +137,13 @@ export function signoffClient(db: ReportingDb) {
   };
 }
 export type SignoffClient = ReturnType<typeof signoffClient>;
+
+/**
+ * How a recorded approver is named: the display name on record at approval; without one, the role and the stable
+ * membership reference — never a guessed or current name.
+ */
+export function approverText(b: { approverDisplayName: string | null; approverRole: string | null; approverFirmMemberId: string | null }): string {
+  if (b.approverDisplayName) return b.approverRole ? `${b.approverDisplayName} (${b.approverRole})` : b.approverDisplayName;
+  if (b.approverFirmMemberId) return `${b.approverRole ?? "member"} ${b.approverFirmMemberId.slice(0, 8)} (no name on record)`;
+  return "approver not recorded (signed before approver recording)";
+}

@@ -15,7 +15,7 @@ let m: Mounted | null = null;
 afterEach(() => { m?.unmount(); m = null; document.body.innerHTML = ""; });
 
 const H = (c: string) => c.repeat(64);
-const NOTES = { state: "evaluated", contract: "fs-notes-status/1", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
+const NOTES = { state: "evaluated", contract: "fs-notes-status/2", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
   requirements: [{ requirementId: "smes.note.policies", kind: "DISCLOSURE", blocking: true, status: "missing" }] };
 const CMP = { state: "evaluated", statusSha256: H("e"), comparative: { contract: "fs-comparatives-status/1", periodYear: 2026, state: "approved", composedComparativeState: "available", required: true,
   firstPeriodDeclared: false, comparativeSha256: H("f"), compositionSha256: H("b"), approval: null, blockers: [] } };
@@ -73,5 +73,24 @@ describe("the reporting workbench container", () => {
     const db = server();
     await render(db, "fs-statements");
     expect(db.calls.filter((c) => /assign|record|decide|approve|commit|set_publication|propose|bridge/.test(c))).toEqual([]);
+  });
+});
+
+describe("an unsupported reporting case on the Notes page", () => {
+  it("is the one next action, as a stop; selecting it shows the limitation in plain words; no decision control for 5.5(i)", async () => {
+    const withOci = { ...NOTES, requirements: [
+      { requirementId: "smes.sci.5_5_g", kind: "LINE_ITEM", blocking: true, status: "unsupported", basis: "Items of other comprehensive income are not supported. The report cannot be finalised." },
+      { requirementId: "smes.sci.5_5_i", kind: "LINE_ITEM", blocking: true, status: "unsupported", basis: "Total comprehensive income cannot be composed while other comprehensive income is present." },
+    ] };
+    await render(server({ fs_notes_status: () => withOci }), "fs-notes");
+    const na = document.querySelector('[data-testid="next-action"]')!;
+    expect(na.getAttribute("data-tone")).toBe("blocked");
+    expect(na.textContent).toContain("This report cannot be finalised");
+    const alert = document.querySelector('[data-testid="unsupported-case"]')!;
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain("not supported");
+    click(document.querySelector('[data-requirement="smes.sci.5_5_i"]')!);
+    await settle();
+    expect([...document.querySelectorAll('[data-testid="requirement-panel"] button')].map((b) => b.textContent)).not.toContain("Does not apply");
   });
 });

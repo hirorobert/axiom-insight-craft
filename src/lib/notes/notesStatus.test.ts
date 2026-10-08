@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { REQUIREMENT_STATUSES, STATUS_WORDS, needsWork, notesClient, parseNotesStatus, scheduleReconciliation, type RequirementState } from "./notesStatus";
 
-const SQL = fs.readFileSync(path.join(__dirname, "../../../supabase/migrations/20261019100000_fs_notes_and_schedules.sql"), "utf8");
+// The notes status and, since 20261022100000, the comprehensive-income evaluation it appends.
+const SQL = ["20261019100000_fs_notes_and_schedules.sql", "20261022100000_fs_reporting_closure.sql"]
+  .map((f) => fs.readFileSync(path.join(__dirname, "../../../supabase/migrations", f), "utf8")).join("\n");
 
 describe("status words: one per server state, nothing merged", () => {
   it("every status the database can return has its own word, and every word names a status the database returns", () => {
@@ -15,7 +17,7 @@ describe("status words: one per server state, nothing merged", () => {
   });
   it("needs-work states are exactly the unresolved ones (a not-verified opening is stated, not counted as done or failed)", () => {
     const states = REQUIREMENT_STATUSES.filter((s) => needsWork({ requirementId: "x", kind: "DISCLOSURE", blocking: true, status: s }));
-    expect(states.sort()).toEqual(["closing_mismatch", "dates_unknown", "evidence_missing", "incomplete", "missing", "opening_mismatch", "undecided"].sort());
+    expect(states.sort()).toEqual(["closing_mismatch", "dates_unknown", "evidence_missing", "incomplete", "missing", "opening_mismatch", "undecided", "unsupported"].sort());
   });
 });
 
@@ -37,7 +39,7 @@ describe("schedule reconciliation text (hand-written expectations)", () => {
 });
 
 describe("payload validation and server calls", () => {
-  const evaluated = { state: "evaluated", contract: "fs-notes-status/1", packId: "ifrs-for-smes/2015", compositionSha256: "a".repeat(64), periodYear: 2026,
+  const evaluated = { state: "evaluated", contract: "fs-notes-status/2", packId: "ifrs-for-smes/2015", compositionSha256: "a".repeat(64), periodYear: 2026,
     requirements: [{ requirementId: "smes.note.compliance", kind: "DISCLOSURE", blocking: true, status: "missing" }], blockers: ["REQUIRED_DISCLOSURE_MISSING:smes.note.compliance"], statusSha256: "b".repeat(64) };
   it("accepts the evaluated payload and pass-through states; refuses an unknown status", () => {
     expect(parseNotesStatus(evaluated).state).toBe("evaluated");
