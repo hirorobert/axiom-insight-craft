@@ -27,6 +27,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { migrationExists, sortsImmediatelyAfter, sortsStrictlyAfter } from "./migrationOrderingChecks.mjs";
+import { SIGNOFF_REQUIREMENTS_MIGRATION, chainBefore } from "./lib/parkedMigrations.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -132,7 +133,9 @@ async function replayMigrations() {
   const shim = fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8");
   await admin.query(shim);
   const dir = path.join(REPO, "supabase/migrations");
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  // The chain BEFORE the sign-off completion requirements (lib/parkedMigrations.mjs): this proof marks synthetic
+  // trial-balance reports REVIEWED/FINAL; closeReviewAuthority.mjs re-proves the publication path on the new schema.
+  const files = chainBefore(fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort(), SIGNOFF_REQUIREMENTS_MIGRATION);
   let applied = 0;
   for (const f of files) {
     let text = fs.readFileSync(path.join(dir, f), "utf8");

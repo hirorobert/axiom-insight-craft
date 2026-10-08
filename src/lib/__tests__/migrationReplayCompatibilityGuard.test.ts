@@ -222,7 +222,8 @@ describe("migration directory integrity", () => {
     // 154 -> 155: 20261014100000_close_review_findings.sql (Close Review I2 findings: tb-anomaly-catalogue/1 on the authoritative trial balance), a NEW forward-only migration pending hosted application.
     // 155 -> 156: 20261015100000_close_review_adjustments.sql (Close Review I3 adjustments: approved adjusting journals as a layer), a NEW forward-only migration pending hosted application.
     // 156 -> 157: 20261016100000_fs_reporting_input.sql (Financial Statements: the authoritative reporting input), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(157);
+    // 157 -> 158: 20261017100000_signoff_completion_requirements.sql (Sign-off completion requirements: Close Review and the authoritative input in fs_publication_blockers; first-period declarations), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(158);
   });
 });
 

@@ -31,6 +31,15 @@ export function currentChain(repo) {
  */
 export const ATTEMPT_AUTHORITY_MIGRATION = "20261008100000_processing_attempt_authority.sql";
 
+/**
+ * Sign-off completion requirements (20261017100000): a trial-balance report becomes REVIEWED/FINAL only on the CURRENT
+ * authoritative reporting input with a finished Close Review. scripts/db-proof/run.mjs marks SYNTHETIC trial-balance
+ * reports REVIEWED/FINAL to prove the persistence contracts, so it proves them on the chain BEFORE this migration;
+ * scripts/db-proof/closeReviewAuthority.mjs re-proves the publication path end to end on the new schema with
+ * authoritative reports (and that synthetic ones are refused).
+ */
+export const SIGNOFF_REQUIREMENTS_MIGRATION = "20261017100000_signoff_completion_requirements.sql";
+
 /** `files` up to, not including, `file` (all of them when it is absent). */
 export function chainBefore(files, file) {
   const i = files.indexOf(file);
