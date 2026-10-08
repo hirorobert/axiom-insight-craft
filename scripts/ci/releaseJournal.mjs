@@ -195,6 +195,39 @@ export const RELEASE_JOURNAL = {
     source: "20261010100000_layout_templates_and_confirmations.sql", bytes: 31976,
     digest: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21",
     sha256: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21" },
+  // I1-B/I1-C/Close Review/reporting input/sign-off (main d25888e; PRs #76–#86), applied 2026-10-08 by Lovable's hosted
+  // migrator through the SELF-CHECKING WRAPPERS (release/wrappers/), each submitted byte for byte (the registered "wrapper"
+  // form). Hosted journal ids 34–40; each hosted hash reported = SHA-256 of the submitted wrapper = SHA-256 of the mirror
+  // below (recomputed here). The contract probe was refused (55000) with the journal unchanged at id 33 before wrapper 1.
+  // Close-out: docs/release/I1B_SIGNOFF_CLOSEOUT_d25888e.md.
+  // hosted id 34; journal "when" 1791454905727 = 2026-10-08T10:21:45.727Z.
+  "0033_i1b_w1_two_period_shared_source": { kind: "release_self_checking_wrapper", source: "20261011100000_two_period_shared_source.sql",
+    bytes: 33926, digest: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a",
+    form: "wrapper", submittedBytes: 35496, sha256: "57abe7e393f6caabedc546df84ef16370cf5c055831fdf032597466812b35610" },
+  // hosted id 35; journal "when" 1791455035299 = 2026-10-08T10:23:55.299Z.
+  "0034_i1b_w2_layout_assist_controls": { kind: "release_self_checking_wrapper", source: "20261012100000_layout_assist_controls.sql",
+    bytes: 26700, digest: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd",
+    form: "wrapper", submittedBytes: 28266, sha256: "3d3ee7a8b317b53812f2933b9176a86af1a63debddb2c839037e96b12a4269c8" },
+  // hosted id 36; journal "when" 1791455096771 = 2026-10-08T10:24:56.771Z.
+  "0035_i1b_w3_close_review_timeline": { kind: "release_self_checking_wrapper", source: "20261013100000_close_review_timeline.sql",
+    bytes: 9148, digest: "84787f004c83b2dd5258d14d323bb39c65c8eb37372122ce1b729e9b441598f0",
+    form: "wrapper", submittedBytes: 10710, sha256: "0746ef8bbbe59150997b3c81bd4ea13107b59e71c3c282748dfcd25f8dcad39d" },
+  // hosted id 37; journal "when" 1791455254708 = 2026-10-08T10:27:34.708Z.
+  "0036_i1b_w4_close_review_findings": { kind: "release_self_checking_wrapper", source: "20261014100000_close_review_findings.sql",
+    bytes: 35821, digest: "61b1bcffc1148f557e2aa62b8e245e12b9e8ef7a2a6a9e861ec94036a629ca3f",
+    form: "wrapper", submittedBytes: 37385, sha256: "58d982475f278eb76c0be99306e4e12c19f75f4664fe6584ae28afe021fad65b" },
+  // hosted id 38; journal "when" 1791455472081 = 2026-10-08T10:31:12.081Z.
+  "0037_i1b_w5_close_review_adjustments": { kind: "release_self_checking_wrapper", source: "20261015100000_close_review_adjustments.sql",
+    bytes: 51377, digest: "75387e4ce9cb3dee63001b67c28bb76cebfccc156229b24e206d55c6588b58e2",
+    form: "wrapper", submittedBytes: 52947, sha256: "5c1bb4a5aa3fd510a8885f57e29a67f0a783e2252fe46ee6ffabecc1f803049f" },
+  // hosted id 39; journal "when" 1791455558832 = 2026-10-08T10:32:38.832Z.
+  "0038_i1b_w6_fs_reporting_input": { kind: "release_self_checking_wrapper", source: "20261016100000_fs_reporting_input.sql",
+    bytes: 11306, digest: "d6c019785cdd67301c539bfc7d4c413e365c917039da4dc27adcb4128c3a3a39",
+    form: "wrapper", submittedBytes: 12864, sha256: "32aed095d1beebecf9a667f55dcd1e9bb6429a720843e817d4e6c0b5e9f379e9" },
+  // hosted id 40; journal "when" 1791455665667 = 2026-10-08T10:34:25.667Z.
+  "0039_i1b_w7_signoff_completion_requirements": { kind: "release_self_checking_wrapper", source: "20261017100000_signoff_completion_requirements.sql",
+    bytes: 21060, digest: "4523efd91edb2f3028786c93adeffc2c73392595a33620ce5b2fb82558c3b5af",
+    form: "wrapper", submittedBytes: 22644, sha256: "086e22b1da1c2239ab40b5ba3765c1a438c7c4c8291aef760e1bb2f722335477" },
 };
 
 /**

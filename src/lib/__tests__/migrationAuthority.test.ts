@@ -39,7 +39,9 @@ describe("migration authority parity", () => {
     // 27: 0029 (20261007100000, H1) is a release_verbatim_final_lf_removed entry (rule 9; releaseJournal.test.ts).
     // 28: 0030 (20261008100000, S2) is the same kind.
     // 30: 0031 and 0032 (I1-A A1/A2) are release_verbatim entries in their registered identical form.
-    expect(r.mirrored.length).toBe(30);
+    // 37: 0033–0039 (the I1-B/I1-C/Close Review/sign-off milestone) are release_self_checking_wrapper entries — each the
+    // registered wrapper of its source, byte for byte (hosted journal ids 34–40).
+    expect(r.mirrored.length).toBe(37);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -54,7 +56,8 @@ describe("migration authority parity", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql", "20261013100000_close_review_timeline.sql", "20261014100000_close_review_findings.sql", "20261015100000_close_review_adjustments.sql", "20261016100000_fs_reporting_input.sql", "20261017100000_signoff_completion_requirements.sql"]);
+    // 20261011100000–20261017100000 are applied as 0033–0039 (self-checking wrappers). Nothing is pending.
+    expect(r.pending).toEqual([]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

@@ -50,8 +50,9 @@ describe("the milestone release procedure states exactly the repository's identi
     const sc = functionManifest("trial-balance-storage-cleanup");
     for (const f of sc.files) expect(DOC).toContain(`${f.sha256.slice(0, 8)}…${f.sha256.slice(-4)}\` (${f.size} B`);
   });
-  it("keeps every gate off and claims no hosted state", () => {
-    expect(DOC).toMatch(/\*\*Status: prepared, NOT applied, NOT deployed, NOT published\.\*\*/);
+  it("keeps every gate off and states exactly the recorded hosted state", () => {
+    expect(DOC).toContain("**Status: APPLIED (hosted journal ids 34–40, mirrors 0033–0039, 2026-10-08) through the self-checking wrappers; functions\nNOT redeployed; frontend NOT published; every gate off.**");
+    expect(DOC).toContain("I1B_SIGNOFF_CLOSEOUT_d25888e.md");
     expect(DOC).toContain("cross-workspace refusal not yet observed");
     expect(DOC).toContain("live processing message not yet observed");
     // (The financial-statements workspace gate is pinned off by workspaceGate.test.ts, which also restricts where its

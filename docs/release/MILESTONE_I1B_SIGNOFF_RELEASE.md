@@ -1,7 +1,8 @@
 # Release procedure — I1-B two-year intake, I1-C layout assist controls, Close Review, reporting input, sign-off requirements
 
-**Status: prepared, NOT applied, NOT deployed, NOT published.** Nothing in this document has been done to the hosted
-project. Every step that changes hosted state (merge, migration apply, function deploy, frontend publish, enabling a
+**Status: APPLIED (hosted journal ids 34–40, mirrors 0033–0039, 2026-10-08) through the self-checking wrappers; functions
+NOT redeployed; frontend NOT published; every gate off.** Record: `I1B_SIGNOFF_CLOSEOUT_d25888e.md`. The steps below are
+kept as executed; nothing further in this document has been done to the hosted project. Every step that changes hosted state (merge, migration apply, function deploy, frontend publish, enabling a
 provider, releasing a gate) needs its own explicit owner authorization. Production project: `bvyivmmfjejbmqoydezk`.
 
 This is the **one** ordered procedure for this milestone. It supersedes the per-PR deployment notes in PRs #76–#84 and the
