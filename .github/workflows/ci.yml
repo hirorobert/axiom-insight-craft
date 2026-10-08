@@ -468,7 +468,7 @@ jobs:
           createdb layout_assist_proof
           bun scripts/db-proof/layoutAssistAuthority.mjs
 
-      - name: Close Review proof (append-only comments and history, and I2 findings on certifications made by the real engine — mandatory findings have no accept path, evidence-required findings need the workpaper reference, actions only on the current authority — and I3 adjustments: exact balanced journals bound to the authority, two-person approval and the controlled self-approval policy (R3), reversals, the adjusted layer with the certification unchanged — behind the financial-statements rollout and kill switch; capability-checked writes; author-only revisions as new events; idempotent requests; cross-workspace isolation; on the same throwaway container)
+      - name: Close Review proof (append-only comments and history, and I2 findings on certifications made by the real engine — mandatory findings have no accept path, evidence-required findings need the workpaper reference, actions only on the current authority — and I3 adjustments (exact balanced journals bound to the authority, two-person approval and the controlled self-approval policy (R3), reversals, the adjusted layer with the certification unchanged) — behind the financial-statements rollout and kill switch; capability-checked writes; author-only revisions as new events; idempotent requests; cross-workspace isolation; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/close_review_proof
