@@ -234,7 +234,7 @@ async function main() {
   // Reviewed, unrelated forward migrations that may follow this one (exact names; nothing else may).
   // 20261003100000 is the classification-save digest fix (hosted 0027); 20261006100000 is S1 (hosted 0028). The parked
   // 20261004100000 / 20261005100000 are quarantined in supabase/migrations_historical/ (never applied).
-  const LATER = ["20261003100000_account_review_digest_schema_qualification.sql", "20261006100000_mapping_and_processing_authority.sql", "20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql", "20261009100000_currency_registry_and_reporting_periods.sql", "20261010100000_layout_templates_and_confirmations.sql", "20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql"];
+  const LATER = ["20261003100000_account_review_digest_schema_qualification.sql", "20261006100000_mapping_and_processing_authority.sql", "20261007100000_treatment_authority_and_processing_control.sql", "20261008100000_processing_attempt_authority.sql", "20261009100000_currency_registry_and_reporting_periods.sql", "20261010100000_layout_templates_and_confirmations.sql", "20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql", "20261013100000_close_review_timeline.sql"];
   await check("the migration is the newest but for the named later migrations; its top-level statements contain no DROP, DELETE, TRUNCATE, UPDATE, INSERT or ALTER TABLE", async () => {
     // Function bodies (dollar-quoted) are excluded: the two RPC bodies are their existing definitions, proven below to
     // differ from them by exactly one line each.

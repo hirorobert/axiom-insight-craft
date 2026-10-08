@@ -54,7 +54,7 @@ describe("migration authority parity", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql"]);
+    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql", "20261013100000_close_review_timeline.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

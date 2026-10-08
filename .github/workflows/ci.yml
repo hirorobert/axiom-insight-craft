@@ -468,6 +468,14 @@ jobs:
           createdb layout_assist_proof
           bun scripts/db-proof/layoutAssistAuthority.mjs
 
+      - name: Close Review proof (append-only comments and history behind the financial-statements rollout and kill switch; capability-checked writes; author-only revisions as new events; idempotent requests; cross-workspace isolation; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/close_review_proof
+        run: |
+          createdb close_review_proof
+          bun scripts/db-proof/closeReviewAuthority.mjs
+
       - name: I1-A release-order proof (one database upgraded main → A1 → A2 → generation 4 with the real engines and layout function at every stage; refusals before any write; confirmations through the function and directly through the service-role writer; pre-release results stay authoritative; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
