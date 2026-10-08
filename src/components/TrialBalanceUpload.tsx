@@ -19,6 +19,9 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { registerWorkspaceUpload, uploadWorkspaceSource } from "@/lib/workspace/sourceUpload";
 import {
+  TWO_PERIOD_INTAKE_ENABLED, adjacentPriorPeriod, registerTwoPeriodUpload, type PeriodRow, type TwoPeriodRpcClient,
+} from "@/lib/workspace/twoPeriodIntake";
+import {
   ACCEPTED_EXTENSIONS, INITIAL_FLOW, POLL_DELAYS_MS, actionsFor, checkFinished, classifyCheckAnswer, classifySourceFailure,
   isBusy, reduceFlow, stepsFor, type FlowActionId, type FlowState, type StepStatus,
 } from "@/lib/ingestion/uploadFlow";
@@ -90,6 +93,20 @@ export const TrialBalanceUpload = ({
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
+  // ── One file, two years (I1-B; shown only when released and the period just before this one exists) ─────────────
+  const [priorPeriod, setPriorPeriod] = useState<PeriodRow | null>(null);
+  const [includePrior, setIncludePrior] = useState(false);
+  const [priorNote, setPriorNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!TWO_PERIOD_INTAKE_ENABLED || !lockedCompanyId || !periodId) return;
+    let live = true;
+    void (supabase.from("fiscal_periods") as unknown as {
+      select(c: string): { eq(c: "company_id", v: string): PromiseLike<{ data: PeriodRow[] | null }> };
+    }).select("id, period_label, fiscal_year_end, reporting_start, reporting_end").eq("company_id", lockedCompanyId)
+      .then(({ data }) => { if (live) setPriorPeriod(adjacentPriorPeriod(data ?? [], periodId)); });
+    return () => { live = false; };
+  }, [lockedCompanyId, periodId]);
+
   // ── Choosing a file ──────────────────────────────────────────────────────────────────────────────────────────────
   const choose = useCallback(async (file: File | undefined | null) => {
     if (!file || isBusy(flowRef.current)) return;
@@ -138,14 +155,31 @@ export const TrialBalanceUpload = ({
     const file = fileRef.current;
     if (!file) return;
     try {
-      const uploadId = await registerWorkspaceUpload({ reservationId, fileSize: file.size, periodYear: periodYear ?? null, periodId, engagementId });
+      let uploadId: string;
+      if (includePrior && priorPeriod && periodId) {
+        // Both years in one transaction or neither; a retry with the same request returns the same pair.
+        const pair = await registerTwoPeriodUpload(supabase as unknown as TwoPeriodRpcClient, {
+          reservationId, requestId: clientRequestId, fileSize: file.size, currentPeriodId: periodId, priorPeriodId: priorPeriod.id, currentEngagementId: engagementId,
+        });
+        uploadId = pair.currentUploadId;
+        logAction({ action: "upload_trial_balance", entityType: "trial_balance_upload", entityId: pair.priorUploadId, metadata: { fileName: file.name, fileSize: file.size, sharedWith: uploadId } });
+        // The prior year is its own dataset with its own check; it is started here and finished on its own page.
+        const label = priorPeriod.period_label;
+        setPriorNote(`${label} was saved from the same file; its check is running separately.`);
+        void supabase.functions.invoke("process-trial-balance", { body: { uploadId: pair.priorUploadId, clientRequestId: crypto.randomUUID() } })
+          .then(({ error: priorErr }) => setPriorNote(priorErr
+            ? `${label} was saved from the same file, but its check did not finish. Open ${label} to run it again.`
+            : `${label} was saved from the same file and checked separately. Open ${label} to see its result.`));
+      } else {
+        uploadId = await registerWorkspaceUpload({ reservationId, fileSize: file.size, periodYear: periodYear ?? null, periodId, engagementId });
+      }
       dispatch({ type: "REGISTERED", uploadId });
       logAction({ action: "upload_trial_balance", entityType: "trial_balance_upload", entityId: uploadId, metadata: { fileName: file.name, fileSize: file.size } });
       await runCheck(uploadId, clientRequestId);
     } catch (e) {
       dispatch({ type: "FAILED", failure: classifySourceFailure("register", e as { code?: string; message?: string; retryable?: boolean }) });
     }
-  }, [engagementId, logAction, periodId, periodYear, runCheck]);
+  }, [engagementId, includePrior, logAction, periodId, periodYear, priorPeriod, runCheck]);
 
   const runUpload = useCallback(async (clientRequestId: string) => {
     const file = fileRef.current;
@@ -261,6 +295,20 @@ export const TrialBalanceUpload = ({
             </button>
           )}
         </div>
+      )}
+
+      {priorPeriod && file && flow.phase === "selected" && (
+        <div className="flex items-start gap-2 text-[13px]" data-testid="trial-balance-two-period">
+          <input id="tb-include-prior" type="checkbox" className="mt-0.5" checked={includePrior} onChange={(e) => setIncludePrior(e.target.checked)} />
+          <label htmlFor="tb-include-prior">
+            This file also contains the prior year — save it for {priorPeriod.period_label} too.
+            <span className="block text-[12px] text-muted-foreground">Each year is checked and reviewed on its own; the file is kept while either year uses it.</span>
+          </label>
+        </div>
+      )}
+
+      {priorNote && (
+        <p role="status" className="text-[13px] text-muted-foreground" data-testid="trial-balance-prior-note">{priorNote}</p>
       )}
 
       {flow.choiceError && (
