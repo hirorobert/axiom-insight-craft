@@ -4178,6 +4178,228 @@ export type Database = {
           },
         ]
       }
+      fs_comparative_approvals: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          comparative_sha256: string | null
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          comparative_sha256?: string | null
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          comparative_sha256?: string | null
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_comparative_approvals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_comparative_approvals_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_comparative_bridges: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          current_account_key: string | null
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          prior_account_key: string
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          current_account_key?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          prior_account_key: string
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          current_account_key?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          prior_account_key?: string
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_comparative_bridges_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_comparative_bridges_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_comparative_restatement_decisions: {
+        Row: {
+          actor_user_id: string
+          created_at: string
+          decision: string
+          firm_member_id: string | null
+          id: string
+          reason: string
+          request_id: string
+          restatement_id: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          created_at?: string
+          decision: string
+          firm_member_id?: string | null
+          id?: string
+          reason: string
+          request_id: string
+          restatement_id: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          created_at?: string
+          decision?: string
+          firm_member_id?: string | null
+          id?: string
+          reason?: string
+          request_id?: string
+          restatement_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_comparative_restatement_decisions_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_comparative_restatement_decisions_restatement_id_fkey"
+            columns: ["restatement_id"]
+            isOneToOne: false
+            referencedRelation: "fs_comparative_restatements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_comparative_restatements: {
+        Row: {
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          lines: Json
+          period_year: number
+          proposed_by: string
+          reason: string
+          reference: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          lines: Json
+          period_year: number
+          proposed_by: string
+          reason: string
+          reference: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          lines?: Json
+          period_year?: number
+          proposed_by?: string
+          reason?: string
+          reference?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_comparative_restatements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_comparative_restatements_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_disclosure_texts: {
         Row: {
           actor_user_id: string
@@ -8855,6 +9077,14 @@ export type Database = {
         }
         Returns: Json
       }
+      _fs_approved_restatements: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          id: string
+          lines: Json
+          reason: string
+        }[]
+      }
       _fs_earlier_period_history: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
@@ -8888,6 +9118,14 @@ export type Database = {
           p_section: string
           p_statement: string
         }
+        Returns: string
+      }
+      _fs_reference_statements_present: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
+      }
+      _fs_restatement_state: {
+        Args: { p_restatement_id: string }
         Returns: string
       }
       _fs_section: { Args: { p_classification: string }; Returns: string }
@@ -9682,6 +9920,16 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_approve_comparatives: {
+        Args: {
+          p_approve: boolean
+          p_company_id: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       fs_assert_report_document: {
         Args: {
           p_company_id: string
@@ -9709,6 +9957,17 @@ export type Database = {
           p_report_id: string
         }
         Returns: undefined
+      }
+      fs_bridge_comparative_account: {
+        Args: {
+          p_company_id: string
+          p_current_account_key: string
+          p_period_year: number
+          p_prior_account_key: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       fs_commit_revision: {
         Args: {
@@ -9746,6 +10005,10 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_comparatives_status: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_decide_requirement: {
         Args: {
           p_company_id: string
@@ -9754,6 +10017,15 @@ export type Database = {
           p_reason: string
           p_request_id: string
           p_requirement_id: string
+        }
+        Returns: Json
+      }
+      fs_decide_restatement: {
+        Args: {
+          p_decision: string
+          p_reason: string
+          p_request_id: string
+          p_restatement_id: string
         }
         Returns: Json
       }
@@ -9839,6 +10111,17 @@ export type Database = {
       }
       fs_notes_status: {
         Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_propose_restatement: {
+        Args: {
+          p_company_id: string
+          p_lines: Json
+          p_period_year: number
+          p_reason: string
+          p_reference: string
+          p_request_id: string
+        }
         Returns: Json
       }
       fs_publication_blockers: {
