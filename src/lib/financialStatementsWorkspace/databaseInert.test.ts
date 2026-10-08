@@ -468,6 +468,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/lib/reportingKit.mjs",
       "scripts/db-proof/comparatives.mjs",
       "scripts/db-proof/signoffBinding.mjs",
+      // The reporting workbench: its loopback-only real-PostgreSQL proof, the loopback bridge for the dev harness (a
+      // throwaway database; reads and the reporting functions only) and the headless-browser journey over it. No deploy
+      // behaviour.
+      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
