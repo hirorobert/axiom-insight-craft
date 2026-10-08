@@ -6020,6 +6020,121 @@ export type Database = {
         }
         Relationships: []
       }
+      tb_source_objects: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string
+          id: string
+          purge_claimed_at: string | null
+          purged_at: string | null
+          reservation_id: string
+          state: string
+          storage_path: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          purge_claimed_at?: string | null
+          purged_at?: string | null
+          reservation_id: string
+          state?: string
+          storage_path: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          purge_claimed_at?: string | null
+          purged_at?: string | null
+          reservation_id?: string
+          state?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_source_objects_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_source_objects_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "trial_balance_source_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tb_two_period_registrations: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          current_period_id: string
+          current_upload_id: string
+          id: string
+          prior_period_id: string
+          prior_upload_id: string
+          request_id: string
+          reservation_id: string
+          source_object_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          current_period_id: string
+          current_upload_id: string
+          id?: string
+          prior_period_id: string
+          prior_upload_id: string
+          request_id: string
+          reservation_id: string
+          source_object_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          current_period_id?: string
+          current_upload_id?: string
+          id?: string
+          prior_period_id?: string
+          prior_upload_id?: string
+          request_id?: string
+          reservation_id?: string
+          source_object_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_two_period_registrations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_two_period_registrations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "trial_balance_source_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_two_period_registrations_source_object_id_fkey"
+            columns: ["source_object_id"]
+            isOneToOne: true
+            referencedRelation: "tb_source_objects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tbu_source_sweeper_config: {
         Row: {
           function_url: string
@@ -6255,6 +6370,7 @@ export type Database = {
           retired_reason: string | null
           safisha_status: string | null
           source_file_hash: string | null
+          source_object_id: string | null
           status: string
           superseded_by_upload_id: string | null
           uploaded_at: string
@@ -6287,6 +6403,7 @@ export type Database = {
           retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
+          source_object_id?: string | null
           status?: string
           superseded_by_upload_id?: string | null
           uploaded_at?: string
@@ -6319,6 +6436,7 @@ export type Database = {
           retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
+          source_object_id?: string | null
           status?: string
           superseded_by_upload_id?: string | null
           uploaded_at?: string
@@ -6374,6 +6492,13 @@ export type Database = {
             columns: ["replaces_upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_source_object_id_fkey"
+            columns: ["source_object_id"]
+            isOneToOne: false
+            referencedRelation: "tb_source_objects"
             referencedColumns: ["id"]
           },
           {
@@ -8648,6 +8773,24 @@ export type Database = {
           upload_id: string
         }[]
       }
+      register_two_period_uploads: {
+        Args: {
+          p_current_engagement_id?: string
+          p_current_period_id: string
+          p_file_size: number
+          p_prior_engagement_id?: string
+          p_prior_period_id: string
+          p_request_id: string
+          p_reservation_id: string
+        }
+        Returns: {
+          current_upload_id: string
+          detail: string
+          outcome: string
+          prior_upload_id: string
+          source_object_id: string
+        }[]
+      }
       release_workspace_invitation: {
         Args: { p_member_id: string }
         Returns: Json
@@ -9005,6 +9148,10 @@ export type Database = {
       }
       tbu_run_source_sweeper: { Args: never; Returns: string }
       tbu_safe_object_name: { Args: { p_name: string }; Returns: string }
+      tbu_source_object_unreferenced: {
+        Args: { p_object_id: string }
+        Returns: boolean
+      }
       tbu_source_path_bound: {
         Args: {
           p_company_id: string
