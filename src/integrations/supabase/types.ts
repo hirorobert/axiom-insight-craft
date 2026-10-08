@@ -8335,6 +8335,26 @@ export type Database = {
       }
       _free_plan_inventory: { Args: never; Returns: Json }
       _free_retirement_approval_id: { Args: never; Returns: string }
+      _fs_adjusted_accounts: {
+        Args: {
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
+      _fs_applied_adjustments: {
+        Args: {
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
+      _fs_period_meta: {
+        Args: { p_certification_id: string; p_company_id: string }
+        Returns: Json
+      }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -9237,6 +9257,10 @@ export type Database = {
           p_report_id: string
           p_report_version: number
         }
+        Returns: Json
+      }
+      fs_reporting_input: {
+        Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
       fs_rollout_allows: { Args: { p_company_id: string }; Returns: boolean }
