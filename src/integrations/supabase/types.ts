@@ -4238,6 +4238,166 @@ export type Database = {
           },
         ]
       }
+      fs_framework_elections: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          edition: string
+          firm_member_id: string | null
+          id: string
+          jurisdiction_confirmation: string | null
+          period_year: number
+          reason: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          edition: string
+          firm_member_id?: string | null
+          id?: string
+          jurisdiction_confirmation?: string | null
+          period_year: number
+          reason: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          edition?: string
+          firm_member_id?: string | null
+          id?: string
+          jurisdiction_confirmation?: string | null
+          period_year?: number
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_framework_elections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_framework_elections_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_presentation_assignments: {
+        Row: {
+          account_key: string
+          actor_user_id: string
+          batch_ordinal: number
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          line_id: string | null
+          pack_family: string
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          account_key: string
+          actor_user_id: string
+          batch_ordinal: number
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          line_id?: string | null
+          pack_family: string
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          account_key?: string
+          actor_user_id?: string
+          batch_ordinal?: number
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          line_id?: string | null
+          pack_family?: string
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fspa_line"
+            columns: ["pack_family", "line_id"]
+            isOneToOne: false
+            referencedRelation: "fs_presentation_lines"
+            referencedColumns: ["pack_family", "line_id"]
+          },
+          {
+            foreignKeyName: "fs_presentation_assignments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_presentation_assignments_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_presentation_lines: {
+        Row: {
+          label: string
+          line_id: string
+          lines_version: string
+          natures: string[]
+          pack_family: string
+          position: string | null
+          requirement_id: string
+          sort_order: number
+          statement: string
+        }
+        Insert: {
+          label: string
+          line_id: string
+          lines_version: string
+          natures: string[]
+          pack_family: string
+          position?: string | null
+          requirement_id: string
+          sort_order: number
+          statement: string
+        }
+        Update: {
+          label?: string
+          line_id?: string
+          lines_version?: string
+          natures?: string[]
+          pack_family?: string
+          position?: string | null
+          requirement_id?: string
+          sort_order?: number
+          statement?: string
+        }
+        Relationships: []
+      }
       hesabu_validation_assertions: {
         Row: {
           actual_value: number | null
@@ -8415,9 +8575,37 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
+      _fs_line_amount: {
+        Args: {
+          p_debit_net: number
+          p_line_id: string
+          p_section: string
+          p_statement: string
+        }
+        Returns: number
+      }
       _fs_period_meta: {
         Args: { p_certification_id: string; p_company_id: string }
         Returns: Json
+      }
+      _fs_presentation_status: {
+        Args: {
+          p_line_id: string
+          p_natures: string[]
+          p_position: string
+          p_section: string
+          p_statement: string
+        }
+        Returns: string
+      }
+      _fs_section: { Args: { p_classification: string }; Returns: string }
+      _fs_smes_edition_decide: {
+        Args: { p_elected: boolean; p_framework: string; p_start: string }
+        Returns: Json
+      }
+      _fs_smes_elected: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
       }
       _invitation_valid: {
         Args: {
@@ -9211,6 +9399,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      fs_assign_presentation: {
+        Args: {
+          p_assignments: Json
+          p_company_id: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       fs_audit_event: {
         Args: {
           p_action: string
@@ -9264,6 +9461,16 @@ export type Database = {
           p_evidence_date: string
           p_evidence_kind: string
           p_evidence_ref: string
+          p_period_year: number
+          p_reason: string
+        }
+        Returns: Json
+      }
+      fs_elect_early_application: {
+        Args: {
+          p_company_id: string
+          p_elect: boolean
+          p_jurisdiction_confirmation: string
           p_period_year: number
           p_reason: string
         }
@@ -9450,6 +9657,10 @@ export type Database = {
         }
       }
       fs_sha256_hex: { Args: { p_text: string }; Returns: string }
+      fs_statement_composition: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_store_evaluation: {
         Args: {
           p_company_id: string
