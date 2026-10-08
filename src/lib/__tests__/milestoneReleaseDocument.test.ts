@@ -54,9 +54,10 @@ describe("the milestone release procedure states exactly the repository's identi
     expect(DOC).toMatch(/\*\*Status: prepared, NOT applied, NOT deployed, NOT published\.\*\*/);
     expect(DOC).toContain("cross-workspace refusal not yet observed");
     expect(DOC).toContain("live processing message not yet observed");
-    for (const gate of ["TWO_PERIOD_INTAKE_ENABLED", "LAYOUT_ASSIST_ENABLED", "FINANCIAL_STATEMENTS_WORKSPACE_ENABLED"]) {
-      const file = { TWO_PERIOD_INTAKE_ENABLED: "src/lib/workspace/twoPeriodIntake.ts", LAYOUT_ASSIST_ENABLED: "src/lib/workbench/intake/layoutAssistClient.ts",
-        FINANCIAL_STATEMENTS_WORKSPACE_ENABLED: "src/lib/financialStatementsWorkspace/workspaceGate.ts" }[gate]!;
+    // (The financial-statements workspace gate is pinned off by workspaceGate.test.ts, which also restricts where its
+    // name may appear, so it is not repeated here.)
+    for (const gate of ["TWO_PERIOD_INTAKE_ENABLED", "LAYOUT_ASSIST_ENABLED"]) {
+      const file = { TWO_PERIOD_INTAKE_ENABLED: "src/lib/workspace/twoPeriodIntake.ts", LAYOUT_ASSIST_ENABLED: "src/lib/workbench/intake/layoutAssistClient.ts" }[gate]!;
       expect(fs.readFileSync(path.join(ROOT, file), "utf8"), gate).toMatch(new RegExp(`^export const ${gate} = false;$`, "m"));
     }
   });

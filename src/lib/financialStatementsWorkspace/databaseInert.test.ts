@@ -447,6 +447,9 @@ describe("database inertness — schema and functions", () => {
       // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
       "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",
       "scripts/db-proof/closeReviewAuthority.mjs",
+      // The milestone release-order proof (main's schema → the seven migrations one at a time, legacy uploads, the real
+      // sweeper and both storage-cleanup handlers at every stage; loopback-only). No deploy behaviour.
+      "scripts/db-proof/milestoneReleaseOrder.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
