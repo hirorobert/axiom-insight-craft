@@ -52,8 +52,9 @@ describe("migration authority parity", () => {
     // H1 (20261007100000) is applied as 0029 and S2 (20261008100000) as 0030. Nothing is pending.
     // I1-A (20261009100000, currency registry and explicit reporting periods) is authored and pending hosted application.
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
-    // I1-A A1/A2 are applied (hosted 0031/0032, identical form); nothing is pending.
-    expect(r.pending).toEqual([]);
+    // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
+    // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
+    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql"]);
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

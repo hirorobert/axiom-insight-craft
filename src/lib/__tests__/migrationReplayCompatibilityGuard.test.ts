@@ -214,7 +214,9 @@ describe("migration directory integrity", () => {
     // periods), a NEW forward-only migration pending hosted application. No applied migration is edited.
     // 150 -> 151: 20261010100000_layout_templates_and_confirmations.sql (I1-A: layout templates and confirmations,
     // the '#layout_confirmation' dependency), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(151);
+    // 151 -> 152: 20261011100000_two_period_shared_source.sql (I1-B: one file registered as two years sharing a managed
+    // source object), a NEW forward-only migration pending hosted application. No applied migration is edited.
+    expect(files.length).toBe(152);
   });
 });
 

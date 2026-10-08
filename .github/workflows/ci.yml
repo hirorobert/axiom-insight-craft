@@ -449,6 +449,14 @@ jobs:
           git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
           bun scripts/db-proof/layoutAuthority.mjs
 
+      - name: I1-B shared-source proof (one file registered as current and prior year sharing one managed source object; adjacency, workspace, actor, expiry, storage and active-slot refusals write nothing; a failure injected at every write step leaves nothing and the reservation reusable; 12-way idempotent retry; server-only immutable link; the file kept while either year references it and deleted exactly once by the real sweeper, also after concurrent discards and racing sweeps; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/shared_source_proof
+        run: |
+          createdb shared_source_proof
+          bun scripts/db-proof/sharedSourceAuthority.mjs
+
       - name: I1-A release-order proof (one database upgraded main → A1 → A2 → generation 4 with the real engines and layout function at every stage; refusals before any write; confirmations through the function and directly through the service-role writer; pre-release results stay authoritative; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
