@@ -504,6 +504,14 @@ jobs:
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
+      - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/composition_proof
+        run: |
+          createdb composition_proof
+          bun scripts/db-proof/statementComposition.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

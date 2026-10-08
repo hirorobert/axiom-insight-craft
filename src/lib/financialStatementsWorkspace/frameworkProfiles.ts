@@ -117,12 +117,12 @@ const IFRS_FOR_SMES: FrameworkProfile = {
   expectedStatements: [
     { kind: "STATEMENT_OF_FINANCIAL_POSITION", requirement: "REQUIRED", title: "Statement of Financial Position", reference: "IFRS for SMEs 3.17(a), Section 4" },
     { kind: "STATEMENT_OF_PROFIT_OR_LOSS", requirement: "REQUIRED", title: "Statement of Comprehensive Income", reference: "IFRS for SMEs 3.17(b), Section 5" },
-    { kind: "STATEMENT_OF_CHANGES_IN_EQUITY", requirement: "REQUIRED", title: "Statement of Changes in Equity", reference: "IFRS for SMEs 3.17(d), Section 6", condition: "May be replaced by a statement of income and retained earnings only where the Section 6 conditions are met." },
-    { kind: "STATEMENT_OF_CASH_FLOWS", requirement: "REQUIRED", title: "Statement of Cash Flows", reference: "IFRS for SMEs 3.17(e), Section 7" },
+    { kind: "STATEMENT_OF_CHANGES_IN_EQUITY", requirement: "REQUIRED", title: "Statement of Changes in Equity", reference: "IFRS for SMEs 3.17(c), Section 6", condition: "May be replaced by a statement of income and retained earnings only where the paragraph 3.18 conditions are met." },
+    { kind: "STATEMENT_OF_CASH_FLOWS", requirement: "REQUIRED", title: "Statement of Cash Flows", reference: "IFRS for SMEs 3.17(d), Section 7" },
   ],
   disclosureAreas: [
     { id: "basis-of-preparation", label: "Statement of compliance with the IFRS for SMEs", reference: "IFRS for SMEs 3.3" },
-    { id: "accounting-policies", label: "Summary of significant accounting policies", reference: "IFRS for SMEs 8.5" },
+    { id: "accounting-policies", label: "Accounting policies (2015 edition: summary of significant accounting policies; third edition: material accounting policy information)", reference: "IFRS for SMEs 8.5" },
     { id: "supporting-notes", label: "Notes supporting line items on the face of the statements", reference: "IFRS for SMEs 8.6" },
   ],
   comparativesRequired: true,
@@ -205,7 +205,9 @@ const IPSAS_CASH: FrameworkProfile = {
 };
 
 /** Bumped whenever any profile's statement set, titles, terminology or disclosure areas change, so a stored report can name the wording authority it was prepared under. */
-export const FRAMEWORK_PROFILES_VERSION = "1.1.0";
+// 1.2.0: IFRS for SMEs references corrected against the standard's text (statement of changes in equity 3.17(c), statement
+// of cash flows 3.17(d) — 1.1.0 cited (d)/(e)); the policy area names both editions' wording. Editions: src/lib/frameworkPacks/.
+export const FRAMEWORK_PROFILES_VERSION = "1.2.0";
 
 export const FRAMEWORK_PROFILES: Readonly<Record<ReportingFrameworkKind, FrameworkProfile>> = {
   IFRS: FULL_IFRS,

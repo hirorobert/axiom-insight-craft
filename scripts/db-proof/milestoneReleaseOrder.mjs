@@ -121,10 +121,12 @@ async function main() {
 
   const files = currentChain(REPO);
   group("Stage 0 — the schema of main");
-  await check("the seven release migrations are the newest seven, in this order; everything before applies", async () => {
-    const tail = files.slice(-RELEASE_MIGRATIONS.length);
-    if (JSON.stringify(tail) !== JSON.stringify(RELEASE_MIGRATIONS)) return tail;
-    for (const f of files.slice(0, files.length - RELEASE_MIGRATIONS.length)) await apply(f);
+  // The seven are consecutive in the chain (later migrations belong to later releases and are not part of this proof).
+  const first = files.indexOf(RELEASE_MIGRATIONS[0]);
+  await check("the seven release migrations are consecutive, in this order; everything before them applies", async () => {
+    const run = files.slice(first, first + RELEASE_MIGRATIONS.length);
+    if (first < 0 || JSON.stringify(run) !== JSON.stringify(RELEASE_MIGRATIONS)) return run;
+    for (const f of files.slice(0, first)) await apply(f);
     return true;
   });
 

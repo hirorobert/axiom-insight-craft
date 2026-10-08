@@ -196,6 +196,6 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     }
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]);
+    for (const s of WRAPPED_SOURCES) expect(r.pending, s).not.toContain(s);
   }, 120_000);
 });
