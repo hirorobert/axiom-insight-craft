@@ -4720,6 +4720,66 @@ export type Database = {
         }
         Relationships: []
       }
+      fs_publication_bindings: {
+        Row: {
+          company_id: string
+          created_at: string
+          declared_content_hash: string
+          dependencies: Json
+          dependencies_sha256: string
+          document_sha256: string
+          id: string
+          publication_id: string
+          report_id: string
+          report_version: number
+          seq: number
+          state: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          declared_content_hash: string
+          dependencies: Json
+          dependencies_sha256: string
+          document_sha256: string
+          id?: string
+          publication_id: string
+          report_id: string
+          report_version: number
+          seq?: never
+          state: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          declared_content_hash?: string
+          dependencies?: Json
+          dependencies_sha256?: string
+          document_sha256?: string
+          id?: string
+          publication_id?: string
+          report_id?: string
+          report_version?: number
+          seq?: never
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_publication_bindings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_publication_bindings_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: true
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_requirement_decisions: {
         Row: {
           actor_user_id: string
@@ -10156,6 +10216,10 @@ export type Database = {
           p_report_id: string
           p_report_version: number
         }
+        Returns: Json
+      }
+      fs_reporting_dependencies: {
+        Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
       fs_reporting_input: {
