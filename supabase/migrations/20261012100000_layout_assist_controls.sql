@@ -6,7 +6,8 @@
 --      its files to the configured provider. Versioned (a new wording needs a new consent), revocable, append-only;
 --      given or revoked by a member holding manage_members. No version is seeded (the wording is an owner decision).
 --   2. ai_provider_settings — the single provider configuration (commercial admins only). Seeded DISABLED with no
---      provider; the Edge Function additionally has no external adapter wired.
+--      provider; enabling needs the model, prompt version, per-call cost ceiling, the retention policy in force and both
+--      approvals (data handling, evaluation). The Edge Function additionally has no external adapter wired.
 --   3. ai_workspace_budgets — per-workspace monthly cost cap and per-user daily quota (commercial admins only). No row
 --      means no budget: refused.
 --   4. ai_layout_assist_runs — one row per suggestion request: reserved before any provider call (quota and pessimistic
@@ -117,19 +118,25 @@ CREATE TABLE public.ai_provider_settings (
   model                        TEXT        NULL CHECK (model IS NULL OR length(model) BETWEEN 1 AND 100),
   prompt_version               TEXT        NULL,
   max_cost_per_call_micros     BIGINT      NULL CHECK (max_cost_per_call_micros IS NULL OR max_cost_per_call_micros > 0),
+  -- The provider's data handling in force (e.g. 'zero_data_retention', '30_days'; region where selectable). Recorded on
+  -- every run, so each proposal states the terms it was made under.
+  retention_policy             TEXT        NULL CHECK (retention_policy IS NULL OR retention_policy ~ '^[a-z0-9_]{1,40}$'),
+  region                       TEXT        NULL CHECK (region IS NULL OR region ~ '^[a-z0-9_-]{1,40}$'),
   data_handling_approved_at    TIMESTAMPTZ NULL,
   evaluation_approved_at       TIMESTAMPTZ NULL,
   updated_by                   UUID        NULL,
   updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
   -- Enabling requires a provider, a model, a prompt version, a per-call cost ceiling, and BOTH approval gates recorded.
   CONSTRAINT chk_aips_enable_gates CHECK (NOT enabled OR (provider_id IS NOT NULL AND model IS NOT NULL AND prompt_version IS NOT NULL
-    AND max_cost_per_call_micros IS NOT NULL AND data_handling_approved_at IS NOT NULL AND evaluation_approved_at IS NOT NULL))
+    AND max_cost_per_call_micros IS NOT NULL AND retention_policy IS NOT NULL
+    AND data_handling_approved_at IS NOT NULL AND evaluation_approved_at IS NOT NULL))
 );
 INSERT INTO public.ai_provider_settings (singleton, enabled) VALUES (true, false);
 CREATE TRIGGER trg_aips_no_delete BEFORE DELETE ON public.ai_provider_settings FOR EACH ROW EXECUTE FUNCTION public.ai_append_only_guard();
 
 CREATE OR REPLACE FUNCTION public.ai_configure_provider(p_enabled boolean, p_provider_id text, p_model text, p_prompt_version text,
-  p_max_cost_per_call_micros bigint, p_data_handling_approved_at timestamptz, p_evaluation_approved_at timestamptz)
+  p_max_cost_per_call_micros bigint, p_retention_policy text, p_region text,
+  p_data_handling_approved_at timestamptz, p_evaluation_approved_at timestamptz)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_uid uuid := auth.uid();
@@ -139,7 +146,8 @@ BEGIN
     RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
   END IF;
   UPDATE public.ai_provider_settings SET enabled = p_enabled, provider_id = p_provider_id, model = p_model, prompt_version = p_prompt_version,
-    max_cost_per_call_micros = p_max_cost_per_call_micros, data_handling_approved_at = p_data_handling_approved_at,
+    max_cost_per_call_micros = p_max_cost_per_call_micros, retention_policy = p_retention_policy, region = p_region,
+    data_handling_approved_at = p_data_handling_approved_at,
     evaluation_approved_at = p_evaluation_approved_at, updated_by = v_uid, updated_at = now()
    WHERE singleton;
   RETURN jsonb_build_object('outcome', 'configured', 'enabled', p_enabled);
@@ -187,6 +195,8 @@ CREATE TABLE public.ai_layout_assist_runs (
   provider_id           TEXT        NOT NULL,
   model                 TEXT        NOT NULL,
   prompt_version        TEXT        NOT NULL,
+  retention_policy      TEXT        NOT NULL,
+  region                TEXT        NULL,
   sample_format         TEXT        NOT NULL CHECK (sample_format = 'ai-sample/1'),
   sample_sha256         TEXT        NOT NULL CHECK (sample_sha256 ~ '^[0-9a-f]{64}$'),
   reserved_cost_micros  BIGINT      NOT NULL CHECK (reserved_cost_micros > 0),
@@ -267,9 +277,9 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'refused', 'code', 'AI_BUDGET_EXCEEDED');
   END IF;
   INSERT INTO public.ai_layout_assist_runs (company_id, upload_id, actor_user_id, firm_member_id, request_id, consent_version,
-    provider_id, model, prompt_version, sample_format, sample_sha256, reserved_cost_micros)
+    provider_id, model, prompt_version, retention_policy, region, sample_format, sample_sha256, reserved_cost_micros)
   VALUES (v_company, p_upload_id, p_user_id, v_actor.firm_member_id, p_request_id, v_version,
-    v_p.provider_id, v_p.model, v_p.prompt_version, 'ai-sample/1', p_sample_sha256, v_p.max_cost_per_call_micros)
+    v_p.provider_id, v_p.model, v_p.prompt_version, v_p.retention_policy, v_p.region, 'ai-sample/1', p_sample_sha256, v_p.max_cost_per_call_micros)
   RETURNING * INTO v_run;
   RETURN jsonb_build_object('outcome', 'reserved', 'runId', v_run.id, 'state', 'reserved', 'replay', false,
     'providerId', v_p.provider_id, 'model', v_p.model, 'promptVersion', v_p.prompt_version, 'maxCostMicros', v_p.max_cost_per_call_micros);
@@ -325,8 +335,8 @@ REVOKE ALL ON FUNCTION public.ai_workspace_consent_current(uuid) FROM PUBLIC, an
 GRANT EXECUTE ON FUNCTION public.ai_workspace_consent_current(uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.ai_set_workspace_consent(uuid, text, boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.ai_set_workspace_consent(uuid, text, boolean) TO authenticated;
-REVOKE ALL ON FUNCTION public.ai_configure_provider(boolean, text, text, text, bigint, timestamptz, timestamptz) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.ai_configure_provider(boolean, text, text, text, bigint, timestamptz, timestamptz) TO authenticated;
+REVOKE ALL ON FUNCTION public.ai_configure_provider(boolean, text, text, text, bigint, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.ai_configure_provider(boolean, text, text, text, bigint, text, text, timestamptz, timestamptz) TO authenticated;
 REVOKE ALL ON FUNCTION public.ai_set_workspace_budget(uuid, bigint, integer) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.ai_set_workspace_budget(uuid, bigint, integer) TO authenticated;
 REVOKE ALL ON FUNCTION public.ai_layout_assist_reserve(uuid, uuid, uuid, text) FROM PUBLIC, anon, authenticated;

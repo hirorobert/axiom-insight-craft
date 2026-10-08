@@ -138,7 +138,7 @@ async function main() {
   }
   const reserve = (uid, uploadId, request = uuid(), sampleSha = sha("sample")) => asService("SELECT public.ai_layout_assist_reserve($1,$2,$3,$4) r", [uid, uploadId, request, sampleSha]).then((r) => r.r);
   const completeRun = (runId, state = "failed", cost = null) => asService("SELECT public.ai_layout_assist_complete($1,$2,$3,NULL,NULL,NULL,'PROOF') r", [runId, state, cost]).then((r) => r.r);
-  const configure = (uid, enabled, approvals = true, maxCost = 1000) => asUser(uid, "SELECT public.ai_configure_provider($1,'testprov','test-model','p1',$2,$3,$4) r",
+  const configure = (uid, enabled, approvals = true, maxCost = 1000) => asUser(uid, "SELECT public.ai_configure_provider($1,'testprov','test-model','p1',$2,'zero_data_retention','eu',$3,$4) r",
     [enabled, maxCost, approvals ? new Date().toISOString() : null, approvals ? new Date().toISOString() : null]).then((r) => r.r);
   const setBudget = (company, cap, quota) => asUser(U.admin, "SELECT public.ai_set_workspace_budget($1,$2,$3) r", [company, cap, quota]);
   const consent = (uid, company, version, grant) => asUser(uid, "SELECT public.ai_set_workspace_consent($1,$2,$3) r", [company, version, grant]).then((r) => r.r);
@@ -269,11 +269,11 @@ async function main() {
     const up2 = await upload();
     const r = await assist(patched, U.preparer, { action: "suggest", uploadId: up2, requestId: uuid() });
     run = { id: r.body?.runId, upload: up2, layout: r.body?.layout };
-    const row = await one("SELECT state, actual_cost_micros, proposal, sample_format, consent_version, firm_member_id FROM public.ai_layout_assist_runs WHERE id=$1", [r.body?.runId]);
+    const row = await one("SELECT state, actual_cost_micros, proposal, sample_format, consent_version, firm_member_id, retention_policy, region FROM public.ai_layout_assist_runs WHERE id=$1", [r.body?.runId]);
     const leaked = SECRETS.filter((s) => seen.join("").includes(s));
     return r.http === 200 && r.body.advisory === true && r.body.report.layoutFits === true && r.body.report.rows.length === 5
       && row.state === "proposed" && Number(row.actual_cost_micros) === 700 && row.sample_format === "ai-sample/1" && row.consent_version === "v2"
-      && row.firm_member_id !== null && leaked.length === 0
+      && row.firm_member_id !== null && row.retention_policy === "zero_data_retention" && row.region === "eu" && leaked.length === 0
       && (await count("SELECT count(*) n FROM public.layout_confirmations WHERE upload_id=$1", [up2])) === 0 ? true : { r: r.body, row, leaked };
   });
   await check("the person confirms the suggested layout through the existing layout function (the only confirm path)", async () => {

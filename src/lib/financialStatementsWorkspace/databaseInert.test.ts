@@ -431,6 +431,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/sharedSourceAuthority.mjs",
       // I1-C (20261012100000): the loopback-only real-PostgreSQL proof of the layout-assist controls and the real function.
       "scripts/db-proof/layoutAssistAuthority.mjs",
+      // ...and the provider evaluation harness an enablement must pass (production pipeline, owner thresholds). No deploy behaviour.
+      "scripts/ai/layoutAssistEval.ts",
       // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only
       // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
       "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",
