@@ -229,3 +229,60 @@ describe("LayoutEditor — number-format ambiguity requires an explicit choice",
     expect(byText(/Confirm layout for this file/).disabled).toBe(true);
   });
 });
+
+describe("LayoutEditor — AI-assisted suggestion (I1-C)", () => {
+  const NO_AUTO = { ...INSPECT, sheets: [{ ...INSPECT.sheets![0], suggestion: null }] };
+  const SUGGESTED = { format: "layout-template/1" as const, sheet: { kind: "csv" as const }, headerRow: 1, numberFormat: "dot_comma" as const, balanceSign: null,
+    columns: { accountCode: "Code", accountName: "Name", debit: "Soll", credit: "Haben", balance: null, dimensions: [] } };
+  const assist = (answer: unknown) => ({ suggest: vi.fn(async () => answer) });
+  const withAssist = (c: LayoutClient, a: ReturnType<typeof assist>) =>
+    h(LayoutEditor, { client: c, companyId: "c1", uploadId: "u1", periodLabel: "FY2025", templates: [], newKey: () => "req-1", assist: a as never });
+
+  it("released constant is off; without an assist client there is no Suggest button", async () => {
+    const { LAYOUT_ASSIST_ENABLED } = await import("./layoutAssistClient");
+    expect(LAYOUT_ASSIST_ENABLED).toBe(false);
+    m = mount(editor(fakeClient({ inspect: vi.fn(async () => ok(NO_AUTO)) })));
+    await flush();
+    expect(document.querySelector("[data-testid=layout-suggest]")).toBeNull();
+  });
+  it("offered only when the automatic reading could not read the sheet", async () => {
+    m = mount(withAssist(fakeClient(), assist(ok({}))));
+    await flush();
+    expect(document.querySelector("[data-testid=layout-suggest]")).toBeNull();
+  });
+  it("a suggestion fills the editor with the server's whole-file report, marked advisory; nothing is confirmed until the person confirms", async () => {
+    const c = fakeClient({ inspect: vi.fn(async () => ok(NO_AUTO)) });
+    const a = assist(ok({ status: "proposed", runId: "r1", advisory: true, layout: SUGGESTED, report: REPORT(), replay: false }));
+    m = mount(withAssist(c, a));
+    await flush();
+    click(document.querySelector("[data-testid=layout-suggest]")!); await flush();
+    expect(a.suggest).toHaveBeenCalledWith("u1", 0, "req-1");
+    expect(document.querySelector("[data-testid=layout-suggested]")?.textContent).toContain("advisory");
+    key(document.activeElement!, "Escape");
+    expect(select("Debit").value).toBe("Soll");
+    expect(c.confirm).not.toHaveBeenCalled();
+    expect(byText(/Confirm layout for this file/).disabled).toBe(false);
+    click(byText(/Confirm layout for this file/)); click(byText(/^Confirm layout$/)); await flush();
+    expect(c.confirm).toHaveBeenCalledWith("u1", expect.objectContaining({ columns: expect.objectContaining({ debit: "Soll" }) }), 0, null, false);
+  });
+  it("any change by the person clears the advisory mark and the report (a new check is needed)", async () => {
+    const a = assist(ok({ status: "proposed", runId: "r1", advisory: true, layout: SUGGESTED, report: REPORT(), replay: false }));
+    m = mount(withAssist(fakeClient({ inspect: vi.fn(async () => ok(NO_AUTO)) }), a));
+    await flush();
+    click(document.querySelector("[data-testid=layout-suggest]")!); await flush();
+    key(document.activeElement!, "Escape");
+    choose(select("Account name"), "");
+    expect(document.querySelector("[data-testid=layout-suggested]")).toBeNull();
+    expect(byText(/Confirm layout for this file/).disabled).toBe(true);
+  });
+  it("a refusal (e.g. suggestions not available) says so and keeps the manual path; nothing changes", async () => {
+    const a = assist({ kind: "refused", code: "PROVIDER_DISABLED", message: "Layout suggestions are not available. Set the layout manually — the editor is always available." });
+    m = mount(withAssist(fakeClient({ inspect: vi.fn(async () => ok(NO_AUTO)) }), a));
+    await flush();
+    click(document.querySelector("[data-testid=layout-suggest]")!); await flush();
+    expect(document.body.textContent).toContain("Set the layout manually");
+    expect(document.querySelector("[data-testid=layout-suggested]")).toBeNull();
+    expect(byText(/Check against the whole file/).disabled).toBe(true);   // the draft is untouched (still incomplete)
+    expect(byText(/Confirm layout for this file/).disabled).toBe(true);
+  });
+});

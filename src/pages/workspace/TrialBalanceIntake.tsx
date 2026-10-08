@@ -20,6 +20,7 @@ import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
 import { LayoutEditor, type LayoutTemplateRow } from "@/components/workbench/intake/LayoutEditor";
 import { useGuardedRequest } from "@/components/workbench/useGuardedRequest";
 import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
+import { LAYOUT_ASSIST_ENABLED, layoutAssistClient, type LayoutAssistInvoke } from "@/lib/workbench/intake/layoutAssistClient";
 import { latestTemplateVersions, type TemplateReadRow } from "@/lib/workbench/intake/templates";
 import { requestReprocess, ReprocessRefusedError, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
@@ -36,6 +37,8 @@ async function readTemplates(companyId: string): Promise<LayoutTemplateRow[]> {
 export default function TrialBalanceIntake() {
   const { companyId, periodYear, upload, refreshUpload } = useWorkspace();
   const client = useMemo(() => layoutClient(((name, opts) => supabase.functions.invoke(name, opts)) as LayoutInvoke), []);
+  // AI-assisted suggestions only when released (I1-C); otherwise the editor is exactly as before.
+  const assist = useMemo(() => (LAYOUT_ASSIST_ENABLED ? layoutAssistClient(((name, opts) => supabase.functions.invoke(name, opts)) as LayoutAssistInvoke) : undefined), []);
   const templates = useGuardedRequest<LayoutTemplateRow[]>("layout-templates", companyId, () => readTemplates(companyId));
   const [confirmedNo, setConfirmedNo] = useState<number | null>(null);
   const [recheck, setRecheck] = useState<{ busy: boolean; text: string | null }>({ busy: false, text: null });
@@ -70,7 +73,7 @@ export default function TrialBalanceIntake() {
       {upload?.id ? (
         <>
           <LayoutEditor client={client} companyId={companyId} uploadId={upload.id} periodLabel={periodLabel}
-            templates={templates.state.status === "ready" ? templates.state.value : []} onConfirmed={setConfirmedNo} />
+            templates={templates.state.status === "ready" ? templates.state.value : []} onConfirmed={setConfirmedNo} assist={assist} />
           {confirmedNo !== null ? (
             <div className="space-y-1">
               <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={recheck.busy} onClick={() => void checkAgain()}>

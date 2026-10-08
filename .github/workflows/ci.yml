@@ -160,6 +160,9 @@ jobs:
       - name: Type-check the complete trial-balance-layout function (authentication imports included) against the real Supabase client types
         run: deno check supabase/functions/trial-balance-layout/index.ts
 
+      - name: Type-check the complete layout-assist function (I1-C; no provider wired) against the real Supabase client types
+        run: deno check supabase/functions/layout-assist/index.ts
+
       - name: Type-check the ingestion core and the function-path test
         run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/_shared/layoutProfile.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
@@ -456,6 +459,14 @@ jobs:
         run: |
           createdb shared_source_proof
           bun scripts/db-proof/sharedSourceAuthority.mjs
+
+      - name: I1-C layout-assist controls proof (the real layout-assist function refuses before any read while no provider is wired; provider disabled with both approval gates required; versioned, revocable, append-only workspace consent by manage_members; daily quota and monthly cost cap reserved pessimistically under 12-way concurrency; idempotent runs completed once; a test provider injected into the real function sees only the minimized sample, the suggestion is validated against the whole file and confirmed only through the existing layout function; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/layout_assist_proof
+        run: |
+          createdb layout_assist_proof
+          bun scripts/db-proof/layoutAssistAuthority.mjs
 
       - name: I1-A release-order proof (one database upgraded main → A1 → A2 → generation 4 with the real engines and layout function at every stage; refusals before any write; confirmations through the function and directly through the service-role writer; pre-release results stay authoritative; on the same throwaway container)
         env:
