@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
-  ACTION_REFUSALS, offeredActions, findingResolved, findingStatus, REFRESH_WORDS, RESOLUTION_WORDS, RULE_WORDS, STATUS_WORDS,
+  ACTION_REFUSALS, KIND_WORDS, offeredActions, findingResolved, findingStatus, REFRESH_WORDS, RESOLUTION_WORDS, RULE_STATUS_WORDS, RULE_WORDS, STATUS_WORDS,
   type FindingAction, type FindingRow, type FindingsClient, type FindingsSummary,
 } from "@/lib/closeReview/findings";
 import type { TimelineClient, TimelineEventRow } from "@/lib/closeReview/timeline";
@@ -107,13 +107,14 @@ export function FindingsView(p: {
       {nextOpen ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" onClick={() => setSelected(nextOpen.id)}>Next open item</button> : null}
       {rows.length > 0 ? (
         <table className="w-full text-sm" aria-label="Findings">
-          <thead><tr><th scope="col" className="text-left">Finding</th><th scope="col" className="text-left">Account</th><th scope="col" className="text-right">Debit</th><th scope="col" className="text-right">Credit</th><th scope="col" className="text-left">Severity</th><th scope="col" className="text-left">Status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
+          <thead><tr><th scope="col" className="text-left">Finding</th><th scope="col" className="text-left">Type</th><th scope="col" className="text-left">Account</th><th scope="col" className="text-right">Debit</th><th scope="col" className="text-right">Credit</th><th scope="col" className="text-left">Severity</th><th scope="col" className="text-left">Status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
           <tbody>
             {rows.map((r) => {
               const st = findingStatus(evOf(r.id));
               return (
                 <tr key={r.id} data-testid={`finding-${r.finding_key}`}>
                   <td>{RULE_WORDS[r.rule_id]?.title ?? r.rule_id}</td>
+                  <td>{KIND_WORDS[r.kind] ?? r.kind}</td>
                   <td>{r.account_code ? `${r.account_code} ` : ""}{r.account_name ?? "—"}</td>
                   <td className="text-right"><Amount minor={r.debit_minor} exponent={summary.exponent} /></td>
                   <td className="text-right"><Amount minor={r.credit_minor} exponent={summary.exponent} /></td>
@@ -128,8 +129,8 @@ export function FindingsView(p: {
       ) : null}
       {notEvaluated.length > 0 ? (
         <details className="text-sm" data-testid="not-evaluated">
-          <summary>Not evaluated ({notEvaluated.length})</summary>
-          <ul className="ml-4 list-disc">{notEvaluated.map(([k, s]) => <li key={k}>{RULE_WORDS[k]?.title ?? k}: {s.reason}</li>)}</ul>
+          <summary>Checks not run on this trial balance ({notEvaluated.length}) — never shown as passed</summary>
+          <ul className="ml-4 list-disc">{notEvaluated.map(([k, s]) => <li key={k}>{RULE_WORDS[k]?.title ?? k} — {s.status ? RULE_STATUS_WORDS[s.status] : "Not evaluated"}: {s.reason}</li>)}</ul>
         </details>
       ) : null}
       {sel ? (

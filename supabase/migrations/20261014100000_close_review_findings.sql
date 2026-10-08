@@ -12,18 +12,32 @@
 --   Lifecycle                  open → explained | accepted | not_applicable | adjusted (I3) | reopened, as events on the
 --                              shared append-only timeline (close_review_events, subject 'finding').
 --
--- Rules evaluated now (no threshold or unknown fact needed):
---   A01 abnormal sign — a balance on the side opposite to its class (assets/expenses in credit; liabilities/equity/income
---       in debit), except a closing-stock credit whose treatment a reviewer confirmed (H1b). warning · explanation.
---   A03 negative cash — an account designated cash (is_cash_account = true) in credit while mapped as an asset, i.e. not
---       mapped as an overdraft. blocking · mandatory · review (reclassify, or adjust).
---   A10 machine classification — an account certified on a machine suggestion (evidence tier 4–5). warning · explanation.
---   T01 income-tax workpaper — tax accounts with a balance need a preparer-supplied computation workpaper (revision 5
---       §1.5): blocking · mandatory · evidence. No tax engine is called, read or awaited.
--- Not evaluated in this catalogue version, with the recorded reason: A07 (cannot reach a certified trial balance: names
--- are unique per workspace in the classification authority and duplicates are refused at intake), A02 (no authoritative suspense/clearing designation
--- exists), A04 (needs the pack's trial-balance basis — before or after closing entries — and an authoritative prior year),
--- A05, A06 and A08 (need the framework pack's thresholds, I4), A09 (needs the pack's statutory liability classes, I4).
+-- The catalogue (tb-anomaly-catalogue/1) — every rule has a KIND and, per run, a STATUS with its reason:
+--   kind    deterministic_error   the figures as presented are wrong if the condition holds;
+--           risk_indicator        a condition that often signals an error but can be legitimate (e.g. a contra account);
+--           evidence_requirement  a figure that needs supporting evidence before it can be signed off.
+--   status  evaluated | not_required (a scoped requirement is not in force) | not_evaluated (an input the system does
+--           not hold) | excluded (cannot occur on a certified trial balance). Nothing is claimed beyond what is evaluated:
+--           the catalogue is not a complete error detector.
+--   A01 risk_indicator        balance on the side opposite to its class, except a reviewer-confirmed closing-stock credit
+--                             (H1b) — evaluated · warning · explanation.
+--   A02 risk_indicator        suspense/clearing account open — not_evaluated (no authoritative suspense designation).
+--   A03 deterministic_error   designated cash account in credit presented as an asset (not as an overdraft) — evaluated ·
+--                             blocking · mandatory · resolved only by a correction whose effect clears the credit balance.
+--   A04 deterministic_error   retained earnings do not roll forward — not_evaluated (needs the pack's trial-balance basis).
+--   A05 risk_indicator        new or vanished accounts — not_evaluated (needs the pack's materiality threshold).
+--   A06 risk_indicator        unexplained movement — not_evaluated (needs the pack's variance threshold).
+--   A07 deterministic_error   duplicate account identity — excluded (names are unique per workspace in the classification
+--                             authority and duplicates are refused at intake).
+--   A08 risk_indicator        round amounts — not_evaluated (needs the pack's threshold).
+--   A09 risk_indicator        statutory liability in debit — not_evaluated (needs the pack's statutory classes).
+--   A10 risk_indicator        classification certified on a machine suggestion — evaluated · warning · explanation.
+--   T01 evidence_requirement  income-tax computation workpaper — evaluated ONLY where a reviewed requirement scopes it to
+--                             this workspace (close_review_requirements, recorded with approve_certification and the
+--                             framework or statutory reference); otherwise not_required. Blocking · mandatory · evidence.
+--                             No tax engine is called, read or awaited.
+-- A run is keyed by (certification, prior-year certification, catalogue version, requirement scope): changing the scope
+-- is a new run, like a new authority.
 --
 -- Who: generating and explaining (with evidence) need prepare_close; accepting, marking not applicable and reopening need
 -- review_close; all exercised now (current plan). Behind the financial-statements rollout (allow-list + kill switch).
@@ -34,7 +48,8 @@
 
 DO $preflight$
 BEGIN
-  IF to_regclass('public.close_review_finding_runs') IS NOT NULL OR to_regclass('public.close_review_findings') IS NOT NULL THEN
+  IF to_regclass('public.close_review_finding_runs') IS NOT NULL OR to_regclass('public.close_review_findings') IS NOT NULL
+     OR to_regclass('public.close_review_requirements') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: close review findings already exist; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END;
@@ -51,12 +66,13 @@ CREATE TABLE public.close_review_finding_runs (
   currency                 TEXT        NOT NULL,
   exponent                 INTEGER     NOT NULL CHECK (exponent BETWEEN 0 AND 4),
   rule_status              JSONB       NOT NULL,
+  scope_key                TEXT        NOT NULL CHECK (scope_key ~ '^T01=(on|off)$'),
   generated_by             UUID        NOT NULL,
   firm_member_id           UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 CREATE UNIQUE INDEX uq_crfr_authority ON public.close_review_finding_runs
-  (certification_id, COALESCE(prior_certification_id, '00000000-0000-0000-0000-000000000000'::uuid), catalogue_version);
+  (certification_id, COALESCE(prior_certification_id, '00000000-0000-0000-0000-000000000000'::uuid), catalogue_version, scope_key);
 CREATE INDEX idx_crfr_company ON public.close_review_finding_runs (company_id, period_year, created_at DESC);
 
 CREATE TABLE public.close_review_findings (
@@ -67,6 +83,7 @@ CREATE TABLE public.close_review_findings (
   rule_version         INTEGER     NOT NULL CHECK (rule_version = 1),
   finding_key          TEXT        NOT NULL,
   severity             TEXT        NOT NULL CHECK (severity IN ('blocking', 'warning')),
+  kind                 TEXT        NOT NULL CHECK (kind IN ('deterministic_error', 'risk_indicator', 'evidence_requirement')),
   mandatory            BOOLEAN     NOT NULL,
   required_resolution  TEXT        NOT NULL CHECK (required_resolution IN ('explanation', 'evidence', 'review')),
   account_key          TEXT        NULL,
@@ -120,6 +137,68 @@ RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
    ORDER BY fm.created_at LIMIT 1;
 $$;
 
+-- ── Scoped requirements (a reviewed decision that a requirement applies to this workspace) ─────────────────────────────
+CREATE TABLE public.close_review_requirements (
+  id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq             BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id      UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  requirement_id  TEXT        NOT NULL CHECK (requirement_id IN ('T01')),
+  action          TEXT        NOT NULL CHECK (action IN ('in_force', 'withdrawn')),
+  reference       TEXT        NULL CHECK (reference IS NULL OR length(btrim(reference)) BETWEEN 3 AND 300),
+  reason          TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
+  actor_user_id   UUID        NOT NULL,
+  firm_member_id  UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT chk_crq_reference CHECK (action <> 'in_force' OR reference IS NOT NULL)
+);
+CREATE INDEX idx_crq_company ON public.close_review_requirements (company_id, requirement_id, seq DESC);
+CREATE TRIGGER trg_crq_append_only BEFORE UPDATE OR DELETE ON public.close_review_requirements FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
+CREATE TRIGGER trg_crq_no_truncate BEFORE TRUNCATE ON public.close_review_requirements FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
+
+CREATE OR REPLACE FUNCTION public.close_review_requirement_in_force(p_company_id uuid, p_requirement_id text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT COALESCE((SELECT q.action = 'in_force' FROM public.close_review_requirements q
+                    WHERE q.company_id = p_company_id AND q.requirement_id = p_requirement_id ORDER BY q.seq DESC LIMIT 1), false);
+$$;
+
+-- Put a requirement in force (with the framework or statutory reference that scopes it) or withdraw it. Needs
+-- approve_certification. Outcomes: recorded | unchanged | forbidden | feature_disabled | invalid_request.
+CREATE OR REPLACE FUNCTION public.close_review_set_requirement(p_company_id uuid, p_requirement_id text, p_in_force boolean, p_reference text, p_reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_requirement_id IS DISTINCT FROM 'T01' OR p_in_force IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000
+     OR (p_in_force AND (p_reference IS NULL OR length(btrim(p_reference)) NOT BETWEEN 3 AND 300)) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'approve_certification') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('close_review_requirement:' || p_company_id::text, 0));
+  IF public.close_review_requirement_in_force(p_company_id, p_requirement_id) = p_in_force THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  INSERT INTO public.close_review_requirements (company_id, requirement_id, action, reference, reason, actor_user_id, firm_member_id)
+  VALUES (p_company_id, p_requirement_id, CASE WHEN p_in_force THEN 'in_force' ELSE 'withdrawn' END,
+          CASE WHEN p_in_force THEN btrim(p_reference) END, btrim(p_reason), v_uid, public._cr_member(p_company_id, v_uid));
+  RETURN jsonb_build_object('outcome', 'recorded', 'inForce', p_in_force);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public._cr_scope_key(p_company_id uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT 'T01=' || CASE WHEN public.close_review_requirement_in_force(p_company_id, 'T01') THEN 'on' ELSE 'off' END;
+$$;
+
+-- THE definition of the current findings run of a period: the run of the authoritative certification, the authoritative
+-- prior-year certification (or none), this catalogue version and the requirement scope as they are NOW. NULL: none.
+CREATE OR REPLACE FUNCTION public._cr_current_run(p_company_id uuid, p_period_year integer)
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT r.id FROM public.close_review_finding_runs r
+   WHERE r.certification_id = (SELECT c.id FROM public.get_authoritative_certification(p_company_id, p_period_year) c)
+     AND r.prior_certification_id IS NOT DISTINCT FROM (SELECT c.id FROM public.get_authoritative_certification(p_company_id, p_period_year - 1) c)
+     AND r.catalogue_version = 'tb-anomaly-catalogue/1' AND r.scope_key = public._cr_scope_key(p_company_id);
+$$;
+
 -- Generate (or replay) the findings of the CURRENT authority. Outcomes: generated | unchanged | forbidden |
 -- feature_disabled | no_authority | legacy_certification | currency_unknown | invalid_request.
 CREATE OR REPLACE FUNCTION public.close_review_refresh_findings(p_company_id uuid, p_period_year integer)
@@ -136,6 +215,8 @@ DECLARE
   v_status jsonb;
   v_member uuid;
   v_n integer;
+  v_scope text;
+  v_t01 boolean;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
   IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('outcome', 'invalid_request'); END IF;
@@ -146,8 +227,9 @@ BEGIN
   SELECT * INTO v_cert FROM public.get_authoritative_certification(p_company_id, p_period_year);
   IF v_cert.id IS NULL THEN RETURN jsonb_build_object('outcome', 'no_authority'); END IF;
   SELECT * INTO v_prior FROM public.get_authoritative_certification(p_company_id, p_period_year - 1);
-  SELECT * INTO v_run FROM public.close_review_finding_runs r
-   WHERE r.certification_id = v_cert.id AND r.prior_certification_id IS NOT DISTINCT FROM v_prior.id AND r.catalogue_version = 'tb-anomaly-catalogue/1';
+  v_scope := public._cr_scope_key(p_company_id);
+  v_t01 := v_scope = 'T01=on';
+  SELECT * INTO v_run FROM public.close_review_finding_runs r WHERE r.id = public._cr_current_run(p_company_id, p_period_year);
   IF v_run.id IS NOT NULL THEN RETURN jsonb_build_object('outcome', 'unchanged', 'runId', v_run.id); END IF;
 
   IF EXISTS (SELECT 1 FROM public._cr_certified_accounts(v_cert.id) a WHERE NOT a.exact) THEN
@@ -166,60 +248,62 @@ BEGIN
            ARRAY(SELECT x->>'request_id' FROM jsonb_array_elements(v_upload.processing_result->'treatment_requests') x)) t);
 
   v_status := jsonb_build_object(
-    'A01', jsonb_build_object('evaluated', true),
-    'A02', jsonb_build_object('evaluated', false, 'reason', 'No authoritative suspense or clearing designation exists for accounts.'),
-    'A03', jsonb_build_object('evaluated', true),
-    'A04', jsonb_build_object('evaluated', false, 'reason', CASE WHEN v_prior.id IS NULL
+    'A01', jsonb_build_object('kind', 'risk_indicator', 'status', 'evaluated', 'evaluated', true),
+    'A02', jsonb_build_object('kind', 'risk_indicator', 'status', 'not_evaluated', 'evaluated', false, 'reason', 'No authoritative suspense or clearing designation exists for accounts.'),
+    'A03', jsonb_build_object('kind', 'deterministic_error', 'status', 'evaluated', 'evaluated', true),
+    'A04', jsonb_build_object('kind', 'deterministic_error', 'status', 'not_evaluated', 'evaluated', false, 'reason', CASE WHEN v_prior.id IS NULL
       THEN 'No authoritative prior-year trial balance.'
       ELSE 'Needs the framework pack''s trial-balance basis (before or after closing entries).' END),
-    'A05', jsonb_build_object('evaluated', false, 'reason', 'Needs the framework pack''s materiality threshold.'),
-    'A06', jsonb_build_object('evaluated', false, 'reason', 'Needs the framework pack''s variance threshold.'),
-    'A07', jsonb_build_object('evaluated', false, 'reason', 'Cannot occur on a certified trial balance: account names are unique per workspace in the classification authority, and duplicate names are refused at intake.'),
-    'A08', jsonb_build_object('evaluated', false, 'reason', 'Needs the framework pack''s round-amount threshold.'),
-    'A09', jsonb_build_object('evaluated', false, 'reason', 'Needs the framework pack''s statutory liability classes.'),
-    'A10', jsonb_build_object('evaluated', true),
-    'T01', jsonb_build_object('evaluated', true));
+    'A05', jsonb_build_object('kind', 'risk_indicator', 'status', 'not_evaluated', 'evaluated', false, 'reason', 'Needs the framework pack''s materiality threshold.'),
+    'A06', jsonb_build_object('kind', 'risk_indicator', 'status', 'not_evaluated', 'evaluated', false, 'reason', 'Needs the framework pack''s variance threshold.'),
+    'A07', jsonb_build_object('kind', 'deterministic_error', 'status', 'excluded', 'evaluated', false, 'reason', 'Cannot occur on a certified trial balance: account names are unique per workspace in the classification authority, and duplicate names are refused at intake.'),
+    'A08', jsonb_build_object('kind', 'risk_indicator', 'status', 'not_evaluated', 'evaluated', false, 'reason', 'Needs the framework pack''s round-amount threshold.'),
+    'A09', jsonb_build_object('kind', 'risk_indicator', 'status', 'not_evaluated', 'evaluated', false, 'reason', 'Needs the framework pack''s statutory liability classes.'),
+    'A10', jsonb_build_object('kind', 'risk_indicator', 'status', 'evaluated', 'evaluated', true),
+    'T01', CASE WHEN v_t01 THEN jsonb_build_object('kind', 'evidence_requirement', 'status', 'evaluated', 'evaluated', true)
+           ELSE jsonb_build_object('kind', 'evidence_requirement', 'status', 'not_required', 'evaluated', false,
+                                   'reason', 'No reviewed requirement scopes the income-tax computation workpaper to this workspace.') END);
 
   v_member := public._cr_member(p_company_id, v_uid);
   INSERT INTO public.close_review_finding_runs (company_id, period_year, upload_id, certification_id, prior_certification_id,
-    catalogue_version, currency, exponent, rule_status, generated_by, firm_member_id)
-  VALUES (p_company_id, p_period_year, v_cert.upload_id, v_cert.id, v_prior.id, 'tb-anomaly-catalogue/1', v_currency, v_exponent, v_status, v_uid, v_member)
+    catalogue_version, currency, exponent, rule_status, scope_key, generated_by, firm_member_id)
+  VALUES (p_company_id, p_period_year, v_cert.upload_id, v_cert.id, v_prior.id, 'tb-anomaly-catalogue/1', v_currency, v_exponent, v_status, v_scope, v_uid, v_member)
   RETURNING * INTO v_run;
 
-  INSERT INTO public.close_review_findings (run_id, company_id, rule_id, rule_version, finding_key, severity, mandatory, required_resolution,
+  INSERT INTO public.close_review_findings (run_id, company_id, rule_id, rule_version, finding_key, severity, kind, mandatory, required_resolution,
     account_key, account_code, account_name, classification, debit_minor, credit_minor, class_side_minor, detail)
   -- A01 abnormal sign
-  SELECT v_run.id, p_company_id, 'A01', 1, 'A01:' || a.account_key, 'warning', false, 'explanation',
+  SELECT v_run.id, p_company_id, 'A01', 1, 'A01:' || a.account_key, 'warning', 'risk_indicator', false, 'explanation',
          a.account_key, a.account_code, a.account_name, a.classification, a.debit_minor, a.credit_minor, a.class_side_minor, '{}'::jsonb
     FROM public._cr_certified_accounts(v_cert.id) a
    WHERE a.class_side_minor < 0 AND NOT (a.account_key = ANY (v_treated))
   UNION ALL
   -- A03 negative cash (designated cash, mapped as an asset, in credit)
-  SELECT v_run.id, p_company_id, 'A03', 1, 'A03:' || a.account_key, 'blocking', true, 'review',
+  SELECT v_run.id, p_company_id, 'A03', 1, 'A03:' || a.account_key, 'blocking', 'deterministic_error', true, 'review',
          a.account_key, a.account_code, a.account_name, a.classification, a.debit_minor, a.credit_minor, a.class_side_minor, '{}'::jsonb
     FROM public._cr_certified_accounts(v_cert.id) a
     JOIN public.account_mappings m ON m.company_id = p_company_id AND m.account_key = a.account_key
    WHERE m.is_cash_account IS TRUE AND a.classification IN ('current_assets', 'non_current_assets') AND a.debit_minor < a.credit_minor
   UNION ALL
   -- A10 machine classification
-  SELECT v_run.id, p_company_id, 'A10', 1, 'A10:' || a.account_key, 'warning', false, 'explanation',
+  SELECT v_run.id, p_company_id, 'A10', 1, 'A10:' || a.account_key, 'warning', 'risk_indicator', false, 'explanation',
          a.account_key, a.account_code, a.account_name, a.classification, a.debit_minor, a.credit_minor, a.class_side_minor,
          jsonb_build_object('evidenceTier', a.max_tier)
     FROM public._cr_certified_accounts(v_cert.id) a
    WHERE a.max_tier >= 4
   UNION ALL
   -- T01 income-tax computation workpaper (one per period, listing the tax accounts with a balance)
-  SELECT v_run.id, p_company_id, 'T01', 1, 'T01', 'blocking', true, 'evidence', NULL, NULL, NULL, 'taxes', NULL, NULL, NULL,
+  SELECT v_run.id, p_company_id, 'T01', 1, 'T01', 'blocking', 'evidence_requirement', true, 'evidence', NULL, NULL, NULL, 'taxes', NULL, NULL, NULL,
          jsonb_build_object('accounts', jsonb_agg(jsonb_build_object('accountKey', a.account_key, 'accountName', a.account_name,
            'debitMinor', a.debit_minor::text, 'creditMinor', a.credit_minor::text) ORDER BY a.account_key))
     FROM public._cr_certified_accounts(v_cert.id) a
-   WHERE a.classification = 'taxes' AND a.debit_minor <> a.credit_minor
+   WHERE v_t01 AND a.classification = 'taxes' AND a.debit_minor <> a.credit_minor
   HAVING count(*) > 0;
   GET DIAGNOSTICS v_n = ROW_COUNT;
 
   PERFORM public._close_review_append(p_company_id, 'upload', v_cert.upload_id::text, 'findings_generated', NULL, NULL,
     jsonb_build_object('runId', v_run.id, 'certificationId', v_cert.id, 'priorCertificationId', v_prior.id, 'findings', v_n,
-                       'catalogue', 'tb-anomaly-catalogue/1'), v_uid, v_member, NULL);
+                       'catalogue', 'tb-anomaly-catalogue/1', 'scope', v_scope), v_uid, v_member, NULL);
   RETURN jsonb_build_object('outcome', 'generated', 'runId', v_run.id, 'findings', v_n);
 END;
 $$;
@@ -259,8 +343,6 @@ DECLARE
   v_uid uuid := auth.uid();
   v_f public.close_review_findings%ROWTYPE;
   v_run public.close_review_finding_runs%ROWTYPE;
-  v_cert uuid;
-  v_prior_cert uuid;
   v_status text;
   v_prior public.close_review_events%ROWTYPE;
   v_cap text;
@@ -287,10 +369,8 @@ BEGIN
   SELECT * INTO v_run FROM public.close_review_finding_runs r WHERE r.id = v_f.run_id;
   -- Serialized per finding; only a finding of the authority that is current NOW may change.
   PERFORM pg_advisory_xact_lock(hashtextextended('close_review_finding:' || v_f.id::text, 0));
-  -- The finding's run must be the run of BOTH authorities as they are now (current year and prior year).
-  SELECT c.id INTO v_cert FROM public.get_authoritative_certification(v_f.company_id, v_run.period_year) c;
-  SELECT c.id INTO v_prior_cert FROM public.get_authoritative_certification(v_f.company_id, v_run.period_year - 1) c;
-  IF v_cert IS DISTINCT FROM v_run.certification_id OR v_prior_cert IS DISTINCT FROM v_run.prior_certification_id THEN
+  -- Only a finding of the CURRENT run (both authorities and the requirement scope as they are now) may change.
+  IF public._cr_current_run(v_f.company_id, v_run.period_year) IS DISTINCT FROM v_run.id THEN
     RETURN jsonb_build_object('outcome', 'stale_authority');
   END IF;
   v_status := public.close_review_finding_status(v_f.id);
@@ -316,21 +396,18 @@ CREATE OR REPLACE FUNCTION public.close_review_findings_summary(p_company_id uui
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_cert uuid;
-  v_prior uuid;
   v_run public.close_review_finding_runs%ROWTYPE;
 BEGIN
   IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
   SELECT c.id INTO v_cert FROM public.get_authoritative_certification(p_company_id, p_period_year) c;
   IF v_cert IS NULL THEN RETURN jsonb_build_object('state', 'no_authority'); END IF;
-  SELECT c.id INTO v_prior FROM public.get_authoritative_certification(p_company_id, p_period_year - 1) c;
-  SELECT * INTO v_run FROM public.close_review_finding_runs r
-   WHERE r.certification_id = v_cert AND r.prior_certification_id IS NOT DISTINCT FROM v_prior AND r.catalogue_version = 'tb-anomaly-catalogue/1';
+  SELECT * INTO v_run FROM public.close_review_finding_runs r WHERE r.id = public._cr_current_run(p_company_id, p_period_year);
   IF v_run.id IS NULL THEN
     RETURN jsonb_build_object('state', CASE WHEN EXISTS (SELECT 1 FROM public.close_review_finding_runs r WHERE r.company_id = p_company_id AND r.period_year = p_period_year)
                                             THEN 'stale' ELSE 'not_generated' END);
   END IF;
   RETURN jsonb_build_object('state', 'current', 'runId', v_run.id, 'currency', v_run.currency, 'exponent', v_run.exponent,
-    'ruleStatus', v_run.rule_status, 'generatedAt', v_run.created_at,
+    'ruleStatus', v_run.rule_status, 'scope', v_run.scope_key, 'generatedAt', v_run.created_at,
     'total', (SELECT count(*) FROM public.close_review_findings f WHERE f.run_id = v_run.id),
     'unresolvedBlocking', (SELECT count(*) FROM public.close_review_findings f WHERE f.run_id = v_run.id AND f.severity = 'blocking' AND NOT public.close_review_finding_resolved(f.id)),
     'unresolved', (SELECT count(*) FROM public.close_review_findings f WHERE f.run_id = v_run.id AND NOT public.close_review_finding_resolved(f.id)));
@@ -345,6 +422,16 @@ CREATE POLICY crfr_read ON public.close_review_finding_runs FOR SELECT TO authen
 CREATE POLICY crf_read ON public.close_review_findings FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
 
 REVOKE ALL ON FUNCTION public._cr_normalize_name(text) FROM PUBLIC, anon, authenticated;
+ALTER TABLE public.close_review_requirements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.close_review_requirements FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.close_review_requirements TO authenticated, service_role;
+CREATE POLICY crq_read ON public.close_review_requirements FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+REVOKE ALL ON FUNCTION public.close_review_requirement_in_force(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_requirement_in_force(uuid, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.close_review_set_requirement(uuid, text, boolean, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_set_requirement(uuid, text, boolean, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public._cr_scope_key(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_current_run(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._cr_certified_accounts(uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._cr_member(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.close_review_refresh_findings(uuid, integer) FROM PUBLIC, anon;

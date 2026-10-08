@@ -245,8 +245,25 @@ async function findingsProof({ U, A }) {
     const r = await refresh(U.viewer, cur.year);
     return r.outcome === "forbidden" && (await count("SELECT count(*) n FROM public.close_review_finding_runs")) === 0 ? true : r;
   });
+  const requirement = (uid, on, ref = "Reviewed requirement: income-tax computation workpaper (framework pack / statute reference)") =>
+    asUser(uid, "SELECT public.close_review_set_requirement($1,'T01',$2,$3,'Scoped for this workspace') r", [A, on, on ? ref : null]).then((r) => r.r);
+  let unscoped;
+  await check("without a reviewed requirement the tax workpaper is NOT REQUIRED (no T01 finding), never universally assumed", async () => {
+    unscoped = await refresh(U.preparer, cur.year);
+    const st = (await one("SELECT rule_status, scope_key FROM public.close_review_finding_runs WHERE id=$1", [unscoped.runId]));
+    const t01 = await count("SELECT count(*) n FROM public.close_review_findings WHERE run_id=$1 AND rule_id='T01'", [unscoped.runId]);
+    return unscoped.outcome === "generated" && st.scope_key === "T01=off" && st.rule_status.T01.status === "not_required" && t01 === 0 ? true : { unscoped, st, t01 };
+  });
+  await check("only approve_certification scopes a requirement, with its reference; scoping it makes a NEW run", async () => {
+    const a = await requirement(U.preparer, true);
+    const b = await requirement(U.owner, true, null);
+    const c = await requirement(U.owner, true);
+    const again = await requirement(U.owner, true);
+    return a.outcome === "forbidden" && b.outcome === "invalid_request" && c.outcome === "recorded" && again.outcome === "unchanged" ? true : { a, b, c, again };
+  });
   await check("generated: A01 (assets in credit), A03 (cash in credit), T01 (tax workpaper) — exact minor units; nothing for correctly-signed accounts", async () => {
     run = await refresh(U.preparer, cur.year);
+    if (run.runId === unscoped.runId) return "the scope change did not make a new run";
     const fs_ = (await admin.query("SELECT rule_id, finding_key, severity, mandatory, required_resolution, credit_minor::text c, detail FROM public.close_review_findings WHERE run_id=$1 ORDER BY finding_key", [run.runId])).rows;
     const keys = fs_.map((f) => f.finding_key);
     const a03 = fs_.find((f) => f.rule_id === "A03");
@@ -256,15 +273,23 @@ async function findingsProof({ U, A }) {
       && a03.c === "20000" && t01.required_resolution === "evidence" && t01.detail.accounts.length === 1
       && !keys.some((k) => k.startsWith("A01:2") || k.startsWith("A01:3") || k.startsWith("A01:4")) ? true : fs_;
   });
-  await check("every rule has a recorded status; not-evaluated rules say why (no silent skip)", async () => {
+  await check("every rule has a kind and a status; only evaluated rules can raise findings; every other status says why", async () => {
     const s = (await one("SELECT rule_status FROM public.close_review_finding_runs WHERE id=$1", [run.runId])).rule_status;
-    const all = ["A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08", "A09", "A10", "T01"];
-    return all.every((k) => s[k] && (s[k].evaluated === true || (s[k].evaluated === false && s[k].reason.length > 10)))
-      && s.A04.reason === "No authoritative prior-year trial balance." && s.A05.evaluated === false ? true : s;
+    // Independent expectation (the catalogue as reviewed), not read back from the implementation.
+    const expected = { A01: ["risk_indicator", "evaluated"], A02: ["risk_indicator", "not_evaluated"], A03: ["deterministic_error", "evaluated"],
+      A04: ["deterministic_error", "not_evaluated"], A05: ["risk_indicator", "not_evaluated"], A06: ["risk_indicator", "not_evaluated"],
+      A07: ["deterministic_error", "excluded"], A08: ["risk_indicator", "not_evaluated"], A09: ["risk_indicator", "not_evaluated"],
+      A10: ["risk_indicator", "evaluated"], T01: ["evidence_requirement", "evaluated"] };
+    const bad = Object.entries(expected).filter(([k, [kind, status]]) => !s[k] || s[k].kind !== kind || s[k].status !== status
+      || (status !== "evaluated" && !(s[k].reason?.length > 10)) || s[k].evaluated !== (status === "evaluated"));
+    const raised = (await admin.query("SELECT DISTINCT rule_id FROM public.close_review_findings WHERE run_id=$1", [run.runId])).rows.map((r) => r.rule_id);
+    const kinds = (await admin.query("SELECT DISTINCT rule_id, kind FROM public.close_review_findings WHERE run_id=$1", [run.runId])).rows;
+    return bad.length === 0 && Object.keys(s).length === 11 && raised.every((r) => expected[r][1] === "evaluated")
+      && kinds.every((k) => k.kind === expected[k.rule_id][0]) && s.A04.reason === "No authoritative prior-year trial balance." ? true : { bad, raised, kinds };
   });
   await check("generating again for the same authority is a replay (one run)", async () => {
     const again = await refresh(U.partner, cur.year);
-    return again.outcome === "unchanged" && again.runId === run.runId && (await count("SELECT count(*) n FROM public.close_review_finding_runs")) === 1 ? true : again;
+    return again.outcome === "unchanged" && again.runId === run.runId && (await count("SELECT count(*) n FROM public.close_review_finding_runs")) === 2 ? true : again;
   });
   await check("the summary reports the current run and its unresolved blocking findings (A03, T01)", async () => {
     const s = await summary(U.viewer, cur.year);

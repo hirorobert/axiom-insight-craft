@@ -11,12 +11,37 @@ export type FindingRule = "A01" | "A03" | "A10" | "T01";
 export type FindingStatus = "open" | "explained" | "accepted" | "not_applicable" | "adjusted";
 export type FindingAction = "explain" | "accept" | "not_applicable" | "reopen";
 
+export type RuleKind = "deterministic_error" | "risk_indicator" | "evidence_requirement";
+export type RuleStatus = "evaluated" | "not_evaluated" | "not_required" | "excluded";
+
+/**
+ * tb-anomaly-catalogue/1 as reviewed: every rule's kind and its default status (T01 is evaluated only where a reviewed
+ * requirement scopes it; A04 also needs an authoritative prior year). Pinned to the migration by findings.test.ts.
+ * The catalogue is not a complete error detector: only "evaluated" rules can raise findings.
+ */
+export const CATALOGUE: Readonly<Record<string, { kind: RuleKind; status: RuleStatus | "scoped" }>> = {
+  A01: { kind: "risk_indicator", status: "evaluated" },
+  A02: { kind: "risk_indicator", status: "not_evaluated" },
+  A03: { kind: "deterministic_error", status: "evaluated" },
+  A04: { kind: "deterministic_error", status: "not_evaluated" },
+  A05: { kind: "risk_indicator", status: "not_evaluated" },
+  A06: { kind: "risk_indicator", status: "not_evaluated" },
+  A07: { kind: "deterministic_error", status: "excluded" },
+  A08: { kind: "risk_indicator", status: "not_evaluated" },
+  A09: { kind: "risk_indicator", status: "not_evaluated" },
+  A10: { kind: "risk_indicator", status: "evaluated" },
+  T01: { kind: "evidence_requirement", status: "scoped" },
+};
+export const KIND_WORDS: Record<RuleKind, string> = { deterministic_error: "Error", risk_indicator: "Risk indicator", evidence_requirement: "Evidence needed" };
+export const RULE_STATUS_WORDS: Record<RuleStatus, string> = { evaluated: "Checked", not_evaluated: "Not evaluated", not_required: "Not required here", excluded: "Cannot occur" };
+
 export interface FindingRow {
   id: string;
   run_id: string;
   rule_id: FindingRule;
   finding_key: string;
   severity: "blocking" | "warning";
+  kind: RuleKind;
   mandatory: boolean;
   required_resolution: "explanation" | "evidence" | "review";
   account_key: string | null;
@@ -32,7 +57,7 @@ export interface FindingRow {
 export type FindingsSummary =
   | { state: "unavailable" | "no_authority" | "not_generated" | "stale" }
   | { state: "current"; runId: string; currency: string; exponent: number; generatedAt: string; total: number; unresolved: number; unresolvedBlocking: number;
-      ruleStatus: Record<string, { evaluated: boolean; reason?: string }> };
+      ruleStatus: Record<string, { evaluated: boolean; kind?: RuleKind; status?: RuleStatus; reason?: string }> };
 
 export const RULE_WORDS: Record<string, { title: string; explain: string }> = {
   A01: { title: "Balance on the unexpected side", explain: "The balance is on the side opposite to its class (an asset or expense in credit, or a liability, equity or income account in debit)." },

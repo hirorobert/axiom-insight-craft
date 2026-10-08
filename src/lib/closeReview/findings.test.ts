@@ -11,11 +11,30 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FindingsView } from "@/components/closeReview/FindingsView";
 import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import { RELEASED_WORKBENCH_PAGES } from "@/lib/workbench/routes";
-import { findingResolved, findingStatus, offeredActions, type FindingRow, type FindingsClient } from "./findings";
+import { CATALOGUE, findingResolved, findingStatus, offeredActions, type FindingRow, type FindingsClient } from "./findings";
 import type { TimelineClient, TimelineEventRow } from "./timeline";
 
 const ev = (seq: number, event_type: string, detail: Record<string, unknown> = {}): TimelineEventRow & { subject_id: string } =>
   ({ id: `e${seq}`, seq, event_type, body: "x", revises_event_id: null, detail, actor_user_id: "u", created_at: "2026-10-08T10:00:00Z", subject_id: "f1" });
+
+describe("the catalogue (one source of truth, pinned to the migration)", () => {
+  const sql = fs.readFileSync(path.resolve(__dirname, "../../../supabase/migrations/20261014100000_close_review_findings.sql"), "utf8");
+  it("every rule's kind and status in the migration equal the reviewed catalogue; counts are derived, not stated", () => {
+    expect(Object.keys(CATALOGUE).sort()).toEqual(["A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08", "A09", "A10", "T01"]);
+    for (const [id, { kind, status }] of Object.entries(CATALOGUE)) {
+      const line = sql.split(/\r?\n/).find((l) => l.trimStart().startsWith(`'${id}', `) && l.includes("jsonb_build_object('kind'"))!;
+      expect(line, id).toContain(`'kind', '${kind}'`);
+      if (status === "scoped") expect(sql).toMatch(/'T01', CASE WHEN v_t01 THEN jsonb_build_object\('kind', 'evidence_requirement', 'status', 'evaluated'/);
+      else expect(line, id).toContain(`'status', '${status}'`);
+    }
+    const count = (st: string) => Object.values(CATALOGUE).filter((r) => r.status === st).length;
+    expect([count("evaluated"), count("not_evaluated"), count("excluded"), count("scoped")]).toEqual([3, 6, 1, 1]);
+  });
+  it("only evaluated rules can raise findings (the finding table admits exactly them)", () => {
+    expect(sql).toMatch(/rule_id\s+TEXT\s+NOT NULL CHECK \(rule_id IN \('A01', 'A03', 'A10', 'T01'\)\)/);
+    for (const id of ["A01", "A03", "A10", "T01"]) expect(["evaluated", "scoped"]).toContain(CATALOGUE[id].status);
+  });
+});
 
 describe("status and resolution (mirror of the database)", () => {
   it("the latest lifecycle event decides; comments do not change it; reopen returns to open", () => {
@@ -50,12 +69,12 @@ describe("status and resolution (mirror of the database)", () => {
 });
 
 const F = (o: Partial<FindingRow> & { id: string; finding_key: string; rule_id: FindingRow["rule_id"] }): FindingRow => ({
-  run_id: "run", severity: "warning", mandatory: false, required_resolution: "explanation", account_key: null, account_code: null,
+  run_id: "run", severity: "warning", kind: "risk_indicator", mandatory: false, required_resolution: "explanation", account_key: null, account_code: null,
   account_name: null, classification: null, debit_minor: null, credit_minor: null, class_side_minor: null, detail: {}, ...o,
 });
 const ROWS = [
-  F({ id: "f1", finding_key: "A03:1010", rule_id: "A03", severity: "blocking", mandatory: true, required_resolution: "review", account_code: "1010", account_name: "Petty cash", debit_minor: "0", credit_minor: "20000" }),
-  F({ id: "f2", finding_key: "T01", rule_id: "T01", severity: "blocking", mandatory: true, required_resolution: "evidence" }),
+  F({ id: "f1", finding_key: "A03:1010", rule_id: "A03", severity: "blocking", kind: "deterministic_error", mandatory: true, required_resolution: "review", account_code: "1010", account_name: "Petty cash", debit_minor: "0", credit_minor: "20000" }),
+  F({ id: "f2", finding_key: "T01", rule_id: "T01", severity: "blocking", kind: "evidence_requirement", mandatory: true, required_resolution: "evidence" }),
   F({ id: "f3", finding_key: "A01:1510", rule_id: "A01", account_code: "1510", account_name: "Accumulated depreciation", debit_minor: "0", credit_minor: "200000" }),
 ];
 function fakeClient(over: Partial<Record<keyof FindingsClient, unknown>> = {}) {
