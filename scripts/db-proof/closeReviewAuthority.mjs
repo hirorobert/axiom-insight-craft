@@ -484,15 +484,52 @@ async function adjustmentsProof({ U, A }, kit) {
     return a.outcome === "not_reversible" && b.outcome === "not_reversible" ? true : { a, b };
   });
 
-  group("Adjustments — findings and authority");
-  await check("approving an adjustment that names a finding resolves it (A03 → adjusted)", async () => {
-    await kit.refresh(U.preparer, Y);
-    const f = await one("SELECT f.id FROM public.close_review_findings f JOIN public.close_review_finding_runs r ON r.id=f.run_id WHERE r.company_id=$1 AND r.period_year=$2 AND f.finding_key='A03:1010' ORDER BY r.created_at DESC LIMIT 1", [A, Y]);
-    const before = (await kit.summary(U.owner, Y)).unresolvedBlocking;
-    const p = await propose(U.preparer, [L("1010", 20000, 0, "Clear the overdrawn float"), L("2000", 0, 20000)], { findings: [f.id], reason: "Present the overdrawn float as a payable" });
-    const ap = await decide(U.partner, p.adjustmentId, "approve");
-    const after = (await kit.summary(U.owner, Y)).unresolvedBlocking;
-    return ap.status === "approved" && Number(after) === Number(before) - 1 ? true : { before, after, ap };
+  group("Adjustments — policy changes and revocation between proposal and approval");
+  // The capability model in force (20260925140000): member capabilities, revocations recorded with a reason.
+  const grant = (cap, who) => asUser(U.owner, "SELECT public.grant_member_capability($1,$2,$3,'Restored after the proof step') r", [A, who, cap]);
+  const revoke = (cap, who) => asUser(U.owner, "SELECT public.revoke_member_capability($1,$2,$3,'Removed for the proof step') r", [A, who, cap]);
+  await check("the policy in force AT APPROVAL decides: proposed under self-approval, then two-person → self-approval refused; another reviewer approves", async () => {
+    const p = await propose(U.partner, [L("6000", 300, 0), L("2000", 0, 300)], { reason: "Partner's second accrual" });
+    await policy(U.owner, "two_person", false, "Back to two-person approval");
+    const self = await decide(U.partner, p.adjustmentId, "approve", { ack: true });
+    const other = await decide(U.owner, p.adjustmentId, "approve");
+    return self.outcome === "self_approval_not_allowed" && other.status === "approved" ? true : { self, other };
+  });
+  await check("a capability revoked between proposal and approval: the approval is refused; restored, it is accepted", async () => {
+    const p = await propose(U.preparer, [L("6000", 400, 0), L("2000", 0, 400)], { reason: "Accrual awaiting review" });
+    await revoke("review_close", U.partner);
+    const refusedNow = await decide(U.partner, p.adjustmentId, "approve");
+    await grant("review_close", U.partner);
+    const ok = await decide(U.partner, p.adjustmentId, "approve");
+    return refusedNow.outcome === "forbidden" && ok.status === "approved" ? true : { refusedNow, ok };
+  });
+
+  group("Adjustments — the resolution contract of a finding");
+  const states = (y = Y) => asRole("authenticated", U.owner, "SELECT * FROM public.close_review_finding_states($1,$2)", [A, y]);
+  await kit.refresh(U.preparer, Y);
+  const fid = async (key) => (await one("SELECT f.id FROM public.close_review_findings f JOIN public.close_review_finding_runs r ON r.id=f.run_id WHERE r.company_id=$1 AND r.period_year=$2 AND f.finding_key=$3 ORDER BY r.created_at DESC LIMIT 1", [A, Y, key])).id;
+  await check("a finding whose rule does not accept an adjustment cannot be named (T01 needs evidence)", async () => {
+    const r = await propose(U.preparer, [L("7000", 1, 0), L("2100", 0, 1)], { findings: [await fid("T01")] });
+    return r.outcome === "finding_not_resolvable_by_adjustment" ? true : r;
+  });
+  let a03Small, a03Rest;
+  await check("naming A03 on an adjustment whose effect does NOT clear the credit balance leaves it open and blocking", async () => {
+    const before = Number((await kit.summary(U.owner, Y)).unresolvedBlocking);
+    a03Small = await propose(U.preparer, [L("1010", 5000, 0, "Part of the float"), L("2000", 0, 5000)], { findings: [await fid("A03:1010")], reason: "Partial reclassification" });
+    await decide(U.partner, a03Small.adjustmentId, "approve");
+    const s = await kit.summary(U.owner, Y);
+    const id = await fid("A03:1010");
+    const mine = (await states()).find((x) => x.finding_id === id);
+    return mine.status !== "adjusted" && mine.resolved === false && Number(s.unresolvedBlocking) === before ? true : { mine, s: s.unresolvedBlocking, before };
+  });
+  await check("the effect decides, not the link: a further adjustment (not naming it) that clears the credit balance resolves A03", async () => {
+    const before = Number((await kit.summary(U.owner, Y)).unresolvedBlocking);
+    a03Rest = await propose(U.preparer, [L("1010", 15000, 0), L("2000", 0, 15000)], { reason: "Rest of the float" });
+    await decide(U.partner, a03Rest.adjustmentId, "approve");
+    const id = await fid("A03:1010");
+    const mine = (await states()).find((x) => x.finding_id === id);
+    const after = Number((await kit.summary(U.owner, Y)).unresolvedBlocking);
+    return mine.status === "adjusted" && mine.resolved === true && after === before - 1 ? true : { mine, before, after };
   });
   await refused("adjustment lines cannot be changed — not even by the database owner", "42501", () => admin.query("UPDATE public.close_review_adjustment_lines SET debit_minor = debit_minor + 1"));
   await refused("adjustments cannot be deleted", "42501", () => admin.query("DELETE FROM public.close_review_adjustments"));
@@ -502,16 +539,97 @@ async function adjustmentsProof({ U, A }, kit) {
     const r = await decide(U.ownerB, first.adjustmentId, "reject");
     return rows[0].n === 0 && r.outcome === "not_found" ? true : { rows, r };
   });
-  await check("the authority changes: pending adjustments cannot be approved (stale_authority); the layer is empty; earlier adjustments are listed as not current", async () => {
-    const p = await propose(U.preparer, [L("6100", 11, 0), L("2000", 0, 11)]);
+
+  group("Adjustments — revalidation after the authority changes");
+  const revalidate = (uid, id, decision = "revalidate", { reason = "Checked against the re-checked trial balance", ack = null, request = uuid() } = {}) =>
+    asUser(uid, "SELECT public.close_review_revalidate_adjustment($1,$2,$3,$4,$5) r", [id, decision, reason, ack, request]).then((r) => r.r);
+  const reprocess = async () => {
+    const row = await one("SELECT source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [cur.id]);
+    await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [cur.id, uuid(), row.source_file_hash]);
+    return kit.certify(cur);
+  };
+  const wages = await propose(U.preparer, [L("6100", 300, 0), L("2000", 0, 300)], { reason: "Wages accrual" });
+  await decide(U.partner, wages.adjustmentId, "approve");
+  const pending = await propose(U.preparer, [L("6100", 11, 0), L("2000", 0, 11)]);
+  const cert1 = (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, Y])).id;
+  const historyBefore = await count("SELECT count(*) n FROM public.close_review_events WHERE subject_kind='adjustment'");
+  const cert2 = await reprocess();
+  await check("a re-check: approved adjustments REQUIRE REVALIDATION — none applied, none discarded, their history intact; pending ones cannot be approved", async () => {
+    const s = await summary();
+    const t = await tb();
+    const approved = s.adjustments.filter((x) => x.status === "approved");
+    const stale = await decide(U.partner, pending.adjustmentId, "approve");
+    const applied = Object.values(t).filter((x) => x.ad !== "0" || x.ac !== "0").length;
+    return cert2 !== cert1 && approved.length > 0 && approved.every((x) => x.binding === "requires_revalidation" && x.current === false)
+      && s.requiresRevalidation === approved.length && applied === 0 && stale.outcome === "stale_authority"
+      && (await count("SELECT count(*) n FROM public.close_review_events WHERE subject_kind='adjustment'")) === historyBefore ? true : { s: s.adjustments.map((x) => [x.number, x.status, x.binding]), applied };
+  });
+  await check("only review_close revalidates; the proposer follows the self-approval rules (two-person now: refused)", async () => {
+    const a = await revalidate(U.preparer, wages.adjustmentId);
+    const b = await revalidate(U.partner, mine.adjustmentId, "revalidate", { ack: true });
+    return a.outcome === "forbidden" && b.outcome === "self_approval_not_allowed" ? true : { a, b };
+  });
+  await check("revalidated: applied to the current certification, old and new bindings recorded with the affected accounts; the approval is not rewritten", async () => {
+    const approvalBefore = JSON.stringify((await admin.query("SELECT * FROM public.close_review_events WHERE subject_id=$1 AND event_type='adjustment_approved'", [wages.adjustmentId])).rows);
+    const r = await revalidate(U.owner, wages.adjustmentId);
+    const b = await one("SELECT * FROM public.close_review_adjustment_bindings WHERE id=$1", [r.bindingId]);
+    const t = await tb();
+    const approvalAfter = JSON.stringify((await admin.query("SELECT * FROM public.close_review_events WHERE subject_id=$1 AND event_type='adjustment_approved'", [wages.adjustmentId])).rows);
+    const acc = b.detail.accounts.find((x) => x.accountKey === "6100");
+    return r.outcome === "recorded" && r.state === "applied" && b.from_certification_id === cert1 && b.to_certification_id === cert2 && b.decision === "revalidated"
+      && acc.certifiedBefore.debitMinor === "120000" && acc.certifiedNow.debitMinor === "120000" && t["6100"].ad === "300" && approvalBefore === approvalAfter ? true : { r, b, t: t["6100"] };
+  });
+  await check("a replay returns the same decision; deciding again is already_current", async () => {
+    const request = uuid();
+    const a = await revalidate(U.owner, a03Rest.adjustmentId, "revalidate", { request });
+    const b = await revalidate(U.owner, a03Rest.adjustmentId, "revalidate", { request });
+    const c = await revalidate(U.owner, a03Rest.adjustmentId);
+    return a.outcome === "recorded" && b.replay === true && b.bindingId === a.bindingId && c.outcome === "already_current" ? true : { a, b, c };
+  });
+  await check("8 concurrent revalidations of one adjustment: exactly one binding; it is applied once", async () => {
+    const rs = await Promise.all(Array.from({ length: 8 }, () => revalidate(U.owner, a03Small.adjustmentId)));
+    const n = await count("SELECT count(*) n FROM public.close_review_adjustment_bindings WHERE adjustment_id=$1", [a03Small.adjustmentId]);
+    const t = await tb();
+    return rs.filter((r) => r.outcome === "recorded").length === 1 && rs.every((r) => ["recorded", "already_current"].includes(r.outcome)) && n === 1
+      && t["1010"].ad === "20000" /* 50.00 + 150.00, each once */ ? true : { outcomes: rs.map((r) => r.outcome), n, t: t["1010"] };
+  });
+  await check("a reversed pair is never carried (neither half); it can be declined, and stays in history as not carried", async () => {
+    const reversal = (await one("SELECT id FROM public.close_review_adjustments WHERE reverses_id=$1", [first.adjustmentId])).id;
+    const a = await revalidate(U.owner, first.adjustmentId);
+    const b = await revalidate(U.owner, reversal);
+    const c = await revalidate(U.owner, first.adjustmentId, "decline", { reason: "Reversed; nothing to carry" });
+    const s = await summary();
+    return a.outcome === "reversed_pair_not_carried" && b.outcome === "reversed_pair_not_carried" && c.outcome === "recorded"
+      && s.adjustments.find((x) => x.id === first.adjustmentId).binding === "not_carried" ? true : { a, b, c };
+  });
+  await check("never applied twice: an equivalent adjustment already applied to the current certification blocks revalidating the old one", async () => {
+    const dup = await propose(U.preparer, [L("6000", 300, 0), L("2000", 0, 300)], { reason: "Partner's second accrual, re-proposed" });
+    await decide(U.partner, dup.adjustmentId, "approve");
+    const old = (await one("SELECT a.id FROM public.close_review_adjustments a WHERE a.company_id=$1 AND a.period_year=$2 AND a.reason = 'Partner''s second accrual'", [A, Y])).id;
+    const r = await revalidate(U.owner, old);
+    return r.outcome === "duplicate_of_current" ? true : r;
+  });
+  await check("an invalid journal is refused: after an account is reclassified (and re-checked), an adjustment on it cannot be revalidated", async () => {
+    // Reclassify Wages (6100) — a new review decision, a new authority.
+    await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, cur.id, uuid(), JSON.stringify([{ account_code: "6100", account_name: "Wages", proposal_type: "NONE",
+      decision_action: "USER_MANUAL_CLASSIFICATION", statement: "income_statement", classification: "cost_of_goods_sold", normal_balance: "debit", is_cash_account: false }])]);
+    const cert3 = await reprocess();
+    const r = await revalidate(U.owner, wages.adjustmentId);
+    const s = await summary();
+    return cert3 !== cert2 && r.outcome === "journal_invalid" && r.accounts[0].accountKey === "6100" && r.accounts[0].classificationNow === "cost_of_goods_sold"
+      && s.adjustments.find((x) => x.id === wages.adjustmentId).binding === "requires_revalidation" ? true : { r, cert3 };
+  });
+  await check("the authority invalidated: no layer, nothing can be approved or revalidated (no_authority / stale_authority)", async () => {
     const certId = (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, Y])).id;
     await admin.query("INSERT INTO public.tb_certification_invalidations (certification_id, company_id, upload_id, reason, operation_id, actor_user_id) VALUES ($1,$2,$3,'reprocess_requested',$4,$5)", [certId, A, cur.id, uuid(), U.owner]);
-    const r = await decide(U.partner, p.adjustmentId, "approve");
     const t = await tb();
     const s = await summary();
-    return r.outcome === "stale_authority" && Object.keys(t).length === 0 && s.state === "no_authority" && s.adjustments.every((x) => x.current === false) ? true : { r, s: s.state };
+    const r = await revalidate(U.owner, a03Small.adjustmentId);
+    return Object.keys(t).length === 0 && s.state === "no_authority" && s.adjustments.every((x) => x.current === false) && r.outcome === "no_authority" ? true : { s: s.state, r };
   });
+  await refused("bindings are append-only", "42501", () => admin.query("UPDATE public.close_review_adjustment_bindings SET reason='x'"));
 }
+
 
 async function main() {
   const ctx = await setup();

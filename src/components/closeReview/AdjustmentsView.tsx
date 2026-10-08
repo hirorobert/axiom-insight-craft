@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
-  checkDraft, DECIDE_WORDS, PROPOSE_WORDS, type AdjustedRow, type AdjustmentsClient, type AdjustmentsSummary, type AdjustmentView, type DraftLine,
+  checkDraft, DECIDE_WORDS, PROPOSE_WORDS, REVALIDATE_WORDS, type AdjustedRow, type AdjustmentsClient, type AdjustmentsSummary, type AdjustmentView, type DraftLine,
 } from "@/lib/closeReview/adjustments";
 
 const STATUS: Record<AdjustmentView["status"], string> = { proposed: "Awaiting approval", approved: "Approved", rejected: "Rejected", withdrawn: "Withdrawn" };
@@ -69,6 +69,16 @@ export function AdjustmentsView(p: {
     } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
     finally { setBusy(false); }
   };
+  const carry = async (a: AdjustmentView, decision: "revalidate" | "decline") => {
+    setBusy(true);
+    try {
+      const self = a.proposer === p.currentUserId;
+      const r = await p.client.revalidate(a.id, decision, decisionReason.trim(), self && ack, requestFor(`rv|${a.id}|${decision}|${decisionReason}|${ack}`));
+      if (r.outcome === "recorded") { pending.current = null; setDecisionReason(""); setAck(false); setNotice(decision === "revalidate" ? `Adjustment ${a.number} now applies to the current trial balance.` : `Adjustment ${a.number} is not carried forward; its history is kept.`); await load(); }
+      else setNotice(REVALIDATE_WORDS[r.outcome] + (r.accounts?.length ? ` (${r.accounts.map((x) => x.accountKey).join(", ")})` : ""));
+    } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    finally { setBusy(false); }
+  };
   const reverse = async (a: AdjustmentView) => {
     setBusy(true);
     try {
@@ -87,6 +97,9 @@ export function AdjustmentsView(p: {
         Approval: {summary.policy === "two_person" ? "another member approves each adjustment" : "self-approval allowed under the workspace policy"}
         {summary.policy === "owner_self_approval" && !summary.selfApprovalAvailable ? " — not available while more than one member can approve" : ""}.
       </p>
+      {summary.state === "current" && summary.requiresRevalidation > 0 ? (
+        <p role="status" className="text-sm" data-testid="requires-revalidation">{summary.requiresRevalidation} approved adjustment{summary.requiresRevalidation === 1 ? "" : "s"} require{summary.requiresRevalidation === 1 ? "s" : ""} revalidation against the current trial balance before sign-off. They are not applied until then.</p>
+      ) : null}
       {summary.state === "no_authority" ? <p role="status">There is no reviewed trial balance for this period: adjustments cannot be proposed, and earlier ones no longer apply.</p> : null}
 
       <section aria-label="Adjustments" className="space-y-2">
@@ -95,12 +108,14 @@ export function AdjustmentsView(p: {
           <ol className="space-y-2">
             {summary.adjustments.map((a) => {
               const mine = a.proposer === p.currentUserId;
-              const canApprove = a.status === "proposed" && a.current && (mine ? summary.selfApprovalAvailable && p.allowed.includes("approve_certification") : p.allowed.includes("review_close"));
+              const canApprove = a.status === "proposed" && a.proposedOnCurrent && (mine ? summary.selfApprovalAvailable && p.allowed.includes("approve_certification") : p.allowed.includes("review_close"));
               return (
                 <li key={a.id} className="rounded-md border border-input p-2 text-sm" data-testid={`adjustment-${a.number}`}>
                   <p className="font-medium">
                     {a.kind === "reversal" ? "Reversal" : "Adjustment"} {a.number} · {STATUS[a.status]}{a.selfApproved ? " · self-approved (disclosed)" : ""}{a.reversedBy ? " · reversed" : ""}
-                    {!a.current ? " · on an earlier trial balance — not applied" : ""}
+                    {a.binding === "requires_revalidation" ? " · Requires revalidation (approved on an earlier trial balance; not applied)" : ""}
+                    {a.binding === "not_carried" ? " · Not carried to the current trial balance" : ""}
+                    {a.status === "proposed" && !a.proposedOnCurrent ? " · proposed on an earlier trial balance — propose it again" : ""}
                   </p>
                   <p>{a.reason}{a.evidenceRef ? ` — evidence: ${a.evidenceRef}` : ""}</p>
                   <table className="w-full text-sm" aria-label={`Lines of adjustment ${a.number}`}>
@@ -111,7 +126,28 @@ export function AdjustmentsView(p: {
                         <td className="text-right tabular-nums">{l.creditMinor === "0" ? "" : amt(l.creditMinor, exponent)}</td></tr>
                     ))}</tbody>
                   </table>
-                  {a.status === "proposed" && a.current ? (
+                  {a.bindings.length > 0 ? (
+                    <ul className="mt-1 text-xs text-muted-foreground" aria-label={`Carry-forward history of adjustment ${a.number}`}>
+                      {a.bindings.map((b, i) => <li key={i}>{b.decision === "revalidated" ? "Revalidated" : "Not carried"} on a re-checked trial balance{b.selfApproved ? " (self-revalidated, disclosed)" : ""} — {b.reason}</li>)}
+                    </ul>
+                  ) : null}
+                  {a.binding === "requires_revalidation" && p.allowed.includes("review_close") ? (
+                    <div className="mt-2 space-y-1" data-testid={`revalidate-${a.number}`}>
+                      <label htmlFor={`${ids.decision}-rv-${a.id}`} className="block text-xs font-medium">Reason (checked against the current trial balance)</label>
+                      <input id={`${ids.decision}-rv-${a.id}`} className="w-full rounded-md border border-input bg-background p-1 text-sm" value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} />
+                      {mine ? (
+                        <div className="flex items-start gap-2 text-xs">
+                          <input id={`${ids.decision}-rvack-${a.id}`} type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+                          <label htmlFor={`${ids.decision}-rvack-${a.id}`}>I am revalidating my own adjustment. It will be disclosed as self-approved.</label>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3 || (mine && !ack)} onClick={() => void carry(a, "revalidate")}>Revalidate on the current trial balance</button>
+                        <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void carry(a, "decline")}>Do not carry forward</button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {a.status === "proposed" && a.proposedOnCurrent ? (
                     <div className="mt-2 space-y-1">
                       <label htmlFor={`${ids.decision}-${a.id}`} className="block text-xs font-medium">Reason for your decision</label>
                       <input id={`${ids.decision}-${a.id}`} className="w-full rounded-md border border-input bg-background p-1 text-sm" value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} />
@@ -128,7 +164,7 @@ export function AdjustmentsView(p: {
                       </div>
                     </div>
                   ) : null}
-                  {a.status === "approved" && a.kind === "adjustment" && a.current && !a.reversedBy && p.allowed.includes("prepare_close") ? (
+                  {a.status === "approved" && a.kind === "adjustment" && a.binding === "applied" && !a.reversedBy && p.allowed.includes("prepare_close") ? (
                     <button type="button" className="mt-1 text-xs underline" disabled={busy} onClick={() => void reverse(a)}>Propose a reversal</button>
                   ) : null}
                 </li>

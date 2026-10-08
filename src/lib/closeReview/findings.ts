@@ -84,7 +84,7 @@ export const STATUS_WORDS: Record<FindingStatus, string> = {
 };
 
 const LIFECYCLE: Record<string, FindingStatus> = {
-  finding_explained: "explained", finding_accepted: "accepted", finding_not_applicable: "not_applicable", finding_adjusted: "adjusted", finding_reopened: "open",
+  finding_explained: "explained", finding_accepted: "accepted", finding_not_applicable: "not_applicable", finding_reopened: "open",
 };
 
 /** The latest lifecycle event decides (open when none) — the database's rule. */
@@ -156,6 +156,9 @@ export function findingsClient(db: { rpc: Rpc; from: From }) {
     events: async (findingIds: string[]) => findingIds.length === 0 ? [] :
       ok<(TimelineEventRow & { subject_id: string })[]>(await db.from("close_review_events").select("id, seq, event_type, body, revises_event_id, detail, actor_user_id, created_at, subject_id")
         .in("subject_id", findingIds).eq("subject_kind", "finding").order("seq", { ascending: true }), "The history") ?? [],
+    /** The database's status and resolution of every finding of the current run (adjustment contracts included). */
+    states: async (companyId: string, periodYear: number) =>
+      ok<{ finding_id: string; status: FindingStatus; resolved: boolean }[]>(await db.rpc("close_review_finding_states", { p_company_id: companyId, p_period_year: periodYear }), "The finding states") ?? [],
     act: async (findingId: string, action: FindingAction, text: string, evidenceRef: string | null, requestId: string) =>
       ok<{ outcome: ActionOutcome; status?: FindingStatus }>(await db.rpc("close_review_finding_action", { p_finding_id: findingId, p_action: action, p_text: text, p_evidence_ref: evidenceRef, p_request_id: requestId }), "The action"),
   };

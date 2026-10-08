@@ -7,13 +7,22 @@
 export interface AdjustmentLine { lineNo: number; accountKey: string; accountCode: string | null; accountName: string; classification: string; debitMinor: string; creditMinor: string; memo: string | null }
 export interface AdjustmentView {
   id: string; number: number; kind: "adjustment" | "reversal"; reverses: string | null;
-  status: "proposed" | "approved" | "rejected" | "withdrawn"; current: boolean; totalMinor: string; proposer: string;
+  status: "proposed" | "approved" | "rejected" | "withdrawn";
+  /** Applies to the current reviewed trial balance (approved, and approved or revalidated against it). */
+  current: boolean;
+  /** Relative to the current reviewed trial balance (decided by the server). */
+  binding: "applied" | "requires_revalidation" | "not_carried" | "not_applicable" | "no_authority";
+  /** Proposed against the current reviewed trial balance (only then can it be approved or rejected). */
+  proposedOnCurrent: boolean;
+  /** Append-only carry-forward decisions: old and new authority, reviewer, reason. */
+  bindings: { decision: "revalidated" | "declined"; from: string; to: string; reason: string; reviewer: string; selfApproved: boolean; at: string }[];
+  totalMinor: string; proposer: string;
   reason: string; evidenceRef: string | null; findingIds: string[]; selfApproved: boolean; reversedBy: string | null; lines: AdjustmentLine[];
 }
 export type AdjustmentsSummary =
   | { state: "unavailable" }
   | { state: "no_authority" | "current"; certificationId: string | null; currency: string | null; exponent: number | null;
-      policy: "two_person" | "owner_self_approval"; selfApprovalAvailable: boolean; approvers: number; adjustments: AdjustmentView[] };
+      policy: "two_person" | "owner_self_approval"; selfApprovalAvailable: boolean; approvers: number; requiresRevalidation: number; adjustments: AdjustmentView[] };
 
 export interface AdjustedRow {
   account_key: string; account_code: string | null; account_name: string; classification: string;
@@ -71,6 +80,24 @@ export const PROPOSE_WORDS: Record<Exclude<ProposeOutcome, "proposed">, string> 
   not_reversible: "Only an approved adjustment on the current trial balance can be reversed, once.",
   request_reused: "This was already sent with different content. Reload and try again.",
 };
+export type RevalidateOutcome = "recorded" | "forbidden" | "feature_disabled" | "not_found" | "not_approved" | "no_authority" | "already_current" | "already_decided"
+  | "journal_invalid" | "duplicate_of_current" | "reversed_pair_not_carried" | "self_approval_not_allowed" | "acknowledgement_required" | "invalid_request" | "request_reused";
+export const REVALIDATE_WORDS: Record<Exclude<RevalidateOutcome, "recorded">, string> = {
+  forbidden: "Revalidating adjustments needs Review in this workspace.",
+  feature_disabled: "Close Review is not enabled for this workspace. Nothing was recorded.",
+  not_found: "This adjustment is no longer available.",
+  not_approved: "Only an approved adjustment can be carried to the current trial balance.",
+  no_authority: "There is no reviewed trial balance for this period now.",
+  already_current: "This adjustment already applies to the current trial balance.",
+  already_decided: "Someone already decided whether to carry this adjustment. Reload to see the decision.",
+  journal_invalid: "An account in this journal is no longer classified as it was when approved. Propose a new adjustment instead.",
+  duplicate_of_current: "An identical adjustment already applies to the current trial balance; carrying this one would apply it twice.",
+  reversed_pair_not_carried: "This adjustment and its reversal cancel out; neither is carried. You can mark it as not carried.",
+  self_approval_not_allowed: "You cannot revalidate your own adjustment here: another reviewer must.",
+  acknowledgement_required: "Confirm that this self-revalidation will be disclosed.",
+  invalid_request: "Give a reason (3 to 2,000 characters).",
+  request_reused: "This was already sent with different content. Reload and try again.",
+};
 export const DECIDE_WORDS: Record<Exclude<DecideOutcome, "recorded">, string> = {
   forbidden: "You can't take this decision on this adjustment.",
   feature_disabled: "Close Review is not enabled for this workspace. Nothing was recorded.",
@@ -95,6 +122,9 @@ export function adjustmentsClient(db: { rpc: Rpc }) {
     adjusted: (companyId: string, periodYear: number) => call<AdjustedRow[]>("close_review_adjusted_trial_balance", { p_company_id: companyId, p_period_year: periodYear }, "Reading the adjusted trial balance"),
     propose: (companyId: string, periodYear: number, reason: string, evidenceRef: string | null, lines: unknown[], findingIds: string[], requestId: string, reverses: string | null = null) =>
       call<{ outcome: ProposeOutcome; adjustmentId?: string; number?: number }>("close_review_propose_adjustment", { p_company_id: companyId, p_period_year: periodYear, p_reason: reason, p_evidence_ref: evidenceRef, p_lines: lines, p_finding_ids: findingIds, p_request_id: requestId, p_reverses: reverses }, "The proposal"),
+    revalidate: (adjustmentId: string, decision: "revalidate" | "decline", reason: string, acknowledgeSelfApproval: boolean, requestId: string) =>
+      call<{ outcome: RevalidateOutcome; state?: string; accounts?: { accountKey: string; classificationAtApproval: string; classificationNow: string | null }[] }>(
+        "close_review_revalidate_adjustment", { p_adjustment_id: adjustmentId, p_decision: decision, p_reason: reason, p_acknowledge_self_approval: acknowledgeSelfApproval, p_request_id: requestId }, "The revalidation"),
     decide: (adjustmentId: string, decision: "approve" | "reject" | "withdraw", reason: string, acknowledgeSelfApproval: boolean, requestId: string) =>
       call<{ outcome: DecideOutcome; status?: string; selfApproved?: boolean }>("close_review_decide_adjustment", { p_adjustment_id: adjustmentId, p_decision: decision, p_reason: reason, p_acknowledge_self_approval: acknowledgeSelfApproval, p_request_id: requestId }, "The decision"),
   };

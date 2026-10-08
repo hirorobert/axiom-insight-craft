@@ -6,10 +6,16 @@
 --   that authority. It is append-only: proposed → approved | rejected | withdrawn, decided once. A reversal is a NEW
 --   adjustment (the server negates the original's lines) that is itself approved.
 --
---   The adjusted trial balance is a LAYER: the authoritative certification plus the approved adjustments bound to it. The
---   uploaded trial balance and its certification never change. When the authority changes (a re-check, a new mapping, a
---   replaced file), adjustments bound to the earlier authority stop applying and are shown as such — never silently
---   carried forward.
+--   The adjusted trial balance is a LAYER: the authoritative certification plus the approved adjustments that APPLY to it.
+--   The uploaded trial balance and its certification never change. An approved adjustment applies to the certification
+--   it was approved against — or, after an explicit REVALIDATION, to the later certification it was revalidated to.
+--   When the authority changes (a re-check, a new mapping, a replaced file), previously approved adjustments are never
+--   silently applied, discarded or duplicated: they show as "requires revalidation" until a reviewer either revalidates
+--   them against the current certification (accounts still classified the same way; not a duplicate of an adjustment
+--   already applied; reversed pairs are not carried) or declines to carry them forward. Each decision is an append-only
+--   binding recording the old and new authority, the reviewer and the affected accounts' amounts under both; the
+--   original proposal, approval and reversal history is never rewritten. Applying or un-applying an adjustment changes
+--   the reporting input identity, so dependent report versions become stale (sign-off refuses them).
 --
 --   Approval (revision 5 §3):
 --     two_person           an approver other than the proposer, holding review_close.
@@ -20,7 +26,9 @@
 --   The policy is a workspace setting changed only with manage_members, each change an append-only event. No row means
 --   two_person.
 --
---   Approving an adjustment that names findings of the current run records 'finding_adjusted' on each (resolves A03).
+--   Naming a finding on an adjustment only LINKS them. A finding is resolved by an adjustment only when the approved,
+--   applied effect satisfies that finding's resolution contract — A03 (cash in credit presented as an asset): the
+--   adjusted balance of that account is no longer in credit. No other rule accepts an adjustment as its resolution.
 --   Behind the financial-statements rollout (allow-list + kill switch). Every write is one of these functions.
 --
 -- PREFLIGHT: the objects do not exist yet; the migration refuses if they do.
@@ -29,6 +37,7 @@
 DO $preflight$
 BEGIN
   IF to_regclass('public.close_review_adjustments') IS NOT NULL OR to_regclass('public.close_review_adjustment_lines') IS NOT NULL
+     OR to_regclass('public.close_review_adjustment_bindings') IS NOT NULL
      OR to_regclass('public.close_review_approval_policy_events') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: close review adjustments already exist; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
@@ -86,6 +95,29 @@ CREATE TABLE public.close_review_adjustment_lines (
   CONSTRAINT pk_cral PRIMARY KEY (adjustment_id, line_no),
   CONSTRAINT chk_cral_one_side CHECK ((debit_minor > 0) <> (credit_minor > 0))
 );
+
+CREATE TABLE public.close_review_adjustment_bindings (
+  id                    UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq                   BIGINT      GENERATED ALWAYS AS IDENTITY,
+  adjustment_id         UUID        NOT NULL REFERENCES public.close_review_adjustments (id) ON DELETE RESTRICT,
+  company_id            UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  from_certification_id UUID        NOT NULL REFERENCES public.tb_certifications (id) ON DELETE RESTRICT,
+  to_certification_id   UUID        NOT NULL REFERENCES public.tb_certifications (id) ON DELETE RESTRICT,
+  decision              TEXT        NOT NULL CHECK (decision IN ('revalidated', 'declined')),
+  reason                TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
+  self_approved         BOOLEAN     NOT NULL DEFAULT false,
+  reviewer_user_id      UUID        NOT NULL,
+  firm_member_id        UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id            UUID        NOT NULL,
+  detail                JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT uq_crab_target UNIQUE (adjustment_id, to_certification_id),
+  CONSTRAINT uq_crab_request UNIQUE (reviewer_user_id, request_id),
+  CONSTRAINT chk_crab_moves CHECK (from_certification_id <> to_certification_id)
+);
+CREATE INDEX idx_crab_adjustment ON public.close_review_adjustment_bindings (adjustment_id, seq DESC);
+CREATE TRIGGER trg_crab_append_only BEFORE UPDATE OR DELETE ON public.close_review_adjustment_bindings FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
+CREATE TRIGGER trg_crab_no_truncate BEFORE TRUNCATE ON public.close_review_adjustment_bindings FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
 
 CREATE TRIGGER trg_crape_append_only BEFORE UPDATE OR DELETE ON public.close_review_approval_policy_events FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
 CREATE TRIGGER trg_crape_no_truncate BEFORE TRUNCATE ON public.close_review_approval_policy_events FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
@@ -146,10 +178,87 @@ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, 
                     ORDER BY e.seq LIMIT 1), 'proposed');
 $$;
 
+-- The certification an approved adjustment applies to: the latest one it was revalidated to, else the one it was
+-- approved against. NULL when it was never approved.
+CREATE OR REPLACE FUNCTION public._cr_adjustment_effective_certification(p_adjustment_id uuid)
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE WHEN public._cr_adjustment_status(a.id) <> 'approved' THEN NULL
+              ELSE COALESCE((SELECT b.to_certification_id FROM public.close_review_adjustment_bindings b
+                              WHERE b.adjustment_id = a.id AND b.decision = 'revalidated' ORDER BY b.seq DESC LIMIT 1), a.certification_id) END
+    FROM public.close_review_adjustments a WHERE a.id = p_adjustment_id;
+$$;
+
+-- THE definition of "this adjustment applies to this certification" (the layer, the summary, the reporting input and
+-- sign-off all use it): approved, and its effective certification is that one.
+CREATE OR REPLACE FUNCTION public._cr_adjustment_applies_to(p_adjustment_id uuid, p_certification_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT p_certification_id IS NOT NULL AND public._cr_adjustment_effective_certification(p_adjustment_id) IS NOT DISTINCT FROM p_certification_id;
+$$;
+
+-- Relative to a certification: applied | requires_revalidation (approved, applies elsewhere, no decision for this one) |
+-- not_carried (a reviewer declined to carry it to this one) | not_applicable (not approved).
+CREATE OR REPLACE FUNCTION public._cr_adjustment_binding_state(p_adjustment_id uuid, p_certification_id uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN public._cr_adjustment_status(p_adjustment_id) <> 'approved' THEN 'not_applicable'
+    WHEN public._cr_adjustment_applies_to(p_adjustment_id, p_certification_id) THEN 'applied'
+    WHEN EXISTS (SELECT 1 FROM public.close_review_adjustment_bindings b WHERE b.adjustment_id = p_adjustment_id
+                  AND b.to_certification_id = p_certification_id AND b.decision = 'declined') THEN 'not_carried'
+    ELSE 'requires_revalidation' END;
+$$;
+
+-- Σ of the applied adjustment lines of one account on one certification.
+CREATE OR REPLACE FUNCTION public._cr_applied_account_totals(p_company_id uuid, p_period_year integer, p_certification_id uuid, p_account_key text,
+  OUT debit_minor numeric, OUT credit_minor numeric, OUT lines integer)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT COALESCE(sum(l.debit_minor), 0), COALESCE(sum(l.credit_minor), 0), count(*)::integer
+    FROM public.close_review_adjustments x JOIN public.close_review_adjustment_lines l ON l.adjustment_id = x.id
+   WHERE x.company_id = p_company_id AND x.period_year = p_period_year AND l.account_key = p_account_key
+     AND public._cr_adjustment_applies_to(x.id, p_certification_id);
+$$;
+
+-- The adjustment resolution contract of a finding: A03 only — on the CURRENT run, applied adjustments touch the account
+-- and its adjusted balance is no longer in credit. Naming the finding on an adjustment is not enough.
+CREATE OR REPLACE FUNCTION public._cr_adjustment_contract_met(p_finding_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT COALESCE((
+    SELECT f.rule_id = 'A03' AND public._cr_current_run(r.company_id, r.period_year) = r.id AND t.lines > 0
+           AND a.debit_minor + t.debit_minor >= a.credit_minor + t.credit_minor
+      FROM public.close_review_findings f
+      JOIN public.close_review_finding_runs r ON r.id = f.run_id
+      JOIN public._cr_certified_accounts(r.certification_id) a ON a.account_key = f.account_key
+      CROSS JOIN LATERAL public._cr_applied_account_totals(r.company_id, r.period_year, r.certification_id, f.account_key) t
+     WHERE f.id = p_finding_id), false);
+$$;
+
+-- 20261014100000's status, plus: an A03 finding whose contract is met by applied adjustments is 'adjusted'.
+CREATE OR REPLACE FUNCTION public.close_review_finding_status(p_finding_id uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE WHEN public._cr_adjustment_contract_met(p_finding_id) THEN 'adjusted'
+    ELSE COALESCE((SELECT CASE e.event_type WHEN 'finding_explained' THEN 'explained' WHEN 'finding_accepted' THEN 'accepted'
+                            WHEN 'finding_not_applicable' THEN 'not_applicable' ELSE 'open' END
+                     FROM public.close_review_events e
+                    WHERE e.subject_kind = 'finding' AND e.subject_id = p_finding_id::text
+                      AND e.event_type IN ('finding_explained', 'finding_accepted', 'finding_not_applicable', 'finding_reopened')
+                    ORDER BY e.seq DESC LIMIT 1), 'open') END;
+$$;
+
+-- The status and resolution of every finding of the CURRENT run, as the database decides them (the browser shows these;
+-- it never recomputes a contract that depends on the adjusted layer).
+CREATE OR REPLACE FUNCTION public.close_review_finding_states(p_company_id uuid, p_period_year integer)
+RETURNS TABLE (finding_id uuid, status text, resolved boolean)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT f.id, public.close_review_finding_status(f.id), public.close_review_finding_resolved(f.id)
+    FROM public.close_review_findings f
+   WHERE public.close_review_readable(p_company_id) AND f.run_id = public._cr_current_run(p_company_id, p_period_year)
+   ORDER BY f.finding_key;
+$$;
+
 -- ── Propose ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- p_lines: [{accountKey, debitMinor, creditMinor, memo?}] (minor units as decimal strings). For a reversal, p_lines is
 -- ignored: the server negates the original. Outcomes: proposed (also a replay) | forbidden | feature_disabled |
--- no_authority | invalid_request | unbalanced | unknown_account | finding_not_current | not_reversible | request_reused.
+-- no_authority | invalid_request | unbalanced | unknown_account | finding_not_current | finding_not_resolvable_by_adjustment |
+-- not_reversible | request_reused.
 CREATE OR REPLACE FUNCTION public.close_review_propose_adjustment(p_company_id uuid, p_period_year integer, p_reason text, p_evidence_ref text,
   p_lines jsonb, p_finding_ids uuid[], p_request_id uuid, p_reverses uuid DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -158,7 +267,6 @@ DECLARE
   v_prior public.close_review_adjustments%ROWTYPE;
   v_orig public.close_review_adjustments%ROWTYPE;
   v_cert uuid;
-  v_prior_cert uuid;
   v_run uuid;
   v_lines jsonb;
   v_n integer;
@@ -189,8 +297,7 @@ BEGIN
 
   IF p_reverses IS NOT NULL THEN
     SELECT * INTO v_orig FROM public.close_review_adjustments a WHERE a.id = p_reverses AND a.company_id = p_company_id AND a.period_year = p_period_year;
-    IF v_orig.id IS NULL OR v_orig.kind <> 'adjustment' OR v_orig.certification_id <> v_cert
-       OR public._cr_adjustment_status(v_orig.id) <> 'approved'
+    IF v_orig.id IS NULL OR v_orig.kind <> 'adjustment' OR NOT public._cr_adjustment_applies_to(v_orig.id, v_cert)
        OR EXISTS (SELECT 1 FROM public.close_review_adjustments r WHERE r.reverses_id = v_orig.id
                    AND public._cr_adjustment_status(r.id) IN ('proposed', 'approved')) THEN
       RETURN jsonb_build_object('outcome', 'not_reversible');
@@ -218,14 +325,15 @@ BEGIN
   SELECT count(*) INTO v_bad FROM jsonb_array_elements(v_lines) l
    WHERE NOT EXISTS (SELECT 1 FROM public.account_mappings m WHERE m.company_id = p_company_id AND m.account_key = l->>'accountKey');
   IF v_bad > 0 THEN RETURN jsonb_build_object('outcome', 'unknown_account'); END IF;
-  -- Findings named must belong to the run of the current authorities.
+  -- Findings named must belong to the current run, and their rule must accept an adjustment as its resolution (A03).
   IF COALESCE(array_length(p_finding_ids, 1), 0) > 0 AND p_reverses IS NULL THEN
-    SELECT c.id INTO v_prior_cert FROM public.get_authoritative_certification(p_company_id, p_period_year - 1) c;
-    SELECT r.id INTO v_run FROM public.close_review_finding_runs r
-     WHERE r.certification_id = v_cert AND r.prior_certification_id IS NOT DISTINCT FROM v_prior_cert AND r.catalogue_version = 'tb-anomaly-catalogue/1';
+    v_run := public._cr_current_run(p_company_id, p_period_year);
     IF v_run IS NULL OR EXISTS (SELECT 1 FROM unnest(p_finding_ids) f(id)
                                  WHERE NOT EXISTS (SELECT 1 FROM public.close_review_findings x WHERE x.id = f.id AND x.run_id = v_run)) THEN
       RETURN jsonb_build_object('outcome', 'finding_not_current');
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.close_review_findings x WHERE x.id = ANY (p_finding_ids) AND x.rule_id <> 'A03') THEN
+      RETURN jsonb_build_object('outcome', 'finding_not_resolvable_by_adjustment');
     END IF;
   END IF;
 
@@ -316,8 +424,9 @@ BEGIN
                        'disclosureAcknowledged', v_self),
     v_uid, v_member, p_request_id);
   IF p_decision = 'approve' THEN
+    -- A link only: whether the finding is resolved is decided by its contract (_cr_adjustment_contract_met).
     FOREACH v_f IN ARRAY v_a.finding_ids LOOP
-      PERFORM public._close_review_append(v_a.company_id, 'finding', v_f::text, 'finding_adjusted', 'Resolved by adjustment ' || v_a.number, NULL,
+      PERFORM public._close_review_append(v_a.company_id, 'finding', v_f::text, 'finding_adjustment_linked', NULL, NULL,
         jsonb_build_object('adjustmentId', v_a.id, 'number', v_a.number), v_uid, v_member, NULL);
     END LOOP;
   END IF;
@@ -325,9 +434,105 @@ BEGIN
 END;
 $$;
 
+-- ── Revalidation (an approved adjustment, after the authority changed) ───────────────────────────────────────────────
+-- p_decision: revalidate | decline. Who: review_close; a reviewer revalidating their own adjustment follows the
+-- self-approval rules (policy, approve_certification, acknowledgement). Outcomes: recorded (also a replay) | forbidden |
+-- feature_disabled | not_found | not_approved | no_authority | already_current | already_decided | journal_invalid |
+-- duplicate_of_current | reversed_pair_not_carried | self_approval_not_allowed | acknowledgement_required |
+-- invalid_request | request_reused.
+CREATE OR REPLACE FUNCTION public.close_review_revalidate_adjustment(p_adjustment_id uuid, p_decision text, p_reason text,
+  p_acknowledge_self_approval boolean, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_a public.close_review_adjustments%ROWTYPE;
+  v_prior public.close_review_adjustment_bindings%ROWTYPE;
+  v_cert uuid;
+  v_from uuid;
+  v_policy record;
+  v_self boolean := false;
+  v_bad jsonb;
+  v_detail jsonb;
+  v_id uuid;
+  v_member uuid;
+  v_word text;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_adjustment_id IS NULL OR p_request_id IS NULL OR p_decision NOT IN ('revalidate', 'decline')
+     OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF p_decision = 'revalidate' THEN v_word := 'revalidated'; ELSE v_word := 'declined'; END IF;
+  SELECT * INTO v_prior FROM public.close_review_adjustment_bindings b WHERE b.reviewer_user_id = v_uid AND b.request_id = p_request_id;
+  IF v_prior.id IS NOT NULL THEN
+    IF v_prior.adjustment_id = p_adjustment_id AND v_prior.decision = v_word THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'bindingId', v_prior.id, 'replay', true);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  SELECT * INTO v_a FROM public.close_review_adjustments a WHERE a.id = p_adjustment_id;
+  IF v_a.id IS NULL OR NOT public.can_access_workspace(v_a.company_id) THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  IF NOT public.fs_rollout_allows(v_a.company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  -- Serialized per adjustment (concurrent revalidations decide once).
+  PERFORM pg_advisory_xact_lock(hashtextextended('close_review_adjustment:' || v_a.id::text, 0));
+  IF public._cr_adjustment_status(v_a.id) <> 'approved' THEN RETURN jsonb_build_object('outcome', 'not_approved'); END IF;
+  SELECT c.id INTO v_cert FROM public.get_authoritative_certification(v_a.company_id, v_a.period_year) c;
+  IF v_cert IS NULL THEN RETURN jsonb_build_object('outcome', 'no_authority'); END IF;
+  IF public._cr_adjustment_applies_to(v_a.id, v_cert) THEN RETURN jsonb_build_object('outcome', 'already_current'); END IF;
+  IF EXISTS (SELECT 1 FROM public.close_review_adjustment_bindings b WHERE b.adjustment_id = v_a.id AND b.to_certification_id = v_cert) THEN
+    RETURN jsonb_build_object('outcome', 'already_decided');
+  END IF;
+  IF NOT public.workspace_capability_allowed(v_a.company_id, v_uid, 'review_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF v_a.proposer_user_id = v_uid THEN
+    SELECT * INTO v_policy FROM public._cr_approval_policy(v_a.company_id);
+    IF NOT v_policy.self_approval_available OR NOT public.workspace_capability_allowed(v_a.company_id, v_uid, 'approve_certification') THEN
+      RETURN jsonb_build_object('outcome', 'self_approval_not_allowed');
+    END IF;
+    IF p_acknowledge_self_approval IS NOT TRUE THEN RETURN jsonb_build_object('outcome', 'acknowledgement_required'); END IF;
+    v_self := true;
+  END IF;
+  v_from := public._cr_adjustment_effective_certification(v_a.id);
+  -- The affected accounts under the old and the new authority (certified amounts; the journal's own lines unchanged).
+  SELECT jsonb_agg(jsonb_build_object('accountKey', l.account_key, 'classificationAtApproval', l.classification,
+           'classificationNow', m.classification::text, 'debitMinor', l.debit_minor::text, 'creditMinor', l.credit_minor::text,
+           'certifiedBefore', (SELECT jsonb_build_object('debitMinor', o.debit_minor::text, 'creditMinor', o.credit_minor::text) FROM public._cr_certified_accounts(v_from) o WHERE o.account_key = l.account_key),
+           'certifiedNow', (SELECT jsonb_build_object('debitMinor', n.debit_minor::text, 'creditMinor', n.credit_minor::text) FROM public._cr_certified_accounts(v_cert) n WHERE n.account_key = l.account_key))
+           ORDER BY l.line_no)
+    INTO v_detail
+    FROM public.close_review_adjustment_lines l
+    LEFT JOIN public.account_mappings m ON m.company_id = v_a.company_id AND m.account_key = l.account_key
+   WHERE l.adjustment_id = v_a.id;
+  IF p_decision = 'revalidate' THEN
+    -- A reversed pair nets to nothing: neither half is carried.
+    IF v_a.kind = 'reversal' OR EXISTS (SELECT 1 FROM public.close_review_adjustments r WHERE r.reverses_id = v_a.id AND public._cr_adjustment_status(r.id) = 'approved') THEN
+      RETURN jsonb_build_object('outcome', 'reversed_pair_not_carried');
+    END IF;
+    -- Every account still classified, and classified as it was when approved (else the journal no longer means the same).
+    SELECT jsonb_agg(x) INTO v_bad FROM jsonb_array_elements(v_detail) x
+     WHERE x->>'classificationNow' IS NULL OR x->>'classificationNow' <> x->>'classificationAtApproval';
+    IF v_bad IS NOT NULL THEN RETURN jsonb_build_object('outcome', 'journal_invalid', 'accounts', v_bad); END IF;
+    -- Never applied twice: no adjustment with the same journal already applies to the current certification.
+    IF EXISTS (SELECT 1 FROM public.close_review_adjustments o WHERE o.company_id = v_a.company_id AND o.period_year = v_a.period_year
+                AND o.id <> v_a.id AND o.lines_sha256 = v_a.lines_sha256 AND public._cr_adjustment_applies_to(o.id, v_cert)) THEN
+      RETURN jsonb_build_object('outcome', 'duplicate_of_current');
+    END IF;
+  END IF;
+  v_member := public._cr_member(v_a.company_id, v_uid);
+  INSERT INTO public.close_review_adjustment_bindings (adjustment_id, company_id, from_certification_id, to_certification_id, decision, reason,
+    self_approved, reviewer_user_id, firm_member_id, request_id, detail)
+  VALUES (v_a.id, v_a.company_id, v_from, v_cert, CASE WHEN p_decision = 'revalidate' THEN 'revalidated' ELSE 'declined' END, btrim(p_reason),
+    v_self, v_uid, v_member, p_request_id, jsonb_build_object('accounts', COALESCE(v_detail, '[]'::jsonb)))
+  RETURNING id INTO v_id;
+  PERFORM public._close_review_append(v_a.company_id, 'adjustment', v_a.id::text,
+    CASE WHEN p_decision = 'revalidate' THEN 'adjustment_revalidated' ELSE 'adjustment_revalidation_declined' END, btrim(p_reason), NULL,
+    jsonb_build_object('bindingId', v_id, 'fromCertificationId', v_from, 'toCertificationId', v_cert, 'selfApproved', v_self), v_uid, v_member, NULL);
+  RETURN jsonb_build_object('outcome', 'recorded', 'bindingId', v_id, 'state', public._cr_adjustment_binding_state(v_a.id, v_cert), 'replay', false);
+END;
+$$;
+
 -- ── The adjusted trial balance (a layer; nothing underneath changes) ─────────────────────────────────────────────────
--- Per account: the authoritative certified amounts, the approved adjustments bound to that authority, and the adjusted
--- result, in exact minor units. Empty when there is no authority or the caller cannot read the workspace.
+-- Per account: the authoritative certified amounts, the approved adjustments that APPLY to that authority, and the
+-- adjusted result, in exact minor units. Empty when there is no authority or the caller cannot read the workspace.
 CREATE OR REPLACE FUNCTION public.close_review_adjusted_trial_balance(p_company_id uuid, p_period_year integer)
 RETURNS TABLE (account_key text, account_code text, account_name text, classification text,
                certified_debit_minor numeric, certified_credit_minor numeric, adjustment_debit_minor numeric, adjustment_credit_minor numeric,
@@ -346,8 +551,7 @@ BEGIN
     SELECT l.account_key, min(l.account_code) AS account_code, min(l.account_name) AS account_name, min(l.classification) AS classification,
            sum(l.debit_minor) AS d, sum(l.credit_minor) AS c
       FROM public.close_review_adjustments x JOIN public.close_review_adjustment_lines l ON l.adjustment_id = x.id
-     WHERE x.company_id = p_company_id AND x.period_year = p_period_year AND x.certification_id = v_cert
-       AND public._cr_adjustment_status(x.id) = 'approved'
+     WHERE x.company_id = p_company_id AND x.period_year = p_period_year AND public._cr_adjustment_applies_to(x.id, v_cert)
      GROUP BY l.account_key
   )
   SELECT COALESCE(cert.account_key, adj.account_key), COALESCE(cert.account_code, adj.account_code), COALESCE(cert.account_name, adj.account_name),
@@ -379,8 +583,15 @@ BEGIN
   RETURN jsonb_build_object('state', CASE WHEN v_cert IS NULL THEN 'no_authority' ELSE 'current' END, 'certificationId', v_cert,
     'currency', v_currency, 'exponent', v_exponent,
     'policy', v_policy.policy, 'selfApprovalAvailable', v_policy.self_approval_available, 'approvers', v_policy.approver_count,
+    'requiresRevalidation', CASE WHEN v_cert IS NULL THEN 0 ELSE (SELECT count(*) FROM public.close_review_adjustments a
+       WHERE a.company_id = p_company_id AND a.period_year = p_period_year AND public._cr_adjustment_binding_state(a.id, v_cert) = 'requires_revalidation') END,
     'adjustments', COALESCE((SELECT jsonb_agg(jsonb_build_object('id', a.id, 'number', a.number, 'kind', a.kind, 'reverses', a.reverses_id,
-        'status', public._cr_adjustment_status(a.id), 'current', COALESCE(a.certification_id = v_cert, false), 'totalMinor', a.total_minor::text,
+        'status', public._cr_adjustment_status(a.id), 'current', COALESCE(public._cr_adjustment_applies_to(a.id, v_cert), false),
+        'binding', CASE WHEN v_cert IS NULL THEN 'no_authority' ELSE public._cr_adjustment_binding_state(a.id, v_cert) END,
+        'proposedOnCurrent', COALESCE(a.certification_id = v_cert, false), 'totalMinor', a.total_minor::text,
+        'bindings', COALESCE((SELECT jsonb_agg(jsonb_build_object('decision', b.decision, 'from', b.from_certification_id, 'to', b.to_certification_id,
+                     'reason', b.reason, 'reviewer', b.reviewer_user_id, 'selfApproved', b.self_approved, 'at', b.created_at) ORDER BY b.seq)
+                     FROM public.close_review_adjustment_bindings b WHERE b.adjustment_id = a.id), '[]'::jsonb),
         'proposer', a.proposer_user_id, 'reason', a.reason, 'evidenceRef', a.evidence_ref, 'findingIds', to_jsonb(a.finding_ids),
         'selfApproved', COALESCE((SELECT (e.detail->>'selfApproved')::boolean FROM public.close_review_events e
                                    WHERE e.subject_kind = 'adjustment' AND e.subject_id = a.id::text AND e.event_type = 'adjustment_approved' LIMIT 1), false),
@@ -395,6 +606,10 @@ $$;
 ALTER TABLE public.close_review_approval_policy_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.close_review_adjustments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.close_review_adjustment_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.close_review_adjustment_bindings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.close_review_adjustment_bindings FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.close_review_adjustment_bindings TO authenticated, service_role;
+CREATE POLICY crab_read ON public.close_review_adjustment_bindings FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
 REVOKE ALL ON TABLE public.close_review_approval_policy_events, public.close_review_adjustments, public.close_review_adjustment_lines
   FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.close_review_approval_policy_events, public.close_review_adjustments, public.close_review_adjustment_lines TO authenticated, service_role;
@@ -405,6 +620,17 @@ CREATE POLICY cral_read ON public.close_review_adjustment_lines FOR SELECT TO au
 
 REVOKE ALL ON FUNCTION public._cr_approval_policy(uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._cr_adjustment_status(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_adjustment_effective_certification(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_adjustment_applies_to(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_adjustment_binding_state(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_applied_account_totals(uuid, integer, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._cr_adjustment_contract_met(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.close_review_finding_status(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.close_review_finding_status(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.close_review_finding_states(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_finding_states(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.close_review_revalidate_adjustment(uuid, text, text, boolean, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_revalidate_adjustment(uuid, text, text, boolean, uuid) TO authenticated;
 REVOKE ALL ON FUNCTION public.close_review_set_approval_policy(uuid, text, boolean, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.close_review_set_approval_policy(uuid, text, boolean, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.close_review_propose_adjustment(uuid, integer, text, text, jsonb, uuid[], uuid, uuid) FROM PUBLIC, anon;

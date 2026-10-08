@@ -43,6 +43,7 @@ describe("exact amounts", () => {
 });
 
 const A = (o: Partial<AdjustmentView> & { id: string; number: number }): AdjustmentView => ({
+  binding: o.status === "approved" ? "applied" : "not_applicable", proposedOnCurrent: true, bindings: [],
   kind: "adjustment", reverses: null, status: "proposed", current: true, totalMinor: "10000", proposer: "u-prep", reason: "Accrue rent",
   evidenceRef: null, findingIds: [], selfApproved: false, reversedBy: null,
   lines: [{ lineNo: 1, accountKey: "6000", accountCode: "6000", accountName: "Rent", classification: "operating_expenses", debitMinor: "10000", creditMinor: "0", memo: null },
@@ -50,7 +51,8 @@ const A = (o: Partial<AdjustmentView> & { id: string; number: number }): Adjustm
 });
 function fake(adjs: AdjustmentView[], over: Partial<Record<string, unknown>> = {}) {
   return {
-    summary: vi.fn(async () => ({ state: "current", certificationId: "c", currency: "TZS", exponent: 2, policy: "two_person", selfApprovalAvailable: false, approvers: 2, adjustments: adjs })),
+    summary: vi.fn(async () => ({ state: "current", certificationId: "c", currency: "TZS", exponent: 2, policy: "two_person", selfApprovalAvailable: false, approvers: 2, requiresRevalidation: adjs.filter((a) => a.binding === "requires_revalidation").length, adjustments: adjs })),
+    revalidate: vi.fn(async () => ({ outcome: "recorded", state: "applied" })),
     adjusted: vi.fn(async () => [
       { account_key: "6000", account_code: "6000", account_name: "Rent", classification: "operating_expenses", certified_debit_minor: "700000", certified_credit_minor: "0", adjustment_debit_minor: "10000", adjustment_credit_minor: "0", adjusted_debit_minor: "710000", adjusted_credit_minor: "0" },
       { account_key: "2000", account_code: "2000", account_name: "Trade payables", classification: "current_liabilities", certified_debit_minor: "0", certified_credit_minor: "300000", adjustment_debit_minor: "0", adjustment_credit_minor: "0", adjusted_debit_minor: "0", adjusted_credit_minor: "300000" },
@@ -120,11 +122,41 @@ describe("AdjustmentsView", () => {
     expect(document.body.textContent).toContain("Adjustment 2 proposed.");
   });
   it("an approved adjustment can be reversed (a new proposal naming it); a stale one says it is not applied", async () => {
-    const c = fake([A({ id: "a1", number: 1, status: "approved" }), A({ id: "a0", number: 3, status: "approved", current: false })]);
+    const c = fake([A({ id: "a1", number: 1, status: "approved" }), A({ id: "a0", number: 3, status: "approved", current: false, binding: "requires_revalidation" })]);
     m = mount(view(c, ["prepare_close"], "u-prep"));
     await flush();
-    expect(document.querySelector("[data-testid=adjustment-3]")!.textContent).toContain("on an earlier trial balance — not applied");
+    expect(document.querySelector("[data-testid=adjustment-3]")!.textContent).toContain("Requires revalidation (approved on an earlier trial balance; not applied)");
+    expect(document.querySelector("[data-testid=revalidate-3]")).toBeNull(); // a preparer cannot revalidate
     click(btn(/Propose a reversal/)!); await flush();
     expect(c.propose).toHaveBeenCalledWith("co", 2025, "Reversal of adjustment 1", null, [], [], "req-1", "a1");
+  });
+});
+
+describe("AdjustmentsView — revalidation after a re-check", () => {
+  const stale = () => A({ id: "a9", number: 9, status: "approved", current: false, binding: "requires_revalidation", proposer: "u-prep" });
+  it("a reviewer revalidates explicitly, with a reason; nothing is applied until then; the count is stated", async () => {
+    const c = fake([stale()]);
+    m = mount(view(c, ["review_close"], "u-rev"));
+    await flush();
+    expect(document.querySelector("[data-testid=requires-revalidation]")!.textContent).toContain("1 approved adjustment requires revalidation");
+    typeInto(document.querySelector("[data-testid=revalidate-9] input") as HTMLInputElement, "Rechecked against the new trial balance");
+    click(btn(/Revalidate on the current trial balance/)!); await flush();
+    expect(c.revalidate).toHaveBeenCalledWith("a9", "revalidate", "Rechecked against the new trial balance", false, "req-1");
+  });
+  it("declining keeps it in history (not carried); a refusal names the accounts", async () => {
+    const c = fake([stale()], { revalidate: vi.fn(async () => ({ outcome: "journal_invalid", accounts: [{ accountKey: "6100", classificationAtApproval: "operating_expenses", classificationNow: "cost_of_goods_sold" }] })) });
+    m = mount(view(c, ["review_close"], "u-rev"));
+    await flush();
+    typeInto(document.querySelector("[data-testid=revalidate-9] input") as HTMLInputElement, "Check");
+    click(btn(/Revalidate on the current trial balance/)!); await flush();
+    expect(document.body.textContent).toContain("no longer classified as it was when approved. Propose a new adjustment instead. (6100)");
+  });
+  it("its own proposer must acknowledge the self-revalidation disclosure", async () => {
+    m = mount(view(fake([stale()]), ["review_close", "approve_certification"], "u-prep"));
+    await flush();
+    typeInto(document.querySelector("[data-testid=revalidate-9] input") as HTMLInputElement, "Mine");
+    expect(btn(/Revalidate on the current trial balance/)!.disabled).toBe(true);
+    click(document.querySelector("[data-testid=revalidate-9] input[type=checkbox]")!);
+    expect(btn(/Revalidate on the current trial balance/)!.disabled).toBe(false);
   });
 });
