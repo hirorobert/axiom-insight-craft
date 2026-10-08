@@ -1,0 +1,2 @@
+account_key,category,effect,include_in_cash_flow,note
+1000,BANK_ACCOUNT,ADD,Y,Main operating account

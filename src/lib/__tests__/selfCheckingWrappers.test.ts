@@ -13,7 +13,10 @@ import { describe, expect, it } from "vitest";
 import { RELEASE_JOURNAL, SUBMISSION_FORMS, checkReleaseEntry, submittedForm } from "../../../scripts/ci/releaseJournal.mjs";
 import { checkMigrationAuthority } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 import { lexSql } from "../../../scripts/ci/atomicEnvelope.mjs";
-import { SOURCE_COMMIT, WRAPPED_SOURCES, enclosedPayload, render, wrapperFile } from "../../../scripts/release/selfCheckingWrapper.mjs";
+import { RELEASE_BATCHES, REPORTING_SOURCE_COMMIT, REPORTING_WRAPPED_SOURCES, SOURCE_COMMIT, WRAPPED_SOURCES, enclosedPayload, render, wrapperFile } from "../../../scripts/release/selfCheckingWrapper.mjs";
+
+// Every registered wrapper, both batches (the applied milestone, then the reporting release).
+const ALL_WRAPPED = RELEASE_BATCHES.flatMap((b) => b.sources);
 
 const ROOT = path.join(__dirname, "../../..");
 const SRC = path.join(ROOT, "supabase/migrations");
@@ -26,10 +29,17 @@ type Result = { ok: boolean; errors: string[]; pending: string[]; mirrored: Arra
 describe("self-checking wrappers: generated from the sources, registered exactly", () => {
   it("wraps exactly the seven pending milestone sources, at main 993774c, in release order", () => {
     expect(SOURCE_COMMIT).toBe("993774cd129a4bfd16946f6be1c339aaf93ac5d4");
-    expect([...WRAPPED_SOURCES]).toEqual(Object.keys(SUBMISSION_FORMS).filter((k) => (SUBMISSION_FORMS as Record<string, { wrapper?: unknown }>)[k].wrapper));
-    expect(fs.readdirSync(path.join(ROOT, "release/wrappers")).sort()).toEqual([...WRAPPED_SOURCES.map((s) => path.basename(wrapperFile(s))), "contract_probe.sql"].sort());
+    expect([...ALL_WRAPPED]).toEqual(Object.keys(SUBMISSION_FORMS).filter((k) => (SUBMISSION_FORMS as Record<string, { wrapper?: unknown }>)[k].wrapper));
+    expect(fs.readdirSync(path.join(ROOT, "release/wrappers")).sort()).toEqual([...ALL_WRAPPED.map((s) => path.basename(wrapperFile(s))), "contract_probe.sql"].sort());
   });
-  for (const name of WRAPPED_SOURCES) {
+  it("wraps exactly the five reporting sources, at the commit holding their final reviewed bytes, in release order", () => {
+    expect(REPORTING_SOURCE_COMMIT).toBe("902a05763be23ef9b3ee762ae92401c0e32ddd84");
+    expect([...REPORTING_WRAPPED_SOURCES]).toEqual(["20261018100000_fs_statement_composition.sql", "20261019100000_fs_notes_and_schedules.sql",
+      "20261020100000_fs_comparatives.sql", "20261021100000_fs_signoff_binding.sql", "20261022100000_fs_reporting_closure.sql"]);
+    for (const n of REPORTING_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${REPORTING_SOURCE_COMMIT}:`);
+    for (const n of WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${SOURCE_COMMIT}:`);
+  });
+  for (const name of ALL_WRAPPED) {
     it(`${name}: the file is render() of the source; it encloses those bytes; both forms are pinned (recomputed here)`, () => {
       const s = src(name), w = wrapper(name);
       expect(w.equals(Buffer.from(render(name, s), "utf8"))).toBe(true);

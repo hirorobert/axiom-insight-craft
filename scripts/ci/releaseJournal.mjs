@@ -328,6 +328,42 @@ export const SUBMISSION_FORMS = Object.freeze({
     // render() of the identical form; it re-verifies those 21060 bytes and their SHA-256 in PostgreSQL first.
     wrapper: Object.freeze({ bytes: 22644, sha256: "086e22b1da1c2239ab40b5ba3765c1a438c7c4c8291aef760e1bb2f722335477" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 22643, sha256: "eb3860c8b46a1fe3872014684c548f16f87c2946dcb51d7c34a84acf28d71737" }),
+  }),  // The reporting release (PRs #89–#94; release/wrappers/ regenerated from 902a057): all four forms of each of the five
+  // sources registered BEFORE application, from the final reviewed bytes. Not applied.
+  "20261018100000_fs_statement_composition.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 39206, sha256: "18b239b602796b0f7071b4cd56c69611cca3e244f88af3c1c797ce79b461f7ca" }),
+    finalLfRemoved: Object.freeze({ bytes: 39205, sha256: "8a33553c0a9a47d0d9b8eaa32ff125f765af554d4395f0c95645b8cb1daa6663" }),
+    // Self-checking wrapper release/wrappers/20261018100000_fs_statement_composition.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 40776, sha256: "57ef68a28c4df8750aa89901caf26d34b0f8f31f058bbebf934761c821944ca7" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 40775, sha256: "401e09cb8f73238a09ca442f2b6c578d9d1e3bcb008551ba8a61aab9e3cc1b08" }),
+  }),
+  "20261019100000_fs_notes_and_schedules.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 43911, sha256: "b89c83bbc3bb9e93cbdd7532b8149aa15d776bee033fab9ae03f632f669087fa" }),
+    finalLfRemoved: Object.freeze({ bytes: 43910, sha256: "e33bd899f7b27ec46fc60c6057b3a4f8d30cf856ed65f2dec1922aff667c3e64" }),
+    // Self-checking wrapper release/wrappers/20261019100000_fs_notes_and_schedules.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 45477, sha256: "554d29c672bc9604ee8f95b137c23ecaa1799771a8bb86879ee1abf6c3624127" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 45476, sha256: "e41c8364c71fb60254edb4223f4921e1a5c17dedc6123a85170f133028e4c9b0" }),
+  }),
+  "20261020100000_fs_comparatives.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 47941, sha256: "74119824182913d6f35068bb7a0a87409688d5009feba3d230540badae66b6b4" }),
+    finalLfRemoved: Object.freeze({ bytes: 47940, sha256: "8d9d9a02c818fc102b5ea7e1cbfd807251880cbff3e6aa0f0abdfdb6204eaacb" }),
+    // Self-checking wrapper release/wrappers/20261020100000_fs_comparatives.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 49493, sha256: "28ff6bdbe6197273358cb219083fbd84824b5f0456b25fc7b1a53e4d85dd513a" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 49492, sha256: "66618f831ae2378d807c3a41c5309ac2f940b858616c33a019df608cd74f150d" }),
+  }),
+  "20261021100000_fs_signoff_binding.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 23593, sha256: "9f69a03e69141fe954d4e63e95643077cabe8a1f8ab9fc18e328d2dab12d9d12" }),
+    finalLfRemoved: Object.freeze({ bytes: 23592, sha256: "71f52ddb39205a221fd6a58dd2726e2af45bdefc6e2c8c120fa2fb13572cd89d" }),
+    // Self-checking wrapper release/wrappers/20261021100000_fs_signoff_binding.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 25151, sha256: "e6379644bfd4ea032cab9a17cf9db22be1bdc9821157992ef7cb487037f31305" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 25150, sha256: "16b306bc4bc37f129d4b7eaf1ea93ffac463595872ab25a6f51f3a7acfe526fc" }),
+  }),
+  "20261022100000_fs_reporting_closure.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 27142, sha256: "307f3114af9433473ee31cb674ab8ac730b832852ded9793cc69ce8ea647f3aa" }),
+    finalLfRemoved: Object.freeze({ bytes: 27141, sha256: "f8f26b92dbf4054960892d973544363572265ea82c3a72b181983cf552db3707" }),
+    // Self-checking wrapper release/wrappers/20261022100000_fs_reporting_closure.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 28704, sha256: "74e459e8198c98a37964b16d673285f24a6cba9d5813a1c75bbadb53398bd4a6" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 28703, sha256: "27ffb7e7515c5d0a48b1b5f56afb83d16b0cadb3f9887871fa8591bf89427fc3" }),
   }),
 });
 

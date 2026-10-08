@@ -28,7 +28,7 @@ const { group, check, refused, finish } = reporter();
 let db;
 
 // Hand-computed from EVIDENCE_FY2026 and the FY2026/FY2025 trial balances (minor units, TZS, 2 dp):
-//   operating: 29,500.00 − 22,800.00 + 500.00 − 500.00 − 500.00 = 6,200.00     financing: −1,000.00 − 700.00 = −1,700.00
+//   operating: 28,700.00 − 21,700.00 + 500.00 − 700.00 − 600.00 = 6,200.00     financing: −1,000.00 − 700.00 = −1,700.00
 //   net change 4,500.00; opening cash 8,000.00 (FY2025 bank); closing 12,500.00 (FY2026 bank)
 //   equity: opening 16,600.00 (10,000 + 6,600); profit 5,100.00; dividends −700.00; closing 21,000.00
 const EXPECT = { operating: 620000n, financing: -170000n, net: 450000n, opening: 800000n, closing: 1250000n, equityClose: 2100000n, profit: 510000n };

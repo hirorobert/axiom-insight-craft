@@ -21,6 +21,8 @@
 // nothing applied. The documented read-only postcondition passes after the release.
 //
 //   DB_PROOF_MODULES_DIR=<dir with node_modules/pg + embedded-postgres> node scripts/db-proof/selfCheckingWrappers.mjs
+//   RELEASE_BATCH=reporting-r1 runs the same proof for the reporting release's five wrappers (default: i1b-signoff, the
+//   applied milestone); the base is then main's schema through the migration before that batch.
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway loopback server; creates and drops its own databases)
 // drizzle-orm must resolve `pg` (CI: `bun add --no-save --ignore-scripts pg@8`). Loopback only; refuses production.
 import crypto from "node:crypto";
@@ -30,7 +32,17 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
-import { WRAPPED_SOURCES, committedSource, enclosedPayload, render, wrapperFile } from "../release/selfCheckingWrapper.mjs";
+import { RELEASE_BATCHES, committedSource, enclosedPayload, render, wrapperFile } from "../release/selfCheckingWrapper.mjs";
+
+const BATCH = RELEASE_BATCHES.find((b) => b.id === (process.env.RELEASE_BATCH ?? "i1b-signoff"));
+if (!BATCH) throw new Error(`unknown RELEASE_BATCH ${process.env.RELEASE_BATCH}`);
+const WRAPPED_SOURCES = BATCH.sources;
+const N = WRAPPED_SOURCES.length;
+// The object a drizzle-run failure is injected at, inside the batch's last-but-one wrapper, and two tables that must not
+// exist after the rolled-back run (the first wrapper's and that one's).
+const DRIZZLE_FAILURE = BATCH.id === "reporting-r1"
+  ? { object: "public.fs_publication_bindings", tables: ["public.fs_presentation_lines", "public.fs_publication_bindings"] }
+  : { object: "public.close_review_adjustment_bindings", tables: ["public.tb_source_objects", "public.close_review_findings"] };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -91,7 +103,7 @@ async function buildBase(url) {
     // The seven are consecutive in the chain; later migrations belong to later releases and are not part of this proof.
     const first = chain.indexOf(WRAPPED_SOURCES[0]);
     const run = chain.slice(first, first + WRAPPED_SOURCES.length);
-    if (first < 0 || JSON.stringify(run) !== JSON.stringify(WRAPPED_SOURCES)) throw new Error(`the seven wrapped sources are not consecutive in the chain: ${run}`);
+    if (first < 0 || JSON.stringify(run) !== JSON.stringify(WRAPPED_SOURCES)) throw new Error(`the ${N} wrapped sources are not consecutive in the chain: ${run}`);
     for (const f of chain.slice(0, first)) {
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
@@ -207,18 +219,18 @@ async function main() {
   await check("each file in release/wrappers equals render(committed source) and encloses exactly the committed bytes", async () => {
     const bad = [];
     for (const s of WRAPPED_SOURCES) {
-      const committed = committedSource(s);
+      const committed = committedSource(s, BATCH.commit);
       const file = fs.readFileSync(path.join(REPO, wrapperFile(s)));
-      if (!file.equals(Buffer.from(render(s, committed), "utf8"))) bad.push(`${s}: not render()`);
+      if (!file.equals(Buffer.from(render(s, committed, BATCH.commit), "utf8"))) bad.push(`${s}: not render()`);
       if (!enclosedPayload(file.toString("utf8"))?.equals(committed)) bad.push(`${s}: payload differs`);
       if (!committed.equals(fs.readFileSync(path.join(REPO, "supabase/migrations", s)))) bad.push(`${s}: working tree differs from the committed source`);
     }
     return bad.length === 0 ? true : bad;
   });
 
-  group("Base — main's schema before the release; journal head = hosted 0032");
+  group(`Base — main's schema before the ${BATCH.id} release; journal head = ${HEAD_ENTRY.tag}`);
   const baseDb = "wrappers_base";
-  await check("the source chain through 20261010100000 applies; the journal head is 0032", async () => {
+  await check(`the source chain before ${WRAPPED_SOURCES[0]} applies; the journal head is ${HEAD_ENTRY.tag}`, async () => {
     await buildBase(await cloneDb(baseDb));
     const c = await connect(urlFor(baseDb));
     try { await c.query(INJECT); const j = await journalRows(c); return j.length === 1 && Number(j[0].created_at) === HEAD_ENTRY.when ? true : j; } finally { await c.end(); }
@@ -229,7 +241,7 @@ async function main() {
   const c = await connect(stepUrl);
   try {
     for (const [i, s] of WRAPPED_SOURCES.entries()) {
-      group(`Wrapper ${i + 1}/7 — ${s}`);
+      group(`Wrapper ${i + 1}/${N} — ${s}`);
       const text = wrapperText(s);
       for (const [label, v] of Object.entries(variants(s, text))) {
         for (const model of [false, true]) {
@@ -273,15 +285,15 @@ async function main() {
         });
       }
     }
-    group("After the seven — the documented read-only postcondition");
+    group(`After the ${N} — the documented read-only postcondition`);
     await check("postcondition.sql passes in a READ ONLY transaction", async () => {
       await c.query("DROP EVENT TRIGGER IF EXISTS proof_inject_start; DROP EVENT TRIGGER IF EXISTS proof_inject_end");
       const notices = []; const on = (m) => notices.push(m.message); c.on("notice", on);
       await c.query("BEGIN READ ONLY");
-      try { await c.query(fs.readFileSync(path.join(REPO, "docs/release/milestone-i1b-signoff/postcondition.sql"), "utf8")); } finally { await c.query("ROLLBACK"); c.off("notice", on); }
+      try { await c.query(fs.readFileSync(path.join(REPO, BATCH.postcondition), "utf8")); } finally { await c.query("ROLLBACK"); c.off("notice", on); }
       return notices.includes("POSTCONDITION OK.") ? true : notices;
     });
-    await check("the journal holds exactly 0032 plus seven rows, one per wrapper, in order", async () => {
+    await check(`the journal holds exactly its head plus ${N} rows, one per wrapper, in order`, async () => {
       const j = await journalRows(c);
       return j.length === 1 + WRAPPED_SOURCES.length ? true : j.length;
     });
@@ -311,7 +323,7 @@ async function main() {
     finally { await pool.end(); }
   };
   const texts = WRAPPED_SOURCES.map(wrapperText);
-  await check("the seven wrappers as seven entries: all apply; seven journal rows, each hash = SHA-256 of its wrapper file; a second migrate() changes nothing", async () => {
+  await check(`the ${N} wrappers as ${N} entries: all apply; ${N} journal rows, each hash = SHA-256 of its wrapper file; a second migrate() changes nothing`, async () => {
     const url = await cloneDb("wrappers_drizzle_ok", baseDb);
     const folder = folderWith(texts);
     const r = await migrateOn(url, folder);
@@ -322,18 +334,18 @@ async function main() {
       const again = await migrateOn(url, folder);
       const f2 = await fingerprint(c2);
       const hashesOk = JSON.stringify(j.slice(1).map((x) => x.hash)) === JSON.stringify(texts.map((t) => sha256(Buffer.from(t, "utf8"))));
-      return r.ok && again.ok && j.length === 8 && hashesOk && f1.f === f2.f ? true : { r, again, rows: j.length, hashesOk };
+      return r.ok && again.ok && j.length === 1 + N && hashesOk && f1.f === f2.f ? true : { r, again, rows: j.length, hashesOk };
     } finally { await c2.end(); }
   });
-  await check("a failure injected inside the fifth wrapper rolls back all five and records no journal row", async () => {
+  await check(`a failure injected inside wrapper ${N - 1} rolls back all ${N - 1} before it and records no journal row`, async () => {
     const url = await cloneDb("wrappers_drizzle_fail", baseDb);
     const c3 = await connect(url);
     try {
-      await setInjection(c3, "object:public.close_review_adjustment_bindings");
+      await setInjection(c3, `object:${DRIZZLE_FAILURE.object}`);
       const before = await fingerprint(c3);
       const r = await migrateOn(url, folderWith(texts));
       const after = await fingerprint(c3);
-      const tables = (await c3.query("SELECT to_regclass('public.tb_source_objects') a, to_regclass('public.close_review_findings') b")).rows[0];
+      const tables = (await c3.query("SELECT to_regclass($1) a, to_regclass($2) b", DRIZZLE_FAILURE.tables)).rows[0];
       return !r.ok && /PROOF_INJECTED_FAILURE/.test(r.message) && before.f === after.f && tables.a === null && tables.b === null ? true : { r, same: before.f === after.f, tables };
     } finally { await c3.end(); }
   });
@@ -358,7 +370,7 @@ console.log("\n─────────────────────�
 console.log(`assertions: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
 for (const f of failed) console.log(`  FAILED [${f.group}] ${f.name}`);
 const ok = !crashed && failed.length === 0 && results.length > 0;
-console.log(ok ? "SELF_CHECKING_WRAPPERS: ALL PASSED" : "SELF_CHECKING_WRAPPERS: FAILED");
+console.log(ok ? `SELF_CHECKING_WRAPPERS (${BATCH.id}): ALL PASSED` : `SELF_CHECKING_WRAPPERS (${BATCH.id}): FAILED`);
 for (const d of created) { try { await maintenance(`DROP DATABASE IF EXISTS ${d} WITH (FORCE)`); } catch { /* */ } }
 if (server) { try { await Promise.race([server.stop(), new Promise((r) => setTimeout(r, 5000))]); } catch { /* */ } }
 if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ } }

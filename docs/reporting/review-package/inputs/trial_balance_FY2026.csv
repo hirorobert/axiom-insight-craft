@@ -1,0 +1,19 @@
+Account code,Account name,Debit,Credit
+1000,Bank,12500.00,
+1100,Trade receivables,4300.00,
+1200,Inventory,2200.00,
+1500,Equipment at cost,20000.00,
+1510,Accumulated depreciation,,6000.00
+2000,Trade payables,,3100.00
+2100,Income tax payable,,900.00
+2500,Bank loan,,8000.00
+3000,Share capital,,10000.00
+3100,Retained earnings,,5900.00
+4000,Sales,,30000.00
+4100,Interest income,,500.00
+5000,Cost of sales,14000.00,
+6000,Salaries,5500.00,
+6100,Rent,2400.00,
+6200,Depreciation,2000.00,
+6300,Interest expense,600.00,
+7000,Income tax expense,900.00,

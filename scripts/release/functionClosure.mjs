@@ -23,16 +23,18 @@ function stripComments(src) {
 }
 
 /** The closure of one entry file: relative files (with hashes) and remote specifiers. */
-export function closureOf(entry) {
+/** `root` is the tree the paths are relative to (the repository, or a downloaded deployment bundle). */
+export function closureOf(entry, root = REPO) {
+  const relTo = (p) => path.relative(root, p).split(path.sep).join("/");
   const files = new Map();
   const remote = new Set();
   const stack = [path.resolve(entry)];
   while (stack.length) {
     const file = stack.pop();
     if (files.has(file)) continue;
-    if (!fs.existsSync(file)) throw new Error(`unresolved import: ${rel(file)}`);
+    if (!fs.existsSync(file)) throw new Error(`unresolved import: ${relTo(file)}`);
     const bytes = fs.readFileSync(file);
-    files.set(file, { path: rel(file), size: bytes.length, sha256: sha(bytes) });
+    files.set(file, { path: relTo(file), size: bytes.length, sha256: sha(bytes) });
     for (const m of stripComments(bytes.toString("utf8")).matchAll(SPEC)) {
       const spec = m[2];
       if (spec.startsWith("./") || spec.startsWith("../")) stack.push(path.resolve(path.dirname(file), spec));

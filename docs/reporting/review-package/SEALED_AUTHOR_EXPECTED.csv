@@ -1,0 +1,43 @@
+id,statement,line,author_FY2026,author_FY2025,author_derivation,status
+SFP-01,Financial position,"Property, plant and equipment",14000.00,16000.00,"1500 cost 20,000 less 1510 accumulated depreciation 6,000 (4,000)",AUTHOR_PREPARED_NOT_VALIDATED
+SFP-02,Financial position,Cash and cash equivalents,12500.00,8000.00,1000 Bank,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-03,Financial position,Trade and other receivables,4300.00,3000.00,1100,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-04,Financial position,Inventories,2200.00,1800.00,1200,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-05,Financial position,Total assets,33000.00,28800.00,sum of the above,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-06,Financial position,Share capital and retained earnings (as in the trial balance),15900.00,13500.00,3000 + 3100 (pre-closing),AUTHOR_PREPARED_NOT_VALIDATED
+SFP-07,Financial position,Profit for the period (not yet closed to retained earnings),5100.00,3100.00,from the statement of comprehensive income,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-08,Financial position,Total equity,21000.00,16600.00,SFP-06 + SFP-07,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-09,Financial position,Borrowings (non-current),8000.00,9000.00,2500,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-10,Financial position,Trade and other payables,3100.00,2500.00,2000,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-11,Financial position,Current tax liability,900.00,700.00,2100,AUTHOR_PREPARED_NOT_VALIDATED
+SFP-12,Financial position,Total equity and liabilities,33000.00,28800.00,equals total assets,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-01,Comprehensive income,Revenue,30000.00,25000.00,4000,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-02,Comprehensive income,Other income,500.00,400.00,4100 interest income,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-03,Comprehensive income,Cost of sales,-14000.00,-11500.00,5000,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-04,Comprehensive income,"Distribution, administrative and other expenses (by function)",-9900.00,-9400.00,6000 + 6100 + 6200,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-05,Comprehensive income,Finance costs,-600.00,-700.00,6300 interest expense,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-06,Comprehensive income,Profit before tax,6000.00,3800.00,SCI-01..05,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-07,Comprehensive income,Tax expense,-900.00,-700.00,7000,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-08,Comprehensive income,Profit for the period,5100.00,3100.00,SCI-06 + SCI-07,AUTHOR_PREPARED_NOT_VALIDATED
+SCI-09,Comprehensive income,Total comprehensive income,5100.00,3100.00,"no other comprehensive income (5.5(g), (h) not applicable)",AUTHOR_PREPARED_NOT_VALIDATED
+SCF-01,Cash flows (direct),Receipts from customers,28700.00,24600.00,"FY2026: 30,000 - (4,300 - 3,000); FY2025: as supplied (FY2024 balances unknown)",AUTHOR_PREPARED_NOT_VALIDATED
+SCF-02,Cash flows (direct),Payments to suppliers and employees,-21700.00,-19100.00,"FY2026: 14,000 + 5,500 + 2,400 + 400 inventory increase - 600 payables increase; FY2025: as supplied",AUTHOR_PREPARED_NOT_VALIDATED
+SCF-03,Cash flows (direct),Interest received (operating),500.00,400.00,accounting policy choice (7.14),AUTHOR_PREPARED_NOT_VALIDATED
+SCF-04,Cash flows (direct),Income tax paid (operating),-700.00,-500.00,FY2026: 700 + 900 - 900; FY2025: as supplied,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-05,Cash flows (direct),Interest paid (operating),-600.00,-700.00,accounting policy choice (7.14); no accrual account,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-06,Cash flows (direct),Net cash from operating activities,6200.00,4700.00,SCF-01..05,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-07,Cash flows (direct),Repayment of borrowings,-1000.00,-1000.00,"2500: 9,000 to 8,000",AUTHOR_PREPARED_NOT_VALIDATED
+SCF-08,Cash flows (direct),Dividends paid,-700.00,-700.00,retained earnings movement,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-09,Cash flows (direct),Net cash from financing activities,-1700.00,-1700.00,SCF-07 + SCF-08,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-10,Cash flows (direct),Net increase in cash,4500.00,3000.00,SCF-06 + SCF-09,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-11,Cash flows (direct),Cash at the beginning of the period,8000.00,5000.00,FY2026: SFP FY2025; FY2025: signed prior-year statement of cash flows,AUTHOR_PREPARED_NOT_VALIDATED
+SCF-12,Cash flows (direct),Cash at the end of the period,12500.00,8000.00,equals SFP-02,AUTHOR_PREPARED_NOT_VALIDATED
+SCE-01,Changes in equity,Share capital: opening and closing,10000.00,10000.00,3000,AUTHOR_PREPARED_NOT_VALIDATED
+SCE-02,Changes in equity,Retained earnings: opening,6600.00,4200.00,"FY2026: FY2025 closing; FY2025: 3,500 + 700 dividend (pre-closing)",AUTHOR_PREPARED_NOT_VALIDATED
+SCE-03,Changes in equity,Retained earnings: profit for the period,5100.00,3100.00,SCI-08,AUTHOR_PREPARED_NOT_VALIDATED
+SCE-04,Changes in equity,Retained earnings: dividends,-700.00,-700.00,per the equity movements,AUTHOR_PREPARED_NOT_VALIDATED
+SCE-05,Changes in equity,Retained earnings: closing,11000.00,6600.00,SCE-02..04,AUTHOR_PREPARED_NOT_VALIDATED
+SCE-06,Changes in equity,Total equity: closing,21000.00,16600.00,equals SFP-08,AUTHOR_PREPARED_NOT_VALIDATED
+PPE-01,PPE schedule,Carrying amount: opening,16000.00,,FY2025 closing,AUTHOR_PREPARED_NOT_VALIDATED
+PPE-02,PPE schedule,Depreciation,-2000.00,,6200,AUTHOR_PREPARED_NOT_VALIDATED
+PPE-03,PPE schedule,Carrying amount: closing,14000.00,,equals SFP-01,AUTHOR_PREPARED_NOT_VALIDATED

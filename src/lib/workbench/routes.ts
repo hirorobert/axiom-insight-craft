@@ -90,6 +90,13 @@ export const WORKBENCH_GROUPS: readonly WorkbenchGroup[] = Object.freeze([
  */
 export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<WorkbenchPageId>(["overview", "tb-intake", "tb-review"]);
 
+/**
+ * Whether the reporting pages (Financial Statements; Sign-off & Exports) are part of the BUILD at all. A literal, so the
+ * bundler drops the unreleased chunk entirely (not merely hides it); it must equal "every reporting page is released"
+ * (routes.test.ts). Releasing the reporting pages changes both, in one reviewed commit.
+ */
+export const REPORTING_PAGES_SHIPPED = false;
+
 /** Legacy workspace route segments and the one canonical workbench segment each resolves to when the gate is on. */
 export const WORKBENCH_LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   prepare: "trial-balance/review",

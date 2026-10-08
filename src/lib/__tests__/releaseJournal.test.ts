@@ -32,6 +32,9 @@ const I1A_A1 = "20261009100000_currency_registry_and_reporting_periods.sql";
 const I1A_A2 = "20261010100000_layout_templates_and_confirmations.sql";
 const S25 = "20261001120000_annual_commercial_term.sql";
 // The milestone's seven sources, with both registered forms recomputed from the final reviewed bytes.
+// The reporting release (PRs #89–#94): all four forms registered before application. Recomputed below from the bytes.
+const REPORTING = ["20261018100000_fs_statement_composition.sql", "20261019100000_fs_notes_and_schedules.sql", "20261020100000_fs_comparatives.sql",
+  "20261021100000_fs_signoff_binding.sql", "20261022100000_fs_reporting_closure.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
   { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
@@ -342,7 +345,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name)].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -504,7 +507,7 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
 describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
   it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    expect(keys.slice(-MILESTONE.length)).toEqual(MILESTONE.map((m) => m.name));
+    expect(keys.slice(-(MILESTONE.length + REPORTING.length), -REPORTING.length)).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
       // The two source forms, plus the self-checking wrapper's two forms (release/wrappers/; selfCheckingWrappers.test.ts).
@@ -588,4 +591,22 @@ describe("the milestone's seven migrations: both submission forms registered ahe
     expect(r.mirrored.filter((m) => MILESTONE.some((x) => x.name === m.source))).toEqual(
       MILESTONE.map((m, i) => ({ tag: tags[i], source: m.name, how: "release_self_checking_wrapper" })));
   }, 120_000);
+});
+
+describe("the reporting release: all four forms of each source registered ahead of application (nothing applied)", () => {
+  it("registers exactly the five, last and in release order; each form recomputed here from the repository bytes", () => {
+    const keys = Object.keys(SUBMISSION_FORMS);
+    expect(keys.slice(-REPORTING.length)).toEqual(REPORTING.map((m) => m.name));
+    for (const { name } of REPORTING) {
+      const src = fs.readFileSync(path.join(ROOT, "supabase/migrations", name));
+      const w = fs.readFileSync(path.join(ROOT, "release/wrappers", name.replace(/\.sql$/, ".wrapper.sql")));
+      expect(src.includes(0x0d), `${name} has no CR byte`).toBe(false);
+      expect(src.subarray(0, 3).toString("hex"), `${name} has no BOM`).not.toBe("efbbbf");
+      expect(src[src.length - 1], `${name} ends in an LF`).toBe(0x0a);
+      expect(src[src.length - 2], `${name} ends in exactly one LF`).not.toBe(0x0a);
+      expect((SUBMISSION_FORMS as Record<string, unknown>)[name], name).toEqual({
+        identical: { bytes: src.length, sha256: sha(src) }, finalLfRemoved: { bytes: src.length - 1, sha256: sha(src.subarray(0, src.length - 1)) },
+        wrapper: { bytes: w.length, sha256: sha(w) }, wrapperFinalLfRemoved: { bytes: w.length - 1, sha256: sha(w.subarray(0, w.length - 1)) } });
+    }
+  });
 });

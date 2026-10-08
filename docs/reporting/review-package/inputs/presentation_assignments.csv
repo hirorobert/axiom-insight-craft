@@ -1,0 +1,19 @@
+Account code,Presentation line
+1000,sfp.cash_and_cash_equivalents
+1100,sfp.trade_and_other_receivables
+1200,sfp.inventories
+1500,sfp.property_plant_and_equipment
+1510,sfp.property_plant_and_equipment
+2000,sfp.trade_and_other_payables
+2100,sfp.current_tax
+2500,sfp.other_financial_liabilities
+3000,sfp.equity_attributable_to_owners
+3100,sfp.equity_attributable_to_owners
+4000,sci.revenue
+4100,sci.other_income
+5000,sci.cost_of_sales
+6000,sci.operating_expenses_by_function
+6100,sci.operating_expenses_by_function
+6200,sci.operating_expenses_by_function
+6300,sci.finance_costs
+7000,sci.tax_expense

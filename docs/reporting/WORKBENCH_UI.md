@@ -88,5 +88,21 @@ fixtures, not by an independent qualified reviewer.
 1. Apply migrations `20261018100000` → `20261021100000` (hosted; owner only).
 2. Stop withholding the Statements stage (`moduleAvailability.ts`). The `statements` route segment must leave
    `WITHHELD_WORKSPACE_ROUTE_SEGMENTS` in the same change.
-3. Add the six page ids to `RELEASED_WORKBENCH_PAGES`.
+3. Add the six page ids to `RELEASED_WORKBENCH_PAGES` and set `REPORTING_PAGES_SHIPPED = true` in the same commit. Until then,
+   the reporting chunk is not in the production build at all; `harnessIsolation.test.ts` scans `dist/` for it.
 4. Allow-list the company in the financial-statements rollout (`fs_set_company_rollout`).
+
+## The two-step save is resumable (closure)
+Saving with new evidence takes two steps:
+1. the **evidence** version, which stores the new batches and is stale, so it can never be signed;
+2. the **bound** version.
+
+Each step's idempotency key is the attempt's key, the step, and the version it builds on.
+
+**After a failure at any point**, pressing save again (the same attempt) resumes:
+- evidence the server already holds is not sent again;
+- an attempt whose latest version is already bound to the current dependencies writes nothing.
+
+**Concurrency.** A concurrent save or edit is absorbed by building on the newest version.
+
+All of this is proven with injected failures in `scripts/db-proof/reportingClosure.mjs`.

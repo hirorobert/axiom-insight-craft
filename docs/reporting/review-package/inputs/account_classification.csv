@@ -1,0 +1,19 @@
+Account code,Account name,Classification,Statement,Normal balance
+1000,Bank,current_assets,balance_sheet,debit
+1100,Trade receivables,current_assets,balance_sheet,debit
+1200,Inventory,current_assets,balance_sheet,debit
+1500,Equipment at cost,non_current_assets,balance_sheet,debit
+1510,Accumulated depreciation,non_current_assets,balance_sheet,credit
+2000,Trade payables,current_liabilities,balance_sheet,credit
+2100,Income tax payable,current_liabilities,balance_sheet,credit
+2500,Bank loan,non_current_liabilities,balance_sheet,credit
+3000,Share capital,equity,balance_sheet,credit
+3100,Retained earnings,equity,balance_sheet,credit
+4000,Sales,revenue,income_statement,credit
+4100,Interest income,other_income,income_statement,credit
+5000,Cost of sales,cost_of_goods_sold,income_statement,debit
+6000,Salaries,operating_expenses,income_statement,debit
+6100,Rent,operating_expenses,income_statement,debit
+6200,Depreciation,operating_expenses,income_statement,debit
+6300,Interest expense,operating_expenses,income_statement,debit
+7000,Income tax expense,taxes,income_statement,debit

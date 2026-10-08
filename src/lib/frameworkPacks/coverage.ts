@@ -41,6 +41,8 @@ const VIEW = { file: "src/lib/statements/composition.ts", symbol: "statementView
 const NOTES_SQL = "supabase/migrations/20261019100000_fs_notes_and_schedules.sql";
 const NOTES = (literal: string) => ({ file: NOTES_SQL, symbol: literal });
 const TEXT = [NOTES("FUNCTION public.fs_record_disclosure"), NOTES("REQUIRED_DISCLOSURE_MISSING:")];
+const CLOSURE_SQL = "supabase/migrations/20261022100000_fs_reporting_closure.sql";
+const CLOSURE = (literal: string) => ({ file: CLOSURE_SQL, symbol: literal });
 const WORDING = "Tracked per requirement by the database: the preparer's own wording, verbatim with its source; missing blocks. Nothing is generated.";
 const READINESS = (code: string) => ({ file: "supabase/migrations/20261017100000_signoff_completion_requirements.sql", symbol: code });
 
@@ -76,12 +78,16 @@ export const IFRS_FOR_SMES_COVERAGE: Readonly<Record<string, CoverageEntry>> = {
   "smes.sci.5_5_b": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("'sci.finance_costs'")], note: "By reviewed assignment of the account to the finance-costs line." },
   "smes.sci.5_5_c": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("'sci.share_of_associates'")], note: "A line only; equity-method accounting itself is not computed here." },
   "smes.sci.5_5_d": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("'sci.tax_expense'")], note: "From preparer-recorded balances only (no tax engine)." },
-  "smes.sci.5_5_e": { status: "MISSING" },
+  "smes.sci.5_5_e": { status: "BLOCKED_WHEN_APPLICABLE", implementedBy: [CLOSURE("FUNCTION public._fs_comprehensive_income"), CLOSURE("REPORTING_CASE_UNSUPPORTED:")],
+    note: "A recorded decision per report (undecided blocks). No discontinued operation: satisfied. A discontinued operation: the single post-tax amount is not composed, so finalisation is refused by name." },
   "smes.sci.5_5_f": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("'profitOrLossMinor'")],
     note: "Computed by the database only when every account of the period is presented." },
-  "smes.sci.5_5_g": { status: "MISSING", note: "No other comprehensive income support." },
-  "smes.sci.5_5_h": { status: "MISSING" },
-  "smes.sci.5_5_i": { status: "MISSING", note: "Not presented; where there is no OCI the standard permits 'profit or loss' (5.5(f)) instead." },
+  "smes.sci.5_5_g": { status: "BLOCKED_WHEN_APPLICABLE", implementedBy: [CLOSURE("FUNCTION public._fs_comprehensive_income"), CLOSURE("REPORTING_CASE_UNSUPPORTED:")],
+    note: "A recorded decision per report (undecided blocks). No item of 5.4(b) OCI: satisfied. Any OCI: items by nature and reclassification group are not composed, so finalisation is refused by name." },
+  "smes.sci.5_5_h": { status: "BLOCKED_WHEN_APPLICABLE", implementedBy: [CLOSURE("FUNCTION public._fs_comprehensive_income"), CLOSURE("REPORTING_CASE_UNSUPPORTED:")],
+    note: "A recorded decision per report (undecided blocks). No equity-accounted investee OCI: satisfied. Otherwise finalisation is refused by name." },
+  "smes.sci.5_5_i": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [CLOSURE("totalComprehensiveIncomeMinor"), { file: "src/lib/statements/canonicalDocument.ts", symbol: "composedStatements" }],
+    note: "Composed by the database as profit or loss only when 5.5(g) and (h) are decided not applicable (5.5(i) permits the line then); a bound sign-off figure, cast against profit or loss by the rule pack. With OCI present it is not composed and finalisation is refused." },
   "smes.sci.5_11": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("EXPENSE_ANALYSIS_MIXED")],
     note: "By function (cost of sales, other expenses) or by nature (employee benefits, depreciation, other); mixing both blocks." },
   "smes.note.compliance": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, READINESS("DISCLOSURE_CHECKLIST_INCOMPLETE")], note: WORDING },
@@ -123,6 +129,7 @@ export function renderCoverageMatrix(packs: readonly FrameworkPack[], coverage: 
     "",
     "- **VALIDATED** — implemented and independently validated (golden fixture prepared outside the code by a named qualified reviewer). **None yet.**",
     "- **IMPLEMENTED_NOT_VALIDATED** — a code path exists (named; existence tested). Not a compliance claim.",
+    "- **BLOCKED_WHEN_APPLICABLE** — decided per report (undecided blocks): supported (not validated) when the case is absent; when it is present the server refuses finalisation by name.",
     "- **MISSING** — not produced; blocks finalisation where the requirement applies and is blocking.",
     "",
     "No complete-compliance claim is made for any framework.",
@@ -131,7 +138,7 @@ export function renderCoverageMatrix(packs: readonly FrameworkPack[], coverage: 
     const rows = coverageRows(pack, coverage);
     const count = (s: CoverageStatus) => rows.filter((r) => r.status === s).length;
     out.push("", `## ${pack.edition.title} — pack \`${pack.id}\` v${pack.packVersion}`, "",
-      `Effective for annual periods beginning on or after ${pack.edition.effectiveForPeriodsBeginningOnOrAfter}. Requirements: ${rows.length} — VALIDATED ${count("VALIDATED")}, IMPLEMENTED_NOT_VALIDATED ${count("IMPLEMENTED_NOT_VALIDATED")}, MISSING ${count("MISSING")}.`,
+      `Effective for annual periods beginning on or after ${pack.edition.effectiveForPeriodsBeginningOnOrAfter}. Requirements: ${rows.length} — VALIDATED ${count("VALIDATED")}, IMPLEMENTED_NOT_VALIDATED ${count("IMPLEMENTED_NOT_VALIDATED")}, BLOCKED_WHEN_APPLICABLE ${count("BLOCKED_WHEN_APPLICABLE")}, MISSING ${count("MISSING")}.`,
       "", "| Requirement | Kind | Citation [verification] | Status | Implemented by / validated by | Note |", "|---|---|---|---|---|---|");
     for (const r of rows) out.push(`| \`${r.requirementId}\` ${r.label} | ${r.kind} | ${r.citations} | ${r.status} | ${r.evidence} | ${r.note} |`);
   }

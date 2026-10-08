@@ -68,7 +68,8 @@ try {
     const t = await preparer.bodyText();
     const na = await nextAction(preparer);
     await shot(preparer, "01-statements");
-    return /Total assets\s+33,000\.00\s+28,800\.00/.test(t) && /Profit or loss for the period\s+5,100\.00\s+3,100\.00/.test(t) && na?.tone === "blocked" && /Comparatives: Not yet approved/.test(na.text) ? true : { na, sample: t.slice(0, 400) };
+    return /Total assets\s+33,000\.00\s+28,800\.00/.test(t) && /Profit or loss for the period\s+5,100\.00\s+3,100\.00/.test(t)
+      && /Total comprehensive income for the period\s+5,100\.00\s+3,100\.00/.test(t) && na?.tone === "blocked" && /Comparatives: Not yet approved/.test(na.text) ? true : { na, sample: t.slice(0, 400) };
   });
   await check("keyboard: arrow keys move through the rows, Enter opens the lineage panel (accounts, certification, assignment), Escape closes it and returns focus", async () => {
     await preparer.click('tr[data-row="SFP:1"]');
@@ -172,12 +173,15 @@ try {
     return html;
   };
   let finalHtml = "";
-  await check("the FINAL pack carries the seal with the server binding's hashes and the composed figures; printed to PDF", async () => {
+  await check("the FINAL pack carries the seal with the recorded approver, the server binding's hashes and the composed figures; printed to PDF", async () => {
     await go(owner, "owner", "/signoff/exports?v=2", "final and sealed");
     await owner.waitForSelector('[data-testid="pack-preview"]');
     await shot(owner, "09-exports-final");
     finalHtml = await printPack(owner, "pack-final-v2.pdf");
-    return /FINAL — signed off/.test(finalHtml) && /reporting dependencies SHA-256 [0-9a-f]{64}/.test(finalHtml) && /33,000\.00/.test(finalHtml) && /12,500\.00/.test(finalHtml) ? true : finalHtml.slice(0, 400);
+    // The seal names the approver from the server's record: the owner has no display name on record, so the role and
+    // the stable membership reference are shown — never an invented name.
+    return /FINAL — signed off by owner [0-9a-f]{8} \(no name on record\) on \d{4}-\d{2}-\d{2}/.test(finalHtml) && /reporting dependencies SHA-256 [0-9a-f]{64}/.test(finalHtml)
+      && /33,000\.00/.test(finalHtml) && /12,500\.00/.test(finalHtml) && /Total comprehensive income for the period/.test(finalHtml) ? true : finalHtml.slice(0, 400);
   });
   await check("the draft (version 1) renders through the same pack with the DRAFT watermark; printed to PDF", async () => {
     await go(owner, "owner", "/signoff/exports?v=1", "draft (not signed off)");

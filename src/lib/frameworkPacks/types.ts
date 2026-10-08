@@ -106,4 +106,9 @@ export interface FrameworkPack {
 }
 
 /** How far a requirement is honoured by this product — the coverage matrix's three states, nothing in between. */
-export type CoverageStatus = "VALIDATED" | "IMPLEMENTED_NOT_VALIDATED" | "MISSING";
+/**
+ * VALIDATED: implemented and independently validated. IMPLEMENTED_NOT_VALIDATED: a code path exists. BLOCKED_WHEN_APPLICABLE:
+ * decided per report — supported (and not validated) when the case is absent; when it is present the server refuses
+ * finalisation by name. MISSING: not produced.
+ */
+export type CoverageStatus = "VALIDATED" | "IMPLEMENTED_NOT_VALIDATED" | "BLOCKED_WHEN_APPLICABLE" | "MISSING";
