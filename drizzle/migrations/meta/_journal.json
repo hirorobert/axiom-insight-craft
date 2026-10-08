@@ -239,6 +239,13 @@
       "when": 1791454905727,
       "tag": "0033_i1b_w1_two_period_shared_source",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791455035299,
+      "tag": "0034_i1b_w2_layout_assist_controls",
+      "breakpoints": true
     }
   ]
 }

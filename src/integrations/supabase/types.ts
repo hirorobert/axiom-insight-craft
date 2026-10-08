@@ -528,6 +528,241 @@ export type Database = {
           },
         ]
       }
+      ai_consent_versions: {
+        Row: {
+          is_current: boolean
+          published_at: string
+          published_by: string
+          sample_format: string
+          version: string
+          wording: string
+          wording_sha256: string
+        }
+        Insert: {
+          is_current?: boolean
+          published_at?: string
+          published_by: string
+          sample_format: string
+          version: string
+          wording: string
+          wording_sha256: string
+        }
+        Update: {
+          is_current?: boolean
+          published_at?: string
+          published_by?: string
+          sample_format?: string
+          version?: string
+          wording?: string
+          wording_sha256?: string
+        }
+        Relationships: []
+      }
+      ai_layout_assist_runs: {
+        Row: {
+          actor_user_id: string
+          actual_cost_micros: number | null
+          company_id: string
+          completed_at: string | null
+          consent_version: string
+          created_at: string
+          failure_code: string | null
+          firm_member_id: string | null
+          id: string
+          model: string
+          prompt_version: string
+          proposal: Json | null
+          proposal_sha256: string | null
+          provider_id: string
+          region: string | null
+          request_id: string
+          reserved_cost_micros: number
+          retention_policy: string
+          sample_format: string
+          sample_sha256: string
+          state: string
+          upload_id: string
+          validation: Json | null
+        }
+        Insert: {
+          actor_user_id: string
+          actual_cost_micros?: number | null
+          company_id: string
+          completed_at?: string | null
+          consent_version: string
+          created_at?: string
+          failure_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          model: string
+          prompt_version: string
+          proposal?: Json | null
+          proposal_sha256?: string | null
+          provider_id: string
+          region?: string | null
+          request_id: string
+          reserved_cost_micros: number
+          retention_policy: string
+          sample_format: string
+          sample_sha256: string
+          state?: string
+          upload_id: string
+          validation?: Json | null
+        }
+        Update: {
+          actor_user_id?: string
+          actual_cost_micros?: number | null
+          company_id?: string
+          completed_at?: string | null
+          consent_version?: string
+          created_at?: string
+          failure_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          model?: string
+          prompt_version?: string
+          proposal?: Json | null
+          proposal_sha256?: string | null
+          provider_id?: string
+          region?: string | null
+          request_id?: string
+          reserved_cost_micros?: number
+          retention_policy?: string
+          sample_format?: string
+          sample_sha256?: string
+          state?: string
+          upload_id?: string
+          validation?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_layout_assist_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_provider_settings: {
+        Row: {
+          data_handling_approved_at: string | null
+          enabled: boolean
+          evaluation_approved_at: string | null
+          max_cost_per_call_micros: number | null
+          model: string | null
+          prompt_version: string | null
+          provider_id: string | null
+          region: string | null
+          retention_policy: string | null
+          singleton: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_call_micros?: number | null
+          model?: string | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          retention_policy?: string | null
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_call_micros?: number | null
+          model?: string | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          retention_policy?: string | null
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      ai_workspace_budgets: {
+        Row: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          company_id?: string
+          daily_user_quota?: number
+          monthly_cap_micros?: number
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_workspace_budgets_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_workspace_consents: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          consent_version: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          consent_version: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          consent_version?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_workspace_consents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_workspace_consents_consent_version_fkey"
+            columns: ["consent_version"]
+            isOneToOne: false
+            referencedRelation: "ai_consent_versions"
+            referencedColumns: ["version"]
+          },
+        ]
+      }
       aje_lines: {
         Row: {
           account_code: string
@@ -7779,6 +8014,61 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      ai_configure_provider: {
+        Args: {
+          p_data_handling_approved_at: string
+          p_enabled: boolean
+          p_evaluation_approved_at: string
+          p_max_cost_per_call_micros: number
+          p_model: string
+          p_prompt_version: string
+          p_provider_id: string
+          p_region: string
+          p_retention_policy: string
+        }
+        Returns: Json
+      }
+      ai_layout_assist_complete: {
+        Args: {
+          p_actual_cost_micros: number
+          p_failure_code: string
+          p_proposal: Json
+          p_proposal_sha256: string
+          p_run_id: string
+          p_state: string
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      ai_layout_assist_reserve: {
+        Args: {
+          p_request_id: string
+          p_sample_sha256: string
+          p_upload_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_set_workspace_budget: {
+        Args: {
+          p_company_id: string
+          p_daily_user_quota: number
+          p_monthly_cap_micros: number
+        }
+        Returns: Json
+      }
+      ai_set_workspace_consent: {
+        Args: {
+          p_company_id: string
+          p_consent_version: string
+          p_grant: boolean
+        }
+        Returns: Json
+      }
+      ai_workspace_consent_current: {
+        Args: { p_company_id: string }
+        Returns: boolean
       }
       assert_capability_available: {
         Args: { p_capability: string }
