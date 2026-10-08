@@ -1279,6 +1279,76 @@ export type Database = {
           },
         ]
       }
+      close_review_events: {
+        Row: {
+          actor_user_id: string | null
+          body: string | null
+          company_id: string
+          created_at: string
+          detail: Json
+          event_type: string
+          firm_member_id: string | null
+          id: string
+          request_id: string | null
+          revises_event_id: string | null
+          seq: number
+          subject_id: string
+          subject_kind: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          body?: string | null
+          company_id: string
+          created_at?: string
+          detail?: Json
+          event_type: string
+          firm_member_id?: string | null
+          id?: string
+          request_id?: string | null
+          revises_event_id?: string | null
+          seq?: never
+          subject_id: string
+          subject_kind: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          body?: string | null
+          company_id?: string
+          created_at?: string
+          detail?: Json
+          event_type?: string
+          firm_member_id?: string | null
+          id?: string
+          request_id?: string | null
+          revises_event_id?: string | null
+          seq?: never
+          subject_id?: string
+          subject_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_events_revises_event_id_fkey"
+            columns: ["revises_event_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_additional_seat_prices: {
         Row: {
           amount_minor: number
@@ -7686,6 +7756,21 @@ export type Database = {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: boolean
       }
+      _close_review_append: {
+        Args: {
+          p_actor: string
+          p_body: string
+          p_company_id: string
+          p_detail: Json
+          p_event_type: string
+          p_member: string
+          p_request_id: string
+          p_revises: string
+          p_subject_id: string
+          p_subject_kind: string
+        }
+        Returns: string
+      }
       _consume_free_retirement_approval: {
         Args: { p_by: string }
         Returns: boolean
@@ -8156,6 +8241,21 @@ export type Database = {
           p_requesting_user_id: string
         }
         Returns: Json
+      }
+      close_review_comment: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_request_id: string
+          p_revises?: string
+          p_subject_id: string
+          p_subject_kind: string
+        }
+        Returns: Json
+      }
+      close_review_readable: {
+        Args: { p_company_id: string }
+        Returns: boolean
       }
       commercial_canonical_capability: {
         Args: { p_code: string }
