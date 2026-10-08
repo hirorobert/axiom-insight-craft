@@ -450,6 +450,9 @@ describe("database inertness — schema and functions", () => {
       // The milestone release-order proof (main's schema → the seven migrations one at a time, legacy uploads, the real
       // sweeper and both storage-cleanup handlers at every stage; loopback-only). No deploy behaviour.
       "scripts/db-proof/milestoneReleaseOrder.mjs",
+      // The self-checking release wrappers: the generator (reads committed migration bytes, writes release/wrappers/; no
+      // network, no database) and its loopback-only real-PostgreSQL proof. No deploy behaviour.
+      "scripts/release/selfCheckingWrapper.mjs", "scripts/db-proof/selfCheckingWrappers.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

@@ -32,7 +32,7 @@ describe("the milestone release procedure states exactly the repository's identi
       expect(Number(n)).toBe(RELEASE_MIGRATIONS.indexOf(name) + 1);
       expect([Number(bytes), canonical]).toEqual([src.length, sha(src)]);
       expect([Number(lfBytes), lfSha]).toEqual([src.length - 1, sha(src.subarray(0, src.length - 1))]);
-      expect(SUBMISSION_FORMS[name]).toEqual({ identical: { bytes: src.length, sha256: canonical }, finalLfRemoved: { bytes: src.length - 1, sha256: lfSha } });
+      expect(SUBMISSION_FORMS[name]).toMatchObject({ identical: { bytes: src.length, sha256: canonical }, finalLfRemoved: { bytes: src.length - 1, sha256: lfSha } });
     }
   });
   it("the seven are exactly the newest source migrations", () => {

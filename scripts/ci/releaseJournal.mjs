@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { lexSql } from "./atomicEnvelope.mjs";
 import { checkGuardedEntry } from "../release/guardedEntry.mjs";
+import { render as renderSelfCheckingWrapper } from "../release/selfCheckingWrapper.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -202,6 +203,11 @@ export const RELEASE_JOURNAL = {
  * or BOM normalisation. Each form is registered per migration with its exact byte count and SHA-256, so a mirror of a
  * source listed here is accepted only through a reviewed RELEASE_JOURNAL entry, never by the whitespace-normalised
  * parity of the ordinary mirror rule. A form registered here does not mean the migration is applied.
+ *
+ * The milestone's seven sources also register their SELF-CHECKING WRAPPER (scripts/release/selfCheckingWrapper.mjs):
+ * exactly render(source, identical form) — one DO statement that re-verifies the enclosed bytes' count and SHA-256 in
+ * PostgreSQL before executing them — or that text with exactly its single final LF removed. Both are pinned by byte
+ * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
   // H1: applied as 0029 in the final-LF-removed form.
@@ -231,48 +237,85 @@ export const SUBMISSION_FORMS = Object.freeze({
   "20261011100000_two_period_shared_source.sql": Object.freeze({
     identical: Object.freeze({ bytes: 33926, sha256: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a" }),
     finalLfRemoved: Object.freeze({ bytes: 33925, sha256: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" }),
+    // Self-checking wrapper release/wrappers/20261011100000_two_period_shared_source.wrapper.sql:
+    // render() of the identical form; it re-verifies those 33926 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 35496, sha256: "57abe7e393f6caabedc546df84ef16370cf5c055831fdf032597466812b35610" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 35495, sha256: "31e887ffa650a9e4bf1fd132784636d0bf01f55f0da7ef0b253fd73f3ba99c4f" }),
   }),
   // I1-C layout assist controls (PR #78).
   "20261012100000_layout_assist_controls.sql": Object.freeze({
     identical: Object.freeze({ bytes: 26700, sha256: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd" }),
     finalLfRemoved: Object.freeze({ bytes: 26699, sha256: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" }),
+    // Self-checking wrapper release/wrappers/20261012100000_layout_assist_controls.wrapper.sql:
+    // render() of the identical form; it re-verifies those 26700 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 28266, sha256: "3d3ee7a8b317b53812f2933b9176a86af1a63debddb2c839037e96b12a4269c8" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 28265, sha256: "11208d3b5c2f38d9da4b10e10a0c224b8a5ceb9b43b7ff8bbca5a0415ecd895e" }),
   }),
   // Close Review timeline (PR #79).
   "20261013100000_close_review_timeline.sql": Object.freeze({
     identical: Object.freeze({ bytes: 9148, sha256: "84787f004c83b2dd5258d14d323bb39c65c8eb37372122ce1b729e9b441598f0" }),
     finalLfRemoved: Object.freeze({ bytes: 9147, sha256: "5edd6b46b326fce02872404d4dde6aac4fa50c5af9fec36356225938ec43a0d9" }),
+    // Self-checking wrapper release/wrappers/20261013100000_close_review_timeline.wrapper.sql:
+    // render() of the identical form; it re-verifies those 9148 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 10710, sha256: "0746ef8bbbe59150997b3c81bd4ea13107b59e71c3c282748dfcd25f8dcad39d" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 10709, sha256: "44262b5659adb7b05410c213dd3c3c2ebb9f69a8a99502ddd2b828023efd68a7" }),
   }),
   // Close Review findings (PR #80).
   "20261014100000_close_review_findings.sql": Object.freeze({
     identical: Object.freeze({ bytes: 35821, sha256: "61b1bcffc1148f557e2aa62b8e245e12b9e8ef7a2a6a9e861ec94036a629ca3f" }),
     finalLfRemoved: Object.freeze({ bytes: 35820, sha256: "936973b10ce839deb21b4284b098f981317871b6f22c81999370be1054ee4e48" }),
+    // Self-checking wrapper release/wrappers/20261014100000_close_review_findings.wrapper.sql:
+    // render() of the identical form; it re-verifies those 35821 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 37385, sha256: "58d982475f278eb76c0be99306e4e12c19f75f4664fe6584ae28afe021fad65b" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 37384, sha256: "7b523cb70315deb38695f2221a5f77b1365ce1b3dae48b0a4fd536fa4e8349a1" }),
   }),
   // Close Review adjustments (PR #81).
   "20261015100000_close_review_adjustments.sql": Object.freeze({
     identical: Object.freeze({ bytes: 51377, sha256: "75387e4ce9cb3dee63001b67c28bb76cebfccc156229b24e206d55c6588b58e2" }),
     finalLfRemoved: Object.freeze({ bytes: 51376, sha256: "72b3c226f369d77975bef7f37ff05259732edb413f8a342b366012cb459ffeac" }),
+    // Self-checking wrapper release/wrappers/20261015100000_close_review_adjustments.wrapper.sql:
+    // render() of the identical form; it re-verifies those 51377 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 52947, sha256: "5c1bb4a5aa3fd510a8885f57e29a67f0a783e2252fe46ee6ffabecc1f803049f" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 52946, sha256: "fce3bd490de6636192cf67b637f7041f96350b8a5f9e5c397ba0f8ed5acbf2a5" }),
   }),
   // financial-statements reporting input (PR #82).
   "20261016100000_fs_reporting_input.sql": Object.freeze({
     identical: Object.freeze({ bytes: 11306, sha256: "d6c019785cdd67301c539bfc7d4c413e365c917039da4dc27adcb4128c3a3a39" }),
     finalLfRemoved: Object.freeze({ bytes: 11305, sha256: "824d85803148e5ae46a90ab300d62ea9d4f3116c9c17095b8cb57fd5dc9fa71c" }),
+    // Self-checking wrapper release/wrappers/20261016100000_fs_reporting_input.wrapper.sql:
+    // render() of the identical form; it re-verifies those 11306 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 12864, sha256: "32aed095d1beebecf9a667f55dcd1e9bb6429a720843e817d4e6c0b5e9f379e9" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 12863, sha256: "b55a926dc272936af14d896cd6b7b3b21f74802f845f5797059d0d8c75552ed3" }),
   }),
   // sign-off completion requirements (PR #83).
   "20261017100000_signoff_completion_requirements.sql": Object.freeze({
     identical: Object.freeze({ bytes: 21060, sha256: "4523efd91edb2f3028786c93adeffc2c73392595a33620ce5b2fb82558c3b5af" }),
     finalLfRemoved: Object.freeze({ bytes: 21059, sha256: "013a0b0f440d6ffb6713f98acb22872cf9d73b2fbe41cb76801450eea8ccb32b" }),
+    // Self-checking wrapper release/wrappers/20261017100000_signoff_completion_requirements.wrapper.sql:
+    // render() of the identical form; it re-verifies those 21060 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 22644, sha256: "086e22b1da1c2239ab40b5ba3765c1a438c7c4c8291aef760e1bb2f722335477" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 22643, sha256: "eb3860c8b46a1fe3872014684c548f16f87c2946dcb51d7c34a84acf28d71737" }),
   }),
 });
 
 /**
  * Which registered submission form `submitted` is of source `name` (`src` = its bytes): "identical", "final_lf_removed",
- * or null (any other text, an unregistered source, or a source whose bytes no longer match its registration).
+ * "wrapper", "wrapper_final_lf_removed" (the registered self-checking wrapper, rendered from `src`), or null (any other text, an unregistered source, or a source whose bytes no longer match its registration).
  */
 export function submittedForm(name, src, submitted) {
   const forms = SUBMISSION_FORMS[name];
   if (!forms || !src || !submitted) return null;
   if (src.length !== forms.identical.bytes || sha256(src) !== forms.identical.sha256) return null;
   if (submitted.equals(src)) return "identical";
+  if (forms.wrapper) {
+    const w = Buffer.from(renderSelfCheckingWrapper(name, src), "utf8");
+    if (w.length === forms.wrapper.bytes && sha256(w) === forms.wrapper.sha256) {
+      if (submitted.equals(w)) return "wrapper";
+      const wl = forms.wrapperFinalLfRemoved;
+      if (wl && submitted.length === w.length - 1 && submitted.equals(w.subarray(0, w.length - 1))
+          && submitted.length === wl.bytes && sha256(submitted) === wl.sha256) return "wrapper_final_lf_removed";
+    }
+  }
   const lf = forms.finalLfRemoved;
   if (lf && src[src.length - 1] === 0x0a && submitted.length === src.length - 1 && submitted.equals(src.subarray(0, src.length - 1))
       && submitted.length === lf.bytes && sha256(submitted) === lf.sha256) return "final_lf_removed";
@@ -387,6 +430,20 @@ export function checkReleaseEntry(tag, text, srcBytes) {
       problems.push(`${tag} is not exactly ${entry.source} with its single final LF byte removed`);
     }
     return { covers: entry.source, how: "release_verbatim_final_lf_removed", outOfOrder: false, problems };
+  }
+  if (entry.kind === "release_self_checking_wrapper") {
+    // A hosted mirror of a registered self-checking wrapper: the reviewed entry pins the source (digest, bytes), the
+    // form, and the mirror's own SHA-256 and byte count; the mirror must BE that registered wrapper form, byte for byte.
+    const src = srcBytes(entry.source);
+    if (!src) return { problems: [...problems, `${tag} applies an unknown migration ${entry.source}`] };
+    const hosted = Buffer.from(text, "utf8");
+    if (sha256(src) !== entry.digest) problems.push(`${tag}: the pinned digest does not match ${entry.source} in this repository`);
+    if (src.length !== entry.bytes) problems.push(`${tag}: the pinned byte count ${entry.bytes} does not match ${entry.source} (${src.length})`);
+    if (hosted.length !== entry.submittedBytes) problems.push(`${tag}: has ${hosted.length} bytes, expected ${entry.submittedBytes}`);
+    const reg = entry.form === "wrapper" ? SUBMISSION_FORMS[entry.source]?.wrapper : entry.form === "wrapper_final_lf_removed" ? SUBMISSION_FORMS[entry.source]?.wrapperFinalLfRemoved : null;
+    if (!reg || reg.sha256 !== entry.sha256 || reg.bytes !== entry.submittedBytes) problems.push(`${tag}: ${entry.form} is not a registered wrapper form of ${entry.source} (SUBMISSION_FORMS)`);
+    if (submittedForm(entry.source, src, hosted) !== entry.form) problems.push(`${tag} is not exactly the registered ${entry.form} of ${entry.source}`);
+    return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: false, problems };
   }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));
