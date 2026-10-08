@@ -108,6 +108,7 @@ export default function StatementsWorkspace() {
                 deliverDownload={deliverStatementsDownload}
                 deliverOfficial={(outputRef: string) => deliverOfficialReportingPack({ companyId, periodYear, outputRef })}
                 downloadsLocked={downloadsLocked}
+                authoritativeSource
               />
             </Suspense>
           )}

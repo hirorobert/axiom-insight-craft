@@ -630,12 +630,103 @@ async function adjustmentsProof({ U, A }, kit) {
   await refused("bindings are append-only", "42501", () => admin.query("UPDATE public.close_review_adjustment_bindings SET reason='x'"));
 }
 
+// ── Financial Statements: the authoritative reporting input ──────────────────────────────────────────────────────────
+async function reportingInputProof({ U, A, B }, kit) {
+  const input = (uid, y) => asUser(uid, "SELECT public.fs_reporting_input($1,$2) r", [A, y]).then((r) => r.r);
+  const L = (key, d, c) => ({ accountKey: key, debitMinor: String(d), creditMinor: String(c) });
+  const propose = (uid, y, lines) => asUser(uid, "SELECT public.close_review_propose_adjustment($1,$2,'Proof accrual',NULL,$3::jsonb,'{}'::uuid[],$4,NULL) r", [A, y, JSON.stringify(lines), uuid()]).then((r) => r.r);
+  const approve = (uid, id) => asUser(uid, "SELECT public.close_review_decide_adjustment($1,'approve','Agreed',NULL,$2) r", [id, uuid()]).then((r) => r.r);
+  const acct = (inp, side, key) => inp[side].accounts.find((a) => a.accountKey === key);
+
+  group("Reporting input — authority, layer, comparative, identity");
+  const y1 = await kit.upload();
+  await check("no authoritative trial balance: no_authority (never a non-authoritative upload)", async () => {
+    const r = await input(U.owner, y1.year);
+    return r.state === "no_authority" ? true : r;
+  });
+  await kit.certify(y1);
+  let first;
+  await check("current year: the authoritative certification with reviewed placement; the prior year is not authoritative (named, not substituted)", async () => {
+    first = await input(U.viewer, y1.year);
+    const rent = acct(first, "current", "6000");
+    return first.state === "current" && first.contract === "fs-reporting-input/1" && first.current.currency === "TZS" && first.current.exponent === 2
+      && rent.statement === "income_statement" && rent.normalBalance === "debit" && rent.debitMinor === "700000" && rent.adjustmentIds.length === 0
+      && ["missing", "not_authoritative"].includes(first.comparative.state) && /^[0-9a-f]{64}$/.test(first.inputSha256) ? true : { s: first.state, c: first.comparative, rent };
+  });
+  await check("approved adjustments are applied as a layer with account lineage; the identity changes; the certified amounts do not", async () => {
+    const p = await propose(U.preparer, y1.year, [L("6000", 15000, 0), L("2000", 0, 15000)]);
+    const pending = await input(U.owner, y1.year);
+    await approve(U.partner, p.adjustmentId);
+    const after = await input(U.owner, y1.year);
+    const rent = acct(after, "current", "6000");
+    return pending.inputSha256 === first.inputSha256 /* a pending proposal is not applied */
+      && after.inputSha256 !== first.inputSha256 && rent.certifiedDebitMinor === "700000" && rent.adjustmentDebitMinor === "15000"
+      && rent.debitMinor === "715000" && rent.adjustmentIds.includes(p.adjustmentId) && after.adjustments.length === 1 && after.adjustments[0].selfApproved === false ? true : { rent, adj: after.adjustments };
+  });
+  await check("the same state reads the same identity (deterministic)", async () => {
+    const a = await input(U.owner, y1.year), b = await input(U.partner, y1.year);
+    return a.inputSha256 === b.inputSha256 ? true : [a.inputSha256, b.inputSha256];
+  });
+  const y2 = await kit.upload();
+  await kit.certify(y2);
+  await check("the next year: the comparative is the prior year AS REPORTED (its approved adjustments included), with its own lineage", async () => {
+    const r = await input(U.owner, y2.year);
+    const rent = r.comparative.accounts.find((a) => a.accountKey === "6000");
+    return r.comparative.state === "available" && r.comparative.periodYear === y1.year && rent.debitMinor === "715000"
+      && r.comparative.adjustments.length === 1 && acct(r, "current", "6000").debitMinor === "700000" ? true : { c: r.comparative.state, rent };
+  });
+  await check("a new approved adjustment in the PRIOR year changes the next year's identity (its comparative changed)", async () => {
+    const before = (await input(U.owner, y2.year)).inputSha256;
+    const p = await propose(U.preparer, y1.year, [L("6100", 100, 0), L("2000", 0, 100)]);
+    await approve(U.partner, p.adjustmentId);
+    const after = await input(U.owner, y2.year);
+    return after.inputSha256 !== before && after.comparative.accounts.find((a) => a.accountKey === "6100").adjustmentDebitMinor === "100" ? true : { before, after: after.inputSha256 };
+  });
+  await check("another workspace and a rollout that is off read nothing", async () => {
+    const other = await asUser(U.ownerB, "SELECT public.fs_reporting_input($1,$2) r", [A, y1.year]).then((r) => r.r);
+    await asService("SELECT public.fs_set_company_rollout($1,false,'proof rollout off','proof')", [A]);
+    const off = await input(U.owner, y1.year);
+    await asService("SELECT public.fs_set_company_rollout($1,true,'proof rollout on','proof')", [A]);
+    return other.state === "unavailable" && off.state === "unavailable" ? true : { other, off };
+  });
+  await refused("clients cannot call the internal period builders", "42501", () => asRole("authenticated", U.owner, "SELECT public._fs_adjusted_accounts($1,$2,$3)", [A, y1.year, uuid()]));
+  await check("a re-check makes the input stale (approved adjustments no longer applied, counted as requiring revalidation); revalidating applies them and changes the identity again", async () => {
+    const before = await input(U.owner, y1.year);
+    const row = await one("SELECT source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [y1.id]);
+    await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [y1.id, uuid(), row.source_file_hash]);
+    await kit.certify(y1);
+    const rechecked = await input(U.owner, y1.year);
+    const pend = rechecked.adjustmentsRequiringRevalidation;
+    const ids = before.adjustments.map((a) => a.id);
+    for (const id of ids) await asUser(U.owner, "SELECT public.close_review_revalidate_adjustment($1,'revalidate','Checked against the re-check',NULL,$2) r", [id, uuid()]);
+    const after = await input(U.owner, y1.year);
+    return rechecked.inputSha256 !== before.inputSha256 && rechecked.adjustments.length === 0 && pend === ids.length && pend > 0
+      && after.inputSha256 !== rechecked.inputSha256 && after.adjustments.length === ids.length && after.adjustmentsRequiringRevalidation === 0
+      && acct(after, "current", "6000").debitMinor === acct(before, "current", "6000").debitMinor ? true : { pend, ids: ids.length, a: after.adjustments.length };
+  });
+  await check("a self-revalidation (own proposer, self-approval policy, acknowledged) is disclosed in the input like a self-approval", async () => {
+    const p = await asUser(U.owner, "SELECT public.close_review_propose_adjustment($1,$2,'Owner accrual',NULL,$3::jsonb,'{}'::uuid[],$4,NULL) r", [A, y1.year, JSON.stringify([L("6100", 700, 0), L("2000", 0, 700)]), uuid()]).then((r) => r.r);
+    await approve(U.partner, p.adjustmentId);
+    const row = await one("SELECT source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [y1.id]);
+    await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [y1.id, uuid(), row.source_file_hash]);
+    await kit.certify(y1);
+    await asUser(U.owner, "SELECT public.close_review_set_approval_policy($1,'owner_self_approval',true,'Override for the proof')", [A]);
+    const noAck = await asUser(U.owner, "SELECT public.close_review_revalidate_adjustment($1,'revalidate','Mine, checked',NULL,$2) r", [p.adjustmentId, uuid()]).then((r) => r.r);
+    const ok = await asUser(U.owner, "SELECT public.close_review_revalidate_adjustment($1,'revalidate','Mine, checked',true,$2) r", [p.adjustmentId, uuid()]).then((r) => r.r);
+    await asUser(U.owner, "SELECT public.close_review_set_approval_policy($1,'two_person',false,'Back to two-person')", [A]);
+    const inp2 = await input(U.owner, y1.year);
+    const mineAdj = inp2.adjustments.find((a) => a.id === p.adjustmentId);
+    return noAck.outcome === "acknowledgement_required" && ok.outcome === "recorded" && mineAdj?.selfRevalidated === true && mineAdj.selfApproved === false ? true : { noAck, ok, mineAdj };
+  });
+  void B;
+}
 
 async function main() {
   const ctx = await setup();
   await timelineProof(ctx);
   const kit = await findingsProof(ctx);
   await adjustmentsProof(ctx, kit);
+  await reportingInputProof(ctx, kit);
 }
 
 let crashed = false;

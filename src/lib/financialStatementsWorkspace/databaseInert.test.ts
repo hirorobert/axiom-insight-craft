@@ -254,6 +254,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261014100000_close_review_findings.sql",
       // Close Review I3 (20261015100000): approved adjustments (adjustment/1, approval-policy/1) as a layer over the authoritative trial balance; behind the financial-statements rollout. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261015100000_close_review_adjustments.sql",
+      // Financial Statements (20261016100000): fs_reporting_input — the authoritative, adjusted reporting input (read-only). A NEW forward-only migration pending hosted application.
+      "supabase/migrations/20261016100000_fs_reporting_input.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -513,12 +515,19 @@ describe("database inertness — the workspace code cannot mutate a database", (
 
   it("the only other Supabase access in workspace code is one read-only select of account_mappings, in the hook", () => {
     const users = workspaceSources.filter((f) => !TRANSPORT_FILES.has(rel(f))).filter((f) => /integrations\/supabase|supabase\.from|createClient/.test(stripComments(fs.readFileSync(f, "utf8")))).map(rel);
-    expect(users).toEqual(["src/hooks/useFinancialStatementsWorkspace.ts"]);
+    expect(users).toEqual(["src/components/financialStatements/FinancialStatementsWorkspace.tsx", "src/hooks/useFinancialStatementsWorkspace.ts"]);
     const hook = stripComments(fs.readFileSync(path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"), "utf8"));
     const calls = [...hook.matchAll(/supabase\s*\.from\(([^)]*)\)([\s\S]{0,400}?)(?=;)/g)];
     expect(calls).toHaveLength(1);
     expect(calls[0][1]).toBe('"account_mappings"');
     expect(calls[0][2]).toMatch(/^\s*\.select\(/);
+    // The gated component's ONE read: the authoritative reporting input (a STABLE, read-only SECURITY DEFINER function,
+    // 20261016100000), through a dynamic import inside the gate. No .from(), no other RPC, no write.
+    const component = stripComments(fs.readFileSync(path.join(ROOT, "src/components/financialStatements/FinancialStatementsWorkspace.tsx"), "utf8"));
+    expect(component).not.toMatch(/supabase\s*\.from\(/);
+    expect(component).not.toMatch(/^import .*integrations\/supabase/m);
+    expect([...component.matchAll(/"([a-z_]+)",\s*\{\s*p_company_id/g)].map((m) => m[1])).toEqual(["fs_reporting_input"]);
+    expect(component.match(/supabase\.rpc/g)).toHaveLength(1);
   });
 
   it("the remote persistence repository is instantiated by no production module and reads/writes fail closed", () => {

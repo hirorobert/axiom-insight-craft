@@ -26,6 +26,7 @@ import { InMemoryFinancialStatementReportRepository, type EvaluationRunRecord, t
 import { mapWorkspaceTrialBalanceToReviewedLines, type AccountMappingRow, type AmbiguousAccount, type CanonicalStatementsLike, type UnmappedAccount } from "@/lib/financialStatementsWorkspace/mapWorkspaceTrialBalance";
 import type { ReviewedTrialBalanceAccountLine } from "@/lib/financialStatementsWorkspace/trialBalanceAdapter";
 import { COMPARATIVE_PERIOD_ID, resolveComparativeSource, type ComparativeCandidateUpload } from "@/lib/financialStatementsWorkspace/comparativeSource";
+import { comparativeFromInput, INPUT_STATE_WORDS, periodToReviewedLines, type AuthoritativeReportingInput } from "@/lib/financialStatementsWorkspace/authoritativeInput";
 import { profileForDbValue, type FrameworkProfile } from "@/lib/financialStatementsWorkspace/frameworkProfiles";
 import { deriveReportingPeriod } from "@/lib/financialStatementsWorkspace/reportingPeriod";
 import { composeStatements, type StatementComposition } from "@/lib/financialStatementsWorkspace/statementComposition";
@@ -80,6 +81,12 @@ export interface WorkspaceInputs {
   readonly loadAccountMappings?: AccountMappingLoader;
   /** Injected in the non-production harness; in production it is created only when the persistence gate is on. */
   readonly transport?: FsRpcTransport | null;
+  /**
+   * The authoritative reporting input (fs_reporting_input, parsed). When supplied — including null for "could not be read"
+   * — it is the ONLY source of figures: the authoritative certification with approved adjustments, and the prior year as
+   * reported. processing_result is then never read. Undefined keeps the legacy route (non-production harness only).
+   */
+  readonly reportingInput?: AuthoritativeReportingInput | null | "loading";
 }
 
 export type WorkspaceStatus = "loading" | "ready" | "blocked" | "error";
@@ -247,7 +254,12 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   const profile = useMemo(() => profileForDbValue(inputs.reportingFramework), [inputs.reportingFramework]);
   const period = useMemo(() => deriveReportingPeriod(inputs.periodYear, inputs.fiscalYearEnd), [inputs.periodYear, inputs.fiscalYearEnd]);
   const priorPeriod = useMemo(() => deriveReportingPeriod(inputs.periodYear - 1, inputs.fiscalYearEnd), [inputs.periodYear, inputs.fiscalYearEnd]);
-  const comparative = useMemo(() => resolveComparativeSource(inputs.uploads, inputs.companyId, inputs.periodYear), [inputs.uploads, inputs.companyId, inputs.periodYear]);
+  const comparative = useMemo(() => {
+    const ri = inputs.reportingInput;
+    if (ri === undefined) return resolveComparativeSource(inputs.uploads, inputs.companyId, inputs.periodYear);
+    if (ri && ri !== "loading" && ri.state === "current") return comparativeFromInput(ri, inputs.companyId);
+    return { state: "MISSING" as const, periodYear: inputs.periodYear - 1, reason: "The comparative is read with the current year's reviewed trial balance, which is not available." };
+  }, [inputs.reportingInput, inputs.uploads, inputs.companyId, inputs.periodYear]);
   const rerun = useCallback(() => setGeneration((g) => g + 1), []);
 
   const statementsOf = (upload: WorkspaceUploadInput | null): CanonicalStatementsLike | null => {
@@ -289,7 +301,24 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       const current = inputs.currentUpload;
       const currentStatements = statementsOf(current);
       const cashBasisEvidenceOnly = !!profile && profile.trialBalance.status === "UNSUPPORTED";
-      if ((!current || !currentStatements) && !cashBasisEvidenceOnly) {
+      const riRaw = inputs.reportingInput;
+      if (riRaw === "loading") return; // still reading the authoritative input: nothing is evaluated on anything else
+      const ri = riRaw;
+      if (ri !== undefined && !cashBasisEvidenceOnly && (!ri || ri.state !== "current")) {
+        setMappingInfo(null);
+        setBaseSnapshot(null);
+        setStatus("blocked");
+        setReason(ri ? INPUT_STATE_WORDS[ri.state] ?? "The reviewed trial balance is not available." : "The reviewed trial balance could not be read. Nothing was changed.");
+        return;
+      }
+      if (ri !== undefined && ri && ri.state === "current" && inputs.currency && ri.current.currency !== inputs.currency) {
+        setMappingInfo(null);
+        setBaseSnapshot(null);
+        setStatus("blocked");
+        setReason(`The reviewed trial balance is in ${ri.current.currency}, but the statements are set to ${inputs.currency}. Translation is not supported; align the presentation currency.`);
+        return;
+      }
+      if (ri === undefined && (!current || !currentStatements) && !cashBasisEvidenceOnly) {
         setMappingInfo(null);
         setBaseSnapshot(null);
         setStatus("blocked");
@@ -299,7 +328,19 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
 
       let currentMapped: ReturnType<typeof mapWorkspaceTrialBalanceToReviewedLines> | null = null;
       let comparativeLines: readonly ReviewedTrialBalanceAccountLine[] = [];
-      if (current && currentStatements) {
+      if (ri && ri.state === "current") {
+        // The authoritative route: figures come only from fs_reporting_input (exact, adjusted, as reported).
+        currentMapped = periodToReviewedLines(ri.current, ri.inputSha256, "CURRENT");
+        if (ri.comparative.state === "available") comparativeLines = periodToReviewedLines(ri.comparative, ri.inputSha256, COMPARATIVE_PERIOD_ID).lines;
+        linesRef.current = [...currentMapped.lines, ...comparativeLines];
+        setMappingInfo({
+          total: currentMapped.totalAccounts,
+          unmapped: currentMapped.unmappedAccounts,
+          ambiguous: currentMapped.ambiguousAccounts,
+          cashReviewed: currentMapped.lines.some((l) => l.isCashAccount === true),
+          cashAccountKeys: [...new Set(currentMapped.lines.filter((l) => l.isCashAccount === true && l.statement === "balance_sheet").map((l) => l.accountKey))],
+        });
+      } else if (ri === undefined && current && currentStatements) {
         const { rows, error } = await loader(inputs.companyId);
         if (cancelled) return;
         if (error) {
@@ -394,7 +435,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputs.companyId, inputs.periodYear, inputs.currentUpload, comparative, inputs.reportingFramework, inputs.currency, inputs.fiscalYearEnd, inputs.companyName, inputs.companyTin, generation]);
+  }, [inputs.companyId, inputs.periodYear, inputs.currentUpload, inputs.reportingInput, comparative, inputs.reportingFramework, inputs.currency, inputs.fiscalYearEnd, inputs.companyName, inputs.companyTin, generation]);
 
   // ── evidence → effective report ─────────────────────────────────────────
   const latestEvidence = useMemo(() => latestPerSeries(evidenceStore), [evidenceStore]);
