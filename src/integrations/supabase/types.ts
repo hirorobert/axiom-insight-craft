@@ -1349,6 +1349,221 @@ export type Database = {
           },
         ]
       }
+      close_review_finding_runs: {
+        Row: {
+          catalogue_version: string
+          certification_id: string
+          company_id: string
+          created_at: string
+          currency: string
+          exponent: number
+          firm_member_id: string | null
+          generated_by: string
+          id: string
+          period_year: number
+          prior_certification_id: string | null
+          rule_status: Json
+          scope_key: string
+          upload_id: string
+        }
+        Insert: {
+          catalogue_version: string
+          certification_id: string
+          company_id: string
+          created_at?: string
+          currency: string
+          exponent: number
+          firm_member_id?: string | null
+          generated_by: string
+          id?: string
+          period_year: number
+          prior_certification_id?: string | null
+          rule_status: Json
+          scope_key: string
+          upload_id: string
+        }
+        Update: {
+          catalogue_version?: string
+          certification_id?: string
+          company_id?: string
+          created_at?: string
+          currency?: string
+          exponent?: number
+          firm_member_id?: string | null
+          generated_by?: string
+          id?: string
+          period_year?: number
+          prior_certification_id?: string | null
+          rule_status?: Json
+          scope_key?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_finding_runs_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_prior_certification_id_fkey"
+            columns: ["prior_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_findings: {
+        Row: {
+          account_code: string | null
+          account_key: string | null
+          account_name: string | null
+          class_side_minor: number | null
+          classification: string | null
+          company_id: string
+          created_at: string
+          credit_minor: number | null
+          debit_minor: number | null
+          detail: Json
+          finding_key: string
+          id: string
+          kind: string
+          mandatory: boolean
+          required_resolution: string
+          rule_id: string
+          rule_version: number
+          run_id: string
+          severity: string
+        }
+        Insert: {
+          account_code?: string | null
+          account_key?: string | null
+          account_name?: string | null
+          class_side_minor?: number | null
+          classification?: string | null
+          company_id: string
+          created_at?: string
+          credit_minor?: number | null
+          debit_minor?: number | null
+          detail?: Json
+          finding_key: string
+          id?: string
+          kind: string
+          mandatory: boolean
+          required_resolution: string
+          rule_id: string
+          rule_version: number
+          run_id: string
+          severity: string
+        }
+        Update: {
+          account_code?: string | null
+          account_key?: string | null
+          account_name?: string | null
+          class_side_minor?: number | null
+          classification?: string | null
+          company_id?: string
+          created_at?: string
+          credit_minor?: number | null
+          debit_minor?: number | null
+          detail?: Json
+          finding_key?: string
+          id?: string
+          kind?: string
+          mandatory?: boolean
+          required_resolution?: string
+          rule_id?: string
+          rule_version?: number
+          run_id?: string
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_findings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_findings_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_finding_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_requirements: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          reason: string
+          reference: string | null
+          requirement_id: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          reason: string
+          reference?: string | null
+          requirement_id: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          reason?: string
+          reference?: string | null
+          requirement_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_requirements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_requirements_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_additional_seat_prices: {
         Row: {
           amount_minor: number
@@ -7775,6 +7990,30 @@ export type Database = {
         Args: { p_by: string }
         Returns: boolean
       }
+      _cr_certified_accounts: {
+        Args: { p_certification_id: string }
+        Returns: {
+          account_code: string
+          account_key: string
+          account_name: string
+          class_side_minor: number
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          exact: boolean
+          max_tier: number
+        }[]
+      }
+      _cr_current_run: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
+      _cr_member: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: string
+      }
+      _cr_normalize_name: { Args: { p_name: string }; Returns: string }
+      _cr_scope_key: { Args: { p_company_id: string }; Returns: string }
       _entity_capacity_for_account: {
         Args: { p_account: string }
         Returns: Json
@@ -8253,9 +8492,49 @@ export type Database = {
         }
         Returns: Json
       }
+      close_review_finding_action: {
+        Args: {
+          p_action: string
+          p_evidence_ref: string
+          p_finding_id: string
+          p_request_id: string
+          p_text: string
+        }
+        Returns: Json
+      }
+      close_review_finding_resolved: {
+        Args: { p_finding_id: string }
+        Returns: boolean
+      }
+      close_review_finding_status: {
+        Args: { p_finding_id: string }
+        Returns: string
+      }
+      close_review_findings_summary: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       close_review_readable: {
         Args: { p_company_id: string }
         Returns: boolean
+      }
+      close_review_refresh_findings: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      close_review_requirement_in_force: {
+        Args: { p_company_id: string; p_requirement_id: string }
+        Returns: boolean
+      }
+      close_review_set_requirement: {
+        Args: {
+          p_company_id: string
+          p_in_force: boolean
+          p_reason: string
+          p_reference: string
+          p_requirement_id: string
+        }
+        Returns: Json
       }
       commercial_canonical_capability: {
         Args: { p_code: string }
