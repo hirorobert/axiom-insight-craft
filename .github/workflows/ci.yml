@@ -520,6 +520,14 @@ jobs:
           createdb notes_proof
           bun scripts/db-proof/notesSchedules.mjs
 
+      - name: Comparatives proof (composition v2 keeps version 1's figures; account bridges; balanced two-person restatements with the as-reported figure kept and history retained; approval bound to the exact comparative and made stale by any change; different currency, reference-only, missing and first-period states against hand-written expectations; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/comparatives_proof
+        run: |
+          createdb comparatives_proof
+          bun scripts/db-proof/comparatives.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

@@ -12,15 +12,18 @@ const MINOR = z.string().regex(/^(0|-?[1-9][0-9]*)$/);
 const UUID = z.string().regex(/^[0-9a-f-]{36}$/);
 const lineageSchema = z.object({
   period: z.enum(["current", "comparative"]), accountKey: z.string(), accountCode: z.string().nullable(), accountName: z.string(),
-  certificationId: UUID, classification: z.string(), amountMinor: MINOR, certifiedAmountMinor: MINOR,
-  adjustmentIds: z.array(z.string()), assignmentId: UUID, assignmentSeq: z.number().int(),
+  certificationId: UUID.nullable(), classification: z.string().nullable(), amountMinor: MINOR, certifiedAmountMinor: MINOR,
+  adjustmentIds: z.array(z.string()), assignmentId: UUID.nullable(), assignmentSeq: z.number().int().nullable(),
+  // Version 2: an account row (bridged when bridgeId is set) or an approved restatement delta of the comparative.
+  kind: z.enum(["account", "restatement"]), bridgeId: UUID.nullable(), restatementId: UUID.nullable(),
 });
 const amountSchema = z.object({ amountMinor: MINOR, accounts: z.number().int().min(0) });
+const comparativeAmountSchema = amountSchema.extend({ asReportedMinor: MINOR, restated: z.boolean() });
 const lineSchema = z.object({
   statement: z.enum(["SFP", "SCI"]),
   section: z.enum(["non_current_assets", "current_assets", "equity", "non_current_liabilities", "current_liabilities", "sci"]),
   lineId: z.string(), label: z.string(), requirementId: z.string(),
-  current: amountSchema, comparative: amountSchema.nullable(), lineage: z.array(lineageSchema),
+  current: amountSchema, comparative: comparativeAmountSchema.nullable(), lineage: z.array(lineageSchema),
 });
 const completeTotals = z.object({
   state: z.literal("complete"),
@@ -32,12 +35,13 @@ const completeTotals = z.object({
 const totalsSchema = z.union([completeTotals, z.object({ state: z.literal("incomplete"), notPresented: z.number().int().min(1) })]);
 const composedSchema = z.object({
   state: z.literal("composed"),
-  contract: z.literal("fs-statement-composition/1"),
+  contract: z.literal("fs-statement-composition/2"),
   pack: z.object({ family: z.literal("ifrs-for-smes"), linesVersion: z.string(), packId: z.enum(["ifrs-for-smes/2015", "ifrs-for-smes/2025"]), earlyApplication: z.boolean() }),
   inputSha256: z.string().regex(/^[0-9a-f]{64}$/),
   current: z.object({ periodYear: z.number().int(), certificationId: UUID, currency: z.string().regex(/^[A-Z]{3}$/), exponent: z.number().int().min(0).max(4),
     reportingStart: z.string().nullable(), reportingEnd: z.string().nullable() }),
-  comparative: z.object({ state: z.string(), periodYear: z.number().int().nullable(), certificationId: UUID.nullable() }),
+  comparative: z.object({ state: z.string(), periodYear: z.number().int().nullable(), certificationId: UUID.nullable(), currency: z.string().nullable(),
+    bridgeIds: z.array(UUID), restatementIds: z.array(UUID) }),
   lines: z.array(lineSchema),
   totals: z.object({ current: totalsSchema.optional(), comparative: totalsSchema.optional() }),
   accountsNotPresented: z.array(z.object({ period: z.enum(["current", "comparative"]), accountKey: z.string(), accountCode: z.string().nullable(),
@@ -92,6 +96,8 @@ export interface StatementRow {
   readonly requirementId?: string;
   readonly current?: AmountText;
   readonly comparative?: AmountText;
+  /** Set when the comparative is restated: the as-reported figure, shown beside the presented one. */
+  readonly comparativeAsReported?: AmountText;
   readonly lineage?: CompositionLine["lineage"];
 }
 export interface StatementView {
@@ -129,6 +135,7 @@ export function statementViews(c: Composition): StatementView[] {
     kind: "line", label: l.label, lineId: l.lineId, requirementId: l.requirementId, lineage: l.lineage,
     current: presentAmount(amount(shown(l, l.current.amountMinor))),
     comparative: l.comparative ? presentAmount(amount(shown(l, l.comparative.amountMinor))) : presentAmount({ kind: "missing", reason: cmpMissingReason() }),
+    ...(l.comparative?.restated ? { comparativeAsReported: presentAmount(amount(shown(l, l.comparative.asReportedMinor))) } : {}),
   });
   const both = (label: string, key: keyof z.infer<typeof completeTotals>, kind: StatementRow["kind"] = "subtotal"): StatementRow =>
     ({ kind, label, current: total("current", key), comparative: total("comparative", key) });

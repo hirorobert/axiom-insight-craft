@@ -7,18 +7,18 @@ const CERT = "11111111-1111-4111-8111-111111111111";
 const PRIOR = "22222222-2222-4222-8222-222222222222";
 const ASG = "33333333-3333-4333-8333-333333333333";
 const lineage = (k: string, amt: string) => [{ period: "current", accountKey: k, accountCode: k, accountName: k, certificationId: CERT, classification: "x",
-  amountMinor: amt, certifiedAmountMinor: amt, adjustmentIds: [], assignmentId: ASG, assignmentSeq: 1 }];
+  amountMinor: amt, certifiedAmountMinor: amt, adjustmentIds: [], assignmentId: ASG, assignmentSeq: 1, kind: "account", bridgeId: null, restatementId: null }];
 const L = (statement: "SFP" | "SCI", section: string, lineId: string, label: string, cur: string, cmp: string | null) =>
-  ({ statement, section, lineId, label, requirementId: "r", current: { amountMinor: cur, accounts: 1 }, comparative: cmp === null ? null : { amountMinor: cmp, accounts: 1 }, lineage: lineage(lineId, cur) });
+  ({ statement, section, lineId, label, requirementId: "r", current: { amountMinor: cur, accounts: 1 }, comparative: cmp === null ? null : { amountMinor: cmp, accounts: 1, asReportedMinor: cmp, restated: false }, lineage: lineage(lineId, cur) });
 
 // The server's composition of the proof's trial balances (scripts/db-proof/statementComposition.mjs).
 function composed(over: Partial<Composition> = {}): Composition {
   return {
-    state: "composed", contract: "fs-statement-composition/1",
+    state: "composed", contract: "fs-statement-composition/2",
     pack: { family: "ifrs-for-smes", linesVersion: "1.0.0", packId: "ifrs-for-smes/2015", earlyApplication: false },
     inputSha256: "a".repeat(64),
     current: { periodYear: 2026, certificationId: CERT, currency: "TZS", exponent: 2, reportingStart: "2026-01-01", reportingEnd: "2026-12-31" },
-    comparative: { state: "available", periodYear: 2025, certificationId: PRIOR },
+    comparative: { state: "available", periodYear: 2025, certificationId: PRIOR, currency: "TZS", bridgeIds: [], restatementIds: [] },
     lines: [
       L("SFP", "non_current_assets", "sfp.property_plant_and_equipment", "Property, plant and equipment", "1400000", "1600000"),
       L("SFP", "current_assets", "sfp.cash_and_cash_equivalents", "Cash and cash equivalents", "1250000", "800000"),
@@ -97,11 +97,18 @@ describe("statement view: the server's figures, laid out (hand-written expected 
     expect(sfp.find((r) => r.label === "Inventories")!.current!.text).toBe("2,200.00");
   });
   it("a prior year in another currency: every comparative is missing with the translation reason", () => {
-    const c = composed({ comparative: { state: "different_currency", periodYear: 2025, certificationId: PRIOR },
+    const c = composed({ comparative: { state: "different_currency", periodYear: 2025, certificationId: PRIOR, currency: "USD", bridgeIds: [], restatementIds: [] },
       lines: composed().lines.map((l) => ({ ...l, comparative: null })), totals: { current: composed().totals.current } });
     for (const v of statementViews(c)) for (const r of v.rows.filter((x) => x.kind !== "heading")) {
       expect([r.comparative!.text, r.comparative!.description], r.label).toEqual(["—", "Not available: the prior year is in another currency (translation is deferred)"]);
     }
+  });
+  it("a restated comparative shows the presented figure and, beside it, the as-reported one (hand-written: 15,500.00 / 16,000.00)", () => {
+    const base = composed();
+    const lines = base.lines.map((l) => (l.lineId === "sfp.property_plant_and_equipment" ? { ...l, comparative: { amountMinor: "1550000", accounts: 2, asReportedMinor: "1600000", restated: true } } : l));
+    const r = statementViews(composed({ lines }))[0].rows.find((x) => x.label === "Property, plant and equipment")!;
+    expect([r.comparative!.text, r.comparativeAsReported!.text]).toEqual(["15,500.00", "16,000.00"]);
+    expect(statementViews(base)[0].rows.find((x) => x.label === "Property, plant and equipment")!.comparativeAsReported).toBeUndefined();
   });
   it("a zero line is 0.00 (zero), distinct from missing", () => {
     const c = composed({ lines: [L("SFP", "current_assets", "sfp.inventories", "Inventories", "0", "180000")] });
@@ -115,6 +122,7 @@ describe("payload validation", () => {
     expect(parseComposition({ state: "edition_unresolved", reason: "PERIOD_START_UNKNOWN", periodYear: 2026 }).state).toBe("edition_unresolved");
     expect(() => parseComposition({ ...composed(), lines: [{ ...composed().lines[0], current: { amountMinor: "14000.5", accounts: 1 } }] })).toThrow();
     expect(() => parseComposition({ ...composed(), contract: "other/1" })).toThrow();
+    expect(() => parseComposition({ ...composed(), contract: "fs-statement-composition/1" })).toThrow(); // a superseded contract is refused, not half-read
   });
 });
 

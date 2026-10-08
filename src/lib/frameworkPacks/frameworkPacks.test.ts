@@ -133,7 +133,7 @@ describe("coverage matrix: every claim names real code; nothing is VALIDATED wit
 });
 
 describe("no compliance claim in reporting product code", () => {
-  const DIRS = ["src/lib/frameworkPacks", "src/lib/statements", "src/lib/notes", "src/lib/financialStatementsWorkspace", "src/lib/financialGeneration", "src/lib/canonicalStatement",
+  const DIRS = ["src/lib/frameworkPacks", "src/lib/statements", "src/lib/notes", "src/lib/comparatives", "src/lib/financialStatementsWorkspace", "src/lib/financialGeneration", "src/lib/canonicalStatement",
     "src/lib/closeReview", "src/lib/workbench", "src/components/financialStatements", "src/components/closeReview", "src/components/workbench"];
   const CLAIM = /fully compliant|full compliance|complete (IFRS|IPSAS) compliance|compl(ies|iant) (fully )?with (the )?(IFRS|IPSAS)|(IFRS|IPSAS)[- ]compliant|guaranteed? compliance/i;
   it("no source file (tests excluded) asserts framework compliance", () => {

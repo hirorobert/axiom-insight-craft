@@ -311,7 +311,7 @@ async function main() {
   });
   await check("pinned: the 2015 edition (period starting 2026-01-01), lines 1.0.0, the reporting input's identity, both certifications", async () => {
     const input = (await asUser(U.owner, "SELECT public.fs_reporting_input($1,2026) r", [A])).r;
-    return composed.contract === "fs-statement-composition/1" && composed.pack.packId === "ifrs-for-smes/2015" && composed.pack.earlyApplication === false
+    return composed.contract === "fs-statement-composition/2" && composed.pack.packId === "ifrs-for-smes/2015" && composed.pack.earlyApplication === false
       && composed.pack.linesVersion === IFRS_FOR_SMES_LINES_VERSION && composed.inputSha256 === input.inputSha256
       && composed.current.certificationId === curCert && composed.comparative.certificationId === priorCert && composed.comparative.state === "available" ? true : { pack: composed.pack, current: composed.current, comparative: composed.comparative };
   });

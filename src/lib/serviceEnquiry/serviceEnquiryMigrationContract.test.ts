@@ -62,6 +62,7 @@ describe("migration hygiene", () => {
       "20261017100000_signoff_completion_requirements.sql",
       "20261018100000_fs_statement_composition.sql",
       "20261019100000_fs_notes_and_schedules.sql",
+      "20261020100000_fs_comparatives.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
