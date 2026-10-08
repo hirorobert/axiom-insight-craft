@@ -4178,6 +4178,66 @@ export type Database = {
           },
         ]
       }
+      fs_first_period_declarations: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          evidence_date: string | null
+          evidence_kind: string | null
+          evidence_ref: string | null
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          reason: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          evidence_date?: string | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          reason: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          evidence_date?: string | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_first_period_declarations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_declarations_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hesabu_validation_assertions: {
         Row: {
           actual_value: number | null
@@ -8335,6 +8395,30 @@ export type Database = {
       }
       _free_plan_inventory: { Args: never; Returns: Json }
       _free_retirement_approval_id: { Args: never; Returns: string }
+      _fs_adjusted_accounts: {
+        Args: {
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
+      _fs_applied_adjustments: {
+        Args: {
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
+      _fs_earlier_period_history: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
+      _fs_period_meta: {
+        Args: { p_certification_id: string; p_company_id: string }
+        Returns: Json
+      }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -9173,6 +9257,22 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_declare_first_period: {
+        Args: {
+          p_company_id: string
+          p_declare: boolean
+          p_evidence_date: string
+          p_evidence_kind: string
+          p_evidence_ref: string
+          p_period_year: number
+          p_reason: string
+        }
+        Returns: Json
+      }
+      fs_first_period_declared: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
+      }
       fs_ingest_evidence_internal: {
         Args: {
           p_actor: string
@@ -9237,6 +9337,10 @@ export type Database = {
           p_report_id: string
           p_report_version: number
         }
+        Returns: Json
+      }
+      fs_reporting_input: {
+        Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
       fs_rollout_allows: { Args: { p_company_id: string }; Returns: boolean }
