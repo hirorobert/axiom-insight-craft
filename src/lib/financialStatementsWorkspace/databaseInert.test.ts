@@ -260,6 +260,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261017100000_signoff_completion_requirements.sql",
       // Statement composition (20261018100000): presentation-line vocabulary, append-only assignments and elections, the database-composed statements.
       "supabase/migrations/20261018100000_fs_statement_composition.sql",
+      // Notes and schedules (20261019100000): requirement and schedule vocabulary, append-only decisions, disclosure texts and schedules, fs_notes_status.
+      "supabase/migrations/20261019100000_fs_notes_and_schedules.sql",
+      // Comparatives (20261020100000): append-only bridges, two-person restatements, approvals bound to the comparative identity; composition v2.
+      "supabase/migrations/20261020100000_fs_comparatives.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -458,6 +462,9 @@ describe("database inertness — schema and functions", () => {
       // The coverage-matrix renderer (reads src/lib/frameworkPacks, writes docs/reporting; no network, no database).
       "scripts/release/renderCoverageMatrix.mjs",
       "scripts/db-proof/statementComposition.mjs",
+      "scripts/db-proof/notesSchedules.mjs",
+      "scripts/db-proof/lib/reportingKit.mjs",
+      "scripts/db-proof/comparatives.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

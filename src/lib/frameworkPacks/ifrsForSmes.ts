@@ -11,7 +11,7 @@
 // Citations were verified on 2026-10-08 against the sources in SOURCES (verification class per citation; see types.ts).
 // Labels are short paraphrases; the cited paragraph is the authority. Nothing here asserts that a report complies.
 
-import type { Citation, FrameworkPack, PackRequirement, PresentationLine, SourceDocument } from "./types";
+import type { Citation, FrameworkPack, PackRequirement, PresentationLine, ScheduleDefinition, SourceDocument } from "./types";
 
 export const SOURCES: Readonly<Record<string, SourceDocument>> = {
   "smes-2015-text": {
@@ -122,6 +122,19 @@ function requirements(ed: Edition): PackRequirement[] {
       applicability: "ALWAYS", blocking: true },
     { id: "smes.note.share_capital", kind: "DISCLOSURE", statement: "NOTES", label: "Share capital: classes, numbers, par value and reconciliation of shares outstanding", citations: c("4.12"),
       applicability: "CONDITIONAL", condition: "The entity has share capital.", blocking: true },
+    // Movement schedules: a reconciliation of the carrying amount at the beginning and end of the period. Applicable when
+    // the line has a carrying amount at either date (decided from the composition, never assumed). Each cited paragraph
+    // says the reconciliation need not be presented for prior periods.
+    { id: "smes.schedule.ppe", kind: "SCHEDULE", statement: "NOTES", label: "Property, plant and equipment: reconciliation of the carrying amount", citations: c("17.31(e)"),
+      applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
+    { id: "smes.schedule.investment_property_cost", kind: "SCHEDULE", statement: "NOTES", label: "Investment property at cost: reconciliation of the carrying amount", citations: c("17.31(e)"),
+      applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
+    { id: "smes.schedule.investment_property_fair_value", kind: "SCHEDULE", statement: "NOTES", label: "Investment property at fair value: reconciliation of the carrying amount", citations: c("16.10(e)"),
+      applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
+    { id: "smes.schedule.intangibles", kind: "SCHEDULE", statement: "NOTES", label: "Intangible assets: reconciliation of the carrying amount", citations: c("18.27(e)"),
+      applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
+    { id: "smes.schedule.provisions", kind: "SCHEDULE", statement: "NOTES", label: "Provisions: reconciliation for each class", citations: c("21.14(a)"),
+      applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
     { id: "smes.note.early_application", kind: "DISCLOSURE", statement: "NOTES", label: "The fact of earlier application of the edition", citations: ed === "2015" ? c("A1") : [{ source: "ey-ifrs-developments-235", paragraph: "early application disclosure", verification: "SECONDARY" }],
       applicability: "CONDITIONAL", condition: "The edition is applied before its effective date (recorded early-application election).", blocking: true },
   ];
@@ -168,7 +181,49 @@ function lines(): PresentationLine[] {
   ];
 }
 
-export const IFRS_FOR_SMES_PACK_VERSION = "1.0.0";
+function schedules(): ScheduleDefinition[] {
+  const ppe = [
+    { kind: "additions", label: "Additions", sign: "increase" as const },
+    { kind: "disposals", label: "Disposals", sign: "decrease" as const },
+    { kind: "business_combinations", label: "Acquisitions through business combinations", sign: "increase" as const },
+    { kind: "revaluations_and_oci_impairment", label: "Revaluations and impairment recognised or reversed in other comprehensive income", sign: "either" as const },
+    { kind: "transfers_investment_property", label: "Transfers to and from investment property at fair value", sign: "either" as const },
+    { kind: "impairment_profit_or_loss", label: "Impairment losses recognised or reversed in profit or loss", sign: "either" as const },
+    { kind: "depreciation", label: "Depreciation", sign: "decrease" as const },
+    { kind: "other", label: "Other changes", sign: "either" as const },
+  ];
+  return [
+    { id: "ppe", requirementId: "smes.schedule.ppe", label: "Property, plant and equipment", lineIds: ["sfp.property_plant_and_equipment"], movements: ppe, priorPeriodRequired: false },
+    { id: "investment_property_cost", requirementId: "smes.schedule.investment_property_cost", label: "Investment property (cost model)", lineIds: ["sfp.investment_property_cost"], movements: ppe, priorPeriodRequired: false },
+    { id: "investment_property_fair_value", requirementId: "smes.schedule.investment_property_fair_value", label: "Investment property (fair value)", lineIds: ["sfp.investment_property_fair_value"],
+      movements: [
+        { kind: "additions", label: "Additions (other than through business combinations)", sign: "increase" },
+        { kind: "business_combination_additions", label: "Additions through business combinations", sign: "increase" },
+        { kind: "fair_value_gains_losses", label: "Net gains or losses from fair value adjustments", sign: "either" },
+        { kind: "transfers_cost_model", label: "Transfers to and from investment property at cost", sign: "either" },
+        { kind: "transfers_inventories_owner_occupied", label: "Transfers to and from inventories and owner-occupied property", sign: "either" },
+        { kind: "other", label: "Other changes", sign: "either" },
+      ], priorPeriodRequired: false },
+    { id: "intangibles", requirementId: "smes.schedule.intangibles", label: "Intangible assets", lineIds: ["sfp.intangible_assets"],
+      movements: [
+        { kind: "additions", label: "Additions", sign: "increase" },
+        { kind: "disposals", label: "Disposals", sign: "decrease" },
+        { kind: "business_combinations", label: "Acquisitions through business combinations", sign: "increase" },
+        { kind: "amortisation", label: "Amortisation", sign: "decrease" },
+        { kind: "impairment", label: "Impairment losses", sign: "decrease" },
+        { kind: "other", label: "Other changes", sign: "either" },
+      ], priorPeriodRequired: false },
+    { id: "provisions", requirementId: "smes.schedule.provisions", label: "Provisions", lineIds: ["sfp.provisions"],
+      movements: [
+        { kind: "additions", label: "Additions (including changes in the discounted amount)", sign: "increase" },
+        { kind: "used", label: "Amounts charged against the provision", sign: "decrease" },
+        { kind: "reversed", label: "Unused amounts reversed", sign: "decrease" },
+      ], priorPeriodRequired: false },
+  ];
+}
+
+// 1.1.0: movement schedules (17.31(e), 16.10(e), 18.27(e), 21.14(a)) added.
+export const IFRS_FOR_SMES_PACK_VERSION = "1.1.0";
 /** Version of the presentation-line vocabulary alone (fs_presentation_lines.lines_version); changes only when `lines()` changes. */
 export const IFRS_FOR_SMES_LINES_VERSION = "1.0.0";
 
@@ -186,6 +241,7 @@ export const IFRS_FOR_SMES_2015: FrameworkPack = Object.freeze<FrameworkPack>({
   packVersion: IFRS_FOR_SMES_PACK_VERSION,
   requirements: requirements("2015"),
   lines: lines(),
+  schedules: schedules(),
   comparatives: { required: true, minimumPeriods: 1, citations: [T("2015", "3.14"), T("2015", "3.20")] },
 });
 
@@ -204,6 +260,7 @@ export const IFRS_FOR_SMES_2025: FrameworkPack = Object.freeze<FrameworkPack>({
   packVersion: IFRS_FOR_SMES_PACK_VERSION,
   requirements: requirements("2025"),
   lines: lines(),
+  schedules: schedules(),
   comparatives: { required: true, minimumPeriods: 1, citations: [T("2025", "3.14")] },
 });
 

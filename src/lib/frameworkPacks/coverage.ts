@@ -38,6 +38,10 @@ const COMPOSITION_SQL = "supabase/migrations/20261018100000_fs_statement_composi
 /** The database composition (20261018100000): a line of the vocabulary, or a named construct of fs_statement_composition. */
 const COMPOSED = (literal: string) => ({ file: COMPOSITION_SQL, symbol: literal });
 const VIEW = { file: "src/lib/statements/composition.ts", symbol: "statementViews" };
+const NOTES_SQL = "supabase/migrations/20261019100000_fs_notes_and_schedules.sql";
+const NOTES = (literal: string) => ({ file: NOTES_SQL, symbol: literal });
+const TEXT = [NOTES("FUNCTION public.fs_record_disclosure"), NOTES("REQUIRED_DISCLOSURE_MISSING:")];
+const WORDING = "Tracked per requirement by the database: the preparer's own wording, verbatim with its source; missing blocks. Nothing is generated.";
 const READINESS = (code: string) => ({ file: "supabase/migrations/20261017100000_signoff_completion_requirements.sql", symbol: code });
 
 /** IFRS for SMEs (both editions share requirement ids). */
@@ -46,16 +50,19 @@ export const IFRS_FOR_SMES_COVERAGE: Readonly<Record<string, CoverageEntry>> = {
     note: "Composed by the database from the authoritative reporting input and reviewed presentation assignments (pack lines, current/non-current sections); totals only for a fully presented period. The earlier client adapter remains for the legacy workspace." },
   "smes.set.sci": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("FUNCTION public.fs_statement_composition"), VIEW],
     note: "Profit or loss composed by the database (income lines less expense lines, profit before tax, tax). No other comprehensive income." },
-  "smes.set.socie": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/equityStatement.ts", symbol: "buildEquityStatement" }],
+  "smes.set.socie": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/equityStatement.ts", symbol: "buildEquityStatement" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.socie")],
     note: "Only from preparer-supplied EQUITY_MOVEMENTS evidence; never derived from a closing trial balance. The 3.18 alternative is not offered." },
   "smes.set.scf": { status: "IMPLEMENTED_NOT_VALIDATED",
-    implementedBy: [{ file: "src/lib/financialGeneration/cashFlowDirect.ts", symbol: "buildDirectCashFlow" }, { file: "src/lib/financialGeneration/cashLedgerAuthority.ts", symbol: "establishCashLedgerAuthority" }],
+    implementedBy: [{ file: "src/lib/financialGeneration/cashFlowDirect.ts", symbol: "buildDirectCashFlow" }, { file: "src/lib/financialGeneration/cashLedgerAuthority.ts", symbol: "establishCashLedgerAuthority" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.scf")],
     note: "Direct method only, from a TRANSACTION_LEDGER evidence batch reconciled account by account to the trial-balance cash movement. Never manufactured from a closing trial balance." },
   "smes.set.notes": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/notesAndSchedules.ts", symbol: "assembleNotes" }],
     note: "Preparer-supplied wording kept verbatim; nothing is generated." },
-  "smes.comparatives": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [READINESS("COMPARATIVE_PERIOD_MISSING")],
-    note: "Server blocks REVIEWED/FINAL without comparatives unless a first-period declaration is in force. One comparative period only." },
-  "smes.period.annual": { status: "MISSING", note: "No period-length check and no longer/shorter-period disclosure." },
+  "smes.comparatives": { status: "IMPLEMENTED_NOT_VALIDATED",
+    implementedBy: [READINESS("COMPARATIVE_PERIOD_MISSING"), { file: "supabase/migrations/20261020100000_fs_comparatives.sql", symbol: "COMPARATIVE_REQUIRED_MISSING" },
+      { file: "supabase/migrations/20261020100000_fs_comparatives.sql", symbol: "FUNCTION public.fs_approve_comparatives" }],
+    note: "The database composes the prior year from its authoritative certification (account bridges for chart changes; two-person restatements kept beside the as-reported figures); a reviewer approves the exact comparative; reference-only, missing and different-currency comparatives block; an approved first-period declaration is the only exception. One comparative period; translation deferred." },
+  "smes.period.annual": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [NOTES("NON_ANNUAL_PERIOD_DISCLOSURE_MISSING")],
+    note: "Twelve-month periods are satisfied; a longer or shorter period needs the preparer's disclosure; unknown dates block." },
   ...Object.fromEntries(([["a", "cash_and_cash_equivalents"], ["b", "trade_and_other_receivables"], ["c", "other_financial_assets"], ["d", "inventories"],
     ["e", "property_plant_and_equipment"], ["ea", "investment_property_cost"], ["f", "investment_property_fair_value"], ["g", "intangible_assets"],
     ["h", "biological_assets_cost"], ["i", "biological_assets_fair_value"], ["j", "investments_in_associates"], ["k", "investments_in_jointly_controlled_entities"],
@@ -77,15 +84,19 @@ export const IFRS_FOR_SMES_COVERAGE: Readonly<Record<string, CoverageEntry>> = {
   "smes.sci.5_5_i": { status: "MISSING", note: "Not presented; where there is no OCI the standard permits 'profit or loss' (5.5(f)) instead." },
   "smes.sci.5_11": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("EXPENSE_ANALYSIS_MIXED")],
     note: "By function (cost of sales, other expenses) or by nature (employee benefits, depreciation, other); mixing both blocks." },
-  "smes.note.compliance": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [READINESS("DISCLOSURE_CHECKLIST_INCOMPLETE")],
-    note: "Checklist area 'basis-of-preparation' must be provided or not-applicable with rationale; the wording is the preparer's." },
-  "smes.note.identification": { status: "MISSING" },
-  "smes.note.policies": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [READINESS("DISCLOSURE_CHECKLIST_INCOMPLETE")], note: "Checklist area 'accounting-policies'." },
-  "smes.note.judgements": { status: "MISSING", note: "Not tracked as its own requirement." },
-  "smes.note.estimates": { status: "MISSING", note: "Not tracked as its own requirement." },
-  "smes.note.subclassifications": { status: "MISSING" },
-  "smes.note.share_capital": { status: "MISSING" },
-  "smes.note.early_application": { status: "MISSING" },
+  "smes.note.compliance": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, READINESS("DISCLOSURE_CHECKLIST_INCOMPLETE")], note: WORDING },
+  "smes.note.identification": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT, note: `${WORDING} The printed identification block is the sign-off and export increment.` },
+  "smes.note.policies": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, READINESS("DISCLOSURE_CHECKLIST_INCOMPLETE")], note: WORDING },
+  "smes.note.judgements": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT, note: WORDING },
+  "smes.note.estimates": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT, note: WORDING },
+  "smes.note.subclassifications": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT, note: WORDING },
+  "smes.note.share_capital": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, NOTES("FUNCTION public.fs_decide_requirement")],
+    note: `Applicability decided by the preparer with a reason (undecided blocks). ${WORDING}` },
+  "smes.note.early_application": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT,
+    note: "Applicable exactly when the edition is applied early (decided by the edition policy, never by hand); then the preparer's wording is required." },
+  ...Object.fromEntries((["ppe", "investment_property_cost", "investment_property_fair_value", "intangibles", "provisions"] as const).map((id) =>
+    [`smes.schedule.${id}`, { status: "IMPLEMENTED_NOT_VALIDATED" as const, implementedBy: [NOTES("FUNCTION public.fs_record_schedule"), NOTES("SCHEDULE_CLOSING_MISMATCH:")],
+      note: "Structured classes with the cited movements; the server validates every amount, sign and class total, and reconciles closing to the composed line and opening to the composed prior-year line (unverified without an authoritative comparative). Applicable when the line has a carrying amount." }])),
 };
 
 export interface CoverageRow { readonly requirementId: string; readonly label: string; readonly kind: string; readonly citations: string; readonly status: CoverageStatus; readonly evidence: string; readonly note: string }
