@@ -130,7 +130,7 @@ export interface AuditInput {
  * their own preparer under the workspace's self-approval policy (revision 5 C8).
  */
 export function closeReviewAppendix(input: CurrentReportingInput) {
-  const adj = (a: CurrentReportingInput["adjustments"][number]) => ({ adjustmentId: a.id, number: a.number, kind: a.kind, reverses: a.reverses, totalMinor: a.totalMinor, reason: a.reason, selfApproved: a.selfApproved });
+  const adj = (a: CurrentReportingInput["adjustments"][number]) => ({ adjustmentId: a.id, number: a.number, kind: a.kind, reverses: a.reverses, totalMinor: a.totalMinor, reason: a.reason, selfApproved: a.selfApproved, selfRevalidated: a.selfRevalidated });
   const priorAdjustments = input.comparative.state === "available" || input.comparative.state === "legacy_certification"
     ? (input.comparative as { adjustments: CurrentReportingInput["adjustments"] }).adjustments : [];
   return {
@@ -142,7 +142,8 @@ export function closeReviewAppendix(input: CurrentReportingInput) {
       : { state: input.comparative.state, periodYear: input.comparative.periodYear },
     adjustments: input.adjustments.map(adj),
     priorYearAdjustments: priorAdjustments.map(adj),
-    approvedByThePreparer: [...input.adjustments, ...priorAdjustments].filter((a) => a.selfApproved).map(adj),
+    // Approved, or carried to the current trial balance, by their own preparer under the self-approval policy.
+    approvedByThePreparer: [...input.adjustments, ...priorAdjustments].filter((a) => a.selfApproved || a.selfRevalidated).map(adj),
   };
 }
 
