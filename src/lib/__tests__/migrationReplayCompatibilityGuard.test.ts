@@ -218,7 +218,8 @@ describe("migration directory integrity", () => {
     // source object), a NEW forward-only migration pending hosted application. No applied migration is edited.
     // 152 -> 153: 20261012100000_layout_assist_controls.sql (I1-C: consent, provider gates, quota and cost cap for
     // AI-assisted layout suggestions; disabled), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(153);
+    // 153 -> 154: 20261013100000_close_review_timeline.sql (Close Review timeline: append-only comments and history), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(154);
   });
 });
 

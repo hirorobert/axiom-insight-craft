@@ -1,0 +1,134 @@
+-- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+-- Close Review timeline (roadmap increment 8): append-only comments and history.
+--
+--   close_review_events — ONE append-only timeline per subject (a finding, an adjustment, a report version, an upload).
+--   Comments are events; an edit is a NEW event ('comment_revised') that names the comment it revises — the original is
+--   never changed. Later increments (findings, adjustments) append their lifecycle events to the same table through
+--   their own server functions, so a subject's history is one ordered read.
+--
+--   Who: reading needs workspace access; writing a comment needs prepare_close or review_close, exercised now (current
+--   plan) — a member with no capability is read-only (revision 5 §3, R2). Only the author revises their own comment.
+--   Everything ships behind the financial-statements rollout (per-company allow-list + kill switch): while it is off for
+--   a company nothing can be written and nothing is readable.
+--
+-- PREFLIGHT: the objects do not exist yet; the migration refuses if they do.
+-- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.close_review_events') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: close_review_events already exists; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+CREATE TABLE public.close_review_events (
+  id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq             BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id      UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  subject_kind    TEXT        NOT NULL CHECK (subject_kind IN ('finding', 'adjustment', 'report_version', 'upload')),
+  subject_id      TEXT        NOT NULL CHECK (length(subject_id) BETWEEN 1 AND 200),
+  event_type      TEXT        NOT NULL CHECK (event_type ~ '^[a-z][a-z_]{2,40}$'),
+  body            TEXT        NULL CHECK (body IS NULL OR length(btrim(body)) BETWEEN 1 AND 4000),
+  revises_event_id UUID       NULL REFERENCES public.close_review_events (id) ON DELETE RESTRICT,
+  detail          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  actor_user_id   UUID        NULL,
+  firm_member_id  UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id      UUID        NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT chk_cre_comment_body CHECK (event_type NOT IN ('comment', 'comment_revised') OR body IS NOT NULL),
+  CONSTRAINT chk_cre_revision CHECK ((event_type = 'comment_revised') = (revises_event_id IS NOT NULL)),
+  CONSTRAINT uq_cre_request UNIQUE (actor_user_id, request_id)
+);
+CREATE INDEX idx_cre_subject ON public.close_review_events (company_id, subject_kind, subject_id, seq);
+
+CREATE OR REPLACE FUNCTION public.close_review_events_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  RAISE EXCEPTION 'CLOSE_REVIEW_APPEND_ONLY: % on close_review_events', TG_OP USING ERRCODE = '42501';
+END;
+$$;
+CREATE TRIGGER trg_cre_append_only BEFORE UPDATE OR DELETE ON public.close_review_events FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
+CREATE TRIGGER trg_cre_no_truncate BEFORE TRUNCATE ON public.close_review_events FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
+
+-- Readable by members with workspace access while the rollout allows the company.
+CREATE OR REPLACE FUNCTION public.close_review_readable(p_company_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT public.can_access_workspace(p_company_id) AND public.fs_rollout_allows(p_company_id);
+$$;
+
+-- The writer every Close Review increment uses for its own events (server functions only).
+CREATE OR REPLACE FUNCTION public._close_review_append(p_company_id uuid, p_subject_kind text, p_subject_id text, p_event_type text,
+  p_body text, p_revises uuid, p_detail jsonb, p_actor uuid, p_member uuid, p_request_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  INSERT INTO public.close_review_events (company_id, subject_kind, subject_id, event_type, body, revises_event_id, detail,
+    actor_user_id, firm_member_id, request_id)
+  VALUES (p_company_id, p_subject_kind, p_subject_id, p_event_type, p_body, p_revises, COALESCE(p_detail, '{}'::jsonb),
+    p_actor, p_member, p_request_id)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+
+-- Comment, or revise one's own comment. Outcomes: recorded (also the replay of the same request) | forbidden |
+-- feature_disabled | not_found | not_author | invalid_request | request_reused.
+CREATE OR REPLACE FUNCTION public.close_review_comment(p_company_id uuid, p_subject_kind text, p_subject_id text, p_body text,
+  p_request_id uuid, p_revises uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_member uuid;
+  v_prior public.close_review_events%ROWTYPE;
+  v_root public.close_review_events%ROWTYPE;
+  v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_request_id IS NULL OR p_subject_kind IS NULL OR p_subject_id IS NULL
+     OR p_body IS NULL OR length(btrim(p_body)) NOT BETWEEN 1 AND 4000
+     OR p_subject_kind NOT IN ('finding', 'adjustment', 'report_version', 'upload') THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  SELECT * INTO v_prior FROM public.close_review_events e WHERE e.actor_user_id = v_uid AND e.request_id = p_request_id;
+  IF v_prior.id IS NOT NULL THEN
+    IF v_prior.company_id = p_company_id AND v_prior.subject_kind = p_subject_kind AND v_prior.subject_id = p_subject_id
+       AND v_prior.body = p_body AND v_prior.revises_event_id IS NOT DISTINCT FROM p_revises THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'eventId', v_prior.id, 'replay', true);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  IF NOT (public.workspace_capability_allowed(p_company_id, v_uid, 'prepare_close')
+          OR public.workspace_capability_allowed(p_company_id, v_uid, 'review_close')) THEN
+    RETURN jsonb_build_object('outcome', 'forbidden');
+  END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  SELECT fm.id INTO v_member FROM public.firm_members fm
+   WHERE fm.company_id = p_company_id AND fm.user_id = v_uid AND fm.accepted_at IS NOT NULL AND fm.invitation_cancelled_at IS NULL
+   ORDER BY fm.created_at LIMIT 1;
+  IF p_revises IS NOT NULL THEN
+    SELECT * INTO v_root FROM public.close_review_events e WHERE e.id = p_revises;
+    IF v_root.id IS NULL OR v_root.company_id <> p_company_id OR v_root.subject_kind <> p_subject_kind OR v_root.subject_id <> p_subject_id
+       OR v_root.event_type <> 'comment' THEN
+      RETURN jsonb_build_object('outcome', 'not_found');
+    END IF;
+    IF v_root.actor_user_id <> v_uid THEN RETURN jsonb_build_object('outcome', 'not_author'); END IF;
+  END IF;
+  v_id := public._close_review_append(p_company_id, p_subject_kind, p_subject_id,
+    CASE WHEN p_revises IS NULL THEN 'comment' ELSE 'comment_revised' END, btrim(p_body), p_revises, '{}'::jsonb, v_uid, v_member, p_request_id);
+  RETURN jsonb_build_object('outcome', 'recorded', 'eventId', v_id, 'replay', false);
+END;
+$$;
+
+ALTER TABLE public.close_review_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.close_review_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.close_review_events TO authenticated, service_role;
+CREATE POLICY cre_workspace_read ON public.close_review_events FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+
+REVOKE ALL ON FUNCTION public.close_review_events_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.close_review_readable(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_readable(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public._close_review_append(uuid, text, text, text, text, uuid, jsonb, uuid, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.close_review_comment(uuid, text, text, text, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.close_review_comment(uuid, text, text, text, uuid, uuid) TO authenticated;

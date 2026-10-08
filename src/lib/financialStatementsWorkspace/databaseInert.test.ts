@@ -248,6 +248,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261012100000_layout_assist_controls.sql",
       "supabase/functions/layout-assist/index.ts",
       "supabase/functions/_shared/layoutAssist.ts",
+      // Close Review increment 8 (20261013100000): the append-only comments-and-history timeline, behind the financial-statements rollout; capability-checked writer. A NEW forward-only migration pending hosted application.
+      "supabase/migrations/20261013100000_close_review_timeline.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -436,6 +438,7 @@ describe("database inertness — schema and functions", () => {
       // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only
       // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
       "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",
+      "scripts/db-proof/closeReviewAuthority.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
