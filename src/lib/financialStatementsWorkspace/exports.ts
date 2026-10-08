@@ -17,6 +17,7 @@ import { toCsv } from "@/lib/financialEvidence/csv";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
 import type { BudgetActualComparison } from "@/lib/financialGeneration/budgetActual";
 import type { ChecklistItem } from "@/lib/financialGeneration/notesAndSchedules";
+import type { CurrentReportingInput } from "./authoritativeInput";
 
 export interface ExportFile {
   readonly fileName: string;
@@ -119,6 +120,30 @@ export interface AuditInput {
   readonly publication: { readonly state: OutputStatus; readonly reason: string } | null;
   /** Supplied by the caller; omitted from the file when null so the export stays reproducible. */
   readonly exportedAt: string | null;
+  /** The authoritative reporting input the figures came from; adds the Close Review appendix (omitted when absent). */
+  readonly closeReview?: CurrentReportingInput | null;
+}
+
+/**
+ * The Close Review appendix of the audit bundle: the input identity the figures came from, the reviewed trial balance
+ * (certification) of each period, every approved adjustment applied, and — never hidden — the adjustments approved by
+ * their own preparer under the workspace's self-approval policy (revision 5 C8).
+ */
+export function closeReviewAppendix(input: CurrentReportingInput) {
+  const adj = (a: CurrentReportingInput["adjustments"][number]) => ({ adjustmentId: a.id, number: a.number, kind: a.kind, reverses: a.reverses, totalMinor: a.totalMinor, reason: a.reason, selfApproved: a.selfApproved });
+  const priorAdjustments = input.comparative.state === "available" || input.comparative.state === "legacy_certification"
+    ? (input.comparative as { adjustments: CurrentReportingInput["adjustments"] }).adjustments : [];
+  return {
+    contract: input.contract,
+    inputSha256: input.inputSha256,
+    current: { certificationId: input.current.certificationId, uploadId: input.current.uploadId, periodYear: input.current.periodYear, currency: input.current.currency },
+    comparative: input.comparative.state === "available" || input.comparative.state === "legacy_certification"
+      ? { state: input.comparative.state, certificationId: (input.comparative as { certificationId: string }).certificationId, periodYear: input.comparative.periodYear }
+      : { state: input.comparative.state, periodYear: input.comparative.periodYear },
+    adjustments: input.adjustments.map(adj),
+    priorYearAdjustments: priorAdjustments.map(adj),
+    approvedByThePreparer: [...input.adjustments, ...priorAdjustments].filter((a) => a.selfApproved).map(adj),
+  };
 }
 
 /** Audit bundle: what was produced, from which evidence, checked by which rules, decided by whom (as recorded), with hashes. */
@@ -135,6 +160,7 @@ export function auditExport(input: AuditInput): ExportFile {
     evidence: input.evidence.map(({ batch, version }) => ({ evidenceBatchId: batch.evidenceBatchId, evidenceType: batch.evidenceType, periodRole: batch.periodRole, version, contentHash: batch.contentHash, validationStatus: batch.validationStatus })),
     decisions: input.decisions.map((d) => ({ decisionId: d.decisionId, decisionType: d.decisionType, reviewerId: d.reviewerId, decidedAt: d.decidedAt, rationale: d.rationale ?? null })),
     facts: { total: report.facts.length, corrected: report.facts.filter((f) => f.supersedesVersion !== null).length },
+    ...(input.closeReview ? { closeReview: closeReviewAppendix(input.closeReview) } : {}),
   };
   return { fileName: `${base(report, input.lineage)}.audit.json`, mimeType: "application/json", content: pretty(bundle) };
 }

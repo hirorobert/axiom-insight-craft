@@ -26,7 +26,7 @@ import { InMemoryFinancialStatementReportRepository, type EvaluationRunRecord, t
 import { mapWorkspaceTrialBalanceToReviewedLines, type AccountMappingRow, type AmbiguousAccount, type CanonicalStatementsLike, type UnmappedAccount } from "@/lib/financialStatementsWorkspace/mapWorkspaceTrialBalance";
 import type { ReviewedTrialBalanceAccountLine } from "@/lib/financialStatementsWorkspace/trialBalanceAdapter";
 import { COMPARATIVE_PERIOD_ID, resolveComparativeSource, type ComparativeCandidateUpload } from "@/lib/financialStatementsWorkspace/comparativeSource";
-import { comparativeFromInput, INPUT_STATE_WORDS, periodToReviewedLines, type AuthoritativeReportingInput } from "@/lib/financialStatementsWorkspace/authoritativeInput";
+import { comparativeFromInput, INPUT_STATE_WORDS, periodToReviewedLines, type AuthoritativeReportingInput, type CurrentReportingInput } from "@/lib/financialStatementsWorkspace/authoritativeInput";
 import { profileForDbValue, type FrameworkProfile } from "@/lib/financialStatementsWorkspace/frameworkProfiles";
 import { deriveReportingPeriod } from "@/lib/financialStatementsWorkspace/reportingPeriod";
 import { composeStatements, type StatementComposition } from "@/lib/financialStatementsWorkspace/statementComposition";
@@ -154,6 +154,8 @@ export interface EvidenceEntry {
 }
 
 export interface FinancialStatementsWorkspaceModel {
+  /** The authoritative reporting input the figures came from (null on the legacy route or when unavailable). */
+  readonly authoritativeInput: CurrentReportingInput | null;
   readonly status: WorkspaceStatus;
   readonly reason: string | null;
   readonly diagnostics: readonly string[];
@@ -956,6 +958,7 @@ export function useFinancialStatementsWorkspace(inputs: WorkspaceInputs): Financ
   );
 
   return {
+    authoritativeInput: inputs.reportingInput && inputs.reportingInput !== "loading" && inputs.reportingInput.state === "current" ? inputs.reportingInput : null,
     status, reason, diagnostics, profile, sources, structure,
     composition: viewing ? viewingComposition : composition,
     snapshot: historical ? historical.snapshot : modelSnapshot,
