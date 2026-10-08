@@ -31,6 +31,17 @@ const S2_SUBMITTED = "169a3771a009973114437a5bd24318083d05e391876f6dfbacfbaf994b
 const I1A_A1 = "20261009100000_currency_registry_and_reporting_periods.sql";
 const I1A_A2 = "20261010100000_layout_templates_and_confirmations.sql";
 const S25 = "20261001120000_annual_commercial_term.sql";
+// The milestone's seven sources, with both registered forms recomputed from the final reviewed bytes.
+const MILESTONE = [
+  { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
+  { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
+  { name: "20261013100000_close_review_timeline.sql", bytes: 9148, canonical: "84787f004c83b2dd5258d14d323bb39c65c8eb37372122ce1b729e9b441598f0", submitted: "5edd6b46b326fce02872404d4dde6aac4fa50c5af9fec36356225938ec43a0d9" },
+  { name: "20261014100000_close_review_findings.sql", bytes: 35821, canonical: "61b1bcffc1148f557e2aa62b8e245e12b9e8ef7a2a6a9e861ec94036a629ca3f", submitted: "936973b10ce839deb21b4284b098f981317871b6f22c81999370be1054ee4e48" },
+  { name: "20261015100000_close_review_adjustments.sql", bytes: 51377, canonical: "75387e4ce9cb3dee63001b67c28bb76cebfccc156229b24e206d55c6588b58e2", submitted: "72b3c226f369d77975bef7f37ff05259732edb413f8a342b366012cb459ffeac" },
+  { name: "20261016100000_fs_reporting_input.sql", bytes: 11306, canonical: "d6c019785cdd67301c539bfc7d4c413e365c917039da4dc27adcb4128c3a3a39", submitted: "824d85803148e5ae46a90ab300d62ea9d4f3116c9c17095b8cb57fd5dc9fa71c" },
+  { name: "20261017100000_signoff_completion_requirements.sql", bytes: 21060, canonical: "4523efd91edb2f3028786c93adeffc2c73392595a33620ce5b2fb82558c3b5af", submitted: "013a0b0f440d6ffb6713f98acb22872cf9d73b2fbe41cb76801450eea8ccb32b" },
+];
+
 const D25 = "621f55c35bdadf3c7baa8c259056712dbfbbedbd25417a2a5d6a92fd4a1d38fa";
 
 describe("the reviewed release journal", () => {
@@ -330,7 +341,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -487,4 +498,85 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
       expect(checkReleaseEntry(c.tag, read(c.tag), changedSource).problems.join("\n")).toMatch(/pinned digest/);
     });
   }
+});
+
+describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
+  it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
+    const keys = Object.keys(SUBMISSION_FORMS);
+    expect(keys.slice(-MILESTONE.length)).toEqual(MILESTONE.map((m) => m.name));
+    for (const f of MILESTONE) {
+      const src = srcBytes(f.name)!;
+      expect(SUBMISSION_FORMS[f.name], f.name).toEqual({ identical: { bytes: f.bytes, sha256: f.canonical }, finalLfRemoved: { bytes: f.bytes - 1, sha256: f.submitted } });
+      // Recomputed here, independently of the registry: the bytes in the repository ARE the registered canonical form.
+      expect([src.length, sha(src)], f.name).toEqual([f.bytes, f.canonical]);
+      expect(src.includes(0x0d), `${f.name} has no CR byte`).toBe(false);
+      expect(src.subarray(0, 3).toString("hex"), `${f.name} has no BOM`).not.toBe("efbbbf");
+      expect(src[src.length - 1], f.name).toBe(0x0a);
+      expect(src.subarray(-2).toString("hex"), f.name).not.toBe("0a0a"); // exactly one trailing LF
+      expect(sha(src.subarray(0, src.length - 1)), f.name).toBe(f.submitted);
+    }
+  });
+  it("accepts only those two forms of each; every other transformation is rejected", () => {
+    for (const f of MILESTONE) {
+      const s = srcBytes(f.name)!;
+      expect(submittedForm(f.name, s, s)).toBe("identical");
+      expect(submittedForm(f.name, s, s.subarray(0, s.length - 1))).toBe("final_lf_removed");
+      const text = s.toString("utf8");
+      const rejected: [string, Buffer][] = [
+        ["two final bytes removed", s.subarray(0, s.length - 2)],
+        ["an extra final LF", Buffer.concat([s, Buffer.from("\n")])],
+        ["final LF replaced by a space", Buffer.concat([s.subarray(0, s.length - 1), Buffer.from(" ")])],
+        ["final LF replaced by CRLF", Buffer.concat([s.subarray(0, s.length - 1), Buffer.from("\r\n")])],
+        ["CRLF line endings", Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")],
+        ["a UTF-8 byte-order mark", Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), s])],
+        ["leading whitespace", Buffer.concat([Buffer.from(" "), s])],
+        ["trailing whitespace trimmed", Buffer.from(text.replace(/\s+$/, ""), "utf8")],
+        ["comments stripped", Buffer.from(text.replace(/^--.*\n/gm, ""), "utf8")],
+        ["one byte changed in the middle", (() => { const b = Buffer.from(s); b[Math.floor(b.length / 2)] ^= 0x01; return b; })()],
+        ["another milestone source", srcBytes(MILESTONE[(MILESTONE.indexOf(f) + 1) % MILESTONE.length].name)!],
+        ["empty text", Buffer.alloc(0)],
+      ];
+      for (const [label, bad] of rejected) {
+        if (bad.equals(s) || bad.equals(s.subarray(0, s.length - 1))) continue; // a transformation that changed nothing is not a different text
+        expect(submittedForm(f.name, s, bad), `${f.name}: ${label}`).toBeNull();
+      }
+      // A changed source no longer matches its registration: no form is accepted.
+      const changed = Buffer.concat([s, Buffer.from("-- note\n")]);
+      expect(submittedForm(f.name, changed, changed), f.name).toBeNull();
+      expect(submittedForm(f.name, changed, changed.subarray(0, changed.length - 1)), f.name).toBeNull();
+    }
+  });
+  it("rule 9: without reviewed RELEASE_JOURNAL entries, no Drizzle mirror of any of the seven is accepted — not even a registered form", () => {
+    for (const form of ["identical", "final LF removed"] as const) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-milestone-"));
+      try {
+        fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
+        fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+        const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
+        const j = JSON.parse(fs.readFileSync(jf, "utf8"));
+        const tags: string[] = [];
+        for (const f of MILESTONE) {
+          const idx = j.entries.length;
+          const tag = `${String(idx).padStart(4, "0")}_mirror_${f.name.slice(0, 14)}`;
+          j.entries.push({ ...j.entries[idx - 1], idx, tag });
+          const s = srcBytes(f.name)!;
+          fs.writeFileSync(path.join(dir, `drizzle/migrations/${tag}.sql`), form === "identical" ? s : s.subarray(0, s.length - 1));
+          fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
+          tags.push(tag);
+        }
+        fs.writeFileSync(jf, JSON.stringify(j, null, 2));
+        const r = checkMigrationAuthority(dir) as Result;
+        expect(r.ok, form).toBe(false);
+        for (const tag of tags) {
+          expect(r.mirrored.some((m) => m.tag === tag), `${form} ${tag}`).toBe(false);
+          expect(r.errors.some((e) => e.includes(tag) && e.includes("only through a reviewed RELEASE_JOURNAL entry")), `${form} ${tag}`).toBe(true);
+        }
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    }
+  }, 300_000);   // full-repository guard runs (two)
+  it("registering forms applies nothing: all seven remain pending, in order", () => {
+    const r = checkMigrationAuthority(ROOT) as Result;
+    expect(r.errors).toEqual([]);
+    expect(r.pending).toEqual(MILESTONE.map((m) => m.name));
+  }, 120_000);
 });

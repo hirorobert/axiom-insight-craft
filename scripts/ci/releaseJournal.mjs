@@ -224,6 +224,44 @@ export const SUBMISSION_FORMS = Object.freeze({
     identical: Object.freeze({ bytes: 31976, sha256: "061fcb0f5ea3bf6044bc5065cf393728f5ee7ead000beb33df6fd5ce78babe21" }),
     finalLfRemoved: Object.freeze({ bytes: 31975, sha256: "f5aa525f5bf4ce1f5068c3ecf4f3c1002c3b0d6ab1948cafb6cf371ea8e69ba7" }),
   }),
+  // The I1-B / I1-C / Close Review / reporting-input / sign-off milestone (PRs #76-#84; registration in the release-
+  // preparation PR): both candidate forms of each of the seven sources registered BEFORE application, from the final
+  // reviewed bytes. Not applied.
+  // I1-B shared source (PR #76).
+  "20261011100000_two_period_shared_source.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 33926, sha256: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a" }),
+    finalLfRemoved: Object.freeze({ bytes: 33925, sha256: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" }),
+  }),
+  // I1-C layout assist controls (PR #78).
+  "20261012100000_layout_assist_controls.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 26700, sha256: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd" }),
+    finalLfRemoved: Object.freeze({ bytes: 26699, sha256: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" }),
+  }),
+  // Close Review timeline (PR #79).
+  "20261013100000_close_review_timeline.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 9148, sha256: "84787f004c83b2dd5258d14d323bb39c65c8eb37372122ce1b729e9b441598f0" }),
+    finalLfRemoved: Object.freeze({ bytes: 9147, sha256: "5edd6b46b326fce02872404d4dde6aac4fa50c5af9fec36356225938ec43a0d9" }),
+  }),
+  // Close Review findings (PR #80).
+  "20261014100000_close_review_findings.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 35821, sha256: "61b1bcffc1148f557e2aa62b8e245e12b9e8ef7a2a6a9e861ec94036a629ca3f" }),
+    finalLfRemoved: Object.freeze({ bytes: 35820, sha256: "936973b10ce839deb21b4284b098f981317871b6f22c81999370be1054ee4e48" }),
+  }),
+  // Close Review adjustments (PR #81).
+  "20261015100000_close_review_adjustments.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 51377, sha256: "75387e4ce9cb3dee63001b67c28bb76cebfccc156229b24e206d55c6588b58e2" }),
+    finalLfRemoved: Object.freeze({ bytes: 51376, sha256: "72b3c226f369d77975bef7f37ff05259732edb413f8a342b366012cb459ffeac" }),
+  }),
+  // financial-statements reporting input (PR #82).
+  "20261016100000_fs_reporting_input.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 11306, sha256: "d6c019785cdd67301c539bfc7d4c413e365c917039da4dc27adcb4128c3a3a39" }),
+    finalLfRemoved: Object.freeze({ bytes: 11305, sha256: "824d85803148e5ae46a90ab300d62ea9d4f3116c9c17095b8cb57fd5dc9fa71c" }),
+  }),
+  // sign-off completion requirements (PR #83).
+  "20261017100000_signoff_completion_requirements.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 21060, sha256: "4523efd91edb2f3028786c93adeffc2c73392595a33620ce5b2fb82558c3b5af" }),
+    finalLfRemoved: Object.freeze({ bytes: 21059, sha256: "013a0b0f440d6ffb6713f98acb22872cf9d73b2fbe41cb76801450eea8ccb32b" }),
+  }),
 });
 
 /**
