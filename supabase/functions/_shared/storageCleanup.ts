@@ -21,6 +21,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type CleanupOutcome =
   | "completed" | "already_completed" | "storage_cleanup_pending" | "replacement_required"
   | "undo_window_open" | "not_purgeable"
+  // I1-B: the discarded year's record is purged, but its file is kept because the other year of the same file uses it.
+  | "source_shared"
   | "forbidden" | "stale_operation" | "unauthenticated" | "invalid_request" | "completion_failed";
 
 export interface CleanupTarget {
@@ -70,6 +72,7 @@ const COMPLETION_MAP: Record<string, CleanupResult> = {
   replacement_required: { status: 409, outcome: "replacement_required" },
   purged: { status: 200, outcome: "completed" },
   already_purged: { status: 200, outcome: "already_completed" },
+  source_shared: { status: 200, outcome: "source_shared" },
   undo_window_open: { status: 409, outcome: "undo_window_open" },
   not_purgeable: { status: 409, outcome: "not_purgeable" },
   forbidden: { status: 403, outcome: "forbidden" },

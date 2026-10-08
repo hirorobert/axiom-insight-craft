@@ -191,7 +191,7 @@ type CancelOutcome =
   | "stale_version" | "lineage_conflict";
 /** trial-balance-storage-cleanup Edge Function outcomes (supabase/functions/_shared/storageCleanup.ts). */
 type CleanupOutcome =
-  | "completed" | "already_completed" | "storage_cleanup_pending" | "replacement_required"
+  | "completed" | "already_completed" | "storage_cleanup_pending" | "replacement_required" | "source_shared"
   | "forbidden" | "stale_operation" | "unauthenticated" | "invalid_request" | "completion_failed";
 interface BeginDiscardRpcRow {
   outcome: DiscardOutcome;

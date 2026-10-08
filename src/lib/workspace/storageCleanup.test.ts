@@ -113,6 +113,12 @@ describe("runStorageCleanup", () => {
     expect(d.completeAsCaller).toHaveBeenCalled();
   });
 
+  it("one year of a two-year file (I1-B): the discard owns no path, nothing is deleted, the answer is source_shared (200)", async () => {
+    const d = deps({ resolveTarget: vi.fn(async () => target({ file_path: null })), completeAsCaller: vi.fn(async () => ({ outcome: "source_shared" })) });
+    await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "source_shared" });
+    expect(d.removeObject).not.toHaveBeenCalled();
+  });
+
   it("cancelled replacement: deletes at once and completes through confirm (kind cancel_replacement)", async () => {
     const d = deps({ resolveTarget: vi.fn(async () => target({ kind: "cancel_replacement", state: "storage_cleanup_pending" })), completeAsCaller: vi.fn(async () => ({ outcome: "completed" })) });
     await expect(runStorageCleanup(d, OP)).resolves.toEqual({ status: 200, outcome: "completed" });

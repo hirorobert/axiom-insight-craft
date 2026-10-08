@@ -110,8 +110,9 @@ async function main() {
   const iA2 = files.indexOf(A2_FILE);
 
   group("Stage 0 — the database as on main; generation 3 live");
-  await check("A1 and A2 are the last two migrations, in that order; everything before applies", async () => {
-    if (iA1 < 0 || iA2 !== iA1 + 1 || iA2 !== files.length - 1) return files.slice(-3);
+  // Later migrations (I1-B onwards) build on A2 and are proven by their own proofs; this one stops at A2.
+  await check("A1 and A2 are consecutive migrations, in that order; everything before applies", async () => {
+    if (iA1 < 0 || iA2 !== iA1 + 1) return files.slice(-3);
     for (const f of files.slice(0, iA1)) await apply(f);
     return true;
   });

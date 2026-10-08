@@ -238,6 +238,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/trialBalanceLayout.ts",
       "supabase/functions/_shared/layoutProfile.ts",
       "supabase/functions/_shared/layoutConfirmationRead.ts",
+      // I1-B (20261011100000): one file registered as two years (current and prior) sharing a managed source object — a
+      // NEW forward-only migration pending hosted application. Touches no financial-statements schema.
+      "supabase/migrations/20261011100000_two_period_shared_source.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -247,6 +250,9 @@ describe("database inertness — schema and functions", () => {
       // ...and the named-user helper's rpc parameter type, so the shared auth module type-checks against the real
       // supabase-js types (Deno check of trial-balance-layout). Types only; payloads unchanged (paidAction.test.ts).
       "supabase/functions/_shared/namedUserAccess.ts",
+      // I1-B: the storage-cleanup function maps the database's 'source_shared' answer (one year of a two-year file was
+      // discarded; its file is kept for the other year). No deletion rule changes.
+      "supabase/functions/_shared/storageCleanup.ts",
       // Workbench activation (PR #75): the layout handler reports the whole file's number-format evidence for the chosen
       // amount columns and refuses an ambiguous format without an explicit choice (NUMBER_FORMAT_AMBIGUOUS). No schema.
       "supabase/functions/_shared/trialBalanceLayout.ts",
@@ -414,6 +420,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/periodsAuthority.mjs",
       // I1-A A2 (20261010100000): the loopback-only real-PostgreSQL proof with the real layout and processing handlers.
       "scripts/db-proof/layoutAuthority.mjs",
+      // I1-B (20261011100000): the loopback-only real-PostgreSQL proof of two-year registration and shared-source cleanup.
+      "scripts/db-proof/sharedSourceAuthority.mjs",
       // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only
       // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
       "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",
