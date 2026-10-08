@@ -66,6 +66,7 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
 // Workbench Trial balance › Intake (I1-A A3): a separate chunk, reached only through the gated route below.
 const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceIntake"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
+const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
 
 const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
@@ -117,6 +118,7 @@ const App = () => (
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseFindings /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseAdjustments /></Suspense></StageScopeGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
