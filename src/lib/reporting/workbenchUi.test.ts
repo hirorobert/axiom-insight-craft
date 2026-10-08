@@ -15,7 +15,7 @@ let m: Mounted | null = null;
 afterEach(() => { m?.unmount(); m = null; document.body.innerHTML = ""; });
 
 const H = (c: string) => c.repeat(64);
-const NOTES = { state: "evaluated", contract: "fs-notes-status/1", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
+const NOTES = { state: "evaluated", contract: "fs-notes-status/2", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
   requirements: [{ requirementId: "smes.note.policies", kind: "DISCLOSURE", blocking: true, status: "missing" }] };
 const CMP = { state: "evaluated", statusSha256: H("e"), comparative: { contract: "fs-comparatives-status/1", periodYear: 2026, state: "approved", composedComparativeState: "available", required: true,
   firstPeriodDeclared: false, comparativeSha256: H("f"), compositionSha256: H("b"), approval: null, blockers: [] } };

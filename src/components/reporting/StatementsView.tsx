@@ -5,11 +5,13 @@
  * Accounts not on a line are listed with the one action that fixes them: assigning a presentation line (server-checked).
  */
 import { useId, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { DataTable, type DataColumn } from "@/components/workbench/DataTable";
 import { SecondaryPanel } from "@/components/workbench/SecondaryPanel";
 import { presentAmount } from "@/lib/presentation/amounts";
 import { IFRS_FOR_SMES_2015 } from "@/lib/frameworkPacks/ifrsForSmes";
 import { statementViews, type Composition, type CompositionLine, type StatementRow } from "@/lib/statements/composition";
+import type { NotesStatus } from "@/lib/notes/notesStatus";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
 
 const NOT_COMPOSED: Record<string, string> = {
@@ -31,7 +33,14 @@ export function StatementsView(p: PageProps) {
 }
 
 function Composed(p: PageProps & { c: Composition }) {
-  const views = useMemo(() => statementViews(p.c), [p.c]);
+  const tci = p.state.notes?.state === "evaluated" ? (p.state.notes as NotesStatus).requirements.find((r) => r.requirementId === "smes.sci.5_5_i") ?? null : null;
+  const views = useMemo(() => {
+    const v = statementViews(p.c);
+    if (tci?.status !== "composed" || !tci.totalsMinor) return v;
+    // Total comprehensive income (5.5(i)) — the server's figure: profit or loss, as no other comprehensive income is decided.
+    const amt = (m: string | undefined) => (m === undefined ? presentAmount({ kind: "missing", reason: "not composed for this period" }) : presentAmount({ kind: "amount", minor: BigInt(m), exponent: p.c.current.exponent }));
+    return v.map((s) => (s.id !== "SCI" ? s : { ...s, rows: [...s.rows, { kind: "total" as const, label: "Total comprehensive income for the period", current: amt(tci.totalsMinor!.current), comparative: amt(tci.totalsMinor!.comparative) }] }));
+  }, [p.c, tci]);
   const [open, setOpen] = useState<Row | null>(null);
   const cmpYear = p.c.comparative.periodYear;
   const columns: DataColumn<Row>[] = [
@@ -52,6 +61,12 @@ function Composed(p: PageProps & { c: Composition }) {
           <DataTable label={v.title} columns={columns} rows={v.rows.map((r, i) => ({ ...r, key: `${v.id}:${i}` }))} rowId={(r) => r.key} onOpen={(r) => r.lineage && setOpen(r)} maxHeight={640} />
         </section>
       ))}
+      {tci && tci.status !== "composed" ? (
+        <p role={tci.status === "unsupported" ? "alert" : "status"} className="text-sm" data-testid="tci-limitation">
+          Total comprehensive income is not shown: {tci.basis ?? "decide 5.5(g) and 5.5(h) on the Notes page."}{" "}
+          <Link className="text-primary underline" to={p.hrefFor("fs-notes", p.reportVersion)}>Notes →</Link>
+        </p>
+      ) : null}
       <NotPresented {...p} />
       <SecondaryPanel open={open !== null} title={open ? `Lineage — ${open.label}` : ""} onClose={() => setOpen(null)} returnSelector={open ? `[data-trace="${open.lineId}"]` : undefined}>
         {open?.lineage ? <Lineage lineage={open.lineage} exponent={p.c.current.exponent} /> : null}

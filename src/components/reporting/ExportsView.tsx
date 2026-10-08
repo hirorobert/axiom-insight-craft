@@ -9,7 +9,7 @@ import { readStoredReport } from "@/lib/financialGeneration/composedReport";
 import { buildReportPack, type ReportPack } from "@/lib/exports/reportPack";
 import { adjustmentsClient } from "@/lib/closeReview/adjustments";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
-import type { SavedVersion } from "@/lib/reporting/signoff";
+import { approverText, type SavedVersion } from "@/lib/reporting/signoff";
 import type { PageProps } from "./shared";
 
 export function ExportsView(p: PageProps) {
@@ -33,11 +33,10 @@ function Pack(p: PageProps & { v: SavedVersion }) {
       const document = readStoredReport(stored.document);
       const bindings = p.v.state === "DRAFT" ? [] : (await p.clients.signoff.bindings(p.v.reportId)).filter((b) => b.reportVersion === p.v.reportVersion);
       const binding = bindings.find((b) => b.state === p.v.state) ?? null;
-      const pubs = (await p.clients.signoff.publications(p.v.reportId)).filter((x) => x.reportVersion === p.v.reportVersion && x.state === p.v.state);
       const summary = await adj.summary(p.companyId, p.periodYear).catch(() => null);
       const out = buildReportPack({
         document, entityName: p.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
-        signOff: binding && (p.v.state === "REVIEWED" || p.v.state === "FINAL") ? { state: p.v.state, signedAt: pubs.at(-1)?.createdAt ?? "", signedBy: p.v.state === "FINAL" ? "the approving partner" : "the reviewer", contentHash: binding.documentSha256, dependenciesSha256: binding.dependenciesSha256 } : null,
+        signOff: binding && (p.v.state === "REVIEWED" || p.v.state === "FINAL") ? { state: p.v.state, signedAt: binding.approvedAt ?? "time not recorded", signedBy: approverText(binding), contentHash: binding.documentSha256, dependenciesSha256: binding.dependenciesSha256 } : null,
       });
       if (live) setPack(out);
     })().catch((e) => live && setError((e as Error).message));

@@ -52,7 +52,9 @@ export interface ComposedStatements {
  * reporting input's (fs_reporting_input comparative.reportingStart / reportingEnd) — never assumed; without them, when a
  * comparative is composed, this refuses.
  */
-export function composedStatements(c: Composition, comparativeDates: { readonly start: string; readonly end: string } | null): ComposedStatements {
+export function composedStatements(c: Composition, comparativeDates: { readonly start: string; readonly end: string } | null,
+  /** Total comprehensive income per period, exactly as the server's notes status composed it (5.5(i)); null when not composed. */
+  totalComprehensiveIncome: { readonly current?: string; readonly comparative?: string } | null = null): ComposedStatements {
   const periods: Period[] = c.comparative.state === "available" ? ["current", "comparative"] : ["current"];
   const facts: MonetaryFact[] = [];
   const money = (minor: string) => ({ currency: c.current.currency, scale: c.current.exponent, minorUnits: BigInt(minor) });
@@ -159,9 +161,19 @@ export function composedStatements(c: Composition, comparativeDates: { readonly 
     total("sci", "taxExpenseMinor", "Tax expense (total)", "total_tax_expense", "SUBTOTAL", "DEBIT_NORMAL", sciSub((id) => id === TAX_LINE)),
     total("sci", "profitOrLossMinor", "Profit or loss for the period", CANONICAL_CONCEPTS.NET_RESULT, "DETAIL", "CREDIT_NORMAL", [], "profit before tax less tax expense"),
   ].filter((x): x is StatementLine => x !== null);
+  // 5.5(i): with no other comprehensive income, total comprehensive income equals profit or loss — a total casting that one
+  // line, so the rule pack checks the equality; its figure is the server's (fs_notes_status), never computed here.
+  const tciPeriods = periods.filter((p) => totalComprehensiveIncome?.[p] !== undefined && totalsComplete(p));
+  for (const p of tciPeriods) fact(totalFactId(p, "totalComprehensiveIncomeMinor"), p, totalComprehensiveIncome![p]!, "CREDIT_POSITIVE",
+    `Total comprehensive income: ${totalComprehensiveIncome![p]} (database: profit or loss, no other comprehensive income)`, "fs_notes_status smes.sci.5_5_i");
+  const tci: StatementLine[] = tciPeriods.length === 0 ? [] : [{
+    lineId: totalLineId("sci", "totalComprehensiveIncomeMinor"), label: "Total comprehensive income for the period", concept: "total_comprehensive_income", role: "TOTAL",
+    normalBalance: "CREDIT_NORMAL", isContra: false, factBindings: tciPeriods.map((p) => ({ periodId: periodId(p), factId: totalFactId(p, "totalComprehensiveIncomeMinor") })),
+    castingChildLineIds: [totalLineId("sci", "profitOrLossMinor")],
+  }];
   const sci: Statement = {
     statementId: "stmt:sci", type: "STATEMENT_OF_PROFIT_OR_LOSS", title: "Statement of Comprehensive Income",
-    sections: [{ sectionId: "section:sci", label: "Profit or loss", lines: [...sciLines, ...sciTotals] }],
+    sections: [{ sectionId: "section:sci", label: "Profit or loss", lines: [...sciLines, ...sciTotals, ...tci] }],
   };
   // The balance check is a total of its own (always zero when the database reports no BALANCE_DIFFERENCE blocker).
   const diff = total("sfp", "balanceDifferenceMinor", "Balance check (assets less equity and liabilities)", "balance_difference", "DETAIL", "DEBIT_NORMAL", [], "total assets less total equity and liabilities");

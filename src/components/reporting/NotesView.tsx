@@ -50,12 +50,13 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
           })}
         </ul>
       </section>
-      {selected ? <RequirementPanel key={selected} {...p} r={rows.find((x) => x.requirementId === selected)!} label={byId.get(selected)?.label ?? selected} condition={byId.get(selected)?.condition ?? null} /> : null}
+      {selected ? <RequirementPanel key={selected} {...p} r={rows.find((x) => x.requirementId === selected)!} label={byId.get(selected)?.label ?? selected} condition={byId.get(selected)?.condition ?? null}
+        conditional={byId.get(selected)?.applicability === "CONDITIONAL"} /> : null}
     </div>
   );
 }
 
-function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; label: string; condition: string | null }) {
+function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; label: string; condition: string | null; conditional: boolean }) {
   const canPrepare = p.allowed.includes("prepare_close");
   const ids = { body: useId(), source: useId(), reason: useId() };
   const [body, setBody] = useState("");
@@ -73,13 +74,16 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
     } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
     finally { setBusy(false); }
   };
-  const decidable = p.r.status === "undecided" || p.r.basis === "decision" || p.condition !== null;
+  // Only a requirement the pack makes conditional takes a decision; the server refuses any other (not_decidable).
+  const decidable = p.conditional && p.r.requirementId !== "smes.note.early_application";
   const writable = p.r.kind === "DISCLOSURE" && p.r.status !== "not_applicable";
   return (
     <aside aria-labelledby="h-panel" className="space-y-3 border-l border-border pl-4 text-sm" data-testid="requirement-panel">
       <h2 id="h-panel" className="text-base font-semibold">{p.label}</h2>
       <p className="text-muted-foreground">Status: {STATUS_WORDS[p.r.status]}{p.r.sourceRef ? ` · source ${p.r.sourceRef}` : ""}</p>
       {p.condition ? <p>Applies when: {p.condition}</p> : null}
+      {p.r.status === "unsupported" ? <p role="alert" className="border-l-[3px] border-[#a12020] bg-[#fcf2f2] px-2 py-1" data-testid="unsupported-case">{p.r.basis}</p>
+        : p.r.basis && p.r.status !== "provided" ? <p className="text-muted-foreground">{p.r.basis}</p> : null}
       {p.r.status === "evidence_missing" ? <p>This statement is built from evidence (the transaction ledger or equity movements). Add it on the Sign-off page with the next report version.</p> : null}
       {!canPrepare ? <p className="text-muted-foreground">A preparer records decisions and wording.</p> : (
         <>

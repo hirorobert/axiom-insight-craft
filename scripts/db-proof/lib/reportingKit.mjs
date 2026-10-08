@@ -275,6 +275,9 @@ export const EVIDENCE_FY2025_COMPARATIVE = {
   PRIOR_PERIOD_STATEMENTS: "statement_type,line_key,line_label,amount\nCASH_FLOWS,cash_and_cash_equivalents_opening_cf,Cash and cash equivalents at 1 January 2025,5000.00\n",
 };
 
+/** The three comprehensive-income line items a preparer decides (5.5(e), (g), (h)). */
+export const COMPREHENSIVE_INCOME_DECISIONS = ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"];
+
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
 export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true } = {}) {
   const { U, A } = W;
@@ -289,6 +292,8 @@ export async function prepareReporting(db, W, k, { year = 2026, comparativesAppr
     "smes.note.policies": "Historical cost.", "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives.", "smes.note.subclassifications": "All receivables from third parties.",
     "smes.note.share_capital": "10,000 ordinary shares, fully paid." };
   await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,'smes.note.share_capital','applicable','The entity has share capital',$3)", [A, year, uuid()]);
+  // Section 5: no discontinued operation and no other comprehensive income in either period presented (20261022100000).
+  for (const id of COMPREHENSIVE_INCOME_DECISIONS) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented',$4)", [A, year, id, uuid()]);
   for (const [id, text] of Object.entries(WORDS)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
   await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
     JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);

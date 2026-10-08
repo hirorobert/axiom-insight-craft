@@ -1,0 +1,361 @@
+-- 20261022100000_fs_reporting_closure.sql — the bounded closure of the IFRS for SMEs reporting candidate.
+--
+--   1. Comprehensive income (Section 5, 5.5(e), (g), (h), (i)) in the notes status, contract fs-notes-status/2: each of
+--      (e), (g) and (h) is a recorded decision; a case the product cannot compose correctly (a discontinued operation,
+--      items of other comprehensive income, a share of associates' OCI) is UNSUPPORTED and refused by name
+--      (REPORTING_CASE_UNSUPPORTED:<requirement>), and an undecided one blocks (REQUIREMENT_UNDECIDED:<requirement>).
+--      Total comprehensive income (5.5(i)) is composed — equal to profit or loss — only when no OCI is decided, and is
+--      then one of the figures the sign-off binds (fs-reporting-dependencies/2).
+--   2. The approver: every REVIEWED / FINAL binding records the AUTHENTICATED approver — auth user, firm membership, role,
+--      the display name on record at that moment (NULL when none; never invented) and the approval time — beside the
+--      server's hash of the approved document. A publication without a session, or naming another member, is refused.
+--
+-- Functions are the 20261019100000 / 20261021100000 texts with the changes marked "20261022100000" (derived by asserted
+-- replacement); nothing else in them changes.
+
+DO $preflight$
+BEGIN
+  IF to_regproc('public._fs_comprehensive_income') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: reporting closure objects already exist; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regclass('public.fs_publication_bindings') IS NULL OR to_regproc('public.fs_notes_status') IS NULL OR to_regproc('public.fs_reporting_dependencies') IS NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261019100000 and 20261021100000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+-- ── The approver on every binding ────────────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.fs_publication_bindings
+  ADD COLUMN approver_user_id        uuid        NULL,
+  ADD COLUMN approver_firm_member_id uuid        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  ADD COLUMN approver_role           text        NULL,
+  ADD COLUMN approver_display_name   text        NULL,
+  ADD COLUMN approved_at             timestamptz NULL;
+-- Every binding written from now on carries its approver; a binding written before this migration is left as recorded.
+ALTER TABLE public.fs_publication_bindings ADD CONSTRAINT chk_fspb_approver
+  CHECK (approver_user_id IS NOT NULL AND approver_firm_member_id IS NOT NULL AND approver_role IS NOT NULL AND approved_at IS NOT NULL) NOT VALID;
+
+-- Comprehensive income requirements of IFRS for SMEs Section 5 (identical in the 2015 edition and the third edition, whose
+-- Section 5 changes are editorial). 5.4(b) lists every item an SME can recognise in other comprehensive income
+-- (foreign-operation translation, some actuarial gains and losses, some changes in the fair value of hedging
+-- instruments, revaluation-surplus changes). None of them, nor a discontinued operation, can be identified from a
+-- trial balance, so each is a recorded decision:
+--   5.5(e) discontinued operations, 5.5(g) items of OCI, 5.5(h) share of associates' OCI
+--       no decision → undecided (blocks; missing is never "not applicable")
+--       not applicable (with its reason) → satisfied
+--       applicable → UNSUPPORTED: composing these amounts is not implemented; finalisation is refused by name
+--   5.5(i) total comprehensive income
+--       composed = profit or loss of each complete period, exactly when (g) and (h) are decided not applicable — the case in
+--       which 5.5(i) permits the line to equal profit or loss; unsupported when either is applicable; undecided otherwise
+CREATE OR REPLACE FUNCTION public._fs_comprehensive_income(p_company_id uuid, p_period_year integer, p_comp jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_reqs jsonb := '[]'::jsonb;
+  v_blockers text[] := '{}';
+  v_state jsonb := '{}'::jsonb;
+  v_dec record;
+  v_id text;
+  v_status text;
+  v_detail jsonb;
+  v_totals jsonb := '{}'::jsonb;
+  v_period text;
+  c_limits CONSTANT jsonb := jsonb_build_object(
+    'smes.sci.5_5_e', 'Discontinued operations are not supported: the single post-tax amount of 5.5(e) cannot be composed from the trial balance. The report cannot be finalised.',
+    'smes.sci.5_5_g', 'Items of other comprehensive income are not supported: they cannot be identified, classified by nature and grouped by reclassification (5.5(g)) from the trial balance. The report cannot be finalised.',
+    'smes.sci.5_5_h', 'A share of the other comprehensive income of associates and jointly controlled entities is not supported (5.5(h)). The report cannot be finalised.');
+BEGIN
+  FOREACH v_id IN ARRAY ARRAY['smes.sci.5_5_e', 'smes.sci.5_5_g', 'smes.sci.5_5_h'] LOOP
+    SELECT d.id, d.decision, d.reason INTO v_dec FROM public.fs_requirement_decisions d
+     WHERE d.company_id = p_company_id AND d.period_year = p_period_year AND d.requirement_id = v_id ORDER BY d.seq DESC LIMIT 1;
+    IF NOT FOUND THEN
+      v_status := 'undecided';
+      v_detail := jsonb_build_object('basis', 'No decision is recorded. Missing is never treated as not applicable.');
+      v_blockers := v_blockers || ('REQUIREMENT_UNDECIDED:' || v_id);
+    ELSIF v_dec.decision = 'not_applicable' THEN
+      v_status := 'not_applicable';
+      v_detail := jsonb_build_object('basis', v_dec.reason, 'decisionId', v_dec.id);
+    ELSE
+      v_status := 'unsupported';
+      v_detail := jsonb_build_object('basis', c_limits ->> v_id, 'decisionId', v_dec.id);
+      v_blockers := v_blockers || ('REPORTING_CASE_UNSUPPORTED:' || v_id);
+    END IF;
+    v_state := v_state || jsonb_build_object(v_id, v_status);
+    v_reqs := v_reqs || jsonb_build_array(jsonb_build_object('requirementId', v_id, 'kind', 'LINE_ITEM', 'blocking', true, 'status', v_status) || v_detail);
+  END LOOP;
+
+  IF v_state ->> 'smes.sci.5_5_g' = 'not_applicable' AND v_state ->> 'smes.sci.5_5_h' = 'not_applicable' THEN
+    FOREACH v_period IN ARRAY ARRAY['current', 'comparative'] LOOP
+      IF p_comp -> 'totals' -> v_period ->> 'state' = 'complete' THEN
+        v_totals := v_totals || jsonb_build_object(v_period, p_comp -> 'totals' -> v_period ->> 'profitOrLossMinor');
+      END IF;
+    END LOOP;
+    IF v_totals ? 'current' THEN
+      v_status := 'composed';
+      v_detail := jsonb_build_object('basis', 'No other comprehensive income (5.5(g) and (h) decided not applicable): total comprehensive income equals profit or loss (5.5(i)).', 'totalsMinor', v_totals);
+    ELSE
+      v_status := 'incomplete';
+      v_detail := jsonb_build_object('basis', 'Profit or loss is not composed for the period, so total comprehensive income is not either.');
+      v_blockers := v_blockers || 'TOTAL_COMPREHENSIVE_INCOME_NOT_COMPOSED'::text;
+    END IF;
+  ELSIF v_state ->> 'smes.sci.5_5_g' = 'unsupported' OR v_state ->> 'smes.sci.5_5_h' = 'unsupported' THEN
+    v_status := 'unsupported';
+    v_detail := jsonb_build_object('basis', 'Total comprehensive income cannot be composed while other comprehensive income is present. The report cannot be finalised.');
+    v_blockers := v_blockers || 'REPORTING_CASE_UNSUPPORTED:smes.sci.5_5_i'::text;
+  ELSE
+    v_status := 'undecided';
+    v_detail := jsonb_build_object('basis', 'Decide 5.5(g) and 5.5(h) first.');
+  END IF;
+  v_reqs := v_reqs || jsonb_build_array(jsonb_build_object('requirementId', 'smes.sci.5_5_i', 'kind', 'LINE_ITEM', 'blocking', true, 'status', v_status) || v_detail);
+  RETURN jsonb_build_object('requirements', v_reqs, 'blockers', to_jsonb(v_blockers));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_decide_requirement(p_company_id uuid, p_period_year integer, p_requirement_id text, p_decision text,
+  p_reason text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_refusal text;
+  v_prior record;
+  v_latest text;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_requirement_id IS NULL OR p_request_id IS NULL OR p_decision NOT IN ('applicable', 'not_applicable')
+     OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000 THEN RETURN jsonb_build_object('outcome', 'invalid_request'); END IF;
+  v_refusal := public._fs_notes_refusal(p_company_id, v_uid);
+  IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_refusal); END IF;
+  -- Only a CONDITIONAL disclosure the data cannot decide (the early-application disclosure follows the edition decision),
+  -- or one of the three comprehensive-income line items whose presence the trial balance cannot show (20261022100000).
+  IF NOT EXISTS (SELECT 1 FROM public.fs_pack_requirements r WHERE r.pack_family = 'ifrs-for-smes' AND r.requirement_id = p_requirement_id
+                   AND ((r.kind = 'DISCLOSURE' AND r.applicability = 'CONDITIONAL' AND r.requirement_id <> 'smes.note.early_application')
+                        OR r.requirement_id IN ('smes.sci.5_5_e', 'smes.sci.5_5_g', 'smes.sci.5_5_h'))) THEN
+    RETURN jsonb_build_object('outcome', 'not_decidable');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_notes:' || p_company_id::text || ':' || p_period_year::text, 0));
+  SELECT * INTO v_prior FROM public.fs_requirement_decisions d WHERE d.actor_user_id = v_uid AND d.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND v_prior.requirement_id = p_requirement_id
+       AND v_prior.decision = p_decision AND v_prior.reason = btrim(p_reason) THEN RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'decisionId', v_prior.id); END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  SELECT d.decision INTO v_latest FROM public.fs_requirement_decisions d
+   WHERE d.company_id = p_company_id AND d.period_year = p_period_year AND d.requirement_id = p_requirement_id ORDER BY d.seq DESC LIMIT 1;
+  IF v_latest = p_decision THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  INSERT INTO public.fs_requirement_decisions (company_id, period_year, requirement_id, decision, reason, actor_user_id, firm_member_id, request_id)
+  VALUES (p_company_id, p_period_year, p_requirement_id, p_decision, btrim(p_reason), v_uid, public._cr_member(p_company_id, v_uid), p_request_id)
+  RETURNING jsonb_build_object('outcome', 'recorded', 'decisionId', id) INTO v_latest;
+  RETURN v_latest::jsonb;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_notes_status(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_comp jsonb;
+  v_early boolean;
+  v_cmp_on boolean;
+  v_start date;
+  v_end date;
+  v_reqs jsonb := '[]'::jsonb;
+  v_blockers text[] := '{}';
+  v_body jsonb;
+  r record;
+  v_status text;
+  v_detail jsonb;
+  v_dec record;
+  v_txt record;
+  v_sub record;
+  v_def record;
+  v_cur numeric;
+  v_cmp numeric;
+  v_comp_ok boolean;
+  v_ci jsonb;
+BEGIN
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  IF v_comp ->> 'state' IS DISTINCT FROM 'composed' THEN RETURN v_comp; END IF;
+  v_early := (v_comp -> 'pack' ->> 'earlyApplication')::boolean;
+  v_cmp_on := v_comp -> 'comparative' ->> 'state' = 'available';
+  v_start := (v_comp -> 'current' ->> 'reportingStart')::date;
+  v_end := (v_comp -> 'current' ->> 'reportingEnd')::date;
+  v_comp_ok := v_comp -> 'totals' -> 'current' ->> 'state' = 'complete' AND jsonb_array_length(v_comp -> 'blockers') = 0;
+
+  FOR r IN SELECT * FROM public.fs_pack_requirements p WHERE p.pack_family = 'ifrs-for-smes' AND p.kind IN ('STATEMENT', 'DISCLOSURE', 'PERIOD', 'SCHEDULE') ORDER BY p.sort_order LOOP
+    v_status := NULL; v_detail := '{}'::jsonb;
+    SELECT t.id, t.body, t.source_ref, t.seq INTO v_txt FROM public.fs_disclosure_texts t
+     WHERE t.company_id = p_company_id AND t.period_year = p_period_year AND t.requirement_id = r.requirement_id ORDER BY t.seq DESC LIMIT 1;
+    IF r.kind = 'DISCLOSURE' THEN
+      IF r.requirement_id = 'smes.note.early_application' AND NOT v_early THEN
+        v_status := 'not_applicable'; v_detail := jsonb_build_object('basis', 'The edition is applied from its effective date.');
+      ELSIF r.applicability = 'CONDITIONAL' AND r.requirement_id <> 'smes.note.early_application' THEN
+        SELECT d.id, d.decision, d.reason INTO v_dec FROM public.fs_requirement_decisions d
+         WHERE d.company_id = p_company_id AND d.period_year = p_period_year AND d.requirement_id = r.requirement_id ORDER BY d.seq DESC LIMIT 1;
+        IF NOT FOUND THEN v_status := 'undecided';
+        ELSIF v_dec.decision = 'not_applicable' THEN v_status := 'not_applicable'; v_detail := jsonb_build_object('basis', v_dec.reason, 'decisionId', v_dec.id);
+        END IF;
+        IF v_status IS NULL THEN v_detail := jsonb_build_object('decisionId', v_dec.id); END IF;
+      END IF;
+      IF v_status IS NULL THEN
+        IF v_txt.body IS NOT NULL THEN v_status := 'provided'; v_detail := v_detail || jsonb_build_object('textId', v_txt.id, 'sourceRef', v_txt.source_ref);
+        ELSE v_status := 'missing'; END IF;
+      END IF;
+      IF r.blocking AND v_status = 'missing' THEN v_blockers := v_blockers || ('REQUIRED_DISCLOSURE_MISSING:' || r.requirement_id); END IF;
+      IF r.blocking AND v_status = 'undecided' THEN v_blockers := v_blockers || ('REQUIREMENT_UNDECIDED:' || r.requirement_id); END IF;
+    ELSIF r.kind = 'PERIOD' THEN
+      IF v_start IS NULL OR v_end IS NULL THEN v_status := 'dates_unknown'; v_blockers := v_blockers || 'PERIOD_DATES_UNKNOWN'::text;
+      ELSIF v_end = (v_start + interval '1 year' - interval '1 day')::date THEN v_status := 'satisfied'; v_detail := jsonb_build_object('basis', 'A twelve-month period.');
+      ELSIF v_txt.body IS NOT NULL THEN v_status := 'provided'; v_detail := jsonb_build_object('textId', v_txt.id, 'basis', 'A period longer or shorter than one year, disclosed.');
+      ELSE v_status := 'missing'; v_detail := jsonb_build_object('basis', 'A period longer or shorter than one year needs its disclosure.');
+        v_blockers := v_blockers || 'NON_ANNUAL_PERIOD_DISCLOSURE_MISSING'::text;
+      END IF;
+    ELSIF r.kind = 'SCHEDULE' THEN
+      SELECT * INTO v_def FROM public.fs_schedule_definitions d WHERE d.pack_family = 'ifrs-for-smes' AND d.requirement_id = r.requirement_id;
+      SELECT coalesce(sum((l -> 'current' ->> 'amountMinor')::numeric), 0), CASE WHEN v_cmp_on THEN coalesce(sum((l -> 'comparative' ->> 'amountMinor')::numeric), 0) END
+        INTO v_cur, v_cmp FROM jsonb_array_elements(v_comp -> 'lines') l WHERE l ->> 'lineId' = ANY (v_def.line_ids);
+      IF v_cur = 0 AND coalesce(v_cmp, 0) = 0 THEN
+        v_status := 'not_applicable'; v_detail := jsonb_build_object('basis', 'No carrying amount on the composed statement at either date.');
+      ELSE
+        SELECT s.id, s.opening_total, s.closing_total, s.content_sha256, s.source_ref INTO v_sub FROM public.fs_schedule_submissions s
+         WHERE s.company_id = p_company_id AND s.period_year = p_period_year AND s.schedule_id = v_def.schedule_id ORDER BY s.seq DESC LIMIT 1;
+        v_detail := jsonb_build_object('scheduleId', v_def.schedule_id, 'composedClosingMinor', v_cur::text, 'composedOpeningMinor', v_cmp::text);
+        IF NOT FOUND THEN v_status := 'missing'; v_blockers := v_blockers || ('SCHEDULE_MISSING:' || v_def.schedule_id);
+        ELSE
+          v_detail := v_detail || jsonb_build_object('submissionId', v_sub.id, 'contentSha256', v_sub.content_sha256, 'sourceRef', v_sub.source_ref,
+                                                     'scheduleOpeningMinor', v_sub.opening_total::text, 'scheduleClosingMinor', v_sub.closing_total::text);
+          IF v_sub.closing_total <> v_cur THEN
+            v_status := 'closing_mismatch'; v_detail := v_detail || jsonb_build_object('differenceMinor', (v_sub.closing_total - v_cur)::text);
+            v_blockers := v_blockers || ('SCHEDULE_CLOSING_MISMATCH:' || v_def.schedule_id);
+          ELSIF v_cmp IS NULL THEN
+            v_status := 'reconciled_opening_unverified'; v_detail := v_detail || jsonb_build_object('basis', 'No authoritative prior-year statement to agree the opening amount to.');
+          ELSIF v_sub.opening_total <> v_cmp THEN
+            v_status := 'opening_mismatch'; v_detail := v_detail || jsonb_build_object('differenceMinor', (v_sub.opening_total - v_cmp)::text);
+            v_blockers := v_blockers || ('SCHEDULE_OPENING_MISMATCH:' || v_def.schedule_id);
+          ELSE v_status := 'reconciled';
+          END IF;
+        END IF;
+      END IF;
+    ELSE -- STATEMENT
+      IF r.requirement_id IN ('smes.set.sfp', 'smes.set.sci') THEN
+        v_status := CASE WHEN v_comp_ok THEN 'composed' ELSE 'incomplete' END;
+        IF NOT v_comp_ok THEN v_blockers := v_blockers || ('STATEMENT_INCOMPLETE:' || r.requirement_id); END IF;
+      ELSIF r.requirement_id = 'smes.set.socie' THEN
+        IF public._fs_evidence_present(p_company_id, p_period_year, 'EQUITY_MOVEMENTS') THEN v_status := 'evidence_present';
+          v_detail := jsonb_build_object('basis', 'Equity-movement evidence is held; the statement is generated from it, never from a trial balance.');
+        ELSE v_status := 'evidence_missing'; v_blockers := v_blockers || 'STATEMENT_EVIDENCE_MISSING:smes.set.socie'::text; END IF;
+      ELSIF r.requirement_id = 'smes.set.scf' THEN
+        IF public._fs_evidence_present(p_company_id, p_period_year, 'TRANSACTION_LEDGER') AND public._fs_evidence_present(p_company_id, p_period_year, 'CASH_ACCOUNT_MAP') THEN
+          v_status := 'evidence_present';
+          v_detail := jsonb_build_object('basis', 'A cash transaction ledger and cash account map are held; the statement is generated from them and reconciled account by account, never from a trial balance.');
+        ELSE v_status := 'evidence_missing'; v_blockers := v_blockers || 'STATEMENT_EVIDENCE_MISSING:smes.set.scf'::text; END IF;
+      ELSE
+        v_status := 'derived'; -- the notes: complete when their components are (each blocks on its own)
+      END IF;
+    END IF;
+    v_reqs := v_reqs || jsonb_build_array(jsonb_build_object('requirementId', r.requirement_id, 'kind', r.kind, 'blocking', r.blocking, 'status', v_status) || v_detail);
+  END LOOP;
+
+  -- Comprehensive income (5.5(e), (g), (h), (i)): decided, composed or explicitly unsupported (20261022100000).
+  v_ci := public._fs_comprehensive_income(p_company_id, p_period_year, v_comp);
+  v_reqs := v_reqs || (v_ci -> 'requirements');
+  v_blockers := v_blockers || ARRAY(SELECT jsonb_array_elements_text(v_ci -> 'blockers'));
+
+  v_body := jsonb_build_object('contract', 'fs-notes-status/2', 'packId', v_comp -> 'pack' ->> 'packId', 'compositionSha256', v_comp ->> 'compositionSha256',
+                               'periodYear', p_period_year, 'requirements', v_reqs, 'blockers', to_jsonb(v_blockers));
+  RETURN jsonb_build_object('state', 'evaluated') || v_body || jsonb_build_object('statusSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_reporting_dependencies(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_comp jsonb;
+  v_notes jsonb;
+  v_cmp jsonb;
+  v_figures jsonb;
+  v_body jsonb;
+BEGIN
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  IF v_comp ->> 'state' IS DISTINCT FROM 'composed' THEN RETURN jsonb_build_object('state', coalesce(v_comp ->> 'state', 'unavailable'), 'reason', v_comp ->> 'reason'); END IF;
+  v_notes := public.fs_notes_status(p_company_id, p_period_year);
+  v_cmp := public.fs_comparatives_status(p_company_id, p_period_year);
+  -- Every composed figure under its fixed fact identity: lines per period, and the totals of every complete period.
+  SELECT coalesce(jsonb_agg(x ORDER BY x ->> 'factId'), '[]'::jsonb) INTO v_figures FROM (
+    SELECT jsonb_build_object('factId', 'fact:' || p.period || ':' || (l ->> 'section') || ':' || (l ->> 'lineId'), 'amountMinor', l -> p.period ->> 'amountMinor') AS x
+      FROM jsonb_array_elements(v_comp -> 'lines') l CROSS JOIN (VALUES ('current'), ('comparative')) p(period)
+     WHERE jsonb_typeof(l -> p.period) = 'object'
+    UNION ALL
+    -- Each presented account of each line, from the composition's lineage (an account appears once per period), and each
+    -- approved restatement delta of the comparative.
+    SELECT jsonb_build_object('factId', CASE WHEN x ->> 'kind' = 'restatement'
+                                              THEN 'fact:comparative:restatement:' || (x ->> 'restatementId') || ':' || (l ->> 'section') || ':' || (l ->> 'lineId')
+                                              ELSE 'fact:' || (x ->> 'period') || ':account:' || (x ->> 'accountKey') END,
+                              'amountMinor', x ->> 'amountMinor')
+      FROM jsonb_array_elements(v_comp -> 'lines') l CROSS JOIN LATERAL jsonb_array_elements(l -> 'lineage') x
+    UNION ALL
+    SELECT jsonb_build_object('factId', 'fact:' || t.key || ':total:' || k.key, 'amountMinor', k.value #>> '{}')
+      FROM jsonb_each(v_comp -> 'totals') t CROSS JOIN LATERAL jsonb_each(t.value) k
+     WHERE t.value ->> 'state' = 'complete' AND k.key LIKE '%Minor'
+    UNION ALL
+    -- Total comprehensive income of each complete period, when the notes status composed it (5.5(i), 20261022100000).
+    SELECT jsonb_build_object('factId', 'fact:' || t.key || ':total:totalComprehensiveIncomeMinor', 'amountMinor', t.value #>> '{}')
+      FROM jsonb_array_elements(coalesce(v_notes -> 'requirements', '[]'::jsonb)) q CROSS JOIN LATERAL jsonb_each(q -> 'totalsMinor') t
+     WHERE q ->> 'requirementId' = 'smes.sci.5_5_i' AND q ->> 'status' = 'composed') s;
+  v_body := jsonb_build_object('contract', 'fs-reporting-dependencies/2', 'periodYear', p_period_year,
+    'packId', v_comp -> 'pack' ->> 'packId', 'linesVersion', v_comp -> 'pack' ->> 'linesVersion',
+    'requirementsVersion', (SELECT max(r.pack_version) FROM public.fs_pack_requirements r WHERE r.pack_family = 'ifrs-for-smes'),
+    'inputSha256', v_comp ->> 'inputSha256', 'compositionSha256', v_comp ->> 'compositionSha256',
+    'notesStatusSha256', v_notes ->> 'statusSha256', 'comparativeStatusSha256', v_cmp ->> 'statusSha256',
+    'comparativeState', v_cmp -> 'comparative' ->> 'state', 'comparativeSha256', v_cmp -> 'comparative' ->> 'comparativeSha256',
+    'figures', v_figures,
+    'blockers', (SELECT coalesce(jsonb_agg(b), '[]'::jsonb) FROM (
+                   SELECT jsonb_array_elements_text(v_comp -> 'blockers') b
+                   UNION ALL SELECT jsonb_array_elements_text(coalesce(v_notes -> 'blockers', '[]'::jsonb))
+                   UNION ALL SELECT jsonb_array_elements_text(coalesce(v_cmp -> 'comparative' -> 'blockers', '[]'::jsonb))) bl));
+  RETURN jsonb_build_object('state', 'current') || v_body || jsonb_build_object('dependenciesSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_bind_publication()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_report public.financial_statement_reports;
+  v_deps jsonb;
+  v_uid uuid := auth.uid();
+  v_member public.firm_members;
+BEGIN
+  IF NEW.state NOT IN ('REVIEWED', 'FINAL') THEN RETURN NEW; END IF;
+  SELECT * INTO v_report FROM public.financial_statement_reports r WHERE r.report_id = NEW.report_id AND r.report_version = NEW.report_version;
+  IF v_report.provenance_origin IS DISTINCT FROM 'TRIAL_BALANCE_DERIVED' OR v_report.report_document #>> '{framework,kind}' IS DISTINCT FROM 'IFRS_FOR_SMES' THEN
+    RETURN NEW;
+  END IF;
+  v_deps := public.fs_reporting_dependencies(NEW.company_id, v_report.period_year);
+  IF v_deps ->> 'state' IS DISTINCT FROM 'current' OR v_report.report_document #>> '{reportingDependencies,dependenciesSha256}' IS DISTINCT FROM v_deps ->> 'dependenciesSha256' THEN
+    RAISE EXCEPTION 'BINDING_STALE: the report is not bound to its current reporting dependencies; save a new version' USING ERRCODE = 'PT409';
+  END IF;
+  -- The approver is the AUTHENTICATED caller, and the publication's actor must be that caller's own membership of this
+  -- company (20261022100000). A publication written without a session, or naming another member, is refused.
+  SELECT * INTO v_member FROM public.firm_members m WHERE m.id = NEW.actor_firm_member_id;
+  IF v_uid IS NULL OR NOT FOUND OR v_member.user_id IS DISTINCT FROM v_uid OR v_member.company_id IS DISTINCT FROM NEW.company_id THEN
+    RAISE EXCEPTION 'APPROVER_NOT_AUTHENTICATED: a sign-off is recorded only for the authenticated member who makes it' USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.fs_publication_bindings (publication_id, company_id, report_id, report_version, state, document_sha256, declared_content_hash, dependencies_sha256, dependencies,
+                                              approver_user_id, approver_firm_member_id, approver_role, approver_display_name, approved_at)
+  VALUES (NEW.id, NEW.company_id, NEW.report_id, NEW.report_version, NEW.state, encode(sha256(convert_to(v_report.report_document::text, 'UTF8')), 'hex'),
+          v_report.content_hash, v_deps ->> 'dependenciesSha256', v_deps,
+          v_uid, v_member.id, v_member.role,
+          -- The name on record at the moment of approval (NULL when none is recorded; never invented).
+          (SELECT nullif(btrim(pr.display_name), '') FROM public.profiles pr WHERE pr.user_id = v_uid),
+          NEW.created_at);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public._fs_comprehensive_income(uuid, integer, jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_bind_publication() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_decide_requirement(uuid, integer, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_decide_requirement(uuid, integer, text, text, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_notes_status(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_notes_status(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_reporting_dependencies(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_reporting_dependencies(uuid, integer) TO authenticated;

@@ -7,7 +7,7 @@ import { nextReportingAction, type NextActionInput } from "./nextAction";
 
 const H = (c: string) => c.repeat(64);
 const notes = (reqs: { id: string; kind: "DISCLOSURE" | "SCHEDULE" | "STATEMENT"; status: string; blocking?: boolean }[]): NotesStatusResult => ({
-  state: "evaluated", contract: "fs-notes-status/1", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
+  state: "evaluated", contract: "fs-notes-status/2", packId: "ifrs-for-smes/2015", compositionSha256: H("b"), periodYear: 2026, blockers: [], statusSha256: H("c"),
   requirements: reqs.map((r) => ({ requirementId: r.id, kind: r.kind, status: r.status, blocking: r.blocking ?? true })),
 } as NotesStatusResult);
 const cmp = (state: string): ComparativeStatus => ({ state: "evaluated", statusSha256: H("e"), comparative: {
@@ -49,5 +49,12 @@ describe("the one next action follows the server's dependency chain", () => {
     expect(at({ latest: { reportVersion: 2, state: "REVIEWED", blockers: [] } }).title).toBe("Approve version 2 as final");
     expect(at({ latest: { reportVersion: 2, state: "REVIEWED", blockers: [] }, allowed: ["review_close"] }).tone).toBe("blocked");
     expect(at({ latest: { reportVersion: 2, state: "FINAL", blockers: [] } })).toMatchObject({ page: "exports", tone: "done" });
+  });
+});
+
+describe("an unsupported reporting case (20261022100000)", () => {
+  it("is named first, as a stop rather than a to-do, before any other note work", () => {
+    const n = notes([{ id: "smes.note.policies", kind: "DISCLOSURE", status: "missing" }, { id: "smes.sci.5_5_g", kind: "LINE_ITEM" as "DISCLOSURE", status: "unsupported" }]);
+    expect(at({ notes: n })).toMatchObject({ page: "fs-notes", tone: "blocked", title: "This report cannot be finalised: a reporting case is not supported", detail: "smes.sci.5_5_g" });
   });
 });

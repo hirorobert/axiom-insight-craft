@@ -70,20 +70,23 @@ function Evidence(p: PageProps & { reportId: string; latest: SavedVersion | null
   const ready = Object.values(parsed).filter((x) => x.batch).map((x) => x.batch!);
   const save = async () => {
     setBusy(true); setNotice(null); setDiagnostics([]);
-    const key = JSON.stringify([p.latest?.reportVersion ?? 0, ready.map((b) => b.evidenceBatchId)]);
+    // One attempt per set of files: a retry (after any failure) resumes it; the server's versions decide where it continues.
+    const key = JSON.stringify(ready.map((b) => b.evidenceBatchId));
     if (!attempt.current || attempt.current.key !== key) attempt.current = { key, id: `fsr-save-${(p.newRequestId ?? (() => crypto.randomUUID()))()}`, at: new Date().toISOString() };
     try {
       const r = await prepareReportVersion(p.db, p.clients.signoff, { companyId: p.companyId, periodYear: p.periodYear, legalName: p.legalName, reportId: p.reportId,
-        expectedReportVersion: p.latest?.reportVersion ?? 0, newEvidence: ready, idempotencyKey: attempt.current.id, evaluatedAt: attempt.current.at });
+        newEvidence: ready, idempotencyKey: attempt.current.id, evaluatedAt: attempt.current.at });
       setDiagnostics(r.diagnostics.filter((d) => d.severity !== "INFO").map((d) => d.message));
       if (r.outcome === "saved") {
         attempt.current = null; setParsed({}); setPicks((n) => n + 1);
-        setNotice(r.evidenceVersion ? `Version ${r.evidenceVersion} stored the evidence; version ${r.reportVersion} is saved on the dependencies it changed.` : `Version ${r.reportVersion} saved.`);
+        setNotice(r.alreadyCurrent ? `Version ${r.reportVersion} is already saved on the current statements, notes and comparatives; nothing new was written.`
+          : r.evidenceVersion ? `Version ${r.evidenceVersion} stored the evidence; version ${r.reportVersion} is saved on the dependencies it changed.` : `Version ${r.reportVersion} saved.`);
         await p.refresh();
       } else setNotice(`Not saved: ${r.reason}`);
     } catch (e) {
-      setNotice(/STALE_REPORT_VERSION/.test(String((e as Error).message)) ? "Not saved: another version was saved meanwhile. The page has been refreshed; save again." : `Not saved: ${(e as Error).message}`);
-      if (/STALE_REPORT_VERSION/.test(String((e as Error).message))) await p.refresh();
+      // Nothing half-done is left signable: a stored-evidence version is stale until the next step. "Save" again resumes.
+      setNotice(/STALE_REPORT_VERSION/.test(String((e as Error).message)) ? "Not finished: another version was saved meanwhile. Press save again to continue from it." : `Not finished: ${(e as Error).message} Press save again to continue; nothing is duplicated.`);
+      await p.refresh();
     } finally { setBusy(false); }
   };
   return (

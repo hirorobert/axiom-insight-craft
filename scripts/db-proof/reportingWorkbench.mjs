@@ -85,7 +85,7 @@ async function main() {
   let saved;
   const key = `prep-${uuid()}`;
   await check("the ledger, equity movements and cash map are stored WITH a version; the version is re-saved on the dependencies they changed", async () => {
-    saved = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, expectedReportVersion: 0,
+    saved = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid,
       newEvidence: [...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "CASH_ACCOUNT_MAP"].map((t) => parse(t)), ...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "PRIOR_PERIOD_STATEMENTS"].map((t) => parse(t, "COMPARATIVE"))],
       idempotencyKey: key, evaluatedAt: "2027-02-01T09:00:00.000Z" });
     const ev = await db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE company_id=$1", [A]);
@@ -97,11 +97,13 @@ async function main() {
     const r2 = await partner.c.readiness(A, rid, 2);
     return r1.blockers.includes("REPORTING_DEPENDENCIES_STALE") && r2.ready === true && r2.blockers.length === 0 ? true : { r1: r1.blockers, r2: r2.blockers };
   });
-  await check("replaying the same attempt saves nothing new", async () => {
-    const again = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, expectedReportVersion: 1,
-      newEvidence: [], idempotencyKey: `${key}/rebind`, evaluatedAt: "2027-02-01T09:00:00.000Z" });
+  await check("retrying the same attempt (same files, same key) writes nothing: the current version is returned, no evidence duplicated", async () => {
+    const again = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid,
+      newEvidence: [...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "CASH_ACCOUNT_MAP"].map((t) => parse(t)), ...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "PRIOR_PERIOD_STATEMENTS"].map((t) => parse(t, "COMPARATIVE"))],
+      idempotencyKey: key, evaluatedAt: "2027-02-01T09:00:00.000Z" });
     const n = await db.count("SELECT count(*) n FROM public.financial_statement_reports WHERE report_id=$1", [rid]);
-    return again.outcome === "saved" && again.reportVersion === 2 && n === 2 ? true : { again: again.outcome, v: again.reportVersion, n };
+    const ev = await db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE company_id=$1", [A]);
+    return again.outcome === "saved" && again.reportVersion === 2 && again.alreadyCurrent === true && n === 2 && ev === 6 ? true : { again: again.outcome, v: again.reportVersion, n, ev };
   });
 
   group("Figures — hand-computed, independent of the generators");
@@ -174,14 +176,18 @@ async function main() {
   await check("a disclosure changes: version 2 stays FINAL but stale; version 3 is saved on the new dependencies and has no blocker", async () => {
     await db.asUser(U.preparer, "SELECT public.fs_record_disclosure($1,$2,'smes.note.estimates','Useful lives and residual values.','Notes v2',$3)", [A, Y, uuid()]);
     const r2 = await partner.c.readiness(A, rid, 2);
-    const s = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, expectedReportVersion: 2, newEvidence: [], idempotencyKey: `prep-${uuid()}`, evaluatedAt: new Date().toISOString() });
+    const s = await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, newEvidence: [], idempotencyKey: `prep-${uuid()}`, evaluatedAt: new Date().toISOString() });
     const r3 = await partner.c.readiness(A, rid, 3);
     const pub = (await owner.c.publications(rid)).map((p) => `${p.reportVersion}:${p.state}`);
     return r2.blockers.includes("REPORTING_DEPENDENCIES_STALE") && s.outcome === "saved" && s.reportVersion === 3 && r3.blockers.length === 0 && JSON.stringify(pub) === JSON.stringify(["2:REVIEWED", "2:FINAL"]) ? true : { r2: r2.blockers, s, r3: r3.blockers, pub };
   });
-  await check("a stale expected version is refused by the server (no lost update)", async () => {
-    try { await prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, expectedReportVersion: 1, newEvidence: [], idempotencyKey: `prep-${uuid()}`, evaluatedAt: new Date().toISOString() }); return "accepted"; }
-    catch (e) { return /STALE_REPORT_VERSION/.test(e.message) ? true : e.message; }
+  await check("a commit formed against an older version is refused by the server (no lost update)", async () => {
+    const v1 = (await pre.c.report(rid, 1)).document;
+    const doc = { ...v1, reportIdentity: { ...v1.reportIdentity, reportVersion: 2 } };
+    const r = await pre.d.rpc("fs_commit_revision", { p_company_id: A, p_report_id: rid, p_expected_report_version: 1, p_idempotency_key: `stale-${uuid()}`, p_period_year: Y,
+      p_provenance_origin: "TRIAL_BALANCE_DERIVED", p_report_document: doc, p_content_hash: "0".repeat(64), p_evidence: [], p_evidence_batch_ids: [],
+      p_evaluation: { evaluationRunId: `e-${uuid()}`, rulePackId: "r", rulePackVersion: "1", engineVersion: "1", inputHash: "0".repeat(64), findings: [] } });
+    return /STALE_REPORT_VERSION/.test(r.error?.message ?? "") ? true : r;
   });
   await check("tenant isolation: another workspace's owner reads nothing of this report", async () => {
     const other = as(U.ownerB);
