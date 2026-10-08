@@ -241,6 +241,13 @@ describe("database inertness — schema and functions", () => {
       // I1-B (20261011100000): one file registered as two years (current and prior) sharing a managed source object — a
       // NEW forward-only migration pending hosted application. Touches no financial-statements schema.
       "supabase/migrations/20261011100000_two_period_shared_source.sql",
+      // I1-C (20261012100000): controls for AI-assisted layout suggestions (consent, provider gates, quota, cost cap) —
+      // a NEW forward-only migration pending hosted application — and ONE new Edge Function, layout-assist, shipped with
+      // NO provider wired (every request refused before anything is read). Writes only ai_layout_assist_runs through two
+      // service-role functions; never a financial table, never a layout confirmation.
+      "supabase/migrations/20261012100000_layout_assist_controls.sql",
+      "supabase/functions/layout-assist/index.ts",
+      "supabase/functions/_shared/layoutAssist.ts",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -422,6 +429,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/layoutAuthority.mjs",
       // I1-B (20261011100000): the loopback-only real-PostgreSQL proof of two-year registration and shared-source cleanup.
       "scripts/db-proof/sharedSourceAuthority.mjs",
+      // I1-C (20261012100000): the loopback-only real-PostgreSQL proof of the layout-assist controls and the real function.
+      "scripts/db-proof/layoutAssistAuthority.mjs",
+      // ...and the provider evaluation harness an enablement must pass (production pipeline, owner thresholds). No deploy behaviour.
+      "scripts/ai/layoutAssistEval.ts",
       // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only
       // function-closure manifest tool (every file a deploy ships, with SHA-256). No deploy behaviour.
       "scripts/db-proof/releaseOrder.mjs", "scripts/release/functionClosure.mjs",

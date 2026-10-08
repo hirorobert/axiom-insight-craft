@@ -62,7 +62,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
-    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql"]);
+    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql"]);
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -448,7 +448,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql"]);
+    expect(r.pending).toEqual(["20261011100000_two_period_shared_source.sql", "20261012100000_layout_assist_controls.sql"]);
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },

@@ -5,6 +5,7 @@ import { DataTable, type DataColumn } from "@/components/workbench/DataTable";
 import { SecondaryPanel } from "@/components/workbench/SecondaryPanel";
 import { useGuardedRequest } from "@/components/workbench/useGuardedRequest";
 import type { InspectResult, InspectSheet, LayoutAnswer, LayoutClient, LayoutProfile, LayoutReport } from "@/lib/workbench/intake/layoutClient";
+import type { LayoutAssistClient } from "@/lib/workbench/intake/layoutAssistClient";
 import {
   COLUMN_ROLES, DISPOSITION_WORDS, NUMBER_FORMAT_CHOICES, draftFromProfile, draftFromSuggestion, draftProblems, headerCells, toProfile,
   type ColumnRole, type LayoutDraft,
@@ -33,6 +34,8 @@ export function LayoutEditor(p: {
   templates: readonly LayoutTemplateRow[];
   onConfirmed?: (confirmationNo: number) => void;
   newKey?: () => string;
+  /** AI-assisted suggestions (I1-C): passed only when released; offered only for a sheet the automatic reading could not read. */
+  assist?: LayoutAssistClient;
 }) {
   const ids = { sheet: useId(), header: useId(), format: useId(), sign: useId(), template: useId(), name: useId() };
   const inspected = useGuardedRequest<LayoutAnswer<InspectResult>>("layout-inspect", `${p.companyId}|${p.uploadId}`, () => p.client.inspect(p.uploadId), [p.client]);
@@ -40,7 +43,9 @@ export function LayoutEditor(p: {
   const [template, setTemplate] = useState<LayoutTemplateRow | null>(null);
   const [report, setReport] = useState<LayoutReport | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "validate" | "confirm" | "save">(null);
+  const [busy, setBusy] = useState<null | "validate" | "confirm" | "save" | "suggest">(null);
+  // The current draft came from a suggestion (cleared by any change the person makes).
+  const [suggested, setSuggested] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [conflict, setConflict] = useState<{ what: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -71,7 +76,7 @@ export function LayoutEditor(p: {
   const headers = headerCells(sheet, draft.headerRow);
   const problems = draftProblems(draft, kind);
   const profile = toProfile(draft, kind);
-  const change = (next: Partial<LayoutDraft>) => { setDraft({ ...draft, ...next }); setReport(null); setNotice(null); setFormatConfirmed(false); };
+  const change = (next: Partial<LayoutDraft>) => { setDraft({ ...draft, ...next }); setReport(null); setNotice(null); setFormatConfirmed(false); setSuggested(false); };
   const formatAmbiguous = !!report?.numberFormats?.ambiguous;
   const setRole = (role: ColumnRole, header: string) => change({ columns: { ...draft.columns, [role]: header || null } });
   const evidence = sheet?.numberFormats;
@@ -104,6 +109,20 @@ export function LayoutEditor(p: {
         p.onConfirmed?.(v.confirmationNo);
       }
     } finally { setBusy(null); setConfirming(false); }
+  };
+  const suggest = async () => {
+    if (!p.assist || !sheet || !inspect?.sheets) return;
+    setBusy("suggest");
+    try {
+      const v = handle(await p.assist.suggest(p.uploadId, inspect.sheets.indexOf(sheet), (p.newKey ?? (() => crypto.randomUUID()))()), "this file's layout");
+      if (v) {
+        setDraft(draftFromProfile(v.layout)); setTemplate(null); setFormatConfirmed(false);
+        setReport(v.report); setReportOpen(true); setSuggested(true);
+        setNotice(v.report.layoutFits
+          ? "A layout was suggested and checked against the whole file. Review every column before you confirm — nothing is confirmed until you do."
+          : "A layout was suggested, but it does not fit the whole file. The report lists why; set the columns yourself.");
+      }
+    } finally { setBusy(null); }
   };
   const save = async () => {
     if (!profile || !templateName.trim()) return;
@@ -240,7 +259,19 @@ export function LayoutEditor(p: {
         </div>
       ) : null}
 
+      {suggested ? (
+        <p className="rounded-md border border-input p-2 text-sm" data-testid="layout-suggested">
+          Suggested layout — advisory. It was made from a sample of the file with account names and amounts removed; every
+          column above is yours to check and change.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
+        {p.assist && sheet && !sheet.suggestion ? (
+          <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={busy !== null} onClick={() => void suggest()} data-testid="layout-suggest">
+            {busy === "suggest" ? "Preparing a suggestion…" : "Suggest a layout"}
+          </button>
+        ) : null}
         <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={!profile || busy !== null} onClick={validate} data-testid="layout-validate">
           {busy === "validate" ? "Checking the whole file…" : "Check against the whole file"}
         </button>

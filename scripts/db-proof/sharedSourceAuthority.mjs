@@ -98,9 +98,9 @@ async function main() {
     CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
   const files = currentChain(REPO);
 
-  group("Replay — the whole chain, I1-B last");
-  await check(`${I1B_FILE} is the newest migration and the whole chain applies`, async () => {
-    if (files[files.length - 1] !== I1B_FILE) return `newest is ${files[files.length - 1]}`;
+  group("Replay — the whole chain, I1-B included");
+  await check(`${I1B_FILE} is in the chain and the whole chain (with every later migration) applies`, async () => {
+    if (!files.includes(I1B_FILE)) return `${I1B_FILE} missing`;
     for (const f of files) {
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
