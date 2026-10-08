@@ -120,18 +120,29 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
   const tag = "0033_release_wrapper_probe";
   const withMirror = (body: Buffer, fn: (dir: string) => void) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wrapper-mirror-"));
+    let restore = () => {};
     try {
       fs.cpSync(SRC, path.join(dir, "supabase/migrations"), { recursive: true });
       fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
       const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
       const j = JSON.parse(fs.readFileSync(jf, "utf8"));
+      // The repository as it was before the hosted application (journal head 0032): the real mirrors 0033–0039 removed.
+      for (const e of j.entries.filter((x: { idx: number }) => x.idx > 32)) {
+        fs.rmSync(path.join(dir, `drizzle/migrations/${e.tag}.sql`));
+        fs.rmSync(path.join(dir, `drizzle/migrations/meta/${String(e.idx).padStart(4, "0")}_snapshot.json`));
+      }
+      j.entries = j.entries.filter((x: { idx: number }) => x.idx <= 32);
+      // ...and their reviewed entries hidden for the duration (restored below), as before the close-out.
+      const hidden = Object.entries(RELEASE_JOURNAL).filter(([k, e]) => k !== tag && (e as { kind: string }).kind === "release_self_checking_wrapper");
+      for (const [k] of hidden) delete (RELEASE_JOURNAL as Record<string, unknown>)[k];
+      restore = () => { for (const [k, e] of hidden) (RELEASE_JOURNAL as Record<string, unknown>)[k] = e; };
       const idx = j.entries.length;
       j.entries.push({ ...j.entries[idx - 1], idx, tag });
       fs.writeFileSync(jf, JSON.stringify(j, null, 2));
       fs.writeFileSync(path.join(dir, `drizzle/migrations/${tag}.sql`), body);
       fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
       fn(dir);
-    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    } finally { restore(); fs.rmSync(dir, { recursive: true, force: true }); }
   };
   const entryFor = (form: "wrapper" | "wrapper_final_lf_removed") => {
     const s = src(name), w = wrapper(name), m = form === "wrapper" ? w : w.subarray(0, w.length - 1);
@@ -173,10 +184,18 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
       expect(r.mirrored.some((x) => x.tag === tag)).toBe(false);
     });
   }, 120_000);
-  it("the repository itself still has all seven pending and no wrapper entry reviewed yet", () => {
-    expect(Object.values(RELEASE_JOURNAL).some((e) => (e as { kind: string }).kind === "release_self_checking_wrapper")).toBe(false);
+  it("the repository: the seven are applied as 0033–0039, each through a reviewed entry pinning the exact registered wrapper", () => {
+    const entries = Object.entries(RELEASE_JOURNAL).filter(([, e]) => (e as { kind: string }).kind === "release_self_checking_wrapper");
+    expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual([...WRAPPED_SOURCES]);
+    for (const [tag, e] of entries) {
+      const x = e as { source: string; form: string; sha256: string; submittedBytes: number };
+      const mirror = fs.readFileSync(path.join(DZ, `${tag}.sql`));
+      expect(x.form, tag).toBe("wrapper");
+      expect(mirror.equals(wrapper(x.source)), tag).toBe(true); // byte-identical to release/wrappers/
+      expect([mirror.length, sha(mirror)], tag).toEqual([x.submittedBytes, x.sha256]);
+    }
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([...WRAPPED_SOURCES]);
+    expect(r.pending).toEqual([]);
   }, 120_000);
 });
