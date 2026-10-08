@@ -494,6 +494,16 @@ jobs:
           git fetch --no-tags --depth=1 origin c0f0f09402f502c5c7ac5c60971c5d8cccc62684
           bun scripts/db-proof/milestoneReleaseOrder.mjs
 
+      - name: Self-checking release wrappers proof (the seven wrappers regenerated from the committed migration bytes; at the state before each, altered payload, altered expected identity, CRLF damage, truncation and damaged quoting refused before any statement runs; injected failures rolled back with no journal row; valid application and refused repeats; drizzle-orm migrate() journal atomicity; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/wrappers_proof
+        run: |
+          createdb wrappers_proof
+          git fetch --no-tags --depth=1 origin 993774cd129a4bfd16946f6be1c339aaf93ac5d4
+          node scripts/release/selfCheckingWrapper.mjs --check
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

@@ -506,7 +506,10 @@ describe("the milestone's seven migrations: both submission forms registered ahe
     expect(keys.slice(-MILESTONE.length)).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
-      expect(SUBMISSION_FORMS[f.name], f.name).toEqual({ identical: { bytes: f.bytes, sha256: f.canonical }, finalLfRemoved: { bytes: f.bytes - 1, sha256: f.submitted } });
+      // The two source forms, plus the self-checking wrapper's two forms (release/wrappers/; selfCheckingWrappers.test.ts).
+      const w = fs.readFileSync(path.join(ROOT, "release/wrappers", f.name.replace(/\.sql$/, ".wrapper.sql")));
+      expect(SUBMISSION_FORMS[f.name], f.name).toEqual({ identical: { bytes: f.bytes, sha256: f.canonical }, finalLfRemoved: { bytes: f.bytes - 1, sha256: f.submitted },
+        wrapper: { bytes: w.length, sha256: sha(w) }, wrapperFinalLfRemoved: { bytes: w.length - 1, sha256: sha(w.subarray(0, w.length - 1)) } });
       // Recomputed here, independently of the registry: the bytes in the repository ARE the registered canonical form.
       expect([src.length, sha(src)], f.name).toEqual([f.bytes, f.canonical]);
       expect(src.includes(0x0d), `${f.name} has no CR byte`).toBe(false);
