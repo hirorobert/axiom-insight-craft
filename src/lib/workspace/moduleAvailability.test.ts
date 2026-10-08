@@ -200,12 +200,17 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     const staged = [...app.matchAll(/<StageScopeGate stage="([a-z]+)">/g)].map((m) => m[1]);
     // Still exactly two stages. The workbench's canonical Trial Balance routes are the same Prepare stage, registered only
     // under WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/gate.ts): the same Prepare stage and scope gate either way.
-    expect(new Set(staged)).toEqual(new Set(["prepare", "reconcile"]));
+    // Reporting pages built ahead of release sit behind the (withheld) Statements stage gate AND their release flag; every
+    // other route reaches exactly the two customer stages.
+    const reporting = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="statements">/g)].map((m) => [m[1], m[2]]);
+    expect(reporting).toEqual([["fs-statements", "statements"], ["fs-notes", "statements/notes"], ["fs-schedules", "statements/schedules"], ["fs-comparatives", "statements/comparatives"], ["signoff", "signoff"], ["exports", "signoff/exports"]]);
+    expect(staged.filter((x) => x === "statements")).toHaveLength(reporting.length);
+    expect(new Set(staged.filter((x) => x !== "statements"))).toEqual(new Set(["prepare", "reconcile"]));
     const gated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2]]);
     expect(gated).toEqual([["trial-balance/intake", "prepare"], ["trial-balance/review", "prepare"]]);
     // Workbench pages built ahead of release (Close Review): registered only when BOTH the gate is on AND the page is in
     // RELEASED_WORKBENCH_PAGES (src/lib/workbench/routes.ts), behind the same Prepare stage scope gate.
-    const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]);
+    const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]).filter((r) => r[2] !== "statements");
     expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"], ["close-adjustments", "close/adjustments", "prepare"]]);
     expect(staged.filter((x) => x === "reconcile")).toHaveLength(1);
     expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length + releaseGated.length);
@@ -240,7 +245,9 @@ describe("3. every other stage route renders the neutral unavailable boundary", 
     for (const [alias, to] of [["hesabu", "statements"], ["kinga", "tax"], ["analytics", "monitor"], ["issues", "compliance"]]) {
       expect(app).toMatch(new RegExp(`path="${alias}"\\s+element=\\{<LegacySubRouteRedirect to="${to}" />\\}`));
     }
-    expect(app).not.toMatch(/path="(statements|statements\/review|tax|compliance|filing|monitor)"/);
+    // The one exception: the reporting page at `statements`, registered only once released (and its stage un-withheld).
+    const withoutReleaseGated = app.replace(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("fs-statements"\) && <Route path="statements" element=\{<StageScopeGate stage="statements">[^\n]*\n/, "");
+    expect(withoutReleaseGated).not.toMatch(/path="(statements|statements\/review|tax|compliance|filing|monitor)"/);
   });
 });
 

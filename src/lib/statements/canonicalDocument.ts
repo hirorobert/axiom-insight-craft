@@ -12,6 +12,7 @@
 // statements (STATEMENT_FIGURE_MISMATCH / STATEMENT_FIGURE_NOT_COMPOSED). Nothing is added up here: every amount is a
 // server figure. Statements built from evidence (cash flows, changes in equity) come from the existing generators.
 
+import { CANONICAL_CONCEPTS } from "@/lib/canonicalStatement/concepts";
 import { CANONICAL_SCHEMA_VERSION } from "@/lib/canonicalStatement/types";
 import type { CanonicalFinancialStatementReport, MonetaryFact, Statement, StatementLine, StatementSection } from "@/lib/canonicalStatement/types";
 import type { Composition, CompositionLine } from "./composition";
@@ -30,6 +31,8 @@ type Period = "current" | "comparative";
 const periodId = (p: Period) => (p === "current" ? COMPOSED_CURRENT_PERIOD_ID : COMPOSED_COMPARATIVE_PERIOD_ID);
 export const lineFactId = (p: Period, section: string, lineId: string) => `fact:${p}:${section}:${lineId}`;
 export const totalFactId = (p: Period, key: string) => `fact:${p}:total:${key}`;
+const totalLineId = (stmt: "sfp" | "sci", key: string) => `line:${stmt}:total:${key}`;
+const TAX_LINE = "sci.tax_expense";
 
 const SECTION_LABELS: Record<string, string> = {
   non_current_assets: "Non-current assets", current_assets: "Current assets", equity: "Equity",
@@ -95,25 +98,31 @@ export function composedStatements(c: Composition, comparativeDates: { readonly 
       fact(lineFactId(p, l.section, l.lineId), p, a.amountMinor, sign, `${l.label}: ${a.amountMinor} (composed by the database from ${a.accounts} account(s))`, `fs_statement_composition ${l.statement} ${l.section} ${l.lineId}`);
     }
     const detailLines: StatementLine[] = [...children.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([id, ch]) => ({
-      lineId: id, label: ch.label, concept: `${l.lineId}#component`, role: "DETAIL", normalBalance: normal, isContra: false,
+      lineId: id, label: ch.label, concept: `${l.lineId}#${id}`, role: "DETAIL", normalBalance: normal, isContra: false,
       factBindings: periods.filter((p) => ch.byPeriod.has(p)).map((p) => ({ periodId: periodId(p), factId: ch.byPeriod.get(p)! })), castingChildLineIds: [],
     }));
+    // Without lineage there is nothing to cast: the line is a DETAIL line carrying the server's figure.
     return [...detailLines, {
-      lineId: `line:${l.section}:${l.lineId}`, label: l.label, concept: l.lineId, role: "SUBTOTAL", normalBalance: normal, isContra: false,
+      lineId: `line:${l.section}:${l.lineId}`, label: l.label, concept: l.lineId, role: detailLines.length > 0 ? "SUBTOTAL" : "DETAIL", normalBalance: normal, isContra: false,
       factBindings: bindings((p) => lineFactId(p, l.section, l.lineId)).filter((b) => facts.some((f) => f.factId === b.factId)), castingChildLineIds: detailLines.map((d) => d.lineId),
     }];
   };
   const totalsComplete = (p: Period) => c.totals[p]?.state === "complete";
-  const total = (stmt: "sfp" | "sci", key: string, label: string, concept: string, role: "SUBTOTAL" | "TOTAL", normal: StatementLine["normalBalance"], children: string[]): StatementLine | null => {
+  // A total that is a plain sum declares the lines it casts, so the canonical rule pack verifies it independently. A total
+  // that is a difference (profit before tax, profit or loss, the balance check) is a DETAIL line: the casting rule only
+  // adds, and its derivation is stated on its fact.
+  const total = (stmt: "sfp" | "sci", key: string, label: string, concept: string, role: "SUBTOTAL" | "TOTAL" | "DETAIL", normal: StatementLine["normalBalance"], children: string[], derivation?: string): StatementLine | null => {
     const ps = periods.filter(totalsComplete);
     if (ps.length === 0) return null;
     for (const p of ps) {
       const t = c.totals[p] as Record<string, string>;
-      fact(totalFactId(p, key), p, t[key], normal === "DEBIT_NORMAL" ? "DEBIT_POSITIVE" : "CREDIT_POSITIVE", `${label}: ${t[key]} (database total)`, `fs_statement_composition total ${key}`);
+      fact(totalFactId(p, key), p, t[key], normal === "DEBIT_NORMAL" ? "DEBIT_POSITIVE" : "CREDIT_POSITIVE", `${label}: ${t[key]} (database total${derivation ? `: ${derivation}` : ""})`, `fs_statement_composition total ${key}`);
     }
     // Line ids are unique report-wide (a figure shown on both statements is one fact on two lines).
-    return { lineId: `line:${stmt}:total:${key}`, label, concept, role, normalBalance: normal, isContra: false,
-      factBindings: ps.map((p) => ({ periodId: periodId(p), factId: totalFactId(p, key) })), castingChildLineIds: children };
+    // A sum with nothing to cast (a section with no account) states nothing to verify: it is a DETAIL line.
+    const r = role !== "DETAIL" && children.length === 0 ? "DETAIL" : role;
+    return { lineId: totalLineId(stmt, key), label, concept, role: r, normalBalance: normal, isContra: false,
+      factBindings: ps.map((p) => ({ periodId: periodId(p), factId: totalFactId(p, key) })), castingChildLineIds: r === "DETAIL" ? [] : children };
   };
   const section = (id: string, keys: [string, string, string] | null): StatementSection => {
     const lines = c.lines.filter((l) => l.statement === "SFP" && l.section === id).flatMap(composedLine);
@@ -122,11 +131,11 @@ export function composedStatements(c: Composition, comparativeDates: { readonly 
   };
   const sfpTotals = (): StatementSection => {
     const lines = [
-      total("sfp", "totalAssetsMinor", "Total assets", "total_assets", "TOTAL", "DEBIT_NORMAL", []),
-      total("sfp", "profitOrLossMinor", "Profit or loss for the period (not yet transferred to equity accounts)", "profit_or_loss_for_period_in_equity", "SUBTOTAL", "CREDIT_NORMAL", []),
-      total("sfp", "totalEquityMinor", "Total equity", "total_equity", "TOTAL", "CREDIT_NORMAL", []),
-      total("sfp", "totalLiabilitiesMinor", "Total liabilities", "total_liabilities", "TOTAL", "CREDIT_NORMAL", []),
-      total("sfp", "totalEquityAndLiabilitiesMinor", "Total equity and liabilities", "total_equity_and_liabilities", "TOTAL", "CREDIT_NORMAL", []),
+      total("sfp", "totalAssetsMinor", "Total assets", CANONICAL_CONCEPTS.TOTAL_ASSETS, "TOTAL", "DEBIT_NORMAL", [totalLineId("sfp", "nonCurrentAssetsMinor"), totalLineId("sfp", "currentAssetsMinor")]),
+      total("sfp", "profitOrLossMinor", "Profit or loss for the period (not yet transferred to equity accounts)", "profit_or_loss_for_period_in_equity", "DETAIL", "CREDIT_NORMAL", [], "the statement of comprehensive income's profit or loss"),
+      total("sfp", "totalEquityMinor", "Total equity", CANONICAL_CONCEPTS.TOTAL_EQUITY, "TOTAL", "CREDIT_NORMAL", [totalLineId("sfp", "equityAccountsMinor"), totalLineId("sfp", "profitOrLossMinor")]),
+      total("sfp", "totalLiabilitiesMinor", "Total liabilities", CANONICAL_CONCEPTS.TOTAL_LIABILITIES, "TOTAL", "CREDIT_NORMAL", [totalLineId("sfp", "nonCurrentLiabilitiesMinor"), totalLineId("sfp", "currentLiabilitiesMinor")]),
+      total("sfp", "totalEquityAndLiabilitiesMinor", "Total equity and liabilities", CANONICAL_CONCEPTS.TOTAL_LIABILITIES_AND_EQUITY, "TOTAL", "CREDIT_NORMAL", [totalLineId("sfp", "totalEquityMinor"), totalLineId("sfp", "totalLiabilitiesMinor")]),
     ].filter((x): x is StatementLine => x !== null);
     return { sectionId: "section:sfp-totals", label: "Totals", lines };
   };
@@ -142,19 +151,20 @@ export function composedStatements(c: Composition, comparativeDates: { readonly 
     ],
   };
   const sciLines = c.lines.filter((l) => l.statement === "SCI").flatMap(composedLine);
+  const sciSub = (pred: (lineId: string) => boolean) => c.lines.filter((l) => l.statement === "SCI" && pred(l.lineId)).map((l) => `line:${l.section}:${l.lineId}`);
   const sciTotals = [
-    total("sci", "incomeMinor", "Total income", "total_income", "SUBTOTAL", "CREDIT_NORMAL", []),
-    total("sci", "expensesExcludingTaxMinor", "Total expenses (excluding tax)", "total_expenses_excluding_tax", "SUBTOTAL", "DEBIT_NORMAL", []),
-    total("sci", "profitBeforeTaxMinor", "Profit before tax", "profit_before_tax", "SUBTOTAL", "CREDIT_NORMAL", []),
-    total("sci", "taxExpenseMinor", "Tax expense (total)", "total_tax_expense", "SUBTOTAL", "DEBIT_NORMAL", []),
-    total("sci", "profitOrLossMinor", "Profit or loss for the period", "profit_or_loss", "TOTAL", "CREDIT_NORMAL", []),
+    total("sci", "incomeMinor", "Total income", "total_income", "SUBTOTAL", "CREDIT_NORMAL", sciSub((id) => INCOME_LINES.has(id))),
+    total("sci", "expensesExcludingTaxMinor", "Total expenses (excluding tax)", "total_expenses_excluding_tax", "SUBTOTAL", "DEBIT_NORMAL", sciSub((id) => !INCOME_LINES.has(id) && id !== TAX_LINE)),
+    total("sci", "profitBeforeTaxMinor", "Profit before tax", "profit_before_tax", "DETAIL", "CREDIT_NORMAL", [], "total income less total expenses (excluding tax)"),
+    total("sci", "taxExpenseMinor", "Tax expense (total)", "total_tax_expense", "SUBTOTAL", "DEBIT_NORMAL", sciSub((id) => id === TAX_LINE)),
+    total("sci", "profitOrLossMinor", "Profit or loss for the period", CANONICAL_CONCEPTS.NET_RESULT, "DETAIL", "CREDIT_NORMAL", [], "profit before tax less tax expense"),
   ].filter((x): x is StatementLine => x !== null);
   const sci: Statement = {
     statementId: "stmt:sci", type: "STATEMENT_OF_PROFIT_OR_LOSS", title: "Statement of Comprehensive Income",
     sections: [{ sectionId: "section:sci", label: "Profit or loss", lines: [...sciLines, ...sciTotals] }],
   };
   // The balance check is a total of its own (always zero when the database reports no BALANCE_DIFFERENCE blocker).
-  const diff = total("sfp", "balanceDifferenceMinor", "Balance check (assets less equity and liabilities)", "balance_difference", "SUBTOTAL", "DEBIT_NORMAL", []);
+  const diff = total("sfp", "balanceDifferenceMinor", "Balance check (assets less equity and liabilities)", "balance_difference", "DETAIL", "DEBIT_NORMAL", [], "total assets less total equity and liabilities");
   if (diff) (sfp.sections[sfp.sections.length - 1].lines as StatementLine[]).push(diff);
 
   // Facts must be unique by id (the totals helper is called once per key); sort for a deterministic document.

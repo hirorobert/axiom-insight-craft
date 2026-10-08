@@ -72,3 +72,16 @@ describe("report pack: one rendering for draft and final", () => {
     expect(src).not.toMatch(/sumMoney|addMoney|\+ BigInt|kinga|generate-xbrl|generate-disclosure-notes/i);
   });
 });
+
+describe("report pack: the face shows presented lines; the account trace stays in the spreadsheet", () => {
+  it("account detail lines are not printed on the face but are in the CSV; the presented line is a plain line", () => {
+    const withDetail = { ...document, statements: [{ statementId: "stmt:sfp", type: "STATEMENT_OF_FINANCIAL_POSITION", title: "Statement of Financial Position", sections: [{ sectionId: "s", label: "Non-current assets", lines: [
+      { lineId: "line:detail:sfp:1500", label: "1500 Equipment at cost", concept: "c1", role: "DETAIL", normalBalance: "DEBIT_NORMAL", isContra: false, castingChildLineIds: [], factBindings: [{ periodId: "CURRENT", factId: "f:c" }] },
+      { lineId: "l1", label: "Property, plant and equipment", concept: "sfp.ppe", role: "SUBTOTAL", normalBalance: "DEBIT_NORMAL", isContra: false, castingChildLineIds: ["line:detail:sfp:1500"], factBindings: [{ periodId: "CURRENT", factId: "f:c" }] },
+    ] }] }] } as unknown as PackInput["document"];
+    const p = buildReportPack({ ...base, document: withDetail });
+    expect(p.body).not.toContain("1500 Equipment at cost");
+    expect(p.body).toContain('<tr class="line"><th scope="row">Property, plant and equipment</th>');
+    expect(p.csv).toContain("1500 Equipment at cost");
+  });
+});

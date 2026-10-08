@@ -39,6 +39,7 @@ export interface ReportPack {
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const ACCOUNT_DETAIL = /^line:(detail|restatement):/;
 const csvCell = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 
 export function buildReportPack(input: PackInput): ReportPack {
@@ -57,10 +58,13 @@ export function buildReportPack(input: PackInput): ReportPack {
   const statementHtml = (s: Statement) => {
     const rows = s.sections.flatMap((sec) => [
       `<tr class="section"><th colspan="${periods.length + 1}" scope="rowgroup">${esc(sec.label)}</th></tr>`,
-      ...sec.lines.map((l) => {
+      ...sec.lines.flatMap((l) => {
         const cells = periods.map((p) => amount(l.factBindings.find((b) => b.periodId === p)?.factId));
         csvRows.push([s.title, sec.label, l.label, ...cells]);
-        return `<tr class="${l.role.toLowerCase()}"><th scope="row">${esc(l.label)}</th>${cells.map((c) => `<td class="num">${esc(c)}</td>`).join("")}</tr>`;
+        // Account detail lines (line:detail:…) are the trace behind a presented line: in the spreadsheet, not on the face.
+        if (ACCOUNT_DETAIL.test(l.lineId)) return [];
+        const presented = l.role === "DETAIL" || l.castingChildLineIds.every((id) => ACCOUNT_DETAIL.test(id));
+        return [`<tr class="${presented ? "line" : l.role.toLowerCase()}"><th scope="row">${esc(l.label)}</th>${cells.map((c) => `<td class="num">${esc(c)}</td>`).join("")}</tr>`];
       }),
     ]);
     return `<section class="statement"><h2>${esc(s.title)}</h2><table><thead><tr><th scope="col">${esc(doc.presentationCurrency?.currency ?? "")}</th>${periods.map((p) => `<th scope="col" class="num">${esc(periodLabel(p))}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></section>`;
@@ -82,7 +86,7 @@ export function buildReportPack(input: PackInput): ReportPack {
     : s.state === "REVIEWED"
       ? `<div class="banner reviewed" role="status">REVIEWED — not final. Reviewed by ${esc(s.signedBy)} on ${esc(s.signedAt)}.</div>`
       : `<div class="banner final" role="status">FINAL — signed off by ${esc(s.signedBy)} on ${esc(s.signedAt)}. Content SHA-256 ${esc(s.contentHash)}; reporting dependencies SHA-256 ${esc(s.dependenciesSha256)}.</div>`;
-  const css = `@page{size:A4;margin:18mm}body{font-family:system-ui,sans-serif;font-variant-numeric:tabular-nums}thead{display:table-header-group}.statement{break-inside:avoid-page}.num{text-align:right}tr.total th,tr.total td{border-top:1px solid #000;font-weight:600}.banner{padding:6px 10px;border:1px solid}.banner.draft::after,.banner.reviewed::after{content:"";}${!s || s.state !== "FINAL" ? `body::before{content:"${!s ? "DRAFT" : "REVIEWED"}";position:fixed;top:40%;left:15%;font-size:96px;opacity:.08;transform:rotate(-30deg)}` : ""}`;
+  const css = `@page{size:A4;margin:18mm}body{font-family:system-ui,sans-serif;font-variant-numeric:tabular-nums}thead{display:table-header-group}.statement{break-inside:avoid-page}table{width:100%;border-collapse:collapse}th{text-align:left;font-weight:400;padding:2px 6px}td{padding:2px 6px}.num{text-align:right}thead th{font-weight:600;border-bottom:1px solid #000}tr.section th{font-weight:600;padding-top:8px}tr.subtotal th,tr.subtotal td{border-top:1px solid #999;font-weight:600}tr.total th,tr.total td{border-top:1px solid #000;border-bottom:3px double #000;font-weight:600}.banner{padding:6px 10px;border:1px solid}.banner.draft::after,.banner.reviewed::after{content:"";}${!s || s.state !== "FINAL" ? `body::before{content:"${!s ? "DRAFT" : "REVIEWED"}";position:fixed;top:40%;left:15%;font-size:96px;opacity:.08;transform:rotate(-30deg)}` : ""}`;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(input.entityName)} — ${esc(String(doc.period.periodYear))}</title><style>${css}</style></head><body>${banner}\n${body}</body></html>`;
   return { html, body, csv: csvRows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n" };
 }
