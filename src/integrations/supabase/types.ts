@@ -4178,6 +4178,66 @@ export type Database = {
           },
         ]
       }
+      fs_first_period_declarations: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          evidence_date: string | null
+          evidence_kind: string | null
+          evidence_ref: string | null
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          reason: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          evidence_date?: string | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          reason: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          evidence_date?: string | null
+          evidence_kind?: string | null
+          evidence_ref?: string | null
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_first_period_declarations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_first_period_declarations_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hesabu_validation_assertions: {
         Row: {
           actual_value: number | null
@@ -8351,6 +8411,10 @@ export type Database = {
         }
         Returns: Json
       }
+      _fs_earlier_period_history: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
       _fs_period_meta: {
         Args: { p_certification_id: string; p_company_id: string }
         Returns: Json
@@ -9192,6 +9256,22 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      fs_declare_first_period: {
+        Args: {
+          p_company_id: string
+          p_declare: boolean
+          p_evidence_date: string
+          p_evidence_kind: string
+          p_evidence_ref: string
+          p_period_year: number
+          p_reason: string
+        }
+        Returns: Json
+      }
+      fs_first_period_declared: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
       }
       fs_ingest_evidence_internal: {
         Args: {
