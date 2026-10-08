@@ -88,9 +88,11 @@ async function buildBase(url) {
       CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
       CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
     const chain = currentChain(REPO);
-    const tail = chain.slice(-WRAPPED_SOURCES.length);
-    if (JSON.stringify(tail) !== JSON.stringify(WRAPPED_SOURCES)) throw new Error(`the newest source migrations are not the seven wrapped sources: ${tail}`);
-    for (const f of chain.slice(0, chain.length - WRAPPED_SOURCES.length)) {
+    // The seven are consecutive in the chain; later migrations belong to later releases and are not part of this proof.
+    const first = chain.indexOf(WRAPPED_SOURCES[0]);
+    const run = chain.slice(first, first + WRAPPED_SOURCES.length);
+    if (first < 0 || JSON.stringify(run) !== JSON.stringify(WRAPPED_SOURCES)) throw new Error(`the seven wrapped sources are not consecutive in the chain: ${run}`);
+    for (const f of chain.slice(0, first)) {
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
       await c.query(t);

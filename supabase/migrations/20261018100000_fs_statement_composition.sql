@@ -1,0 +1,441 @@
+-- 20261018100000_fs_statement_composition.sql — statements composed BY THE DATABASE from the authoritative reporting
+-- input, with every figure traceable.
+--
+--   1. fs_presentation_lines        the IFRS for SMEs presentation-line vocabulary (src/lib/frameworkPacks, lines 1.0.0),
+--                                   seeded here and pinned to the TypeScript pack by test; immutable.
+--   2. fs_presentation_assignments  append-only: which line each reviewed account is presented on (or withdrawn), by
+--                                   whom (prepare_close), why, idempotent per request. The latest event per account is
+--                                   the current assignment; history is never rewritten.
+--   3. fs_framework_elections       append-only: a recorded early-application election of the IFRS for SMEs third
+--                                   edition, with the jurisdiction-confirmation reference (approve_certification).
+--   4. _fs_smes_edition_decide /    the edition policy (src/lib/frameworkPacks/editionPolicy.ts — the same decision
+--      fs_ifrs_for_smes_edition    table, pinned by the real-PostgreSQL proof): the period START decides, never a default.
+--   5. fs_statement_composition     composes the statement of financial position and the statement of comprehensive
+--                                   income from fs_reporting_input (the authoritative certification + approved
+--                                   adjustments, prior year as reported) and the current assignments. Exact numeric
+--                                   arithmetic. Every line amount carries its lineage: account, certification, certified
+--                                   amount, approved adjustments, assignment event. Totals of a period are computed only
+--                                   when EVERY account of that period is presented (otherwise null, with the reason);
+--                                   nothing is defaulted to zero. Blockers are stated, never resolved here. The result has
+--                                   a content identity (compositionSha256) that changes whenever anything it rests on
+--                                   changes.
+-- Sign-off binding to this identity is a separate migration. No cash flow, no statement of changes in equity here: both
+-- need evidence a trial balance does not carry.
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.fs_presentation_lines') IS NOT NULL OR to_regclass('public.fs_presentation_assignments') IS NOT NULL
+     OR to_regclass('public.fs_framework_elections') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: statement composition objects already exist; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+-- ── 1. Vocabulary ────────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_presentation_lines (
+  pack_family    TEXT    NOT NULL CHECK (pack_family = 'ifrs-for-smes'),
+  lines_version  TEXT    NOT NULL CHECK (lines_version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'),
+  line_id        TEXT    NOT NULL CHECK (line_id ~ '^(sfp|sci)\.[a-z_]+$'),
+  statement      TEXT    NOT NULL CHECK (statement IN ('SFP', 'SCI')),
+  label          TEXT    NOT NULL,
+  requirement_id TEXT    NOT NULL,
+  natures        TEXT[]  NOT NULL CHECK (natures <@ ARRAY['asset', 'liability', 'equity', 'income', 'expense']::text[] AND cardinality(natures) > 0),
+  position       TEXT    NULL CHECK (position IS NULL OR position IN ('current', 'non_current', 'either', 'fixed_non_current', 'equity')),
+  sort_order     INTEGER NOT NULL,
+  PRIMARY KEY (pack_family, line_id)
+);
+INSERT INTO public.fs_presentation_lines (pack_family, lines_version, line_id, statement, label, requirement_id, natures, position, sort_order) VALUES
+  ('ifrs-for-smes', '1.0.0', 'sfp.cash_and_cash_equivalents', 'SFP', 'Cash and cash equivalents', 'smes.sfp.4_2_a', ARRAY['asset']::text[], 'current', 1),
+  ('ifrs-for-smes', '1.0.0', 'sfp.trade_and_other_receivables', 'SFP', 'Trade and other receivables', 'smes.sfp.4_2_b', ARRAY['asset']::text[], 'either', 2),
+  ('ifrs-for-smes', '1.0.0', 'sfp.other_financial_assets', 'SFP', 'Other financial assets', 'smes.sfp.4_2_c', ARRAY['asset']::text[], 'either', 3),
+  ('ifrs-for-smes', '1.0.0', 'sfp.inventories', 'SFP', 'Inventories', 'smes.sfp.4_2_d', ARRAY['asset']::text[], 'current', 4),
+  ('ifrs-for-smes', '1.0.0', 'sfp.property_plant_and_equipment', 'SFP', 'Property, plant and equipment', 'smes.sfp.4_2_e', ARRAY['asset']::text[], 'non_current', 5),
+  ('ifrs-for-smes', '1.0.0', 'sfp.investment_property_cost', 'SFP', 'Investment property (cost model)', 'smes.sfp.4_2_ea', ARRAY['asset']::text[], 'non_current', 6),
+  ('ifrs-for-smes', '1.0.0', 'sfp.investment_property_fair_value', 'SFP', 'Investment property (fair value)', 'smes.sfp.4_2_f', ARRAY['asset']::text[], 'non_current', 7),
+  ('ifrs-for-smes', '1.0.0', 'sfp.intangible_assets', 'SFP', 'Intangible assets', 'smes.sfp.4_2_g', ARRAY['asset']::text[], 'non_current', 8),
+  ('ifrs-for-smes', '1.0.0', 'sfp.biological_assets_cost', 'SFP', 'Biological assets (cost model)', 'smes.sfp.4_2_h', ARRAY['asset']::text[], 'either', 9),
+  ('ifrs-for-smes', '1.0.0', 'sfp.biological_assets_fair_value', 'SFP', 'Biological assets (fair value)', 'smes.sfp.4_2_i', ARRAY['asset']::text[], 'either', 10),
+  ('ifrs-for-smes', '1.0.0', 'sfp.investments_in_associates', 'SFP', 'Investments in associates', 'smes.sfp.4_2_j', ARRAY['asset']::text[], 'non_current', 11),
+  ('ifrs-for-smes', '1.0.0', 'sfp.investments_in_jointly_controlled_entities', 'SFP', 'Investments in jointly controlled entities', 'smes.sfp.4_2_k', ARRAY['asset']::text[], 'non_current', 12),
+  ('ifrs-for-smes', '1.0.0', 'sfp.trade_and_other_payables', 'SFP', 'Trade and other payables', 'smes.sfp.4_2_l', ARRAY['liability']::text[], 'either', 13),
+  ('ifrs-for-smes', '1.0.0', 'sfp.other_financial_liabilities', 'SFP', 'Borrowings and other financial liabilities', 'smes.sfp.4_2_m', ARRAY['liability']::text[], 'either', 14),
+  ('ifrs-for-smes', '1.0.0', 'sfp.current_tax', 'SFP', 'Current tax', 'smes.sfp.4_2_n', ARRAY['asset', 'liability']::text[], 'current', 15),
+  ('ifrs-for-smes', '1.0.0', 'sfp.deferred_tax', 'SFP', 'Deferred tax', 'smes.sfp.4_2_o', ARRAY['asset', 'liability']::text[], 'fixed_non_current', 16),
+  ('ifrs-for-smes', '1.0.0', 'sfp.provisions', 'SFP', 'Provisions', 'smes.sfp.4_2_p', ARRAY['liability']::text[], 'either', 17),
+  ('ifrs-for-smes', '1.0.0', 'sfp.non_controlling_interest', 'SFP', 'Non-controlling interest', 'smes.sfp.4_2_q', ARRAY['equity']::text[], 'equity', 18),
+  ('ifrs-for-smes', '1.0.0', 'sfp.equity_attributable_to_owners', 'SFP', 'Equity attributable to owners', 'smes.sfp.4_2_r', ARRAY['equity']::text[], 'equity', 19),
+  ('ifrs-for-smes', '1.0.0', 'sci.revenue', 'SCI', 'Revenue', 'smes.sci.5_5_a', ARRAY['income']::text[], NULL, 20),
+  ('ifrs-for-smes', '1.0.0', 'sci.other_income', 'SCI', 'Other income', 'smes.sci.5_11', ARRAY['income']::text[], NULL, 21),
+  ('ifrs-for-smes', '1.0.0', 'sci.cost_of_sales', 'SCI', 'Cost of sales', 'smes.sci.5_11', ARRAY['expense']::text[], NULL, 22),
+  ('ifrs-for-smes', '1.0.0', 'sci.operating_expenses_by_function', 'SCI', 'Distribution, administrative and other expenses (by function)', 'smes.sci.5_11', ARRAY['expense']::text[], NULL, 23),
+  ('ifrs-for-smes', '1.0.0', 'sci.employee_benefits_expense', 'SCI', 'Employee benefits expense (by nature)', 'smes.sci.5_11', ARRAY['expense']::text[], NULL, 24),
+  ('ifrs-for-smes', '1.0.0', 'sci.depreciation_and_amortisation', 'SCI', 'Depreciation and amortisation (by nature)', 'smes.sci.5_11', ARRAY['expense']::text[], NULL, 25),
+  ('ifrs-for-smes', '1.0.0', 'sci.other_expenses_by_nature', 'SCI', 'Other expenses (by nature)', 'smes.sci.5_11', ARRAY['expense']::text[], NULL, 26),
+  ('ifrs-for-smes', '1.0.0', 'sci.finance_costs', 'SCI', 'Finance costs', 'smes.sci.5_5_b', ARRAY['expense']::text[], NULL, 27),
+  ('ifrs-for-smes', '1.0.0', 'sci.share_of_associates', 'SCI', 'Share of profit or loss of associates', 'smes.sci.5_5_c', ARRAY['income', 'expense']::text[], NULL, 28),
+  ('ifrs-for-smes', '1.0.0', 'sci.tax_expense', 'SCI', 'Tax expense', 'smes.sci.5_5_d', ARRAY['expense', 'income']::text[], NULL, 29);
+
+CREATE OR REPLACE FUNCTION public.fs_presentation_lines_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  RAISE EXCEPTION 'FS_PRESENTATION_IMMUTABLE: % on %', TG_OP, TG_TABLE_NAME USING ERRCODE = '42501';
+END;
+$$;
+CREATE TRIGGER trg_fspl_immutable BEFORE UPDATE OR DELETE ON public.fs_presentation_lines FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_lines_guard();
+CREATE TRIGGER trg_fspl_no_truncate BEFORE TRUNCATE ON public.fs_presentation_lines FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_lines_guard();
+
+-- ── 2. Assignments (append-only) ─────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_presentation_assignments (
+  id             UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq            BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id     UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  pack_family    TEXT        NOT NULL CHECK (pack_family = 'ifrs-for-smes'),
+  account_key    TEXT        NOT NULL CHECK (length(account_key) BETWEEN 1 AND 200),
+  -- NULL = the account's assignment withdrawn (it is then unassigned again).
+  line_id        TEXT        NULL,
+  reason         TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
+  actor_user_id  UUID        NOT NULL,
+  firm_member_id UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id     UUID        NOT NULL,
+  batch_ordinal  INTEGER     NOT NULL CHECK (batch_ordinal >= 0),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT fk_fspa_line FOREIGN KEY (pack_family, line_id) REFERENCES public.fs_presentation_lines (pack_family, line_id),
+  CONSTRAINT uq_fspa_request UNIQUE (actor_user_id, request_id, batch_ordinal)
+);
+CREATE INDEX idx_fspa_current ON public.fs_presentation_assignments (company_id, pack_family, account_key, seq DESC);
+
+-- ── 3. Early-application elections (append-only) ────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_framework_elections (
+  id                        UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq                       BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id                UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  period_year               INTEGER     NOT NULL,
+  action                    TEXT        NOT NULL CHECK (action IN ('elected', 'withdrawn')),
+  edition                   TEXT        NOT NULL CHECK (edition = '2025'),
+  jurisdiction_confirmation TEXT        NULL,
+  reason                    TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
+  actor_user_id             UUID        NOT NULL,
+  firm_member_id            UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT chk_ffe_confirmation CHECK (action <> 'elected' OR length(btrim(coalesce(jurisdiction_confirmation, ''))) BETWEEN 3 AND 500)
+);
+CREATE INDEX idx_ffe_current ON public.fs_framework_elections (company_id, period_year, seq DESC);
+
+CREATE OR REPLACE FUNCTION public.fs_presentation_append_only()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  RAISE EXCEPTION 'FS_PRESENTATION_APPEND_ONLY: % on %', TG_OP, TG_TABLE_NAME USING ERRCODE = '42501';
+END;
+$$;
+CREATE TRIGGER trg_fspa_append_only BEFORE UPDATE OR DELETE ON public.fs_presentation_assignments FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_fspa_no_truncate BEFORE TRUNCATE ON public.fs_presentation_assignments FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_ffe_append_only BEFORE UPDATE OR DELETE ON public.fs_framework_elections FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_ffe_no_truncate BEFORE TRUNCATE ON public.fs_framework_elections FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+
+-- ── 4. Edition policy ────────────────────────────────────────────────────────────────────────────────────────────────
+-- The same decision table as src/lib/frameworkPacks/editionPolicy.ts (pinned by the proof). An election can only exist
+-- with its jurisdiction confirmation (chk_ffe_confirmation), so "elected" here always means "elected and confirmed".
+CREATE OR REPLACE FUNCTION public._fs_smes_edition_decide(p_framework text, p_start date, p_elected boolean)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_framework IS DISTINCT FROM 'ifrs_for_smes' THEN jsonb_build_object('state', 'refused', 'reason', 'FRAMEWORK_NOT_IFRS_FOR_SMES')
+    WHEN p_start IS NULL THEN jsonb_build_object('state', 'refused', 'reason', 'PERIOD_START_UNKNOWN')
+    WHEN p_start < DATE '2017-01-01' THEN jsonb_build_object('state', 'refused', 'reason', 'EDITION_UNSUPPORTED')
+    WHEN p_start >= DATE '2027-01-01' THEN jsonb_build_object('state', 'resolved', 'packId', 'ifrs-for-smes/2025', 'earlyApplication', false)
+    WHEN coalesce(p_elected, false) THEN jsonb_build_object('state', 'resolved', 'packId', 'ifrs-for-smes/2025', 'earlyApplication', true)
+    ELSE jsonb_build_object('state', 'resolved', 'packId', 'ifrs-for-smes/2015', 'earlyApplication', false)
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION public._fs_smes_elected(p_company_id uuid, p_period_year integer)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT coalesce((SELECT e.action = 'elected' FROM public.fs_framework_elections e
+                    WHERE e.company_id = p_company_id AND e.period_year = p_period_year ORDER BY e.seq DESC LIMIT 1), false);
+$$;
+
+-- Outcomes: recorded | unchanged | forbidden | feature_disabled | invalid_request | framework_not_ifrs_for_smes.
+CREATE OR REPLACE FUNCTION public.fs_elect_early_application(p_company_id uuid, p_period_year integer, p_elect boolean,
+  p_jurisdiction_confirmation text, p_reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_elect IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000
+     OR (p_elect AND length(btrim(coalesce(p_jurisdiction_confirmation, ''))) NOT BETWEEN 3 AND 500) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'approve_certification') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  IF (SELECT c.reporting_framework FROM public.companies c WHERE c.id = p_company_id) IS DISTINCT FROM 'ifrs_for_smes' THEN
+    RETURN jsonb_build_object('outcome', 'framework_not_ifrs_for_smes');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_framework_election:' || p_company_id::text || ':' || p_period_year::text, 0));
+  IF public._fs_smes_elected(p_company_id, p_period_year) = p_elect THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  INSERT INTO public.fs_framework_elections (company_id, period_year, action, edition, jurisdiction_confirmation, reason, actor_user_id, firm_member_id)
+  VALUES (p_company_id, p_period_year, CASE WHEN p_elect THEN 'elected' ELSE 'withdrawn' END, '2025',
+          CASE WHEN p_elect THEN btrim(p_jurisdiction_confirmation) END, btrim(p_reason), v_uid, public._cr_member(p_company_id, v_uid));
+  RETURN jsonb_build_object('outcome', 'recorded', 'elected', p_elect);
+END;
+$$;
+
+-- ── 5. Assigning accounts to lines ──────────────────────────────────────────────────────────────────────────────────
+-- p_assignments: [{"accountKey": text, "lineId": text | null}], 1–500 distinct accounts. Outcomes: recorded (with replay
+-- on a retried request) | unchanged | forbidden | feature_disabled | invalid_request | unknown_line |
+-- framework_not_ifrs_for_smes | request_reused.
+CREATE OR REPLACE FUNCTION public.fs_assign_presentation(p_company_id uuid, p_assignments jsonb, p_reason text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_prior jsonb;
+  v_given jsonb;
+  v_unknown text;
+  v_n integer;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_request_id IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000
+     OR jsonb_typeof(p_assignments) IS DISTINCT FROM 'array' OR jsonb_array_length(p_assignments) NOT BETWEEN 1 AND 500
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_assignments) e
+                 WHERE jsonb_typeof(e) <> 'object' OR jsonb_typeof(e -> 'accountKey') IS DISTINCT FROM 'string'
+                    OR length(e ->> 'accountKey') NOT BETWEEN 1 AND 200
+                    OR (e ? 'lineId' AND jsonb_typeof(e -> 'lineId') NOT IN ('string', 'null'))
+                    OR NOT (e ? 'lineId'))
+     OR (SELECT count(DISTINCT e ->> 'accountKey') FROM jsonb_array_elements(p_assignments) e) <> jsonb_array_length(p_assignments) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'prepare_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  IF (SELECT c.reporting_framework FROM public.companies c WHERE c.id = p_company_id) IS DISTINCT FROM 'ifrs_for_smes' THEN
+    RETURN jsonb_build_object('outcome', 'framework_not_ifrs_for_smes');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_presentation:' || p_company_id::text, 0));
+  -- A retried request: the same content answers its earlier outcome; other content under the same id is refused.
+  v_given := (SELECT jsonb_agg(jsonb_build_object('accountKey', e ->> 'accountKey', 'lineId', e ->> 'lineId') ORDER BY e ->> 'accountKey')
+                FROM jsonb_array_elements(p_assignments) e);
+  SELECT jsonb_agg(jsonb_build_object('accountKey', a.account_key, 'lineId', a.line_id) ORDER BY a.account_key) INTO v_prior
+    FROM public.fs_presentation_assignments a WHERE a.actor_user_id = v_uid AND a.request_id = p_request_id;
+  IF v_prior IS NOT NULL THEN
+    IF v_prior = v_given AND (SELECT DISTINCT a.company_id FROM public.fs_presentation_assignments a WHERE a.actor_user_id = v_uid AND a.request_id = p_request_id) = p_company_id
+    THEN RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'count', jsonb_array_length(v_prior)); END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  SELECT e ->> 'lineId' INTO v_unknown FROM jsonb_array_elements(p_assignments) e
+   WHERE e ->> 'lineId' IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.fs_presentation_lines l WHERE l.pack_family = 'ifrs-for-smes' AND l.line_id = e ->> 'lineId')
+   LIMIT 1;
+  IF v_unknown IS NOT NULL THEN RETURN jsonb_build_object('outcome', 'unknown_line', 'lineId', v_unknown); END IF;
+  -- Only accounts whose current assignment actually changes are recorded.
+  WITH given AS (SELECT e ->> 'accountKey' AS k, e ->> 'lineId' AS line, (o - 1)::integer AS ord FROM jsonb_array_elements(p_assignments) WITH ORDINALITY AS t(e, o)),
+       cur AS (SELECT DISTINCT ON (a.account_key) a.account_key, a.line_id FROM public.fs_presentation_assignments a
+                WHERE a.company_id = p_company_id AND a.pack_family = 'ifrs-for-smes' ORDER BY a.account_key, a.seq DESC),
+       changed AS (SELECT g.* FROM given g LEFT JOIN cur c ON c.account_key = g.k
+                    WHERE (c.account_key IS NULL AND g.line IS NOT NULL) OR (c.account_key IS NOT NULL AND c.line_id IS DISTINCT FROM g.line))
+  INSERT INTO public.fs_presentation_assignments (company_id, pack_family, account_key, line_id, reason, actor_user_id, firm_member_id, request_id, batch_ordinal)
+  SELECT p_company_id, 'ifrs-for-smes', ch.k, ch.line, btrim(p_reason), v_uid, public._cr_member(p_company_id, v_uid), p_request_id, ch.ord FROM changed ch;
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  IF v_n = 0 THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  RETURN jsonb_build_object('outcome', 'recorded', 'count', v_n);
+END;
+$$;
+
+-- ── 6. Composition ───────────────────────────────────────────────────────────────────────────────────────────────────
+-- The section an account's reviewed classification places it in; cash-flow classifications cannot be presented on
+-- either statement and are 'excluded' (reported, never dropped silently).
+CREATE OR REPLACE FUNCTION public._fs_section(p_classification text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE p_classification
+    WHEN 'current_assets' THEN 'current_assets' WHEN 'non_current_assets' THEN 'non_current_assets'
+    WHEN 'current_liabilities' THEN 'current_liabilities' WHEN 'non_current_liabilities' THEN 'non_current_liabilities'
+    WHEN 'equity' THEN 'equity'
+    WHEN 'revenue' THEN 'income' WHEN 'other_income' THEN 'income'
+    WHEN 'cost_of_goods_sold' THEN 'expense' WHEN 'operating_expenses' THEN 'expense' WHEN 'taxes' THEN 'expense'
+    ELSE 'excluded' END;
+$$;
+
+-- presented | unassigned | incompatible | excluded — whether an account may be presented on its assigned line.
+CREATE OR REPLACE FUNCTION public._fs_presentation_status(p_section text, p_line_id text, p_statement text, p_natures text[], p_position text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_section = 'excluded' THEN 'excluded'
+    WHEN p_line_id IS NULL OR p_statement IS NULL THEN 'unassigned'
+    WHEN NOT (CASE p_section WHEN 'current_assets' THEN 'asset' WHEN 'non_current_assets' THEN 'asset'
+                WHEN 'current_liabilities' THEN 'liability' WHEN 'non_current_liabilities' THEN 'liability'
+                WHEN 'equity' THEN 'equity' WHEN 'income' THEN 'income' ELSE 'expense' END) = ANY (p_natures) THEN 'incompatible'
+    WHEN p_statement = 'SCI' THEN CASE WHEN p_section IN ('income', 'expense') THEN 'presented' ELSE 'incompatible' END
+    WHEN p_section IN ('income', 'expense') THEN 'incompatible'
+    WHEN p_position = 'current' AND p_section NOT IN ('current_assets', 'current_liabilities') THEN 'incompatible'
+    WHEN p_position IN ('non_current', 'fixed_non_current') AND p_section NOT IN ('non_current_assets', 'non_current_liabilities') THEN 'incompatible'
+    WHEN p_position = 'equity' AND p_section <> 'equity' THEN 'incompatible'
+    WHEN p_position = 'either' AND p_section = 'equity' THEN 'incompatible'
+    ELSE 'presented' END;
+$$;
+
+-- SCI lines presented credit-positive (income); every other SCI line is debit-positive (expense). SFP lines follow their
+-- section: assets debit-positive, liabilities and equity credit-positive.
+CREATE OR REPLACE FUNCTION public._fs_line_amount(p_statement text, p_section text, p_line_id text, p_debit_net numeric)
+RETURNS numeric LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_statement = 'SFP' THEN CASE WHEN p_section IN ('current_assets', 'non_current_assets') THEN p_debit_net ELSE -p_debit_net END
+    WHEN p_line_id IN ('sci.revenue', 'sci.other_income', 'sci.share_of_associates') THEN -p_debit_net
+    ELSE p_debit_net END;
+$$;
+
+-- VOLATILE only because it uses a transaction-local working table (dropped before it returns); it writes nothing
+-- persistent.
+CREATE OR REPLACE FUNCTION public.fs_statement_composition(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_input jsonb;
+  v_edition jsonb;
+  v_cur jsonb;
+  v_cmp jsonb;
+  v_cmp_state text;
+  v_lines jsonb;
+  v_totals jsonb;
+  v_accounts jsonb;
+  v_blockers text[] := '{}';
+  v_body jsonb;
+  v_n integer;
+BEGIN
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
+  v_input := public.fs_reporting_input(p_company_id, p_period_year);
+  IF v_input ->> 'state' IS DISTINCT FROM 'current' THEN
+    RETURN jsonb_build_object('state', coalesce(v_input ->> 'state', 'unavailable'), 'periodYear', p_period_year);
+  END IF;
+  v_cur := v_input -> 'current';
+  v_edition := public._fs_smes_edition_decide((SELECT c.reporting_framework FROM public.companies c WHERE c.id = p_company_id),
+                                              (v_cur ->> 'reportingStart')::date, public._fs_smes_elected(p_company_id, p_period_year));
+  IF v_edition ->> 'state' <> 'resolved' THEN
+    RETURN jsonb_build_object('state', 'edition_unresolved', 'reason', v_edition ->> 'reason', 'periodYear', p_period_year, 'inputSha256', v_input ->> 'inputSha256');
+  END IF;
+  v_cmp := v_input -> 'comparative';
+  v_cmp_state := CASE WHEN v_cmp ->> 'state' = 'available' AND (v_cmp ->> 'currency' IS DISTINCT FROM v_cur ->> 'currency' OR v_cmp ->> 'exponent' IS DISTINCT FROM v_cur ->> 'exponent')
+                      THEN 'different_currency' ELSE v_cmp ->> 'state' END;
+
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.fs_comp_rows (role text, cert text, k text, code text, name text, classification text, section text,
+    debit_net numeric, cert_debit_net numeric, adjustments jsonb, line_id text, statement text, label text, requirement_id text, sort_order integer,
+    position text, natures text[], asg_id uuid, asg_seq bigint, status text, amount numeric, cert_amount numeric) ON COMMIT DROP;
+  TRUNCATE pg_temp.fs_comp_rows;
+  INSERT INTO pg_temp.fs_comp_rows
+  WITH asg AS (
+    SELECT DISTINCT ON (a.account_key) a.account_key, a.line_id, a.id, a.seq FROM public.fs_presentation_assignments a
+     WHERE a.company_id = p_company_id AND a.pack_family = 'ifrs-for-smes' ORDER BY a.account_key, a.seq DESC),
+  acc AS (
+    SELECT 'current'::text AS role, v_cur ->> 'certificationId' AS cert, x AS a FROM jsonb_array_elements(v_cur -> 'accounts') x
+    UNION ALL
+    SELECT 'comparative', v_cmp ->> 'certificationId', x FROM jsonb_array_elements(CASE WHEN v_cmp_state = 'available' THEN v_cmp -> 'accounts' ELSE '[]'::jsonb END) x),
+  base AS (
+    SELECT acc.role, acc.cert, acc.a ->> 'accountKey' AS k, acc.a ->> 'accountCode' AS code, acc.a ->> 'accountName' AS name,
+           acc.a ->> 'classification' AS classification, public._fs_section(acc.a ->> 'classification') AS section,
+           (acc.a ->> 'debitMinor')::numeric - (acc.a ->> 'creditMinor')::numeric AS debit_net,
+           (acc.a ->> 'certifiedDebitMinor')::numeric - (acc.a ->> 'certifiedCreditMinor')::numeric AS cert_debit_net,
+           coalesce(acc.a -> 'adjustmentIds', '[]'::jsonb) AS adjustments,
+           asg.line_id, l.statement, l.label, l.requirement_id, l.sort_order, l.position, l.natures, asg.id AS asg_id, asg.seq AS asg_seq
+      FROM acc LEFT JOIN asg ON asg.account_key = acc.a ->> 'accountKey'
+      LEFT JOIN public.fs_presentation_lines l ON l.pack_family = 'ifrs-for-smes' AND l.line_id = asg.line_id)
+  SELECT b.*, public._fs_presentation_status(b.section, b.line_id, b.statement, b.natures, b.position),
+         public._fs_line_amount(b.statement, b.section, b.line_id, b.debit_net), public._fs_line_amount(b.statement, b.section, b.line_id, b.cert_debit_net)
+    FROM base b;
+
+  -- Lines: one per (statement, section, line) for the statement of financial position; one per line for the statement of
+  -- comprehensive income. A period's amount is the exact sum of its presented accounts (an account absent from a complete
+  -- certified trial balance has no balance); the comparative is null unless the prior year is available in the same
+  -- currency.
+  WITH g AS (
+    SELECT r.statement, CASE WHEN r.statement = 'SFP' THEN r.section ELSE 'sci' END AS grp, r.line_id, min(r.label) AS label, min(r.requirement_id) AS req, min(r.sort_order) AS sort,
+           coalesce(sum(r.amount) FILTER (WHERE r.role = 'current'), 0) AS cur_amt, count(*) FILTER (WHERE r.role = 'current') AS cur_n,
+           coalesce(sum(r.amount) FILTER (WHERE r.role = 'comparative'), 0) AS cmp_amt, count(*) FILTER (WHERE r.role = 'comparative') AS cmp_n,
+           jsonb_agg(jsonb_build_object('period', r.role, 'accountKey', r.k, 'accountCode', r.code, 'accountName', r.name, 'certificationId', r.cert,
+             'classification', r.classification, 'amountMinor', r.amount::text, 'certifiedAmountMinor', r.cert_amount::text, 'adjustmentIds', r.adjustments,
+             'assignmentId', r.asg_id, 'assignmentSeq', r.asg_seq) ORDER BY r.role DESC, r.k) AS lineage
+      FROM pg_temp.fs_comp_rows r WHERE r.status = 'presented' GROUP BY 1, 2, 3)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('statement', g.statement, 'section', g.grp, 'lineId', g.line_id, 'label', g.label, 'requirementId', g.req,
+           'current', jsonb_build_object('amountMinor', g.cur_amt::text, 'accounts', g.cur_n),
+           'comparative', CASE WHEN v_cmp_state = 'available' THEN jsonb_build_object('amountMinor', g.cmp_amt::text, 'accounts', g.cmp_n) END,
+           'lineage', g.lineage)
+         ORDER BY g.statement DESC, array_position(ARRAY['non_current_assets', 'current_assets', 'equity', 'non_current_liabilities', 'current_liabilities', 'sci'], g.grp), g.sort), '[]'::jsonb)
+    INTO v_lines FROM g;
+
+  -- Totals per period, only when every account of that period is presented.
+  SELECT jsonb_object_agg(p.role, CASE WHEN p.not_presented > 0 THEN jsonb_build_object('state', 'incomplete', 'notPresented', p.not_presented)
+    ELSE jsonb_build_object('state', 'complete',
+      'nonCurrentAssetsMinor', p.nca::text, 'currentAssetsMinor', p.ca::text, 'totalAssetsMinor', (p.nca + p.ca)::text,
+      'currentLiabilitiesMinor', p.cl::text, 'nonCurrentLiabilitiesMinor', p.ncl::text, 'totalLiabilitiesMinor', (p.cl + p.ncl)::text,
+      'equityAccountsMinor', p.eq::text, 'incomeMinor', p.inc::text, 'expensesExcludingTaxMinor', p.exp::text,
+      'profitBeforeTaxMinor', (p.inc - p.exp)::text, 'taxExpenseMinor', p.tax::text, 'profitOrLossMinor', (p.inc - p.exp - p.tax)::text,
+      'totalEquityMinor', (p.eq + p.inc - p.exp - p.tax)::text,
+      'totalEquityAndLiabilitiesMinor', (p.cl + p.ncl + p.eq + p.inc - p.exp - p.tax)::text,
+      'balanceDifferenceMinor', ((p.nca + p.ca) - (p.cl + p.ncl + p.eq + p.inc - p.exp - p.tax))::text) END)
+    INTO v_totals
+    FROM (SELECT r.role,
+                 count(*) FILTER (WHERE r.status <> 'presented') AS not_presented,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SFP' AND r.section = 'non_current_assets'), 0) AS nca,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SFP' AND r.section = 'current_assets'), 0) AS ca,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SFP' AND r.section = 'current_liabilities'), 0) AS cl,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SFP' AND r.section = 'non_current_liabilities'), 0) AS ncl,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SFP' AND r.section = 'equity'), 0) AS eq,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SCI' AND r.line_id IN ('sci.revenue', 'sci.other_income', 'sci.share_of_associates')), 0) AS inc,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SCI' AND r.line_id NOT IN ('sci.revenue', 'sci.other_income', 'sci.share_of_associates', 'sci.tax_expense')), 0) AS exp,
+                 coalesce(sum(r.amount) FILTER (WHERE r.status = 'presented' AND r.statement = 'SCI' AND r.line_id = 'sci.tax_expense'), 0) AS tax
+            FROM pg_temp.fs_comp_rows r GROUP BY r.role) p;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object('period', r.role, 'accountKey', r.k, 'accountCode', r.code, 'accountName', r.name,
+           'classification', r.classification, 'status', r.status, 'lineId', r.line_id) ORDER BY r.role DESC, r.status, r.k), '[]'::jsonb)
+    INTO v_accounts FROM pg_temp.fs_comp_rows r WHERE r.status <> 'presented';
+
+  SELECT count(*) INTO v_n FROM pg_temp.fs_comp_rows r WHERE r.role = 'current' AND r.status = 'unassigned';
+  IF v_n > 0 THEN v_blockers := v_blockers || ('PRESENTATION_UNASSIGNED:' || v_n); END IF;
+  SELECT count(*) INTO v_n FROM pg_temp.fs_comp_rows r WHERE r.role = 'current' AND r.status = 'incompatible';
+  IF v_n > 0 THEN v_blockers := v_blockers || ('PRESENTATION_INCOMPATIBLE:' || v_n); END IF;
+  SELECT count(*) INTO v_n FROM pg_temp.fs_comp_rows r WHERE r.role = 'current' AND r.status = 'excluded';
+  IF v_n > 0 THEN v_blockers := v_blockers || ('ACCOUNTS_NOT_PRESENTABLE:' || v_n); END IF;
+  -- 5.11: one analysis of expenses — by function or by nature, never both.
+  IF EXISTS (SELECT 1 FROM pg_temp.fs_comp_rows r WHERE r.role = 'current' AND r.status = 'presented' AND r.line_id IN ('sci.cost_of_sales', 'sci.operating_expenses_by_function'))
+     AND EXISTS (SELECT 1 FROM pg_temp.fs_comp_rows r WHERE r.role = 'current' AND r.status = 'presented' AND r.line_id IN ('sci.employee_benefits_expense', 'sci.depreciation_and_amortisation', 'sci.other_expenses_by_nature')) THEN
+    v_blockers := v_blockers || 'EXPENSE_ANALYSIS_MIXED'::text;
+  END IF;
+  IF v_totals -> 'current' ->> 'state' = 'complete' AND (v_totals -> 'current' ->> 'balanceDifferenceMinor')::numeric <> 0 THEN
+    v_blockers := v_blockers || ('BALANCE_DIFFERENCE:' || (v_totals -> 'current' ->> 'balanceDifferenceMinor'));
+  END IF;
+
+  v_body := jsonb_build_object(
+    'contract', 'fs-statement-composition/1',
+    'pack', jsonb_build_object('family', 'ifrs-for-smes', 'linesVersion', '1.0.0', 'packId', v_edition ->> 'packId', 'earlyApplication', (v_edition ->> 'earlyApplication')::boolean),
+    'inputSha256', v_input ->> 'inputSha256',
+    'current', jsonb_build_object('periodYear', p_period_year, 'certificationId', v_cur ->> 'certificationId', 'currency', v_cur ->> 'currency',
+                                  'exponent', (v_cur ->> 'exponent')::integer, 'reportingStart', v_cur ->> 'reportingStart', 'reportingEnd', v_cur ->> 'reportingEnd'),
+    'comparative', jsonb_build_object('state', v_cmp_state, 'periodYear', (v_cmp ->> 'periodYear')::integer, 'certificationId', v_cmp ->> 'certificationId'),
+    'lines', v_lines,
+    'totals', coalesce(v_totals, '{}'::jsonb),
+    'accountsNotPresented', v_accounts,
+    'blockers', to_jsonb(v_blockers));
+  DROP TABLE pg_temp.fs_comp_rows;
+  RETURN jsonb_build_object('state', 'composed') || v_body
+    || jsonb_build_object('compositionSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+-- ── Access ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+ALTER TABLE public.fs_presentation_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fs_presentation_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fs_framework_elections ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.fs_presentation_lines, public.fs_presentation_assignments, public.fs_framework_elections FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.fs_presentation_lines TO authenticated;
+GRANT SELECT ON public.fs_presentation_assignments, public.fs_framework_elections TO authenticated;
+CREATE POLICY fspl_read ON public.fs_presentation_lines FOR SELECT TO authenticated USING (true);
+CREATE POLICY fspa_read ON public.fs_presentation_assignments FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+CREATE POLICY ffe_read ON public.fs_framework_elections FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+
+REVOKE ALL ON FUNCTION public.fs_presentation_lines_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_presentation_append_only() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_smes_edition_decide(text, date, boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_smes_elected(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_section(text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_presentation_status(text, text, text, text[], text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_line_amount(text, text, text, numeric) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_elect_early_application(uuid, integer, boolean, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_elect_early_application(uuid, integer, boolean, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_assign_presentation(uuid, jsonb, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_assign_presentation(uuid, jsonb, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_statement_composition(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_statement_composition(uuid, integer) TO authenticated;

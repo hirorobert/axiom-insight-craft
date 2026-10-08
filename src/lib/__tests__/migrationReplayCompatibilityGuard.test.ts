@@ -223,7 +223,8 @@ describe("migration directory integrity", () => {
     // 155 -> 156: 20261015100000_close_review_adjustments.sql (Close Review I3 adjustments: approved adjusting journals as a layer), a NEW forward-only migration pending hosted application.
     // 156 -> 157: 20261016100000_fs_reporting_input.sql (Financial Statements: the authoritative reporting input), a NEW forward-only migration pending hosted application.
     // 157 -> 158: 20261017100000_signoff_completion_requirements.sql (Sign-off completion requirements: Close Review and the authoritative input in fs_publication_blockers; first-period declarations), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(158);
+    // 158 -> 159: 20261018100000_fs_statement_composition.sql (statement composition, presentation assignments and edition elections), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(159);
   });
 });
 

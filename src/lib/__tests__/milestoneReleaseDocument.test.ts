@@ -35,11 +35,12 @@ describe("the milestone release procedure states exactly the repository's identi
       expect(SUBMISSION_FORMS[name]).toMatchObject({ identical: { bytes: src.length, sha256: canonical }, finalLfRemoved: { bytes: src.length - 1, sha256: lfSha } });
     }
   });
-  it("the seven are exactly the newest source migrations", () => {
+  it("the seven are consecutive source migrations, in release order", () => {
     const proof = fs.readFileSync(path.join(ROOT, "scripts/db-proof/milestoneReleaseOrder.mjs"), "utf8");
     for (const m of RELEASE_MIGRATIONS) expect(proof, m).toContain(`"${m}",`);
     const all = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => /^\d{14}_.+\.sql$/.test(f)).sort();
-    expect(all.slice(-RELEASE_MIGRATIONS.length)).toEqual(RELEASE_MIGRATIONS);
+    const first = all.indexOf(RELEASE_MIGRATIONS[0]);
+    expect(all.slice(first, first + RELEASE_MIGRATIONS.length)).toEqual(RELEASE_MIGRATIONS);
   });
   it("states the source closure digests of the two functions it names", () => {
     for (const fn of ["trial-balance-storage-cleanup", "layout-assist"]) {

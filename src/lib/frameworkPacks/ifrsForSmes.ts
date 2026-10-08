@@ -169,6 +169,8 @@ function lines(): PresentationLine[] {
 }
 
 export const IFRS_FOR_SMES_PACK_VERSION = "1.0.0";
+/** Version of the presentation-line vocabulary alone (fs_presentation_lines.lines_version); changes only when `lines()` changes. */
+export const IFRS_FOR_SMES_LINES_VERSION = "1.0.0";
 
 export const IFRS_FOR_SMES_2015: FrameworkPack = Object.freeze<FrameworkPack>({
   id: "ifrs-for-smes/2015",
