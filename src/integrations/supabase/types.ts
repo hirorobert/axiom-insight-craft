@@ -4178,6 +4178,73 @@ export type Database = {
           },
         ]
       }
+      fs_disclosure_texts: {
+        Row: {
+          actor_user_id: string
+          body: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          pack_family: string
+          period_year: number
+          request_id: string
+          requirement_id: string
+          seq: number
+          source_ref: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          body?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          pack_family?: string
+          period_year: number
+          request_id: string
+          requirement_id: string
+          seq?: never
+          source_ref?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          body?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          pack_family?: string
+          period_year?: number
+          request_id?: string
+          requirement_id?: string
+          seq?: never
+          source_ref?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsdt_requirement"
+            columns: ["pack_family", "requirement_id"]
+            isOneToOne: false
+            referencedRelation: "fs_pack_requirements"
+            referencedColumns: ["pack_family", "requirement_id"]
+          },
+          {
+            foreignKeyName: "fs_disclosure_texts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_disclosure_texts_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_first_period_declarations: {
         Row: {
           action: string
@@ -4231,6 +4298,383 @@ export type Database = {
           },
           {
             foreignKeyName: "fs_first_period_declarations_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_framework_elections: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          edition: string
+          firm_member_id: string | null
+          id: string
+          jurisdiction_confirmation: string | null
+          period_year: number
+          reason: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          edition: string
+          firm_member_id?: string | null
+          id?: string
+          jurisdiction_confirmation?: string | null
+          period_year: number
+          reason: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          edition?: string
+          firm_member_id?: string | null
+          id?: string
+          jurisdiction_confirmation?: string | null
+          period_year?: number
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_framework_elections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_framework_elections_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_pack_requirements: {
+        Row: {
+          applicability: string
+          blocking: boolean
+          kind: string
+          pack_family: string
+          pack_version: string
+          requirement_id: string
+          sort_order: number
+          statement: string | null
+        }
+        Insert: {
+          applicability: string
+          blocking: boolean
+          kind: string
+          pack_family: string
+          pack_version: string
+          requirement_id: string
+          sort_order: number
+          statement?: string | null
+        }
+        Update: {
+          applicability?: string
+          blocking?: boolean
+          kind?: string
+          pack_family?: string
+          pack_version?: string
+          requirement_id?: string
+          sort_order?: number
+          statement?: string | null
+        }
+        Relationships: []
+      }
+      fs_presentation_assignments: {
+        Row: {
+          account_key: string
+          actor_user_id: string
+          batch_ordinal: number
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          line_id: string | null
+          pack_family: string
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          account_key: string
+          actor_user_id: string
+          batch_ordinal: number
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          line_id?: string | null
+          pack_family: string
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          account_key?: string
+          actor_user_id?: string
+          batch_ordinal?: number
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          line_id?: string | null
+          pack_family?: string
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fspa_line"
+            columns: ["pack_family", "line_id"]
+            isOneToOne: false
+            referencedRelation: "fs_presentation_lines"
+            referencedColumns: ["pack_family", "line_id"]
+          },
+          {
+            foreignKeyName: "fs_presentation_assignments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_presentation_assignments_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_presentation_lines: {
+        Row: {
+          label: string
+          line_id: string
+          lines_version: string
+          natures: string[]
+          pack_family: string
+          position: string | null
+          requirement_id: string
+          sort_order: number
+          statement: string
+        }
+        Insert: {
+          label: string
+          line_id: string
+          lines_version: string
+          natures: string[]
+          pack_family: string
+          position?: string | null
+          requirement_id: string
+          sort_order: number
+          statement: string
+        }
+        Update: {
+          label?: string
+          line_id?: string
+          lines_version?: string
+          natures?: string[]
+          pack_family?: string
+          position?: string | null
+          requirement_id?: string
+          sort_order?: number
+          statement?: string
+        }
+        Relationships: []
+      }
+      fs_requirement_decisions: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          decision: string
+          firm_member_id: string | null
+          id: string
+          pack_family: string
+          period_year: number
+          reason: string
+          request_id: string
+          requirement_id: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          decision: string
+          firm_member_id?: string | null
+          id?: string
+          pack_family?: string
+          period_year: number
+          reason: string
+          request_id: string
+          requirement_id: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          decision?: string
+          firm_member_id?: string | null
+          id?: string
+          pack_family?: string
+          period_year?: number
+          reason?: string
+          request_id?: string
+          requirement_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsrd_requirement"
+            columns: ["pack_family", "requirement_id"]
+            isOneToOne: false
+            referencedRelation: "fs_pack_requirements"
+            referencedColumns: ["pack_family", "requirement_id"]
+          },
+          {
+            foreignKeyName: "fs_requirement_decisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_requirement_decisions_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_schedule_definitions: {
+        Row: {
+          label: string
+          line_ids: string[]
+          movements: Json
+          pack_family: string
+          prior_period_required: boolean
+          requirement_id: string
+          schedule_id: string
+          sort_order: number
+        }
+        Insert: {
+          label: string
+          line_ids: string[]
+          movements: Json
+          pack_family: string
+          prior_period_required: boolean
+          requirement_id: string
+          schedule_id: string
+          sort_order: number
+        }
+        Update: {
+          label?: string
+          line_ids?: string[]
+          movements?: Json
+          pack_family?: string
+          prior_period_required?: boolean
+          requirement_id?: string
+          schedule_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fssd_requirement"
+            columns: ["pack_family", "requirement_id"]
+            isOneToOne: false
+            referencedRelation: "fs_pack_requirements"
+            referencedColumns: ["pack_family", "requirement_id"]
+          },
+        ]
+      }
+      fs_schedule_submissions: {
+        Row: {
+          actor_user_id: string
+          closing_total: number
+          company_id: string
+          content_sha256: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          opening_total: number
+          pack_family: string
+          period_year: number
+          request_id: string
+          rows: Json
+          schedule_id: string
+          seq: number
+          source_ref: string
+        }
+        Insert: {
+          actor_user_id: string
+          closing_total: number
+          company_id: string
+          content_sha256: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          opening_total: number
+          pack_family?: string
+          period_year: number
+          request_id: string
+          rows: Json
+          schedule_id: string
+          seq?: never
+          source_ref: string
+        }
+        Update: {
+          actor_user_id?: string
+          closing_total?: number
+          company_id?: string
+          content_sha256?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          opening_total?: number
+          pack_family?: string
+          period_year?: number
+          request_id?: string
+          rows?: Json
+          schedule_id?: string
+          seq?: never
+          source_ref?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsss_schedule"
+            columns: ["pack_family", "schedule_id"]
+            isOneToOne: false
+            referencedRelation: "fs_schedule_definitions"
+            referencedColumns: ["pack_family", "schedule_id"]
+          },
+          {
+            foreignKeyName: "fs_schedule_submissions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_schedule_submissions_firm_member_id_fkey"
             columns: ["firm_member_id"]
             isOneToOne: false
             referencedRelation: "firm_members"
@@ -8415,9 +8859,45 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
+      _fs_evidence_present: {
+        Args: { p_company_id: string; p_period_year: number; p_type: string }
+        Returns: boolean
+      }
+      _fs_line_amount: {
+        Args: {
+          p_debit_net: number
+          p_line_id: string
+          p_section: string
+          p_statement: string
+        }
+        Returns: number
+      }
+      _fs_notes_refusal: {
+        Args: { p_company_id: string; p_uid: string }
+        Returns: string
+      }
       _fs_period_meta: {
         Args: { p_certification_id: string; p_company_id: string }
         Returns: Json
+      }
+      _fs_presentation_status: {
+        Args: {
+          p_line_id: string
+          p_natures: string[]
+          p_position: string
+          p_section: string
+          p_statement: string
+        }
+        Returns: string
+      }
+      _fs_section: { Args: { p_classification: string }; Returns: string }
+      _fs_smes_edition_decide: {
+        Args: { p_elected: boolean; p_framework: string; p_start: string }
+        Returns: Json
+      }
+      _fs_smes_elected: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: boolean
       }
       _invitation_valid: {
         Args: {
@@ -9211,6 +9691,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      fs_assign_presentation: {
+        Args: {
+          p_assignments: Json
+          p_company_id: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       fs_audit_event: {
         Args: {
           p_action: string
@@ -9257,6 +9746,17 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_decide_requirement: {
+        Args: {
+          p_company_id: string
+          p_decision: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_requirement_id: string
+        }
+        Returns: Json
+      }
       fs_declare_first_period: {
         Args: {
           p_company_id: string
@@ -9264,6 +9764,16 @@ export type Database = {
           p_evidence_date: string
           p_evidence_kind: string
           p_evidence_ref: string
+          p_period_year: number
+          p_reason: string
+        }
+        Returns: Json
+      }
+      fs_elect_early_application: {
+        Args: {
+          p_company_id: string
+          p_elect: boolean
+          p_jurisdiction_confirmation: string
           p_period_year: number
           p_reason: string
         }
@@ -9327,9 +9837,35 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
+      fs_notes_status: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_publication_blockers: {
         Args: { p_company_id: string; p_report_id: string; p_version: number }
         Returns: string[]
+      }
+      fs_record_disclosure: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_period_year: number
+          p_request_id: string
+          p_requirement_id: string
+          p_source_ref: string
+        }
+        Returns: Json
+      }
+      fs_record_schedule: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_request_id: string
+          p_rows: Json
+          p_schedule_id: string
+          p_source_ref: string
+        }
+        Returns: Json
       }
       fs_report_readiness: {
         Args: {
@@ -9450,6 +9986,10 @@ export type Database = {
         }
       }
       fs_sha256_hex: { Args: { p_text: string }; Returns: string }
+      fs_statement_composition: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_store_evaluation: {
         Args: {
           p_company_id: string
