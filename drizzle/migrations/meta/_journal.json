@@ -232,6 +232,41 @@
       "when": 1791389191617,
       "tag": "0032_layout_templates_and_confirmations",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791454905727,
+      "tag": "0033_i1b_w1_two_period_shared_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791455035299,
+      "tag": "0034_i1b_w2_layout_assist_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791455096771,
+      "tag": "0035_i1b_w3_close_review_timeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791455254708,
+      "tag": "0036_i1b_w4_close_review_findings",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791455472081,
+      "tag": "0037_i1b_w5_close_review_adjustments",
+      "breakpoints": true
     }
   ]
 }

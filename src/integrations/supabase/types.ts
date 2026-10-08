@@ -528,6 +528,241 @@ export type Database = {
           },
         ]
       }
+      ai_consent_versions: {
+        Row: {
+          is_current: boolean
+          published_at: string
+          published_by: string
+          sample_format: string
+          version: string
+          wording: string
+          wording_sha256: string
+        }
+        Insert: {
+          is_current?: boolean
+          published_at?: string
+          published_by: string
+          sample_format: string
+          version: string
+          wording: string
+          wording_sha256: string
+        }
+        Update: {
+          is_current?: boolean
+          published_at?: string
+          published_by?: string
+          sample_format?: string
+          version?: string
+          wording?: string
+          wording_sha256?: string
+        }
+        Relationships: []
+      }
+      ai_layout_assist_runs: {
+        Row: {
+          actor_user_id: string
+          actual_cost_micros: number | null
+          company_id: string
+          completed_at: string | null
+          consent_version: string
+          created_at: string
+          failure_code: string | null
+          firm_member_id: string | null
+          id: string
+          model: string
+          prompt_version: string
+          proposal: Json | null
+          proposal_sha256: string | null
+          provider_id: string
+          region: string | null
+          request_id: string
+          reserved_cost_micros: number
+          retention_policy: string
+          sample_format: string
+          sample_sha256: string
+          state: string
+          upload_id: string
+          validation: Json | null
+        }
+        Insert: {
+          actor_user_id: string
+          actual_cost_micros?: number | null
+          company_id: string
+          completed_at?: string | null
+          consent_version: string
+          created_at?: string
+          failure_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          model: string
+          prompt_version: string
+          proposal?: Json | null
+          proposal_sha256?: string | null
+          provider_id: string
+          region?: string | null
+          request_id: string
+          reserved_cost_micros: number
+          retention_policy: string
+          sample_format: string
+          sample_sha256: string
+          state?: string
+          upload_id: string
+          validation?: Json | null
+        }
+        Update: {
+          actor_user_id?: string
+          actual_cost_micros?: number | null
+          company_id?: string
+          completed_at?: string | null
+          consent_version?: string
+          created_at?: string
+          failure_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          model?: string
+          prompt_version?: string
+          proposal?: Json | null
+          proposal_sha256?: string | null
+          provider_id?: string
+          region?: string | null
+          request_id?: string
+          reserved_cost_micros?: number
+          retention_policy?: string
+          sample_format?: string
+          sample_sha256?: string
+          state?: string
+          upload_id?: string
+          validation?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_layout_assist_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_provider_settings: {
+        Row: {
+          data_handling_approved_at: string | null
+          enabled: boolean
+          evaluation_approved_at: string | null
+          max_cost_per_call_micros: number | null
+          model: string | null
+          prompt_version: string | null
+          provider_id: string | null
+          region: string | null
+          retention_policy: string | null
+          singleton: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_call_micros?: number | null
+          model?: string | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          retention_policy?: string | null
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_call_micros?: number | null
+          model?: string | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          retention_policy?: string | null
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      ai_workspace_budgets: {
+        Row: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          company_id?: string
+          daily_user_quota?: number
+          monthly_cap_micros?: number
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_workspace_budgets_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_workspace_consents: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          consent_version: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          consent_version: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          consent_version?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_workspace_consents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_workspace_consents_consent_version_fkey"
+            columns: ["consent_version"]
+            isOneToOne: false
+            referencedRelation: "ai_consent_versions"
+            referencedColumns: ["version"]
+          },
+        ]
+      }
       aje_lines: {
         Row: {
           account_code: string
@@ -1040,6 +1275,559 @@ export type Database = {
             columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "variance_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_adjustment_bindings: {
+        Row: {
+          adjustment_id: string
+          company_id: string
+          created_at: string
+          decision: string
+          detail: Json
+          firm_member_id: string | null
+          from_certification_id: string
+          id: string
+          reason: string
+          request_id: string
+          reviewer_user_id: string
+          self_approved: boolean
+          seq: number
+          to_certification_id: string
+        }
+        Insert: {
+          adjustment_id: string
+          company_id: string
+          created_at?: string
+          decision: string
+          detail?: Json
+          firm_member_id?: string | null
+          from_certification_id: string
+          id?: string
+          reason: string
+          request_id: string
+          reviewer_user_id: string
+          self_approved?: boolean
+          seq?: never
+          to_certification_id: string
+        }
+        Update: {
+          adjustment_id?: string
+          company_id?: string
+          created_at?: string
+          decision?: string
+          detail?: Json
+          firm_member_id?: string | null
+          from_certification_id?: string
+          id?: string
+          reason?: string
+          request_id?: string
+          reviewer_user_id?: string
+          self_approved?: boolean
+          seq?: never
+          to_certification_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustment_bindings_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_from_certification_id_fkey"
+            columns: ["from_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_to_certification_id_fkey"
+            columns: ["to_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_adjustment_lines: {
+        Row: {
+          account_code: string | null
+          account_key: string
+          account_name: string
+          adjustment_id: string
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          line_no: number
+          memo: string | null
+        }
+        Insert: {
+          account_code?: string | null
+          account_key: string
+          account_name: string
+          adjustment_id: string
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          line_no: number
+          memo?: string | null
+        }
+        Update: {
+          account_code?: string | null
+          account_key?: string
+          account_name?: string
+          adjustment_id?: string
+          classification?: string
+          credit_minor?: number
+          debit_minor?: number
+          line_no?: number
+          memo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustment_lines_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_adjustments: {
+        Row: {
+          certification_id: string
+          company_id: string
+          created_at: string
+          evidence_ref: string | null
+          finding_ids: string[]
+          id: string
+          kind: string
+          lines_sha256: string
+          number: number
+          period_year: number
+          proposer_member_id: string | null
+          proposer_user_id: string
+          reason: string
+          request_id: string
+          reverses_id: string | null
+          total_minor: number
+        }
+        Insert: {
+          certification_id: string
+          company_id: string
+          created_at?: string
+          evidence_ref?: string | null
+          finding_ids?: string[]
+          id?: string
+          kind: string
+          lines_sha256: string
+          number: number
+          period_year: number
+          proposer_member_id?: string | null
+          proposer_user_id: string
+          reason: string
+          request_id: string
+          reverses_id?: string | null
+          total_minor: number
+        }
+        Update: {
+          certification_id?: string
+          company_id?: string
+          created_at?: string
+          evidence_ref?: string | null
+          finding_ids?: string[]
+          id?: string
+          kind?: string
+          lines_sha256?: string
+          number?: number
+          period_year?: number
+          proposer_member_id?: string | null
+          proposer_user_id?: string
+          reason?: string
+          request_id?: string
+          reverses_id?: string | null
+          total_minor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustments_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_proposer_member_id_fkey"
+            columns: ["proposer_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_reverses_id_fkey"
+            columns: ["reverses_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_approval_policy_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          override_multiple_approvers: boolean
+          policy: string
+          reason: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          override_multiple_approvers?: boolean
+          policy: string
+          reason: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          override_multiple_approvers?: boolean
+          policy?: string
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_approval_policy_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_approval_policy_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_events: {
+        Row: {
+          actor_user_id: string | null
+          body: string | null
+          company_id: string
+          created_at: string
+          detail: Json
+          event_type: string
+          firm_member_id: string | null
+          id: string
+          request_id: string | null
+          revises_event_id: string | null
+          seq: number
+          subject_id: string
+          subject_kind: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          body?: string | null
+          company_id: string
+          created_at?: string
+          detail?: Json
+          event_type: string
+          firm_member_id?: string | null
+          id?: string
+          request_id?: string | null
+          revises_event_id?: string | null
+          seq?: never
+          subject_id: string
+          subject_kind: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          body?: string | null
+          company_id?: string
+          created_at?: string
+          detail?: Json
+          event_type?: string
+          firm_member_id?: string | null
+          id?: string
+          request_id?: string | null
+          revises_event_id?: string | null
+          seq?: never
+          subject_id?: string
+          subject_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_events_revises_event_id_fkey"
+            columns: ["revises_event_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_finding_runs: {
+        Row: {
+          catalogue_version: string
+          certification_id: string
+          company_id: string
+          created_at: string
+          currency: string
+          exponent: number
+          firm_member_id: string | null
+          generated_by: string
+          id: string
+          period_year: number
+          prior_certification_id: string | null
+          rule_status: Json
+          scope_key: string
+          upload_id: string
+        }
+        Insert: {
+          catalogue_version: string
+          certification_id: string
+          company_id: string
+          created_at?: string
+          currency: string
+          exponent: number
+          firm_member_id?: string | null
+          generated_by: string
+          id?: string
+          period_year: number
+          prior_certification_id?: string | null
+          rule_status: Json
+          scope_key: string
+          upload_id: string
+        }
+        Update: {
+          catalogue_version?: string
+          certification_id?: string
+          company_id?: string
+          created_at?: string
+          currency?: string
+          exponent?: number
+          firm_member_id?: string | null
+          generated_by?: string
+          id?: string
+          period_year?: number
+          prior_certification_id?: string | null
+          rule_status?: Json
+          scope_key?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_finding_runs_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_finding_runs_prior_certification_id_fkey"
+            columns: ["prior_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_findings: {
+        Row: {
+          account_code: string | null
+          account_key: string | null
+          account_name: string | null
+          class_side_minor: number | null
+          classification: string | null
+          company_id: string
+          created_at: string
+          credit_minor: number | null
+          debit_minor: number | null
+          detail: Json
+          finding_key: string
+          id: string
+          kind: string
+          mandatory: boolean
+          required_resolution: string
+          rule_id: string
+          rule_version: number
+          run_id: string
+          severity: string
+        }
+        Insert: {
+          account_code?: string | null
+          account_key?: string | null
+          account_name?: string | null
+          class_side_minor?: number | null
+          classification?: string | null
+          company_id: string
+          created_at?: string
+          credit_minor?: number | null
+          debit_minor?: number | null
+          detail?: Json
+          finding_key: string
+          id?: string
+          kind: string
+          mandatory: boolean
+          required_resolution: string
+          rule_id: string
+          rule_version: number
+          run_id: string
+          severity: string
+        }
+        Update: {
+          account_code?: string | null
+          account_key?: string | null
+          account_name?: string | null
+          class_side_minor?: number | null
+          classification?: string | null
+          company_id?: string
+          created_at?: string
+          credit_minor?: number | null
+          debit_minor?: number | null
+          detail?: Json
+          finding_key?: string
+          id?: string
+          kind?: string
+          mandatory?: boolean
+          required_resolution?: string
+          rule_id?: string
+          rule_version?: number
+          run_id?: string
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_findings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_findings_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_finding_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_requirements: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          reason: string
+          reference: string | null
+          requirement_id: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          reason: string
+          reference?: string | null
+          requirement_id: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          reason?: string
+          reference?: string | null
+          requirement_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_requirements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_requirements_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
             referencedColumns: ["id"]
           },
         ]
@@ -6020,6 +6808,121 @@ export type Database = {
         }
         Relationships: []
       }
+      tb_source_objects: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string
+          id: string
+          purge_claimed_at: string | null
+          purged_at: string | null
+          reservation_id: string
+          state: string
+          storage_path: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          purge_claimed_at?: string | null
+          purged_at?: string | null
+          reservation_id: string
+          state?: string
+          storage_path: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          purge_claimed_at?: string | null
+          purged_at?: string | null
+          reservation_id?: string
+          state?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_source_objects_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_source_objects_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "trial_balance_source_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tb_two_period_registrations: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          current_period_id: string
+          current_upload_id: string
+          id: string
+          prior_period_id: string
+          prior_upload_id: string
+          request_id: string
+          reservation_id: string
+          source_object_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          current_period_id: string
+          current_upload_id: string
+          id?: string
+          prior_period_id: string
+          prior_upload_id: string
+          request_id: string
+          reservation_id: string
+          source_object_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          current_period_id?: string
+          current_upload_id?: string
+          id?: string
+          prior_period_id?: string
+          prior_upload_id?: string
+          request_id?: string
+          reservation_id?: string
+          source_object_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_two_period_registrations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_two_period_registrations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "trial_balance_source_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tb_two_period_registrations_source_object_id_fkey"
+            columns: ["source_object_id"]
+            isOneToOne: true
+            referencedRelation: "tb_source_objects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tbu_source_sweeper_config: {
         Row: {
           function_url: string
@@ -6255,6 +7158,7 @@ export type Database = {
           retired_reason: string | null
           safisha_status: string | null
           source_file_hash: string | null
+          source_object_id: string | null
           status: string
           superseded_by_upload_id: string | null
           uploaded_at: string
@@ -6287,6 +7191,7 @@ export type Database = {
           retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
+          source_object_id?: string | null
           status?: string
           superseded_by_upload_id?: string | null
           uploaded_at?: string
@@ -6319,6 +7224,7 @@ export type Database = {
           retired_reason?: string | null
           safisha_status?: string | null
           source_file_hash?: string | null
+          source_object_id?: string | null
           status?: string
           superseded_by_upload_id?: string | null
           uploaded_at?: string
@@ -6374,6 +7280,13 @@ export type Database = {
             columns: ["replaces_upload_id"]
             isOneToOne: false
             referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_uploads_source_object_id_fkey"
+            columns: ["source_object_id"]
+            isOneToOne: false
+            referencedRelation: "tb_source_objects"
             referencedColumns: ["id"]
           },
           {
@@ -7326,10 +8239,87 @@ export type Database = {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: boolean
       }
+      _close_review_append: {
+        Args: {
+          p_actor: string
+          p_body: string
+          p_company_id: string
+          p_detail: Json
+          p_event_type: string
+          p_member: string
+          p_request_id: string
+          p_revises: string
+          p_subject_id: string
+          p_subject_kind: string
+        }
+        Returns: string
+      }
       _consume_free_retirement_approval: {
         Args: { p_by: string }
         Returns: boolean
       }
+      _cr_adjustment_applies_to: {
+        Args: { p_adjustment_id: string; p_certification_id: string }
+        Returns: boolean
+      }
+      _cr_adjustment_binding_state: {
+        Args: { p_adjustment_id: string; p_certification_id: string }
+        Returns: string
+      }
+      _cr_adjustment_contract_met: {
+        Args: { p_finding_id: string }
+        Returns: boolean
+      }
+      _cr_adjustment_effective_certification: {
+        Args: { p_adjustment_id: string }
+        Returns: string
+      }
+      _cr_adjustment_status: {
+        Args: { p_adjustment_id: string }
+        Returns: string
+      }
+      _cr_applied_account_totals: {
+        Args: {
+          p_account_key: string
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Record<string, unknown>
+      }
+      _cr_approval_policy: {
+        Args: { p_company_id: string }
+        Returns: {
+          approver_count: number
+          override_multiple_approvers: boolean
+          policy: string
+          self_approval_available: boolean
+        }[]
+      }
+      _cr_certified_accounts: {
+        Args: { p_certification_id: string }
+        Returns: {
+          account_code: string
+          account_key: string
+          account_name: string
+          class_side_minor: number
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          exact: boolean
+          max_tier: number
+        }[]
+      }
+      _cr_current_run: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
+      _cr_member: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: string
+      }
+      _cr_normalize_name: { Args: { p_name: string }; Returns: string }
+      _cr_scope_key: { Args: { p_company_id: string }; Returns: string }
       _entity_capacity_for_account: {
         Args: { p_account: string }
         Returns: Json
@@ -7655,6 +8645,61 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      ai_configure_provider: {
+        Args: {
+          p_data_handling_approved_at: string
+          p_enabled: boolean
+          p_evaluation_approved_at: string
+          p_max_cost_per_call_micros: number
+          p_model: string
+          p_prompt_version: string
+          p_provider_id: string
+          p_region: string
+          p_retention_policy: string
+        }
+        Returns: Json
+      }
+      ai_layout_assist_complete: {
+        Args: {
+          p_actual_cost_micros: number
+          p_failure_code: string
+          p_proposal: Json
+          p_proposal_sha256: string
+          p_run_id: string
+          p_state: string
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      ai_layout_assist_reserve: {
+        Args: {
+          p_request_id: string
+          p_sample_sha256: string
+          p_upload_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_set_workspace_budget: {
+        Args: {
+          p_company_id: string
+          p_daily_user_quota: number
+          p_monthly_cap_micros: number
+        }
+        Returns: Json
+      }
+      ai_set_workspace_consent: {
+        Args: {
+          p_company_id: string
+          p_consent_version: string
+          p_grant: boolean
+        }
+        Returns: Json
+      }
+      ai_workspace_consent_current: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
       assert_capability_available: {
         Args: { p_capability: string }
         Returns: undefined
@@ -7739,6 +8784,131 @@ export type Database = {
           p_checkout_intent_id: string
           p_cooldown_seconds?: number
           p_requesting_user_id: string
+        }
+        Returns: Json
+      }
+      close_review_adjusted_trial_balance: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          account_code: string
+          account_key: string
+          account_name: string
+          adjusted_credit_minor: number
+          adjusted_debit_minor: number
+          adjustment_credit_minor: number
+          adjustment_debit_minor: number
+          certification_id: string
+          certified_credit_minor: number
+          certified_debit_minor: number
+          classification: string
+        }[]
+      }
+      close_review_adjustments_summary: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      close_review_comment: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_request_id: string
+          p_revises?: string
+          p_subject_id: string
+          p_subject_kind: string
+        }
+        Returns: Json
+      }
+      close_review_decide_adjustment: {
+        Args: {
+          p_acknowledge_self_approval: boolean
+          p_adjustment_id: string
+          p_decision: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      close_review_finding_action: {
+        Args: {
+          p_action: string
+          p_evidence_ref: string
+          p_finding_id: string
+          p_request_id: string
+          p_text: string
+        }
+        Returns: Json
+      }
+      close_review_finding_resolved: {
+        Args: { p_finding_id: string }
+        Returns: boolean
+      }
+      close_review_finding_states: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          finding_id: string
+          resolved: boolean
+          status: string
+        }[]
+      }
+      close_review_finding_status: {
+        Args: { p_finding_id: string }
+        Returns: string
+      }
+      close_review_findings_summary: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      close_review_propose_adjustment: {
+        Args: {
+          p_company_id: string
+          p_evidence_ref: string
+          p_finding_ids: string[]
+          p_lines: Json
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_reverses?: string
+        }
+        Returns: Json
+      }
+      close_review_readable: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
+      close_review_refresh_findings: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      close_review_requirement_in_force: {
+        Args: { p_company_id: string; p_requirement_id: string }
+        Returns: boolean
+      }
+      close_review_revalidate_adjustment: {
+        Args: {
+          p_acknowledge_self_approval: boolean
+          p_adjustment_id: string
+          p_decision: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      close_review_set_approval_policy: {
+        Args: {
+          p_company_id: string
+          p_override_multiple_approvers: boolean
+          p_policy: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_review_set_requirement: {
+        Args: {
+          p_company_id: string
+          p_in_force: boolean
+          p_reason: string
+          p_reference: string
+          p_requirement_id: string
         }
         Returns: Json
       }
@@ -8648,6 +9818,24 @@ export type Database = {
           upload_id: string
         }[]
       }
+      register_two_period_uploads: {
+        Args: {
+          p_current_engagement_id?: string
+          p_current_period_id: string
+          p_file_size: number
+          p_prior_engagement_id?: string
+          p_prior_period_id: string
+          p_request_id: string
+          p_reservation_id: string
+        }
+        Returns: {
+          current_upload_id: string
+          detail: string
+          outcome: string
+          prior_upload_id: string
+          source_object_id: string
+        }[]
+      }
       release_workspace_invitation: {
         Args: { p_member_id: string }
         Returns: Json
@@ -9005,6 +10193,10 @@ export type Database = {
       }
       tbu_run_source_sweeper: { Args: never; Returns: string }
       tbu_safe_object_name: { Args: { p_name: string }; Returns: string }
+      tbu_source_object_unreferenced: {
+        Args: { p_object_id: string }
+        Returns: boolean
+      }
       tbu_source_path_bound: {
         Args: {
           p_company_id: string
