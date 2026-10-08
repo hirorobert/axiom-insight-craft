@@ -485,6 +485,15 @@ jobs:
           git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
           bun scripts/db-proof/releaseOrder.mjs
 
+      - name: Milestone release-order proof (one database upgraded from the schema of main through the seven release migrations one at a time, with legacy personal and workspace uploads, an in-window discard and the real sweeper at every stage; the new storage-cleanup function on the old schema; old and new cleanup handlers on a shared source; retiring or discarding one year never deletes a file its sibling needs; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/milestone_release_proof
+        run: |
+          createdb milestone_release_proof
+          git fetch --no-tags --depth=1 origin c0f0f09402f502c5c7ac5c60971c5d8cccc62684
+          bun scripts/db-proof/milestoneReleaseOrder.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
