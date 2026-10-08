@@ -429,6 +429,19 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
           )}
         </div>
       )}
+      {model.authoritativeInput && !model.viewing ? (() => {
+        const ai = model.authoritativeInput;
+        const prior = "adjustments" in ai.comparative ? (ai.comparative as { adjustments: typeof ai.adjustments }).adjustments : [];
+        const self = [...ai.adjustments, ...prior].filter((a) => a.selfApproved || a.selfRevalidated);
+        return (
+          <div className="text-xs" data-testid="self-approval-disclosure">
+            <p className="font-medium">Approved by the preparer</p>
+            {self.length === 0 ? <p className="text-muted-foreground">No adjustment in these figures was approved by its own preparer.</p> : (
+              <ul className="list-disc pl-5">{self.map((a) => <li key={a.id}>Adjustment {a.number}{a.kind === "reversal" ? " (reversal)" : ""} — {a.reason}. {a.selfApproved ? "Self-approved" : "Self-revalidated after a re-check"} under the workspace policy; disclosed here and in the audit export.</li>)}</ul>
+            )}
+          </div>
+        );
+      })() : null}
       {model.readOnlyAccess && (
         <p className="text-xs text-muted-foreground" data-testid="publication-read-only">
           Read-only access: your role is viewer, so the report state cannot be changed from here.

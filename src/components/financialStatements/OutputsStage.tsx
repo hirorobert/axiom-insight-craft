@@ -116,7 +116,7 @@ export function OutputsStage({ model, signatureBlocks, deliverDownload, deliverO
       ? [
           canonicalJsonExport(report, lineage),
           evidenceExport(report, evidenceRows, lineage),
-          auditExport({ report, lineage, evaluation: outputEvaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null }),
+          auditExport({ report, lineage, evaluation: outputEvaluation, decisions: model.snapshot?.decisions ?? [], evidence: evidenceRows, publication: model.publication ? { state: model.publication.state, reason: model.publication.reason } : null, exportedAt: null, closeReview: model.authoritativeInput }),
           ...(outputEvaluation ? [findingsCsv(report, outputEvaluation.findings, lineage)] : []),
           ...(budget ? [budgetCsv(report, budget, lineage)] : []),
           ...(model.checklist.length > 0 ? [checklistCsv(report, model.checklist, lineage)] : []),
