@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FRAMEWORK_PROFILES, FRAMEWORK_PROFILES_VERSION, type FrameworkProfile } from "./frameworkProfiles";
+import { IFRS_FOR_SMES_PACKS } from "@/lib/frameworkPacks/ifrsForSmes";
 
 const all = Object.values(FRAMEWORK_PROFILES);
 const words = (p: FrameworkProfile) =>
@@ -46,5 +47,17 @@ describe("framework profiles are versioned and self-contained", () => {
   it("disclosure area ids are stable keys shared by the checklist and the note evidence", () => {
     for (const p of all) expect(new Set(p.disclosureAreas.map((d) => d.id)).size, p.kind).toBe(p.disclosureAreas.length);
     expect(FRAMEWORK_PROFILES.IFRS.disclosureAreas.map((d) => d.id)).toEqual(["basis-of-preparation", "accounting-policies", "supporting-notes"]);
+  });
+});
+
+describe("IFRS for SMEs profile references agree with the pinned pack (src/lib/frameworkPacks)", () => {
+  it("the workspace profile's IFRS for SMEs references agree with the pack (3.17(c) and 3.17(d) — corrected from (d)/(e))", () => {
+    const smes = FRAMEWORK_PROFILES.IFRS_FOR_SMES.expectedStatements;
+    for (const pack of IFRS_FOR_SMES_PACKS) {
+      const cite = (id: string) => pack.requirements.find((r) => r.id === id)!.citations[0].paragraph;
+      expect([cite("smes.set.socie"), cite("smes.set.scf")]).toEqual(["3.17(c)", "3.17(d)"]);
+    }
+    expect(smes.find((s) => s.kind === "STATEMENT_OF_CHANGES_IN_EQUITY")!.reference).toBe("IFRS for SMEs 3.17(c), Section 6");
+    expect(smes.find((s) => s.kind === "STATEMENT_OF_CASH_FLOWS")!.reference).toBe("IFRS for SMEs 3.17(d), Section 7");
   });
 });

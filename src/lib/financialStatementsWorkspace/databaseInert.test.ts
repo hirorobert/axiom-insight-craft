@@ -453,6 +453,8 @@ describe("database inertness — schema and functions", () => {
       // The self-checking release wrappers: the generator (reads committed migration bytes, writes release/wrappers/; no
       // network, no database) and its loopback-only real-PostgreSQL proof. No deploy behaviour.
       "scripts/release/selfCheckingWrapper.mjs", "scripts/db-proof/selfCheckingWrappers.mjs",
+      // The coverage-matrix renderer (reads src/lib/frameworkPacks, writes docs/reporting; no network, no database).
+      "scripts/release/renderCoverageMatrix.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
