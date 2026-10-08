@@ -5,6 +5,7 @@
  * always rendered as plain text nodes (React escapes it); nothing here uses
  * dangerouslySetInnerHTML.
  */
+import { blockerSentence } from "@/lib/financialStatementsWorkspace/serverBlockers";
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Save } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -413,15 +414,15 @@ export function PublicationControls({ model, blockers = [] }: { model: Financial
         Report state{" "}
         {model.viewing ? `of version ${model.viewing.reportVersion} — ${model.viewing.state ? model.viewing.state.toUpperCase() : "no state recorded"} (read-only)` : model.publication ? `— currently ${model.publication.state}` : "— no state recorded"}
       </p>
-      <p className="text-xs text-muted-foreground">Only the server can mark a saved version Reviewed or Final, and only an owner or partner may. It refuses while the statement set is incomplete, evidence is invalid or superseded, blocking findings or unmet reconciliations remain, or the version was never evaluated, and it never changes a Final version.</p>
+      <p className="text-xs text-muted-foreground">Only the server can mark a saved version Reviewed or Final: Reviewed needs Review and Final needs Approve in this workspace. It refuses while the statement set is incomplete, evidence is invalid or superseded, blocking findings or unmet reconciliations remain, or the version was never evaluated, and it never changes a Final version.</p>
       {model.readiness && !model.viewing && (
         <div className={`text-xs ${model.readiness.ready ? "text-muted-foreground" : "text-destructive"}`} data-testid="server-readiness" data-server-ready={model.readiness.ready ? "yes" : "no"}>
           <p className="font-medium">{model.readiness.ready ? "The server reports this saved version as ready to mark Reviewed or Final." : `The server would refuse Reviewed or Final for this saved version (${serverBlockers.length} requirement${serverBlockers.length === 1 ? "" : "s"} unmet):`}</p>
           {serverBlockers.length > 0 && (
             <ul className="mt-1 list-disc pl-5">
               {serverBlockers.map((b) => (
-                <li key={b} className="break-words font-mono">
-                  {b}
+                <li key={b} className="break-words">
+                  {blockerSentence(b) ? <>{blockerSentence(b)} <span className="font-mono">({b})</span></> : <span className="font-mono">{b}</span>}
                 </li>
               ))}
             </ul>

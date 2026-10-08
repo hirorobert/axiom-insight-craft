@@ -256,6 +256,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261015100000_close_review_adjustments.sql",
       // Financial Statements (20261016100000): fs_reporting_input — the authoritative, adjusted reporting input (read-only). A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261016100000_fs_reporting_input.sql",
+      // Sign-off (20261017100000): fs_publication_blockers re-created with the Close Review and authoritative-input requirements (byte-pinned to its 20260919110000 body plus the marked additions); first-period declarations. A NEW forward-only migration pending hosted application.
+      "supabase/migrations/20261017100000_signoff_completion_requirements.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization

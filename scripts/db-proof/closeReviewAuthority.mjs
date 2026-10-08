@@ -721,12 +721,136 @@ async function reportingInputProof({ U, A, B }, kit) {
   void B;
 }
 
+// ── Sign-off completion requirements (I8) ────────────────────────────────────────────────────────────────────────────
+async function signoffProof({ U, A }, kit) {
+  const hex = (s) => crypto.createHash("sha256").update(s).digest("hex");
+  const input = (y) => asUser(U.owner, "SELECT public.fs_reporting_input($1,$2) r", [A, y]).then((r) => r.r);
+  const STATEMENT_TYPES = ["STATEMENT_OF_FINANCIAL_POSITION", "STATEMENT_OF_PROFIT_OR_LOSS", "STATEMENT_OF_CHANGES_IN_EQUITY", "STATEMENT_OF_CASH_FLOWS"];
+  const AREAS = ["accounting-policies", "basis-of-preparation", "supporting-notes"];
+  const both = (lineId) => ({ lineId, factBindings: [{ periodId: "CURRENT", factId: "f1" }, { periodId: "PRIOR", factId: "f0" }] });
+  // A document complete for the IFRS profile; its trial-balance facts carry the source identity given.
+  const doc = (rid, sourceHash, uploadId, { comparative = true } = {}) => ({
+    reportIdentity: { reportId: rid, companyId: A, reportVersion: 1 },
+    framework: { kind: "IFRS" }, period: { periodId: "CURRENT" },
+    comparativePeriods: comparative ? [{ periodId: "PRIOR" }] : [],
+    statements: STATEMENT_TYPES.map((type) => ({ statementId: `st:${type}`, type, sections: [{ sectionId: "s",
+      lines: (type === "STATEMENT_OF_CASH_FLOWS" ? ["line:cf:opening", "line:cf:closing"] : [`l:${type}`]).map((l) => (comparative ? both(l) : { lineId: l, factBindings: [{ periodId: "CURRENT", factId: "f1" }] })) }] })),
+    notes: [{ noteId: "note:cash-ledger-authority", monetaryFactIds: ["fact:cashroll:ledger:abc", "fact:cashroll:tb:abc"] }],
+    textualDisclosures: [...AREAS.map((a) => ({ disclosureId: `checklist:${a}`, text: `PROVIDED: ${a}` })), { disclosureId: "mapping:coverage", text: "total=12;unmapped=0;ambiguous=0" }],
+    facts: [{ factId: "f1", value: { minorUnits: { __bigint__: "100" }, currency: "TZS" },
+      provenance: { source: { sourceDocumentId: uploadId, sourceHash, artifactKind: "TRIAL_BALANCE" } } }],
+  });
+  const evidence = async (y, type) => {
+    const rid = `rpt-ev-${uuid()}`;
+    const batchId = `eb-${uuid()}`;
+    await asUser(U.partner, "SELECT * FROM public.fs_commit_revision($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,$10::text[],$11::jsonb)", [
+      A, rid, 0, `key-${uuid()}`, y, "TRIAL_BALANCE_DERIVED", JSON.stringify({ reportIdentity: { reportId: rid, companyId: A, reportVersion: 1 }, statements: [], facts: [] }), hex(rid),
+      JSON.stringify([{ evidenceBatchId: batchId, reportingPeriodId: `FY${y}`, evidenceType: type, periodRole: "CURRENT", seriesKey: `s-${uuid()}`, schemaVersion: "1",
+        sourceFileName: "ledger.csv", contentHash: hex(batchId), currency: "TZS", scale: 2, batchDocument: { rows: [{ amount: "1.00", memo: "ok" }] }, validationStatus: "VALID", diagnostics: [], expectedPreviousBatchId: null }]),
+      [batchId], JSON.stringify({ evaluationRunId: `ev-${uuid()}`, rulePackId: "rp", rulePackVersion: "2", engineVersion: "e2", inputHash: hex(`ie${rid}`), findings: [] })]);
+    return batchId;
+  };
+  const save = async (y, rid, d, batches) => {
+    await asUser(U.preparer, "SELECT * FROM public.fs_save_report_version($1,1,$2,$3,'TRIAL_BALANCE_DERIVED',$4::jsonb,$5,$6::text[])", [rid, A, y, JSON.stringify(d), hex(`c${rid}`), batches]);
+    await asUser(U.partner, "SELECT * FROM public.fs_save_evaluation($1,$2,1,$3,'rule-pack','1','engine-1',$4,'[]'::jsonb)", [`ev-${rid}`, rid, A, hex(`e${rid}`)]);
+    return rid;
+  };
+  const readiness = (rid) => asUser(U.partner, "SELECT public.fs_report_readiness($1,$2,1) r", [A, rid]).then((r) => r.r);
+  const setState = (uid, rid, state, reason = "sign-off proof step") => asUser(uid, "SELECT * FROM public.fs_set_publication_state($1,1,$2,$3,$4)", [rid, A, state, reason]);
+  const mine = (r) => r.blockers.filter((b) => /^(REPORTING_INPUT|CLOSE_REVIEW|COMPARATIVE_PERIOD_MISSING)/.test(b));
+
+  group("Sign-off — the report must be on the current authoritative input and a finished Close Review");
+  const yr = await kit.upload();
+  await kit.certify(yr);
+  const ledger = await evidence(yr.year, "TRANSACTION_LEDGER");
+  const equity = await evidence(yr.year, "EQUITY_MOVEMENTS");
+  const batches = [ledger, equity];
+  let inp = await input(yr.year);
+  await check("a synthetic report (facts not from the authoritative input) is refused: REPORTING_INPUT_STALE", async () => {
+    const rid = `rpt-syn-${uuid()}`;
+    await save(yr.year, rid, doc(rid, hex("processing-result"), yr.id), batches);
+    const r = await readiness(rid);
+    return mine(r).includes("REPORTING_INPUT_STALE") ? true : r.blockers;
+  });
+  let rid1;
+  await check("on the current input but before the findings check: CLOSE_REVIEW_FINDINGS_NOT_CHECKED (and nothing else of ours)", async () => {
+    rid1 = `rpt-a-${uuid()}`;
+    await save(yr.year, rid1, doc(rid1, inp.inputSha256, yr.id), batches);
+    const r = await readiness(rid1);
+    return JSON.stringify(mine(r)) === JSON.stringify(["CLOSE_REVIEW_FINDINGS_NOT_CHECKED"]) ? true : r.blockers;
+  });
+  await check("after the check: the unresolved blocking findings are named (A03 and T01) and REVIEWED is refused", async () => {
+    await kit.refresh(U.preparer, yr.year);
+    inp = await input(yr.year);
+    const rid = `rpt-b-${uuid()}`;
+    await save(yr.year, rid, doc(rid, inp.inputSha256, yr.id), batches);
+    const r = await readiness(rid);
+    let refusal = null;
+    try { await setState(U.partner, rid, "REVIEWED"); } catch (e) { refusal = String(e.message); }
+    return mine(r).includes("CLOSE_REVIEW_BLOCKING_FINDINGS:2") && /CLOSE_REVIEW_BLOCKING_FINDINGS/.test(refusal ?? "") ? true : { b: r.blockers, refusal };
+  });
+  let ridFinal;
+  await check("resolve T01 with the workpaper and A03 with an approved adjustment; an undecided adjustment blocks; the input moved, so the earlier report is stale", async () => {
+    const f = async (key) => (await one("SELECT f.id FROM public.close_review_findings f JOIN public.close_review_finding_runs r ON r.id=f.run_id WHERE r.company_id=$1 AND r.period_year=$2 AND f.finding_key=$3 ORDER BY r.created_at DESC LIMIT 1", [A, yr.year, key])).id;
+    await kit.act(U.preparer, await f("T01"), "explain", "Computed in the workpaper", "Tax WP v1");
+    const p = await asUser(U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Present the overdrawn float as a payable',NULL,$3::jsonb,$4::uuid[],$5,NULL) r",
+      [A, yr.year, JSON.stringify([{ accountKey: "1010", debitMinor: "20000", creditMinor: "0" }, { accountKey: "2000", debitMinor: "0", creditMinor: "20000" }]), [await f("A03:1010")], uuid()]).then((r) => r.r);
+    await asUser(U.partner, "SELECT public.close_review_decide_adjustment($1,'approve','Agreed',NULL,$2) r", [p.adjustmentId, uuid()]);
+    const pend = await asUser(U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Pending one',NULL,$3::jsonb,'{}'::uuid[],$4,NULL) r",
+      [A, yr.year, JSON.stringify([{ accountKey: "6100", debitMinor: "5", creditMinor: "0" }, { accountKey: "2000", debitMinor: "0", creditMinor: "5" }]), uuid()]).then((r) => r.r);
+    inp = await input(yr.year);
+    ridFinal = `rpt-c-${uuid()}`;
+    await save(yr.year, ridFinal, doc(ridFinal, inp.inputSha256, yr.id), batches);
+    const r = await readiness(ridFinal);
+    const old = await readiness(rid1);
+    await asUser(U.preparer, "SELECT public.close_review_decide_adjustment($1,'withdraw','Not needed',NULL,$2) r", [pend.adjustmentId, uuid()]);
+    return JSON.stringify(mine(r)) === JSON.stringify(["CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:1"]) && mine(old).includes("REPORTING_INPUT_STALE") ? true : { r: r.blockers, old: old.blockers };
+  });
+  await check("the complete, authoritative report is ready: REVIEWED (review_close), then FINAL (approve_certification); FINAL is immutable", async () => {
+    const r = await readiness(ridFinal);
+    const reviewed = await setState(U.partner, ridFinal, "REVIEWED");
+    const fin = await setState(U.owner, ridFinal, "FINAL", "final sign-off on the authoritative input");
+    let again = null;
+    try { await setState(U.partner, ridFinal, "REVIEWED", "trying to reopen"); } catch (e) { again = e.code; }
+    return r.ready === true && reviewed.state === "REVIEWED" && fin.state === "FINAL" && again === "PT409" ? true : { r: r.blockers, again };
+  });
+  await check("a preparer cannot mark REVIEWED (capabilities unchanged: one sign-off path)", async () => {
+    let a = null;
+    try { await setState(U.preparer, rid1, "REVIEWED"); } catch (e) { a = e.code; }
+    return a === "42501" ? true : a;
+  });
+
+  group("Sign-off — the first-period exception");
+  const declare = (uid, y, on, date, ref = "Certificate of incorporation no. 123") =>
+    asUser(uid, "SELECT public.fs_declare_first_period($1,$2,$3,'First reporting period since incorporation',$4,$5::date) r", [A, y, on, ref, date]).then((r) => r.r);
+  await check("without comparative figures: COMPARATIVE_PERIOD_MISSING", async () => {
+    const rid = `rpt-fp-${uuid()}`;
+    await save(yr.year, rid, doc(rid, inp.inputSha256, yr.id, { comparative: false }), batches);
+    const r = await readiness(rid);
+    return mine(r).includes("COMPARATIVE_PERIOD_MISSING") ? true : r.blockers;
+  });
+  await check("only approve_certification declares; the evidence must be dated within the period; a valid declaration satisfies the requirement; withdrawing restores it", async () => {
+    const a = await declare(U.preparer, yr.year, true, `${yr.year}-03-01`);
+    const b = await declare(U.owner, yr.year, true, `${yr.year - 3}-03-01`);
+    const c = await declare(U.owner, yr.year, true, `${yr.year}-03-01`);
+    const rid = `rpt-fp2-${uuid()}`;
+    await save(yr.year, rid, doc(rid, inp.inputSha256, yr.id, { comparative: false }), batches);
+    const with_ = await readiness(rid);
+    const w = await declare(U.owner, yr.year, false, null, null);
+    const without = await readiness(rid);
+    return a.outcome === "forbidden" && b.outcome === "evidence_date_outside_period" && c.outcome === "recorded"
+      && !mine(with_).includes("COMPARATIVE_PERIOD_MISSING") && w.outcome === "recorded" && mine(without).includes("COMPARATIVE_PERIOD_MISSING") ? true : { a, b, c, w };
+  });
+  await refused("declarations are append-only", "42501", () => admin.query("UPDATE public.fs_first_period_declarations SET reason = 'x'"));
+}
+
 async function main() {
   const ctx = await setup();
   await timelineProof(ctx);
   const kit = await findingsProof(ctx);
   await adjustmentsProof(ctx, kit);
   await reportingInputProof(ctx, kit);
+  await signoffProof(ctx, kit);
 }
 
 let crashed = false;
