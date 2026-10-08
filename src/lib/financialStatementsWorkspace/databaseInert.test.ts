@@ -264,6 +264,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261019100000_fs_notes_and_schedules.sql",
       // Comparatives (20261020100000): append-only bridges, two-person restatements, approvals bound to the comparative identity; composition v2.
       "supabase/migrations/20261020100000_fs_comparatives.sql",
+      // Sign-off binding (20261021100000): fs_reporting_dependencies, publication blockers v2, append-only publication bindings.
+      "supabase/migrations/20261021100000_fs_signoff_binding.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -465,6 +467,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/notesSchedules.mjs",
       "scripts/db-proof/lib/reportingKit.mjs",
       "scripts/db-proof/comparatives.mjs",
+      "scripts/db-proof/signoffBinding.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
