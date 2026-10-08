@@ -165,8 +165,8 @@ async function main() {
     CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
   const files = currentChain(REPO);
   group("Replay");
-  await check(`${COMPOSITION_FILE} is the newest migration and the whole chain applies`, async () => {
-    if (files[files.length - 1] !== COMPOSITION_FILE) return files.slice(-2);
+  await check(`${COMPOSITION_FILE} is in the chain and the whole chain applies`, async () => {
+    if (!files.includes(COMPOSITION_FILE)) return `${COMPOSITION_FILE} missing`;
     for (const f of files) {
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");

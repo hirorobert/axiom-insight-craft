@@ -512,6 +512,14 @@ jobs:
           createdb composition_proof
           bun scripts/db-proof/statementComposition.mjs
 
+      - name: Notes and schedules proof (requirements and schedules equal the TypeScript pack; every status and blocker against hand-written expectations; applicability decisions, verbatim disclosure texts and movement schedules validated and reconciled by the database to the composed statements; the statement of changes in equity and of cash flows follow their evidence; authority, idempotency, tenancy and append-only history; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/notes_proof
+        run: |
+          createdb notes_proof
+          bun scripts/db-proof/notesSchedules.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

@@ -35,7 +35,7 @@ export interface Citation {
   readonly verification: Verification;
 }
 
-export type RequirementKind = "STATEMENT" | "LINE_ITEM" | "CLASSIFICATION" | "DISCLOSURE" | "COMPARATIVE" | "PERIOD";
+export type RequirementKind = "STATEMENT" | "LINE_ITEM" | "CLASSIFICATION" | "DISCLOSURE" | "COMPARATIVE" | "PERIOD" | "SCHEDULE";
 export type StatementKey = "SFP" | "SCI" | "SOCIE" | "SCF" | "NOTES";
 
 export interface PackRequirement {
@@ -68,6 +68,20 @@ export interface PresentationLine {
   readonly position?: "current" | "non_current" | "either" | "fixed_non_current" | "equity";
 }
 
+/** A movement schedule (reconciliation of a carrying amount from the beginning to the end of the period). */
+export interface ScheduleDefinition {
+  readonly id: string;
+  /** The SCHEDULE requirement it satisfies. */
+  readonly requirementId: string;
+  readonly label: string;
+  /** Presentation lines whose carrying amount the schedule reconciles (opening = prior closing, closing = current). */
+  readonly lineIds: readonly string[];
+  /** Movement kinds in the cited order; sign relative to the carrying amount (increase +, decrease −). */
+  readonly movements: readonly { readonly kind: string; readonly label: string; readonly sign: "increase" | "decrease" | "either" }[];
+  /** Whether the reconciliation must also be presented for the prior period (the cited paragraphs say it need not). */
+  readonly priorPeriodRequired: boolean;
+}
+
 export interface FrameworkEdition {
   readonly id: string;
   readonly title: string;
@@ -87,6 +101,7 @@ export interface FrameworkPack {
   readonly packVersion: string;
   readonly requirements: readonly PackRequirement[];
   readonly lines: readonly PresentationLine[];
+  readonly schedules: readonly ScheduleDefinition[];
   readonly comparatives: { readonly required: boolean; readonly minimumPeriods: number; readonly citations: readonly Citation[] };
 }
 

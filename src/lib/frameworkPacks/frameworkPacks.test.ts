@@ -32,6 +32,26 @@ describe("IFRS for SMEs packs: structure and citations", () => {
       }
     });
   }
+  it("schedules: each satisfies a SCHEDULE requirement, reconciles real pack lines, and lists each movement kind once (both editions identical)", () => {
+    for (const pack of IFRS_FOR_SMES_PACKS) {
+      const lineIds = new Set(pack.lines.map((l) => l.id));
+      for (const sch of pack.schedules) {
+        expect(pack.requirements.find((r) => r.id === sch.requirementId)?.kind, sch.id).toBe("SCHEDULE");
+        for (const l of sch.lineIds) expect(lineIds.has(l), `${sch.id} ${l}`).toBe(true);
+        expect(new Set(sch.movements.map((m) => m.kind)).size, sch.id).toBe(sch.movements.length);
+        expect(sch.priorPeriodRequired, sch.id).toBe(false);
+      }
+      expect(pack.requirements.filter((r) => r.kind === "SCHEDULE").map((r) => r.id).sort()).toEqual(pack.schedules.map((s) => s.requirementId).sort());
+    }
+    expect(JSON.stringify(IFRS_FOR_SMES_2025.schedules)).toBe(JSON.stringify(IFRS_FOR_SMES_2015.schedules));
+    // Paragraphs read in both editions' text (2015 from pinned bytes): 17.31(e), 16.10(e), 18.27(e), 21.14(a).
+    const cite = (id: string) => IFRS_FOR_SMES_2015.requirements.find((r) => r.id === id)!.citations[0];
+    expect(["smes.schedule.ppe", "smes.schedule.investment_property_cost", "smes.schedule.investment_property_fair_value", "smes.schedule.intangibles", "smes.schedule.provisions"].map((id) => [cite(id).paragraph, cite(id).verification]))
+      .toEqual([["17.31(e)", "PRIMARY_TEXT"], ["17.31(e)", "PRIMARY_TEXT"], ["16.10(e)", "PRIMARY_TEXT"], ["18.27(e)", "PRIMARY_TEXT"], ["21.14(a)", "PRIMARY_TEXT"]]);
+    // PPE movements in the 17.31(e) order (i)–(viii).
+    expect(IFRS_FOR_SMES_2015.schedules[0].movements.map((m) => m.kind)).toEqual(["additions", "disposals", "business_combinations", "revaluations_and_oci_impairment",
+      "transfers_investment_property", "impairment_profit_or_loss", "depreciation", "other"]);
+  });
   it("both editions carry exactly the same requirement ids (an edition changes citations and wording, not meaning)", () => {
     expect(IFRS_FOR_SMES_2025.requirements.map((r) => r.id)).toEqual(IFRS_FOR_SMES_2015.requirements.map((r) => r.id));
   });
@@ -113,7 +133,7 @@ describe("coverage matrix: every claim names real code; nothing is VALIDATED wit
 });
 
 describe("no compliance claim in reporting product code", () => {
-  const DIRS = ["src/lib/frameworkPacks", "src/lib/statements", "src/lib/financialStatementsWorkspace", "src/lib/financialGeneration", "src/lib/canonicalStatement",
+  const DIRS = ["src/lib/frameworkPacks", "src/lib/statements", "src/lib/notes", "src/lib/financialStatementsWorkspace", "src/lib/financialGeneration", "src/lib/canonicalStatement",
     "src/lib/closeReview", "src/lib/workbench", "src/components/financialStatements", "src/components/closeReview", "src/components/workbench"];
   const CLAIM = /fully compliant|full compliance|complete (IFRS|IPSAS) compliance|compl(ies|iant) (fully )?with (the )?(IFRS|IPSAS)|(IFRS|IPSAS)[- ]compliant|guaranteed? compliance/i;
   it("no source file (tests excluded) asserts framework compliance", () => {
