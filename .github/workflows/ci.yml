@@ -536,6 +536,30 @@ jobs:
           createdb signoff_proof
           bun scripts/db-proof/signoffBinding.mjs
 
+      - name: Reporting workbench proof (the browser's own client code end to end on real certifications; evidence stored atomically with a version and re-bound; cash-flow and equity figures against hand-computed expectations including the comparative year; the canonical rule pack independently passes the assembled report; REVIEWED and FINAL by role; replay, stale version, tenancy; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/workbench_proof
+        run: |
+          createdb workbench_proof
+          bun scripts/db-proof/reportingWorkbench.mjs
+
+      - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/reporting_harness
+        run: |
+          createdb reporting_harness
+          node scripts/browser-acceptance/reportingJourney.mjs reporting-journey-evidence
+
+      - name: Upload the reporting journey evidence (screenshots, printed packs, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporting-journey-evidence
+          path: reporting-journey-evidence
+          if-no-files-found: ignore
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

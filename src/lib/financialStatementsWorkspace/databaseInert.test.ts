@@ -468,6 +468,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/lib/reportingKit.mjs",
       "scripts/db-proof/comparatives.mjs",
       "scripts/db-proof/signoffBinding.mjs",
+      // The reporting workbench: its loopback-only real-PostgreSQL proof, the loopback bridge for the dev harness (a
+      // throwaway database; reads and the reporting functions only) and the headless-browser journey over it. No deploy
+      // behaviour.
+      "scripts/db-proof/reportingWorkbench.mjs", "scripts/db-proof/serveReporting.mjs", "scripts/browser-acceptance/reportingJourney.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
@@ -506,7 +510,7 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const offenders: string[] = [];
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
-      if (rel(f) === "dev-harness/bridgeBackend.ts") continue; // loopback-only dev tool, audited below
+      if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts") continue; // loopback-only dev tools, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
     }
@@ -532,6 +536,11 @@ describe("database inertness — the workspace code cannot mutate a database", (
     const bridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/bridgeBackend.ts"), "utf8"));
     expect(bridge).toMatch(/assertLoopback\(bridge\)/);
     expect(bridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
+    // the reporting harness transport is dev-only and loopback-only too
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/reporting/main.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    const reportingBridge = stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/reporting/bridgeDb.ts"), "utf8"));
+    expect(reportingBridge).toMatch(/assertLoopback\(bridge\);\n {2}const post/);
+    expect(reportingBridge).toMatch(/host !== "127\.0\.0\.1" && host !== "localhost"/);
     const adapter = stripComments(fs.readFileSync(path.join(ROOT, "src/lib/financialStatementsWorkspace/supabaseFsBackend.ts"), "utf8"));
     expect(adapter).toMatch(/return gate \? new FsRpcTransport\(supabaseFsBackend\) : null/);
   });

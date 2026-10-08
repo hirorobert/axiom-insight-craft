@@ -183,3 +183,114 @@ export async function certifier(db, U) {
   };
   return { upload, review, certify };
 }
+
+// ── The browser client's transport, in process ───────────────────────────────────────────────────────────────────────
+/**
+ * A ReportingDb (src/lib/reporting/signoff.ts) over the real database as `authenticated` with the given user's auth.uid()
+ * — the same mechanism PostgREST uses. Arguments are typed from the function's own signature (jsonb arguments are sent as
+ * JSON); results are JSON round-tripped exactly as an HTTP transport would deliver them. Selects run under RLS.
+ */
+export function clientDb(db, uid) {
+  const sigs = new Map();
+  const signature = async (fn) => {
+    if (!sigs.has(fn)) {
+      const r = await db.one(`SELECT p.proargnames AS names, array(SELECT format_type(t, NULL) FROM unnest(p.proargtypes) t) AS types
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname=$1 ORDER BY p.oid DESC LIMIT 1`, [fn]);
+      if (!r) throw Object.assign(new Error(`function ${fn} not found`), { code: "42883" });
+      sigs.set(fn, Object.fromEntries(r.names.slice(0, r.types.length).map((n, i) => [n, r.types[i]])));
+    }
+    return sigs.get(fn);
+  };
+  const wrap = async (run) => {
+    try { return { data: JSON.parse(JSON.stringify((await run()) ?? null)), error: null }; }
+    catch (e) { return { data: null, error: { message: String(e.message), code: e.code ?? null } }; }
+  };
+  return {
+    rpc: (fn, args) => wrap(async () => {
+      if (!/^[a-z_][a-z0-9_]*$/.test(fn)) throw new Error("bad function name");
+      const sig = await signature(fn);
+      const keys = Object.keys(args);
+      for (const k of keys) if (!(k in sig)) throw Object.assign(new Error(`${fn} has no argument ${k}`), { code: "42883" });
+      const sql = `SELECT to_jsonb(public.${fn}(${keys.map((k, i) => `${k} => $${i + 1}::${sig[k]}`).join(", ")})) AS r`;
+      const params = keys.map((k) => (sig[k] === "jsonb" && args[k] !== null ? JSON.stringify(args[k]) : args[k]));
+      return (await db.asUser(uid, sql, params)).r;
+    }),
+    select: (table, filters) => wrap(async () => {
+      if (!/^[a-z_][a-z0-9_]*$/.test(table)) throw new Error("bad table name");
+      const f = Object.entries(filters);
+      const where = f.length ? `WHERE ${f.map(([k], i) => `"${k.replace(/[^a-z_]/g, "")}" = $${i + 1}`).join(" AND ")}` : "";
+      return db.asRole("authenticated", uid, `SELECT * FROM public.${table} ${where}`, f.map(([, v]) => v));
+    }),
+  };
+}
+
+// ── Evidence a preparer would upload for FY2026 (ties to TB: bank 8,000.00 → 12,500.00; dividends 700.00) ────────────
+export const EVIDENCE_FY2026 = {
+  TRANSACTION_LEDGER: [
+    "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line",
+    "T1,2026-03-31,1000,Receipts from customers,29500.00,,OPERATING,Receipts from customers",
+    "T2,2026-06-30,1000,Payments to suppliers and employees,,22800.00,OPERATING,Payments to suppliers and employees",
+    "T3,2026-07-15,1000,Interest received,500.00,,OPERATING,Interest received",
+    "T4,2026-09-30,1000,Loan repayment,,1000.00,FINANCING,Repayment of borrowings",
+    "T5,2026-11-30,1000,Dividend paid,,700.00,FINANCING,Dividends paid",
+    "T6,2026-12-15,1000,Income tax paid,,500.00,OPERATING,Income tax paid",
+    "T7,2026-12-20,1000,Interest paid,,500.00,OPERATING,Interest paid",
+  ].join("\n") + "\n",
+  EQUITY_MOVEMENTS: [
+    "component,movement_type,amount,description",
+    "Share capital,OPENING_BALANCE,10000.00,",
+    "Share capital,CLOSING_BALANCE,10000.00,",
+    "Retained earnings,OPENING_BALANCE,6600.00,",
+    "Retained earnings,PROFIT_OR_LOSS,5100.00,",
+    "Retained earnings,DIVIDENDS_OR_DISTRIBUTIONS,-700.00,Final dividend",
+    "Retained earnings,CLOSING_BALANCE,11000.00,",
+  ].join("\n") + "\n",
+  CASH_ACCOUNT_MAP: "account_key,category,effect,include_in_cash_flow,note\n1000,BANK_ACCOUNT,ADD,Y,Main operating account\n",
+};
+
+// The comparative year (FY2025) as the same report needs it: the prior year's ledger and equity movements, and the signed
+// prior-year statement of cash flows' opening cash (5,000.00 at 1 January 2025). Ties to the FY2025 TB: bank 8,000.00;
+// retained earnings 3,500.00 before closing = 4,200.00 opening less the 700.00 dividend; equity 16,600.00 (10,000 + 3,500
+// + profit 3,100).
+export const EVIDENCE_FY2025_COMPARATIVE = {
+  TRANSACTION_LEDGER: [
+    "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line",
+    "P1,2025-03-31,1000,Receipts from customers,24600.00,,OPERATING,Receipts from customers",
+    "P2,2025-06-30,1000,Payments to suppliers and employees,,19100.00,OPERATING,Payments to suppliers and employees",
+    "P3,2025-07-15,1000,Interest received,400.00,,OPERATING,Interest received",
+    "P4,2025-09-30,1000,Loan repayment,,1000.00,FINANCING,Repayment of borrowings",
+    "P5,2025-12-15,1000,Income tax paid,,500.00,OPERATING,Income tax paid",
+    "P6,2025-12-20,1000,Interest paid,,700.00,OPERATING,Interest paid",
+    "P7,2025-11-30,1000,Dividend paid,,700.00,FINANCING,Dividends paid",
+  ].join("\n") + "\n",
+  EQUITY_MOVEMENTS: [
+    "component,movement_type,amount,description",
+    "Share capital,OPENING_BALANCE,10000.00,",
+    "Share capital,CLOSING_BALANCE,10000.00,",
+    "Retained earnings,OPENING_BALANCE,4200.00,",
+    "Retained earnings,PROFIT_OR_LOSS,3100.00,",
+    "Retained earnings,DIVIDENDS_OR_DISTRIBUTIONS,-700.00,Final dividend",
+    "Retained earnings,CLOSING_BALANCE,6600.00,",
+  ].join("\n") + "\n",
+  PRIOR_PERIOD_STATEMENTS: "statement_type,line_key,line_label,amount\nCASH_FLOWS,cash_and_cash_equivalents_opening_cf,Cash and cash equivalents at 1 January 2025,5000.00\n",
+};
+
+/** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
+export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true } = {}) {
+  const { U, A } = W;
+  const asU = (uid, sql, p) => db.asUser(uid, sql, p);
+  const p = await k.upload(A, year - 1, csv(FY2025)); await k.review(A, p); await k.certify(A, p);
+  const c = await k.upload(A, year, csv(FY2026)); await k.certify(A, c);
+  await asU(U.preparer, "SELECT public.fs_assign_presentation($1,$2::jsonb,'Presentation per the chart of accounts',$3)", [A, JSON.stringify(assignmentPairs(ASSIGN)), uuid()]);
+  const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, year])).r;
+  const open = (await db.admin.query("SELECT f.id FROM public.close_review_findings f WHERE f.run_id=$1", [run.runId])).rows;
+  for (const f of open) await asU(U.preparer, "SELECT public.close_review_finding_action($1,'explain','Accumulated depreciation is a contra-asset by design','Fixed asset register 2026',$2) r", [f.id, uuid()]);
+  const WORDS = { "smes.note.compliance": "Prepared in accordance with the IFRS for SMEs (2015 edition).", "smes.note.identification": "Synthetic SME Limited; year ended 31 December 2026; TZS.",
+    "smes.note.policies": "Historical cost.", "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives.", "smes.note.subclassifications": "All receivables from third parties.",
+    "smes.note.share_capital": "10,000 ordinary shares, fully paid." };
+  await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,'smes.note.share_capital','applicable','The entity has share capital',$3)", [A, year, uuid()]);
+  for (const [id, text] of Object.entries(WORDS)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
+  await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
+    JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);
+  if (comparativesApproved) await asU(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed to the signed 2025 statements',$3) r", [A, year, uuid()]);
+}

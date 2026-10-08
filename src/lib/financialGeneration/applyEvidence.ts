@@ -118,7 +118,28 @@ function latestFactValue(report: CanonicalFinancialStatementReport, factId: stri
 /** Opening cash for a period = closing cash of the period before it, from the comparative SFP or from prior-period statements evidence. */
 type OpeningCash = { readonly money: Money; readonly source: string } | { readonly conflict: string } | null;
 
+/**
+ * The prior-period statements row that states the COMPARATIVE period's opening cash: the opening cash of the signed
+ * prior-year statement of cash flows (statement_type CASH_FLOWS). It is the only source of that figure — it is never
+ * derived backwards from the comparative closing balance — and the comparative closing cash it leads to is then tested
+ * by the rule pack against the comparative statement of financial position.
+ */
+export const PRIOR_OPENING_CASH_LINE_KEY = "cash_and_cash_equivalents_opening_cf";
+
+function comparativeOpeningCash(evidence: readonly EvidenceBatch[]): OpeningCash {
+  const prior = one(evidence, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE");
+  if (!prior) return null;
+  const read = columnReader(prior);
+  for (let row = 1; row <= prior.document.rows.length; row++) {
+    if (read(row, "statement_type") === "CASH_FLOWS" && read(row, "line_key") === PRIOR_OPENING_CASH_LINE_KEY) {
+      return { money: amountOf(prior, read(row, "amount")), source: `the signed prior-year statement of cash flows (prior-period statements evidence batch ${prior.evidenceBatchId} row ${row})` };
+    }
+  }
+  return null;
+}
+
 function openingCashFor(report: CanonicalFinancialStatementReport, evidence: readonly EvidenceBatch[], role: PeriodRole, perimeter: CashPerimeterResult | null): OpeningCash {
+  if (role === "COMPARATIVE") return comparativeOpeningCash(evidence);
   if (role !== "CURRENT") return null;
   // Every authority that speaks about opening cash is consulted; if two of them disagree NOTHING is chosen (fail closed).
   const candidates: { money: Money; source: string }[] = [];
@@ -238,6 +259,10 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
       return { ...p, ledger: batch, openingCash: opening && "money" in opening ? opening.money : null, openingSource: opening && "source" in opening ? opening.source : undefined };
     });
     if (ledger.items.length > 0) collect("STATEMENT_OF_CASH_FLOWS", buildDirectCashFlow(ledger.items), ledger.batches);
+    // The prior-period statements evidence is part of the report when it supplied an opening cash figure.
+    const prior = one(usable, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE");
+    const suppliedBy = ledger.items.filter((i) => prior && i.openingSource?.includes(prior.evidenceBatchId)).map((i) => i.periodId);
+    if (prior && suppliedBy.length > 0) use.push({ evidenceType: "PRIOR_PERIOD_STATEMENTS", periodRole: "COMPARATIVE", evidenceBatchId: prior.evidenceBatchId, used: true, reason: `Used for the opening cash of ${suppliedBy.join(" and ")}.` });
     const equity = inputs<EquityPeriodInput>("EQUITY_MOVEMENTS", (batch, p) => ({ ...p, batch }));
     if (equity.items.length > 0) collect("STATEMENT_OF_CHANGES_IN_EQUITY", buildEquityStatement(equity.items), equity.batches);
   }

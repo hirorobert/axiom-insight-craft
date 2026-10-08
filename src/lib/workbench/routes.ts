@@ -119,13 +119,13 @@ const join = (basePath: string, segment: string) => (segment ? `${basePath}/${se
  * Regroups the existing navigation items into the workbench. `items` is the output of deriveWorkspaceNavigation after the
  * layout's access filter; nothing absent from it can appear here.
  */
-export function deriveWorkbenchNavigation(basePath: string, items: readonly NavItem[]): WorkbenchNavModel {
+export function deriveWorkbenchNavigation(basePath: string, items: readonly NavItem[], released: ReadonlySet<WorkbenchPageId> = RELEASED_WORKBENCH_PAGES): WorkbenchNavModel {
   const offered = new Map(items.map((i) => [i.id, i] as const));
   const groups: WorkbenchNavGroup[] = [];
   for (const g of WORKBENCH_GROUPS) {
     const gateItem = g.stage === null ? offered.get("overview") : offered.get(g.stage);
     if (!gateItem || gateItem.disabled) continue;
-    const pages = g.pages.filter((p) => RELEASED_WORKBENCH_PAGES.has(p.id)).map((p) => ({ id: p.id, label: p.label, href: join(basePath, p.segment) }));
+    const pages = g.pages.filter((p) => released.has(p.id)).map((p) => ({ id: p.id, label: p.label, href: join(basePath, p.segment) }));
     if (pages.length === 0) continue;
     groups.push({ id: g.id, label: g.label, href: pages[0].href, pages, stage: g.stage });
   }

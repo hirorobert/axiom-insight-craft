@@ -67,6 +67,8 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
 const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceIntake"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
+// Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
+const ReportingWorkbenchPage = lazy(() => import("@/pages/workspace/ReportingWorkbenchPage"));
 
 const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
@@ -119,6 +121,14 @@ const App = () => (
                   {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseFindings /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseAdjustments /></Suspense></StageScopeGate>} />}
+                  {/* Financial Statements and Sign-off & Exports: each registered only once its page is released (routes.ts
+                      RELEASED_WORKBENCH_PAGES), behind the Statements stage scope gate (withheld today: moduleAvailability.ts). */}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-statements") && <Route path="statements" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-statements" /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-notes") && <Route path="statements/notes" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-notes" /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-schedules") && <Route path="statements/schedules" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-schedules" /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="signoff" /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="exports" /></Suspense></StageScopeGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
