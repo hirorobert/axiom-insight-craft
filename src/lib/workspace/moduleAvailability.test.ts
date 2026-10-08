@@ -206,7 +206,7 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     // Workbench pages built ahead of release (Close Review): registered only when BOTH the gate is on AND the page is in
     // RELEASED_WORKBENCH_PAGES (src/lib/workbench/routes.ts), behind the same Prepare stage scope gate.
     const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]);
-    expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"]]);
+    expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"], ["close-adjustments", "close/adjustments", "prepare"]]);
     expect(staged.filter((x) => x === "reconcile")).toHaveLength(1);
     expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length + releaseGated.length);
     const layout = code("src/pages/workspace/WorkspaceLayout.tsx");
@@ -337,7 +337,8 @@ describe("7. trial-balance preparation remains fully usable", () => {
     for (const c of ["TrialBalanceUpload", "AccountReviewPanel", "TrialBalanceChecks"]) expect(prepare, c).toMatch(new RegExp(`\\b${c}\\b`));
     // Supporting-evidence matching is not part of Trial balance review: neither upload path mounts it.
     for (const f of ["src/pages/workspace/PrepareWorkspace.tsx", "src/components/TrialBalanceUpload.tsx"]) expect(code(f), f).not.toMatch(/\bSafishaGate\b|evidence-verification/);
-    expect(code("src/pages/workspace/ReconcileWorkspace.tsx")).toMatch(/AdjustingJournalPanel/);
+    // Reconcile keeps its journal panel until Close Review › Adjustments is released, then retires it (one adjustment path).
+    expect(code("src/pages/workspace/ReconcileWorkspace.tsx")).toMatch(/\{!RELEASED_WORKBENCH_PAGES\.has\("close-adjustments"\) && \(\s*<AdjustingJournalPanel/);
   });
 
   it("the engine reaches Prepare passed without any withheld output, and the workflow ends at 'Reviewed trial balance' whatever the reconciliation says", () => {

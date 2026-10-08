@@ -21,6 +21,7 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
 import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
+import { RELEASED_WORKBENCH_PAGES } from "@/lib/workbench/routes";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -92,13 +93,17 @@ export default function ReconcileWorkspace() {
         userId={user?.id ?? ""}
       />
 
-      <AdjustingJournalPanel
-        companyId={upload.company_id}
-        uploadId={upload.id}
-        periodYear={fpYear}
-        companyName={upload.company_name ?? undefined}
-        userId={user?.id ?? ""}
-      />
+      {/* One adjustment path: once Close Review › Adjustments is released, the legacy journal panel (which writes from the
+          browser) is retired here. Until then it is unchanged. */}
+      {!RELEASED_WORKBENCH_PAGES.has("close-adjustments") && (
+        <AdjustingJournalPanel
+          companyId={upload.company_id}
+          uploadId={upload.id}
+          periodYear={fpYear}
+          companyName={upload.company_name ?? undefined}
+          userId={user?.id ?? ""}
+        />
+      )}
     </div>
   );
 }

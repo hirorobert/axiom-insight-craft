@@ -7,7 +7,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
   ACTION_REFUSALS, KIND_WORDS, offeredActions, findingResolved, findingStatus, REFRESH_WORDS, RESOLUTION_WORDS, RULE_STATUS_WORDS, RULE_WORDS, STATUS_WORDS,
-  type FindingAction, type FindingRow, type FindingsClient, type FindingsSummary,
+  type FindingAction, type FindingRow, type FindingsClient, type FindingStatus, type FindingsSummary,
 } from "@/lib/closeReview/findings";
 import type { TimelineClient, TimelineEventRow } from "@/lib/closeReview/timeline";
 import { ReviewTimeline } from "./ReviewTimeline";
@@ -34,6 +34,8 @@ export function FindingsView(p: {
   const [summary, setSummary] = useState<FindingsSummary | null>(null);
   const [rows, setRows] = useState<FindingRow[]>([]);
   const [events, setEvents] = useState<(TimelineEventRow & { subject_id: string })[]>([]);
+  // The database decides status and resolution (an adjustment contract needs the adjusted layer); the browser only shows it.
+  const [serverStates, setServerStates] = useState<Map<string, { status: FindingStatus; resolved: boolean }>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,9 +51,10 @@ export function FindingsView(p: {
     try {
       const s = await p.client.summary(p.companyId, p.periodYear);
       let r: FindingRow[] = []; let e: (TimelineEventRow & { subject_id: string })[] = [];
-      if (s.state === "current") { r = await p.client.list(s.runId); e = await p.client.events(r.map((x) => x.id)); }
+      let st: { finding_id: string; status: FindingStatus; resolved: boolean }[] = [];
+      if (s.state === "current") { r = await p.client.list(s.runId); e = await p.client.events(r.map((x) => x.id)); st = await p.client.states(p.companyId, p.periodYear); }
       if (mine !== seq.current) return;
-      setSummary(s); setRows(r); setEvents(e); setError(null);
+      setSummary(s); setRows(r); setEvents(e); setServerStates(new Map(st.map((x) => [x.finding_id, { status: x.status, resolved: x.resolved }]))); setError(null);
     } catch {
       if (mine === seq.current) setError("The findings could not be read. Nothing was changed.");
     }
@@ -59,6 +62,8 @@ export function FindingsView(p: {
   useEffect(() => { void load(); }, [load]);
 
   const evOf = (id: string) => events.filter((e) => e.subject_id === id);
+  const statusOf = (r: FindingRow): FindingStatus => serverStates.get(r.id)?.status ?? findingStatus(evOf(r.id));
+  const resolvedOf = (r: FindingRow): boolean => serverStates.get(r.id)?.resolved ?? findingResolved(r, evOf(r.id));
   const refresh = async () => {
     setBusy(true);
     try { const r = await p.client.refresh(p.companyId, p.periodYear); setNotice(REFRESH_WORDS[r.outcome]); await load(); }
@@ -97,7 +102,7 @@ export function FindingsView(p: {
 
   const sel = rows.find((r) => r.id === selected) ?? null;
   const notEvaluated = Object.entries(summary.ruleStatus).filter(([, s]) => !s.evaluated);
-  const nextOpen = rows.find((r) => !findingResolved(r, evOf(r.id)));
+  const nextOpen = rows.find((r) => !resolvedOf(r));
   return (
     <section className="space-y-4" aria-labelledby={`${ids.table}-h`}>
       <h2 id={`${ids.table}-h`} className="text-base font-semibold">Findings</h2>
@@ -110,7 +115,7 @@ export function FindingsView(p: {
           <thead><tr><th scope="col" className="text-left">Finding</th><th scope="col" className="text-left">Type</th><th scope="col" className="text-left">Account</th><th scope="col" className="text-right">Debit</th><th scope="col" className="text-right">Credit</th><th scope="col" className="text-left">Severity</th><th scope="col" className="text-left">Status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
           <tbody>
             {rows.map((r) => {
-              const st = findingStatus(evOf(r.id));
+              const st = statusOf(r);
               return (
                 <tr key={r.id} data-testid={`finding-${r.finding_key}`}>
                   <td>{RULE_WORDS[r.rule_id]?.title ?? r.rule_id}</td>
@@ -119,7 +124,7 @@ export function FindingsView(p: {
                   <td className="text-right"><Amount minor={r.debit_minor} exponent={summary.exponent} /></td>
                   <td className="text-right"><Amount minor={r.credit_minor} exponent={summary.exponent} /></td>
                   <td>{r.severity === "blocking" ? (r.mandatory ? "Blocking · mandatory" : "Blocking") : "Warning"}</td>
-                  <td>{STATUS_WORDS[st]}{findingResolved(r, evOf(r.id)) ? "" : st === "open" ? "" : " · not yet resolved"}</td>
+                  <td>{STATUS_WORDS[st]}{resolvedOf(r) ? "" : st === "open" ? "" : " · not yet resolved"}</td>
                   <td><button type="button" className="underline" onClick={() => setSelected(r.id)} aria-label={`Open ${RULE_WORDS[r.rule_id]?.title ?? r.rule_id}${r.account_name ? ` for ${r.account_name}` : ""}`}>Open</button></td>
                 </tr>
               );
@@ -139,7 +144,7 @@ export function FindingsView(p: {
           <p className="text-sm">{RULE_WORDS[sel.rule_id]?.explain}</p>
           <p className="text-sm">{RESOLUTION_WORDS[sel.required_resolution]}{sel.mandatory ? " — mandatory: it cannot be accepted or marked not applicable." : ""}</p>
           {(() => {
-            const st = findingStatus(evOf(sel.id));
+            const st = statusOf(sel);
             const offered = offeredActions(sel, st, p.allowed);
             if (offered.length === 0) return <p className="text-xs text-muted-foreground">No action available to you on this finding.</p>;
             return (

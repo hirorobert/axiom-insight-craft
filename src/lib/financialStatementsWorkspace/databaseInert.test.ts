@@ -252,6 +252,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261013100000_close_review_timeline.sql",
       // Close Review I2 (20261014100000): findings on the authoritative trial balance (tb-anomaly-catalogue/1), lifecycle on the shared timeline; behind the financial-statements rollout. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261014100000_close_review_findings.sql",
+      // Close Review I3 (20261015100000): approved adjustments (adjustment/1, approval-policy/1) as a layer over the authoritative trial balance; behind the financial-statements rollout. A NEW forward-only migration pending hosted application.
+      "supabase/migrations/20261015100000_close_review_adjustments.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization

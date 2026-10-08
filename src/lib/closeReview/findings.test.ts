@@ -48,7 +48,10 @@ describe("status and resolution (mirror of the database)", () => {
     expect(findingResolved(evid, [ev(1, "finding_explained", { evidenceRef: "WP v2" })])).toBe(true);
     const review = { severity: "blocking" as const, required_resolution: "review" as const };
     expect(findingResolved(review, [ev(1, "finding_explained")])).toBe(false);
-    expect(findingResolved(review, [ev(1, "finding_adjusted")])).toBe(true);
+    // An adjustment resolves A03 only when its applied effect meets the contract — the DATABASE decides that
+    // (close_review_finding_states); the browser mirror never claims "adjusted", and a link event is not a resolution.
+    expect(findingResolved(review, [ev(1, "finding_adjustment_linked")])).toBe(false);
+    expect(findingStatus([ev(1, "finding_adjustment_linked")])).toBe("open");
     expect(findingResolved({ severity: "warning", required_resolution: "explanation" }, [ev(1, "finding_accepted")])).toBe(true);
   });
   it("actions offered by capability; a mandatory finding is never offered accept or not-applicable", () => {
@@ -84,6 +87,7 @@ function fakeClient(over: Partial<Record<keyof FindingsClient, unknown>> = {}) {
     refresh: vi.fn(async () => ({ outcome: "generated", runId: "run" })),
     list: vi.fn(async () => ROWS),
     events: vi.fn(async () => []),
+    states: vi.fn(async () => []),
     act: vi.fn(async () => ({ outcome: "recorded", status: "explained" })),
     ...over,
   } as unknown as FindingsClient & Record<string, ReturnType<typeof vi.fn>>;
@@ -154,5 +158,16 @@ describe("FindingsView", () => {
     m.unmount(); m = mount(view(fakeClient({ summary: vi.fn(async () => ({ state: "not_generated" })) }), []));
     await flush();
     expect(byText(/Check for findings/)).toBeUndefined();
+  });
+});
+
+describe("FindingsView — the server decides resolution", () => {
+  it("shows a finding the database resolved by an adjustment's effect as Adjusted, and no longer as the next open item", async () => {
+    const c = fakeClient({ states: vi.fn(async () => [{ finding_id: "f1", status: "adjusted", resolved: true }, { finding_id: "f2", status: "open", resolved: false }, { finding_id: "f3", status: "open", resolved: false }]) });
+    m = mount(view(c, ["prepare_close"]));
+    await flush();
+    expect(document.querySelector("[data-testid='finding-A03:1010']")!.textContent).toContain("Adjusted");
+    click(byText(/Next open item/));
+    expect(document.querySelector("[data-testid=finding-detail]")!.textContent).toContain("Income-tax computation workpaper");
   });
 });
