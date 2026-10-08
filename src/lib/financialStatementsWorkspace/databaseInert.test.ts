@@ -250,6 +250,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/layoutAssist.ts",
       // Close Review increment 8 (20261013100000): the append-only comments-and-history timeline, behind the financial-statements rollout; capability-checked writer. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261013100000_close_review_timeline.sql",
+      // Close Review I2 (20261014100000): findings on the authoritative trial balance (tb-anomaly-catalogue/1), lifecycle on the shared timeline; behind the financial-statements rollout. A NEW forward-only migration pending hosted application.
+      "supabase/migrations/20261014100000_close_review_findings.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization

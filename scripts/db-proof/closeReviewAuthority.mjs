@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { call, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
 import { currentChain, migrationSql } from "./lib/parkedMigrations.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,7 @@ const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const TIMELINE_FILE = "20261013100000_close_review_timeline.sql";
+const FINDINGS_FILE = "20261014100000_close_review_findings.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -98,7 +100,7 @@ async function setup() {
     for (const f of files) {
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
-      try { await admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }
+      try { await admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]} @${e.position ?? ""} ${e.where ?? ""}`.slice(0, 600); }
     }
     return true;
   });
@@ -189,9 +191,177 @@ async function timelineProof({ U, A, B, rollout }) {
   });
 }
 
+
+// ── Findings (I2) ────────────────────────────────────────────────────────────────────────────────────────────────────
+const TB = [
+  // code, name, classification, statement, normal, debit, credit, cash
+  ["1000", "Bank", "current_assets", "balance_sheet", "debit", "5000.00", "", true],
+  ["1010", "Petty cash", "current_assets", "balance_sheet", "debit", "", "200.00", true],
+  ["1500", "Equipment", "non_current_assets", "balance_sheet", "debit", "10000.00", "", false],
+  ["1510", "Accumulated depreciation", "non_current_assets", "balance_sheet", "credit", "", "2000.00", false],
+  ["2000", "Trade payables", "current_liabilities", "balance_sheet", "credit", "", "3000.00", false],
+  ["2100", "Income tax payable", "current_liabilities", "balance_sheet", "credit", "", "800.00", false],
+  ["3000", "Share capital", "equity", "balance_sheet", "credit", "", "8000.00", false],
+  ["4000", "Sales", "revenue", "income_statement", "credit", "", "9000.00", false],
+  ["4001", "Service revenue", "revenue", "income_statement", "credit", "", "1000.00", false],
+  ["6000", "Rent", "operating_expenses", "income_statement", "debit", "7000.00", "", false],
+  ["6100", "Wages", "operating_expenses", "income_statement", "debit", "1200.00", "", false],
+  ["7000", "Income tax expense", "taxes", "income_statement", "debit", "800.00", "", false],
+];
+const CSV_TB = "Account code,Account name,Debit,Credit\n" + TB.map((r) => `${r[0]},${r[1]},${r[5]},${r[6]}`).join("\n") + "\n";
+
+async function findingsProof({ U, A }) {
+  const ptb = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
+  let year = 2010;
+  const upload = async (y = ++year) => {
+    const pid = (await one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,'TZS',$5,$2) RETURNING id",
+      [A, `${y}-12-31`, `FY${y}`, U.owner, `${y}-01-01`])).id;
+    const filePath = `${U.owner}/${uuid()}.csv`;
+    const id = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
+      VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, CSV_TB.length, A, y, pid, U.owner])).id;
+    shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(CSV_TB));
+    return { id, year: y };
+  };
+  const decisions = TB.map(([code, name, cls, st, nb, , , cash]) => ({ account_code: code, account_name: name, proposal_type: "NONE",
+    decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: cash }));
+  const seed = await upload();
+  await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, seed.id, uuid(), JSON.stringify(decisions)]);
+  const certify = async (u) => {
+    const r = await call(ptb, pool, mintTestJwt(U.owner), { uploadId: u.id, clientRequestId: uuid() });
+    const c = await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, u.year]);
+    if (!c) throw new Error(`not certified: ${JSON.stringify(r.body).slice(0, 300)}`);
+    return c.id;
+  };
+  const refresh = (uid, y) => asUser(uid, "SELECT public.close_review_refresh_findings($1,$2) r", [A, y]).then((r) => r.r);
+  const summary = (uid, y) => asUser(uid, "SELECT public.close_review_findings_summary($1,$2) r", [A, y]).then((r) => r.r);
+  const act = (uid, id, action, text = "Reviewed against the ledger", evidence = null, request = uuid()) =>
+    asUser(uid, "SELECT public.close_review_finding_action($1,$2,$3,$4,$5) r", [id, action, text, evidence, request]).then((r) => r.r);
+
+  group("Findings — generation on the authoritative trial balance");
+  const cur = await upload();
+  await check("the trial balance certifies through the real engine (authoritative)", async () => (await certify(cur)) ? true : "no");
+  let run;
+  await check("a member without prepare_close cannot generate (forbidden); nothing recorded", async () => {
+    const r = await refresh(U.viewer, cur.year);
+    return r.outcome === "forbidden" && (await count("SELECT count(*) n FROM public.close_review_finding_runs")) === 0 ? true : r;
+  });
+  const requirement = (uid, on, ref = "Reviewed requirement: income-tax computation workpaper (framework pack / statute reference)") =>
+    asUser(uid, "SELECT public.close_review_set_requirement($1,'T01',$2,$3,'Scoped for this workspace') r", [A, on, on ? ref : null]).then((r) => r.r);
+  let unscoped;
+  await check("without a reviewed requirement the tax workpaper is NOT REQUIRED (no T01 finding), never universally assumed", async () => {
+    unscoped = await refresh(U.preparer, cur.year);
+    const st = (await one("SELECT rule_status, scope_key FROM public.close_review_finding_runs WHERE id=$1", [unscoped.runId]));
+    const t01 = await count("SELECT count(*) n FROM public.close_review_findings WHERE run_id=$1 AND rule_id='T01'", [unscoped.runId]);
+    return unscoped.outcome === "generated" && st.scope_key === "T01=off" && st.rule_status.T01.status === "not_required" && t01 === 0 ? true : { unscoped, st, t01 };
+  });
+  await check("only approve_certification scopes a requirement, with its reference; scoping it makes a NEW run", async () => {
+    const a = await requirement(U.preparer, true);
+    const b = await requirement(U.owner, true, null);
+    const c = await requirement(U.owner, true);
+    const again = await requirement(U.owner, true);
+    return a.outcome === "forbidden" && b.outcome === "invalid_request" && c.outcome === "recorded" && again.outcome === "unchanged" ? true : { a, b, c, again };
+  });
+  await check("generated: A01 (assets in credit), A03 (cash in credit), T01 (tax workpaper) — exact minor units; nothing for correctly-signed accounts", async () => {
+    run = await refresh(U.preparer, cur.year);
+    if (run.runId === unscoped.runId) return "the scope change did not make a new run";
+    const fs_ = (await admin.query("SELECT rule_id, finding_key, severity, mandatory, required_resolution, credit_minor::text c, detail FROM public.close_review_findings WHERE run_id=$1 ORDER BY finding_key", [run.runId])).rows;
+    const keys = fs_.map((f) => f.finding_key);
+    const a03 = fs_.find((f) => f.rule_id === "A03");
+    const t01 = fs_.find((f) => f.rule_id === "T01");
+    return run.outcome === "generated" && keys.includes("A01:1510") && keys.includes("A03:1010") && keys.includes("T01") && !keys.some((k) => k.startsWith("A07"))
+      && keys.includes("A01:1010") /* petty cash in credit is also an asset on the wrong side */ && a03.severity === "blocking" && a03.mandatory && a03.required_resolution === "review"
+      && a03.c === "20000" && t01.required_resolution === "evidence" && t01.detail.accounts.length === 1
+      && !keys.some((k) => k.startsWith("A01:2") || k.startsWith("A01:3") || k.startsWith("A01:4")) ? true : fs_;
+  });
+  await check("every rule has a kind and a status; only evaluated rules can raise findings; every other status says why", async () => {
+    const s = (await one("SELECT rule_status FROM public.close_review_finding_runs WHERE id=$1", [run.runId])).rule_status;
+    // Independent expectation (the catalogue as reviewed), not read back from the implementation.
+    const expected = { A01: ["risk_indicator", "evaluated"], A02: ["risk_indicator", "not_evaluated"], A03: ["deterministic_error", "evaluated"],
+      A04: ["deterministic_error", "not_evaluated"], A05: ["risk_indicator", "not_evaluated"], A06: ["risk_indicator", "not_evaluated"],
+      A07: ["deterministic_error", "excluded"], A08: ["risk_indicator", "not_evaluated"], A09: ["risk_indicator", "not_evaluated"],
+      A10: ["risk_indicator", "evaluated"], T01: ["evidence_requirement", "evaluated"] };
+    const bad = Object.entries(expected).filter(([k, [kind, status]]) => !s[k] || s[k].kind !== kind || s[k].status !== status
+      || (status !== "evaluated" && !(s[k].reason?.length > 10)) || s[k].evaluated !== (status === "evaluated"));
+    const raised = (await admin.query("SELECT DISTINCT rule_id FROM public.close_review_findings WHERE run_id=$1", [run.runId])).rows.map((r) => r.rule_id);
+    const kinds = (await admin.query("SELECT DISTINCT rule_id, kind FROM public.close_review_findings WHERE run_id=$1", [run.runId])).rows;
+    return bad.length === 0 && Object.keys(s).length === 11 && raised.every((r) => expected[r][1] === "evaluated")
+      && kinds.every((k) => k.kind === expected[k.rule_id][0]) && s.A04.reason === "No authoritative prior-year trial balance." ? true : { bad, raised, kinds };
+  });
+  await check("generating again for the same authority is a replay (one run)", async () => {
+    const again = await refresh(U.partner, cur.year);
+    return again.outcome === "unchanged" && again.runId === run.runId && (await count("SELECT count(*) n FROM public.close_review_finding_runs")) === 2 ? true : again;
+  });
+  await check("the summary reports the current run and its unresolved blocking findings (A03, T01)", async () => {
+    const s = await summary(U.viewer, cur.year);
+    return s.state === "current" && s.runId === run.runId && Number(s.unresolvedBlocking) === 2 && s.currency === "TZS" ? true : s;
+  });
+
+  group("Findings — lifecycle");
+  const fid = async (key) => (await one("SELECT id FROM public.close_review_findings WHERE run_id=$1 AND finding_key=$2", [run.runId, key])).id;
+  await check("a member without capabilities cannot explain (forbidden); a preparer cannot accept (review_close needed)", async () => {
+    const a = await act(U.viewer, await fid("A01:1510"), "explain");
+    const b = await act(U.preparer, await fid("A01:1010"), "accept");
+    return a.outcome === "forbidden" && b.outcome === "forbidden" ? true : { a, b };
+  });
+  await check("a mandatory finding has no accept or not-applicable path", async () => {
+    const a = await act(U.partner, await fid("T01"), "accept");
+    const b = await act(U.partner, await fid("A03:1010"), "not_applicable");
+    return a.outcome === "mandatory_finding" && b.outcome === "mandatory_finding" ? true : { a, b };
+  });
+  await check("the tax finding needs the preparer's workpaper reference; with it, it is resolved", async () => {
+    const a = await act(U.preparer, await fid("T01"), "explain", "Computed in the attached workpaper");
+    const b = await act(U.preparer, await fid("T01"), "explain", "Computed in the attached workpaper", "Tax computation FY workpaper v2 (sha256 9f2c…)");
+    const s = await summary(U.owner, cur.year);
+    return a.outcome === "evidence_required" && b.outcome === "recorded" && b.status === "explained" && Number(s.unresolvedBlocking) === 1 ? true : { a, b, s };
+  });
+  await check("an explanation does not resolve a blocking finding that needs a review or an adjustment (A03 stays unresolved)", async () => {
+    const a = await act(U.preparer, await fid("A03:1010"), "explain", "Petty cash float overdrawn");
+    const s = await summary(U.owner, cur.year);
+    return a.outcome === "recorded" && Number(s.unresolvedBlocking) === 1 ? true : { a, s };
+  });
+  await check("explain a warning; accept another (reviewer); reopen returns it to open; an action twice is an invalid transition", async () => {
+    const e = await act(U.preparer, await fid("A01:1510"), "explain", "Contra asset: accumulated depreciation");
+    const twice = await act(U.preparer, await fid("A01:1510"), "explain", "again");
+    const acc = await act(U.partner, await fid("A01:1010"), "accept", "Petty cash float shown net; see A03");
+    const re = await act(U.partner, await fid("A01:1510"), "reopen", "Please cite the asset register");
+    return e.status === "explained" && twice.outcome === "invalid_transition" && acc.status === "accepted" && re.status === "open" ? true : { e, twice, acc, re };
+  });
+  await check("a retried action records once; the history keeps every step", async () => {
+    const request = uuid();
+    const id = await fid("A01:1510");
+    const a = await act(U.preparer, id, "explain", "Per the asset register", null, request);
+    const b = await act(U.preparer, id, "explain", "Per the asset register", null, request);
+    const steps = (await admin.query("SELECT event_type FROM public.close_review_events WHERE subject_kind='finding' AND subject_id=$1 ORDER BY seq", [id])).rows.map((r) => r.event_type);
+    return a.eventId === b.eventId && b.replay === true && steps.join(",") === "finding_explained,finding_reopened,finding_explained" ? true : { a, b, steps };
+  });
+  await refused("findings cannot be changed — not even by the database owner", "42501", () => admin.query("UPDATE public.close_review_findings SET severity='warning'"));
+  await refused("clients cannot call the internal status helpers", "42501", () => asRole("authenticated", U.owner, "SELECT public.close_review_finding_status($1)", [uuid()]));
+
+  group("Findings — authority changes");
+  await check("an authoritative prior year makes a NEW run (the key includes the prior authority); A04 then names the missing pack basis", async () => {
+    await certify(seed);                                   // the seed upload is the year before
+    const r = await refresh(U.preparer, cur.year);
+    const s = (await one("SELECT rule_status, prior_certification_id FROM public.close_review_finding_runs WHERE id=$1", [r.runId]));
+    return r.outcome === "generated" && r.runId !== run.runId && s.prior_certification_id !== null
+      && s.rule_status.A04.reason.includes("trial-balance basis") && s.rule_status.A07.evaluated === false ? true : { r, s };
+  });
+  await check("actions on a finding of the earlier run are refused (stale_authority)", async () => {
+    const a = await act(U.partner, (await one("SELECT id FROM public.close_review_findings WHERE run_id=$1 AND finding_key='A01:1010'", [run.runId])).id, "reopen", "late");
+    return a.outcome === "stale_authority" ? true : a;
+  });
+  await check("the authority invalidated: the summary says so (no_authority) and nothing can be generated", async () => {
+    const certId = (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, cur.year])).id;
+    await admin.query("INSERT INTO public.tb_certification_invalidations (certification_id, company_id, upload_id, reason, operation_id, actor_user_id) VALUES ($1,$2,$3,'reprocess_requested',$4,$5)", [certId, A, cur.id, uuid(), U.owner]);
+    const s = await summary(U.owner, cur.year);
+    const r = await refresh(U.preparer, cur.year);
+    return s.state === "no_authority" && r.outcome === "no_authority" ? true : { s, r };
+  });
+}
+
 async function main() {
   const ctx = await setup();
   await timelineProof(ctx);
+  await findingsProof(ctx);
 }
 
 let crashed = false;
