@@ -4722,6 +4722,11 @@ export type Database = {
       }
       fs_publication_bindings: {
         Row: {
+          approved_at: string | null
+          approver_display_name: string | null
+          approver_firm_member_id: string | null
+          approver_role: string | null
+          approver_user_id: string | null
           company_id: string
           created_at: string
           declared_content_hash: string
@@ -4736,6 +4741,11 @@ export type Database = {
           state: string
         }
         Insert: {
+          approved_at?: string | null
+          approver_display_name?: string | null
+          approver_firm_member_id?: string | null
+          approver_role?: string | null
+          approver_user_id?: string | null
           company_id: string
           created_at?: string
           declared_content_hash: string
@@ -4750,6 +4760,11 @@ export type Database = {
           state: string
         }
         Update: {
+          approved_at?: string | null
+          approver_display_name?: string | null
+          approver_firm_member_id?: string | null
+          approver_role?: string | null
+          approver_user_id?: string | null
           company_id?: string
           created_at?: string
           declared_content_hash?: string
@@ -4764,6 +4779,13 @@ export type Database = {
           state?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fs_publication_bindings_approver_firm_member_id_fkey"
+            columns: ["approver_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "fs_publication_bindings_company_id_fkey"
             columns: ["company_id"]
@@ -9144,6 +9166,10 @@ export type Database = {
           lines: Json
           reason: string
         }[]
+      }
+      _fs_comprehensive_income: {
+        Args: { p_comp: Json; p_company_id: string; p_period_year: number }
+        Returns: Json
       }
       _fs_earlier_period_history: {
         Args: { p_company_id: string; p_period_year: number }
