@@ -260,6 +260,13 @@
       "when": 1791455254708,
       "tag": "0036_i1b_w4_close_review_findings",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791455472081,
+      "tag": "0037_i1b_w5_close_review_adjustments",
+      "breakpoints": true
     }
   ]
 }

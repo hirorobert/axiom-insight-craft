@@ -1279,6 +1279,274 @@ export type Database = {
           },
         ]
       }
+      close_review_adjustment_bindings: {
+        Row: {
+          adjustment_id: string
+          company_id: string
+          created_at: string
+          decision: string
+          detail: Json
+          firm_member_id: string | null
+          from_certification_id: string
+          id: string
+          reason: string
+          request_id: string
+          reviewer_user_id: string
+          self_approved: boolean
+          seq: number
+          to_certification_id: string
+        }
+        Insert: {
+          adjustment_id: string
+          company_id: string
+          created_at?: string
+          decision: string
+          detail?: Json
+          firm_member_id?: string | null
+          from_certification_id: string
+          id?: string
+          reason: string
+          request_id: string
+          reviewer_user_id: string
+          self_approved?: boolean
+          seq?: never
+          to_certification_id: string
+        }
+        Update: {
+          adjustment_id?: string
+          company_id?: string
+          created_at?: string
+          decision?: string
+          detail?: Json
+          firm_member_id?: string | null
+          from_certification_id?: string
+          id?: string
+          reason?: string
+          request_id?: string
+          reviewer_user_id?: string
+          self_approved?: boolean
+          seq?: never
+          to_certification_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustment_bindings_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_from_certification_id_fkey"
+            columns: ["from_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustment_bindings_to_certification_id_fkey"
+            columns: ["to_certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_adjustment_lines: {
+        Row: {
+          account_code: string | null
+          account_key: string
+          account_name: string
+          adjustment_id: string
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          line_no: number
+          memo: string | null
+        }
+        Insert: {
+          account_code?: string | null
+          account_key: string
+          account_name: string
+          adjustment_id: string
+          classification: string
+          credit_minor: number
+          debit_minor: number
+          line_no: number
+          memo?: string | null
+        }
+        Update: {
+          account_code?: string | null
+          account_key?: string
+          account_name?: string
+          adjustment_id?: string
+          classification?: string
+          credit_minor?: number
+          debit_minor?: number
+          line_no?: number
+          memo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustment_lines_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_adjustments: {
+        Row: {
+          certification_id: string
+          company_id: string
+          created_at: string
+          evidence_ref: string | null
+          finding_ids: string[]
+          id: string
+          kind: string
+          lines_sha256: string
+          number: number
+          period_year: number
+          proposer_member_id: string | null
+          proposer_user_id: string
+          reason: string
+          request_id: string
+          reverses_id: string | null
+          total_minor: number
+        }
+        Insert: {
+          certification_id: string
+          company_id: string
+          created_at?: string
+          evidence_ref?: string | null
+          finding_ids?: string[]
+          id?: string
+          kind: string
+          lines_sha256: string
+          number: number
+          period_year: number
+          proposer_member_id?: string | null
+          proposer_user_id: string
+          reason: string
+          request_id: string
+          reverses_id?: string | null
+          total_minor: number
+        }
+        Update: {
+          certification_id?: string
+          company_id?: string
+          created_at?: string
+          evidence_ref?: string | null
+          finding_ids?: string[]
+          id?: string
+          kind?: string
+          lines_sha256?: string
+          number?: number
+          period_year?: number
+          proposer_member_id?: string | null
+          proposer_user_id?: string
+          reason?: string
+          request_id?: string
+          reverses_id?: string | null
+          total_minor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_adjustments_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_proposer_member_id_fkey"
+            columns: ["proposer_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_adjustments_reverses_id_fkey"
+            columns: ["reverses_id"]
+            isOneToOne: false
+            referencedRelation: "close_review_adjustments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      close_review_approval_policy_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          override_multiple_approvers: boolean
+          policy: string
+          reason: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          override_multiple_approvers?: boolean
+          policy: string
+          reason: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          override_multiple_approvers?: boolean
+          policy?: string
+          reason?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "close_review_approval_policy_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "close_review_approval_policy_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       close_review_events: {
         Row: {
           actor_user_id: string | null
@@ -7990,6 +8258,44 @@ export type Database = {
         Args: { p_by: string }
         Returns: boolean
       }
+      _cr_adjustment_applies_to: {
+        Args: { p_adjustment_id: string; p_certification_id: string }
+        Returns: boolean
+      }
+      _cr_adjustment_binding_state: {
+        Args: { p_adjustment_id: string; p_certification_id: string }
+        Returns: string
+      }
+      _cr_adjustment_contract_met: {
+        Args: { p_finding_id: string }
+        Returns: boolean
+      }
+      _cr_adjustment_effective_certification: {
+        Args: { p_adjustment_id: string }
+        Returns: string
+      }
+      _cr_adjustment_status: {
+        Args: { p_adjustment_id: string }
+        Returns: string
+      }
+      _cr_applied_account_totals: {
+        Args: {
+          p_account_key: string
+          p_certification_id: string
+          p_company_id: string
+          p_period_year: number
+        }
+        Returns: Record<string, unknown>
+      }
+      _cr_approval_policy: {
+        Args: { p_company_id: string }
+        Returns: {
+          approver_count: number
+          override_multiple_approvers: boolean
+          policy: string
+          self_approval_available: boolean
+        }[]
+      }
       _cr_certified_accounts: {
         Args: { p_certification_id: string }
         Returns: {
@@ -8481,6 +8787,26 @@ export type Database = {
         }
         Returns: Json
       }
+      close_review_adjusted_trial_balance: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          account_code: string
+          account_key: string
+          account_name: string
+          adjusted_credit_minor: number
+          adjusted_debit_minor: number
+          adjustment_credit_minor: number
+          adjustment_debit_minor: number
+          certification_id: string
+          certified_credit_minor: number
+          certified_debit_minor: number
+          classification: string
+        }[]
+      }
+      close_review_adjustments_summary: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       close_review_comment: {
         Args: {
           p_body: string
@@ -8489,6 +8815,16 @@ export type Database = {
           p_revises?: string
           p_subject_id: string
           p_subject_kind: string
+        }
+        Returns: Json
+      }
+      close_review_decide_adjustment: {
+        Args: {
+          p_acknowledge_self_approval: boolean
+          p_adjustment_id: string
+          p_decision: string
+          p_reason: string
+          p_request_id: string
         }
         Returns: Json
       }
@@ -8506,12 +8842,33 @@ export type Database = {
         Args: { p_finding_id: string }
         Returns: boolean
       }
+      close_review_finding_states: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: {
+          finding_id: string
+          resolved: boolean
+          status: string
+        }[]
+      }
       close_review_finding_status: {
         Args: { p_finding_id: string }
         Returns: string
       }
       close_review_findings_summary: {
         Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      close_review_propose_adjustment: {
+        Args: {
+          p_company_id: string
+          p_evidence_ref: string
+          p_finding_ids: string[]
+          p_lines: Json
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+          p_reverses?: string
+        }
         Returns: Json
       }
       close_review_readable: {
@@ -8525,6 +8882,25 @@ export type Database = {
       close_review_requirement_in_force: {
         Args: { p_company_id: string; p_requirement_id: string }
         Returns: boolean
+      }
+      close_review_revalidate_adjustment: {
+        Args: {
+          p_acknowledge_self_approval: boolean
+          p_adjustment_id: string
+          p_decision: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      close_review_set_approval_policy: {
+        Args: {
+          p_company_id: string
+          p_override_multiple_approvers: boolean
+          p_policy: string
+          p_reason: string
+        }
+        Returns: Json
       }
       close_review_set_requirement: {
         Args: {
