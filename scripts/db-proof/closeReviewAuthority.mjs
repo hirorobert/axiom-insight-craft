@@ -722,7 +722,7 @@ async function reportingInputProof({ U, A, B }, kit) {
 }
 
 // ── Sign-off completion requirements (I8) ────────────────────────────────────────────────────────────────────────────
-async function signoffProof({ U, A }, kit) {
+async function signoffProof({ U, A, B }, kit) {
   const hex = (s) => crypto.createHash("sha256").update(s).digest("hex");
   const input = (y) => asUser(U.owner, "SELECT public.fs_reporting_input($1,$2) r", [A, y]).then((r) => r.r);
   const STATEMENT_TYPES = ["STATEMENT_OF_FINANCIAL_POSITION", "STATEMENT_OF_PROFIT_OR_LOSS", "STATEMENT_OF_CHANGES_IN_EQUITY", "STATEMENT_OF_CASH_FLOWS"];
@@ -820,26 +820,67 @@ async function signoffProof({ U, A }, kit) {
     return a === "42501" ? true : a;
   });
 
-  group("Sign-off — the first-period exception");
-  const declare = (uid, y, on, date, ref = "Certificate of incorporation no. 123") =>
-    asUser(uid, "SELECT public.fs_declare_first_period($1,$2,$3,'First reporting period since incorporation',$4,$5::date) r", [A, y, on, ref, date]).then((r) => r.r);
-  await check("without comparative figures: COMPARATIVE_PERIOD_MISSING", async () => {
+  group("Sign-off — approved adjustments awaiting revalidation block sign-off");
+  await check("after a re-check, a report on the new input is blocked until each approved adjustment is revalidated or declined", async () => {
+    const row = await one("SELECT source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [yr.id]);
+    await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [yr.id, uuid(), row.source_file_hash]);
+    await kit.certify(yr);
+    let i2 = await input(yr.year);
+    const ridA = `rpt-rv-${uuid()}`;
+    await save(yr.year, ridA, doc(ridA, i2.inputSha256, yr.id), batches);
+    const blocked = mine(await readiness(ridA));
+    const approved = (await admin.query("SELECT a.id FROM public.close_review_adjustments a WHERE a.company_id=$1 AND a.period_year=$2", [A, yr.year])).rows;
+    for (const a of approved) await asUser(U.partner, "SELECT public.close_review_revalidate_adjustment($1,'revalidate','Checked on the re-check',NULL,$2) r", [a.id, uuid()]);
+    i2 = await input(yr.year);
+    const ridB = `rpt-rv2-${uuid()}`;
+    await save(yr.year, ridB, doc(ridB, i2.inputSha256, yr.id), batches);
+    const after = mine(await readiness(ridB));
+    return blocked.includes("CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION:1") && !after.some((b) => b.startsWith("CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION"))
+      && mine(await readiness(ridA)).includes("REPORTING_INPUT_STALE") ? true : { blocked, after };
+  });
+
+  group("Sign-off — the first-period exception (a genuinely first period only)");
+  const declare = (uid, company, y, on, { kind = "certificate_of_incorporation", ref = "Certificate of incorporation no. 123", date = "2026-01-15" } = {}) =>
+    asUser(uid, "SELECT public.fs_declare_first_period($1,$2,$3,'First reporting period since incorporation',$4,$5,$6::date) r",
+      [company, y, on, on ? kind : null, on ? ref : null, on ? date : null]).then((r) => r.r);
+  await check("without comparative figures: COMPARATIVE_PERIOD_MISSING (never zero, never an automatic exception)", async () => {
     const rid = `rpt-fp-${uuid()}`;
     await save(yr.year, rid, doc(rid, inp.inputSha256, yr.id, { comparative: false }), batches);
     const r = await readiness(rid);
     return mine(r).includes("COMPARATIVE_PERIOD_MISSING") ? true : r.blockers;
   });
-  await check("only approve_certification declares; the evidence must be dated within the period; a valid declaration satisfies the requirement; withdrawing restores it", async () => {
-    const a = await declare(U.preparer, yr.year, true, `${yr.year}-03-01`);
-    const b = await declare(U.owner, yr.year, true, `${yr.year - 3}-03-01`);
-    const c = await declare(U.owner, yr.year, true, `${yr.year}-03-01`);
-    const rid = `rpt-fp2-${uuid()}`;
-    await save(yr.year, rid, doc(rid, inp.inputSha256, yr.id, { comparative: false }), batches);
-    const with_ = await readiness(rid);
-    const w = await declare(U.owner, yr.year, false, null, null);
-    const without = await readiness(rid);
-    return a.outcome === "forbidden" && b.outcome === "evidence_date_outside_period" && c.outcome === "recorded"
-      && !mine(with_).includes("COMPARATIVE_PERIOD_MISSING") && w.outcome === "recorded" && mine(without).includes("COMPARATIVE_PERIOD_MISSING") ? true : { a, b, c, w };
+  await check("a workspace with earlier trial balances is missing comparative information, not a first period: refused, whatever the evidence; a preparer is refused first", async () => {
+    const a = await declare(U.preparer, A, yr.year, true);
+    const b = await declare(U.owner, A, yr.year, true);
+    return a.outcome === "forbidden" && b.outcome === "earlier_reviewed_period_exists" ? true : { a, b };
+  });
+  // Workspace B: a genuinely first period (no earlier trial balance of any kind).
+  const FY = 2024;
+  await admin.query("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,'TZS',$5,$2)", [B, `${FY}-12-31`, `FY${FY}`, U.ownerB, `${FY}-03-01`]);
+  const ridB = `rpt-b-${uuid()}`;
+  await asUser(U.ownerB, "SELECT * FROM public.fs_save_report_version($1,1,$2,$3,'DOCUMENT_REVIEWED',$4::jsonb,$5,'{}'::text[])", [ridB, B, FY, JSON.stringify({ ...doc(ridB, hex("doc"), uuid(), { comparative: false }), reportIdentity: { reportId: ridB, companyId: B, reportVersion: 1 } }), hex(`c${ridB}`)]);
+  await asUser(U.ownerB, "SELECT * FROM public.fs_save_evaluation($1,$2,1,$3,'rule-pack','1','engine-1',$4,'[]'::jsonb)", [`ev-${ridB}`, ridB, B, hex(`e${ridB}`)]);
+  const readyB = () => asUser(U.ownerB, "SELECT public.fs_report_readiness($1,$2,1) r", [B, ridB]).then((r) => mine(r.r));
+  await check("relevant evidence issued AFTER the period (a later certified copy) is accepted; the declaration satisfies the requirement", async () => {
+    const before = await readyB();
+    const r = await declare(U.ownerB, B, FY, true, { date: "2025-06-30" });
+    const after = await readyB();
+    return before.includes("COMPARATIVE_PERIOD_MISSING") && r.outcome === "recorded" && !after.includes("COMPARATIVE_PERIOD_MISSING") ? true : { before, r, after };
+  });
+  await check("irrelevant evidence is refused; a member of another workspace cannot declare here", async () => {
+    await declare(U.ownerB, B, FY, false);
+    const a = await declare(U.ownerB, B, FY, true, { kind: "bank_statement", ref: "Bank statement March" });
+    const b = await declare(U.owner, B, FY, true);
+    const c = await declare(U.ownerB, B, FY, true);
+    return a.outcome === "evidence_not_relevant" && b.outcome === "forbidden" && c.outcome === "recorded" ? true : { a, b, c };
+  });
+  await check("conflicting history appearing later (an earlier-period trial balance) voids the declaration: COMPARATIVE_PERIOD_MISSING again; a new one is refused", async () => {
+    await admin.query("INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, user_id) VALUES ('old.csv',$1,1,'processing',$2,$3,$4)", [`${U.ownerB}/${uuid()}.csv`, B, FY - 1, U.ownerB]);
+    const after = await readyB();
+    const voided = await asUser(U.ownerB, "SELECT public.fs_first_period_declared($1,$2) r", [B, FY]).then((r) => r.r);
+    await declare(U.ownerB, B, FY, false);
+    const again = await declare(U.ownerB, B, FY, true);
+    return after.includes("COMPARATIVE_PERIOD_MISSING") && voided === false && again.outcome === "earlier_period_data_exists" ? true : { after, voided, again };
   });
   await refused("declarations are append-only", "42501", () => admin.query("UPDATE public.fs_first_period_declarations SET reason = 'x'"));
 }

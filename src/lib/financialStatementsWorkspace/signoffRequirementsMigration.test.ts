@@ -37,11 +37,17 @@ describe("20261017100000 — fs_publication_blockers re-created with only the ma
     expect(NEW).not.toMatch(/kinga|tax_computations|generate-disclosure-notes|generate-management-letter/i);
   });
   it("the new requirements are named and fail closed (a non-current input is never treated as current)", () => {
-    for (const code of ["REPORTING_INPUT_NOT_AUTHORITATIVE:", "REPORTING_INPUT_STALE", "CLOSE_REVIEW_FINDINGS_NOT_CHECKED", "CLOSE_REVIEW_BLOCKING_FINDINGS:", "CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:"]) {
+    for (const code of ["REPORTING_INPUT_NOT_AUTHORITATIVE:", "REPORTING_INPUT_STALE", "CLOSE_REVIEW_FINDINGS_NOT_CHECKED", "CLOSE_REVIEW_BLOCKING_FINDINGS:", "CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:", "CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION:"]) {
       expect(NEW, code).toContain(`'${code}`);
     }
     expect(NEW).toMatch(/IF v_input ->> 'state' IS DISTINCT FROM 'current' THEN/);
     expect(NEW).toMatch(/array_length\(v_hashes, 1\) <> 1 OR v_hashes\[1\] IS DISTINCT FROM v_input ->> 'inputSha256'/);
+  });
+  it("the first-period exception: no rule compares the evidence date with the period; relevant evidence kinds; earlier history refuses and voids", () => {
+    expect(NEW).not.toMatch(/evidence_date_outside_period/);
+    expect(NEW).toMatch(/'certificate_of_incorporation', 'certificate_of_registration', 'commencement_resolution', 'regulatory_commencement_notice'/);
+    expect(NEW).toMatch(/AND public\._fs_earlier_period_history\(p_company_id, p_period_year\) IS NULL;/);
+    for (const o of ["evidence_not_relevant", "earlier_reviewed_period_exists", "earlier_period_data_exists"]) expect(NEW, o).toContain(`'${o}'`);
   });
 });
 

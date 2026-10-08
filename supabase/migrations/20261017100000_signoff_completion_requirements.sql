@@ -8,15 +8,20 @@
 --          built from anything but the authoritative input — e.g. an upload's processing result — is
 --          REPORTING_INPUT_NOT_AUTHORITATIVE / STALE), the Close Review findings of that authority have been checked
 --          (CLOSE_REVIEW_FINDINGS_NOT_CHECKED) with no unresolved blocking finding (CLOSE_REVIEW_BLOCKING_FINDINGS:n),
---          and no adjustment awaits a decision (CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:n);
+--          no adjustment awaits a decision (CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:n), and no approved adjustment awaits a
+--          revalidation decision after a re-check (CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION:n);
 --        • the comparative requirement is satisfied by comparative figures OR an approved first-period declaration —
 --          nothing else.
 --      fs_set_publication_state (capability-checked since 20260925140000: REVIEWED needs review_close, FINAL needs
 --      approve_certification, FINAL only after REVIEWED, only the latest version, FINAL immutable) calls it unchanged,
 --      so there is still ONE sign-off path.
---   2. fs_first_period_declarations — the first-period exception (revision 5 §3, C6): declared by a member holding
---      approve_certification, with a reason and the reference and date of the evidence (e.g. the certificate of
---      incorporation), the date validated to fall within the period; withdrawn by the same capability; append-only events.
+--   2. fs_first_period_declarations — the first-period exception (revision 5 §3, C6), for a GENUINELY first reporting
+--      period only: declared by a member holding approve_certification, with a reason and RELEVANT evidence (its kind —
+--      certificate of incorporation or registration, commencement resolution, regulator's commencement notice — its
+--      reference and issue date; a later-issued copy is fine: the issue date is recorded, not compared with the period).
+--      Refused, and stops counting if it appears later, when the workspace has any earlier trial balance (reviewed or
+--      not): that is missing comparative information, not a first period, and is never turned into an exception or into
+--      zero. Withdrawn by the same capability; append-only.
 --
 -- PREFLIGHT: the declarations table does not exist yet; the migration refuses if it does.
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -37,54 +42,74 @@ CREATE TABLE public.fs_first_period_declarations (
   action          TEXT        NOT NULL CHECK (action IN ('declared', 'withdrawn')),
   reason          TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 3 AND 2000),
   evidence_ref    TEXT        NULL CHECK (evidence_ref IS NULL OR length(btrim(evidence_ref)) BETWEEN 3 AND 300),
+  evidence_kind   TEXT        NULL CHECK (evidence_kind IS NULL OR evidence_kind IN
+                    ('certificate_of_incorporation', 'certificate_of_registration', 'commencement_resolution', 'regulatory_commencement_notice')),
   evidence_date   DATE        NULL,
   actor_user_id   UUID        NOT NULL,
   firm_member_id  UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-  CONSTRAINT chk_fpd_declared_evidence CHECK (action <> 'declared' OR (evidence_ref IS NOT NULL AND evidence_date IS NOT NULL))
+  CONSTRAINT chk_fpd_declared_evidence CHECK (action <> 'declared' OR (evidence_kind IS NOT NULL AND evidence_ref IS NOT NULL AND evidence_date IS NOT NULL))
 );
 CREATE INDEX idx_fpd_company_period ON public.fs_first_period_declarations (company_id, period_year, seq DESC);
 CREATE TRIGGER trg_fpd_append_only BEFORE UPDATE OR DELETE ON public.fs_first_period_declarations FOR EACH ROW EXECUTE FUNCTION public.close_review_events_guard();
 CREATE TRIGGER trg_fpd_no_truncate BEFORE TRUNCATE ON public.fs_first_period_declarations FOR EACH STATEMENT EXECUTE FUNCTION public.close_review_events_guard();
 
+-- Any trial balance (reviewed or not) for an earlier period of the workspace: then this is not a first period.
+CREATE OR REPLACE FUNCTION public._fs_earlier_period_history(p_company_id uuid, p_period_year integer)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM public.tb_certifications c WHERE c.company_id = p_company_id AND c.period_year < p_period_year) THEN 'earlier_reviewed_period_exists'
+    WHEN EXISTS (SELECT 1 FROM public.trial_balance_uploads t WHERE t.company_id = p_company_id AND t.period_year < p_period_year) THEN 'earlier_period_data_exists'
+  END;
+$$;
+
+-- In force only while the latest record declares it AND no earlier-period history exists NOW (re-checked at every use).
 CREATE OR REPLACE FUNCTION public.fs_first_period_declared(p_company_id uuid, p_period_year integer)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT COALESCE((SELECT d.action = 'declared' FROM public.fs_first_period_declarations d
-                    WHERE d.company_id = p_company_id AND d.period_year = p_period_year ORDER BY d.seq DESC LIMIT 1), false);
+                    WHERE d.company_id = p_company_id AND d.period_year = p_period_year ORDER BY d.seq DESC LIMIT 1), false)
+     AND public._fs_earlier_period_history(p_company_id, p_period_year) IS NULL;
 $$;
 
--- Outcomes: recorded | forbidden | feature_disabled | invalid_request | no_period | evidence_date_outside_period | unchanged.
+-- Outcomes: recorded | unchanged | forbidden | feature_disabled | invalid_request | no_period | evidence_not_relevant |
+-- evidence_date_in_future | earlier_reviewed_period_exists | earlier_period_data_exists.
 CREATE OR REPLACE FUNCTION public.fs_declare_first_period(p_company_id uuid, p_period_year integer, p_declare boolean, p_reason text,
-  p_evidence_ref text, p_evidence_date date)
+  p_evidence_kind text, p_evidence_ref text, p_evidence_date date)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   v_uid uuid := auth.uid();
-  v_start date;
-  v_end date;
+  v_latest text;
+  v_target text;
+  v_history text;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
   IF p_company_id IS NULL OR p_period_year IS NULL OR p_declare IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000
-     OR (p_declare AND (p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) NOT BETWEEN 3 AND 300 OR p_evidence_date IS NULL)) THEN
+     OR (p_declare AND (p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) NOT BETWEEN 3 AND 300 OR p_evidence_date IS NULL OR p_evidence_kind IS NULL)) THEN
     RETURN jsonb_build_object('outcome', 'invalid_request');
   END IF;
   IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'approve_certification') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
   IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('fs_first_period:' || p_company_id::text || ':' || p_period_year::text, 0));
-  IF public.fs_first_period_declared(p_company_id, p_period_year) = p_declare THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  SELECT d.action INTO v_latest FROM public.fs_first_period_declarations d
+   WHERE d.company_id = p_company_id AND d.period_year = p_period_year ORDER BY d.seq DESC LIMIT 1;
+  IF p_declare THEN v_target := 'declared'; ELSE v_target := 'withdrawn'; END IF;
+  IF COALESCE(v_latest, 'withdrawn') = v_target THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
   IF p_declare THEN
-    -- The period of record: its dated start and end (the fiscal year end alone when undated).
-    SELECT p.reporting_start, COALESCE(p.reporting_end, p.fiscal_year_end) INTO v_start, v_end
-      FROM public.fiscal_periods p
-     WHERE p.company_id = p_company_id AND EXTRACT(YEAR FROM COALESCE(p.reporting_end, p.fiscal_year_end))::integer = p_period_year
-     ORDER BY p.created_at DESC LIMIT 1;
-    IF v_end IS NULL THEN RETURN jsonb_build_object('outcome', 'no_period'); END IF;
-    IF p_evidence_date > v_end OR (v_start IS NOT NULL AND p_evidence_date < v_start) OR (v_start IS NULL AND p_evidence_date < v_end - 366) THEN
-      RETURN jsonb_build_object('outcome', 'evidence_date_outside_period', 'start', v_start, 'end', v_end);
+    IF p_evidence_kind NOT IN ('certificate_of_incorporation', 'certificate_of_registration', 'commencement_resolution', 'regulatory_commencement_notice') THEN
+      RETURN jsonb_build_object('outcome', 'evidence_not_relevant');
     END IF;
+    IF p_evidence_date > current_date THEN RETURN jsonb_build_object('outcome', 'evidence_date_in_future'); END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.fiscal_periods p
+                    WHERE p.company_id = p_company_id AND EXTRACT(YEAR FROM COALESCE(p.reporting_end, p.fiscal_year_end))::integer = p_period_year) THEN
+      RETURN jsonb_build_object('outcome', 'no_period');
+    END IF;
+    v_history := public._fs_earlier_period_history(p_company_id, p_period_year);
+    IF v_history IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_history); END IF;
   END IF;
-  INSERT INTO public.fs_first_period_declarations (company_id, period_year, action, reason, evidence_ref, evidence_date, actor_user_id, firm_member_id)
+  INSERT INTO public.fs_first_period_declarations (company_id, period_year, action, reason, evidence_kind, evidence_ref, evidence_date, actor_user_id, firm_member_id)
   VALUES (p_company_id, p_period_year, CASE WHEN p_declare THEN 'declared' ELSE 'withdrawn' END, btrim(p_reason),
-          CASE WHEN p_declare THEN btrim(p_evidence_ref) END, CASE WHEN p_declare THEN p_evidence_date END, v_uid, public._cr_member(p_company_id, v_uid));
+          CASE WHEN p_declare THEN p_evidence_kind END, CASE WHEN p_declare THEN btrim(p_evidence_ref) END, CASE WHEN p_declare THEN p_evidence_date END,
+          v_uid, public._cr_member(p_company_id, v_uid));
   RETURN jsonb_build_object('outcome', 'recorded', 'declared', p_declare);
 END;
 $$;
@@ -95,8 +120,9 @@ GRANT SELECT ON TABLE public.fs_first_period_declarations TO authenticated, serv
 CREATE POLICY fpd_read ON public.fs_first_period_declarations FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
 REVOKE ALL ON FUNCTION public.fs_first_period_declared(uuid, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_first_period_declared(uuid, integer) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.fs_declare_first_period(uuid, integer, boolean, text, text, date) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fs_declare_first_period(uuid, integer, boolean, text, text, date) TO authenticated;
+REVOKE ALL ON FUNCTION public._fs_earlier_period_history(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_declare_first_period(uuid, integer, boolean, text, text, text, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_declare_first_period(uuid, integer, boolean, text, text, text, date) TO authenticated;
 
 -- ── 1. fs_publication_blockers: the 20260919110000 body with the two [20261017100000] additions ──────────────────────
 CREATE OR REPLACE FUNCTION public.fs_publication_blockers(p_company_id UUID, p_report_id TEXT, p_version INTEGER)
@@ -237,7 +263,7 @@ BEGIN
   -- [20261017100000] A trial-balance report is final only on the CURRENT authoritative reporting input and a finished Close
   -- Review: its trial-balance facts must all come from one input identity equal to fs_reporting_input's now (else stale);
   -- the findings of that authority must have been checked with no unresolved blocking finding; no adjustment may be
-  -- awaiting a decision.
+  -- awaiting a decision, and no approved adjustment may be awaiting a revalidation decision after a re-check.
   IF v_report.provenance_origin = 'TRIAL_BALANCE_DERIVED' THEN
     v_input := public.fs_reporting_input(p_company_id, v_report.period_year);
     SELECT array_agg(DISTINCT s) INTO v_hashes
@@ -257,6 +283,9 @@ BEGIN
        WHERE a.company_id = p_company_id AND a.period_year = v_report.period_year
          AND a.certification_id = (v_input #>> '{current,certificationId}')::uuid AND public._cr_adjustment_status(a.id) = 'proposed';
       IF v_n > 0 THEN v_out := v_out || ('CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:' || v_n); END IF;
+      IF coalesce((v_input ->> 'adjustmentsRequiringRevalidation')::integer, 0) > 0 THEN
+        v_out := v_out || ('CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION:' || (v_input ->> 'adjustmentsRequiringRevalidation'));
+      END IF;
     END IF;
   END IF;
 

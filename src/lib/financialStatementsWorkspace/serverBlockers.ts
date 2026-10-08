@@ -7,7 +7,8 @@ const WORDS: Record<string, (detail: string) => string> = {
   CLOSE_REVIEW_FINDINGS_NOT_CHECKED: () => "Close Review has not checked the current reviewed trial balance for findings yet.",
   CLOSE_REVIEW_BLOCKING_FINDINGS: (d) => `${d} blocking Close Review finding${d === "1" ? " is" : "s are"} unresolved.`,
   CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED: (d) => `${d} adjustment${d === "1" ? " is" : "s are"} awaiting approval or rejection.`,
-  COMPARATIVE_PERIOD_MISSING: () => "The framework requires comparative figures. Add the prior year, or record a first-period declaration with its evidence.",
+  CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION: (d) => `${d} approved adjustment${d === "1" ? " was" : "s were"} approved on an earlier trial balance and must be revalidated or declined first.`,
+  COMPARATIVE_PERIOD_MISSING: () => "The framework requires comparative figures. Add the prior year; only a genuinely first reporting period (no earlier trial balance) can be declared, with evidence.",
 };
 
 /** "CODE" or "CODE:detail" → a sentence (or null when there are no words for the code). */
