@@ -9,7 +9,7 @@
  * workspace, company and period identity, and refresh keeps the place. Exactly
  * one dominant next action is shown, derived from the first unmet precondition.
  */
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -26,6 +26,7 @@ import type { DeliveryOutcome } from "@/lib/commercial/reportingPack";
 import type { ExportFile } from "@/lib/financialStatementsWorkspace/exports";
 import type { FsRpcTransport } from "@/lib/financialStatementsWorkspace/rpcTransport";
 import { SaveBar } from "./EvidenceUi";
+import { parseReportingInput, type AuthoritativeReportingInput } from "@/lib/financialStatementsWorkspace/authoritativeInput";
 import { ReadOnlyBanner, RestoreBanner, SavedVersionsPanel } from "./SavedWorkUi";
 
 export interface FinancialStatementsWorkspaceProps {
@@ -45,6 +46,12 @@ export interface FinancialStatementsWorkspaceProps {
   readonly deliverOfficial?: (outputRef: string) => Promise<DeliveryOutcome>;
   /** The workspace's account cannot issue a Reporting Pack: downloads are replaced by the plan explanation. */
   readonly downloadsLocked?: boolean;
+  /**
+   * Read figures from the authoritative reporting input (fs_reporting_input: the authoritative certification with
+   * approved adjustments, and the prior year as reported) instead of an upload's processing_result. The production page
+   * sets it; the non-production harness keeps the legacy route.
+   */
+  readonly authoritativeSource?: boolean;
   /** Injected only by the non-production harness; production builds it behind the source gate. */
   readonly transport?: FsRpcTransport | null;
 }
@@ -67,8 +74,27 @@ export function FinancialStatementsWorkspace(props: FinancialStatementsWorkspace
   return <FinancialStatementsWorkspaceEnabled {...props} />;
 }
 
+/** fs_reporting_input, parsed strictly; undefined while reading, null when it could not be read. Inside the gate only. */
+function useReportingInput(enabled: boolean, companyId: string, periodYear: number): AuthoritativeReportingInput | null | undefined {
+  const [value, setValue] = useState<AuthoritativeReportingInput | null | undefined>(undefined);
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    setValue(undefined);
+    // Loaded only here (inside the gate, and only for the authoritative source): the client is never imported otherwise.
+    void import("@/integrations/supabase/client")
+      .then(({ supabase }) => (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>)(
+        "fs_reporting_input", { p_company_id: companyId, p_period_year: periodYear }))
+      .then(({ data, error }) => { if (!cancelled) setValue(error ? null : parseReportingInput(data)); }, () => { if (!cancelled) setValue(null); });
+    return () => { cancelled = true; };
+  }, [enabled, companyId, periodYear]);
+  return value;
+}
+
 function FinancialStatementsWorkspaceEnabled(props: FinancialStatementsWorkspaceProps) {
-  const model = useFinancialStatementsWorkspace(props);
+  const reportingInput = useReportingInput(props.authoritativeSource === true, props.companyId, props.periodYear);
+  // While the authoritative input is being read, the workspace is not evaluated on anything else.
+  const model = useFinancialStatementsWorkspace(props.authoritativeSource === true ? { ...props, reportingInput: reportingInput === undefined ? "loading" : reportingInput } : props);
   const [params, setParams] = useSearchParams();
   const requested = params.get("fs");
   const stage: WorkspaceStage = isWorkspaceStage(requested) ? requested : "statements";
