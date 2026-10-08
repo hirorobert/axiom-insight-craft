@@ -226,7 +226,8 @@ describe("migration directory integrity", () => {
     // 158 -> 159: 20261018100000_fs_statement_composition.sql (statement composition, presentation assignments and edition elections), a NEW forward-only migration pending hosted application.
     // 159 -> 160: 20261019100000_fs_notes_and_schedules.sql (notes, disclosure requirements and movement schedules), a NEW forward-only migration pending hosted application.
     // 160 -> 161: 20261020100000_fs_comparatives.sql (comparatives: bridges, restatements, approval, status), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(161);
+    // 161 -> 162: 20261021100000_fs_signoff_binding.sql (sign-off bound to content and dependencies), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(162);
   });
 });
 

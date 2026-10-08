@@ -528,6 +528,14 @@ jobs:
           createdb comparatives_proof
           bun scripts/db-proof/comparatives.mjs
 
+      - name: Sign-off binding proof (end to end on real certifications through REVIEWED and FINAL on the one canonical path; each sign-off bound to the server document hash and the reporting dependencies; changed, extra, unbound and stale figures refused by name; FINAL immutable and a later change needs a new version; the binding trigger refuses a bypass; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/signoff_proof
+        run: |
+          createdb signoff_proof
+          bun scripts/db-proof/signoffBinding.mjs
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
