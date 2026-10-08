@@ -203,8 +203,12 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     expect(new Set(staged)).toEqual(new Set(["prepare", "reconcile"]));
     const gated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2]]);
     expect(gated).toEqual([["trial-balance/intake", "prepare"], ["trial-balance/review", "prepare"]]);
+    // Workbench pages built ahead of release (Close Review): registered only when BOTH the gate is on AND the page is in
+    // RELEASED_WORKBENCH_PAGES (src/lib/workbench/routes.ts), behind the same Prepare stage scope gate.
+    const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]);
+    expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"]]);
     expect(staged.filter((x) => x === "reconcile")).toHaveLength(1);
-    expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length);
+    expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length + releaseGated.length);
     const layout = code("src/pages/workspace/WorkspaceLayout.tsx");
     expect(layout.match(/<nav\b/g)?.length).toBe(1);
     expect(layout).toMatch(/const navItems = withheld \? \[\] : deriveWorkspaceNavigation\(/);

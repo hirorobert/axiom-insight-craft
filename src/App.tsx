@@ -35,6 +35,7 @@ import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
+import { RELEASED_WORKBENCH_PAGES } from "./lib/workbench/routes";
 // Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version).
 import { WorkbenchAliasRedirect } from "./components/workbench/WorkbenchAliasRedirect";
 
@@ -64,6 +65,7 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
 // code there and the route below is never registered.
 // Workbench Trial balance › Intake (I1-A A3): a separate chunk, reached only through the gated route below.
 const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceIntake"));
+const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 
 const ClassificationStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/ClassificationStatesAcceptance"))
@@ -113,6 +115,8 @@ const App = () => (
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance" element={<WorkbenchAliasRedirect segment="trial-balance" />} />}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
+                  {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseFindings /></Suspense></StageScopeGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}

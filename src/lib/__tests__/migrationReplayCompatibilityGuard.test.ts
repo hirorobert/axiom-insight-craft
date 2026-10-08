@@ -219,7 +219,8 @@ describe("migration directory integrity", () => {
     // 152 -> 153: 20261012100000_layout_assist_controls.sql (I1-C: consent, provider gates, quota and cost cap for
     // AI-assisted layout suggestions; disabled), a NEW forward-only migration pending hosted application.
     // 153 -> 154: 20261013100000_close_review_timeline.sql (Close Review timeline: append-only comments and history), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(154);
+    // 154 -> 155: 20261014100000_close_review_findings.sql (Close Review I2 findings: tb-anomaly-catalogue/1 on the authoritative trial balance), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(155);
   });
 });
 
