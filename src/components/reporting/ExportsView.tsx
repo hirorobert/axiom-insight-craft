@@ -38,7 +38,9 @@ function Pack(p: PageProps & { v: SavedVersion }) {
       const event = binding?.signoffPolicy === "solo_owner" && binding.signoffPolicyEventId ? await p.clients.signoff.signoffPolicyEvent(binding.signoffPolicyEventId) : null;
       const summary = await adj.summary(p.companyId, p.periodYear).catch(() => null);
       const out = buildReportPack({
-        document, entityName: p.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
+        // The entity name is the one SEALED in the document at save — never the workspace's current name, so renaming the
+        // company cannot change a signed pack.
+        document, entityName: document.entity.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
         signOff: packSignOffFor(p.v.state, bindings, event ? { reason: event.reason, setAt: event.setAt } : null),
       });
       if (live) setPack(out);

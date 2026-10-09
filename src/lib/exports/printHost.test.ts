@@ -43,3 +43,11 @@ describe("the pack's statement sign-off disclosure (20261024100000)", () => {
     expect(typeof buildReportPack).toBe("function");
   });
 });
+
+describe("a sealed pack prints the identity sealed in its document", () => {
+  it("the entity name comes from the stored document, not the workspace's current name", () => {
+    const view = read("src/components/reporting/ExportsView.tsx");
+    expect(view).toContain("entityName: document.entity.legalName");
+    expect(view).not.toContain("entityName: p.legalName");
+  });
+});
