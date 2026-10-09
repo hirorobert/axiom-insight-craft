@@ -348,13 +348,15 @@ describe("6. historical engagements never become first-run accounts", () => {
 });
 
 describe("7. trial-balance preparation remains fully usable", () => {
-  it("the Prepare page keeps its upload, checks and account review, and mounts no evidence-matching panel; Reconcile keeps its journal review", () => {
+  it("the Prepare page keeps its upload, checks and account review, and mounts no evidence-matching panel; Reconcile shows earlier adjustments read-only", () => {
     const prepare = code("src/pages/workspace/PrepareWorkspace.tsx");
     for (const c of ["TrialBalanceUpload", "AccountReviewPanel", "TrialBalanceChecks"]) expect(prepare, c).toMatch(new RegExp(`\\b${c}\\b`));
     // Supporting-evidence matching is not part of Trial balance review: neither upload path mounts it.
     for (const f of ["src/pages/workspace/PrepareWorkspace.tsx", "src/components/TrialBalanceUpload.tsx"]) expect(code(f), f).not.toMatch(/\bSafishaGate\b|evidence-verification/);
-    // Reconcile keeps its journal panel until Close Review › Adjustments is released, then retires it (one adjustment path).
-    expect(code("src/pages/workspace/ReconcileWorkspace.tsx")).toMatch(/\{!RELEASED_WORKBENCH_PAGES\.has\("close-adjustments"\) && \(\s*<AdjustingJournalPanel/);
+    // One adjustment path (Close Review › Adjustments): Reconcile shows earlier entries read-only and never writes them.
+    const reconcile = code("src/pages/workspace/ReconcileWorkspace.tsx");
+    expect(reconcile).toMatch(/<LegacyAdjustmentsHistory /);
+    expect(reconcile).not.toMatch(/AdjustingJournalPanel/);
   });
 
   it("the engine reaches Prepare passed without any withheld output, and the workflow ends at 'Reviewed trial balance' whatever the reconciliation says", () => {
@@ -436,7 +438,7 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
         "src/pages/workspace/WorkspaceOverview.tsx", "src/pages/workspace/PrepareWorkspace.tsx", "src/pages/workspace/ReconcileWorkspace.tsx",
         "src/components/workspace/ServiceLaunchpad.tsx", "src/components/workspace/EngagementScopeDialog.tsx", "src/components/workspace/FirstRunEngagement.tsx",
         "src/components/workspace/TrialBalanceProgressLedger.tsx", "src/components/TrialBalanceUpload.tsx", "src/components/safisha/SafishaGate.tsx",
-        "src/components/safisha/ExceptionQueue.tsx", "src/components/AdjustingJournalPanel.tsx", "src/lib/workspace/trialBalanceVerdict.ts",
+        "src/components/safisha/ExceptionQueue.tsx", "src/components/LegacyAdjustmentsHistory.tsx", "src/lib/workspace/trialBalanceVerdict.ts",
       ];
       return { reached: files };
     })();

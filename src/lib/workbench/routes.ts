@@ -94,9 +94,11 @@ export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<Wo
   // (financial_statements_workspace_access — rollout allow-list, kill switch); see REPORTING_GROUPS below.
   "fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports",
   // Sign-off requires a checked Close Review with no unresolved blocking finding (20261017100000), so the Findings page
-  // ships with reporting — offered only where reporting is (REPORTING_GROUPS). Adjustments stay unreleased: releasing them
-  // retires the legacy adjusting-journal panel for every company (ReconcileWorkspace).
+  // ships with reporting — offered only where reporting is (REPORTING_GROUPS).
   "close-findings",
+  // Adjustments: the one adjustment path (server functions, 20261015100000). Released with the retirement of the legacy
+  // browser-write journal panel (ReconcileWorkspace now shows earlier entries read-only; 20261026100000 revokes the writes).
+  "close-adjustments",
 ]);
 
 /**

@@ -30,7 +30,7 @@ describe("exact amounts", () => {
     const ok = checkDraft([{ accountKey: "6000", side: "debit", amount: "100", memo: "rent" }, { accountKey: "2000", side: "credit", amount: "100.00", memo: "" }], 2);
     expect(ok).toEqual({ ok: true, debitMinor: 10000n, creditMinor: 10000n, problems: [], lines: [{ accountKey: "6000", debitMinor: "10000", creditMinor: "0", memo: "rent" }, { accountKey: "2000", debitMinor: "0", creditMinor: "10000" }] });
   });
-  it("no browser write to any financial table in Close Review; the pages are not released yet", () => {
+  it("no browser write to any financial table in Close Review or Reconcile; Adjustments is the one released adjustment path", () => {
     const root = path.resolve(__dirname, "../../..");
     for (const f of ["src/lib/closeReview/adjustments.ts", "src/lib/closeReview/findings.ts", "src/lib/closeReview/timeline.ts", "src/components/closeReview/AdjustmentsView.tsx",
       "src/components/closeReview/FindingsView.tsx", "src/components/closeReview/ReviewTimeline.tsx", "src/pages/workspace/CloseAdjustments.tsx", "src/pages/workspace/CloseFindings.tsx"]) {
@@ -38,7 +38,15 @@ describe("exact amounts", () => {
       expect(src, f).not.toMatch(/\.(insert|update|upsert|delete)\(/);
       expect(src, f).not.toMatch(/adjusting_journal_entries|aje_lines|tax_computations/);
     }
-    expect(RELEASED_WORKBENCH_PAGES.has("close-adjustments")).toBe(false);
+    // Released with reporting (REPORTING_GROUPS + ReportingAccessGate), and the legacy browser-write panel is gone: Reconcile
+    // reads earlier entries only, and the database refuses client writes (20261026100000).
+    expect(RELEASED_WORKBENCH_PAGES.has("close-adjustments")).toBe(true);
+    expect(fs.existsSync(path.join(root, "src/components/AdjustingJournalPanel.tsx"))).toBe(false);
+    for (const f of ["src/components/LegacyAdjustmentsHistory.tsx", "src/pages/workspace/ReconcileWorkspace.tsx"]) {
+      expect(fs.readFileSync(path.join(root, f), "utf8"), f).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    }
+    expect(fs.readFileSync(path.join(root, "src/App.tsx"), "utf8"))
+      .toMatch(/<Route path="close\/adjustments" element=\{<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage>/);
   });
 });
 
