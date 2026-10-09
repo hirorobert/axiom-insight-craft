@@ -134,7 +134,15 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
   return (
     <section aria-labelledby="h-r" data-testid="readiness" data-ready={r.ready}>
       <h2 id="h-r" className="text-base font-semibold">Version {p.version.reportVersion} — {p.version.state === "FINAL" ? "final and sealed" : r.ready ? "ready" : `${r.blockers.length} blocker${r.blockers.length === 1 ? "" : "s"}`}</h2>
-      {r.blockers.length ? <ul className="list-disc pl-5" data-testid="blockers">{r.blockers.map((b) => <li key={b}>{blockerText(b)} <code className="text-xs text-muted-foreground">{b}</code></li>)}</ul> : null}
+      {r.blockers.length ? (
+        <>
+          <ul className="list-disc pl-5" data-testid="blockers">{r.blockers.map((b) => <li key={b}>{blockerText(b)}</li>)}</ul>
+          <details className="mt-1 text-xs text-muted-foreground" data-testid="blocker-codes">
+            <summary>Technical details</summary>
+            <ul className="ml-4 list-disc">{r.blockers.map((b) => <li key={b}><code>{b}</code></li>)}</ul>
+          </details>
+        </>
+      ) : null}
       {disclosures.length ? (
         <div className="mt-2 border-l-[3px] border-[#7a4a00] bg-[#fdf8ee] px-3 py-2" data-testid="self-approval-disclosure">
           <p className="font-medium">Disclosed in the sign-off pack:</p>

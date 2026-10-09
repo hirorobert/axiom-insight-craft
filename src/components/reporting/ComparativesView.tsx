@@ -7,7 +7,9 @@
  */
 import { useCallback, useEffect, useId, useState } from "react";
 import { ConfirmDialog } from "@/components/workbench/ConfirmDialog";
-import { COMPARATIVE_WORDS, type ComparativeStatus, type RestatementLine } from "@/lib/comparatives/comparatives";
+import { Link } from "react-router-dom";
+import { COMPARATIVE_WORDS, FIRST_PERIOD_EVIDENCE, FIRST_PERIOD_OUTCOMES, type ComparativeStatus, type FirstPeriodEvidenceKind, type RestatementLine } from "@/lib/comparatives/comparatives";
+import { blockerText } from "@/lib/reporting/blockers";
 import { presentAmount } from "@/lib/presentation/amounts";
 import type { Composition } from "@/lib/statements/composition";
 import { signedMinor } from "./SchedulesView";
@@ -45,13 +47,19 @@ function Evaluated(p: PageProps & { s: ComparativeStatus; c: Composition }) {
         <h2 id="h-cs" className="text-base font-semibold">FY{p.c.comparative.periodYear ?? p.periodYear - 1}: {words.title}</h2>
         <p>{words.detail}</p>
         {cs.approval ? <p className="text-muted-foreground">Last decision: {cs.approval.action} on {cs.approval.at.slice(0, 10)}.</p> : null}
-        {cs.blockers.length ? <p className="text-muted-foreground">Server reasons: {cs.blockers.join("; ")}</p> : null}
+        {cs.blockers.length ? (
+          <details className="mt-1 text-muted-foreground" data-testid="comparative-technical">
+            <summary>Technical details</summary>
+            <ul className="ml-4 list-disc">{cs.blockers.map((b) => <li key={b}>{blockerText(b)} <code className="text-xs">{b}</code></li>)}</ul>
+          </details>
+        ) : null}
         {canReview && (cs.state === "unapproved" || cs.state === "approval_stale") ? (
           <button type="button" className="mt-2 rounded-md bg-primary px-3 py-1 text-primary-foreground" onClick={() => setConfirm("approve")} data-testid="approve-comparatives">Approve the comparatives</button>
         ) : null}
         {canReview && cs.state === "approved" ? <button type="button" className="mt-2 rounded-md border border-input px-3 py-1" onClick={() => setConfirm("withdraw")}>Withdraw the approval</button> : null}
         {!canReview && (cs.state === "unapproved" || cs.state === "approval_stale") ? <p className="mt-1 text-muted-foreground">A reviewer approves the comparatives.</p> : null}
       </section>
+      {cs.state === "missing" ? <MissingRecovery {...p} /> : null}
       <Bridges {...p} />
       <Restatements {...p} />
       <Notice text={notice} />
@@ -60,6 +68,73 @@ function Evaluated(p: PageProps & { s: ComparativeStatus; c: Composition }) {
         reasonMinLength={3} reasonLabel="Reason" confirmLabel={confirm === "approve" ? "Approve" : "Withdraw"} busy={busy}
         onConfirm={(reason) => void decide(confirm === "approve", reason)} onCancel={() => setConfirm(null)} />
     </div>
+  );
+}
+
+/**
+ * Recovery when the prior year is missing. The comparative period is the reporting period the year before
+ * (fs_reporting_input: period_year − 1). Either its trial balance is imported and reviewed (Trial Balance › Intake takes the
+ * prior year's file, or one file with both years), or — only for a genuinely first reporting period — a member who
+ * approves certifications records a first-period declaration with relevant evidence. The server refuses the declaration
+ * when any earlier period has data; missing comparatives are never turned into an exception or into zero.
+ */
+function MissingRecovery(p: PageProps & { c: Composition }) {
+  const prior = p.c.comparative.periodYear ?? p.periodYear - 1;
+  const canDeclare = p.allowed.includes("approve_certification");
+  const [kind, setKind] = useState<FirstPeriodEvidenceKind>("certificate_of_incorporation");
+  const [ref, setRef] = useState("");
+  const [date, setDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const ids = { kind: useId(), ref: useId(), date: useId(), reason: useId() };
+  const intakeHref = `/workspace/${p.companyId}/${p.periodYear}/trial-balance/intake`;
+  const declare = async () => {
+    setBusy(true);
+    try {
+      const r = await p.clients.comparatives.declareFirstPeriod(p.companyId, p.periodYear, reason.trim(), kind, ref.trim(), date);
+      setNotice(FIRST_PERIOD_OUTCOMES[r.outcome] ?? outcomeText(r));
+      if (r.outcome === "recorded") { setOpen(false); await p.refresh(); }
+    } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    finally { setBusy(false); }
+  };
+  const ready = reason.trim().length >= 3 && ref.trim().length >= 3 && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  return (
+    <section aria-labelledby="h-recover" className="space-y-3 rounded-md border border-border p-3" data-testid="comparative-recovery">
+      <h2 id="h-recover" className="text-base font-semibold">Establish the comparatives for FY{prior}</h2>
+      <ol className="list-decimal space-y-2 pl-5">
+        <li>
+          <span className="font-medium">Import the FY{prior} trial balance.</span> Use the prior year's own file, or one file with both years, in{" "}
+          <Link className="text-primary underline" to={intakeHref} data-testid="recover-intake">Trial Balance › Intake</Link>; once reviewed, its figures appear here for approval.
+        </li>
+        <li>
+          <span className="font-medium">Or, only if FY{p.periodYear} is the company's first reporting period:</span> record a first-period declaration with the evidence that establishes it.
+          {canDeclare ? (
+            open ? null : <button type="button" className="ml-2 rounded-md border border-input px-2 py-0.5" onClick={() => setOpen(true)} data-testid="open-first-period">Declare a first reporting period</button>
+          ) : <span className="block text-muted-foreground">A member who approves certifications records it.</span>}
+        </li>
+      </ol>
+      {open ? (
+        <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (ready && !busy) void declare(); }} aria-label="First-period declaration">
+          <label htmlFor={ids.kind} className="block font-medium">Evidence</label>
+          <select id={ids.kind} className="rounded-md border border-input bg-background px-2 py-1" value={kind} onChange={(e) => setKind(e.target.value as FirstPeriodEvidenceKind)}>
+            {Object.entries(FIRST_PERIOD_EVIDENCE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <label htmlFor={ids.ref} className="block font-medium">Evidence reference</label>
+          <input id={ids.ref} className="w-full rounded-md border border-input bg-background px-2 py-1" maxLength={300} value={ref} onChange={(e) => setRef(e.target.value)} />
+          <label htmlFor={ids.date} className="block font-medium">Issue date</label>
+          <input id={ids.date} type="date" className="rounded-md border border-input bg-background px-2 py-1" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label htmlFor={ids.reason} className="block font-medium">Reason</label>
+          <textarea id={ids.reason} rows={2} maxLength={2000} className="w-full rounded-md border border-input bg-background p-2" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <div className="flex gap-2">
+            <button type="submit" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={!ready || busy} data-testid="record-first-period">{busy ? "Recording…" : "Record the declaration"}</button>
+            <button type="button" className="rounded-md border border-input px-3 py-1" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
+      <Notice text={notice} />
+    </section>
   );
 }
 
