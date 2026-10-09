@@ -170,8 +170,11 @@ try {
     await sleep(300);
     const { data } = await q.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true });
     fs.writeFileSync(path.join(OUT, file), Buffer.from(data, "base64"));
+    packPages = pdfPages(Buffer.from(data, "base64"));
     return html;
   };
+  let packPages = 0;
+  const pdfPages = (buf) => (buf.toString("latin1").match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length;
   let finalHtml = "";
   await check("the FINAL pack carries the seal with the recorded approver, the server binding's hashes and the composed figures; printed to PDF", async () => {
     await go(owner, "owner", "/signoff/exports?v=2", "final and sealed");
@@ -182,6 +185,36 @@ try {
     // the stable membership reference are shown — never an invented name.
     return /FINAL — signed off by owner [0-9a-f]{8} \(no name on record\) on \d{4}-\d{2}-\d{2}/.test(finalHtml) && /reporting dependencies SHA-256 [0-9a-f]{64}/.test(finalHtml)
       && /33,000\.00/.test(finalHtml) && /12,500\.00/.test(finalHtml) && /Total comprehensive income for the period/.test(finalHtml) ? true : finalHtml.slice(0, 400);
+  });
+  // The PAGE itself, printed as a user does (browser print or the button): only the pack, in full (lib/exports/printHost.ts).
+  await check("printing the Exports PAGE yields only the sealed pack, in full: no navigation, controls or next action; the page PDF has the pack's page count", async () => {
+    const isolated = packPages;
+    await go(owner, "owner", "/signoff/exports?v=2", "final and sealed");
+    await owner.waitFor(() => !!document.getElementById("cfoclose-print-host")?.shadowRoot, [], { label: "print host" });
+    await owner.send("Emulation.setEmulatedMedia", { media: "print" });
+    let seen, pdf;
+    try {
+      seen = await owner.evaluate(() => {
+        const host = document.getElementById("cfoclose-print-host");
+        const shown = (el) => getComputedStyle(el).display !== "none";
+        const others = [...document.body.children].filter((c) => c !== host && !["SCRIPT", "STYLE", "TEMPLATE"].includes(c.tagName) && shown(c)).map((c) => c.id || c.tagName);
+        const text = host.shadowRoot.textContent;
+        const page = document.getElementById("root")?.innerText ?? "";
+        return { hostShown: shown(host), others, text, workspaceShown: page.length > 0 && shown(document.getElementById("root")) };
+      });
+      pdf = Buffer.from((await owner.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true })).data, "base64");
+    } finally { await owner.send("Emulation.setEmulatedMedia", { media: "" }); }
+    fs.writeFileSync(path.join(OUT, "exports-page-print-final-v2.pdf"), pdf);
+    const leaked = ["Print / save as PDF", "Download spreadsheet", "Download HTML", "Other versions", "Export the sealed report", "is signed off", "final and sealed", "Sign-off & Exports"].filter((t) => seen.text.includes(t));
+    const pages = pdfPages(pdf);
+    return seen.hostShown && seen.others.length === 0 && !seen.workspaceShown && leaked.length === 0
+      && /FINAL — signed off by .+Content SHA-256 [0-9a-f]{64}; reporting dependencies SHA-256 [0-9a-f]{64}\./.test(seen.text)
+      && /Approval disclosures/.test(seen.text) && /Total comprehensive income for the period/.test(seen.text) && pages === isolated && pages > 0
+      ? true : { hostShown: seen.hostShown, others: seen.others, workspaceShown: seen.workspaceShown, leaked, pages, isolated };
+  });
+  await check("leaving Exports removes the print host: printing any other page is unaffected", async () => {
+    await go(owner, "owner", "/statements?v=2", "Statement of Financial Position");
+    return await owner.evaluate(() => !document.getElementById("cfoclose-print-host") && !document.documentElement.classList.contains("cfoclose-print-pack")) ? true : "host still present";
   });
   await check("the draft (version 1) renders through the same pack with the DRAFT watermark; printed to PDF", async () => {
     await go(owner, "owner", "/signoff/exports?v=1", "draft (not signed off)");

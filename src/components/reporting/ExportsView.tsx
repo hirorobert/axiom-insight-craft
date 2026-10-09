@@ -3,13 +3,14 @@
  * document (re-validated) and — for a reviewed or final version — its server binding (the server's document hash and the
  * dependencies identity). Draft and final share one rendering; only the banner or seal differs. Nothing is recomputed.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { readStoredReport } from "@/lib/financialGeneration/composedReport";
 import { buildReportPack, type ReportPack } from "@/lib/exports/reportPack";
 import { adjustmentsClient } from "@/lib/closeReview/adjustments";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
 import { approverText, type SavedVersion } from "@/lib/reporting/signoff";
+import { PRINT_HOST_ID, PRINT_ROOT_CLASS, packForPrintHost, printDocumentCss } from "@/lib/exports/printHost";
 import type { PageProps } from "./shared";
 
 export function ExportsView(p: PageProps) {
@@ -22,7 +23,6 @@ export function ExportsView(p: PageProps) {
 function Pack(p: PageProps & { v: SavedVersion }) {
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const frame = useRef<HTMLIFrameElement>(null);
   const adj = useMemo(() => adjustmentsClient(p.db as unknown as Parameters<typeof adjustmentsClient>[0]), [p.db]);
   const edition = p.state.composition?.state === "composed" && p.state.composition.pack.packId === "ifrs-for-smes/2025" ? "IFRS for SMEs Accounting Standard (third edition, 2025)" : "IFRS for SMEs (2015 edition)";
   useEffect(() => {
@@ -42,6 +42,22 @@ function Pack(p: PageProps & { v: SavedVersion }) {
     })().catch((e) => live && setError((e as Error).message));
     return () => { live = false; };
   }, [p.clients, p.v, p.companyId, p.periodYear, p.legalName, adj, edition]);
+  // Printing prints ONLY the pack, in full (lib/exports/printHost.ts): a host outside the application root, the pack in its
+  // shadow root, and a print rule hiding every other child of <body> while this page is open.
+  useEffect(() => {
+    if (!pack) return;
+    const { pageRule, shadowHtml } = packForPrintHost(pack.html);
+    const host = document.createElement("div");
+    host.id = PRINT_HOST_ID;
+    host.setAttribute("aria-hidden", "true");
+    host.attachShadow({ mode: "open" }).innerHTML = shadowHtml;
+    const style = document.createElement("style");
+    style.textContent = printDocumentCss(pageRule);
+    document.head.appendChild(style);
+    document.body.appendChild(host);
+    document.documentElement.classList.add(PRINT_ROOT_CLASS);
+    return () => { document.documentElement.classList.remove(PRINT_ROOT_CLASS); host.remove(); style.remove(); };
+  }, [pack]);
   const download = (name: string, type: string, text: string) => {
     const url = URL.createObjectURL(new Blob([text], { type }));
     const a = document.createElement("a");
@@ -56,11 +72,11 @@ function Pack(p: PageProps & { v: SavedVersion }) {
       <p>Version {p.v.reportVersion} — {p.v.state === "FINAL" ? "final and sealed" : p.v.state === "REVIEWED" ? "reviewed (not final)" : "draft (not signed off)"}.
         {" "}{p.state.versions.length > 1 ? <>Other versions: {p.state.versions.filter((v) => v.reportVersion !== p.v.reportVersion).map((v) => <Link key={v.reportVersion} className="mr-2 text-primary underline" to={p.hrefFor("exports", v.reportVersion)}>v{v.reportVersion}</Link>)}</> : null}</p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground" onClick={() => frame.current?.contentWindow?.print()} data-testid="print">Print / save as PDF</button>
+        <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground" onClick={() => window.print()} data-testid="print">Print / save as PDF</button>
         <button type="button" className="rounded-md border border-input px-3 py-1.5" onClick={() => download(`${base}.html`, "text/html", pack.html)}>Download HTML</button>
         <button type="button" className="rounded-md border border-input px-3 py-1.5" onClick={() => download(`${base}.csv`, "text/csv", pack.csv)}>Download spreadsheet (CSV)</button>
       </div>
-      <iframe ref={frame} title={`Report pack — version ${p.v.reportVersion}`} srcDoc={pack.html} className="h-[70vh] w-full border border-border bg-white" data-testid="pack-preview" />
+      <iframe title={`Report pack — version ${p.v.reportVersion}`} srcDoc={pack.html} className="h-[70vh] w-full border border-border bg-white" data-testid="pack-preview" />
     </div>
   );
 }
