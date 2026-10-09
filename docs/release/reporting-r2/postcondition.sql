@@ -20,7 +20,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_fsp_bind' AND NOT tgisinternal AND tgenabled <> 'D') THEN
     RAISE EXCEPTION 'POSTCONDITION: the sign-off binding trigger trg_fsp_bind is missing or disabled';
   END IF;
-  RAISE NOTICE 'POSTCONDITION OK: run NOTIFY pgrst, ''reload schema'' next';
+  -- Next: NOTIFY pgrst, 'reload schema'; (docs/release/REPORTING_R2_READINESS.md, step 4).
+  RAISE NOTICE 'POSTCONDITION OK.';
 END;
 $$;
 -- The same drafts, unchanged (compare with the preflight's rows):

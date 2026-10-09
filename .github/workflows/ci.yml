@@ -502,6 +502,7 @@ jobs:
           createdb wrappers_proof
           git fetch --no-tags --depth=1 origin 993774cd129a4bfd16946f6be1c339aaf93ac5d4
           git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
+          git fetch --no-tags --depth=1 origin 2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -512,6 +513,15 @@ jobs:
           RELEASE_BATCH: reporting-r1
         run: |
           createdb reporting_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Readiness correction wrapper proof (the same reviewed proof for the reporting-r2 wrapper; every refusal before any statement, the ALTER FUNCTION itself rolled back by an injected failure, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_wrappers_proof
+          RELEASE_BATCH: reporting-r2
+        run: |
+          createdb readiness_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)

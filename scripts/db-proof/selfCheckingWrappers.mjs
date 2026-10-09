@@ -40,9 +40,17 @@ const WRAPPED_SOURCES = BATCH.sources;
 const N = WRAPPED_SOURCES.length;
 // The object a drizzle-run failure is injected at, inside the batch's last-but-one wrapper, and two tables that must not
 // exist after the rolled-back run (the first wrapper's and that one's).
-const DRIZZLE_FAILURE = BATCH.id === "reporting-r1"
-  ? { object: "public.fs_publication_bindings", tables: ["public.fs_presentation_lines", "public.fs_publication_bindings"] }
-  : { object: "public.close_review_adjustment_bindings", tables: ["public.tb_source_objects", "public.close_review_findings"] };
+// `rolledBack` is the SQL that must answer true after the rolled-back run.
+const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
+const DRIZZLE_FAILURE = BATCH.id === "reporting-r2"
+  ? { object: "public.fs_report_readiness(pg_catalog.uuid,pg_catalog.text,integer)", rolledBack: "SELECT provolatile = 's' AS ok FROM pg_proc WHERE oid = 'public.fs_report_readiness(uuid,text,integer)'::regprocedure" }
+  : BATCH.id === "reporting-r1"
+  ? { object: "public.fs_publication_bindings", rolledBack: tablesAbsent("public.fs_presentation_lines", "public.fs_publication_bindings") }
+  : { object: "public.close_review_adjustment_bindings", rolledBack: tablesAbsent("public.tb_source_objects", "public.close_review_findings") };
+// Where an execution failure is injected inside each migration: "early" at the batch's earlyAt-th DDL command, "late" at
+// its first lateTag command. The readiness correction (r2) has exactly one DDL command, ALTER FUNCTION: both points are
+// that command, which proves the change itself is rolled back. Every other batch keeps DDL #3 and the first GRANT.
+const SHAPE = BATCH.id === "reporting-r2" ? { earlyAt: 1, lateTag: "ALTER FUNCTION", minDdl: 1 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -126,6 +134,7 @@ const FINGERPRINT = `SELECT md5(string_agg(x, E'\\n' ORDER BY x)) AS f, count(*)
     FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema' AND a.attnum > 0 AND NOT a.attisdropped
   UNION ALL SELECT 'p:' || p.oid::regprocedure::text || ':' || md5(p.prosrc) || ':' || coalesce(array_to_string(p.proacl, ','), '')
+         || ':' || p.provolatile::text || ':' || p.prosecdef::text || ':' || coalesce(array_to_string(p.proconfig, ','), '')
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
   UNION ALL SELECT 't:' || tgrelid::regclass::text || '.' || tgname || ':' || tgenabled::text FROM pg_trigger WHERE NOT tgisinternal
   UNION ALL SELECT 'pol:' || polrelid::regclass::text || '.' || polname FROM pg_policy
@@ -152,8 +161,8 @@ const INJECT = `CREATE SCHEMA IF NOT EXISTS proof_inject;
     SELECT mode INTO v_mode FROM proof_inject.config;
     v_n := coalesce(nullif(current_setting('proof_inject.n', true), ''), '0')::integer + 1;
     PERFORM set_config('proof_inject.n', v_n::text, true);
-    IF v_mode = 'early' AND v_n = 3 THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE early at DDL #% (%)', v_n, tg_tag USING ERRCODE = 'XX000'; END IF;
-    IF v_mode = 'late' AND tg_tag = 'GRANT' THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE late at % after % DDL commands', tg_tag, v_n USING ERRCODE = 'XX000'; END IF;
+    IF v_mode = 'early' AND v_n = ${SHAPE.earlyAt} THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE early at DDL #% (%)', v_n, tg_tag USING ERRCODE = 'XX000'; END IF;
+    IF v_mode = 'late' AND tg_tag = '${SHAPE.lateTag}' THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE late at % after % DDL commands', tg_tag, v_n USING ERRCODE = 'XX000'; END IF;
     IF v_mode LIKE 'object:%' THEN
       FOR r IN SELECT object_identity FROM pg_event_trigger_ddl_commands() LOOP
         IF r.object_identity = substr(v_mode, 8) THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE at %', r.object_identity USING ERRCODE = 'XX000'; END IF;
@@ -260,7 +269,7 @@ async function main() {
             await setInjection(c, mode);
             try { before = await fingerprint(c); r = await run(c, text, { model }); } finally { await setInjection(c, "off"); }
             const after = await fingerprint(c);
-            return !r.ok && r.code === "XX000" && /PROOF_INJECTED_FAILURE/.test(r.message) && r.ddlStarted >= 3 && before.f === after.f ? true : { r, same: before.f === after.f };
+            return !r.ok && r.code === "XX000" && /PROOF_INJECTED_FAILURE/.test(r.message) && r.ddlStarted >= SHAPE.minDdl && before.f === after.f ? true : { r, same: before.f === after.f };
           });
         }
       }
@@ -337,7 +346,9 @@ async function main() {
       return r.ok && again.ok && j.length === 1 + N && hashesOk && f1.f === f2.f ? true : { r, again, rows: j.length, hashesOk };
     } finally { await c2.end(); }
   });
-  await check(`a failure injected inside wrapper ${N - 1} rolls back all ${N - 1} before it and records no journal row`, async () => {
+  const failLabel = N > 1 ? `a failure injected inside wrapper ${N - 1} rolls back all ${N - 1} before it and records no journal row`
+    : "a failure injected inside the wrapper rolls it back and records no journal row";
+  await check(failLabel, async () => {
     const url = await cloneDb("wrappers_drizzle_fail", baseDb);
     const c3 = await connect(url);
     try {
@@ -345,14 +356,15 @@ async function main() {
       const before = await fingerprint(c3);
       const r = await migrateOn(url, folderWith(texts));
       const after = await fingerprint(c3);
-      const tables = (await c3.query("SELECT to_regclass($1) a, to_regclass($2) b", DRIZZLE_FAILURE.tables)).rows[0];
-      return !r.ok && /PROOF_INJECTED_FAILURE/.test(r.message) && before.f === after.f && tables.a === null && tables.b === null ? true : { r, same: before.f === after.f, tables };
+      const rolledBack = (await c3.query(DRIZZLE_FAILURE.rolledBack)).rows[0]?.ok === true;
+      return !r.ok && /PROOF_INJECTED_FAILURE/.test(r.message) && before.f === after.f && rolledBack ? true : { r, same: before.f === after.f, rolledBack };
     } finally { await c3.end(); }
   });
-  await check("an altered third wrapper (one payload byte) is refused: nothing applied, no journal row", async () => {
+  const ALTERED = Math.min(2, N - 1);
+  await check(`an altered ${N > 2 ? "third" : "last"} wrapper (one payload byte) is refused: nothing applied, no journal row`, async () => {
     const url = await cloneDb("wrappers_drizzle_altered", baseDb);
     const altered = [...texts];
-    altered[2] = variants(WRAPPED_SOURCES[2], texts[2])["altered payload byte"].text;
+    altered[ALTERED] = variants(WRAPPED_SOURCES[ALTERED], texts[ALTERED])["altered payload byte"].text;
     const c4 = await connect(url);
     try {
       const before = await fingerprint(c4);
