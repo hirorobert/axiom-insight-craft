@@ -224,6 +224,8 @@ describe("parity with the migration (public.* constraints and validators)", () =
   });
 
   it("service codes and source contexts match the SQL CHECK lists exactly", () => {
+    // The constraint in force is the LATEST definition: 20261025100000 (commercial enquiries) replaced both lists.
+    const SQL = fs.readFileSync(path.join(ROOT, "supabase/migrations/20261025100000_commercial_enquiries.sql"), "utf8");
     const list = (constraint: string) => new RegExp(`${constraint} CHECK \\((?:service_code|source_context) IN \\(([^)]*)\\)`).exec(SQL)?.[1].match(/'([a-z_]+)'/g)?.map((s) => s.replace(/'/g, "")) ?? [];
     expect(list("chk_service_enquiries_service").sort()).toEqual([...SERVICE_CODES].sort());
     expect(list("chk_service_enquiries_source").sort()).toEqual([...SOURCE_CONTEXTS].sort());

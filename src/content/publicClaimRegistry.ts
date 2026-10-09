@@ -138,15 +138,15 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
     verifiedDate: "2026-09-24",
   },
   {
-    id: "commercial-structure-unverified",
+    id: "commercial-manual-activation",
     claimText:
-      "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer.",
+      "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available.",
     evidenceSource:
-      "src/lib/commercial/featureRegistry.ts + entitlementContract.ts describe the feature vocabulary and resolution, but no server-side entity-count or named-user-count enforcement exists (the candidate BEFORE INSERT trigger was removed in the Ω1-R repair pass and company creation is unrestricted), additional-user billing is unimplemented, and commercial_platform_state remains PAYMENTS_DISABLED so src/components/commercial/CheckoutUpgradeButton.tsx fails closed",
+      "src/lib/commercial/pricingCatalogue.ts (CHECKOUT_AVAILABLE = false; commercial_platform_state remains PAYMENTS_DISABLED so src/components/commercial/CheckoutUpgradeButton.tsx fails closed) + src/lib/commercial/offerings.ts (every plan action is an activation REQUEST through the enquiry system; specialist services are enquiries) + supabase/migrations/20261025100000_commercial_enquiries.sql (plan_activation and the specialist service codes) + src/lib/workspace/moduleAvailability.ts (financial reporting offered only to companies on the rollout allow-list)",
     evidenceScope:
-      "This row supports a DISCLOSURE, not a capability. It is the reason no price, offer or availability field appears in any structured data, metadata, or sitemap entry on this site.",
+      "This row supports a DISCLOSURE, not a capability. Nothing on the site activates or sells a plan: a request is answered by our team, terms are agreed, and the plan is then activated. It is the reason no price, offer or availability field appears in any structured data, metadata, or sitemap entry on this site.",
     approvedWording:
-      "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer.",
+      "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available.",
     prohibitedWording: [
       "no credit card",
       "cancel anytime",
@@ -154,8 +154,20 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
       "start in seconds",
       "in minutes",
       "direct invoicing available",
+      "instant activation",
     ],
-    verifiedDate: "2026-09-24",
+    verifiedDate: "2026-10-10",
+  },
+  {
+    id: "specialist-services-enquiry-only",
+    claimText: "Specialist enquiry — delivered by people, quoted separately. Not an automated feature of the software.",
+    evidenceSource:
+      "src/lib/commercial/offerings.ts (SPECIALIST_SERVICES, SPECIALIST_LABEL; each action opens the enquiry form) + supabase/migrations/20261025100000_commercial_enquiries.sql (forecasting, budgeting, financial_analysis, accounting_policies, close_support are enquiry service codes with no automated engine behind them)",
+    evidenceScope:
+      "Proves only that these services can be REQUESTED and are answered by people. It does not claim any forecasting, budgeting or analysis capability in the software; the corresponding engines remain withheld (src/lib/workspace/moduleAvailability.ts).",
+    approvedWording: "Specialist enquiry — delivered by people, quoted separately. Not an automated feature of the software.",
+    prohibitedWording: ["automated forecast", "AI forecast", "instant budget", "included in your plan"],
+    verifiedDate: "2026-10-10",
   },
 ] as const;
 

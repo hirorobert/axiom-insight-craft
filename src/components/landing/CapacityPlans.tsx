@@ -1,12 +1,10 @@
 /**
- * CapacityPlans — the CAPACITY decision, kept distinct from the outcome decision above it. Every plan includes every
- * service; plans differ in entities and named users. Every figure comes from PRICING_CATALOGUE through
- * PROPOSED_PLANS; prices stay labelled "Proposed" (an explicit commercial decision is needed to change that).
+ * CapacityPlans — the CAPACITY decision. Every figure comes from the reviewed catalogue (PRICING_CATALOGUE through
+ * PROPOSED_PLANS); prices stay labelled "Proposed" (an explicit commercial decision is needed to change that).
  *
- * Solo, Practice and Firm carry the selected service and the plan preference into sign-up as validated identifiers.
- * Enterprise is never self-activated: "Discuss Enterprise" opens the enquiry page (the registered contact_page entry
- * point) only while the service-enquiry gate's contactRoute surface is on; otherwise a plain statement, no link.
- * Nothing here activates a plan, and online payment is off.
+ * Every plan action is "Request activation" (Enterprise: "Discuss Enterprise"): the enquiry form preselected with that plan
+ * (src/lib/commercial/offerings.ts). Subscriptions are sold by agreement and activated by our team; that is stated beside
+ * every action. Nothing here activates a plan, and online payment is off. Without the enquiry surface, a plain statement.
  *
  * One structure for every width: an ARIA table that lays out as rows on wide screens and as stacked cards on phones.
  */
@@ -14,18 +12,14 @@
 import { Link } from "react-router-dom";
 import { LANDING_PLANS_COPY } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
-import { serviceAuthHref } from "@/lib/commercial/serviceIntent";
-import { CONTACT_ROUTE } from "@/lib/serviceEnquiry/entryPoints";
+import { activationHref, REQUEST_ACTIVATION_LABEL } from "@/lib/commercial/offerings";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
-import { useLandingIntent } from "@/components/landing/landingIntentContext";
 
 const C = LANDING_PLANS_COPY.columns;
 const CELL = "px-4 py-2 md:py-4 text-[13px] leading-5";
 const MOBILE_LABEL = "md:hidden block text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground";
 
 export function CapacityPlans() {
-  const { service } = useLandingIntent();
-
   return (
     <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 border-b border-border bg-background">
       <div className="mx-auto max-w-7xl px-6 py-14 lg:px-10 lg:py-20">
@@ -56,19 +50,16 @@ export function CapacityPlans() {
                 <span role="cell" className={`${CELL} text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.users}</span>{p.namedUsers}</span>
                 <span role="cell" className={`${CELL} col-span-2 text-foreground md:col-span-2`}><span className={MOBILE_LABEL}>{C.price}</span>{p.proposedAmount}</span>
                 <span role="cell" className={`${CELL} col-span-2 md:col-span-2`}>
-                  {!p.contactSales && (
-                    <Link to={serviceAuthHref("signup", service, p.code)} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
-                      {LANDING_PLANS_COPY.choosePrefix} {p.name}
+                  {SERVICE_ENQUIRY_SURFACES.contactRoute ? (
+                    <Link to={activationHref(p.code, "landing_plans")} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
+                      {p.contactSales ? LANDING_PLANS_COPY.enterpriseAction : REQUEST_ACTIVATION_LABEL}
                     </Link>
+                  ) : (
+                    <span data-testid={p.contactSales ? "enterprise-unavailable" : `plan-unavailable-${p.name}`} className="text-[12px] text-muted-foreground">
+                      {p.contactSales ? LANDING_PLANS_COPY.enterpriseUnavailable : LANDING_PLANS_COPY.requestUnavailable}
+                    </span>
                   )}
-                  {p.contactSales && SERVICE_ENQUIRY_SURFACES.contactRoute && (
-                    <Link to={CONTACT_ROUTE} data-testid={`plan-action-${p.name}`} className="inline-flex whitespace-nowrap text-[13px] font-semibold text-foreground underline underline-offset-4 hover:no-underline">
-                      {LANDING_PLANS_COPY.enterpriseAction}
-                    </Link>
-                  )}
-                  {p.contactSales && !SERVICE_ENQUIRY_SURFACES.contactRoute && (
-                    <span data-testid="enterprise-unavailable" className="text-[12px] text-muted-foreground">{LANDING_PLANS_COPY.enterpriseUnavailable}</span>
-                  )}
+                  <span className="mt-1 block text-[11px] leading-4 text-muted-foreground" data-testid={`plan-activation-note-${p.name}`}>{LANDING_PLANS_COPY.activationNote}</span>
                 </span>
               </div>
             ))}

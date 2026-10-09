@@ -47,8 +47,12 @@ describe("plan presentation is read-only", () => {
       expect(html.split(name).length - 1).toBe(1);   // once, not repeated under every plan
     }
     expect(html).not.toMatch(/per month|\/ month|monthly|instalment/i);   // no monthly pricing until the server represents instalments
-    expect(html).toContain("Choose Solo");
+    // Every action requests activation (manual, by agreement), stated beside each; nothing is chosen, saved or bought here.
+    expect(html.split(">Request activation<").length - 1).toBe(3);
     expect(html).toContain("Discuss Enterprise");
+    expect(html).toContain('href="/contact?service=plan_activation&amp;plan=SOLO&amp;from=landing_plans"');
+    expect(html.split("Subscriptions are sold by agreement and activated by our team. There is no online payment.").length - 1).toBe(4);
+    expect(html).not.toMatch(/Choose (Solo|Practice|Firm)/);
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
     expect(html).toContain("Proposed pricing · 12-month term");
     expect(html).toMatch(/data-testid="price-SOLO">\$490<span[^>]*> \/ year/);
@@ -62,11 +66,14 @@ describe("plan presentation is read-only", () => {
     expect(html).toContain('(annual)');
     expect(render(createElement(CurrentPlanPanel, { billing: base, loading: false, error: false }))).not.toContain('Prepaid extension scheduled');
   });
-  it('the catalogue links to the contact form only when that route exists (service-enquiry gate), otherwise states how plans are activated', () => {
+  it('the catalogue links to the activation request only when the contact route exists (service-enquiry gate), otherwise states how plans are activated', () => {
     const src = fs.readFileSync(path.join(__dirname, 'PlanCatalogue.tsx'), 'utf8');
     expect(src).toMatch(/contactAvailable = SERVICE_ENQUIRY_SURFACES\.contactRoute/);
-    expect(src).toContain('{contactAvailable ? <Button asChild><Link to="/contact">');
-    expect(src).not.toMatch(/contactHref\(/);
-    expect(src).toContain('{NO_CHECKOUT_NOTICE}');
+    const off = render(createElement(PlanCatalogue, { contactAvailable: false }));
+    expect(off).not.toMatch(/\/contact|Request activation|Discuss Enterprise/);
+    expect(off).toContain("Plans are activated by the CFOClose team.");
+    expect(off).toContain("Enterprise terms are agreed directly with our team.");
+    const wall = render(createElement(PlanCatalogue, { source: "plan_wall" }));
+    expect(wall).toContain('href="/contact?service=plan_activation&amp;plan=FIRM&amp;from=plan_wall"');
   });
 });

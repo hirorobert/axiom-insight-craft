@@ -2,56 +2,55 @@
  * landingContent — the single source of truth for every word rendered on the public
  * landing page (src/pages/Index.tsx and the components under src/components/landing/).
  *
- * Discipline enforced by src/content/landing/__tests__/landingCopyDiscipline.test.ts:
- *   - strict per-item word limits (hero 35, service outcome 30, FAQ answer 80);
- *   - no forbidden claim vocabulary (see FORBIDDEN_LANDING_PHRASES in the test);
+ * The commercial structure (approved for the commercial milestone):
+ *   Software       Trial balance review — a software subscription sold by agreement and activated manually by our
+ *                  team; no online payment. Financial reporting — a pilot by invitation, not generally available, its
+ *                  accounting not independently validated.
+ *   Plans          capacity, from the reviewed catalogue (prices stay "Proposed"); every action is "Request activation".
+ *   Specialist     forecasting, budgeting, financial analysis, accounting policies and close support: enquiries for work
+ *                  delivered by people and quoted separately — never presented as automated features.
+ *
+ * Discipline enforced by src/components/landing/__tests__/landingPage.test.ts:
+ *   - strict word limits; no assurance or acquisition vocabulary; no checkout, buy or subscribe wording;
  *   - no internal engine names, no jurisdiction-specific terminology;
  *   - every anchor referenced by navigation exists as a section id below.
  *
- * LANDING_FAQ is also the source the FAQPage structured data in index.html must match
- * exactly — parity is asserted by faqStructuredData.test.ts, so the visible answer and
- * the answer offered to a crawler can never drift apart.
- *
- * Nothing here is authority. It describes only capabilities a reviewer can reach in the
- * current interface; anything unproven is either omitted or explicitly marked unverified.
+ * LANDING_FAQ is also the source the FAQPage structured data in index.html must match exactly (faqStructuredData.test.ts).
+ * Nothing here is authority. It describes only what a reviewer can reach in the current interface.
  */
 
 /** Every section id the page renders, and therefore every valid in-page anchor target. */
 export const LANDING_SECTION_IDS = [
   "main-content",
-  "services",
-  "outputs",
+  "software",
   "plans",
+  "specialist-services",
   "faq",
 ] as const;
 
 export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hero — one proposition, two actions
+// Hero — one proposition, one request
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
-  eyebrow: "TRIAL BALANCE REVIEW",
-  headline: "A trial balance you can stand behind.",
+  eyebrow: "Trial balance review software",
+  headline: "Check every trial balance before the statements are prepared.",
   supporting:
-    "Upload a trial balance, check it and confirm the classification of every account, with a traceable source and attributed decisions.",
-  primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "See how it works", href: "#services" },
+    "Import a trial balance, run the checks and record a classification decision for every account. Software you operate; it does not prepare, review or audit your accounts for you.",
+  primaryCta: { label: "Request activation" },
+  secondaryCta: { label: "See the plans", href: "#plans" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Services — the OUTCOME decision (what the customer needs). Plans are a separate decision (capacity) below.
-// Identifiers are the closed service-intent registry (src/lib/commercial/serviceIntent.ts); availability labels are
-// derived there from the plan × capability matrix, never written here.
+// Software — what the subscription includes, and the one pilot
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LandingServiceOutput {
   readonly name: string;
   /** Formats reachable from the current interface, or "On screen". */
   readonly formats: string;
-  /** Condition under which the output appears, when there is one. */
-  readonly condition?: string;
 }
 
 export interface LandingService {
@@ -65,15 +64,9 @@ export interface LandingService {
   readonly primaryOutputs: readonly LandingServiceOutput[];
   /** Shown only behind "See all included outputs". */
   readonly moreOutputs: readonly LandingServiceOutput[];
-  /** A scope statement in registered wording, when the outcome needs one. */
-  readonly note?: string;
 }
 
-/**
- * Only the service a customer can complete today is described here (src/lib/workspace/moduleAvailability.ts withholds the
- * rest). Withheld services are not kept as copy: they return with their own reviewed wording when their engines are
- * complete.
- */
+/** The software a customer can complete today (src/lib/workspace/moduleAvailability.ts withholds the rest). */
 export const LANDING_SERVICES: readonly LandingService[] = [
   {
     id: "prepare-review",
@@ -97,16 +90,21 @@ export const LANDING_WORKFLOW: readonly string[] = [
 ];
 
 export const LANDING_SERVICES_COPY = {
-  eyebrow: "Services",
-  heading: "Start with your trial balance.",
-  intro: "A plan is required. Every plan includes Trial balance review; plans differ in capacity.",
+  eyebrow: "Software",
+  heading: "One subscription, activated by our team.",
+  intro: "Every plan includes Trial balance review. Plans differ in capacity.",
   outputsHeading: "What you receive",
   workflowHeading: "How it works",
   seeAll: "See all included outputs",
-  startPrefix: "Start with",
-  signInPrompt: "Already have an account?",
-  signInLabel: "Sign in",
-  frameworks: "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash.",
+  includedLabel: "Included in every plan",
+  frameworks: "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. Recording a framework does not generate statements.",
+} as const;
+
+/** The one pilot. Not for sale, not generally available, and never described as validated. */
+export const LANDING_PILOT = {
+  name: "Financial reporting",
+  label: "Pilot · by invitation",
+  text: "Statements, notes and sign-off for IFRS for SMEs are being piloted with selected users. Not generally available. The accounting has not been independently validated.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,11 +116,24 @@ export const LANDING_PLANS_COPY = {
   heading: "Choose your capacity.",
   intro: "Plans differ in how many entities and named users they cover. One 12-month term; pricing shown is proposed.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
-  choosePrefix: "Choose",
-  /** Enterprise is never self-activated: it opens the enquiry page when that surface is enabled. */
+  /** Beside every plan action. */
+  activationNote: "Sold by agreement; activated by our team. No online payment.",
   enterpriseAction: "Discuss Enterprise",
   /** Shown instead when the enquiry surface is off: no link, no activation implied. */
   enterpriseUnavailable: "Terms are agreed directly with our team.",
+  requestUnavailable: "Plans are activated by our team.",
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Specialist services — enquiries, not features
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LANDING_SPECIALIST_COPY = {
+  eyebrow: "Specialist services",
+  heading: "Work delivered by people, quoted separately.",
+  intro: "Ask for a quote. These are not features of the software and are not included in any plan.",
+  tag: "Specialist enquiry",
+  action: "Ask for a quote",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,9 +145,6 @@ export const LANDING_TRUST: readonly { readonly title: string; readonly text: st
   { title: "Attributed decisions", text: "Review decisions are associated with authenticated user accounts." },
   { title: "Protected history", text: "Supported historical outputs remain readable under the defined lifecycle and subscription rules." },
 ];
-
-// The proposed plans are derived from the PR #34 commercial catalogue in ./proposedPlans.ts (this module stays data
-// only: no imports, no logic).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FAQ — the one source for both the visible copy and the FAQPage structured data
@@ -156,10 +164,22 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
       "CFOCLOSE checks an imported trial balance and holds the accounts that need a classification decision for review, until it is a reviewed trial balance ready for statement preparation. A reviewed trial balance is not reconciled to supporting evidence, audited or approved. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached.",
   },
   {
+    id: "activation",
+    question: "How is a subscription activated?",
+    answer:
+      "Send an activation request naming the plan you need. We reply by email to agree terms, then activate the plan on the CFOCLOSE account registered to the email address in your request. There is no online payment, and nothing is activated by sending a request.",
+  },
+  {
+    id: "specialist-services",
+    question: "Are forecasting, budgeting and the other specialist services part of the software?",
+    answer:
+      "No. Forecasting, budgeting, financial analysis, accounting policies and close support are delivered by people and quoted separately. They are not features of the software and are not included in any plan.",
+  },
+  {
     id: "frameworks",
     question: "Which reporting frameworks can be selected?",
     answer:
-      "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash.",
+      "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. Recording a framework does not generate statements. Financial reporting for IFRS for SMEs is a pilot by invitation and is not generally available.",
   },
   {
     id: "professional-judgement",
@@ -187,9 +207,9 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
   },
   {
     id: "pricing-status",
-    question: "Is the displayed pricing already available?",
+    question: "Is the displayed pricing final?",
     answer:
-      "No. The plan structure shown is proposed and is undergoing final enforcement verification. Self-serve payment is switched off: there is no online checkout, plans are activated by our team, and nothing on this page can be purchased. Treat it as a preview, not a commercial offer.",
+      "No. The displayed pricing is proposed. The terms of a subscription are agreed with you before it is activated, and there is no online checkout.",
   },
 ];
 
@@ -198,10 +218,10 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_FINAL_CTA = {
-  heading: "Start with a trial balance you can stand behind.",
-  supporting: "Plans are activated by our team. Online payment is not available yet.",
-  primaryCta: { label: "Create account", href: "/auth?mode=signup" },
-  secondaryCta: { label: "View plans", href: "#plans" },
+  heading: "Ready to review your next trial balance?",
+  supporting: "Request activation of the plan you need. We reply to agree terms; there is no online payment.",
+  primaryCta: { label: "Request activation" },
+  secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,7 +229,7 @@ export const LANDING_FINAL_CTA = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const COMMERCIAL_NOTICE =
-  "Entity limits, named-user capacity and self-serve payment activation are undergoing final enforcement verification. This preview is not a public commercial offer." as const;
+  "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available." as const;
 
 export const LANDING_FOOTER_NOTE =
   "CFOCLOSE is a trial balance preparation and review workspace. It does not provide an audit, an audit opinion or legal advice." as const;

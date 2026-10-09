@@ -569,7 +569,7 @@ describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix
     const signInIndex = mobileMenuSrc.indexOf(
       '<Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>',
     );
-    const primaryIndex = mobileMenuSrc.indexOf("{CTA.primary}");
+    const primaryIndex = mobileMenuSrc.indexOf("CTA.primary");
     expect(signInIndex, "expected the mobile Sign in link in the signed-out menu").toBeGreaterThan(-1);
     expect(primaryIndex, "expected the mobile primary sign-up action").toBeGreaterThan(-1);
     expect(signInIndex, "Sign in must be listed before the primary action").toBeLessThan(primaryIndex);
@@ -580,7 +580,7 @@ describe("Ω3-BRAND · Header responsive navigation — H-1 tablet collision fix
     // Exactly two `setMobileOpen(false)` close-handlers in the signed-out
     // branch: one on Sign in, one on the primary sign-up action.
     const closeHandlers = signedOutBranch
-      .slice(0, signedOutBranch.indexOf("{CTA.primary}") + 200)
+      .slice(0, signedOutBranch.indexOf("CTA.primary") + 200)
       .match(/onClick=\{\(\) => setMobileOpen\(false\)\}/g) ?? [];
     expect(closeHandlers.length).toBeGreaterThanOrEqual(2);
   });

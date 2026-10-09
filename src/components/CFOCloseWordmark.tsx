@@ -2,24 +2,36 @@ import { BRAND } from "@/constants/copy";
 
 interface Props {
   className?: string;
+  /**
+   * "panel" — the approved brand mark: white CFOCLOSE on the brand navy with the two gold rules (hero, auth, footer).
+   * "inline" — the same lockup for light surfaces (header): navy letters over the two gold rules.
+   */
+  variant?: "panel" | "inline";
 }
 
+/** The approved brand colours, sampled from the supplied logo (CFOClose_logo.png): navy #0D1D3B, gold #CBA64E. */
+export const BRAND_NAVY = "#0D1D3B";
+export const BRAND_GOLD = "#CBA64E";
+
 /**
- * Public CFOClose text wordmark: "CFOCLOSE" (max weight, tight tracking) +
- * ".com" (lighter weight) in the site's own navy foreground color — a CSS
- * recreation of the approved logo image (bold navy "CFOCLOSE.com", no
- * icon), built from this site's existing Inter font stack rather than a
- * new asset or webfont dependency. Not pixel-identical to the source
- * image by design (confirmed acceptable) — an exact vector/raster asset
- * replacement can supersede this if one is supplied later. Used only on
- * public surfaces (Header, Footer, Auth). The authenticated workspace's
- * brand mark is a separate concern (Ω∞ Charter Phase 3/4).
+ * The CFOCLOSE brand mark, built in HTML/CSS (no raster asset, no webfont): bold uppercase "CFOCLOSE" over two gold
+ * rules, as in the approved logo. The authenticated workspace uses the same component.
  */
-export function CFOCloseWordmark({ className = "" }: Props) {
+export function CFOCloseWordmark({ className = "", variant = "inline" }: Props) {
+  const panel = variant === "panel";
   return (
-    <span className={`inline-flex items-baseline text-foreground ${className}`}>
-      <span className="font-black uppercase tracking-tight">{BRAND.name}</span>
-      <span className="font-medium">.com</span>
+    <span
+      className={`inline-flex flex-col items-stretch ${panel ? "px-[0.6em] pb-[0.45em] pt-[0.35em]" : ""} ${className}`}
+      style={panel ? { backgroundColor: BRAND_NAVY } : undefined}
+      aria-label={BRAND.name}
+      role="img"
+      data-testid="brand-mark"
+    >
+      <span aria-hidden="true" className="font-black uppercase leading-none tracking-[0.02em]" style={{ color: panel ? "#F5F7FA" : BRAND_NAVY }}>
+        {BRAND.name}
+      </span>
+      <span aria-hidden="true" className="mt-[0.18em] block h-[0.07em] min-h-[2px]" style={{ backgroundColor: BRAND_GOLD }} />
+      <span aria-hidden="true" className="mt-[0.06em] block h-[0.07em] min-h-[2px]" style={{ backgroundColor: BRAND_GOLD }} />
     </span>
   );
 }

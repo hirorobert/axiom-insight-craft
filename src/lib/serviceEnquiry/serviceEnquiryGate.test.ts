@@ -28,6 +28,11 @@
 // the statements and performance outcome cards; main-Footer.html reads "trial balance preparation and review workspace".
 // Both differences are exactly those; nothing else changed. main-Footer.html was then re-captured once more for the brand
 // tagline ("Trial balance review for accountants, finance teams, and firms."), its only difference.
+// RE-CAPTURED again (2026-10-10, commercial milestone) through the same withGate(false) path: the header navigation now reads
+// Software · Plans · Specialist services · Questions and its gate-OFF primary action falls back to "Create account"; the
+// footer links Software · Plans · Specialist services and states the commercial notice (manual activation, specialist
+// services quoted separately, financial reporting a pilot); the brand mark is the approved navy/gold lockup. The gate-OFF
+// guarantee is unchanged and still asserted below: no Contact entry point of any kind.
 
 import fs from "node:fs";
 import path from "node:path";

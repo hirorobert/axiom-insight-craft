@@ -33,10 +33,11 @@ export const BRAND = {
 } as const;
 
 export const CTA = {
-  primary:     "Create account",
-  secondary:   "See how it works",
-  // No self-serve sign-up reaches a working workspace (there is no free plan and no checkout): the request path.
-  primaryHref: "/auth?mode=signup",
+  // Subscriptions are sold by agreement and activated manually: the header's primary action is the activation request
+  // (/contact?service=plan_activation). Without the enquiry surface, the account-creation fallback below is shown.
+  primary:          "Request activation",
+  fallback:         "Create account",
+  fallbackHref:     "/auth?mode=signup",
 } as const;
 
 export const HERO = {
@@ -179,9 +180,10 @@ export const PRICING_SECTION = {
 // src/pages/Index.tsx — asserted by src/content/landing/__tests__/landingCopyDiscipline.test.ts,
 // so a renamed section can never leave a dead navigation link behind.
 export const NAV = [
-  { label: "Services",  href: "#services" },
-  { label: "Plans",     href: "#plans"    },
-  { label: "Questions", href: "#faq"      },
+  { label: "Software",            href: "#software"            },
+  { label: "Plans",               href: "#plans"               },
+  { label: "Specialist services", href: "#specialist-services" },
+  { label: "Questions",           href: "#faq"                 },
 ] as const;
 
 // UPLOAD_SECTION was removed with the landing-page rebuild: it was imported by nothing and claimed

@@ -57,8 +57,9 @@ import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
 import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { LandingHero } from "@/components/landing/LandingHero";
-import { LandingIntentProvider } from "@/components/landing/LandingIntent";
-import { ServiceChooser } from "@/components/landing/ServiceChooser";
+import { SoftwareSection } from "@/components/landing/SoftwareSection";
+import { SPECIALIST_LABEL, SPECIALIST_PUBLIC_STRINGS } from "@/lib/commercial/offerings";
+import { SpecialistServices } from "@/components/landing/SpecialistServices";
 import { TrustStrip } from "@/components/landing/TrustStrip";
 import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
 
@@ -78,6 +79,11 @@ const VISIBLE: EngagementCapability[] = ["FINANCIAL_STATEMENTS"];
 const WITHHELD: EngagementCapability[] = ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"];
 const HIDDEN_STAGES: WorkspaceMission[] = ["statements", "tax", "compliance", "filing", "monitor"];
 /** What a customer must never be promised while those modules are withheld. Tax-related ACCOUNTS are not listed. */
+// Specialist services are people-delivered enquiries that may NAME forecasting etc. (src/lib/commercial/offerings.ts).
+// Exactly their registered public strings and the one specialist FAQ entry are removed before the withheld-engine scan;
+// everything else is scanned unchanged.
+const SPECIALIST_FAQ = LANDING_FAQ.find((f) => f.id === "specialist-services")!;
+const withoutSpecialist = (t: string) => [...SPECIALIST_PUBLIC_STRINGS, SPECIALIST_FAQ.question, SPECIALIST_FAQ.answer].reduce((acc, s) => acc.split(s).join(" "), t);
 const WITHHELD_CLAIMS = /financial statements?\b|statement set|statement of financial position|certif|reporting pack|close insights|variance|forecast|tax computation|compute tax|\btax (workpapers?|service|module|engine)\b|assess tax|compliance (review|filing)|filing (pack|package)|complete (financial )?close|cash outlook|performance and risk/i;
 
 const missions = (status: MissionState["status"] = "passed"): Record<WorkspaceMission, MissionState> =>
@@ -397,20 +403,23 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
     const wrap = (el: ReturnType<typeof createElement>) => renderToStaticMarkup(createElement(MemoryRouter, null, el));
     const page = [
       wrap(createElement(Header)),
-      wrap(createElement(LandingIntentProvider, null, createElement(LandingHero), createElement(ServiceChooser), createElement(CapacityPlans), createElement(TrustStrip), createElement(LandingFAQ), createElement(LandingFinalCTA))),
+      wrap(createElement("main", null, createElement(LandingHero), createElement(SoftwareSection), createElement(CapacityPlans), createElement(SpecialistServices), createElement(TrustStrip), createElement(LandingFAQ), createElement(LandingFinalCTA))),
       wrap(createElement(PlanCatalogue)),
       wrap(createElement(Footer)),
     ].map(text).join(" ");
     expect(page).toContain("Trial balance review");
     expect(page).toContain("Upload, check and review the accounts in your trial balance.");
-    expect(page.match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
-    for (const f of LANDING_FAQ) expect(`${f.question} ${f.answer}`, f.id).not.toMatch(WITHHELD_CLAIMS);
+    expect(withoutSpecialist(page).match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
+    for (const f of LANDING_FAQ) if (f.id !== "specialist-services") expect(`${f.question} ${f.answer}`, f.id).not.toMatch(WITHHELD_CLAIMS);
+    // Where specialist services are named, they are labelled as enquiries — never as features of the software.
+    expect(page).toContain(SPECIALIST_LABEL);
+    expect(SPECIALIST_FAQ.answer).toMatch(/not features of the software/);
   });
 
   it("the crawler-visible document (title, meta, structured data) carries none either", () => {
     const html = read("index.html").replace(/<!--[\s\S]*?-->/g, "");
     expect(html).toMatch(/<title>CFOClose — Trial Balance Review Workspace<\/title>/);
-    expect(html.match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
+    expect(withoutSpecialist(html).match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
   });
 
   it("the legal pages describe the service as offered today; the ownership clause covers historical records", () => {

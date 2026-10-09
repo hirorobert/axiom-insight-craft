@@ -43,6 +43,8 @@ const isSpecialist = (v: string | null): v is SpecialistServiceCode => v !== nul
 const isSource = (v: string | null): v is CommercialSource => v === "landing_plans" || v === "landing_services" || v === "plan_wall";
 
 export const activationHref = (plan: ActivationPlanCode, from: CommercialSource): string => `${CONTACT_ROUTE}?service=plan_activation&plan=${plan}&from=${from}`;
+/** An activation request that names no plan yet (the requester chooses it in the form). */
+export const activationRequestHref = (from: CommercialSource): string => `${CONTACT_ROUTE}?service=plan_activation&from=${from}`;
 export const specialistHref = (code: SpecialistServiceCode, from: CommercialSource = "landing_services"): string => `${CONTACT_ROUTE}?service=${code}&from=${from}`;
 
 export type ContactIntent =
@@ -62,3 +64,13 @@ export function contactIntentFromSearch(params: URLSearchParams): ContactIntent 
   if (isSpecialist(service)) return { kind: "specialist", service: SPECIALIST_SERVICES.find((s) => s.code === service)!, source };
   return { kind: "general" };
 }
+
+/**
+ * Every public string that names a specialist service. The withheld-module guards (moduleAvailability.test.ts,
+ * publicClaimRegistry.test.ts) remove exactly these — and nothing else — before scanning for withheld-engine wording such
+ * as "forecast": a people-delivered, separately quoted enquiry may name forecasting; no other copy may.
+ */
+export const SPECIALIST_PUBLIC_STRINGS: readonly string[] = [
+  ...SPECIALIST_SERVICES.flatMap((s) => [s.name, s.description]),
+  SPECIALIST_LABEL,
+];

@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
+import { activationRequestHref, REQUEST_ACTIVATION_LABEL } from "@/lib/commercial/offerings";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 /** Presentation only. The create_entity RPC remains the authority for every new entity. */
 export function EntityCapacityNotice({ capacity, loading, error, onRetry }: {
@@ -15,5 +17,5 @@ export function EntityCapacityNotice({ capacity, loading, error, onRetry }: {
     : capacity.capacity === 0 && capacity.planCode === null
       ? "No active plan. Existing companies remain accessible."
       : "Entity capacity reached. Existing companies remain accessible.";
-  return <div role="status" className="text-xs text-muted-foreground">{message} <Link className="underline" to="/plans">View plans</Link>{(error || !capacity) && onRetry && <Button variant="link" size="sm" onClick={onRetry}>Retry</Button>}</div>;
+  return <div role="status" className="text-xs text-muted-foreground">{message} <Link className="underline" to="/plans">View plans</Link>{SERVICE_ENQUIRY_SURFACES.contactRoute && <> · <Link className="underline" to={activationRequestHref("plan_wall")} data-testid="capacity-request-activation">{REQUEST_ACTIVATION_LABEL}</Link></>}{(error || !capacity) && onRetry && <Button variant="link" size="sm" onClick={onRetry}>Retry</Button>}</div>;
 }
