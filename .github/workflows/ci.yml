@@ -598,6 +598,14 @@ jobs:
           createdb readiness_proof
           bun scripts/db-proof/readinessReadOnly.mjs
 
+      - name: Cash perimeter scope proof (DEFECT D-3; each period's cash accounts from its own reporting input, never company-wide; the hosted state rebuilt from the acceptance fixture files plus earlier cash accounts of another year; reproduced with the company-wide flags; the next version stores and binds the cash account map, the perimeter and roll-forward pass, every expected total matches; drafts, certifications and the earlier accounts unchanged; REVIEWED, FINAL and export; a later mapping change makes the result stale; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/cash_scope_proof
+        run: |
+          createdb cash_scope_proof
+          bun scripts/db-proof/cashPerimeterScope.mjs
+
       - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
         env:
           DB_PROOF_MODE: external

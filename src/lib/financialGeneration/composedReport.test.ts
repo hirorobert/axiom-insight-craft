@@ -21,7 +21,7 @@ const input = (over: Partial<ComposedReportInput> = {}): ComposedReportInput => 
   reportId: "rpt-1", reportVersion: 1, companyId: "c1", legalName: "Synthetic SME Limited", composition,
   currentDates: { start: "2026-01-01", end: "2026-12-31" }, comparativeDates: COMPARATIVE_DATES,
   dependencies: { dependenciesSha256: H("d"), compositionSha256: H("b"), notesStatusSha256: H("c"), comparativeStatusSha256: H("e") },
-  notes: notes(), evidence: [], cashAccountKeys: [],
+  notes: notes(), evidence: [], cashScope: { current: [], comparative: null },
   disclosures: [
     { requirementId: "smes.note.compliance", textId: "t-compliance", body: "Prepared under the IFRS for SMEs.", sourceRef: null },
     { requirementId: "smes.note.policies", textId: "t-policies", body: "Historical cost.", sourceRef: "Policies v1" },

@@ -19,6 +19,7 @@
 import { assembleComposedReport, evaluateComposedReport, reportContentHash } from "@/lib/financialGeneration/composedReport";
 import type { GenerationDiagnostic } from "@/lib/financialGeneration/common";
 import type { EvidenceUse } from "@/lib/financialGeneration/applyEvidence";
+import { cashScopeFromReportingInput } from "./cashScope";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
 import { parseComposition } from "@/lib/statements/composition";
 import { parseNotesStatus, type NotesStatus, type NotesStatusResult } from "@/lib/notes/notesStatus";
@@ -99,6 +100,9 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
   const cur = input.current;
   if (!cur?.reportingStart || !cur.reportingEnd) return { outcome: "refused", reason: "The reporting period dates are not recorded.", diagnostics: none };
   const cmp = input.comparative;
+  // Each period's cash accounts come from that period's authoritative input, never the company's (DEFECT D-3).
+  const cashScope = cashScopeFromReportingInput(input);
+  if (!cashScope) return { outcome: "refused", reason: "The reporting input does not carry its accounts; the cash perimeter cannot be scoped.", diagnostics: none };
   const comparativeDates = cmp?.reportingStart && cmp.reportingEnd ? { start: cmp.reportingStart, end: cmp.reportingEnd } : null;
 
   const stored = latestEvidence(await client.evidence(p.companyId, `FY${p.periodYear}`));
@@ -111,7 +115,7 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
   const assembled = assembleComposedReport({
     reportId: p.reportId, reportVersion: expected + 1, companyId: p.companyId, legalName: p.legalName, composition,
     currentDates: { start: cur.reportingStart, end: cur.reportingEnd }, comparativeDates, dependencies: ref, notes,
-    disclosures: await client.disclosureTexts(p.companyId, p.periodYear), evidence, cashAccountKeys: await client.cashAccountKeys(p.companyId),
+    disclosures: await client.disclosureTexts(p.companyId, p.periodYear), evidence, cashScope,
   });
   if (!assembled.report) return { outcome: "refused", reason: "The evidence does not yet form a valid report; see the diagnostics.", diagnostics: assembled.diagnostics };
   const evaluation = evaluateComposedReport(assembled.report, () => p.evaluatedAt);

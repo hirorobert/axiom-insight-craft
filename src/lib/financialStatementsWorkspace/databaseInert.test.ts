@@ -484,6 +484,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/acceptanceFixtures.mjs", "scripts/release/renderAcceptanceFixtures.mjs",
       // DEFECT D-2: the loopback-only readiness proof.
       "scripts/db-proof/readinessReadOnly.mjs",
+      // DEFECT D-3: the loopback-only cash perimeter scope proof.
+      "scripts/db-proof/cashPerimeterScope.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
