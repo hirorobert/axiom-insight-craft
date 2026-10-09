@@ -31,6 +31,7 @@
  *     (resolveReturningUserRoute.ts).
  */
 
+import type { WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -62,6 +63,13 @@ export interface ActiveEngagementEntry {
   /** The current upload's latest reconciliation record (trialBalanceReadiness requires evidence actually compared). */
   reconciliation?: EvidenceRead;
   openedAt: string;
+  /** The period's recorded dates (fiscal_periods.reporting_start / reporting_end); null when not recorded. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  companyCode?: string | null;
+  companyCreatedAt?: string | null;
+  /** The company's recorded purpose (workspace_purpose_events); null = not stated. Never inferred. */
+  workspacePurpose?: WorkspacePurpose | null;
 }
 
 export interface UseActiveEngagementsReturn {
@@ -101,8 +109,27 @@ interface EngagementRow {
 
 interface FiscalPeriodRow {
   id: string;
+  reporting_start: string | null;
   reporting_end: string | null;
   fiscal_year_end: string | null;
+}
+
+/**
+ * The latest recorded purpose of each company. Fail-soft by design: purpose is a label for the account home and gates
+ * nothing, so a database without the table (20261027100000 not yet applied) or a refused read lists every company as
+ * "not stated" rather than failing the home.
+ */
+async function readWorkspacePurposes(companyIds: string[]): Promise<Map<string, WorkspacePurpose>> {
+  const out = new Map<string, WorkspacePurpose>();
+  if (companyIds.length === 0) return out;
+  try {
+    const { data, error } = await (supabase as unknown as {
+      from(t: "workspace_purpose_events"): { select(c: string): { in(c: "company_id", v: string[]): { order(c: "seq", o: { ascending: boolean }): PromiseLike<{ data: { company_id: string; purpose: WorkspacePurpose }[] | null; error: unknown }> } } };
+    }).from("workspace_purpose_events").select("company_id, purpose").in("company_id", companyIds).order("seq", { ascending: false });
+    if (error) return out;
+    for (const r of data ?? []) if (!out.has(r.company_id)) out.set(r.company_id, r.purpose);
+  } catch { /* not stated */ }
+  return out;
 }
 
 export function useActiveEngagements(): UseActiveEngagementsReturn {
@@ -199,7 +226,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       const periodIds = Array.from(new Set(openEngagements.map((e) => e.fiscal_period_id)));
       const { data: periodsData, error: periodsErr } = await supabase
         .from("fiscal_periods")
-        .select("id, reporting_end, fiscal_year_end")
+        .select("id, reporting_start, reporting_end, fiscal_year_end")
         .in("id", periodIds);
       if (periodsErr) throw periodsErr;
       const periodById = new Map(((periodsData ?? []) as FiscalPeriodRow[]).map((p) => [p.id, p]));
@@ -207,6 +234,7 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
       // Bulk-fetch uploads for every company that has an open engagement, once — each engagement's
       // fetchWorkspaceSnapshot call reuses its own company's slice instead of re-querying.
       const engagementCompanyIds = Array.from(new Set(openEngagements.map((e) => e.company_id)));
+      const purposes = await readWorkspacePurposes(engagementCompanyIds);
       const { data: uploadsData, error: uploadsErr } = await supabase
         .from("trial_balance_uploads")
         .select("*")
@@ -255,6 +283,11 @@ export function useActiveEngagements(): UseActiveEngagementsReturn {
             safishaStatus: snapshot.upload?.safisha_status ?? null,
             reconciliation: snapshot.upload?.reconciliation,
             openedAt: eng.opened_at,
+            periodStart: period?.reporting_start ?? null,
+            periodEnd: period?.reporting_end ?? period?.fiscal_year_end ?? null,
+            companyCode: company?.code ?? null,
+            companyCreatedAt: company?.created_at ?? null,
+            workspacePurpose: purposes.get(eng.company_id) ?? null,
           };
         },
       );

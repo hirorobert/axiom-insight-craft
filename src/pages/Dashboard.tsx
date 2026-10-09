@@ -288,6 +288,14 @@ export default function Dashboard() {
       unavailableEngagements={unavailableEngagements ?? []}
       onAddTrialBalanceReview={addReview}
       reviewGates={reviewGates}
+      onSetPurpose={async (companyId, purpose, reason) => {
+        // Recorded by the server (set_workspace_purpose: the company's owner only, with a reason; append-only).
+        const { data, error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => PromiseLike<{ data: { outcome?: string } | null; error: unknown }>)(
+          "set_workspace_purpose", { p_company_id: companyId, p_purpose: purpose, p_reason: reason });
+        if (error) return "Not recorded: the purpose could not be saved. Try again.";
+        if (data?.outcome === "recorded") { await refresh(); return "Recorded."; }
+        return data?.outcome === "unchanged" ? "That purpose is already recorded." : data?.outcome === "forbidden" ? "Only the company's owner can record its purpose." : "Not recorded: a reason of at least 3 characters is required.";
+      }}
       account={{
         billing,
         billingLoading,
