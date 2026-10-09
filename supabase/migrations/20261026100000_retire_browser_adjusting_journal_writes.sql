@@ -21,6 +21,12 @@ BEGIN
                       WHERE n.nspname = 'public' AND p.proname = 'close_review_propose_adjustment') THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261015100000 (Close Review adjustments) must be applied first; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
+  IF NOT has_table_privilege('authenticated', 'public.adjusting_journal_entries', 'INSERT')
+     AND NOT has_table_privilege('authenticated', 'public.aje_lines', 'INSERT')
+     AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('adjusting_journal_entries', 'aje_lines')
+                      AND cmd <> 'SELECT') THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: browser writes to the legacy adjusting journal are already retired; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
 END;
 $preflight$;
 

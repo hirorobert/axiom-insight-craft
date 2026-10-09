@@ -8,7 +8,7 @@
 //              client write policy remains
 //   history    every earlier row is unchanged, byte for byte, and still readable by the company's members only
 //   server     service_role (server functions) still writes, so engine-generated entries keep working
-//   replay     re-applying is harmless; the rest of the chain applies after it
+//   replay     re-applying is refused by its own preflight; the rest of the chain applies after it
 //
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/legacyAdjustmentsRetirement.mjs
 import { applyChainBefore, certifier, chainFiles, csv, FY2026, makeWorld, migrationText, openDatabase, reporter } from "./lib/reportingKit.mjs";
@@ -88,7 +88,11 @@ async function main() {
   });
 
   group("Replay");
-  await check("re-applying 20261026100000 is harmless", async () => { await db.admin.query(migrationText(FIX)); return true; });
+  await check("re-applying 20261026100000 is refused by its own preflight; nothing changes", async () => {
+    const before2 = await snapshot();
+    try { await db.admin.query(migrationText(FIX)); return "re-application was accepted"; }
+    catch (e) { return e.code === "P0001" && /already retired/.test(e.message) && JSON.stringify(await snapshot()) === JSON.stringify(before2) ? true : `${e.code}: ${e.message}`; }
+  });
   await check("the rest of the chain applies after it", async () => {
     const chain = chainFiles();
     for (const f of chain.slice(chain.indexOf(FIX) + 1)) await db.admin.query(migrationText(f));
