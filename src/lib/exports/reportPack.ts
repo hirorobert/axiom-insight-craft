@@ -22,6 +22,19 @@ export interface PackSignOff {
   readonly signedBy: string;
   readonly contentHash: string;
   readonly dependenciesSha256: string;
+  /**
+   * Both approvers and the sign-off policy in force (20261024100000). Present only for a sign-off recorded under it;
+   * absent for an earlier one, whose pack renders exactly as it did when it was sealed.
+   */
+  readonly approvals?: PackApprovals;
+}
+export interface PackApprovals {
+  readonly reviewedBy: string;
+  readonly reviewedAt: string;
+  readonly policy: "separate_approvers" | "solo_owner";
+  readonly sameApprover: boolean;
+  /** The recorded solo-owner policy: its reason and when it was set (null when separate approvers). */
+  readonly soloOwner: { readonly reason: string; readonly setAt: string } | null;
 }
 export interface PackInput {
   readonly document: CanonicalFinancialStatementReport & { readonly reportingDependencies?: { readonly dependenciesSha256: string } };
@@ -74,18 +87,27 @@ export function buildReportPack(input: PackInput): ReportPack {
   const disclosure = adj.length === 0
     ? `<p>No adjustment was approved or revalidated by its own proposer.</p>`
     : `<ul>${adj.map((a) => `<li>Adjustment ${a.number} (${esc(formatMinorAmount(BigInt(a.totalMinor), doc.presentationCurrency.scale))}): ${a.selfApproved ? "self-approved" : ""}${a.selfApproved && a.selfRevalidated ? " and " : ""}${a.selfRevalidated ? "self-revalidated" : ""} — ${esc(a.reason)}</li>`).join("")}</ul>`;
+  // [20261024100000] Statement sign-off: both approvers and the policy, disclosed for sign-offs recorded under it.
+  const ap = input.signOff?.approvals;
+  const signoffDisclosure = !ap || !input.signOff ? "" : input.signOff.state === "FINAL"
+    ? (ap.sameApprover
+      ? `<p class="signoff-disclosure">Statement sign-off: reviewed and approved as final by the same person, ${esc(input.signOff.signedBy)} (reviewed on ${esc(ap.reviewedAt)}, approved on ${esc(input.signOff.signedAt)}), under the company's recorded solo-owner sign-off policy${ap.soloOwner ? ` set on ${esc(ap.soloOwner.setAt)}: ${esc(ap.soloOwner.reason)}` : ""}.</p>`
+      : `<p class="signoff-disclosure">Statement sign-off: reviewed by ${esc(ap.reviewedBy)} on ${esc(ap.reviewedAt)}; approved as final by ${esc(input.signOff.signedBy)} on ${esc(input.signOff.signedAt)} (separate approvers).</p>`)
+    : `<p class="signoff-disclosure">Statement sign-off: reviewed by ${esc(ap.reviewedBy)} on ${esc(ap.reviewedAt)}; not yet approved as final.</p>`;
   const body = [
     `<header><h1>${esc(input.entityName)}</h1><p>Financial statements for the year ended ${esc(doc.period.endDate)} · ${esc(input.editionTitle)} · ${esc(doc.presentationCurrency.currency)}</p></header>`,
     ...doc.statements.map(statementHtml),
     `<section class="notes"><h2>Notes</h2>${notes}</section>`,
-    `<section class="audit"><h2>Approval disclosures</h2>${disclosure}</section>`,
+    `<section class="audit"><h2>Approval disclosures</h2>${signoffDisclosure}${disclosure}</section>`,
   ].join("\n");
   const s = input.signOff;
   const banner = !s
     ? `<div class="banner draft" role="status">DRAFT — not signed off. Figures may change.</div>`
     : s.state === "REVIEWED"
       ? `<div class="banner reviewed" role="status">REVIEWED — not final. Reviewed by ${esc(s.signedBy)} on ${esc(s.signedAt)}.</div>`
-      : `<div class="banner final" role="status">FINAL — signed off by ${esc(s.signedBy)} on ${esc(s.signedAt)}. Content SHA-256 ${esc(s.contentHash)}; reporting dependencies SHA-256 ${esc(s.dependenciesSha256)}.</div>`;
+      : s.approvals
+        ? `<div class="banner final" role="status">FINAL — reviewed by ${esc(s.approvals.reviewedBy)} on ${esc(s.approvals.reviewedAt)}; signed off by ${esc(s.signedBy)} on ${esc(s.signedAt)}${s.approvals.sameApprover ? " (the same person, under the recorded solo-owner policy)" : ""}. Content SHA-256 ${esc(s.contentHash)}; reporting dependencies SHA-256 ${esc(s.dependenciesSha256)}.</div>`
+        : `<div class="banner final" role="status">FINAL — signed off by ${esc(s.signedBy)} on ${esc(s.signedAt)}. Content SHA-256 ${esc(s.contentHash)}; reporting dependencies SHA-256 ${esc(s.dependenciesSha256)}.</div>`;
   const css = `@page{size:A4;margin:18mm}body{font-family:system-ui,sans-serif;font-variant-numeric:tabular-nums}thead{display:table-header-group}.statement{break-inside:avoid-page}table{width:100%;border-collapse:collapse}th{text-align:left;font-weight:400;padding:2px 6px}td{padding:2px 6px}.num{text-align:right}thead th{font-weight:600;border-bottom:1px solid #000}tr.section th{font-weight:600;padding-top:8px}tr.subtotal th,tr.subtotal td{border-top:1px solid #999;font-weight:600}tr.total th,tr.total td{border-top:1px solid #000;border-bottom:3px double #000;font-weight:600}.banner{padding:6px 10px;border:1px solid;overflow-wrap:anywhere}.banner.draft::after,.banner.reviewed::after{content:"";}${!s || s.state !== "FINAL" ? `body::before{content:"${!s ? "DRAFT" : "REVIEWED"}";position:fixed;top:40%;left:15%;font-size:96px;opacity:.08;transform:rotate(-30deg)}` : ""}`;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(input.entityName)} — ${esc(String(doc.period.periodYear))}</title><style>${css}</style></head><body>${banner}\n${body}</body></html>`;
   return { html, body, csv: csvRows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n" };

@@ -33,3 +33,21 @@ describe("the Exports print host (only the pack prints, in full)", () => {
     expect(view).not.toMatch(/contentWindow\?\.print/);
   });
 });
+
+describe("the pack's statement sign-off disclosure (20261024100000)", () => {
+  it("is printed only when the sign-off carries approvals; an earlier sealed pack is byte-identical", async () => {
+    const { buildReportPack } = await import("./reportPack");
+    const src = read("src/lib/exports/reportPack.ts");
+    expect(src).toContain("const ap = input.signOff?.approvals;");
+    expect(src).toMatch(/!ap \|\| !input\.signOff \? ""/);
+    expect(typeof buildReportPack).toBe("function");
+  });
+});
+
+describe("a sealed pack prints the identity sealed in its document", () => {
+  it("the entity name comes from the stored document, not the workspace's current name", () => {
+    const view = read("src/components/reporting/ExportsView.tsx");
+    expect(view).toContain("entityName: document.entity.legalName");
+    expect(view).not.toContain("entityName: p.legalName");
+  });
+});

@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "reporting-r2"
+const DRIZZLE_FAILURE = BATCH.id === "reporting-r5"
+  ? { object: "public.fs_signoff_policy_events", rolledBack: "SELECT to_regclass('public.fs_signoff_policy_events') IS NULL AND to_regprocedure('public.fs_set_signoff_policy(uuid,text,text,text,uuid)') IS NULL AS ok" }
+  : BATCH.id === "reporting-r2"
   ? { object: "public.fs_report_readiness(pg_catalog.uuid,pg_catalog.text,integer)", rolledBack: "SELECT provolatile = 's' AS ok FROM pg_proc WHERE oid = 'public.fs_report_readiness(uuid,text,integer)'::regprocedure" }
   : BATCH.id === "reporting-r1"
   ? { object: "public.fs_publication_bindings", rolledBack: tablesAbsent("public.fs_presentation_lines", "public.fs_publication_bindings") }

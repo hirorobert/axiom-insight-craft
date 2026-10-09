@@ -17,7 +17,7 @@ import { DataTable, type DataColumn } from "@/components/workbench/DataTable";
 import { ingestEvidence } from "@/lib/financialEvidence/intake";
 import { EVIDENCE_TYPE_LABELS, type EvidenceBatch, type EvidenceType, type PeriodRole } from "@/lib/financialEvidence/types";
 import { adjustmentsClient, type AdjustmentsSummary } from "@/lib/closeReview/adjustments";
-import { latestEvidence, type Readiness, type SavedVersion, type StoredEvidence } from "@/lib/reporting/signoff";
+import { latestEvidence, SOLO_OWNER_CONFIRMATION, type Readiness, type SavedVersion, type SignoffPolicy, type SignoffPolicyState, type StoredEvidence } from "@/lib/reporting/signoff";
 import { prepareReportVersion } from "@/lib/reporting/prepareVersion";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
 import { blockerText } from "@/lib/reporting/blockers";
@@ -40,10 +40,64 @@ export function SignoffView(p: PageProps) {
   const selected = p.state.versions.find((v) => v.reportVersion === selectedNo) ?? null;
   return (
     <div className="space-y-6 text-sm">
+      <SignoffPolicyPanel {...p} />
       <Evidence {...p} reportId={reportId} latest={latest} />
       <Versions {...p} selected={selected} />
       {selected ? <Readiness_ {...p} version={selected} isLatest={selected.reportVersion === latest?.reportVersion} /> : <p>No report version is saved yet.</p>}
     </div>
+  );
+}
+
+/**
+ * The statement sign-off policy (20261024100000). Separate approvers by default: the final approval is recorded by
+ * someone other than the reviewer. The owner may record both only under the solo-owner policy, set by a member who
+ * manages members, with a reason and the exact confirmation; every pack signed that way discloses it.
+ */
+const POLICY_WORDS: Record<SignoffPolicy, string> = {
+  separate_approvers: "Separate approvers — the final approval is recorded by someone other than the reviewer.",
+  solo_owner: "Solo owner — the owner may both review and approve; every pack signed this way discloses it.",
+};
+const POLICY_OUTCOMES: Record<string, string> = {
+  forbidden: "Only a member who manages members can change the sign-off policy.", feature_disabled: "Reporting is not enabled for this company.",
+  confirmation_required: "The solo-owner policy needs the confirmation.", invalid_request: "A reason of at least 8 characters is required.",
+  request_reused: "That request was already used for a different change; try again.",
+};
+function SignoffPolicyPanel(p: PageProps) {
+  const [state, setState] = useState<SignoffPolicyState | null>(null);
+  const [target, setTarget] = useState<SignoffPolicy | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(async () => setState(await p.clients.signoff.signoffPolicy(p.companyId)), [p.clients, p.companyId]);
+  useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load]);
+  if (!state) return null;
+  const policy: SignoffPolicy = state.policy ?? "separate_approvers";
+  const other: SignoffPolicy = policy === "solo_owner" ? "separate_approvers" : "solo_owner";
+  const change = async (reason: string) => {
+    if (!target) return;
+    setBusy(true);
+    try {
+      const r = await p.clients.signoff.setSignoffPolicy(p.companyId, target, reason, target === "solo_owner" ? SOLO_OWNER_CONFIRMATION : null, crypto.randomUUID());
+      setNotice(r.outcome === "recorded" ? "The sign-off policy is recorded." : POLICY_OUTCOMES[r.outcome] ?? `Not recorded (${r.outcome}).`);
+      await load();
+    } catch (e) { setNotice(`Not recorded: ${(e as Error).message}`); }
+    finally { setBusy(false); setTarget(null); }
+  };
+  return (
+    <section aria-labelledby="h-policy" data-testid="signoff-policy" data-policy={policy}>
+      <h2 id="h-policy" className="text-base font-semibold">Sign-off policy</h2>
+      <p>{POLICY_WORDS[policy]}{state.recorded ? <span className="text-muted-foreground"> Recorded {String(state.setAt ?? "").slice(0, 10)}{state.reason ? `: ${state.reason}` : ""}.</span> : <span className="text-muted-foreground"> (Default.)</span>}</p>
+      {p.allowed.includes("manage_members") ? (
+        <button type="button" className="mt-2 rounded-md border border-input px-3 py-1.5" onClick={() => setTarget(other)} data-testid="change-signoff-policy">
+          {other === "solo_owner" ? "Allow the owner to review and approve (solo owner)" : "Require separate approvers"}
+        </button>
+      ) : null}
+      <Notice text={notice} />
+      <ConfirmDialog open={target !== null} title={target === "solo_owner" ? "Allow solo-owner sign-off" : "Require separate approvers"} period={`FY${p.periodYear}`} version="All versions signed from now on"
+        consequences={target === "solo_owner" ? "The owner may record both the review and the final approval. Each pack signed that way names the owner as both and states this policy with its reason." : "The final approval must be recorded by someone other than the reviewer."}
+        reasonMinLength={8} reasonLabel="Reason" confirmLabel="Record the policy" busy={busy}
+        acknowledgement={target === "solo_owner" ? SOLO_OWNER_CONFIRMATION : undefined}
+        onConfirm={(reason) => void change(reason)} onCancel={() => setTarget(null)} />
+    </section>
   );
 }
 

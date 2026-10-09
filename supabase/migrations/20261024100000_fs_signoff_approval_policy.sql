@@ -1,0 +1,181 @@
+-- 20261024100000_fs_signoff_approval_policy.sql — an explicit statement sign-off policy; both approvers recorded.
+--
+--   1. fs_signoff_policy_events (append-only): a company's statement sign-off policy.
+--        separate_approvers  (DEFAULT; also when no event exists) REVIEWED and FINAL are recorded by different people.
+--        solo_owner          the company's owner may record both, only under this recorded policy: set by a member
+--                            holding manage_members, with a reason and the exact confirmation statement below.
+--      This is NOT the Close Review adjustment policy (close_review_approval_policy_events, 20261015100000), which
+--      governs who may approve an adjustment and is unchanged.
+--   2. fs_set_signoff_policy / fs_signoff_policy: set (replay-safe per request) and read the policy in force.
+--   3. fs_bind_publication (the one place every REVIEWED / FINAL binding is made): a FINAL recorded by the person who
+--      recorded REVIEWED is refused (SIGNOFF_SEPARATE_APPROVERS_REQUIRED) unless the solo_owner policy is in force AND
+--      that person is the owner. Every new binding records the policy in force (signoff_policy, its event) and, on FINAL,
+--      whether the reviewer and the approver are the same person (same_approver). Bindings recorded before this
+--      migration keep NULL there: nothing is rewritten, and a sealed pack renders as it did.
+--
+-- Function text is 20261022100000's fs_bind_publication with the changes marked "20261024100000"; nothing else changes.
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.fs_signoff_policy_events') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the sign-off policy already exists; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regclass('public.fs_publication_bindings') IS NULL
+     OR position('APPROVER_NOT_AUTHENTICATED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261022100000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+-- ── 1. The policy events ──────────────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_signoff_policy_events (
+  id             UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq            BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id     UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  policy         TEXT        NOT NULL CHECK (policy IN ('separate_approvers', 'solo_owner')),
+  reason         TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 8 AND 1000),
+  -- The exact statement the person confirmed (solo_owner only).
+  confirmation   TEXT        NULL,
+  actor_user_id  UUID        NOT NULL,
+  firm_member_id UUID        NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  actor_role     TEXT        NULL,
+  request_id     UUID        NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT chk_fsspe_confirmation CHECK (
+    (policy = 'solo_owner' AND confirmation = 'I confirm that the owner of this company may both review and approve its financial statements, and that this is disclosed in every pack it signs.')
+    OR (policy = 'separate_approvers' AND confirmation IS NULL)),
+  CONSTRAINT uq_fsspe_request UNIQUE (actor_user_id, request_id)
+);
+CREATE INDEX idx_fsspe_company ON public.fs_signoff_policy_events (company_id, seq DESC);
+CREATE TRIGGER trg_fsspe_append_only BEFORE UPDATE OR DELETE ON public.fs_signoff_policy_events FOR EACH ROW EXECUTE FUNCTION public.fs_append_only_guard();
+ALTER TABLE public.fs_signoff_policy_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.fs_signoff_policy_events FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.fs_signoff_policy_events TO authenticated;
+CREATE POLICY fsspe_workspace_read ON public.fs_signoff_policy_events FOR SELECT TO authenticated USING (public.can_access_workspace(company_id));
+
+-- The policy in force: the latest event, or separate_approvers when none is recorded.
+CREATE OR REPLACE FUNCTION public._fs_signoff_policy(p_company_id uuid)
+RETURNS TABLE (policy text, event_id uuid) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT COALESCE(e.policy, 'separate_approvers'), e.id
+    FROM (SELECT 1) one
+    LEFT JOIN LATERAL (SELECT x.policy, x.id FROM public.fs_signoff_policy_events x WHERE x.company_id = p_company_id ORDER BY x.seq DESC LIMIT 1) e ON true;
+$$;
+
+-- ── 2. Set and read ───────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fs_set_signoff_policy(p_company_id uuid, p_policy text, p_reason text, p_confirmation text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_prior public.fs_signoff_policy_events;
+  v_member public.firm_members;
+BEGIN
+  IF v_uid IS NULL OR p_company_id IS NULL OR p_request_id IS NULL OR p_policy NOT IN ('separate_approvers', 'solo_owner')
+     OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 8 AND 1000 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'manage_members') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  IF p_policy = 'solo_owner' AND p_confirmation IS DISTINCT FROM 'I confirm that the owner of this company may both review and approve its financial statements, and that this is disclosed in every pack it signs.' THEN
+    RETURN jsonb_build_object('outcome', 'confirmation_required');
+  END IF;
+  -- A retried request: the same content answers its earlier outcome; other content under the same id is refused.
+  SELECT * INTO v_prior FROM public.fs_signoff_policy_events e WHERE e.actor_user_id = v_uid AND e.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.company_id = p_company_id AND v_prior.policy = p_policy AND v_prior.reason = btrim(p_reason) THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'policy', p_policy, 'eventId', v_prior.id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  SELECT * INTO v_member FROM public.firm_members m WHERE m.company_id = p_company_id AND m.user_id = v_uid ORDER BY m.accepted_at NULLS LAST LIMIT 1;
+  INSERT INTO public.fs_signoff_policy_events (company_id, policy, reason, confirmation, actor_user_id, firm_member_id, actor_role, request_id)
+  VALUES (p_company_id, p_policy, btrim(p_reason), CASE WHEN p_policy = 'solo_owner' THEN p_confirmation END, v_uid, v_member.id,
+          COALESCE(v_member.role, CASE WHEN EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company_id AND c.user_id = v_uid) THEN 'owner' END), p_request_id)
+  RETURNING * INTO v_prior;
+  RETURN jsonb_build_object('outcome', 'recorded', 'policy', p_policy, 'eventId', v_prior.id);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_signoff_policy(p_company_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_policy text;
+  v_event uuid;
+  v_e public.fs_signoff_policy_events;
+BEGIN
+  IF p_company_id IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  IF NOT public.can_access_workspace(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
+  SELECT s.policy, s.event_id INTO v_policy, v_event FROM public._fs_signoff_policy(p_company_id) s;
+  SELECT * INTO v_e FROM public.fs_signoff_policy_events e WHERE e.id = v_event;
+  RETURN jsonb_build_object('state', 'current', 'policy', v_policy, 'eventId', v_event, 'reason', v_e.reason, 'setAt', v_e.created_at, 'setByRole', v_e.actor_role,
+                            'recorded', v_event IS NOT NULL);
+END;
+$$;
+
+-- ── 3. The binding: the policy enforced and recorded ─────────────────────────────────────────────────────────────────
+ALTER TABLE public.fs_publication_bindings
+  ADD COLUMN signoff_policy          text    NULL CHECK (signoff_policy IN ('separate_approvers', 'solo_owner')),
+  ADD COLUMN signoff_policy_event_id uuid    NULL REFERENCES public.fs_signoff_policy_events (id) ON DELETE RESTRICT,
+  ADD COLUMN same_approver           boolean NULL;
+
+CREATE OR REPLACE FUNCTION public.fs_bind_publication()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_report public.financial_statement_reports;
+  v_deps jsonb;
+  v_uid uuid := auth.uid();
+  v_member public.firm_members;
+  v_policy text;
+  v_policy_event uuid;
+  v_reviewer uuid;
+  v_same boolean := NULL;
+BEGIN
+  IF NEW.state NOT IN ('REVIEWED', 'FINAL') THEN RETURN NEW; END IF;
+  SELECT * INTO v_report FROM public.financial_statement_reports r WHERE r.report_id = NEW.report_id AND r.report_version = NEW.report_version;
+  IF v_report.provenance_origin IS DISTINCT FROM 'TRIAL_BALANCE_DERIVED' OR v_report.report_document #>> '{framework,kind}' IS DISTINCT FROM 'IFRS_FOR_SMES' THEN
+    RETURN NEW;
+  END IF;
+  v_deps := public.fs_reporting_dependencies(NEW.company_id, v_report.period_year);
+  IF v_deps ->> 'state' IS DISTINCT FROM 'current' OR v_report.report_document #>> '{reportingDependencies,dependenciesSha256}' IS DISTINCT FROM v_deps ->> 'dependenciesSha256' THEN
+    RAISE EXCEPTION 'BINDING_STALE: the report is not bound to its current reporting dependencies; save a new version' USING ERRCODE = 'PT409';
+  END IF;
+  -- The approver is the AUTHENTICATED caller, and the publication's actor must be that caller's own membership of this
+  -- company (20261022100000). A publication written without a session, or naming another member, is refused.
+  SELECT * INTO v_member FROM public.firm_members m WHERE m.id = NEW.actor_firm_member_id;
+  IF v_uid IS NULL OR NOT FOUND OR v_member.user_id IS DISTINCT FROM v_uid OR v_member.company_id IS DISTINCT FROM NEW.company_id THEN
+    RAISE EXCEPTION 'APPROVER_NOT_AUTHENTICATED: a sign-off is recorded only for the authenticated member who makes it' USING ERRCODE = '42501';
+  END IF;
+  -- [20261024100000] The statement sign-off policy in force. FINAL by the person who recorded REVIEWED is permitted only
+  -- for the owner under the recorded solo_owner policy; otherwise two different people sign.
+  SELECT s.policy, s.event_id INTO v_policy, v_policy_event FROM public._fs_signoff_policy(NEW.company_id) s;
+  IF NEW.state = 'FINAL' THEN
+    SELECT b.approver_user_id INTO v_reviewer FROM public.fs_publication_bindings b
+     WHERE b.report_id = NEW.report_id AND b.report_version = NEW.report_version AND b.state = 'REVIEWED' ORDER BY b.approved_at DESC NULLS LAST LIMIT 1;
+    IF v_reviewer IS NULL THEN
+      RAISE EXCEPTION 'SIGNOFF_REVIEWER_UNKNOWN: the reviewer of this version is not recorded; save a new version and sign it again' USING ERRCODE = '42501';
+    END IF;
+    v_same := v_reviewer = v_uid;
+    IF v_same AND NOT (v_policy = 'solo_owner' AND v_member.role = 'owner') THEN
+      RAISE EXCEPTION 'SIGNOFF_SEPARATE_APPROVERS_REQUIRED: the final approval must be recorded by someone other than the reviewer (the company''s sign-off policy is %)', v_policy
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  INSERT INTO public.fs_publication_bindings (publication_id, company_id, report_id, report_version, state, document_sha256, declared_content_hash, dependencies_sha256, dependencies,
+                                              approver_user_id, approver_firm_member_id, approver_role, approver_display_name, approved_at,
+                                              signoff_policy, signoff_policy_event_id, same_approver)
+  VALUES (NEW.id, NEW.company_id, NEW.report_id, NEW.report_version, NEW.state, encode(sha256(convert_to(v_report.report_document::text, 'UTF8')), 'hex'),
+          v_report.content_hash, v_deps ->> 'dependenciesSha256', v_deps,
+          v_uid, v_member.id, v_member.role,
+          -- The name on record at the moment of approval (NULL when none is recorded; never invented).
+          (SELECT nullif(btrim(pr.display_name), '') FROM public.profiles pr WHERE pr.user_id = v_uid),
+          NEW.created_at,
+          v_policy, v_policy_event, v_same);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public._fs_signoff_policy(uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_bind_publication() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_set_signoff_policy(uuid, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_set_signoff_policy(uuid, text, text, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_signoff_policy(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_signoff_policy(uuid) TO authenticated;

@@ -53,11 +53,17 @@ export const READINESS_SOURCE_COMMIT = "2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
 export const READINESS_WRAPPED_SOURCES = Object.freeze([
   "20261023100000_fs_report_readiness_volatility.sql",
 ]);
+/** The statement sign-off policy (reporting r5): one source at the commit holding its reviewed bytes. */
+export const SIGNOFF_POLICY_SOURCE_COMMIT = "5358aefc999bd09f5d306e3e19ba3abbd79da082";
+export const SIGNOFF_POLICY_WRAPPED_SOURCES = Object.freeze([
+  "20261024100000_fs_signoff_approval_policy.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
   Object.freeze({ id: "reporting-r1", commit: REPORTING_SOURCE_COMMIT, sources: REPORTING_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r1/postcondition.sql" }),
   Object.freeze({ id: "reporting-r2", commit: READINESS_SOURCE_COMMIT, sources: READINESS_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r2/postcondition.sql" }),
+  Object.freeze({ id: "reporting-r5", commit: SIGNOFF_POLICY_SOURCE_COMMIT, sources: SIGNOFF_POLICY_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r5/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

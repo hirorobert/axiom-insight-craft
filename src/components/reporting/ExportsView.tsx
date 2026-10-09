@@ -9,7 +9,8 @@ import { readStoredReport } from "@/lib/financialGeneration/composedReport";
 import { buildReportPack, type ReportPack } from "@/lib/exports/reportPack";
 import { adjustmentsClient } from "@/lib/closeReview/adjustments";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
-import { approverText, type SavedVersion } from "@/lib/reporting/signoff";
+import type { SavedVersion } from "@/lib/reporting/signoff";
+import { packSignOffFor } from "@/lib/reporting/packSignOff";
 import { PRINT_HOST_ID, PRINT_ROOT_CLASS, packForPrintHost, printDocumentCss } from "@/lib/exports/printHost";
 import type { PageProps } from "./shared";
 
@@ -33,10 +34,14 @@ function Pack(p: PageProps & { v: SavedVersion }) {
       const document = readStoredReport(stored.document);
       const bindings = p.v.state === "DRAFT" ? [] : (await p.clients.signoff.bindings(p.v.reportId)).filter((b) => b.reportVersion === p.v.reportVersion);
       const binding = bindings.find((b) => b.state === p.v.state) ?? null;
+      // [20261024100000] Both approvers and the policy, only for a sign-off recorded under it (an earlier sealed pack is unchanged).
+      const event = binding?.signoffPolicy === "solo_owner" && binding.signoffPolicyEventId ? await p.clients.signoff.signoffPolicyEvent(binding.signoffPolicyEventId) : null;
       const summary = await adj.summary(p.companyId, p.periodYear).catch(() => null);
       const out = buildReportPack({
-        document, entityName: p.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
-        signOff: binding && (p.v.state === "REVIEWED" || p.v.state === "FINAL") ? { state: p.v.state, signedAt: binding.approvedAt ?? "time not recorded", signedBy: approverText(binding), contentHash: binding.documentSha256, dependenciesSha256: binding.dependenciesSha256 } : null,
+        // The entity name is the one SEALED in the document at save — never the workspace's current name, so renaming the
+        // company cannot change a signed pack.
+        document, entityName: document.entity.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
+        signOff: packSignOffFor(p.v.state, bindings, event ? { reason: event.reason, setAt: event.setAt } : null),
       });
       if (live) setPack(out);
     })().catch((e) => live && setError((e as Error).message));
