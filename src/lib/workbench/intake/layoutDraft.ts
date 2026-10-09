@@ -72,6 +72,27 @@ export function draftFromProfile(p: LayoutProfile): LayoutDraft {
 }
 
 /** The header cells of the chosen header row, in order (for the column selects). */
+/**
+ * Up to `max` amounts as written in the file's preview, from the chosen amount columns (debit, credit or balance), for
+ * showing the detected number format with the file's own examples. Display only: whole-file validation is the server's.
+ */
+export function sampleAmounts(sheet: InspectSheet | null, d: Pick<LayoutDraft, "headerRow" | "columns">, max = 2): string[] {
+  const header = sheet?.preview.find((r) => r.rowNumber === d.headerRow);
+  if (!sheet || !header) return [];
+  const idx = [d.columns.debit, d.columns.credit, d.columns.balance].filter((c): c is string => !!c)
+    .map((c) => header.cells.findIndex((x) => (x ?? "").trim() === c)).filter((i) => i >= 0);
+  const out: string[] = [];
+  for (const r of sheet.preview) {
+    if (r.rowNumber <= (d.headerRow ?? 0)) continue;
+    for (const i of idx) {
+      const v = (r.cells[i] ?? "").trim();
+      if (v && /\d/.test(v) && !out.includes(v)) out.push(v);
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
 export function headerCells(sheet: InspectSheet | null, headerRow: number | null): string[] {
   const row = sheet?.preview.find((r) => r.rowNumber === headerRow);
   return (row?.cells ?? []).map((c) => (c ?? "").trim()).filter((c) => c !== "");
