@@ -54,12 +54,30 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
   useEffect(() => { void load().catch(() => setStored([])); }, [load, p.state]);
   const canPrepare = p.allowed.includes("prepare_close") && p.mode === "prepare";
   const year = (r: PeriodRole) => (r === "CURRENT" ? p.periodYear : p.periodYear - 1);
+  // Each file is checked against the period's RECORDED dates (fs_reporting_input) — a July–June company's ledger is never
+  // judged against January–December. Unknown dates are refused, never assumed.
+  const [dates, setDates] = useState<Record<PeriodRole, { start: string; end: string } | null> | null>(null);
+  useEffect(() => {
+    let live = true;
+    const d = (x: { reportingStart?: string | null; reportingEnd?: string | null } | null | undefined) => (x?.reportingStart && x?.reportingEnd ? { start: x.reportingStart.slice(0, 10), end: x.reportingEnd.slice(0, 10) } : null);
+    p.clients.signoff.input(p.companyId, p.periodYear).then(
+      (i) => { if (live) setDates({ CURRENT: d(i.current), COMPARATIVE: d(i.comparative) }); },
+      () => { if (live) setDates({ CURRENT: null, COMPARATIVE: null }); },
+    );
+    return () => { live = false; };
+  }, [p.clients, p.companyId, p.periodYear]);
   const pick = async (t: EvidenceType, r: PeriodRole, f: File) => {
     setPicked((x) => ({ ...x, [slotKey(t, r)]: { state: "selected", batch: null, problems: [], file: f.name } }));
+    const period = dates?.[r] ?? null;
+    if (!period) {
+      setPicked((x) => ({ ...x, [slotKey(t, r)]: { state: "rejected", batch: null, file: f.name,
+        problems: [`The FY${year(r)} reporting period's dates are not recorded, so the file cannot be checked against them. Set the period in Trial Balance › Intake.`] } }));
+      return;
+    }
     const text = await f.text();
     const res = ingestEvidence({ companyId: p.companyId, evidenceType: t, periodRole: r, reportingPeriodId: `FY${p.periodYear}`, text, fileName: f.name, mimeType: f.type || "text/csv",
       currency: p.state.composition?.state === "composed" ? p.state.composition.current.currency : undefined, scale: p.state.composition?.state === "composed" ? p.state.composition.current.exponent : undefined,
-      periodStart: `${year(r)}-01-01`, periodEnd: `${year(r)}-12-31` });
+      periodStart: period.start, periodEnd: period.end });
     const problems = (res.outcome === "PARSED" ? res.batch.diagnostics : res.diagnostics).filter((d) => d.severity === "ERROR").map((d) => d.message);
     const ok = res.outcome === "PARSED" && problems.length === 0;
     setPicked((x) => ({ ...x, [slotKey(t, r)]: { state: ok ? "validated" : "rejected", batch: ok ? res.batch : null, problems, file: f.name } }));
