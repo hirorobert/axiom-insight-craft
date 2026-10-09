@@ -252,6 +252,10 @@ export const RELEASE_JOURNAL = {
   "0044_r1_w5_fs_reporting_closure": { kind: "release_self_checking_wrapper", source: "20261022100000_fs_reporting_closure.sql",
     bytes: 27142, digest: "307f3114af9433473ee31cb674ab8ac730b832852ded9793cc69ce8ea647f3aa",
     form: "wrapper_final_lf_removed", submittedBytes: 28703, sha256: "27ffb7e7515c5d0a48b1b5f56afb83d16b0cadb3f9887871fa8591bf89427fc3" },
+  // The readiness correction (DEFECT D-2, batch reporting-r2). Hosted id 46; journal "when" 1791545776962 = 2026-10-09T11:36:16.962Z.
+  "0045_fs_report_readiness_volatility": { kind: "release_self_checking_wrapper", source: "20261023100000_fs_report_readiness_volatility.sql",
+    bytes: 2900, digest: "112d54165a9e937b41c76e4e1d73006d7c267092d78dd2cddc2c400d8acea19a",
+    form: "wrapper", submittedBytes: 4480, sha256: "d1801b37175b10ae36215e1fc7a3529429da7fdba84d30c8f7571479fe4d1222" },
 };
 
 /**
