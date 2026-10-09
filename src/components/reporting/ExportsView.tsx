@@ -10,7 +10,7 @@ import { buildReportPack, type ReportPack } from "@/lib/exports/reportPack";
 import { adjustmentsClient } from "@/lib/closeReview/adjustments";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
 import type { SavedVersion } from "@/lib/reporting/signoff";
-import { packSignOffFor } from "@/lib/reporting/packSignOff";
+import { sealedPackInput } from "@/lib/reporting/sealedPack";
 import { PRINT_HOST_ID, PRINT_ROOT_CLASS, packForPrintHost, printDocumentCss } from "@/lib/exports/printHost";
 import type { PageProps } from "./shared";
 
@@ -25,7 +25,6 @@ function Pack(p: PageProps & { v: SavedVersion }) {
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [error, setError] = useState<string | null>(null);
   const adj = useMemo(() => adjustmentsClient(p.db as unknown as Parameters<typeof adjustmentsClient>[0]), [p.db]);
-  const edition = p.state.composition?.state === "composed" && p.state.composition.pack.packId === "ifrs-for-smes/2025" ? "IFRS for SMEs Accounting Standard (third edition, 2025)" : "IFRS for SMEs (2015 edition)";
   useEffect(() => {
     let live = true;
     (async () => {
@@ -37,16 +36,14 @@ function Pack(p: PageProps & { v: SavedVersion }) {
       // [20261024100000] Both approvers and the policy, only for a sign-off recorded under it (an earlier sealed pack is unchanged).
       const event = binding?.signoffPolicy === "solo_owner" && binding.signoffPolicyEventId ? await p.clients.signoff.signoffPolicyEvent(binding.signoffPolicyEventId) : null;
       const summary = await adj.summary(p.companyId, p.periodYear).catch(() => null);
-      const out = buildReportPack({
-        // The entity name is the one SEALED in the document at save — never the workspace's current name, so renaming the
-        // company cannot change a signed pack.
-        document, entityName: document.entity.legalName, editionTitle: edition, adjustments: adjustmentDisclosures(summary),
-        signOff: packSignOffFor(p.v.state, bindings, event ? { reason: event.reason, setAt: event.setAt } : null),
-      });
+      // Entity, framework and edition come from the SAVED version (lib/reporting/sealedPack.ts), never the workspace's
+      // current settings: a later rename, framework change or edition election cannot change this export.
+      const out = buildReportPack(sealedPackInput({ document, versionState: p.v.state, bindings, adjustments: adjustmentDisclosures(summary),
+        soloOwnerEvent: event ? { reason: event.reason, setAt: event.setAt } : null }));
       if (live) setPack(out);
     })().catch((e) => live && setError((e as Error).message));
     return () => { live = false; };
-  }, [p.clients, p.v, p.companyId, p.periodYear, p.legalName, adj, edition]);
+  }, [p.clients, p.v, p.companyId, p.periodYear, adj]);
   // Printing prints ONLY the pack, in full (lib/exports/printHost.ts): a host outside the application root, the pack in its
   // shadow root, and a print rule hiding every other child of <body> while this page is open.
   useEffect(() => {
