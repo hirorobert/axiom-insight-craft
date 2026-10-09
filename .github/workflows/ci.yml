@@ -502,6 +502,7 @@ jobs:
           createdb wrappers_proof
           git fetch --no-tags --depth=1 origin 993774cd129a4bfd16946f6be1c339aaf93ac5d4
           git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
+          git fetch --no-tags --depth=1 origin 2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -512,6 +513,15 @@ jobs:
           RELEASE_BATCH: reporting-r1
         run: |
           createdb reporting_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Readiness correction wrapper proof (the same reviewed proof for the reporting-r2 wrapper; every refusal before any statement, the ALTER FUNCTION itself rolled back by an injected failure, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_wrappers_proof
+          RELEASE_BATCH: reporting-r2
+        run: |
+          createdb readiness_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
@@ -579,6 +589,14 @@ jobs:
           createdb acceptance_proof
           bun scripts/release/renderAcceptanceFixtures.mjs --check
           bun scripts/db-proof/acceptanceFixtures.mjs
+
+      - name: Readiness read-only proof (DEFECT D-2; the client transport as PostgREST runs it, STABLE functions in a READ ONLY transaction; 25006 reproduced on two existing drafts before 20261023100000; after it and a schema reload readiness reads, both drafts survive byte for byte, the Close Review gate and REVIEWED and FINAL by role hold, stale versions are refused, a readiness read writes nothing; no other STABLE function writes; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+        run: |
+          createdb readiness_proof
+          bun scripts/db-proof/readinessReadOnly.mjs
 
       - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
         env:

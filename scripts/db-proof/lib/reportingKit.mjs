@@ -65,10 +65,11 @@ export async function openDatabase(name) {
   }
   const admin = new Client({ connectionString: url }); await admin.connect();
   const pool = new Pool({ connectionString: url, max: 30 });
-  const asRole = async (role, uid, sql, params) => {
+  // readOnly: the transaction PostgREST opens for a STABLE or IMMUTABLE function (BEGIN READ ONLY).
+  const asRole = async (role, uid, sql, params, { readOnly = false } = {}) => {
     const c = await pool.connect();
     try {
-      await c.query("BEGIN"); await c.query(`SET LOCAL ROLE ${role}`);
+      await c.query(readOnly ? "BEGIN READ ONLY" : "BEGIN"); await c.query(`SET LOCAL ROLE ${role}`);
       await c.query("SELECT set_config('request.jwt.claim.role',$1,true), set_config('request.jwt.claim.sub',$2,true)", [role, uid ?? ""]);
       const r = await c.query(sql, params); await c.query("COMMIT"); return r.rows;
     } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
@@ -206,10 +207,10 @@ export function clientDb(db, uid) {
   const sigs = new Map();
   const signature = async (fn) => {
     if (!sigs.has(fn)) {
-      const r = await db.one(`SELECT p.proargnames AS names, array(SELECT format_type(t, NULL) FROM unnest(p.proargtypes) t) AS types
+      const r = await db.one(`SELECT p.proargnames AS names, array(SELECT format_type(t, NULL) FROM unnest(p.proargtypes) t) AS types, p.provolatile AS volatility
         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname='public' AND p.proname=$1 ORDER BY p.oid DESC LIMIT 1`, [fn]);
       if (!r) throw Object.assign(new Error(`function ${fn} not found`), { code: "42883" });
-      sigs.set(fn, Object.fromEntries(r.names.slice(0, r.types.length).map((n, i) => [n, r.types[i]])));
+      sigs.set(fn, { args: Object.fromEntries(r.names.slice(0, r.types.length).map((n, i) => [n, r.types[i]])), readOnly: r.volatility !== "v" });
     }
     return sigs.get(fn);
   };
@@ -220,18 +221,19 @@ export function clientDb(db, uid) {
   return {
     rpc: (fn, args) => wrap(async () => {
       if (!/^[a-z_][a-z0-9_]*$/.test(fn)) throw new Error("bad function name");
-      const sig = await signature(fn);
+      const { args: sig, readOnly } = await signature(fn);
       const keys = Object.keys(args);
       for (const k of keys) if (!(k in sig)) throw Object.assign(new Error(`${fn} has no argument ${k}`), { code: "42883" });
       const sql = `SELECT to_jsonb(public.${fn}(${keys.map((k, i) => `${k} => $${i + 1}::${sig[k]}`).join(", ")})) AS r`;
       const params = keys.map((k) => (sig[k] === "jsonb" && args[k] !== null ? JSON.stringify(args[k]) : args[k]));
-      return (await db.asUser(uid, sql, params)).r;
+      // As PostgREST runs it: a STABLE or IMMUTABLE function inside a READ ONLY transaction (25006 on any write).
+      return (await db.asRole("authenticated", uid, sql, params, { readOnly }))[0].r;
     }),
     select: (table, filters) => wrap(async () => {
       if (!/^[a-z_][a-z0-9_]*$/.test(table)) throw new Error("bad table name");
       const f = Object.entries(filters);
       const where = f.length ? `WHERE ${f.map(([k], i) => `"${k.replace(/[^a-z_]/g, "")}" = $${i + 1}`).join(" AND ")}` : "";
-      return db.asRole("authenticated", uid, `SELECT * FROM public.${table} ${where}`, f.map(([, v]) => v));
+      return db.asRole("authenticated", uid, `SELECT * FROM public.${table} ${where}`, f.map(([, v]) => v), { readOnly: true });
     }),
   };
 }

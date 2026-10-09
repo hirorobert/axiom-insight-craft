@@ -268,6 +268,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261021100000_fs_signoff_binding.sql",
       // Reporting closure (20261022100000): comprehensive income decisions and blockers; the authenticated approver on every binding.
       "supabase/migrations/20261022100000_fs_reporting_closure.sql",
+      // Readiness correction (20261023100000): fs_report_readiness declared VOLATILE; nothing else changes.
+      "supabase/migrations/20261023100000_fs_report_readiness_volatility.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -480,6 +482,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/reportingRelease.mjs", "scripts/release/verifyDeployedClosure.mjs", "scripts/release/renderReviewPackage.mjs",
       // Hosted acceptance r1: the loopback-only proof of the acceptance fixture set and the fixture renderer (writes docs only).
       "scripts/db-proof/acceptanceFixtures.mjs", "scripts/release/renderAcceptanceFixtures.mjs",
+      // DEFECT D-2: the loopback-only readiness proof.
+      "scripts/db-proof/readinessReadOnly.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
