@@ -16,9 +16,13 @@ const EXACT: Readonly<Record<string, string>> = {
   BUDGET_COMPARISON_GAP: "The budget comparison has a gap.",
   BUDGET_COMPARISON_MISSING: "The budget comparison is missing.",
   TOTAL_COMPREHENSIVE_INCOME_NOT_COMPOSED: "Total comprehensive income is not composed because profit or loss is not.",
+  CLOSE_REVIEW_FINDINGS_NOT_CHECKED: "Close Review has not been checked for this trial balance. Open Close Review › Findings and run the check.",
 };
 
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
+  ["CLOSE_REVIEW_BLOCKING_FINDINGS", (r) => `${r} blocking Close Review finding(s) are unresolved. Resolve them in Close Review › Findings.`],
+  ["CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED", (r) => `${r} Close Review adjustment(s) await a decision.`],
+  ["CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION", (r) => `${r} approved adjustment(s) need revalidation after a re-check.`],
   ["REPORTING_CASE_UNSUPPORTED", (r) => `This reporting case is not supported, so the report cannot be finalised (${r}).`],
   ["REQUIREMENT_UNDECIDED", (r) => `A requirement needs a recorded decision (${r}); missing is never treated as not applicable.`],
   ["STATEMENT_FIGURE_MISMATCH", (r) => `A statement figure differs from the composed figure (${r}).`],

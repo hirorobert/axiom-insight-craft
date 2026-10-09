@@ -93,6 +93,10 @@ export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<Wo
   // Reporting activation (release r1, hosted 41–45): offered ONLY to a company the server reports as enabled for reporting
   // (financial_statements_workspace_access — rollout allow-list, kill switch); see REPORTING_GROUPS below.
   "fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports",
+  // Sign-off requires a checked Close Review with no unresolved blocking finding (20261017100000), so the Findings page
+  // ships with reporting — offered only where reporting is (REPORTING_GROUPS). Adjustments stay unreleased: releasing them
+  // retires the legacy adjusting-journal panel for every company (ReconcileWorkspace).
+  "close-findings",
 ]);
 
 /**
@@ -107,7 +111,7 @@ export const REPORTING_PAGES_SHIPPED = true;
  * from customers in general, moduleAvailability.ts): they appear only when the server reports this company as enabled for
  * reporting — so activation reaches allow-listed companies (the demo company), never every customer.
  */
-export const REPORTING_GROUPS: ReadonlySet<WorkbenchGroupId> = new Set<WorkbenchGroupId>(["financial-statements", "signoff-exports"]);
+export const REPORTING_GROUPS: ReadonlySet<WorkbenchGroupId> = new Set<WorkbenchGroupId>(["close-review", "financial-statements", "signoff-exports"]);
 
 /** Legacy workspace route segments and the one canonical workbench segment each resolves to when the gate is on. */
 export const WORKBENCH_LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({

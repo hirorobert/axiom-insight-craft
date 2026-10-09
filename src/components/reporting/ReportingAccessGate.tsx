@@ -11,10 +11,12 @@ import WorkspaceUnavailable from "@/components/workspace/WorkspaceUnavailable";
 import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { canOpenStage } from "@/lib/workspace/workspaceAccess";
 
-export default function ReportingAccessGate({ children }: { children: ReactNode }) {
+/** `prepareStage`: a page of the Prepare stage that ships with reporting (Close Review › Findings) — the stage scope is
+ * already checked by its StageScopeGate; this gate adds the company's reporting access. */
+export default function ReportingAccessGate({ children, prepareStage = false }: { children: ReactNode; prepareStage?: boolean }) {
   const { companyId, access } = useWorkspace();
   const reporting = useReportingAccess(companyId);
-  if (!canOpenStage(access, "statements")) return <WorkspaceUnavailable />;
+  if (!prepareStage && !canOpenStage(access, "statements")) return <WorkspaceUnavailable />;
   if (reporting.state === "loading") return null;
   if (reporting.state !== "enabled") return <WorkspaceUnavailable />;
   return <>{children}</>;

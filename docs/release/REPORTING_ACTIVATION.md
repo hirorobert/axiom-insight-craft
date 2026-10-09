@@ -2,7 +2,9 @@
 
 **Scope.** The reporting workbench pages are released in code:
 - Financial Statements: Statements, Notes, Schedules, Comparatives;
-- Sign-off & Exports: Sign-off, Exports.
+- Sign-off & Exports: Sign-off, Exports;
+- Close Review: Findings only. Sign-off requires a checked Close Review with no unresolved blocking finding
+  (`20261017100000`). Adjustments stay unreleased.
 
 They are **offered only to a company that the server reports as enabled for reporting**, via
 `financial_statements_workspace_access`. That requires an accepted membership, the kill switch off, and the company on
@@ -44,16 +46,10 @@ To roll back, run the same script with `false`, or `05_kill_switch.sql` for ever
 
 ## 3. Hosted acceptance (the actual hosted app, the demo company)
 
-| # | Step | Expected |
-|---|---|---|
-| 1 | Sign in as the demo company's owner. Open the workspace. | Navigation shows Financial Statements and Sign-off & Exports. |
-| 2 | Statements | The two statements show the server's figures. Enter on a line opens its lineage. |
-| 3 | Notes | Each requirement shows its server status. 5.5(e), (g) and (h) need a decision. Recording wording succeeds ("Recorded."). |
-| 4 | Comparatives | The state is shown. A reviewer (or the owner) approves the comparatives with a reason. |
-| 5 | Sign-off | Add evidence and save a version. The new version shows "ready". Mark it REVIEWED, then FINAL, each with a reason. |
-| 6 | Exports | The pack shows the FINAL seal with the recorded approver and both hashes. Print/PDF and CSV both work. |
-| 7 | **Stale-result refusal** | Change one disclosure on Notes. On Sign-off, the FINAL version stays sealed. Its readiness shows "changed after this version was saved" (`REPORTING_DEPENDENCIES_STALE`), and the next action is "Save a new report version". Marking the stale version reviewed is refused. |
-| 8 | **Cross-workspace refusal** (only if a second account exists) | Sign in as an owner of a different workspace. Open the demo company's `/statements` URL. The result is "unavailable" with no figures, and direct RPC calls are refused. |
-| 9 | **Not enabled elsewhere** | Open any other company's workspace. It has no reporting navigation, and `/statements` shows "unavailable". |
+Follow `docs/release/ACCEPTANCE_R1_DEMO_SETUP.md`:
+- the read-only preflight (`sql/07_acceptance_preflight.sql`) chooses Path A (an existing dated, reviewed year other
+  than FY2026) or Path B (the dedicated synthetic FY2025/FY2024 engagement), or stops;
+- then journey steps J1–J11, including stale-result refusal, a company that is not enabled, and the cross-workspace check
+  (NOT RUN without a genuine second account).
 
 Record any failure exactly, with its step, the screen text and the response. Do not enable any other company.

@@ -8,6 +8,7 @@ import type { WorkbenchPageId } from "@/lib/workbench/routes";
 import type { CompositionResult } from "@/lib/statements/composition";
 import { needsWork, type NotesStatus, type NotesStatusResult } from "@/lib/notes/notesStatus";
 import { COMPARATIVE_WORDS, type ComparativeStatus } from "@/lib/comparatives/comparatives";
+import { blockerText } from "./blockers";
 
 export interface NextAction {
   readonly page: WorkbenchPageId;
@@ -70,6 +71,9 @@ export function nextReportingAction(i: NextActionInput): NextAction {
   if (!l || l.blockers.some((b) => b === "REPORTING_DEPENDENCIES_STALE" || b === "REPORTING_DEPENDENCIES_UNBOUND"))
     return { page: "signoff", title: l ? "Save a new report version" : "Save the first report version", detail: l ? "Something changed since the latest version was saved." : "The statements, notes and comparatives are ready to be saved as a version.", tone: "todo" };
   if (l.state === "FINAL") return { page: "exports", title: `Version ${l.reportVersion} is signed off`, detail: "Export the sealed report.", tone: "done" };
+  // Sign-off needs a checked Close Review with no unresolved blocking finding (20261017100000): its page clears it.
+  const closeReview = l.blockers.filter((b) => b === "CLOSE_REVIEW_FINDINGS_NOT_CHECKED" || b.startsWith("CLOSE_REVIEW_BLOCKING_FINDINGS"));
+  if (closeReview.length > 0) return { page: "close-findings", title: "Check the Close Review findings", detail: closeReview.map(blockerText).join(" "), tone: i.allowed.includes("prepare_close") ? "todo" : "blocked" };
   if (l.blockers.length > 0) return { page: "signoff", title: `Resolve ${l.blockers.length} sign-off blocker${l.blockers.length === 1 ? "" : "s"}`, detail: l.blockers.slice(0, 3).join("; ") + (l.blockers.length > 3 ? "; …" : ""), tone: "todo" };
   if (l.state === "DRAFT") return i.allowed.includes("review_close")
     ? { page: "signoff", title: `Review version ${l.reportVersion}`, detail: "Mark the version reviewed.", tone: "todo" }

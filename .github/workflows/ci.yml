@@ -571,6 +571,15 @@ jobs:
           createdb workbench_proof
           bun scripts/db-proof/reportingWorkbench.mjs
 
+      - name: Hosted acceptance fixtures proof (the files a tester uploads for the demo company's dedicated FY2025/FY2024 engagement, read from docs/release/acceptance-r1 and checked for drift; the read-only acceptance preflight's verdicts; sign-off refused until Close Review is checked; every expected total; REVIEWED and FINAL; stale refusal; a company not on the allow-list refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/acceptance_proof
+        run: |
+          createdb acceptance_proof
+          bun scripts/release/renderAcceptanceFixtures.mjs --check
+          bun scripts/db-proof/acceptanceFixtures.mjs
+
       - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
         env:
           DB_PROOF_MODE: external

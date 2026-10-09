@@ -1,0 +1,19 @@
+Account code,Presentation line
+91000,sfp.cash_and_cash_equivalents
+91100,sfp.trade_and_other_receivables
+91200,sfp.inventories
+91500,sfp.property_plant_and_equipment
+91510,sfp.property_plant_and_equipment
+92000,sfp.trade_and_other_payables
+92100,sfp.current_tax
+92500,sfp.other_financial_liabilities
+93000,sfp.equity_attributable_to_owners
+93100,sfp.equity_attributable_to_owners
+94000,sci.revenue
+94100,sci.other_income
+95000,sci.cost_of_sales
+96000,sci.operating_expenses_by_function
+96100,sci.operating_expenses_by_function
+96200,sci.operating_expenses_by_function
+96300,sci.finance_costs
+97000,sci.tax_expense
