@@ -1,0 +1,8 @@
+transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line
+P1,2024-03-31,91000,Receipts from customers,24600.00,,OPERATING,Receipts from customers
+P2,2024-06-30,91000,Payments to suppliers and employees,,19100.00,OPERATING,Payments to suppliers and employees
+P3,2024-07-15,91000,Interest received,400.00,,OPERATING,Interest received
+P4,2024-09-30,91000,Loan repayment,,1000.00,FINANCING,Repayment of borrowings
+P5,2024-12-15,91000,Income tax paid,,500.00,OPERATING,Income tax paid
+P6,2024-12-20,91000,Interest paid,,700.00,OPERATING,Interest paid
+P7,2024-11-30,91000,Dividend paid,,700.00,FINANCING,Dividends paid

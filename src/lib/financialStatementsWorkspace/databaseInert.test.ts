@@ -478,6 +478,8 @@ describe("database inertness — schema and functions", () => {
       // The reporting release: its loopback-only mixed-version / forward-recovery proof, the read-only deployed-bundle
       // verifier (hashes a downloaded tree; executes nothing) and the review-package renderer (writes docs only).
       "scripts/db-proof/reportingRelease.mjs", "scripts/release/verifyDeployedClosure.mjs", "scripts/release/renderReviewPackage.mjs",
+      // Hosted acceptance r1: the loopback-only proof of the acceptance fixture set and the fixture renderer (writes docs only).
+      "scripts/db-proof/acceptanceFixtures.mjs", "scripts/release/renderAcceptanceFixtures.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

@@ -1,0 +1,5 @@
+Requirement,Decision,Reason
+smes.note.share_capital,Applicable,The synthetic entity has share capital
+smes.sci.5_5_e,Not applicable,No discontinued operation in the synthetic periods
+smes.sci.5_5_g,Not applicable,No item of 5.4(b) other comprehensive income in the synthetic periods
+smes.sci.5_5_h,Not applicable,No equity-accounted investee in the synthetic periods

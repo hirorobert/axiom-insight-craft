@@ -1,0 +1,12 @@
+Statement,Line,FY2025 (current),FY2024 (comparative),Derivation
+Financial position,Total assets,33000.00,28800.00,PPE 14000/16000 + cash 12500/8000 + receivables 4300/3000 + inventories 2200/1800
+Financial position,Total equity,21000.00,16600.00,share capital 10000 + retained earnings (pre-closing) + profit
+Financial position,Total liabilities,12000.00,12200.00,borrowings 8000/9000 + payables 3100/2500 + current tax 900/700
+Comprehensive income,Profit before tax,6000.00,3800.00,30000-14000-9900-600+500 / 25000-11500-9400-700+400
+Comprehensive income,Profit for the period,5100.00,3100.00,PBT less tax 900/700
+Comprehensive income,Total comprehensive income,5100.00,3100.00,no OCI: 5.5(g) and (h) decided not applicable
+Cash flows,Net cash from operating activities,6200.00,4700.00,28700-21700+500-700-600 / 24600-19100+400-500-700
+Cash flows,Net cash from financing activities,-1700.00,-1700.00,loan repayment 1000 + dividends 700
+Cash flows,Cash at the end of the period,12500.00,8000.00,opening 8000/5000 + net increase 4500/3000
+Changes in equity,Total equity at the end of the period,21000.00,16600.00,10000 + retained earnings 11000/6600
+PPE schedule,Closing carrying amount,14000.00,,16000 less depreciation 2000

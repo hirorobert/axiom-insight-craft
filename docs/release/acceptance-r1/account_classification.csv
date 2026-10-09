@@ -1,0 +1,19 @@
+Account code,Account name,Classification,Statement,Normal balance,Cash account
+91000,Bank (acceptance r1),current_assets,balance_sheet,debit,yes
+91100,Trade receivables (acceptance r1),current_assets,balance_sheet,debit,no
+91200,Inventory (acceptance r1),current_assets,balance_sheet,debit,no
+91500,Equipment at cost (acceptance r1),non_current_assets,balance_sheet,debit,no
+91510,Accumulated depreciation (acceptance r1),non_current_assets,balance_sheet,credit,no
+92000,Trade payables (acceptance r1),current_liabilities,balance_sheet,credit,no
+92100,Income tax payable (acceptance r1),current_liabilities,balance_sheet,credit,no
+92500,Bank loan (acceptance r1),non_current_liabilities,balance_sheet,credit,no
+93000,Share capital (acceptance r1),equity,balance_sheet,credit,no
+93100,Retained earnings (acceptance r1),equity,balance_sheet,credit,no
+94000,Sales (acceptance r1),revenue,income_statement,credit,no
+94100,Interest income (acceptance r1),other_income,income_statement,credit,no
+95000,Cost of sales (acceptance r1),cost_of_goods_sold,income_statement,debit,no
+96000,Salaries (acceptance r1),operating_expenses,income_statement,debit,no
+96100,Rent (acceptance r1),operating_expenses,income_statement,debit,no
+96200,Depreciation (acceptance r1),operating_expenses,income_statement,debit,no
+96300,Interest expense (acceptance r1),operating_expenses,income_statement,debit,no
+97000,Income tax expense (acceptance r1),taxes,income_statement,debit,no

@@ -1,0 +1,19 @@
+Account code,Account name,Debit,Credit
+91000,Bank (acceptance r1),8000.00,
+91100,Trade receivables (acceptance r1),3000.00,
+91200,Inventory (acceptance r1),1800.00,
+91500,Equipment at cost (acceptance r1),20000.00,
+91510,Accumulated depreciation (acceptance r1),,4000.00
+92000,Trade payables (acceptance r1),,2500.00
+92100,Income tax payable (acceptance r1),,700.00
+92500,Bank loan (acceptance r1),,9000.00
+93000,Share capital (acceptance r1),,10000.00
+93100,Retained earnings (acceptance r1),,3500.00
+94000,Sales (acceptance r1),,25000.00
+94100,Interest income (acceptance r1),,400.00
+95000,Cost of sales (acceptance r1),11500.00,
+96000,Salaries (acceptance r1),5000.00,
+96100,Rent (acceptance r1),2400.00,
+96200,Depreciation (acceptance r1),2000.00,
+96300,Interest expense (acceptance r1),700.00,
+97000,Income tax expense (acceptance r1),700.00,

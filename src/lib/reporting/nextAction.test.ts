@@ -44,6 +44,10 @@ describe("the one next action follows the server's dependency chain", () => {
   });
   it("then the version's own blockers, REVIEWED, FINAL — each by the role that may do it — and finally export", () => {
     expect(at({ latest: { reportVersion: 2, state: "DRAFT", blockers: ["BLOCKING_FINDINGS:1"] } }).title).toBe("Resolve 1 sign-off blocker");
+    // Close Review is cleared on its own page (released with reporting), never by guessing on Sign-off.
+    expect(at({ latest: { reportVersion: 2, state: "DRAFT", blockers: ["CLOSE_REVIEW_FINDINGS_NOT_CHECKED"] } })).toMatchObject({ page: "close-findings", title: "Check the Close Review findings", tone: "todo" });
+    expect(at({ latest: { reportVersion: 2, state: "DRAFT", blockers: ["CLOSE_REVIEW_BLOCKING_FINDINGS:2"] }, allowed: ["review_close"] })).toMatchObject({ page: "close-findings", tone: "blocked" });
+    expect(at({ latest: { reportVersion: 2, state: "DRAFT", blockers: ["CLOSE_REVIEW_FINDINGS_NOT_CHECKED"] } }).detail).toMatch(/Open Close Review › Findings/);
     expect(at({}).title).toBe("Review version 2");
     expect(at({ allowed: ["prepare_close"] })).toMatchObject({ title: "Version 2 awaits review", tone: "blocked" });
     expect(at({ latest: { reportVersion: 2, state: "REVIEWED", blockers: [] } }).title).toBe("Approve version 2 as final");

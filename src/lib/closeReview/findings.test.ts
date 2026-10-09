@@ -61,8 +61,11 @@ describe("status and resolution (mirror of the database)", () => {
     expect(offeredActions({ mandatory: false }, "explained", ["prepare_close"])).toEqual([]);
     expect(offeredActions({ mandatory: false }, "explained", ["review_close"])).toEqual(["reopen"]);
   });
-  it("the page is not released yet, and nothing in Close Review references a withheld tax service", () => {
-    expect(RELEASED_WORKBENCH_PAGES.has("close-findings")).toBe(false);
+  it("the page ships with reporting (offered only where reporting is), and nothing in Close Review references a withheld tax service", () => {
+    // Sign-off requires a checked Close Review (20261017100000): Findings is released with the reporting activation and,
+    // like the reporting groups, reaches only companies the server reports enabled (REPORTING_GROUPS, ReportingAccessGate).
+    expect(RELEASED_WORKBENCH_PAGES.has("close-findings")).toBe(true);
+    expect(RELEASED_WORKBENCH_PAGES.has("close-adjustments")).toBe(false);
     const root = path.resolve(__dirname, "../../..");
     const files = ["src/lib/closeReview/findings.ts", "src/lib/closeReview/timeline.ts", "src/components/closeReview/FindingsView.tsx",
       "src/components/closeReview/ReviewTimeline.tsx", "src/pages/workspace/CloseFindings.tsx",

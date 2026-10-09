@@ -14,7 +14,7 @@ const sqlFiles = fs.readdirSync(path.join(ROOT, SQL_DIR)).sort();
 
 describe("release package", () => {
   it("ships preflight, postcondition and the three operator scripts", () => {
-    expect(sqlFiles).toEqual(["01_preflight.sql", "02_postcondition.sql", "03_activate_company.sql", "04_deactivate_company.sql", "05_kill_switch.sql", "06_staging_realtime_check.sql"]);
+    expect(sqlFiles).toEqual(["01_preflight.sql", "02_postcondition.sql", "03_activate_company.sql", "04_deactivate_company.sql", "05_kill_switch.sql", "06_staging_realtime_check.sql", "07_acceptance_preflight.sql"]);
     for (const f of ["docs/release/FINANCIAL_STATEMENTS_ACTIVATION.md", "docs/release/FINANCIAL_STATEMENTS_RELEASE_PACKAGE.md", "scripts/release/verify-release-sql.mjs", "scripts/release/build-manifest.mjs"]) {
       expect(fs.existsSync(path.join(ROOT, f)), f).toBe(true);
     }
@@ -51,8 +51,8 @@ describe("release package", () => {
     for (const f of sqlFiles.slice(2, 5)) expect(read(`${SQL_DIR}/${f}`), f).not.toMatch(/UPDATE\s+public\.financial|INSERT\s+INTO\s+public\.financial|DELETE\s+FROM|TRUNCATE|DROP\s/i);
   });
 
-  it("preflight and postcondition change nothing", () => {
-    for (const f of ["01_preflight.sql", "02_postcondition.sql"]) expect(read(`${SQL_DIR}/${f}`).replace(/--.*$/gm, ""), f).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM|TRUNCATE\s|DROP\s|ALTER\s|CREATE\s|GRANT\s|REVOKE\s)/i);
+  it("preflight, postcondition and the acceptance preflight change nothing", () => {
+    for (const f of ["01_preflight.sql", "02_postcondition.sql", "07_acceptance_preflight.sql"]) expect(read(`${SQL_DIR}/${f}`).replace(/--.*$/gm, ""), f).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM|TRUNCATE\s|DROP\s|ALTER\s|CREATE\s|GRANT\s|REVOKE\s)/i);
   });
 
   it("the manifest, once generated, matches the migration files and declares nothing applied or enabled", () => {

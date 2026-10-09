@@ -82,6 +82,9 @@ describe("reporting is offered per company by the server, never to every custome
     expect(REPORTING_PAGES_SHIPPED).toBe(true);
     for (const id of ["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"] as const) expect(RELEASED_WORKBENCH_PAGES.has(id)).toBe(true);
   });
+  it("the Close Review Findings route is guarded by the company's reporting access as well as the Prepare stage scope", () => {
+    expect(read("src/App.tsx")).toMatch(/<Route path="close\/findings" element=\{<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage>/);
+  });
   it("without the server's 'enabled', the reporting groups are absent (Statements stays withheld from customers in general)", () => {
     const ids = deriveWorkbenchNavigation("/w", items).groups.map((g) => g.id);
     expect(ids.some((id) => REPORTING_GROUPS.has(id))).toBe(false);
@@ -89,7 +92,9 @@ describe("reporting is offered per company by the server, never to every custome
   });
   it("with it, both reporting groups appear with their pages", () => {
     const m = deriveWorkbenchNavigation("/w", items, undefined, true);
-    expect(m.groups.map((g) => g.id)).toEqual(["overview", "trial-balance", "financial-statements", "signoff-exports"]);
+    expect(m.groups.map((g) => g.id)).toEqual(["overview", "trial-balance", "close-review", "financial-statements", "signoff-exports"]);
+    // Close Review ships only its Findings page (sign-off requires a checked Close Review); Adjustments stays unreleased.
+    expect(m.groups.find((g) => g.id === "close-review")!.pages.map((p) => p.id)).toEqual(["close-findings"]);
     expect(m.groups.find((g) => g.id === "signoff-exports")!.pages.map((p) => p.href)).toEqual(["/w/signoff", "/w/signoff/exports"]);
   });
   it("the server answer is read fail-closed: only an explicit enabled = true enables", () => {
