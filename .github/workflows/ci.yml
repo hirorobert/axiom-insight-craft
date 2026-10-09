@@ -606,7 +606,7 @@ jobs:
           createdb cash_scope_proof
           bun scripts/db-proof/cashPerimeterScope.mjs
 
-      - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
+      - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF; the Exports page itself printed under print media, only the full pack reaching the PDF)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/reporting_harness
