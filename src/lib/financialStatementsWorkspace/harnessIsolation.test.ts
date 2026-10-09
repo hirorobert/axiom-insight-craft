@@ -65,9 +65,13 @@ describe("dev-harness isolation", () => {
     const allFiles = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? allFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]));
     const files = allFiles(dist);
     expect(files.some((f) => f.endsWith(".js"))).toBe(true); // the scan must actually be reading the JS bundles
+    // Reporting activation: the new reporting workbench chunk legitimately prints and reads stored versions, so it may carry
+    // exactly these two strings — and none of the legacy workspace's own markers or the harness.
+    const REPORTING_ALLOWED = new Set(["Print / save as PDF", "financial_statement_reports"]);
     for (const f of files) {
       const text = fs.readFileSync(f, "utf8");
-      for (const n of needles) if (text.includes(n)) hits.push(`${path.relative(dist, f)} contains "${n}"`);
+      const reportingChunk = /^ReportingWorkbenchPage-[A-Za-z0-9_-]+\.js$/.test(path.basename(f));
+      for (const n of needles) if (text.includes(n) && !(reportingChunk && REPORTING_ALLOWED.has(n))) hits.push(`${path.relative(dist, f)} contains "${n}"`);
     }
     expect(hits).toEqual([]);
   });

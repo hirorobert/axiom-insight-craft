@@ -88,14 +88,26 @@ export const WORKBENCH_GROUPS: readonly WorkbenchGroup[] = Object.freeze([
  * its group) reachable; the increments that build Findings, Adjustments, Statements, Notes, Schedules, Comparatives,
  * Sign-off and Exports add theirs.
  */
-export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<WorkbenchPageId>(["overview", "tb-intake", "tb-review"]);
+export const RELEASED_WORKBENCH_PAGES: ReadonlySet<WorkbenchPageId> = new Set<WorkbenchPageId>([
+  "overview", "tb-intake", "tb-review",
+  // Reporting activation (release r1, hosted 41–45): offered ONLY to a company the server reports as enabled for reporting
+  // (financial_statements_workspace_access — rollout allow-list, kill switch); see REPORTING_GROUPS below.
+  "fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports",
+]);
 
 /**
  * Whether the reporting pages (Financial Statements; Sign-off & Exports) are part of the BUILD at all. A literal, so the
  * bundler drops the unreleased chunk entirely (not merely hides it); it must equal "every reporting page is released"
  * (routes.test.ts). Releasing the reporting pages changes both, in one reviewed commit.
  */
-export const REPORTING_PAGES_SHIPPED = false;
+export const REPORTING_PAGES_SHIPPED = true;
+
+/**
+ * The reporting groups. Unlike every other group they are not gated by a customer-visible stage (Statements stays withheld
+ * from customers in general, moduleAvailability.ts): they appear only when the server reports this company as enabled for
+ * reporting — so activation reaches allow-listed companies (the demo company), never every customer.
+ */
+export const REPORTING_GROUPS: ReadonlySet<WorkbenchGroupId> = new Set<WorkbenchGroupId>(["financial-statements", "signoff-exports"]);
 
 /** Legacy workspace route segments and the one canonical workbench segment each resolves to when the gate is on. */
 export const WORKBENCH_LEGACY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
@@ -126,12 +138,18 @@ const join = (basePath: string, segment: string) => (segment ? `${basePath}/${se
  * Regroups the existing navigation items into the workbench. `items` is the output of deriveWorkspaceNavigation after the
  * layout's access filter; nothing absent from it can appear here.
  */
-export function deriveWorkbenchNavigation(basePath: string, items: readonly NavItem[], released: ReadonlySet<WorkbenchPageId> = RELEASED_WORKBENCH_PAGES): WorkbenchNavModel {
+export function deriveWorkbenchNavigation(basePath: string, items: readonly NavItem[], released: ReadonlySet<WorkbenchPageId> = RELEASED_WORKBENCH_PAGES,
+  /** The server's answer for this company (financial_statements_workspace_access); unknown or loading = false. */
+  reportingEnabled = false): WorkbenchNavModel {
   const offered = new Map(items.map((i) => [i.id, i] as const));
   const groups: WorkbenchNavGroup[] = [];
   for (const g of WORKBENCH_GROUPS) {
-    const gateItem = g.stage === null ? offered.get("overview") : offered.get(g.stage);
-    if (!gateItem || gateItem.disabled) continue;
+    if (REPORTING_GROUPS.has(g.id)) {
+      if (!reportingEnabled) continue;
+    } else {
+      const gateItem = g.stage === null ? offered.get("overview") : offered.get(g.stage);
+      if (!gateItem || gateItem.disabled) continue;
+    }
     const pages = g.pages.filter((p) => released.has(p.id)).map((p) => ({ id: p.id, label: p.label, href: join(basePath, p.segment) }));
     if (pages.length === 0) continue;
     groups.push({ id: g.id, label: g.label, href: pages[0].href, pages, stage: g.stage });

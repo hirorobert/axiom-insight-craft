@@ -43,7 +43,8 @@ describe("routing contract — statement review is a distinct route, never merge
   // StatementReviewWorkspace implementation is kept, unmounted, until the stage is released.
   it("statements/review is a distinct withheld path rendered by the neutral boundary", () => {
     expect(readSource("src/lib/workspace/moduleAvailability.ts")).toMatch(/"statements", "statements\/review"/);
-    expect(appSrc).toMatch(/WITHHELD_WORKSPACE_ROUTE_SEGMENTS\.map\(\(segment\) => \(\s*<Route key=\{segment\} path=\{segment\} element=\{<WorkspaceUnavailable \/>\} \/>/);
+    // statements/review stays a withheld segment (only "statements" itself is the reporting route once shipped).
+    expect(appSrc).toMatch(/WITHHELD_WORKSPACE_ROUTE_SEGMENTS\.filter\(\(segment\) => !\(REPORTING_PAGES_SHIPPED && segment === "statements"\)\)\.map\(\(segment\) => \(\s*<Route key=\{segment\} path=\{segment\} element=\{<WorkspaceUnavailable \/>\} \/>/);
   });
 
   it("does not route document review to PrepareWorkspace or any statements page", () => {

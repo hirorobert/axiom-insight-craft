@@ -50,7 +50,8 @@ import {
 } from "lucide-react";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { WORKBENCH_NAVIGATION_ENABLED } from "@/lib/workbench/gate";
-import { activeWorkbenchPage, canonicalWorkbenchHref, deriveWorkbenchNavigation } from "@/lib/workbench/routes";
+import { activeWorkbenchPage, canonicalWorkbenchHref, deriveWorkbenchNavigation, REPORTING_GROUPS } from "@/lib/workbench/routes";
+import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { missionStatusWord } from "@/lib/workbench/statusWords";
 import { parseReportVersion } from "@/lib/workbench/context";
 import { NextOpenItem, WorkbenchNav } from "@/components/workbench/WorkbenchNav";
@@ -438,7 +439,8 @@ function WorkbenchShell(props: {
   nextAction: { label: string; href: string } | null;
   withheld: boolean;
 }) {
-  const model = deriveWorkbenchNavigation(props.basePath, props.navItems);
+  const reporting = useReportingAccess(props.companyId);
+  const model = deriveWorkbenchNavigation(props.basePath, props.navItems, undefined, reporting.state === "enabled");
   const activePage = activeWorkbenchPage(props.pathname, props.basePath);
   const reportVersion = parseReportVersion(props.search);
   const next = props.nextAction ? { label: props.nextAction.label, href: canonicalWorkbenchHref(props.nextAction.href, props.basePath) } : null;
@@ -453,7 +455,8 @@ function WorkbenchShell(props: {
             reportVersion={reportVersion}
             groupStatus={(groupId) => {
               const g = model.groups.find((x) => x.id === groupId);
-              const st = g?.stage ? props.missionStatus(g.stage) : null;
+              // The reporting groups carry their own status on their pages (the server's states), not a mission status.
+              const st = g?.stage && !REPORTING_GROUPS.has(g.id) ? props.missionStatus(g.stage) : null;
               return st ? missionStatusWord(st) : null;
             }}
           />

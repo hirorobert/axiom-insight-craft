@@ -33,6 +33,8 @@ import IssuesWorkspace from "./pages/workspace/IssuesWorkspace";
 import StageScopeGate from "./components/workspace/StageScopeGate";
 import { OverviewAccessGate } from "./components/workspace/WorkspaceAccessGate";
 import WorkspaceUnavailable from "./components/workspace/WorkspaceUnavailable";
+// The reporting routes' access gate (server rollout + Statements access); small, and holds no reporting code itself.
+import ReportingAccessGate from "./components/reporting/ReportingAccessGate";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
 import { RELEASED_WORKBENCH_PAGES, REPORTING_PAGES_SHIPPED } from "./lib/workbench/routes";
@@ -125,13 +127,14 @@ const App = () => (
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseFindings /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseAdjustments /></Suspense></StageScopeGate>} />}
                   {/* Financial Statements and Sign-off & Exports: each registered only once its page is released (routes.ts
-                      RELEASED_WORKBENCH_PAGES), behind the Statements stage scope gate (withheld today: moduleAvailability.ts). */}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-statements") && <Route path="statements" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-statements" /></Suspense></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-notes") && <Route path="statements/notes" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-notes" /></Suspense></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-schedules") && <Route path="statements/schedules" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-schedules" /></Suspense></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="signoff" /></Suspense></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<StageScopeGate stage="statements"><Suspense fallback={null}><ReportingWorkbenchPage page="exports" /></Suspense></StageScopeGate>} />}
+                      RELEASED_WORKBENCH_PAGES), behind ReportingAccessGate: server-granted access to the Statements stage AND the
+                    company enabled for reporting by the server (rollout allow-list). */}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-statements") && <Route path="statements" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-statements" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-notes") && <Route path="statements/notes" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-notes" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-schedules") && <Route path="statements/schedules" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-schedules" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="signoff" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="exports" /></Suspense></ReportingAccessGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
@@ -143,7 +146,9 @@ const App = () => (
 
                   {/* Modules withheld from customers (moduleAvailability.ts): the stage and its legacy alias render the
                       neutral boundary — old bookmarks, refreshes and typed URLs never mount or load the module. */}
-                  {WITHHELD_WORKSPACE_ROUTE_SEGMENTS.map((segment) => (
+                  {/* With the reporting pages shipped, "statements" is the reporting route above (its own access gate renders the
+                      same unavailable boundary to every company without reporting access); every other withheld segment as before. */}
+                  {WITHHELD_WORKSPACE_ROUTE_SEGMENTS.filter((segment) => !(REPORTING_PAGES_SHIPPED && segment === "statements")).map((segment) => (
                     <Route key={segment} path={segment} element={<WorkspaceUnavailable />} />
                   ))}
                 </Route>
