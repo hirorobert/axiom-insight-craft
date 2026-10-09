@@ -2,8 +2,12 @@
 -- Run AFTER the wrapper. Writes nothing; raises on the first violated expectation.
 DO $$
 BEGIN
-  IF to_regclass('public.fs_signoff_policy_events') IS NULL OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.fs_signoff_policy_events'::regclass) THEN
-    RAISE EXCEPTION 'POSTCONDITION: fs_signoff_policy_events is missing or without row-level security';
+  -- Existence first: every later check names the table, and must not fail with a cast error before it exists.
+  IF to_regclass('public.fs_signoff_policy_events') IS NULL THEN
+    RAISE EXCEPTION 'POSTCONDITION: fs_signoff_policy_events is missing (the wrapper is not applied)';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.fs_signoff_policy_events')) THEN
+    RAISE EXCEPTION 'POSTCONDITION: fs_signoff_policy_events is without row-level security';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_fsspe_append_only' AND NOT tgisinternal AND tgenabled <> 'D') THEN
     RAISE EXCEPTION 'POSTCONDITION: the policy events are not append-only';

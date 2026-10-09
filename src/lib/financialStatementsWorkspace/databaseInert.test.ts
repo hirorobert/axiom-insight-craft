@@ -270,6 +270,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261022100000_fs_reporting_closure.sql",
       // Readiness correction (20261023100000): fs_report_readiness declared VOLATILE; nothing else changes.
       "supabase/migrations/20261023100000_fs_report_readiness_volatility.sql",
+      // Statement sign-off policy (20261024100000): policy events, set/read, enforcement and recording in the binding.
+      "supabase/migrations/20261024100000_fs_signoff_approval_policy.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -486,6 +488,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/readinessReadOnly.mjs",
       // DEFECT D-3: the loopback-only cash perimeter scope proof.
       "scripts/db-proof/cashPerimeterScope.mjs",
+      // The loopback-only sign-off policy proof.
+      "scripts/db-proof/signoffPolicy.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

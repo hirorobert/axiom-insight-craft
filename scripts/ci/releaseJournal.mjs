@@ -400,6 +400,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 4480, sha256: "d1801b37175b10ae36215e1fc7a3529429da7fdba84d30c8f7571479fe4d1222" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 4479, sha256: "8db7a158c6ed74eb02899efe9243ae80b7966187c42487f4c8fe6c41871e3216" }),
   }),
+  "20261024100000_fs_signoff_approval_policy.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 13531, sha256: "23a34a084fd7c2c0f6f51a63839ada07a47df0c16def867968c08a03b96f1202" }),
+    finalLfRemoved: Object.freeze({ bytes: 13530, sha256: "229f9e084e2d570dec710d30e851de04d222a69ff53bd4c6424e7d363819a949" }),
+    // Self-checking wrapper release/wrappers/20261024100000_fs_signoff_approval_policy.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 15105, sha256: "74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 15104, sha256: "55673777745529f9a1a8a7f8be209e00665372ff2d1c383d17e61c6b7bbe2730" }),
+  }),
 });
 
 /**

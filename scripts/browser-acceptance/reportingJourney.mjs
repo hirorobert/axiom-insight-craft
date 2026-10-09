@@ -183,7 +183,10 @@ try {
     finalHtml = await printPack(owner, "pack-final-v2.pdf");
     // The seal names the approver from the server's record: the owner has no display name on record, so the role and
     // the stable membership reference are shown — never an invented name.
-    return /FINAL — signed off by owner [0-9a-f]{8} \(no name on record\) on \d{4}-\d{2}-\d{2}/.test(finalHtml) && /reporting dependencies SHA-256 [0-9a-f]{64}/.test(finalHtml)
+    // Signed under the statement sign-off policy (20261024100000): the seal names the reviewer and the final approver, and
+    // the approval disclosures state both (separate approvers).
+    return /FINAL — reviewed by partner [0-9a-f]{8} \(no name on record\) on \d{4}-\d{2}-\d{2}[^;]*; signed off by owner [0-9a-f]{8} \(no name on record\) on \d{4}-\d{2}-\d{2}/.test(finalHtml)
+      && /Statement sign-off: reviewed by partner .+; approved as final by owner .+ \(separate approvers\)\./.test(finalHtml) && /reporting dependencies SHA-256 [0-9a-f]{64}/.test(finalHtml)
       && /33,000\.00/.test(finalHtml) && /12,500\.00/.test(finalHtml) && /Total comprehensive income for the period/.test(finalHtml) ? true : finalHtml.slice(0, 400);
   });
   // The PAGE itself, printed as a user does (browser print or the button): only the pack, in full (lib/exports/printHost.ts).
@@ -208,7 +211,7 @@ try {
     const leaked = ["Print / save as PDF", "Download spreadsheet", "Download HTML", "Other versions", "Export the sealed report", "is signed off", "final and sealed", "Sign-off & Exports"].filter((t) => seen.text.includes(t));
     const pages = pdfPages(pdf);
     return seen.hostShown && seen.others.length === 0 && !seen.workspaceShown && leaked.length === 0
-      && /FINAL — signed off by .+Content SHA-256 [0-9a-f]{64}; reporting dependencies SHA-256 [0-9a-f]{64}\./.test(seen.text)
+      && /FINAL — reviewed by .+; signed off by .+Content SHA-256 [0-9a-f]{64}; reporting dependencies SHA-256 [0-9a-f]{64}\./.test(seen.text)
       && /Approval disclosures/.test(seen.text) && /Total comprehensive income for the period/.test(seen.text) && pages === isolated && pages > 0
       ? true : { hostShown: seen.hostShown, others: seen.others, workspaceShown: seen.workspaceShown, leaked, pages, isolated };
   });
