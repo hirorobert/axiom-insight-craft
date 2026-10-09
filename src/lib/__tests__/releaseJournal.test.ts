@@ -35,6 +35,8 @@ const S25 = "20261001120000_annual_commercial_term.sql";
 // The reporting release (PRs #89–#94): all four forms registered before application. Recomputed below from the bytes.
 const REPORTING = ["20261018100000_fs_statement_composition.sql", "20261019100000_fs_notes_and_schedules.sql", "20261020100000_fs_comparatives.sql",
   "20261021100000_fs_signoff_binding.sql", "20261022100000_fs_reporting_closure.sql"].map((name) => ({ name }));
+// The readiness correction (DEFECT D-2): all four forms registered before application.
+const READINESS = ["20261023100000_fs_report_readiness_volatility.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
   { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
@@ -78,7 +80,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual([]); // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual(["20261023100000_fs_report_readiness_volatility.sql"]); // the readiness correction (D-2), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -346,7 +348,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name)].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -464,7 +466,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual(["20261023100000_fs_report_readiness_volatility.sql"]); // the readiness correction (D-2), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
@@ -508,7 +510,7 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
 describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
   it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    expect(keys.slice(-(MILESTONE.length + REPORTING.length), -REPORTING.length)).toEqual(MILESTONE.map((m) => m.name));
+    expect(keys.slice(-(MILESTONE.length + REPORTING.length + READINESS.length), -(REPORTING.length + READINESS.length))).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
       // The two source forms, plus the self-checking wrapper's two forms (release/wrappers/; selfCheckingWrappers.test.ts).
@@ -585,7 +587,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual(["20261023100000_fs_report_readiness_volatility.sql"]); // the readiness correction (D-2), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
       "0039_i1b_w7_signoff_completion_requirements"];
@@ -595,10 +597,11 @@ describe("the milestone's seven migrations: both submission forms registered ahe
 });
 
 describe("the reporting release: all four forms of each source registered ahead of application (nothing applied)", () => {
-  it("registers exactly the five, last and in release order; each form recomputed here from the repository bytes", () => {
+  it("registers exactly the five, then the readiness correction last, in release order; each form recomputed here from the repository bytes", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    expect(keys.slice(-REPORTING.length)).toEqual(REPORTING.map((m) => m.name));
-    for (const { name } of REPORTING) {
+    expect(keys.slice(-(REPORTING.length + READINESS.length), -READINESS.length)).toEqual(REPORTING.map((m) => m.name));
+    expect(keys.slice(-READINESS.length)).toEqual(READINESS.map((m) => m.name));
+    for (const { name } of [...REPORTING, ...READINESS]) {
       const src = fs.readFileSync(path.join(ROOT, "supabase/migrations", name));
       const w = fs.readFileSync(path.join(ROOT, "release/wrappers", name.replace(/\.sql$/, ".wrapper.sql")));
       expect(src.includes(0x0d), `${name} has no CR byte`).toBe(false);

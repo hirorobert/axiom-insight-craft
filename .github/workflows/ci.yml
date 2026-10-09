@@ -580,6 +580,14 @@ jobs:
           bun scripts/release/renderAcceptanceFixtures.mjs --check
           bun scripts/db-proof/acceptanceFixtures.mjs
 
+      - name: Readiness read-only proof (DEFECT D-2; the client transport as PostgREST runs it, STABLE functions in a READ ONLY transaction; 25006 reproduced on two existing drafts before 20261023100000; after it and a schema reload readiness reads, both drafts survive byte for byte, the Close Review gate and REVIEWED and FINAL by role hold, stale versions are refused, a readiness read writes nothing; no other STABLE function writes; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/readiness_proof
+        run: |
+          createdb readiness_proof
+          bun scripts/db-proof/readinessReadOnly.mjs
+
       - name: Reporting workbench browser journey (headless Chrome drives the real pages over a loopback bridge to a throwaway database as preparer, reviewer and owner through statements, lineage by keyboard, notes, schedules, comparatives approval, evidence intake, REVIEWED, FINAL and export; the draft and sealed packs printed to PDF)
         env:
           DB_PROOF_MODE: external

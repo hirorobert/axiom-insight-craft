@@ -46,10 +46,18 @@ export const REPORTING_WRAPPED_SOURCES = Object.freeze([
   "20261021100000_fs_signoff_binding.sql",
   "20261022100000_fs_reporting_closure.sql",
 ]);
+/**
+ * The readiness correction (DEFECT D-2, hosted acceptance r1 J4): one source at the commit holding its reviewed bytes.
+ */
+export const READINESS_SOURCE_COMMIT = "2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db";
+export const READINESS_WRAPPED_SOURCES = Object.freeze([
+  "20261023100000_fs_report_readiness_volatility.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
   Object.freeze({ id: "reporting-r1", commit: REPORTING_SOURCE_COMMIT, sources: REPORTING_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r1/postcondition.sql" }),
+  Object.freeze({ id: "reporting-r2", commit: READINESS_SOURCE_COMMIT, sources: READINESS_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r2/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

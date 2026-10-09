@@ -228,7 +228,8 @@ describe("migration directory integrity", () => {
     // 160 -> 161: 20261020100000_fs_comparatives.sql (comparatives: bridges, restatements, approval, status), a NEW forward-only migration pending hosted application.
     // 161 -> 162: 20261021100000_fs_signoff_binding.sql (sign-off bound to content and dependencies), a NEW forward-only migration pending hosted application.
     // 162 -> 163: 20261022100000_fs_reporting_closure.sql (reporting closure: comprehensive income and the authenticated approver), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(163);
+    // 163 -> 164: 20261023100000_fs_report_readiness_volatility.sql (DEFECT D-2: sign-off readiness declared VOLATILE so PostgREST runs it read-write), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(164);
   });
 });
 

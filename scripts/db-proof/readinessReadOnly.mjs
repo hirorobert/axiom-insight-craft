@@ -31,7 +31,11 @@ import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts"
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const FIX = "20261023100000_fs_report_readiness_volatility.sql";
-const FIX_SQL = fs.readFileSync(path.join(REPO, "supabase/migrations", FIX), "utf8");
+// The exact hosted artifacts: the self-checking wrapper (byte-identical to render() of the committed source; checked by
+// selfCheckingWrapper.mjs --check) and the read-only preflight and postcondition of batch reporting-r2.
+const FIX_SQL = fs.readFileSync(path.join(REPO, "release/wrappers", FIX.replace(/\.sql$/, ".wrapper.sql")), "utf8");
+const PREFLIGHT = fs.readFileSync(path.join(REPO, "docs/release/reporting-r2/preflight.sql"), "utf8");
+const POSTCONDITION = fs.readFileSync(path.join(REPO, "docs/release/reporting-r2/postcondition.sql"), "utf8");
 const { group, check, finish } = reporter();
 let db;
 
@@ -92,7 +96,13 @@ async function main() {
     try { await partner.c.readiness(A, rid, 2); return "readiness returned"; } catch (e) { return /read-only transaction/.test(String(e.message)) ? true : String(e.message); }
   });
 
-  group("The migration");
+  group("The migration, as released: preflight, self-checking wrapper, postcondition");
+  await check("the read-only postcondition refuses BEFORE the wrapper (the function is still STABLE)", async () => {
+    try { await db.admin.query(POSTCONDITION); return "postcondition passed early"; } catch (e) { return /not VOLATILE/.test(e.message) ? true : e.message; }
+  });
+  await check("the read-only preflight passes on the hosted state (reviewed STABLE body, r1 in force, gate body pinned)", async () => {
+    await db.admin.query(PREFLIGHT); return true;
+  });
   await check("applies on the hosted state; the function is VOLATILE, still SECURITY DEFINER, search_path-pinned, authenticated-only", async () => {
     const ident = "SELECT md5(prosrc) h, proowner o, proacl::text acl, proconfig::text cfg, prosecdef sd, prorettype::regtype::text rt, prolang FROM pg_proc WHERE oid='public.fs_report_readiness(uuid,text,integer)'::regprocedure";
     const src = await db.one(ident);
@@ -103,6 +113,10 @@ async function main() {
     const now = await db.one(ident);
     // Body, owner, ACL (every grant), config, SECURITY DEFINER, return type and language: byte-for-byte the same.
     return p.v === "v" && p.a && !p.an && JSON.stringify(now) === JSON.stringify(src) && p.cfg.includes("search_path=pg_catalog, public") ? true : { p, src, now };
+  });
+  await check("the read-only postcondition passes after the wrapper; the preflight now refuses (already corrected)", async () => {
+    await db.admin.query(POSTCONDITION);
+    try { await db.admin.query(PREFLIGHT); return "preflight passed twice"; } catch (e) { return /not STABLE/.test(e.message) ? true : e.message; }
   });
   await check("re-applying it is refused and changes nothing", async () => {
     try { await db.admin.query(FIX_SQL); return "re-applied"; } catch (e) { return /PREFLIGHT_REFUSED/.test(e.message) ? true : e.message; }
