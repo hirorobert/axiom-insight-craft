@@ -115,7 +115,20 @@ export function signoffClient(db: ReportingDb) {
       .map((r) => ({ reportVersion: Number(r.report_version), state: String(r.state), documentSha256: String(r.document_sha256), dependenciesSha256: String(r.dependencies_sha256),
         // The authenticated approver as recorded at approval (20261022100000); null on a binding recorded before it.
         approverFirmMemberId: r.approver_firm_member_id == null ? null : String(r.approver_firm_member_id), approverRole: r.approver_role == null ? null : String(r.approver_role),
-        approverDisplayName: r.approver_display_name == null ? null : String(r.approver_display_name), approvedAt: r.approved_at == null ? null : String(r.approved_at) })),
+        approverDisplayName: r.approver_display_name == null ? null : String(r.approver_display_name), approvedAt: r.approved_at == null ? null : String(r.approved_at),
+        // The statement sign-off policy in force at this binding (20261024100000); null on a binding recorded before it.
+        signoffPolicy: r.signoff_policy == null ? null : (String(r.signoff_policy) as SignoffPolicy),
+        signoffPolicyEventId: r.signoff_policy_event_id == null ? null : String(r.signoff_policy_event_id),
+        sameApprover: r.same_approver == null ? null : Boolean(r.same_approver) })),
+    /** The statement sign-off policy in force (separate_approvers when none is recorded). */
+    signoffPolicy: async (companyId: string) => policySchema.parse(await rpc("fs_signoff_policy", { p_company_id: companyId })),
+    /** One recorded policy event: its reason and when it was set (for the pack's disclosure). */
+    signoffPolicyEvent: async (eventId: string) => {
+      const r = (await rows("fs_signoff_policy_events", { id: eventId }))[0];
+      return r ? { policy: String(r.policy) as SignoffPolicy, reason: String(r.reason), setAt: String(r.created_at), setByRole: r.actor_role == null ? null : String(r.actor_role) } : null;
+    },
+    setSignoffPolicy: async (companyId: string, policy: SignoffPolicy, reason: string, confirmation: string | null, requestId: string) =>
+      (await rpc("fs_set_signoff_policy", { p_company_id: companyId, p_policy: policy, p_reason: reason, p_confirmation: confirmation, p_request_id: requestId })) as { outcome: string; policy?: SignoffPolicy },
     /** One atomic server call: new evidence + the new immutable version + its evaluation (or nothing). */
     commit: async (p: {
       companyId: string; reportId: string; expectedReportVersion: number; idempotencyKey: string; report: CanonicalFinancialStatementReport; contentHash: string;
@@ -136,6 +149,14 @@ export function signoffClient(db: ReportingDb) {
   };
 }
 export type SignoffClient = ReturnType<typeof signoffClient>;
+
+/** The statement sign-off policy (20261024100000). Not the Close Review adjustment approval policy. */
+export type SignoffPolicy = "separate_approvers" | "solo_owner";
+/** The exact statement a member confirms to record the solo_owner policy (the server compares it byte for byte). */
+export const SOLO_OWNER_CONFIRMATION = "I confirm that the owner of this company may both review and approve its financial statements, and that this is disclosed in every pack it signs.";
+const policySchema = z.object({ state: z.string(), policy: z.enum(["separate_approvers", "solo_owner"]).optional(), eventId: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(), setAt: z.string().nullable().optional(), setByRole: z.string().nullable().optional(), recorded: z.boolean().optional() }).passthrough();
+export type SignoffPolicyState = z.infer<typeof policySchema>;
 
 /**
  * How a recorded approver is named: the display name on record at approval; without one, the role and the stable
