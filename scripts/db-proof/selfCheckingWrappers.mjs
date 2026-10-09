@@ -42,17 +42,24 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "reporting-r5"
+const DRIZZLE_FAILURE = BATCH.id === "commercial-c1"
+  ? { object: "public.service_enquiry_replies", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regprocedure('public.staff_reply_service_enquiry(uuid,text,uuid)') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AS ok" }
+  : BATCH.id === "reporting-r5"
   ? { object: "public.fs_signoff_policy_events", rolledBack: "SELECT to_regclass('public.fs_signoff_policy_events') IS NULL AND to_regprocedure('public.fs_set_signoff_policy(uuid,text,text,text,uuid)') IS NULL AS ok" }
   : BATCH.id === "reporting-r2"
   ? { object: "public.fs_report_readiness(pg_catalog.uuid,pg_catalog.text,integer)", rolledBack: "SELECT provolatile = 's' AS ok FROM pg_proc WHERE oid = 'public.fs_report_readiness(uuid,text,integer)'::regprocedure" }
   : BATCH.id === "reporting-r1"
   ? { object: "public.fs_publication_bindings", rolledBack: tablesAbsent("public.fs_presentation_lines", "public.fs_publication_bindings") }
   : { object: "public.close_review_adjustment_bindings", rolledBack: tablesAbsent("public.tb_source_objects", "public.close_review_findings") };
+// Sources that only remove objects (their fingerprint shrinks when applied).
+const REMOVES_ONLY = new Set(["20261026100000_retire_browser_adjusting_journal_writes.sql"]);
 // Where an execution failure is injected inside each migration: "early" at the batch's earlyAt-th DDL command, "late" at
 // its first lateTag command. The readiness correction (r2) has exactly one DDL command, ALTER FUNCTION: both points are
 // that command, which proves the change itself is rolled back. Every other batch keeps DDL #3 and the first GRANT.
-const SHAPE = BATCH.id === "reporting-r2" ? { earlyAt: 1, lateTag: "ALTER FUNCTION", minDdl: 1 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
+// The commercial candidate's retirement migration grants nothing (it drops policies and revokes): its late point is the
+// first REVOKE, which the enquiry migration also has.
+const SHAPE = BATCH.id === "reporting-r2" ? { earlyAt: 1, lateTag: "ALTER FUNCTION", minDdl: 1 }
+  : BATCH.id === "commercial-c1" ? { earlyAt: 3, lateTag: "REVOKE", minDdl: 3 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -285,7 +292,9 @@ async function main() {
         const j1 = await journalRows(c);
         const added = j1.slice(j0.length);
         // The fingerprint must SEE the migration (otherwise "unchanged" above would prove nothing).
-        return r.ok && f0.f !== f1.f && Number(f1.n) > Number(f0.n) && added.length === 1 && added[0].hash === sha256(Buffer.from(submitted, "utf8")) ? true : { r, added, sees: f0.f !== f1.f };
+        // A migration that only removes (the browser-write retirement drops policies and revokes) shrinks the fingerprint.
+        const grew = REMOVES_ONLY.has(s) ? Number(f1.n) < Number(f0.n) : Number(f1.n) > Number(f0.n);
+        return r.ok && f0.f !== f1.f && grew && added.length === 1 && added[0].hash === sha256(Buffer.from(submitted, "utf8")) ? true : { r, added, sees: f0.f !== f1.f };
       });
       for (const model of [false, true]) {
         await check(`repeated application (${model ? "hosted-executor model" : "autocommit"}): refused by the migration's own preflight; nothing changed, no journal row`, async () => {

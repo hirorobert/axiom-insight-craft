@@ -542,6 +542,31 @@ jobs:
           createdb signoff_policy_proof
           bun scripts/db-proof/signoffPolicy.mjs
 
+      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions then the retirement of browser adjusting-journal writes; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_wrappers_proof
+          RELEASE_BATCH: commercial-c1
+        run: |
+          createdb commercial_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Commercial enquiries proof (20261025100000; activation requests name a catalogue plan, specialist-service enquiries take no payload, tracked staff replies are append-only and queued to the requester only with honest delivery status, staff-only and replay-safe; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_enquiries_proof
+        run: |
+          createdb commercial_enquiries_proof
+          bun scripts/db-proof/commercialEnquiries.mjs
+
+      - name: Legacy adjustments retirement proof (20261026100000; the browser-write defect reproduced and then refused for insert, update, delete and lines; no client write policy left; earlier entries byte-identical and readable by members only; service_role writes intact; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/legacy_adjustments_proof
+        run: |
+          createdb legacy_adjustments_proof
+          bun scripts/db-proof/legacyAdjustmentsRetirement.mjs
+
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:
           DB_PROOF_MODE: external

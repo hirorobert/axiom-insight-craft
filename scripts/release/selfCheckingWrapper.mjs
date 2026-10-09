@@ -58,12 +58,19 @@ export const SIGNOFF_POLICY_SOURCE_COMMIT = "5358aefc999bd09f5d306e3e19ba3abbd79
 export const SIGNOFF_POLICY_WRAPPED_SOURCES = Object.freeze([
   "20261024100000_fs_signoff_approval_policy.sql",
 ]);
+/** The commercial candidate (commercial-c1): enquiry additions, then the retirement of browser adjusting-journal writes. */
+export const COMMERCIAL_SOURCE_COMMIT = "df5f446e778c63be8f1539827aaf9d0ca7d365cd";
+export const COMMERCIAL_WRAPPED_SOURCES = Object.freeze([
+  "20261025100000_commercial_enquiries.sql",
+  "20261026100000_retire_browser_adjusting_journal_writes.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
   Object.freeze({ id: "reporting-r1", commit: REPORTING_SOURCE_COMMIT, sources: REPORTING_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r1/postcondition.sql" }),
   Object.freeze({ id: "reporting-r2", commit: READINESS_SOURCE_COMMIT, sources: READINESS_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r2/postcondition.sql" }),
   Object.freeze({ id: "reporting-r5", commit: SIGNOFF_POLICY_SOURCE_COMMIT, sources: SIGNOFF_POLICY_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r5/postcondition.sql" }),
+  Object.freeze({ id: "commercial-c1", commit: COMMERCIAL_SOURCE_COMMIT, sources: COMMERCIAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-c1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

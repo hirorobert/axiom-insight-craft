@@ -272,6 +272,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261023100000_fs_report_readiness_volatility.sql",
       // Statement sign-off policy (20261024100000): policy events, set/read, enforcement and recording in the binding.
       "supabase/migrations/20261024100000_fs_signoff_approval_policy.sql",
+      // Commercial enquiries (20261025100000): activation requests, specialist-service enquiries, tracked staff replies.
+      "supabase/migrations/20261025100000_commercial_enquiries.sql",
+      // One adjustment path (20261026100000): client writes to the legacy adjusting journal revoked; history read-only.
+      "supabase/migrations/20261026100000_retire_browser_adjusting_journal_writes.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -490,6 +494,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/cashPerimeterScope.mjs",
       // The loopback-only sign-off policy proof.
       "scripts/db-proof/signoffPolicy.mjs",
+      // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
+      "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
