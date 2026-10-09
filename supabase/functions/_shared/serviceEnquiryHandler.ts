@@ -30,7 +30,7 @@ import {
   type FieldError,
   type NormalizedEnquiry,
 } from "./serviceEnquiryContract.ts";
-import { buildRequesterAcknowledgement, buildStaffNotification, isNonDeliverableAddress, type OutboundEmail } from "./serviceEnquiryEmail.ts";
+import { buildRequesterAcknowledgement, buildStaffNotification, buildStaffReply, isNonDeliverableAddress, type OutboundEmail } from "./serviceEnquiryEmail.ts";
 import type { ChallengeVerifier } from "./serviceEnquiryChallenge.ts";
 
 export interface RpcResult {
@@ -135,7 +135,7 @@ function decoyReceipt(): EnquiryReceipt {
 
 export interface ClaimedNotification {
   readonly id: string;
-  readonly kind: "requester_acknowledgement" | "staff_notification";
+  readonly kind: "requester_acknowledgement" | "staff_notification" | "staff_reply";
   readonly attempt: number;
   readonly reference: string;
   readonly service_code: string;
@@ -143,6 +143,8 @@ export interface ClaimedNotification {
   readonly country_code: string | null;
   readonly requester_email: string | null;
   readonly requester_name: string | null;
+  /** staff_reply only (20261025100000): the stored reply text. */
+  readonly reply_body?: string | null;
 }
 
 export interface DispatchOutcome {
@@ -185,6 +187,18 @@ export async function dispatchClaimed(rows: readonly ClaimedNotification[], deps
           code = "NON_DELIVERABLE_TEST_ADDRESS";
         } else {
           email = buildRequesterAcknowledgement({ reference: row.reference, to: row.requester_email, notificationId: row.id });
+          outcome = "retry";
+        }
+      } else if (row.kind === "staff_reply") {
+        // A staff reply goes to the requester's own address on the enquiry, never anywhere else.
+        if (!row.requester_email || !row.reply_body) {
+          outcome = "failed";
+          code = "NO_RECIPIENT";
+        } else if (isNonDeliverableAddress(row.requester_email)) {
+          outcome = "failed";
+          code = "NON_DELIVERABLE_TEST_ADDRESS";
+        } else {
+          email = buildStaffReply({ reference: row.reference, to: row.requester_email, body: row.reply_body, notificationId: row.id });
           outcome = "retry";
         }
       } else if (!deps.internalRecipient) {

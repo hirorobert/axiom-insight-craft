@@ -8,10 +8,19 @@
 
 export const SERVICE_ENQUIRY_SCHEMA_VERSION = 1 as const;
 
-export const SERVICE_CODES = ["general", "support", "donor_reporting", "tax_tanzania_preview", "tax_general"] as const;
+export const SERVICE_CODES = ["general", "support", "donor_reporting", "tax_tanzania_preview", "tax_general",
+  // Commercial milestone (20261025100000): a manually activated subscription, and the specialist services delivered by
+  // people and quoted separately — none of them is an automated feature.
+  "plan_activation", "forecasting", "budgeting", "financial_analysis", "accounting_policies", "close_support"] as const;
 export type ServiceCode = (typeof SERVICE_CODES)[number];
 
-export const SOURCE_CONTEXTS = ["contact_page", "site_header", "site_footer", "help_support", "workflow_donor", "workflow_tax"] as const;
+export const SOURCE_CONTEXTS = ["contact_page", "site_header", "site_footer", "help_support", "workflow_donor", "workflow_tax",
+  "landing_plans", "landing_services", "plan_wall"] as const;
+/** The plans an activation request may name (the reviewed catalogue's plan codes). */
+export const ACTIVATION_PLAN_CODES = ["SOLO", "PRACTICE", "FIRM", "ENTERPRISE"] as const;
+export type ActivationPlanCode = (typeof ACTIVATION_PLAN_CODES)[number];
+/** The specialist services: enquiries for work delivered by people, quoted separately from any subscription. */
+export const SPECIALIST_SERVICE_CODES = ["forecasting", "budgeting", "financial_analysis", "accounting_policies", "close_support"] as const;
 export type SourceContext = (typeof SOURCE_CONTEXTS)[number];
 
 export const REPORT_TYPES = ["expenditure_report", "budget_vs_actual", "fund_accountability", "grant_financial_statement", "management_report", "other"] as const;
@@ -213,6 +222,12 @@ const PAYLOAD_KEYS: Readonly<Record<ServiceCode, readonly string[]>> = {
   donor_reporting: ["report_type", "donor_name", "project_name", "reporting_period", "reporting_frequency", "currency", "deadline", "additional_context"],
   tax_tanzania_preview: ["jurisdiction_source", "tax_period"],
   tax_general: ["jurisdiction_source", "tax_period"],
+  plan_activation: ["plan_code"],
+  forecasting: [],
+  budgeting: [],
+  financial_analysis: [],
+  accounting_policies: [],
+  close_support: [],
 };
 
 function validatePayload(service: ServiceCode, raw: unknown, errors: FieldError[]): Record<string, string> {
@@ -268,6 +283,7 @@ const ENUMERATED_PAYLOAD_FIELDS: Readonly<Record<string, (v: string) => FieldErr
   jurisdiction_source: (v) => ((JURISDICTION_SOURCES as readonly string[]).includes(v) ? null : "not_allowed"),
   currency: (v) => (/^[A-Z]{3}$/.test(v) ? null : "invalid_format"),
   deadline: (v) => (isRealDate(v) ? null : "invalid_format"),
+  plan_code: (v) => ((ACTIVATION_PLAN_CODES as readonly string[]).includes(v) ? null : "not_allowed"),
 };
 
 /**
@@ -345,6 +361,8 @@ export function validateEnquiryRequest(input: unknown): ValidationResult {
   if (input.privacy_acknowledged !== true) errors.push({ field: "privacy_acknowledged", code: "consent_required" });
 
   const payload = service ? validatePayload(service, input.payload, errors) : {};
+  // An activation request always names the plan (the database refuses one without it, too).
+  if (service === "plan_activation" && !payload.plan_code && !errors.some((e) => e.field === "payload.plan_code")) errors.push({ field: "payload.plan_code", code: "required" });
 
   if (service === "tax_tanzania_preview" || service === "tax_general") {
     if (!country) errors.push({ field: "country", code: "required" });

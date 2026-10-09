@@ -29,6 +29,12 @@ export const SERVICE_LABELS: Readonly<Record<(typeof SERVICE_CODES)[number], str
   donor_reporting: "Donor reporting",
   tax_tanzania_preview: "Tax — private preview",
   tax_general: "Tax — general",
+  plan_activation: "Plan activation request",
+  forecasting: "Specialist — forecasting",
+  budgeting: "Specialist — budgeting",
+  financial_analysis: "Specialist — financial analysis",
+  accounting_policies: "Specialist — accounting policies",
+  close_support: "Specialist — close support",
 };
 
 export const isEnquiryStatus = (v: string): v is EnquiryStatus => (ENQUIRY_STATUSES as readonly string[]).includes(v);
@@ -208,7 +214,7 @@ const detailSchema = z.object({
     z.object({
       id: z.string().uuid(),
       seq: z.number(),
-      event_kind: z.enum(["submitted", "status_change", "assignment", "note"]),
+      event_kind: z.enum(["submitted", "status_change", "assignment", "note", "reply"]),
       previous_status: z.string().nullable(),
       new_status: z.string(),
       actor_kind: z.enum(["requester", "system", "staff"]),
@@ -220,6 +226,9 @@ const detailSchema = z.object({
     }),
   ),
   notifications: z.array(z.object({ kind: z.string(), status: z.string(), attempt_count: z.number(), last_error_code: z.string().nullable(), accepted_at: z.string().nullable() })),
+  // Replies to the requester (20261025100000), each with its own outbox state. Absent on a backend without the migration.
+  replies: z.array(z.object({ id: z.string().uuid(), body: z.string(), created_at: z.string(), staff_user_id: z.string().uuid(), staff_email: z.string().nullable(),
+    delivery_status: z.string(), attempt_count: z.number(), last_error_code: z.string().nullable(), accepted_at: z.string().nullable() })).default([]),
 });
 export type EnquiryDetail = z.infer<typeof detailSchema>;
 
@@ -283,6 +292,12 @@ export const assignEnquiry = async (id: string, assignee: string | null, note: s
 };
 export const addEnquiryNote = async (id: string, note: string): Promise<void> => {
   unwrap(await supabase.rpc("staff_add_service_enquiry_note", { p_enquiry_id: id, p_note: note }), doneSchema);
+};
+/** Reply to the requester by email (queued in the outbox; its delivery state is tracked). `requestId` makes a retry safe. */
+export const replyToEnquiry = async (id: string, body: string, requestId: string): Promise<void> => {
+  // 20261025100000's function is not in the generated types until they are regenerated after the migration is applied.
+  const rpc = supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => ReturnType<typeof supabase.rpc>;
+  unwrap(await rpc("staff_reply_service_enquiry", { p_enquiry_id: id, p_body: body, p_request_id: requestId }), doneSchema);
 };
 
 const dispatchSchema = z.object({ claimed: z.number(), accepted: z.number(), retry: z.number(), failed: z.number(), blocked: z.number() });

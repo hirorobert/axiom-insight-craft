@@ -29,7 +29,7 @@ export interface OutboundEmail {
  * notification's own row id AND its kind, so the requester acknowledgement and the internal notification of one enquiry always
  * have different, independent identities, and a given notification always has the same one.
  */
-export const notificationIdempotencyKey = (kind: "requester_acknowledgement" | "staff_notification", notificationId: string): string => `cfoclose-enquiry:${kind}:${notificationId}`;
+export const notificationIdempotencyKey = (kind: "requester_acknowledgement" | "staff_notification" | "staff_reply", notificationId: string): string => `cfoclose-enquiry:${kind}:${notificationId}`;
 
 /**
  * Addresses that can never be a real mailbox (RFC 2606 / RFC 6761 reserved names). Sending to them and recording the provider's
@@ -82,6 +82,28 @@ export function buildRequesterAcknowledgement(input: { reference: string; to: st
       "Please do not send passwords, credentials or highly sensitive source documents by email.",
     ]),
     idempotencyKey: notificationIdempotencyKey("requester_acknowledgement", input.notificationId),
+    purpose: "transactional",
+  };
+}
+
+/**
+ * A staff member's reply to the requester (20261025100000). The body is the staff member's own text, escaped, sent only to
+ * the requester's address on the enquiry, with the reference so the thread is traceable. It is not a proposal unless it says so.
+ */
+export function buildStaffReply(input: { reference: string; to: string; body: string; notificationId: string }): OutboundEmail {
+  const footer = "Reply to this message or quote your reference in any follow-up. Please do not send passwords, credentials or highly sensitive source documents by email.";
+  return {
+    to: input.to,
+    from: ENQUIRY_EMAIL_FROM,
+    senderDomain: ENQUIRY_EMAIL_SENDER_DOMAIN,
+    subject: `Re: your CFOClose enquiry ${input.reference}`,
+    text: [input.body, `Reference: ${input.reference}`, footer].join("\n\n"),
+    html: shell(`Your enquiry ${input.reference}`, [
+      escapeHtml(input.body).replace(/\n/g, "<br/>"),
+      `Reference: <strong>${escapeHtml(input.reference)}</strong>`,
+      footer,
+    ]),
+    idempotencyKey: notificationIdempotencyKey("staff_reply", input.notificationId),
     purpose: "transactional",
   };
 }

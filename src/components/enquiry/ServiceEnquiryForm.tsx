@@ -42,7 +42,7 @@ import { SelectField, TextAreaField, TextField } from "./EnquiryFields";
 let countryChoices: { value: string; label: string }[] | null = null;
 const getCountryChoices = (): { value: string; label: string }[] => (countryChoices ??= countryOptions().map((c) => ({ value: c.code, label: c.name })));
 
-export type EnquiryVariant = "general" | "donor" | "tax";
+export type EnquiryVariant = "general" | "donor" | "tax" | "activation" | "specialist";
 
 export interface ServiceEnquiryFormProps {
   /** Storage key and DOM id prefix; unique per form purpose (e.g. "contact", "donor", "tax-KE"). */
@@ -59,11 +59,15 @@ export interface ServiceEnquiryFormProps {
   contextSummary?: ReactNode;
   /** Overrides the submit button wording (e.g. the pathway's own action label). */
   submitLabel?: string;
+  /** Service-specific values preselected from the entry point (e.g. the plan an activation request names). Editable. */
+  initialPayload?: Readonly<Record<string, string>>;
+  /** Activation variant only: the plans the person may ask for, with their catalogue names. */
+  planChoices?: readonly { value: string; label: string }[];
 }
 
 const readString = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContext, serviceChoices, jurisdiction, defaultSubject, contextSummary, submitLabel }: ServiceEnquiryFormProps) {
+export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContext, serviceChoices, jurisdiction, defaultSubject, contextSummary, submitLabel, initialPayload, planChoices }: ServiceEnquiryFormProps) {
   const { user } = useAuth();
   const prefix = `enq-${formKey}`.replace(/[^a-zA-Z0-9-]/g, "-");
 
@@ -72,6 +76,7 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
     name: readString(user?.user_metadata?.full_name) || readString(user?.user_metadata?.name),
     email: user?.email ?? "",
     subject: defaultSubject ?? "",
+    payload: { ...(initialPayload ?? {}) },
   }));
   // The session resolves asynchronously, so a cold load of this page mounts with no user. When it arrives, fill the identity
 // fields — but never overwrite anything the visitor has already typed.
@@ -315,6 +320,18 @@ export function ServiceEnquiryForm({ formKey, variant, serviceCode, sourceContex
         </fieldset>
       )}
 
+      {variant === "activation" && planChoices && (
+        <SelectField
+          prefix={prefix}
+          field="payload.plan_code"
+          label="Plan"
+          value={values.payload.plan_code ?? ""}
+          onChange={(v) => setPayload("plan_code", v)}
+          options={[...planChoices]}
+          placeholder="Choose a plan"
+          error={errorFor("payload.plan_code")}
+        />
+      )}
       {variant === "tax" && (
         <TextField prefix={prefix} field="payload.tax_period" label="Tax period" optional hint="For example FY2025" value={values.payload.tax_period ?? ""} onChange={(v) => setPayload("tax_period", v)} error={errorFor("payload.tax_period")} />
       )}

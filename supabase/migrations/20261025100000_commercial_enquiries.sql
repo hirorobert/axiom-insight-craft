@@ -1,0 +1,282 @@
+-- 20261025100000_commercial_enquiries.sql — the commercial milestone's enquiry additions (forward-only; nothing edited).
+--
+--   1. Services. Subscriptions are sold by agreement and activated manually: `plan_activation` (payload: the plan the
+--      requester asks for: SOLO / PRACTICE / FIRM / ENTERPRISE). Specialist services are delivered by people and quoted
+--      separately; they are NOT automated features: `forecasting`, `budgeting`, `financial_analysis`, `accounting_policies`,
+--      `close_support` (no service-specific payload: the common subject and message describe the need).
+--      Entry points: `landing_plans`, `landing_services`, `plan_wall`.
+--   2. Tracked replies. An ACTIVE platform staff member replies to the requester through the platform: the reply is stored
+--      (append-only, never edited), recorded on the enquiry timeline, and queued as its own outbox notification
+--      (`staff_reply`) with the same honest status model (queued → processing → accepted; delivered/bounced only from a
+--      verified provider event). The reply body is sent only to the requester's own address; staff never see a delivery
+--      claim the provider has not made.
+--
+-- Authorization is unchanged: staff_* functions refuse anyone who is not ACTIVE platform staff (42501) before reading a
+-- row; the outbox claim/complete functions remain service_role only; no table gains a client grant.
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.service_enquiry_replies') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the commercial enquiry additions already exist; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regprocedure('public.service_enquiry_notification_transition_guard()') IS NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20260922100000 (enquiry activation readiness) must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+-- ══ 1. services and entry points ═════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.service_enquiries DROP CONSTRAINT chk_service_enquiries_service;
+ALTER TABLE public.service_enquiries ADD CONSTRAINT chk_service_enquiries_service CHECK (service_code IN (
+  'general', 'support', 'donor_reporting', 'tax_tanzania_preview', 'tax_general',
+  'plan_activation', 'forecasting', 'budgeting', 'financial_analysis', 'accounting_policies', 'close_support'));
+ALTER TABLE public.service_enquiries DROP CONSTRAINT chk_service_enquiries_source;
+ALTER TABLE public.service_enquiries ADD CONSTRAINT chk_service_enquiries_source CHECK (source_context IN (
+  'contact_page', 'site_header', 'site_footer', 'help_support', 'workflow_donor', 'workflow_tax',
+  'landing_plans', 'landing_services', 'plan_wall'));
+
+-- The 20260921100000 function with the [20261025100000] additions: plan_activation's payload; specialist services take none.
+CREATE OR REPLACE FUNCTION public.service_enquiry_payload_valid(p_service TEXT, p_version INTEGER, p_payload JSONB)
+  RETURNS BOOLEAN
+  LANGUAGE plpgsql
+  IMMUTABLE
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_allowed TEXT[];
+  v_key     TEXT;
+  v_val     JSONB;
+  v_text    TEXT;
+BEGIN
+  IF p_version IS DISTINCT FROM 1 THEN RETURN false; END IF;
+  IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN RETURN false; END IF;
+  IF octet_length(p_payload::text) > 6000 THEN RETURN false; END IF;
+
+  v_allowed := CASE p_service
+    WHEN 'donor_reporting'       THEN ARRAY['report_type','donor_name','project_name','reporting_period','reporting_frequency','currency','deadline','additional_context']
+    WHEN 'tax_tanzania_preview'  THEN ARRAY['jurisdiction_source','tax_period']
+    WHEN 'tax_general'           THEN ARRAY['jurisdiction_source','tax_period']
+    WHEN 'plan_activation'       THEN ARRAY['plan_code']                                   -- [20261025100000]
+    ELSE ARRAY[]::TEXT[]
+  END;
+
+  -- [20261025100000] An activation request always names the plan it asks for.
+  IF p_service = 'plan_activation' AND NOT (p_payload ? 'plan_code') THEN RETURN false; END IF;
+
+  FOR v_key, v_val IN SELECT key, value FROM jsonb_each(p_payload) LOOP
+    IF NOT (v_key = ANY (v_allowed)) THEN RETURN false; END IF;
+    IF jsonb_typeof(v_val) <> 'string' THEN RETURN false; END IF;
+    v_text := v_val #>> '{}';
+    IF v_key = 'report_type' THEN
+      IF NOT (v_text = ANY (ARRAY['expenditure_report','budget_vs_actual','fund_accountability','grant_financial_statement','management_report','other'])) THEN RETURN false; END IF;
+    ELSIF v_key = 'reporting_frequency' THEN
+      IF NOT (v_text = ANY (ARRAY['monthly','quarterly','semi_annual','annual','one_off','other'])) THEN RETURN false; END IF;
+    ELSIF v_key = 'currency' THEN
+      IF v_text !~ '^[A-Z]{3}$' THEN RETURN false; END IF;
+    ELSIF v_key = 'deadline' THEN
+      IF v_text !~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$' THEN RETURN false; END IF;
+    ELSIF v_key = 'jurisdiction_source' THEN
+      IF NOT (v_text = ANY (ARRAY['user_selected','company_setting_confirmed'])) THEN RETURN false; END IF;
+    ELSIF v_key = 'plan_code' THEN                                                           -- [20261025100000]
+      IF NOT (v_text = ANY (ARRAY['SOLO','PRACTICE','FIRM','ENTERPRISE'])) THEN RETURN false; END IF;
+    ELSIF v_key = 'additional_context' THEN
+      IF NOT public.enquiry_text_ok(v_text, 1, 2000, true) THEN RETURN false; END IF;
+    ELSIF v_key IN ('donor_name','project_name') THEN
+      IF NOT public.enquiry_text_ok(v_text, 1, 160, false) THEN RETURN false; END IF;
+    ELSE  -- reporting_period, tax_period
+      IF NOT public.enquiry_text_ok(v_text, 1, 80, false) THEN RETURN false; END IF;
+    END IF;
+  END LOOP;
+  RETURN true;
+END;
+$$;
+
+-- ══ 2. tracked replies ═══════════════════════════════════════════════════════════════════════════════════════════════
+CREATE TABLE public.service_enquiry_replies (
+  id            UUID        NOT NULL DEFAULT gen_random_uuid(),
+  enquiry_id    UUID        NOT NULL,
+  staff_user_id UUID        NOT NULL,
+  body          TEXT        NOT NULL,
+  request_id    UUID        NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT service_enquiry_replies_pk PRIMARY KEY (id),
+  CONSTRAINT fk_service_enquiry_replies_enquiry FOREIGN KEY (enquiry_id) REFERENCES public.service_enquiries(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_service_enquiry_replies_body CHECK (public.enquiry_text_ok(body, 1, 5000, true)),
+  CONSTRAINT uq_service_enquiry_replies_request UNIQUE (staff_user_id, request_id)
+);
+CREATE INDEX idx_service_enquiry_replies_enquiry ON public.service_enquiry_replies (enquiry_id, created_at);
+CREATE TRIGGER trg_service_enquiry_replies_append_only BEFORE UPDATE OR DELETE ON public.service_enquiry_replies
+  FOR EACH ROW EXECUTE FUNCTION public.service_enquiry_append_only_guard();
+ALTER TABLE public.service_enquiry_replies ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.service_enquiry_replies FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.service_enquiry_replies TO service_role;
+
+-- A reply is its own outbox row (many per enquiry); the one-per-kind rule stays for the acknowledgement and staff notice.
+ALTER TABLE public.service_enquiry_notifications ADD COLUMN reply_id UUID NULL
+  CONSTRAINT fk_service_enquiry_notifications_reply REFERENCES public.service_enquiry_replies(id) ON DELETE RESTRICT;
+ALTER TABLE public.service_enquiry_notifications DROP CONSTRAINT chk_service_enquiry_notification_kind;
+ALTER TABLE public.service_enquiry_notifications ADD CONSTRAINT chk_service_enquiry_notification_kind
+  CHECK ((kind IN ('requester_acknowledgement', 'staff_notification') AND reply_id IS NULL) OR (kind = 'staff_reply' AND reply_id IS NOT NULL));
+ALTER TABLE public.service_enquiry_notifications DROP CONSTRAINT uq_service_enquiry_notification_kind;
+CREATE UNIQUE INDEX uq_service_enquiry_notification_kind ON public.service_enquiry_notifications (enquiry_id, kind) WHERE kind <> 'staff_reply';
+CREATE UNIQUE INDEX uq_service_enquiry_notification_reply ON public.service_enquiry_notifications (reply_id) WHERE reply_id IS NOT NULL;
+
+ALTER TABLE public.service_enquiry_events DROP CONSTRAINT chk_service_enquiry_events_kind;
+ALTER TABLE public.service_enquiry_events ADD CONSTRAINT chk_service_enquiry_events_kind CHECK (event_kind IN ('submitted', 'status_change', 'assignment', 'note', 'reply'));
+ALTER TABLE public.service_enquiry_events DROP CONSTRAINT chk_service_enquiry_events_shape;
+ALTER TABLE public.service_enquiry_events ADD CONSTRAINT chk_service_enquiry_events_shape CHECK (
+  (event_kind = 'submitted'     AND previous_status IS NULL AND new_status = 'submitted' AND actor_kind IN ('requester', 'system'))
+  OR (event_kind = 'status_change' AND previous_status IS NOT NULL AND previous_status <> new_status AND actor_kind = 'staff')
+  OR (event_kind IN ('assignment', 'note', 'reply') AND previous_status IS NOT NULL AND previous_status = new_status AND actor_kind = 'staff')
+);
+
+-- Reply to the requester. Replay-safe per (staff, request): the same request returns the stored reply and queues nothing new.
+CREATE OR REPLACE FUNCTION public.staff_reply_service_enquiry(p_enquiry_id UUID, p_body TEXT, p_request_id UUID)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_uid   UUID := auth.uid();
+  v_e     public.service_enquiries%ROWTYPE;
+  v_body  TEXT := nullif(btrim(coalesce(p_body, '')), '');
+  v_prior public.service_enquiry_replies%ROWTYPE;
+  v_reply UUID;
+BEGIN
+  IF public.current_platform_staff_role() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: platform staff only' USING ERRCODE = '42501';
+  END IF;
+  IF p_request_id IS NULL OR v_body IS NULL OR NOT public.enquiry_text_ok(v_body, 1, 5000, true) THEN
+    RAISE EXCEPTION 'INVALID_ARGUMENT: a reply must be 1-5000 characters without control characters' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_prior FROM public.service_enquiry_replies r WHERE r.staff_user_id = v_uid AND r.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.enquiry_id = p_enquiry_id AND v_prior.body = v_body THEN
+      RETURN jsonb_build_object('reply_id', v_prior.id, 'replay', true);
+    END IF;
+    RAISE EXCEPTION 'CONFLICT: that request was already used for a different reply' USING ERRCODE = '23505';
+  END IF;
+  SELECT * INTO v_e FROM public.service_enquiries WHERE id = p_enquiry_id FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND: no such enquiry' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_e.status IN ('spam', 'withdrawn') THEN
+    RAISE EXCEPTION 'INVALID_STATE: no reply is sent to an enquiry marked %', v_e.status USING ERRCODE = '22023';
+  END IF;
+  INSERT INTO public.service_enquiry_replies (enquiry_id, staff_user_id, body, request_id) VALUES (v_e.id, v_uid, v_body, p_request_id) RETURNING id INTO v_reply;
+  INSERT INTO public.service_enquiry_notifications (enquiry_id, kind, reply_id) VALUES (v_e.id, 'staff_reply', v_reply);
+  INSERT INTO public.service_enquiry_events (enquiry_id, event_kind, previous_status, new_status, actor_kind, actor_user_id, note)
+       VALUES (v_e.id, 'reply', v_e.status, v_e.status, 'staff', v_uid, left(v_body, 2000));
+  RETURN jsonb_build_object('reply_id', v_reply, 'replay', false);
+END;
+$$;
+
+-- The 20260922100000 claim with the [20261025100000] staff_reply rows: a reply goes to the requester, with its body.
+CREATE OR REPLACE FUNCTION public.enquiry_notification_claim(p_limit INTEGER DEFAULT 10, p_enquiry_id UUID DEFAULT NULL)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_rows JSONB;
+BEGIN
+  IF auth.role() IS DISTINCT FROM 'service_role' THEN
+    RAISE EXCEPTION 'FORBIDDEN: notification dispatch requires the service role' USING ERRCODE = '42501';
+  END IF;
+
+  -- An expired lease on a row that has already used every attempt can never be retried: it is a failure, not a limbo state.
+  UPDATE public.service_enquiry_notifications
+     SET status = 'failed', last_error_code = 'LEASE_EXPIRED', updated_at = now()
+   WHERE status = 'processing' AND attempt_count >= 5 AND last_attempt_at < now() - interval '10 minutes';
+
+  WITH due AS (
+    SELECT n.id
+      FROM public.service_enquiry_notifications n
+     WHERE n.attempt_count < 5
+       AND (p_enquiry_id IS NULL OR n.enquiry_id = p_enquiry_id)
+       AND ((n.status = 'queued' AND (n.last_attempt_at IS NULL OR n.last_attempt_at < now() - interval '5 minutes'))
+         OR (n.status = 'processing' AND n.last_attempt_at < now() - interval '10 minutes'))
+     ORDER BY n.created_at
+     LIMIT greatest(1, least(coalesce(p_limit, 10), 50))
+       FOR UPDATE SKIP LOCKED
+  ), claimed AS (
+    UPDATE public.service_enquiry_notifications n
+       SET status = 'processing', attempt_count = n.attempt_count + 1, last_attempt_at = now(), updated_at = now()
+      FROM due WHERE n.id = due.id
+    RETURNING n.id, n.enquiry_id, n.kind, n.attempt_count, n.reply_id
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'id', c.id, 'kind', c.kind, 'attempt', c.attempt_count,
+           'reference', e.public_reference, 'service_code', e.service_code, 'source_context', e.source_context,
+           'country_code', e.country_code, 'submitted_at', e.submitted_at,
+           'requester_name', CASE WHEN c.kind IN ('requester_acknowledgement', 'staff_reply') THEN e.requester_name END,
+           'requester_email', CASE WHEN c.kind IN ('requester_acknowledgement', 'staff_reply') THEN e.requester_email END,
+           'reply_body', CASE WHEN c.kind = 'staff_reply' THEN (SELECT r.body FROM public.service_enquiry_replies r WHERE r.id = c.reply_id) END
+         ) ORDER BY e.submitted_at), '[]'::jsonb)
+    INTO v_rows
+    FROM claimed c JOIN public.service_enquiries e ON e.id = c.enquiry_id;
+
+  RETURN v_rows;
+END;
+$$;
+
+-- The 20260922100000 detail with the [20261025100000] replies, each with its own delivery state.
+CREATE OR REPLACE FUNCTION public.staff_get_service_enquiry(p_enquiry_id UUID)
+  RETURNS JSONB
+  LANGUAGE plpgsql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_e public.service_enquiries%ROWTYPE;
+BEGIN
+  IF public.current_platform_staff_role() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: platform staff only' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_e FROM public.service_enquiries WHERE id = p_enquiry_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND: no such enquiry' USING ERRCODE = 'P0002';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'enquiry', jsonb_build_object(
+      'id', v_e.id, 'public_reference', v_e.public_reference, 'requester_name', v_e.requester_name,
+      'requester_email', v_e.requester_email, 'requester_is_account', v_e.requester_user_id IS NOT NULL, 'organization', v_e.organization,
+      'country_code', v_e.country_code, 'service_code', v_e.service_code, 'source_context', v_e.source_context,
+      'subject', v_e.subject, 'message', v_e.message, 'payload_schema_version', v_e.payload_schema_version, 'payload', v_e.payload,
+      'status', v_e.status, 'assigned_to_user_id', v_e.assigned_to_user_id, 'submitted_at', v_e.submitted_at, 'updated_at', v_e.updated_at),
+    'allowed_transitions', coalesce((SELECT jsonb_agg(t.to_status ORDER BY t.to_status) FROM public.service_enquiry_status_transitions t WHERE t.from_status = v_e.status), '[]'::jsonb),
+    'events', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'id', ev.id, 'seq', ev.seq, 'event_kind', ev.event_kind, 'previous_status', ev.previous_status, 'new_status', ev.new_status,
+               'actor_kind', ev.actor_kind, 'actor_user_id', ev.actor_user_id, 'actor_email', au.email,
+               'assigned_to_user_id', ev.assigned_to_user_id, 'note', ev.note, 'created_at', ev.created_at) ORDER BY ev.seq)
+        FROM public.service_enquiry_events ev
+        LEFT JOIN auth.users au ON au.id = ev.actor_user_id AND ev.actor_kind = 'staff'
+       WHERE ev.enquiry_id = v_e.id), '[]'::jsonb),
+    'notifications', coalesce((
+      SELECT jsonb_agg(jsonb_build_object('kind', n.kind, 'status', n.status, 'attempt_count', n.attempt_count,
+                                          'last_error_code', n.last_error_code, 'accepted_at', n.sent_at) ORDER BY n.kind)
+        FROM public.service_enquiry_notifications n WHERE n.enquiry_id = v_e.id AND n.kind <> 'staff_reply'), '[]'::jsonb),
+    'replies', coalesce((
+      SELECT jsonb_agg(jsonb_build_object('id', r.id, 'body', r.body, 'created_at', r.created_at, 'staff_user_id', r.staff_user_id,
+               'staff_email', au.email, 'delivery_status', n.status, 'attempt_count', n.attempt_count, 'last_error_code', n.last_error_code,
+               'accepted_at', n.sent_at) ORDER BY r.created_at)
+        FROM public.service_enquiry_replies r
+        JOIN public.service_enquiry_notifications n ON n.reply_id = r.id
+        LEFT JOIN auth.users au ON au.id = r.staff_user_id
+       WHERE r.enquiry_id = v_e.id), '[]'::jsonb)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.staff_reply_service_enquiry(UUID, TEXT, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.staff_reply_service_enquiry(UUID, TEXT, UUID) TO authenticated;
+REVOKE ALL ON FUNCTION public.enquiry_notification_claim(INTEGER, UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.enquiry_notification_claim(INTEGER, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.staff_get_service_enquiry(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.staff_get_service_enquiry(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION public.service_enquiry_payload_valid(TEXT, INTEGER, JSONB) FROM PUBLIC, anon, authenticated;
