@@ -19,6 +19,8 @@ import { composedStatements, type ReportingDependenciesRef } from "@/lib/stateme
 import type { Composition } from "@/lib/statements/composition";
 import type { NotesStatus } from "@/lib/notes/notesStatus";
 import { applyEvidence, type EvidenceUse } from "./applyEvidence";
+import type { PeriodCashScope } from "./cashPerimeter";
+import type { CashScopeInput } from "@/lib/reporting/cashScope";
 import type { GenerationDiagnostic } from "./common";
 import type { MappingCoverage } from "./persistedAuthority";
 
@@ -53,7 +55,8 @@ export interface ComposedReportInput {
   readonly disclosures: readonly RecordedDisclosure[];
   /** Latest version of each evidence series for the period. */
   readonly evidence: readonly EvidenceBatch[];
-  readonly cashAccountKeys: readonly string[];
+  /** Each period's accounts from its authoritative reporting input (cashScopeFromReportingInput); never company-wide. */
+  readonly cashScope: CashScopeInput;
 }
 
 export interface ComposedReportResult {
@@ -126,7 +129,10 @@ export function assembleComposedReport(input: ComposedReportInput): ComposedRepo
     provenanceOrigin: "TRIAL_BALANCE_DERIVED",
   } as CanonicalFinancialStatementReport;
   const mappingCoverage = compositionCoverage(c);
-  const applied = applyEvidence({ report: base, profile: FRAMEWORK_PROFILES.IFRS_FOR_SMES, evidence: input.evidence, cashAccountKeys: input.cashAccountKeys, mappingCoverage });
+  const cmpId = built.comparativePeriods[0]?.periodId ?? null;
+  const cashScope: PeriodCashScope[] = [{ periodId: "CURRENT", accounts: input.cashScope.current },
+    ...(cmpId && input.cashScope.comparative ? [{ periodId: cmpId, accounts: input.cashScope.comparative }] : [])];
+  const applied = applyEvidence({ report: base, profile: FRAMEWORK_PROFILES.IFRS_FOR_SMES, evidence: input.evidence, cashScope, mappingCoverage });
   if (!applied.report) return { report: null, diagnostics: applied.diagnostics, use: applied.use, mappingCoverage };
   // The checklist is the server's notes status, not an evidence batch: replace the generator's (evidence-based) records.
   const kept = applied.report.textualDisclosures.filter((d) => !d.disclosureId.startsWith("checklist:"));

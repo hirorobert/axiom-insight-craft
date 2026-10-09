@@ -70,11 +70,31 @@ export function readCashAccountMap(batch: EvidenceBatch): CashPerimeterAccount[]
   }));
 }
 
+/** One account of one period's AUTHORITATIVE reporting input (fs_reporting_input: the certification of that period with
+ * its approved adjustments applied), with its reviewed cash classification. */
+export interface ScopedAccount {
+  readonly accountKey: string;
+  /** account_mappings.is_cash_account as the reporting input carries it (null = not reviewed). */
+  readonly isCashAccount: boolean | null;
+  /** The adjusted balance is exactly zero (the account is in the period, at nil). */
+  readonly zero: boolean;
+}
+/** The accounts of one presented period, from that period's authoritative reporting input. */
+export interface PeriodCashScope { readonly periodId: string; readonly accounts: readonly ScopedAccount[] }
+
 export function establishCashPerimeter(input: {
   readonly report: CanonicalFinancialStatementReport;
   readonly map: EvidenceBatch;
-  /** Account keys the trial-balance review flagged as cash accounts. Each one MUST appear in the map. */
+  /** LEGACY (no scope): account keys flagged as cash accounts; each MUST appear in the map, for every period. */
   readonly reviewedCashAccountKeys: readonly string[];
+  /**
+   * The presented periods' own accounts (DEFECT D-3). When given, a period's reviewed cash accounts are exactly the
+   * accounts of THAT period's reporting input reviewed as cash, never the company's other accounts. Every one must be in
+   * the map (current period: refused; comparative: that period's perimeter is not established). A mapped account must be
+   * in at least one presented period; one absent from a period contributes nothing to it (it is not in that period's
+   * trial balance), and one present at nil contributes exactly zero even where no statement line shows it.
+   */
+  readonly periodScopes?: readonly PeriodCashScope[];
 }): CashPerimeterResult {
   const { report, map } = input;
   const diagnostics: GenerationDiagnostic[] = [];
@@ -85,16 +105,42 @@ export function establishCashPerimeter(input: {
   const isComparative = (id: string) => id !== report.period.periodId;
 
   const mappedKeys = new Set(accounts.map((a) => a.accountKey));
-  for (const key of input.reviewedCashAccountKeys) {
-    if (!mappedKeys.has(key)) {
-      reasons.push(`Account ${key} is reviewed as a cash account but has no category in the cash account map.`);
-      diagnostics.push({ code: "CASH_ACCOUNT_UNMAPPED", severity: "ERROR", message: `Account ${key} is reviewed as a cash account but has no category in the cash account map, so the cash perimeter is ambiguous. Add it to the map.` });
+  const scopes = input.periodScopes ? new Map(input.periodScopes.map((p) => [p.periodId, new Map(p.accounts.map((a) => [a.accountKey, a]))])) : null;
+  const unmapped = (key: string) => {
+    reasons.push(`Account ${key} is reviewed as a cash account but has no category in the cash account map.`);
+    diagnostics.push({ code: "CASH_ACCOUNT_UNMAPPED", severity: "ERROR", message: `Account ${key} is reviewed as a cash account but has no category in the cash account map, so the cash perimeter is ambiguous. Add it to the map.` });
+  };
+  /** Comparative periods whose perimeter cannot be established (a reviewed cash account of that period is unmapped). */
+  const skipped = new Set<string>();
+  if (!scopes) {
+    for (const key of input.reviewedCashAccountKeys) if (!mappedKeys.has(key)) unmapped(key);
+  } else {
+    for (const periodId of periods) {
+      const scope = scopes.get(periodId);
+      if (!scope) continue;
+      const missingKeys = [...scope.values()].filter((a) => a.isCashAccount === true && !mappedKeys.has(a.accountKey)).map((a) => a.accountKey).sort();
+      if (missingKeys.length === 0) continue;
+      if (!isComparative(periodId)) missingKeys.forEach(unmapped);
+      else {
+        skipped.add(periodId);
+        diagnostics.push({ code: "CASH_PERIMETER_COMPARATIVE_INCOMPLETE", severity: "WARNING", message: `Account(s) ${missingKeys.join(", ")} of period ${periodId} are reviewed as cash but have no category in the cash account map; the cash perimeter is not established for that period.` });
+      }
     }
   }
   const sfp = report.statements.find((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
   const lineFor = (key: string) => sfp?.sections.flatMap((s) => s.lines).find((l) => l.lineId === `line:detail:sfp:${key}`);
+  const inScope = (periodId: string, key: string) => scopes?.get(periodId)?.get(key) ?? null;
   for (const a of accounts) {
-    if (!lineFor(a.accountKey)) {
+    if (scopes) {
+      const where = periods.map((p) => inScope(p, a.accountKey)).filter((x): x is ScopedAccount => x !== null);
+      if (where.length === 0) {
+        reasons.push(`Mapped account ${a.accountKey} (map row ${a.mapRow}) is in neither presented period's trial balance.`);
+        diagnostics.push({ code: "CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE", severity: "ERROR", message: `Mapped account ${a.accountKey} (map row ${a.mapRow}) is not in the reporting input of any presented period; it is not silently ignored.` });
+      } else if (!lineFor(a.accountKey) && !where.every((x) => x.zero)) {
+        reasons.push(`Mapped account ${a.accountKey} (map row ${a.mapRow}) has a balance but is not a line of the statement of financial position.`);
+        diagnostics.push({ code: "CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE", severity: "ERROR", message: `Mapped account ${a.accountKey} (map row ${a.mapRow}) has a balance but is not on the statement of financial position; it is not silently ignored.` });
+      }
+    } else if (!lineFor(a.accountKey)) {
       reasons.push(`Mapped account ${a.accountKey} (map row ${a.mapRow}) is not a line of the statement of financial position.`);
       diagnostics.push({ code: "CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE", severity: "ERROR", message: `Mapped account ${a.accountKey} (map row ${a.mapRow}) is not on the statement of financial position; it is not silently ignored.` });
     }
@@ -106,12 +152,17 @@ export function establishCashPerimeter(input: {
 
   if (reasons.length === 0) {
     for (const periodId of periods) {
+      if (skipped.has(periodId)) continue;
       const missing: string[] = [];
       const contributions: { a: CashPerimeterAccount; v: Money }[] = [];
       for (const a of accounts) {
-        const line = lineFor(a.accountKey)!;
-        const factId = line.factBindings.find((b) => b.periodId === periodId)?.factId;
-        const value = factId ? latestValue(report, factId) : null;
+        // Scoped: an account absent from this period's reporting input is not in this period's perimeter.
+        const scoped = scopes ? inScope(periodId, a.accountKey) : null;
+        if (scopes && !scoped) continue;
+        const line = lineFor(a.accountKey);
+        const factId = line?.factBindings.find((b) => b.periodId === periodId)?.factId;
+        // Present at nil with no statement line: exactly zero (the reporting input says so), never a default.
+        const value = factId ? latestValue(report, factId) : scoped?.zero ? zero : null;
         if (value === null) missing.push(a.accountKey);
         else contributions.push({ a, v: a.effect === "ADD" ? value : subtractMoney(zero, value) });
       }

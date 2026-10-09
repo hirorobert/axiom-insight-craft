@@ -313,3 +313,98 @@ describe("cash ledger completeness — account by account", () => {
     expect(r.report!.notes.some((n) => n.noteId === "note:cash-ledger-authority")).toBe(false);
   });
 });
+
+// ── DEFECT D-3: each period's cash accounts come from that period's own reporting input, never the company's ─────────
+describe("scoped cash perimeter (each period's reviewed cash accounts from its own authoritative input)", () => {
+  type Scoped = { accountKey: string; isCashAccount: boolean | null; zero: boolean };
+  const scopeOf = (accounts: Acc[], period: "cur" | "prior"): Scoped[] =>
+    accounts.filter((a) => a[period] !== undefined).map((a) => ({ accountKey: a.key, isCashAccount: a.cash ?? false, zero: a[period] === 0 }));
+  const scoped = async (o: { accounts?: Acc[]; map?: string; current?: Scoped[]; prior?: Scoped[] | null; ledgerKey?: string } = {}) => {
+    const accounts = o.accounts ?? ACCOUNTS;
+    const base = await tbReport(accounts);
+    const cashScope = [{ periodId: "CURRENT", accounts: o.current ?? scopeOf(accounts, "cur") },
+      ...(o.prior === null ? [] : [{ periodId: "PRIOR_2024", accounts: o.prior ?? scopeOf(accounts, "prior") }])];
+    const evidence = [parse("CASH_ACCOUNT_MAP", o.map ?? mapCsv(), "CURRENT", { currency: undefined, scale: undefined }),
+      parse("TRANSACTION_LEDGER", ledger("1650000").replace(",1010,", `,${o.ledgerKey ?? "1010"},`))];
+    return applyEvidence({ report: base, profile: profileForKind("IFRS_FOR_SMES"), cashScope, evidence });
+  };
+
+  it("REPRODUCED (legacy, company-wide keys): a cash account from another year that is in neither trial balance blocks the perimeter", async () => {
+    const r = await run({ cashKeys: [...ACCOUNTS.filter((a) => a.cash).map((a) => a.key), "1000"] });
+    expect(r.cashPerimeter?.status).toBe("UNRESOLVED");
+    expect(r.cashPerimeter?.reasons.join(" ")).toMatch(/Account 1000 is reviewed as a cash account but has no category/);
+  });
+
+  it("scoped: accounts outside both periods' inputs are not part of the perimeter; the same figures as before", async () => {
+    const r = await scoped();
+    expect(r.cashPerimeter?.status).toBe("ESTABLISHED");
+    expect(factOf(r, "gross")).toBe(560_000_000n);
+    const legacy = await run();
+    for (const role of ["gross", "restricted", "ecl", "overdraft", "excluded", "net", "cfexpected"] as const) {
+      expect(factOf(r, role)).toBe(factOf(legacy, role));
+      expect(factOf(r, role, "PRIOR_2024")).toBe(factOf(legacy, role, "PRIOR_2024"));
+    }
+  });
+
+  it("arbitrary codes that differ across years: the current year's 91000 and the prior year's 1010 each count only in their own period", async () => {
+    const accounts: Acc[] = [
+      { key: "91000", name: "Bank (new code)", cls: "current_assets", normal: "debit", cur: 1_250_000, cash: true },
+      { key: "1010", name: "Bank (old code)", cls: "current_assets", normal: "debit", cur: undefined as unknown as number, prior: 800_000, cash: true },
+      { key: "3000", name: "Share capital", cls: "equity", normal: "credit", cur: 1_250_000, prior: 800_000 },
+    ];
+    const r = await scoped({ accounts, map: mapCsv(["91000,BANK_ACCOUNT,ADD,Y,", "1010,BANK_ACCOUNT,ADD,Y,"]), ledgerKey: "91000" });
+    expect(r.cashPerimeter?.status).toBe("ESTABLISHED");
+    expect(factOf(r, "gross")).toBe(125_000_000n);
+    expect(factOf(r, "gross", "PRIOR_2024")).toBe(80_000_000n);
+  });
+
+  it("a current-period reviewed cash account missing from the map is still refused (strictness kept)", async () => {
+    const r = await scoped({ map: mapCsv(MAP_ROWS.filter((x) => !x.startsWith("1020,"))) });
+    expect(r.cashPerimeter?.status).toBe("UNRESOLVED");
+    expect(r.cashPerimeter?.reasons.join(" ")).toMatch(/Account 1020 is reviewed as a cash account/);
+  });
+
+  it("a prior-period-only reviewed cash account missing from the map leaves only the comparative perimeter unestablished (warning)", async () => {
+    const prior = [...scopeOf(ACCOUNTS, "prior"), { accountKey: "1005", isCashAccount: true, zero: false }];
+    const r = await scoped({ prior });
+    expect(r.cashPerimeter?.status).toBe("ESTABLISHED");
+    expect(r.diagnostics.some((d) => d.code === "CASH_PERIMETER_COMPARATIVE_INCOMPLETE" && /1005/.test(d.message))).toBe(true);
+    expect(factOf(r, "gross", "PRIOR_2024")).toBeUndefined();
+  });
+
+  it("a mapped account in neither period's input is refused by name (never silently ignored)", async () => {
+    const r = await scoped({ map: mapCsv([...MAP_ROWS, "91000,BANK_ACCOUNT,ADD,Y,"]) });
+    expect(r.cashPerimeter?.status).toBe("UNRESOLVED");
+    expect(r.diagnostics.some((d) => d.code === "CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE" && /91000/.test(d.message))).toBe(true);
+  });
+
+  it("a zero-balance cash account in the input must still be categorised, and then contributes exactly zero", async () => {
+    const current = [...scopeOf(ACCOUNTS, "cur"), { accountKey: "1070", isCashAccount: true, zero: true }];
+    const unmapped = await scoped({ current });
+    expect(unmapped.cashPerimeter?.status).toBe("UNRESOLVED");
+    const mapped = await scoped({ current, map: mapCsv([...MAP_ROWS, "1070,BANK_ACCOUNT,ADD,Y,dormant account at nil"]) });
+    expect(mapped.cashPerimeter?.status).toBe("ESTABLISHED");
+    expect(factOf(mapped, "gross")).toBe(560_000_000n);
+  });
+
+  it("a zero is never assumed for an account with a balance but no statement line", async () => {
+    const current = [...scopeOf(ACCOUNTS, "cur"), { accountKey: "1071", isCashAccount: true, zero: false }];
+    const r = await scoped({ current, map: mapCsv([...MAP_ROWS, "1071,BANK_ACCOUNT,ADD,Y,"]) });
+    expect(r.cashPerimeter?.status).toBe("UNRESOLVED");
+    expect(r.diagnostics.some((d) => d.code === "CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE" && /1071.*has a balance/.test(d.message))).toBe(true);
+  });
+
+  it("a mapping change that reviews another input account as cash makes the same map insufficient", async () => {
+    const current = scopeOf(ACCOUNTS, "cur").map((a) => (a.accountKey === "3000" ? { ...a, isCashAccount: true } : a));
+    const r = await scoped({ current });
+    expect(r.cashPerimeter?.status).toBe("UNRESOLVED");
+    expect(r.cashPerimeter?.reasons.join(" ")).toMatch(/Account 3000 is reviewed as a cash account/);
+  });
+
+  it("without a cash account map there is no perimeter and the closing-cash tie is insufficient evidence, not guessed", async () => {
+    const base = await tbReport();
+    const r = applyEvidence({ report: base, profile: profileForKind("IFRS_FOR_SMES"), cashScope: [{ periodId: "CURRENT", accounts: scopeOf(ACCOUNTS, "cur") }], evidence: [parse("TRANSACTION_LEDGER", ledger("1650000"))] });
+    expect(r.cashPerimeter ?? null).toBeNull();
+    expect(r.diagnostics.some((d) => d.code === "CASH_ACCOUNT_MAP_REQUIRED")).toBe(true);
+  });
+});

@@ -21,7 +21,7 @@ import { amountOf, columnReader, type EvidenceRowRef, type GenerationDiagnostic,
 import { buildEquityStatement, type EquityPeriodInput } from "./equityStatement";
 import { buildIpsasCashStatement, type IpsasCashPeriodInput } from "./ipsasCash";
 import { assembleNotes, type ChecklistItem } from "./notesAndSchedules";
-import { cashPerimeterFactId, establishCashPerimeter, readCashAccountMap, type CashPerimeterResult } from "./cashPerimeter";
+import { cashPerimeterFactId, establishCashPerimeter, readCashAccountMap, type CashPerimeterResult, type PeriodCashScope } from "./cashPerimeter";
 import { accountsFromPerimeterMap, accountsFromSingleReviewedCash, establishCashLedgerAuthority, type CashLedgerAuthorityResult } from "./cashLedgerAuthority";
 import { checklistDisclosures, derivedChecklistSource, embedBudgetComparison, mappingCoverageDisclosure, type MappingCoverage } from "./persistedAuthority";
 
@@ -47,8 +47,10 @@ export interface ApplyEvidenceInput {
   readonly profile: FrameworkProfile;
   /** Latest version of each series only (see latestPerSeries). */
   readonly evidence: readonly EvidenceBatch[];
-  /** Account keys of trial-balance accounts professionally reviewed as cash accounts. */
+  /** LEGACY: account keys of trial-balance accounts professionally reviewed as cash accounts (ignored when cashScope is given). */
   readonly cashAccountKeys?: readonly string[];
+  /** Each presented period's accounts from its authoritative reporting input, with the reviewed cash flag (DEFECT D-3). */
+  readonly cashScope?: readonly PeriodCashScope[];
   readonly budget?: BudgetActualOptions;
   /** How many trial-balance accounts were reviewed / unmapped / ambiguous when the base report was prepared. Recorded in the document so the database can see it. */
   readonly mappingCoverage?: MappingCoverage;
@@ -198,11 +200,13 @@ export function applyEvidence(input: ApplyEvidenceInput): ApplyEvidenceResult {
 
   // Cash tie: when exactly one SFP line is a reviewed cash account, it carries the cash concept so Rule 6 can test the cash flow against it.
   const sfpIndex = report.statements.findIndex((s) => s.type === "STATEMENT_OF_FINANCIAL_POSITION");
-  const cashKeys = input.cashAccountKeys ?? [];
+  const cashKeys = input.cashScope
+    ? (input.cashScope.find((p) => p.periodId === report.period.periodId)?.accounts ?? []).filter((a) => a.isCashAccount === true).map((a) => a.accountKey).sort()
+    : input.cashAccountKeys ?? [];
   const mapBatch = one(usable, "CASH_ACCOUNT_MAP", "CURRENT");
   let perimeter: CashPerimeterResult | null = null;
   if (mapBatch && sfpIndex >= 0) {
-    perimeter = establishCashPerimeter({ report, map: mapBatch, reviewedCashAccountKeys: cashKeys });
+    perimeter = establishCashPerimeter({ report, map: mapBatch, reviewedCashAccountKeys: cashKeys, ...(input.cashScope ? { periodScopes: input.cashScope } : {}) });
     diagnostics.push(...perimeter.diagnostics);
     use.push({ evidenceType: "CASH_ACCOUNT_MAP", periodRole: "CURRENT", evidenceBatchId: mapBatch.evidenceBatchId, used: perimeter.status === "ESTABLISHED", reason: perimeter.status === "ESTABLISHED" ? "Used to establish the multi-account cash perimeter." : `The perimeter could not be established: ${perimeter.reasons.join(" ")}` });
   } else if (mapBatch) {

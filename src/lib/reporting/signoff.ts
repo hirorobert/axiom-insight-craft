@@ -103,7 +103,6 @@ export function signoffClient(db: ReportingDb) {
     evidence: async (companyId: string, reportingPeriodId: string) => (await rows("financial_evidence_batches", { company_id: companyId, reporting_period_id: reportingPeriodId })).map(toStoredEvidence),
     disclosureTexts: async (companyId: string, periodYear: number) => (await rows("fs_disclosure_texts", { company_id: companyId, period_year: periodYear }))
       .filter((r) => r.body != null).map((r) => ({ requirementId: String(r.requirement_id), textId: String(r.id), body: String(r.body), sourceRef: r.source_ref == null ? null : String(r.source_ref) })),
-    cashAccountKeys: async (companyId: string) => (await rows("account_mappings", { company_id: companyId, is_cash_account: true })).map((r) => String(r.account_key)).sort(),
     /** The stored document of a version, exactly as saved. */
     report: async (reportId: string, reportVersion: number) => {
       const r = (await rows("financial_statement_reports", { report_id: reportId, report_version: reportVersion }))[0];
