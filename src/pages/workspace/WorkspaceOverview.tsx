@@ -30,6 +30,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { mayRequestReprocess, requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { useWorkspaceCommercialState } from "@/hooks/useWorkspaceCommercialState";
+import { useReportingAccess } from "@/hooks/useReportingAccess";
+import { useReportingNextAction } from "@/hooks/useReportingNextAction";
 import { toast } from "sonner";
 import CompanyTinDialog from "@/components/workspace/CompanyTinDialog";
 import EngagementScopeDialog from "@/components/workspace/EngagementScopeDialog";
@@ -101,6 +103,12 @@ export default function WorkspaceOverview() {
   // entitlement (CLOSE_ASSURANCE) — never on an engagement's service scope alone.
   const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
   const { state: commercial } = useWorkspaceCommercialState(companyId);
+  // After the trial balance, a reporting-enabled company's next step is the reporting journey's own (server prerequisites:
+  // Close Review, statements, comparatives, notes, evidence, version, sign-off) — read only when the engine's step lies in
+  // a withheld stage.
+  const reportingAccess = useReportingAccess(companyId);
+  const reportingNext = useReportingNextAction(companyId, periodYear,
+    reportingAccess.state === "enabled" && !isStageCustomerVisible(workspaceState.nextAction.mission), myCapabilities?.allowed ?? null);
 
   // Retry the ingest pipeline when the active upload failed.
   const handleRetryProcessing = async () => {
@@ -281,10 +289,19 @@ export default function WorkspaceOverview() {
     // Same mapping function the internal classification-states acceptance page uses — one semantic authority.
     decision = buildClassificationDecision(classification, classificationDecisionOptions);
   } else if (!isStageCustomerVisible(nextAction.mission)) {
-    // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked:
-    // the customer's own trial-balance-review step is the one decision.
+    // The engine's next step lies in a stage withheld from customers (moduleAvailability.ts). It is never named or linked.
+    // For a reporting-enabled company the reporting journey's next action (with its reason) is the one decision; otherwise
+    // the customer's own trial-balance-review step is.
     const step = trialBalanceReviewStep(workspaceState);
-    decision = step
+    decision = reportingNext
+      ? {
+          eyebrow: "Financial reporting (pilot)",
+          headline: `${reportingNext.action.title}.`,
+          detail: reportingNext.action.detail,
+          button: { label: reportingNext.action.tone === "done" ? "Open exports" : reportingNext.action.title, href: reportingNext.href, icon: <ArrowRight className="w-4 h-4" /> },
+          tone: reportingNext.action.tone === "todo" ? "primary" : "muted",
+        }
+      : step
       ? {
           eyebrow: TRIAL_BALANCE_REVIEW.title,
           headline: `${step.label}.`,

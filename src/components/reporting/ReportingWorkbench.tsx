@@ -8,11 +8,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { compositionClient } from "@/lib/statements/composition";
-import { notesClient } from "@/lib/notes/notesStatus";
-import { comparativesClient } from "@/lib/comparatives/comparatives";
-import { signoffClient, type SavedVersion } from "@/lib/reporting/signoff";
-import { nextReportingAction, type NextAction } from "@/lib/reporting/nextAction";
+import type { NextAction } from "@/lib/reporting/nextAction";
+import { nextActionFor, readReportingSnapshot, reportingClients } from "@/lib/reporting/reportingState";
 import type { PageProps, ReportingPage, ReportingProps, ReportingState } from "./shared";
 import { StatementsView } from "./StatementsView";
 import { NotesView } from "./NotesView";
@@ -26,7 +23,7 @@ const TITLES: Record<ReportingPage, string> = {
 };
 
 export function ReportingWorkbench(p: ReportingProps) {
-  const clients = useMemo(() => ({ composition: compositionClient(p.db), notes: notesClient(p.db), comparatives: comparativesClient(p.db), signoff: signoffClient(p.db) }), [p.db]);
+  const clients = useMemo(() => reportingClients(p.db), [p.db]);
   const [state, setState] = useState<ReportingState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
@@ -35,23 +32,15 @@ export function ReportingWorkbench(p: ReportingProps) {
     const mine = ++seq.current;
     setError(null);
     try {
-      const [composition, notes, comparatives, versions] = await Promise.all([
-        clients.composition.compose(p.companyId, p.periodYear), clients.notes.status(p.companyId, p.periodYear),
-        clients.comparatives.status(p.companyId, p.periodYear), clients.signoff.versions(p.companyId, p.periodYear).catch(() => [] as SavedVersion[]),
-      ]);
-      const last = [...versions].filter((v) => v.isLatest).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null;
-      const r = last ? await clients.signoff.readiness(p.companyId, last.reportId, last.reportVersion) : null;
-      if (mine === seq.current) setState({ composition, notes, comparatives, versions, latest: last && r ? { version: last, blockers: r.blockers, ready: r.ready } : null });
+      const s = await readReportingSnapshot(p.db, clients, p.companyId, p.periodYear);
+      if (mine === seq.current) setState(s);
     } catch (e) {
       if (mine === seq.current) setError(e instanceof Error ? e.message : "The reporting state could not be read.");
     }
-  }, [clients, p.companyId, p.periodYear]);
+  }, [clients, p.db, p.companyId, p.periodYear]);
   useEffect(() => { void load(); }, [load]);
 
-  const next: NextAction | null = state ? nextReportingAction({
-    composition: state.composition, notes: state.notes, comparatives: state.comparatives, allowed: p.allowed,
-    latest: state.latest ? { reportVersion: state.latest.version.reportVersion, state: state.latest.version.state, blockers: state.latest.blockers } : null,
-  }) : null;
+  const next: NextAction | null = state ? nextActionFor(state, p.allowed) : null;
 
   return (
     <div className="space-y-4 p-4" data-testid="reporting-workbench">
@@ -61,7 +50,10 @@ export function ReportingWorkbench(p: ReportingProps) {
           <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void load()}>Try again</button></p>
       ) : !state ? <p role="status" className="text-sm text-muted-foreground">Reading the statements, notes and comparatives…</p> : (
         <>
-          {next ? <NextActionBar action={next} current={p.page} href={p.hrefFor(next.page as ReportingPage, p.reportVersion)} /> : null}
+          {/* The page's own task leads. The report's next action is the dominant bar only on the page that owns it;
+              elsewhere it is one quiet line, so (for example) open notes never dominate Schedules or Sign-off. */}
+          {next && next.page === p.page ? <NextActionBar action={next} /> : null}
+          {next && next.page !== p.page ? <NextElsewhere action={next} href={p.hrefFor(next.page as ReportingPage, p.reportVersion)} /> : null}
           <Page {...p} state={state} clients={clients} refresh={load} />
         </>
       )}
@@ -69,14 +61,23 @@ export function ReportingWorkbench(p: ReportingProps) {
   );
 }
 
-/** The one dominant next action: a link to the page that owns it, or the plain statement when it is on this page. */
-function NextActionBar({ action, current, href }: { action: NextAction; current: ReportingPage; href: string }) {
+/** The one dominant next action, on the page that owns it. */
+function NextActionBar({ action }: { action: NextAction }) {
   const tone = action.tone === "done" ? "border-[#22663f] bg-[#eef7f1]" : action.tone === "blocked" ? "border-[#5f6b7a] bg-muted/40" : "border-primary bg-[#eef3fb]";
   return (
     <section aria-label="Next action" data-testid="next-action" data-tone={action.tone} className={`border-l-[3px] px-3 py-2 text-sm ${tone}`}>
-      <p className="font-semibold">{action.page === current ? action.title : <Link to={href} className="text-primary underline">{action.title} →</Link>}</p>
+      <p className="font-semibold">{action.title}</p>
       <p className="text-muted-foreground">{action.detail}</p>
     </section>
+  );
+}
+
+/** The report's next action when another page owns it: one line, a link, no detail. */
+function NextElsewhere({ action, href }: { action: NextAction; href: string }) {
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="next-action" data-tone={action.tone} data-elsewhere="true">
+      Next for this report: <Link to={href} className="text-primary underline">{action.title} →</Link>
+    </p>
   );
 }
 

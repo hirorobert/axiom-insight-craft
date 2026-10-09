@@ -5,6 +5,7 @@
  * and a blocking requirement that is missing blocks sign-off on the server.
  */
 import { useId, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { IFRS_FOR_SMES_2015, IFRS_FOR_SMES_2025 } from "@/lib/frameworkPacks/ifrsForSmes";
 import { STATUS_WORDS, needsWork, type NotesStatus, type RequirementState } from "@/lib/notes/notesStatus";
 import { StatusWord } from "@/components/workbench/StatusWord";
@@ -29,11 +30,19 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
   const byId = useMemo(() => new Map(pack.requirements.map((r) => [r.id, r])), [pack]);
   const rows = p.n.requirements.filter((r) => r.kind !== "SCHEDULE");
   const open = rows.filter((r) => r.blocking && needsWork(r)).length;
+  // The open count includes statements that wait only for evidence; say so, so it reconciles with the next action.
+  const evidenceOpen = rows.filter((r) => r.blocking && r.status === "evidence_missing").length;
   const [selected, setSelected] = useState<string | null>(rows.find((r) => r.blocking && needsWork(r))?.requirementId ?? null);
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
       <section aria-labelledby="h-req">
         <h2 id="h-req" className="mb-2 text-base font-semibold">{pack.edition.title} — {open === 0 ? "no blocking requirement is open" : `${open} blocking requirement${open === 1 ? "" : "s"} open`}</h2>
+        {evidenceOpen > 0 ? (
+          <p className="mb-2 text-sm text-muted-foreground" data-testid="requirements-breakdown">
+            {open - evidenceOpen} need wording or a decision here; {evidenceOpen} need{evidenceOpen === 1 ? "s" : ""} cash-flow or equity evidence, added on{" "}
+            <Link className="text-primary underline" to={p.hrefFor("fs-statements", p.reportVersion)}>Statements</Link>.
+          </p>
+        ) : null}
         <ul className="divide-y divide-border border-y border-border text-sm" data-testid="requirements">
           {rows.map((r) => {
             const def = byId.get(r.requirementId);

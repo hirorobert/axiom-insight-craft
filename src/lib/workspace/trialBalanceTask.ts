@@ -26,7 +26,7 @@ function task(step: 1 | 2 | 3, instruction: string): TrialBalanceTask {
 }
 
 export function currentTrialBalanceTask(
-  verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues">,
+  verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues"> & { equationExact?: boolean },
 ): TrialBalanceTask {
   switch (verdict.status) {
     case "none":
@@ -59,6 +59,6 @@ export function currentTrialBalanceTask(
         ? task(1, "An arithmetic check needs attention before this trial balance can be reviewed. See the checks below.")
         : task(2, "Confirm the classification of the accounts listed below.");
     case "accepted":
-      return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${reviewedScope(verdict.equationExact)} ${TRIAL_BALANCE_REVIEW.notApproval}`);
+      return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${reviewedScope(verdict.equationExact === true)} ${TRIAL_BALANCE_REVIEW.notApproval}`);
   }
 }

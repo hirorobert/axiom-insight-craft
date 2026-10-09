@@ -25,20 +25,20 @@ describe("the one next action follows the server's dependency chain", () => {
     const c = { ...composition, blockers: ["PRESENTATION_UNASSIGNED:3", "PRESENTATION_INCOMPATIBLE:1"] } as CompositionResult;
     expect(at({ composition: c })).toMatchObject({ page: "fs-statements", title: "Assign 4 accounts to statement lines" });
   });
-  it("then notes, then schedules — only blocking requirements that need work", () => {
+  it("notes, then schedules — only blocking requirements that need work", () => {
     expect(at({ notes: notes([{ id: "smes.note.policies", kind: "DISCLOSURE", status: "missing" }, { id: "smes.schedule.ppe", kind: "SCHEDULE", status: "closing_mismatch" }]) }))
       .toMatchObject({ page: "fs-notes", title: "Complete 1 note requirement" });
     expect(at({ notes: notes([{ id: "smes.schedule.ppe", kind: "SCHEDULE", status: "closing_mismatch" }, { id: "smes.note.x", kind: "DISCLOSURE", status: "missing", blocking: false }]) }))
       .toMatchObject({ page: "fs-schedules", title: "Complete 1 schedule" });
   });
-  it("then comparatives: an approval is a reviewer's step, so a preparer sees it as someone else's", () => {
+  it("comparatives: an approval is a reviewer's step, so a preparer sees it as someone else's", () => {
     expect(at({ comparatives: cmp("unapproved"), allowed: ["prepare_close"] })).toMatchObject({ page: "fs-comparatives", tone: "blocked" });
     expect(at({ comparatives: cmp("unapproved") })).toMatchObject({ page: "fs-comparatives", tone: "todo" });
     expect(at({ comparatives: cmp("first_period_exception") }).page).toBe("signoff");
     expect(at({ comparatives: cmp("reference_only") }).title).toBe("Comparatives: Reference only");
   });
   it("then evidence, then a version on the current dependencies", () => {
-    expect(at({ notes: notes([{ id: "smes.set.cash_flows", kind: "STATEMENT", status: "evidence_missing" }]) }).title).toMatch(/evidence/);
+    expect(at({ notes: notes([{ id: "smes.set.cash_flows", kind: "STATEMENT", status: "evidence_missing" }]) })).toMatchObject({ page: "fs-statements", title: expect.stringMatching(/evidence/) });
     expect(at({ latest: null }).title).toBe("Save the first report version");
     expect(at({ latest: { reportVersion: 2, state: "FINAL", blockers: ["REPORTING_DEPENDENCIES_STALE"] } }).title).toBe("Save a new report version");
   });
@@ -59,6 +59,42 @@ describe("the one next action follows the server's dependency chain", () => {
 describe("an unsupported reporting case (20261022100000)", () => {
   it("is named first, as a stop rather than a to-do, before any other note work", () => {
     const n = notes([{ id: "smes.note.policies", kind: "DISCLOSURE", status: "missing" }, { id: "smes.sci.5_5_g", kind: "LINE_ITEM" as "DISCLOSURE", status: "unsupported" }]);
-    expect(at({ notes: n })).toMatchObject({ page: "fs-notes", tone: "blocked", title: "This report cannot be finalised: a reporting case is not supported", detail: "smes.sci.5_5_g" });
+    const a = at({ notes: n });
+    expect(a).toMatchObject({ page: "fs-notes", tone: "blocked", title: "This report cannot be finalised: a reporting case is not supported" });
+    expect(a.detail).not.toMatch(/smes\./);
+  });
+});
+
+describe("the journey order and readable tasks (commercial candidate)", () => {
+  const summary = (o: object) => ({ state: "current", runId: "r", currency: "TZS", exponent: 2, generatedAt: "now", total: 3, unresolved: 0, unresolvedBlocking: 0, ruleStatus: {}, ...o }) as NextActionInput["closeReview"];
+  it("Close Review comes first: an unchecked or stale run, then unresolved blocking findings — before statements", () => {
+    expect(at({ closeReview: { state: "not_generated" } })).toMatchObject({ page: "close-findings", title: "Run the Close Review checks", tone: "todo" });
+    expect(at({ closeReview: { state: "stale" } })).toMatchObject({ page: "close-findings", title: "Run the Close Review checks again" });
+    expect(at({ closeReview: { state: "not_generated" }, allowed: ["review_close"] }).tone).toBe("blocked");
+    expect(at({ closeReview: summary({ unresolved: 2, unresolvedBlocking: 2 }) })).toMatchObject({ page: "close-findings", title: "Resolve 2 blocking findings" });
+    // Even with nothing composed yet, the findings step is named first; checked and clear, the statements step follows.
+    expect(at({ closeReview: { state: "not_generated" }, composition: { state: "no_authority" } }).page).toBe("close-findings");
+    expect(at({ closeReview: summary({}), composition: { state: "no_authority" } }).page).toBe("fs-statements");
+    // Not read (undefined): the version's own Close Review blockers still apply.
+    expect(at({ closeReview: undefined }).title).toBe("Review version 2");
+  });
+  it("comparatives are established before notes: a missing prior period is the next action even while notes are open", () => {
+    const openNotes = notes([{ id: "smes.note.policies", kind: "DISCLOSURE", status: "missing" }]);
+    expect(at({ notes: openNotes, comparatives: cmp("missing") }).page).toBe("fs-comparatives");
+    expect(at({ notes: openNotes }).page).toBe("fs-notes");
+  });
+  it("names requirements by the framework pack's words, never by their identifiers, and explains the Notes page count", () => {
+    const n = notes([
+      { id: "smes.note.policies", kind: "DISCLOSURE", status: "missing" },
+      { id: "smes.set.cash_flows", kind: "STATEMENT", status: "evidence_missing" },
+      { id: "smes.set.changes_in_equity", kind: "STATEMENT", status: "evidence_missing" },
+    ]);
+    const a = at({ notes: n });
+    expect(a.title).toBe("Complete 1 note requirement");
+    expect(a.detail).not.toMatch(/smes\./);
+    expect(a.detail).toMatch(/2 more need cash-flow or equity evidence \(Statements › Evidence\)/);
+    const e = at({ notes: notes([{ id: "smes.set.cash_flows", kind: "STATEMENT", status: "evidence_missing" }]) });
+    expect(e).toMatchObject({ page: "fs-statements", title: "Add the evidence for the cash-flow and equity statements" });
+    expect(e.detail).not.toMatch(/smes\./);
   });
 });
