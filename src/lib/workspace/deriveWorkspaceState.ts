@@ -122,6 +122,7 @@ export function deriveWorkspaceState(
     companyName,
     currentUploadId: upload.id,
     lastUpdatedAt: upload.processedAt ?? upload.uploadedAt,
+    ...(upload.recordedEquation === "exact" ? { statementEquationExact: true as const } : {}),
   };
 
   // ── PATH 2: Processing ────────────────────────────────────────────────────

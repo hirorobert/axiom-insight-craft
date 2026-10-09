@@ -8,7 +8,7 @@
  */
 
 import { TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
-import { REVIEWED_SCOPE, type TrialBalanceVerdict } from "./trialBalanceVerdict";
+import { reviewedScope, type TrialBalanceVerdict } from "./trialBalanceVerdict";
 
 export interface TrialBalanceTask {
   service: string;
@@ -59,6 +59,6 @@ export function currentTrialBalanceTask(
         ? task(1, "An arithmetic check needs attention before this trial balance can be reviewed. See the checks below.")
         : task(2, "Confirm the classification of the accounts listed below.");
     case "accepted":
-      return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${REVIEWED_SCOPE} ${TRIAL_BALANCE_REVIEW.notApproval}`);
+      return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${reviewedScope(verdict.equationExact)} ${TRIAL_BALANCE_REVIEW.notApproval}`);
   }
 }

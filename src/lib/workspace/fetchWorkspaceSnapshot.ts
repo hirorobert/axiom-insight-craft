@@ -136,6 +136,7 @@ function toUploadSnapshot(
     certificationVerdict,
     certificationBlocker,
     trialBalanceTotals: readTrialBalanceTotals(upload.processing_result),
+    recordedEquation: readRecordedEquation(upload.processing_result),
   };
 }
 

@@ -36,7 +36,7 @@ vi.mock("@/integrations/supabase/client", () => {
 });
 
 const { computeCertificationReadiness, RECORDED_EQUATION_FAILURE, RECORDED_EQUATION_UNREADABLE } = await import("./computeCertificationReadiness");
-const { deriveTrialBalanceVerdict, REVIEWED_SCOPE } = await import("./trialBalanceVerdict");
+const { deriveTrialBalanceVerdict, REVIEWED_SCOPE, REVIEWED_SCOPE_EXACT } = await import("./trialBalanceVerdict");
 const { fetchWorkspaceSnapshot } = await import("./fetchWorkspaceSnapshot");
 const { fetchCertificationReadiness } = await import("@/hooks/useCertificationReadiness");
 const { trialBalanceReviewStep, deriveOrientationSummary } = await import("./deriveOrientationSummary");
@@ -52,18 +52,27 @@ const EXACT = { tb_balance_check: { passed: true, total_debits: 2000, total_cred
 const EQ_FAIL = { code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null, message: "Assets (2000.00) != Liabilities + Closing Equity (1900.00). Difference: 100.00" };
 const cert = (exceptions: unknown, over: Partial<TbCertificationRow> = {}): TbCertificationRow =>
   ({ id: "c1", sequence_no: 1, company_id: COMPANY, upload_id: U, period_year: 2025, is_blocking: false, requires_review: false, exceptions, certified_at: "2026-01-02T00:00:00Z", ...over }) as TbCertificationRow;
-const upload = (equation: unknown) => ({
+// A valid tb-amounts/1 document whose statement equation holds to the minor unit (src/lib/accounting/tbAmounts.ts).
+const EXACT_AMOUNTS = {
+  contract: "tb-amounts/1", currency: "TZS", exponent: 2,
+  source: { debit_total_minor: "190025", credit_total_minor: "190025", difference_minor: "0" },
+  classes: { assets_minor: "150025", liabilities_minor: "0", equity_minor: "100000", income_minor: "90025", expenses_minor: "40000" },
+  equation: { lhs_minor: "150025", rhs_minor: "150025", difference_minor: "0", status: "balanced" },
+  cash: { reported_minor: "150025", credit_balances_minor: "0", overdraft_minor: "0", net_position_minor: "150025", accounts: 1 },
+  reconciliation: { status: "not_checked" },
+};
+const upload = (equation: unknown, amounts?: unknown) => ({
   id: U, file_name: "tb.csv", file_path: "x", file_size: 1, status: "complete", is_valid: true, company_id: COMPANY, company_name: "Synthetic Co",
   period_year: 2025, uploaded_at: "2026-01-01T00:00:00Z", processed_at: "2026-01-01T00:00:00Z", safisha_status: null, lifecycle_state: "active_processed",
-  processing_result: { validation_report: { ...EXACT, ...(equation === undefined ? {} : { balance_sheet_equation: equation }) } },
+  processing_result: { ...(amounts === undefined ? {} : { amounts }), validation_report: { ...EXACT, ...(equation === undefined ? {} : { balance_sheet_equation: equation }) } },
 });
 
 interface Outcome { reviewed: boolean; reason: string }
 
-async function surfaces(row: { authoritative: TbCertificationRow | null; latest: TbCertificationRow | null }, equation: unknown) {
+async function surfaces(row: { authoritative: TbCertificationRow | null; latest: TbCertificationRow | null }, equation: unknown, amounts?: unknown) {
   db.authoritative = row.authoritative ? [row.authoritative] : [];
   db.latestForUpload = row.latest ? [row.latest] : [];
-  const u = upload(equation);
+  const u = upload(equation, amounts);
 
   // Prepare: exactly what PrepareWorkspace does with the two reads.
   const reads = await fetchCertificationReadiness(COMPANY, 2025, U);
@@ -109,6 +118,17 @@ describe("identical outcomes across Prepare, Overview and hub", () => {
     const reason = "The statement equation does not hold: Assets (2000.00) does not equal Liabilities + Closing Equity (1900.00). Difference: 100.00";
     expect(s.prepare.reason).toBe(reason);
     expect(s.overview.reason).toBe(reason);
+  });
+
+  it("exact amounts proving the equation: the Overview's summary and the Prepare checks both say it holds exactly — never 'not exactly verified' beside a passed check", async () => {
+    const s = await surfaces({ authoritative: cert([]), latest: null }, { passed: true, assets: 1500.25, liabilities: 0, equity: 1000, difference: 0 }, EXACT_AMOUNTS);
+    expect([s.prepare.reviewed, s.overview.reviewed, s.hub.reviewed]).toEqual([true, true, true]);
+    expect(s.state.statementEquationExact).toBe(true);
+    for (const reason of [s.prepare.reason, s.overview.reason]) {
+      expect(reason).toContain(REVIEWED_SCOPE_EXACT);
+      expect(reason).not.toMatch(/not exactly verified/i);
+    }
+    expect(s.prepareText).toMatch(/Statement equation Passed Holds exactly/);
   });
 
   it("valid legacy result with no demonstrated failure: all three say Reviewed, with the same scope and no blanket claim", async () => {

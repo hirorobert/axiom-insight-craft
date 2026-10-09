@@ -41,10 +41,15 @@ import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold } from "./comp
 
 /**
  * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
- * confirmed classifications, and that the statement equation is not exactly verified. Shared by the card, the Prepare
- * step and the Overview / hub, so they say the same thing.
+ * confirmed classifications, and what the stored result proves about the statement equation. Shared by the card, the
+ * Prepare step and the Overview / hub, so they say the same thing — and by reviewedScope() from the SAME reading the
+ * checks use (readRecordedEquation), so the summary never contradicts the "Statement equation" check row.
  */
 export const REVIEWED_SCOPE = "Debit and credit totals agree and every account classification is confirmed. The statement equation is not exactly verified for this result.";
+/** The same, for a result whose exact amounts (tb-amounts/1) prove the statement equation to the minor unit. */
+export const REVIEWED_SCOPE_EXACT = "Debit and credit totals agree, every account classification is confirmed, and the statement equation holds exactly.";
+/** The reviewed-scope sentence for what the stored result proves: exact amounts, or a legacy result. */
+export const reviewedScope = (equationExact: boolean): string => (equationExact ? REVIEWED_SCOPE_EXACT : REVIEWED_SCOPE);
 
 /** Presentation-only row (not a stored check): the statement equation for a result that records no equation failure. */
 export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
@@ -322,6 +327,8 @@ export interface TrialBalanceVerdict {
   informational: TrialBalanceCheck[];
   /** The first check that failed or needs review, or null. */
   failedCheckId: string | null;
+  /** The stored result's exact amounts prove the statement equation to the minor unit (readRecordedEquation === "exact"). */
+  equationExact: boolean;
   /**
    * "Balanced" / "Accepted — within the TZS 1.00 tolerance", stated only when the certification's own arithmetic check
    * (L3) passed for this upload — the local cents never state balance on their own. Null otherwise.
@@ -434,7 +441,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const classificationOpen = checks.some((c) => c.id === "l4_classification" && (c.state === "review" || c.state === "failed"));
   const issues = upload ? readIngestionIssues(upload.processing_result) : [];
   const milestones = upload ? readMilestones(upload.processing_result) : [];
-  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, balanceStatement: l3Passed ? balanceStatement(totals) : null, issues: [] as TrialBalanceIssue[], milestones };
+  const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, equationExact: recordedEquation === "exact", balanceStatement: l3Passed ? balanceStatement(totals) : null, issues: [] as TrialBalanceIssue[], milestones };
 
   if (!upload) {
     return { ...base, status: "none", statusLabel: "No trial balance", tone: "neutral", reason: "Upload a trial balance to begin.", primaryAction: null };
@@ -468,7 +475,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       }
       return {
         ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
-        reason: `${REVIEWED_TRIAL_BALANCE}. ${REVIEWED_SCOPE} It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
+        reason: `${REVIEWED_TRIAL_BALANCE}. ${reviewedScope(recordedEquation === "exact")} It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
         primaryAction: null,
       };
     case "blocked":

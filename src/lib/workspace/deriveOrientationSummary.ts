@@ -19,7 +19,7 @@ import type { EngagementCapability } from "./mandate";
 import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
-import { REVIEWED_SCOPE } from "./trialBalanceVerdict";
+import { reviewedScope } from "./trialBalanceVerdict";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -60,7 +60,9 @@ export function trialBalanceReviewStep(state: WorkspaceState): TrialBalanceRevie
   return {
     ready: true,
     label: TRIAL_BALANCE_REVIEW.ready,
-    detail: `${REVIEWED_SCOPE} It is ready for statement preparation. ${TRIAL_BALANCE_REVIEW.notApproval}`,
+    // The same reading as the checks (readRecordedEquation, carried on the snapshot), so the Overview never says "not
+    // exactly verified" where the Trial Balance checks show the equation holding exactly.
+    detail: `${reviewedScope(state.statementEquationExact === true)} It is ready for statement preparation. ${TRIAL_BALANCE_REVIEW.notApproval}`,
   };
 }
 
