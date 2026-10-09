@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED PREFLIGHT for the commercial candidate (docs/release/COMMERCIAL_C1_RELEASE.md, step 1). Run BEFORE the
--- two wrappers. Writes nothing; raises on the first violated expectation.
+-- three wrappers. Writes nothing; raises on the first violated expectation.
 DO $$
 BEGIN
   IF to_regclass('public.fs_signoff_policy_events') IS NULL THEN
@@ -15,7 +15,10 @@ BEGIN
                   WHERE n.nspname = 'public' AND p.proname = 'close_review_propose_adjustment') THEN
     RAISE EXCEPTION 'PREFLIGHT: Close Review adjustments (20261015100000) are not in force';
   END IF;
-  RAISE NOTICE 'PREFLIGHT OK: apply 20261025100000, then 20261026100000';
+  IF to_regclass('public.workspace_purpose_events') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT: workspace purpose (20261027100000) is already applied';
+  END IF;
+  RAISE NOTICE 'PREFLIGHT OK: apply 20261025100000, 20261026100000, then 20261027100000';
 END;
 $$;
 -- Record before applying (compare after; neither migration changes a row of these tables):

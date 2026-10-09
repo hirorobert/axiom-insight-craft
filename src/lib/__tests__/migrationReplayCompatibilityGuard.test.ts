@@ -231,7 +231,8 @@ describe("migration directory integrity", () => {
     // 163 -> 164: 20261023100000_fs_report_readiness_volatility.sql (DEFECT D-2: sign-off readiness declared VOLATILE so PostgREST runs it read-write), a NEW forward-only migration pending hosted application.
     // 164 -> 165: 20261024100000_fs_signoff_approval_policy.sql (the statement sign-off policy, reporting r5), a NEW forward-only migration pending hosted application.
     // 165 -> 167: 20261025100000_commercial_enquiries.sql and 20261026100000_retire_browser_adjusting_journal_writes.sql (the commercial candidate, batch commercial-c1), NEW forward-only migrations pending hosted application.
-    expect(files.length).toBe(167);
+    // 167 -> 168: 20261027100000_workspace_purpose.sql (explicit workspace purpose, batch commercial-c1), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(168);
   });
 });
 

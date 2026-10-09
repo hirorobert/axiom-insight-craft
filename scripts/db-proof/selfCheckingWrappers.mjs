@@ -43,7 +43,7 @@ const N = WRAPPED_SOURCES.length;
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
 const DRIZZLE_FAILURE = BATCH.id === "commercial-c1"
-  ? { object: "public.service_enquiry_replies", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regprocedure('public.staff_reply_service_enquiry(uuid,text,uuid)') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AS ok" }
+  ? { object: "public.adjusting_journal_entries", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regclass('public.workspace_purpose_events') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'aje_insert') AS ok" }
   : BATCH.id === "reporting-r5"
   ? { object: "public.fs_signoff_policy_events", rolledBack: "SELECT to_regclass('public.fs_signoff_policy_events') IS NULL AND to_regprocedure('public.fs_set_signoff_policy(uuid,text,text,text,uuid)') IS NULL AS ok" }
   : BATCH.id === "reporting-r2"

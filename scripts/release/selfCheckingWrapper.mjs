@@ -58,11 +58,12 @@ export const SIGNOFF_POLICY_SOURCE_COMMIT = "5358aefc999bd09f5d306e3e19ba3abbd79
 export const SIGNOFF_POLICY_WRAPPED_SOURCES = Object.freeze([
   "20261024100000_fs_signoff_approval_policy.sql",
 ]);
-/** The commercial candidate (commercial-c1): enquiry additions, then the retirement of browser adjusting-journal writes. */
-export const COMMERCIAL_SOURCE_COMMIT = "df5f446e778c63be8f1539827aaf9d0ca7d365cd";
+/** The commercial candidate (commercial-c1): enquiry additions, the retirement of browser adjusting-journal writes, workspace purpose. */
+export const COMMERCIAL_SOURCE_COMMIT = "2bef37d676af0a8f83d0c28bf42580b5dfdf68db";
 export const COMMERCIAL_WRAPPED_SOURCES = Object.freeze([
   "20261025100000_commercial_enquiries.sql",
   "20261026100000_retire_browser_adjusting_journal_writes.sql",
+  "20261027100000_workspace_purpose.sql",
 ]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([

@@ -542,7 +542,7 @@ jobs:
           createdb signoff_policy_proof
           bun scripts/db-proof/signoffPolicy.mjs
 
-      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions then the retirement of browser adjusting-journal writes; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions, the retirement of browser adjusting-journal writes and workspace purpose; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_wrappers_proof
@@ -566,6 +566,14 @@ jobs:
         run: |
           createdb legacy_adjustments_proof
           bun scripts/db-proof/legacyAdjustmentsRetirement.mjs
+
+      - name: Workspace purpose proof (20261027100000; client, test or training recorded only by the company owner with a reason, replay-safe; members read it, other tenants and anon do not; append-only; companies, engagements and uploads byte-identical; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/workspace_purpose_proof
+        run: |
+          createdb workspace_purpose_proof
+          bun scripts/db-proof/workspacePurpose.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:

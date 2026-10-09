@@ -276,6 +276,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261025100000_commercial_enquiries.sql",
       // One adjustment path (20261026100000): client writes to the legacy adjusting journal revoked; history read-only.
       "supabase/migrations/20261026100000_retire_browser_adjusting_journal_writes.sql",
+      // Workspace purpose (20261027100000): append-only client/test/training labels recorded by the owner; gates nothing.
+      "supabase/migrations/20261027100000_workspace_purpose.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -495,7 +497,7 @@ describe("database inertness — schema and functions", () => {
       // The loopback-only sign-off policy proof.
       "scripts/db-proof/signoffPolicy.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
-      "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs",
+      "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

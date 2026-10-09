@@ -49,9 +49,9 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     expect([...SIGNOFF_POLICY_WRAPPED_SOURCES]).toEqual(["20261024100000_fs_signoff_approval_policy.sql"]);
     for (const n of SIGNOFF_POLICY_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${SIGNOFF_POLICY_SOURCE_COMMIT}:`);
   });
-  it("wraps exactly the commercial candidate's two sources (commercial-c1), in order, at the commit holding their reviewed bytes", () => {
-    expect(COMMERCIAL_SOURCE_COMMIT).toBe("df5f446e778c63be8f1539827aaf9d0ca7d365cd");
-    expect([...COMMERCIAL_WRAPPED_SOURCES]).toEqual(["20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql"]);
+  it("wraps exactly the commercial candidate's three sources (commercial-c1), in order, at the commit holding their reviewed bytes", () => {
+    expect(COMMERCIAL_SOURCE_COMMIT).toBe("2bef37d676af0a8f83d0c28bf42580b5dfdf68db");
+    expect([...COMMERCIAL_WRAPPED_SOURCES]).toEqual(["20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql"]);
     for (const n of COMMERCIAL_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${COMMERCIAL_SOURCE_COMMIT}:`);
   });
   for (const name of ALL_WRAPPED) {

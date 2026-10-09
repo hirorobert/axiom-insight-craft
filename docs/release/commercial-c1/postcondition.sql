@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED POSTCONDITION for the commercial candidate (docs/release/COMMERCIAL_C1_RELEASE.md, step 3). Run AFTER
--- both wrappers. Writes nothing; raises on the first violated expectation.
+-- all three wrappers. Writes nothing; raises on the first violated expectation.
 DO $$
 DECLARE
   v_role TEXT; v_table TEXT; v_priv TEXT;
@@ -39,6 +39,20 @@ BEGIN
   END IF;
   IF NOT has_table_privilege('authenticated', 'public.adjusting_journal_entries', 'SELECT') THEN
     RAISE EXCEPTION 'POSTCONDITION: earlier adjusting entries are no longer readable';
+  END IF;
+  -- 20261027100000: workspace purpose, append-only, owner-recorded, member-readable.
+  IF to_regclass('public.workspace_purpose_events') IS NULL THEN
+    RAISE EXCEPTION 'POSTCONDITION: workspace_purpose_events is missing (20261027100000 is not applied)';
+  END IF;
+  IF has_table_privilege('authenticated', 'public.workspace_purpose_events', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.workspace_purpose_events', 'UPDATE')
+     OR has_table_privilege('anon', 'public.workspace_purpose_events', 'SELECT')
+     OR NOT has_function_privilege('authenticated', 'public.set_workspace_purpose(uuid,text,text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.set_workspace_purpose(uuid,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: workspace purpose grants are not exactly scoped';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_wpe_append_only' AND NOT tgisinternal AND tgenabled <> 'D') THEN
+    RAISE EXCEPTION 'POSTCONDITION: workspace purpose events are not append-only';
   END IF;
   RAISE NOTICE 'POSTCONDITION OK.';
 END;
