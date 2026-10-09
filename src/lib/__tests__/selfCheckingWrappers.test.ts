@@ -194,18 +194,21 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
       expect(r.mirrored.some((x) => x.tag === tag)).toBe(false);
     });
   }, 120_000);
-  it("the repository: the seven are applied as 0033–0039, each through a reviewed entry pinning the exact registered wrapper", () => {
+  it("the repository: both batches applied (0033–0039, then 0040–0044), each through a reviewed entry pinning the exact registered wrapper form", () => {
     const entries = Object.entries(RELEASE_JOURNAL).filter(([, e]) => (e as { kind: string }).kind === "release_self_checking_wrapper");
-    expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual([...WRAPPED_SOURCES]);
+    expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual([...ALL_WRAPPED]);
+    // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
+    const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
     for (const [tag, e] of entries) {
       const x = e as { source: string; form: string; sha256: string; submittedBytes: number };
       const mirror = fs.readFileSync(path.join(DZ, `${tag}.sql`));
-      expect(x.form, tag).toBe("wrapper");
-      expect(mirror.equals(wrapper(x.source)), tag).toBe(true); // byte-identical to release/wrappers/
+      const w = wrapper(x.source);
+      expect(x.form, tag).toBe(FINAL_LF_REMOVED.has(tag) ? "wrapper_final_lf_removed" : "wrapper");
+      expect(mirror.equals(FINAL_LF_REMOVED.has(tag) ? w.subarray(0, w.length - 1) : w), tag).toBe(true); // a registered form of release/wrappers/
       expect([mirror.length, sha(mirror)], tag).toEqual([x.submittedBytes, x.sha256]);
     }
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    for (const s of WRAPPED_SOURCES) expect(r.pending, s).not.toContain(s);
+    for (const s of ALL_WRAPPED) expect(r.pending, s).not.toContain(s);
   }, 120_000);
 });

@@ -38,7 +38,7 @@ function Harness({ seed }: { seed: { companyId: string; periodYear: number } }) 
   useEffect(() => { void loadAllowed(db, seed.companyId).then(setAllowed); }, [seed.companyId]);
   const page = activeWorkbenchPage(pathname, "");
   const version = parseReportVersion(search);
-  const model = useMemo(() => deriveWorkbenchNavigation("", ITEMS, ALL_PAGES), []);
+  const model = useMemo(() => deriveWorkbenchNavigation("", ITEMS, ALL_PAGES, true), []);
   return (
     <div className="min-h-screen" style={{ display: "grid", gridTemplateColumns: "15rem minmax(0, 1fr)" }}>
       <aside className="border-r border-border bg-muted/30 p-3" data-testid="workbench-nav">
