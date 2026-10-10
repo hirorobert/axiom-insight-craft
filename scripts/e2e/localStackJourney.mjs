@@ -407,10 +407,19 @@ async function main() {
     await go(`${base}/close/adjustments`, "Reclassify rent prepaid in salaries");
     await shot("10-adjustments-proposed");
     await setByLabel("Reason for your decision", "Agreed to journal voucher JV-0716");
+    // The decision needs its reason in React state before Approve is enabled; the click waits for the enabled button.
+    await page.waitFor(() => { const b = [...document.querySelectorAll('[data-testid^="adjustment-"] button')].find((x) => x.textContent.trim() === "Approve"); return !!b && !b.disabled; }, [], { label: "Approve enabled", timeout: 15000 });
     await page.click({ text: "Approve", within: '[data-testid^="adjustment-"]' });
-    await page.waitForText(": Approved", { timeout: 30000 });
-    const adj = await preparer.api.rpc("close_review_adjustments_summary", { p_company_id: A, p_period_year: 2026 });
-    log(`        adjustments after approval: ${JSON.stringify(adj.data ?? adj.error?.message).slice(0, 400)}`);
+    await page.waitForText(`Adjustment ${r.number}: Approved`, { timeout: 30000 });
+    // The server's own status decides, never the page.
+    let status = null;
+    for (let i = 0; i < 15 && status !== "approved"; i++) {
+      const adj = await preparer.api.rpc("close_review_adjustments_summary", { p_company_id: A, p_period_year: 2026 });
+      status = (adj.data?.adjustments ?? []).find((x) => x.id === adjustmentId)?.status ?? null;
+      if (status !== "approved") await sleep(1000);
+    }
+    log(`        adjustment ${r.number} status on the server: ${status}`);
+    if (status !== "approved") return { status };
     // An approved adjustment changes the adjusted trial balance: the findings are checked again, as the next action says.
     await go(`${base}/close/findings`, "Findings");
     if (await page.evaluate(() => [...document.querySelectorAll("button")].some((b) => /Check (again|for findings)/.test(b.textContent)))) {
