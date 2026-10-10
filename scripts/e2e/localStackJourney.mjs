@@ -304,6 +304,15 @@ async function main() {
     if (year === 2026) {
       try { await go(`/workspace/${A}/${year}/trial-balance/review`, ""); await sleep(2500); await shot("05a-account-review-pending"); }
       catch (e) { log(`        (account-review screenshot not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
+      // ...and the list itself: "Resolve account classifications" opens the accounts awaiting a mapping decision.
+      try {
+        await page.click({ text: "Resolve account classifications" });
+        await page.waitForSelector('[data-testid="account-review-workbench"]', { timeout: 30000 });
+        await page.evaluate(() => { document.querySelector('[data-testid="account-review-workbench"]').scrollIntoView({ block: "start" }); window.scrollBy(0, -16); });
+        await sleep(1500);
+        await shot("05b-account-review-list");
+        log(`        account-review list: ${await page.evaluate(() => document.querySelector('[data-testid="account-review-workbench"]')?.innerText.split(/\r?\n/).slice(0, 3).join(" | "))}`);
+      } catch (e) { log(`        (account-review list not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
     }
     // Review only what the server holds for review: re-recording decisions that are already in force would change the
     // company-wide mapping inputs and, correctly, put every other year's result out of date (the stale-validation gate).
