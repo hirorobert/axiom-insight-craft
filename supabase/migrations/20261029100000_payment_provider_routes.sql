@@ -4,7 +4,8 @@
 -- authority: checkout intents, the verified-payment commit, payment events, webhook receipts and the platform-state
 -- matrix stay the only path from a payment to a licence. This migration:
 --
---   0. refuses to apply unless commercial_platform_state is PAYMENTS_DISABLED (nothing in flight can change meaning);
+--   0. refuses to apply unless commercial_platform_state is PAYMENTS_DISABLED (nothing in flight can change meaning), and
+--      refuses a second application;
 --   1. admits SNIPPE (Tanzania mobile money, TZS) and POLAR (merchant of record, cards) as provider identifiers on
 --      commercial_offers.provider_restriction and payment_checkout_intents.provider;
 --   2. widens the webhook processing vocabulary (duplicate, stale timestamp, merchant / account mismatch, non-final,
@@ -28,20 +29,21 @@
 --      customer's own orders); admin_list_payment_attention and admin_find_billing_account (commercial administrators).
 --
 -- Not done here: no offer becomes purchasable, no price changes, commercial_platform_state is not touched, no
--- provider is configured. Forward-only; no applied migration is modified; re-runnable.
+-- provider is configured. Forward-only; no applied migration is modified.
 
 SET search_path TO public, pg_catalog;
 
--- ── 0. Gate ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-DO $gate$
-DECLARE v_state TEXT;
+-- ── 0. Preflight ────────────────────────────────────────────────────────────────────────────────────────────────────
+DO $preflight$
 BEGIN
-  SELECT state INTO v_state FROM public.commercial_platform_state WHERE id = true;
-  IF v_state IS DISTINCT FROM 'PAYMENTS_DISABLED' THEN
-    RAISE EXCEPTION 'PAYMENTS_MUST_BE_DISABLED' USING ERRCODE = 'PT422', DETAIL = format('commercial_platform_state=%s', v_state);
+  IF (SELECT state FROM public.commercial_platform_state WHERE id = true) IS DISTINCT FROM 'PAYMENTS_DISABLED' THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: payments must be disabled (commercial_platform_state = PAYMENTS_DISABLED); nothing was changed' USING ERRCODE = 'P0001';
   END IF;
-END
-$gate$;
+  IF to_regprocedure('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the payment provider routes are already in force; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
 
 -- ── 1. Provider identifiers ─────────────────────────────────────────────────────────────────────────────────────────
 ALTER TABLE public.commercial_offers DROP CONSTRAINT IF EXISTS chk_co_provider_restriction;

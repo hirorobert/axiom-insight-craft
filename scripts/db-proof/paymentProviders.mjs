@@ -153,19 +153,19 @@ async function main() {
   const setState = (s) => admin.query("UPDATE public.commercial_platform_state SET state=$1 WHERE id = true", [s]);
 
   group("Gate · payments must be disabled");
-  await check("with payments in SANDBOX_ONLY the migration refuses (PT422 PAYMENTS_MUST_BE_DISABLED) and nothing changes", async () => {
+  await check("with payments in SANDBOX_ONLY the migration refuses (P0001 PREFLIGHT_REFUSED) and nothing changes", async () => {
     await setState("SANDBOX_ONLY");
     const before = await fingerprint();
     const e = await errOf(() => admin.query(migrationText));
     const after = await fingerprint();
     await setState("PAYMENTS_DISABLED");
-    return e?.code === "PT422" && e.message === "PAYMENTS_MUST_BE_DISABLED" && before === after ? true : { code: e?.code, msg: e?.message, same: before === after };
+    return e?.code === "P0001" && /^PREFLIGHT_REFUSED: payments must be disabled/.test(e.message) && before === after ? true : { code: e?.code, msg: e?.message, same: before === after };
   });
-  await check("with payments disabled it applies, a second application changes nothing, and every later migration applies", async () => {
+  await check("with payments disabled it applies; a second application is refused by its preflight and changes nothing; every later migration applies", async () => {
     await applyMigration(MIGRATION);
     const fp = await fingerprint();
-    await applyMigration(MIGRATION);
-    if (fp !== await fingerprint()) return "changed on re-application";
+    const again = await errOf(() => admin.query(migrationText));
+    if (!/^PREFLIGHT_REFUSED: the payment provider routes are already in force/.test(again?.message ?? "") || fp !== await fingerprint()) return again?.message ?? "re-application was not refused";
     for (const f of files.slice(cut + 1)) await applyMigration(f);
     return true;
   });
