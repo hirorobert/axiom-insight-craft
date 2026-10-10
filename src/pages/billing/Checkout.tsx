@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, CreditCard, Loader2, Smartphone } from "lucide-react";
-import { AccountOrPublicFrame } from "@/components/account/AccountShell";
+import { AccountOrPublicFrame } from "@/components/account/AccountOrPublicFrame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

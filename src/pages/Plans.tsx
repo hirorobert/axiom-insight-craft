@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { AccountOrPublicFrame } from "@/components/account/AccountShell";
+import { AccountOrPublicFrame } from "@/components/account/AccountOrPublicFrame";
 import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
 import { planByCode } from "@/lib/commercial/pricingCatalogue";
 import { usePublicPlanPrices } from "@/lib/commercial/checkoutClient";

@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { AccountOrPublicFrame } from "@/components/account/AccountShell";
+import { AccountOrPublicFrame } from "@/components/account/AccountOrPublicFrame";
 import { useAuth } from "@/contexts/AuthContext";
 import { getMyPayments, type MyPayment } from "@/lib/commercial/checkoutClient";
 import { formatLicenceDate } from "@/lib/commercial/billingDisplay";

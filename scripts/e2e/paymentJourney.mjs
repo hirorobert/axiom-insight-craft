@@ -130,6 +130,19 @@ const apiAs = async (u) => {
   if (error) throw new Error(`api sign-in failed: ${error.message}`);
   return c;
 };
+/** Manual activation by agreement — the same RPCs /commercial/admin → Accounts → "Activate the plan" calls. */
+const activatePlan = async (u, plan, reason) => {
+  const ops = await apiAs(U.admin);
+  let acct = (await ops.rpc("admin_find_billing_account", { p_email: u.email })).data;
+  if (!acct?.billing_customer_id) {
+    const { error } = await ops.rpc("admin_ensure_billing_customer", { p_owner_user_id: u.id, p_reason: reason });
+    if (error) throw new Error(`ensure billing customer: ${error.message}`);
+    acct = (await ops.rpc("admin_find_billing_account", { p_email: u.email })).data;
+  }
+  const start = new Date(); const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 12);
+  const { error } = await ops.rpc("admin_grant_commercial_licence", { p_billing_customer_id: acct.billing_customer_id, p_plan_code: plan, p_effective_start: start.toISOString(), p_effective_end: end.toISOString(), p_reason: reason });
+  if (error) throw new Error(`grant: ${error.message}`);
+};
 const intentsOf = async (u) => {
   const bc = (await admin.from("billing_customers").select("id").eq("owner_user_id", u.id).maybeSingle()).data;
   if (!bc) return [];
@@ -206,7 +219,14 @@ async function main() {
 
   startGroup("Fresh account: nothing appears without an authorised creation, invitation or membership");
   // Another account's company (the role NBAA plays on the hosted project) — created for that account only.
-  const otherCo = (await admin.from("companies").insert({ user_id: U.owner.id, name: `Owner Co ${run}` }).select("id").single()).data;
+  // Created by that account itself, through the authorised path (an activated plan, then create_entity).
+  await activatePlan(U.owner, "SOLO", "fresh-account journey: another account's company");
+  const otherCo = await (async () => {
+    const api = await apiAs(U.owner);
+    const { data, error } = await api.rpc("create_entity", { p_request_id: crypto.randomUUID(), p_name: `Owner Co ${run}`, p_fiscal_year_end: "2025-12-31", p_currency: "USD", p_reporting_framework: null });
+    if (error || (data?.outcome !== "created" && data?.outcome !== "already_created")) throw new Error(`the other account's company was not created: ${error?.message ?? JSON.stringify(data)}`);
+    return { id: data.company_id };
+  })();
   await signInAs(U.fresh);
   await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — and one next step: choose a plan", async () => {
     await go("/dashboard", "Choose a plan to begin");
@@ -303,16 +323,7 @@ async function main() {
       ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
   });
   await check("with a plan granted by an administrator: the next step becomes 'Add your first company', the form is on the home, and creating one opens its workspace", async () => {
-    // The same calls the administrator screen's "Activate the plan" makes (manual activation by agreement).
-    const ops = await apiAs(U.admin);
-    let acct = (await ops.rpc("admin_find_billing_account", { p_email: U.fresh.email })).data;
-    if (!acct?.billing_customer_id) {
-      const { error } = await ops.rpc("admin_ensure_billing_customer", { p_owner_user_id: U.fresh.id, p_reason: "fresh-account journey: manual activation" });
-      if (error) return `ensure: ${error.message}`;
-      acct = (await ops.rpc("admin_find_billing_account", { p_email: U.fresh.email })).data;
-    }
-    const start = new Date(); const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 12);
-    { const { error } = await ops.rpc("admin_grant_commercial_licence", { p_billing_customer_id: acct.billing_customer_id, p_plan_code: "SOLO", p_effective_start: start.toISOString(), p_effective_end: end.toISOString(), p_reason: "fresh-account journey: manual activation" }); if (error) return `grant: ${error.message}`; }
+    await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
     await go("/dashboard", "Add your first company");
     await page.waitForSelector('[data-testid="add-company-form"]');
     await page.fill("#fr-org", `Fresh Co ${run}`);
@@ -331,7 +342,6 @@ async function main() {
     const orders = await widths("00-fresh-orders");
     return plans === true && orders === true ? true : { plans, orders };
   });
-  { const { error } = await admin.from("companies").delete().eq("id", otherCo.id); if (error) log(`  (cleanup of the other account's test company failed: ${error.message})`); }
 
   startGroup("Administrator: online payment opened in sandbox; prices approved — all from /commercial/admin");
   await signInAs(U.admin);

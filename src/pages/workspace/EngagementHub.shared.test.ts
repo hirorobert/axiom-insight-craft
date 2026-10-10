@@ -7,7 +7,11 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The creation form (create_entity) reaches the browser Supabase client; it is exercised in Dashboard.test.ts and the
+// end-to-end journey, not in these static renders.
+vi.mock("@/components/workspace/FirstRunEngagement", () => ({ default: () => null }));
 import EngagementHub from "./EngagementHub";
 
 const LONG = "Browser Acceptance 1790234805819-60edf1-a-very-long-unbreakable-workspace-name";
