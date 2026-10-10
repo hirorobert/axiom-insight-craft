@@ -9,6 +9,12 @@ BEGIN
   IF position('''BLOCKED_''' IN pg_get_functiondef('public.commit_verified_commercial_payment(uuid,text,text,text,text,bigint,text,text,timestamp with time zone,text,text,text,text)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: the verified-payment commit does not route every BLOCKED_* placement to review';
   END IF;
+  IF position('pg_advisory_xact_lock(hashtext(p_billing_customer_id::text))' IN pg_get_functiondef('public.admin_grant_commercial_licence(uuid,text,timestamp with time zone,timestamp with time zone,text)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: a manual grant does not take the per-account lock the verified-payment commit takes';
+  END IF;
+  IF has_function_privilege('anon', 'public.admin_grant_commercial_licence(uuid,text,timestamp with time zone,timestamp with time zone,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: admin_grant_commercial_licence must not be executable by anon';
+  END IF;
   FOREACH v_fn IN ARRAY ARRAY['public.commit_verified_commercial_payment(uuid,text,text,text,text,bigint,text,text,timestamp with time zone,text,text,text,text)',
                               'public._commercial_licence_placement(uuid,uuid,timestamp with time zone)'] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') OR has_function_privilege('authenticated', v_fn, 'EXECUTE')

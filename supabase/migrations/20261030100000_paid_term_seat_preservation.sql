@@ -1,9 +1,10 @@
 -- 20261030100000_paid_term_seat_preservation.sql
 --
--- Commercial launch closure (batch commercial-p2). One defect found by the paid-term preservation review of
--- 20261029100000: an UPGRADE ends the current licence immediately, and the additional named users bought on it
+-- Commercial launch closure (batch commercial-p2). Two defects found by the paid-term preservation review of
+-- 20261029100000: (a) an UPGRADE ends the current licence immediately, and the additional named users bought on it
 -- (commercial_licences.additional_seats) ended with it — an unrelated, separately arranged entitlement lost by a plan
--- purchase. This migration:
+-- purchase; (b) a manual grant took no lock, so a grant racing a verified payment for the same account could make that
+-- payment's commit fail on the no-overlap constraint instead of being recorded. This migration:
 --
 --   0. refuses unless the payment provider routes (20261029100000) are applied and payments are disabled, and refuses a
 --      second application;
@@ -11,7 +12,9 @@
 --      BLOCKED_SEATS (recorded once and placed by a commercial administrator, exactly like BLOCKED_OPEN_ENDED); renewal
 --      and at-renewal placements report the ending term's additional_seats so checkout can say they are not included;
 --   2. commit_verified_commercial_payment (same 13 arguments): any BLOCKED_* placement is recorded for review — the
---      payment once, no licence, the intent in MANUAL_REVIEW; nothing else changes.
+--      payment once, no licence, the intent in MANUAL_REVIEW; nothing else changes;
+--   3. admin_grant_commercial_licence (same 5 arguments): takes the commit's per-account lock before any read, so a grant
+--      and a verified payment for one account are serialised. Its checks are unchanged.
 --
 -- No licence, order, payment or price row is changed. Forward-only; no applied migration is modified.
 
@@ -280,3 +283,95 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.commit_verified_commercial_payment(UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.commit_verified_commercial_payment(UUID,TEXT,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TIMESTAMPTZ,TEXT,TEXT,TEXT,TEXT) TO service_role;
+
+-- ── 3. A manual grant and a verified payment for the same account are serialised ─────────────────────────────────────
+-- Unchanged from 20261029100000 except the account lock taken before any read.
+CREATE OR REPLACE FUNCTION public.admin_grant_commercial_licence(
+  p_billing_customer_id UUID,
+  p_plan_code           TEXT,
+  p_effective_start     TIMESTAMPTZ,
+  p_effective_end       TIMESTAMPTZ,
+  p_reason              TEXT
+) RETURNS JSONB
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_user_id    UUID := auth.uid();
+  v_product_id UUID;
+  v_plan_id    UUID;
+  v_licence_id UUID;
+  v_prior      RECORD;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_user_id AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN
+    RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+  IF p_effective_start IS NULL THEN
+    RAISE EXCEPTION 'EFFECTIVE_START_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+  IF p_effective_end IS NOT NULL AND p_effective_end <= p_effective_start THEN
+    RAISE EXCEPTION 'EFFECTIVE_END_MUST_BE_AFTER_START' USING ERRCODE = '22023';
+  END IF;
+
+  -- One account at a time: the SAME lock commit_verified_commercial_payment takes (hashtext of the billing customer id), so a
+  -- grant and a verified payment for one account never interleave. Without it, a grant could pass the paid-term check
+  -- below while a payment for the same account was being placed, and that payment's commit would then fail on the
+  -- no-overlap constraint instead of being recorded (proved by paidTermPreservation.mjs, "simultaneous").
+  PERFORM pg_advisory_xact_lock(hashtext(p_billing_customer_id::text));
+
+  SELECT product_id INTO v_product_id FROM public.billing_customers WHERE id = p_billing_customer_id;
+  IF v_product_id IS NULL THEN
+    RAISE EXCEPTION 'BILLING_CUSTOMER_NOT_FOUND' USING ERRCODE = '22023';
+  END IF;
+  SELECT id INTO v_plan_id FROM public.commercial_plans WHERE product_id = v_product_id AND code = p_plan_code AND is_active;
+  IF v_plan_id IS NULL THEN
+    RAISE EXCEPTION 'UNKNOWN_OR_INACTIVE_PLAN_CODE: %', p_plan_code USING ERRCODE = '22023';
+  END IF;
+
+  -- A payment-created term is never shortened or replaced by a manual grant: choose a start on or after its end.
+  IF EXISTS (SELECT 1 FROM public.commercial_licences
+              WHERE billing_customer_id = p_billing_customer_id AND status IN ('ACTIVE','GRACE')
+                AND source LIKE '%\_VERIFIED\_PAYMENT' ESCAPE '\'
+                AND effective_range && tstzrange(p_effective_start, p_effective_end, '[)')) THEN
+    RAISE EXCEPTION 'PAID_TERM_WOULD_BE_SHORTENED' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT id, effective_start, effective_end INTO v_prior
+    FROM public.commercial_licences
+   WHERE billing_customer_id = p_billing_customer_id
+     AND status IN ('ACTIVE','GRACE')
+     AND effective_range && tstzrange(p_effective_start, p_effective_end, '[)')
+   LIMIT 1;
+  IF FOUND THEN
+    IF p_effective_start <= v_prior.effective_start THEN
+      RAISE EXCEPTION 'NEW_EFFECTIVE_START_MUST_BE_AFTER_EXISTING_PERIOD_START (existing licence %, starts %)',
+        v_prior.id, v_prior.effective_start USING ERRCODE = '22023';
+    END IF;
+    UPDATE public.commercial_licences SET effective_end = p_effective_start, updated_at = now() WHERE id = v_prior.id;
+  END IF;
+
+  INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end)
+  VALUES (p_billing_customer_id, v_plan_id, 'ACTIVE', 'MANUAL_ADMIN_GRANT', p_effective_start, p_effective_end)
+  RETURNING id INTO v_licence_id;
+
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (
+    p_billing_customer_id, v_user_id, 'LICENCE_GRANTED',
+    CASE WHEN v_prior.id IS NOT NULL
+      THEN jsonb_build_object('closed_prior_licence_id', v_prior.id, 'closed_effective_end', p_effective_start) END,
+    jsonb_build_object('licence_id', v_licence_id, 'plan_code', p_plan_code,
+                       'effective_start', p_effective_start, 'effective_end', p_effective_end),
+    p_reason);
+
+  RETURN jsonb_build_object('licence_id', v_licence_id, 'plan_code', p_plan_code, 'closed_prior_licence_id', v_prior.id);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_grant_commercial_licence(UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_grant_commercial_licence(UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ,TEXT) TO authenticated;

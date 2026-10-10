@@ -313,6 +313,22 @@ async function main() {
     });
   }
 
+  await check("deterministic: while the commit's per-account lock is held, a manual grant for that account waits; it completes once the lock is released", async () => {
+    const a = await account("manual-lock");
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [a.bc]);
+      let done = false;
+      const grant = one(user(ADMIN), "SELECT public.admin_grant_commercial_licence($1,'SOLO',now(),now() + interval '12 months','lock proof') r", [a.bc]).then((r) => { done = true; return r; });
+      await new Promise((r) => setTimeout(r, 1500));
+      const waited = !done;
+      await holder.query("COMMIT");
+      const r = await grant;
+      return waited && r.r.licence_id ? true : { waited, r };
+    } finally { holder.release(); }
+  });
+
   group("Withheld services · a purchase never opens the financial-reporting pilot");
   await check("a company not on the reporting rollout stays outside it after a paid Firm term; the rollout tables are byte-identical", async () => {
     const a = await account("rollout");
