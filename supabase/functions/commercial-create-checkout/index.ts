@@ -79,6 +79,17 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'GET') {
     const planCode = new URL(req.url).searchParams.get('planCode');
     if (!planCode) return jsonResponse({ error: 'planCode required', correlationId }, 400);
+    // A route is open only where the platform state permits its provider's environment for THIS user — the same matrix
+    // acquire_checkout_attempt enforces (assert_platform_state_permits), read here so the page never offers a route the
+    // server would refuse.
+    const { data: platform } = await supabase.from('commercial_platform_state').select('state').eq('id', true).maybeSingle();
+    const platformState = (platform as { state?: string } | null)?.state ?? null;
+    const { data: acceptance } = await supabase.from('commercial_live_acceptance_allowlist').select('user_id').eq('user_id', user.id).eq('active', true).maybeSingle();
+    const permits = (env: string) =>
+      platformState === 'SANDBOX_ONLY' ? env === 'sandbox'
+      : platformState === 'LIVE_ACCEPTANCE' ? env === 'production' && !!acceptance
+      : platformState === 'CUSTOMER_PAYMENTS_ENABLED' ? env === 'production'
+      : false;
     const configured = getConfiguredProviders();
     const { data: bc } = await supabase.from('billing_customers').select('id').eq('owner_user_id', user.id).maybeSingle();
     const options = [];
@@ -94,15 +105,17 @@ Deno.serve(async (req: Request) => {
         const { data: place } = await supabase.rpc('_commercial_licence_placement', { p_billing_customer_id: bc.id, p_plan_id: offer.plan_id, p_at: new Date().toISOString() });
         placement = place;
       }
-      options.push(sel.selected
+      options.push(sel.selected && !permits(sel.environment)
+        ? { paymentRoute: route, available: false, reason: 'PAYMENTS_NOT_OPEN', provider: sel.provider, environment: sel.environment,
+            amountMinor: offer.amount_minor, currencyCode: offer.currency_code, currencyExponent: offer.currency_exponent }
+        : sel.selected
         ? { paymentRoute: route, available: true, provider: sel.provider, environment: sel.environment, amountMinor: offer.amount_minor,
             currencyCode: offer.currency_code, currencyExponent: offer.currency_exponent, billingInterval: offer.billing_interval,
             billingIntervalCount: offer.billing_interval_count }
         : { paymentRoute: route, available: false, reason: sel.reason, amountMinor: offer.amount_minor, currencyCode: offer.currency_code,
             currencyExponent: offer.currency_exponent });
     }
-    const { data: state } = await supabase.from('commercial_platform_state').select('state').eq('id', true).maybeSingle();
-    return jsonResponse({ planCode, options, placement: placement ?? { kind: 'NEW' }, platformState: state?.state ?? null, correlationId }, 200);
+    return jsonResponse({ planCode, options, placement: placement ?? { kind: 'NEW' }, platformState, correlationId }, 200);
   }
 
   // 2. Parse request — browser supplies planCode + billingInterval + paymentRoute (+ phoneNumber) ONLY.

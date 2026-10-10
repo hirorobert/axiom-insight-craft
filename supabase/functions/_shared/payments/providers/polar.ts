@@ -71,7 +71,10 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
     if (r.status >= 500) return { success: false, outcome: 'UNCERTAIN', error: `POLAR_HTTP_${r.status}` };
     const b = obj(r.body);
     const id = str(b.id), url = str(b.url);
-    if (!id || !url || !/^https:\/\//.test(url)) return { success: false, outcome: 'UNCERTAIN', error: 'POLAR_RESPONSE_INCOMPLETE' };
+    // https always; plain http only for a sandbox adapter pointed at a loopback mock (local tests — routing.ts refuses an
+    // API override for production), and then only to a loopback page.
+    const loopbackMock = cfg.environment === 'sandbox' && cfg.apiBase !== POLAR_API_BASE.sandbox && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url ?? '');
+    if (!id || !url || !(/^https:\/\//.test(url) || loopbackMock)) return { success: false, outcome: 'UNCERTAIN', error: 'POLAR_RESPONSE_INCOMPLETE' };
     // The session must carry exactly the server's economics before it is handed to the customer.
     if (int(b.net_amount) !== null && int(b.net_amount) !== p.amountMinor) return { success: false, outcome: 'UNCERTAIN', error: 'POLAR_SESSION_AMOUNT_MISMATCH' };
     return { success: true, checkoutUrl: url, providerRef: id };
