@@ -33,6 +33,9 @@
 // footer links Software · Plans · Specialist services and states the commercial notice (manual activation, specialist
 // services quoted separately, financial reporting a pilot); the brand mark is the approved navy/gold lockup. The gate-OFF
 // guarantee is unchanged and still asserted below: no Contact entry point of any kind.
+// RE-CAPTURED again (2026-10-10, landing Phase 0) through the same withGate(false) path: the header navigation reads
+// Product · Plans · Questions · Expert help and the footer links Product · Plans · Expert help (anchors #product and
+// #specialist-services); main-Header-inner.html re-rendered byte-identical. Those are the only differences.
 
 import fs from "node:fs";
 import path from "node:path";
