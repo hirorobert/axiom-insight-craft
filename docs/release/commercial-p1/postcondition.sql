@@ -38,6 +38,12 @@ BEGIN
   IF NOT has_function_privilege('authenticated', 'public.get_my_payments()', 'EXECUTE') OR has_function_privilege('anon', 'public.get_my_payments()', 'EXECUTE') THEN
     RAISE EXCEPTION 'POSTCONDITION: get_my_payments is not exactly scoped';
   END IF;
+  IF NOT has_function_privilege('anon', 'public.get_public_plan_prices()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: get_public_plan_prices is not readable by the public pages';
+  END IF;
+  IF (public.get_public_plan_prices() ->> 'online_payment')::boolean THEN
+    RAISE EXCEPTION 'POSTCONDITION: online payment must not be open after this migration';
+  END IF;
   IF (SELECT state FROM public.commercial_platform_state WHERE id = true) IS DISTINCT FROM 'PAYMENTS_DISABLED' THEN
     RAISE EXCEPTION 'POSTCONDITION: payments must still be disabled';
   END IF;

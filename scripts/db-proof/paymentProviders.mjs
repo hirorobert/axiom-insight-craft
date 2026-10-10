@@ -501,6 +501,26 @@ async function main() {
     return r.assurance === "ENTITLED" && r.multi === "NOT_ENTITLED" && r.consolidation === "NOT_ENTITLED" && overrides === 0 ? true : r;
   });
 
+  group("Public prices · what the public pages may say");
+  await check("anonymous readers see no price and no online payment until an offer is purchasable and payments are enabled for customers", async () => {
+    await setState("PAYMENTS_DISABLED");
+    await admin.query("UPDATE public.commercial_offers SET is_purchasable = false");
+    const none = await one(ANON, "SELECT public.get_public_plan_prices() r");
+    await admin.query("UPDATE public.commercial_offers SET is_purchasable = true WHERE id = $1", [OFFER.PRACTICE.id]);
+    const one1 = await one(ANON, "SELECT public.get_public_plan_prices() r");
+    await setState("SANDBOX_ONLY");
+    const sandbox = await one(ANON, "SELECT public.get_public_plan_prices() r");
+    await setState("CUSTOMER_PAYMENTS_ENABLED");
+    const live = await one(user(A.uid), "SELECT public.get_public_plan_prices() r");
+    await setState("SANDBOX_ONLY");
+    await admin.query("UPDATE public.commercial_offers SET is_purchasable = false WHERE id = $1", [OFFER.PRACTICE.id]);
+    const keys = Object.keys(one1.r.offers[0] ?? {}).sort().join(",");
+    return none.r.online_payment === false && none.r.offers.length === 0
+      && one1.r.offers.length === 1 && one1.r.offers[0].plan_code === "PRACTICE" && Number(one1.r.offers[0].amount_minor) === Number(OFFER.PRACTICE.amount_minor)
+      && keys === "amount_minor,billing_interval,currency_code,currency_exponent,market_code,plan_code"
+      && sandbox.r.online_payment === false && live.r.online_payment === true ? true : { none: none.r, one1: one1.r, sandbox: sandbox.r.online_payment, live: live.r.online_payment };
+  });
+
   group("Webhook evidence · every outcome is representable, receipts are immutable");
   await check("the new processing outcomes are accepted; an unknown one is refused; receipts cannot be updated", async () => {
     const rid = (await admin.query("INSERT INTO public.payment_webhook_receipts (provider, signature_present, payload_hash) VALUES ('POLAR', true, $1) RETURNING id", ["p".repeat(64)])).rows[0].id;

@@ -26,7 +26,8 @@
 --      service-role client has no auth.uid());
 --   8. ensure_checkout_billing_customer — a signed-in user without a workspace gets a billing record at checkout;
 --   9. reads: get_checkout_status gains the purchased plan, payment reference and reversal state; get_my_payments (the
---      customer's own orders); admin_list_payment_attention and admin_find_billing_account (commercial administrators).
+--      customer's own orders); admin_list_payment_attention and admin_find_billing_account (commercial administrators);
+--  10. get_public_plan_prices — the one public read of purchasable annual prices and whether online payment is open.
 --
 -- Not done here: no offer becomes purchasable, no price changes, commercial_platform_state is not touched, no
 -- provider is configured. Forward-only; no applied migration is modified.
@@ -777,3 +778,27 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.admin_find_billing_account(TEXT) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.admin_find_billing_account(TEXT) TO authenticated;
+
+-- ── 10. What the public pages may say about prices ──────────────────────────────────────────────────────────────────
+-- The one public read of the self-serve annual prices and of whether customers can pay online. An offer is shown as a
+-- price (not "proposed") only when a commercial administrator has made it purchasable; online purchase is offered only
+-- while commercial_platform_state is CUSTOMER_PAYMENTS_ENABLED. Anonymous and signed-in readers get the same answer;
+-- nothing about any account is returned.
+CREATE OR REPLACE FUNCTION public.get_public_plan_prices()
+RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+  SELECT jsonb_build_object(
+    'online_payment', COALESCE((SELECT state = 'CUSTOMER_PAYMENTS_ENABLED' FROM public.commercial_platform_state WHERE id = true), false),
+    'offers', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'plan_code', cp.code, 'market_code', co.market_code, 'currency_code', co.currency_code,
+        'currency_exponent', co.currency_exponent, 'amount_minor', co.amount_minor, 'billing_interval', co.billing_interval)
+        ORDER BY cp.display_order, co.market_code)
+      FROM public.commercial_offers co
+      JOIN public.commercial_plans cp ON cp.id = co.plan_id
+      JOIN public.commercial_products p ON p.id = cp.product_id AND p.code = 'CFOCLOSE'
+     WHERE cp.code IN ('SOLO','PRACTICE','FIRM')
+       AND co.is_active AND co.is_purchasable AND co.billing_interval = 'ANNUAL' AND co.billing_interval_count = 1
+       AND co.effective_start <= now() AND (co.effective_end IS NULL OR co.effective_end > now())), '[]'::jsonb));
+$$;
+REVOKE ALL ON FUNCTION public.get_public_plan_prices() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_public_plan_prices() TO anon, authenticated;
