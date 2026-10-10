@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -107,7 +107,7 @@ export default function PrepareWorkspace() {
   // Prepare-only access (an explicit capability grant, PR #32): upload, replace, validate, discard and Undo. Account
   // review, mapping, the framework prompt and evidence reconciliation belong to other authorities and are not shown.
   const prepareOnly = isPrepareOnly(access);
-  const { engagement } = useEngagement();
+  const { engagement, loading: engagementLoading } = useEngagement();
   // Discarded runs must vanish immediately — no residue while the refetch lands.
   const [discardedIds, setDiscardedIds] = useState<string[]>([]);
   const {
@@ -620,6 +620,14 @@ export default function PrepareWorkspace() {
                 }
               />
               <SurfaceCardBody>
+                {/* A trial balance belongs to an open engagement's period: without one, an upload could only be recorded
+                    without its period (and fail for want of its currency), so the period is opened first. */}
+                {!engagementLoading && !engagement ? (
+                  <div className="space-y-2 text-[13px]" data-testid="upload-needs-engagement">
+                    <p>FY{periodYear} is not open yet. Choose the service for this period on its Overview, then upload its trial balance here.</p>
+                    <Link to={`/workspace/${companyId}/${periodYear}`} className="font-medium underline underline-offset-4">Open FY{periodYear}</Link>
+                  </div>
+                ) : engagementLoading ? null : (
                 <TrialBalanceUpload
                   embedded
                   lockedCompanyId={companyId}
@@ -637,6 +645,7 @@ export default function PrepareWorkspace() {
                     refreshUpload();
                   }}
                 />
+                )}
               </SurfaceCardBody>
             </SurfaceCard>
             <TrialBalanceTemplateGuide />

@@ -265,9 +265,16 @@ async function main() {
     await go(`/workspace/${A}/${year}/trial-balance/review`, "");
     for (let i = 0; i < 3; i++) {
       const where = await page.waitFor(() => (document.querySelector('[data-testid="trial-balance-file-input"]') ? "uploader"
+        : document.querySelector('[data-testid="upload-needs-engagement"]') ? "not-open"
         : document.querySelector('[data-testid="launchpad-heading"]') ? "launchpad" : document.querySelector('[data-testid="data-choice-heading"]') ? "choice" : null), [], { label: "uploader or launchpad", timeout: 45000 });
       if (where === "uploader") return;
-      if (where === "launchpad") { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
+      if (where === "not-open") {
+        // The period is not open: the page says so and links to its Overview, where the service is chosen.
+        await page.click({ text: `Open FY${year}` });
+        await page.waitForSelector('[data-testid="launchpad-heading"], [data-testid="data-choice-heading"]', { timeout: 30000 });
+        if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); await page.waitForSelector('[data-testid="data-choice-heading"]', { timeout: 30000 }); }
+        await page.click('[data-testid="primary-cta"]');
+      } else if (where === "launchpad") { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
       else { await page.click('[data-testid="primary-cta"]'); }
       await sleep(1500);
       await go(`/workspace/${A}/${year}/trial-balance/review`, "");
