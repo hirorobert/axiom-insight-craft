@@ -373,8 +373,11 @@ async function main() {
     await uploadAndReview(2025, tbPrior);
     const { data: c26 } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: 2026 });
     log(`        FY2026 still certified after FY2025: ${Array.isArray(c26) ? c26.length > 0 : !!c26}`);
-    await go(`${base}/statements/comparatives`, "Not yet approved", 60000);
-    return true;
+    // FY2025 now exists: the comparatives are no longer "missing" (their accounts are presented once lines are assigned).
+    await go(`${base}/statements/comparatives`, "");
+    const st = await page.waitFor(() => document.querySelector('[data-testid="comparative-state"]')?.getAttribute("data-state"), [], { label: "comparative state", timeout: 60000 });
+    log(`        comparatives after FY2025: ${st}`);
+    return st !== "missing" ? true : st;
   });
 
   // Preparation recorded by the preparer through the same server functions the pages call.
@@ -406,6 +409,19 @@ async function main() {
     await setByLabel("Reason for your decision", "Agreed to journal voucher JV-0716");
     await page.click({ text: "Approve", within: '[data-testid^="adjustment-"]' });
     await page.waitForText(": Approved", { timeout: 30000 });
+    const adj = await preparer.api.rpc("close_review_adjustments_summary", { p_company_id: A, p_period_year: 2026 });
+    log(`        adjustments after approval: ${JSON.stringify(adj.data ?? adj.error?.message).slice(0, 400)}`);
+    // An approved adjustment changes the adjusted trial balance: the findings are checked again, as the next action says.
+    await go(`${base}/close/findings`, "Findings");
+    if (await page.evaluate(() => [...document.querySelectorAll("button")].some((b) => /Check (again|for findings)/.test(b.textContent)))) {
+      await page.click({ text: (await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /Check (again|for findings)/.test(b.textContent)).textContent.trim())) });
+      await page.waitForSelector('[data-testid="findings-counts"]', { timeout: 60000 });
+      await sleep(1500);
+    }
+    const st2 = await rpc(preparer.api, "close_review_finding_states", { p_company_id: A, p_period_year: 2026 });
+    for (const f of st2.filter((x) => !x.resolved)) await rpc(preparer.api, "close_review_finding_action", { p_finding_id: f.finding_id, p_action: "explain", p_text: "Reviewed against the fixed asset register", p_evidence_ref: "FAR FY2026", p_request_id: uuid() });
+    const sum = await preparer.api.rpc("close_review_findings_summary", { p_company_id: A, p_period_year: 2026 });
+    log(`        findings after re-check: ${JSON.stringify(sum.data ?? sum.error?.message).slice(0, 300)}`);
     return (r.outcome === "proposed" || r.outcome === "recorded") && !!adjustmentId ? true : r;
   });
   await check("Reconcile shows earlier adjusting entries read-only and points to Close Review › Adjustments; no write control", async () => {
