@@ -502,6 +502,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
+      // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.
+      "scripts/brand/generateBrandAssets.mjs", "scripts/ci/assertPublicMetadata.mjs", "scripts/ci/routeMetadataInBrowser.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

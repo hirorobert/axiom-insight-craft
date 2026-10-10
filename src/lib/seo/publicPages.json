@@ -1,0 +1,43 @@
+{
+  "origin": "https://cfoclose.com",
+  "siteName": "CFOClose",
+  "pages": [
+    {
+      "path": "/",
+      "title": "CFOClose — Trial balance review software",
+      "description": "Import a trial balance, run the checks and record a classification decision for every account. Subscriptions are activated by our team; financial reporting is a pilot by invitation.",
+      "sitemap": true
+    },
+    {
+      "path": "/plans",
+      "title": "Plans — CFOClose",
+      "description": "Compare CFOClose plans by entities and named users. Pricing shown is proposed; a plan is activated by our team after terms are agreed. There is no online payment.",
+      "sitemap": true
+    },
+    {
+      "path": "/pricing",
+      "canonical": "/plans",
+      "title": "Plans — CFOClose",
+      "description": "Compare CFOClose plans by entities and named users. Pricing shown is proposed; a plan is activated by our team after terms are agreed. There is no online payment.",
+      "sitemap": false
+    },
+    {
+      "path": "/contact",
+      "title": "Contact — CFOClose",
+      "description": "Request activation of a plan, ask for a quote for specialist services delivered by people, or get support. We reply by email.",
+      "sitemap": true
+    },
+    {
+      "path": "/terms",
+      "title": "Terms of Service — CFOClose",
+      "description": "The terms that apply to using CFOClose, the trial balance review software.",
+      "sitemap": true
+    },
+    {
+      "path": "/privacy",
+      "title": "Privacy Policy — CFOClose",
+      "description": "How CFOClose collects, uses and protects personal information.",
+      "sitemap": true
+    }
+  ]
+}

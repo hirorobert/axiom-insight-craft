@@ -38,6 +38,7 @@ import ReportingAccessGate from "./components/reporting/ReportingAccessGate";
 import { WITHHELD_WORKSPACE_ROUTE_SEGMENTS } from "./lib/workspace/moduleAvailability";
 import { WORKBENCH_NAVIGATION_ENABLED } from "./lib/workbench/gate";
 import { RELEASED_WORKBENCH_PAGES, REPORTING_PAGES_SHIPPED } from "./lib/workbench/routes";
+import { RouteMeta } from "./components/seo/RouteMeta";
 // Workbench alias (WORKBENCH_NAVIGATION_ENABLED only): one canonical destination, keeping the query (report version).
 import { WorkbenchAliasRedirect } from "./components/workbench/WorkbenchAliasRedirect";
 
@@ -99,6 +100,8 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              {/* Per-route title, description, canonical URL and robots (src/lib/seo/publicMeta.ts). */}
+              <RouteMeta />
               <Routes>
                 {/* ── Public landing ── */}
                 <Route path="/" element={<Index />} />

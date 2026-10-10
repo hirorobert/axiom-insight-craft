@@ -476,55 +476,62 @@ describe("Ω3-BRAND · ProductTour outcome architecture (real source)", () => {
 // ─────────────────────────────────────────────────────────────
 
 describe("Ω3-BRAND · public favicon identity (real source)", () => {
+  // The icons are generated from the APPROVED logo (brand/source/CFOClose_logo.png) by
+  // scripts/brand/generateBrandAssets.mjs; the built output is checked by scripts/ci/assertPublicMetadata.mjs. The interim
+  // hand-drawn favicon.svg is gone, and /favicon.ico now exists on purpose: browsers and search engines request it by
+  // default, and a 404 there let a stale or third-party icon persist.
   const html = readSource("index.html");
   const PUBLIC_DIR = path.join(REPO_ROOT, "public");
+  const png = (f: string) => { const b = fs.readFileSync(path.join(PUBLIC_DIR, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
-  it("55 · index.html references the CFOClose favicon via an explicit <link rel=\"icon\">", () => {
-    expect(html).toMatch(/<link\s+rel="icon"\s+type="image\/svg\+xml"\s+href="\/favicon\.svg"\s*\/>/);
+  it("55 · index.html declares the CFOClose icon set: favicon.ico, 32/16 px PNGs, apple-touch icon and the web manifest", () => {
+    expect(html).toMatch(/<link rel="icon" href="\/favicon\.ico" sizes="16x16 32x32 48x48" \/>/);
+    expect(html).toMatch(/<link rel="icon" type="image\/png" sizes="32x32" href="\/favicon-32x32\.png" \/>/);
+    expect(html).toMatch(/<link rel="apple-touch-icon" sizes="180x180" href="\/apple-touch-icon\.png" \/>/);
+    expect(html).toMatch(/<link rel="manifest" href="\/site\.webmanifest" \/>/);
   });
 
-  it("56 · no legacy favicon.ico path remains referenced anywhere in index.html", () => {
-    expect(html).not.toMatch(/favicon\.ico/);
+  it("56 · favicon.ico is a real ICO holding the 16, 32 and 48 px icons generated from the approved logo", () => {
+    const ico = fs.readFileSync(path.join(PUBLIC_DIR, "favicon.ico"));
+    expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([0, 1, 3]);
+    expect([0, 1, 2].map((i) => ico.readUInt8(6 + 16 * i))).toEqual([16, 32, 48]);
+    // The 32 px entry is byte-identical to the generated favicon-32x32.png.
+    const off = ico.readUInt32LE(6 + 16 + 12), len = ico.readUInt32LE(6 + 16 + 8);
+    expect(ico.subarray(off, off + len).equals(fs.readFileSync(path.join(PUBLIC_DIR, "favicon-32x32.png")))).toBe(true);
   });
 
-  it("57 · the legacy favicon.ico file itself no longer exists in public/, so it cannot be served as a default-path fallback", () => {
-    expect(fs.existsSync(path.join(PUBLIC_DIR, "favicon.ico"))).toBe(false);
+  it("57 · every icon and the social image have their stated pixel sizes", () => {
+    expect(png("favicon-16x16.png")).toEqual([16, 16]);
+    expect(png("favicon-32x32.png")).toEqual([32, 32]);
+    expect(png("favicon-48x48.png")).toEqual([48, 48]);
+    expect(png("apple-touch-icon.png")).toEqual([180, 180]);
+    expect(png("icon-192.png")).toEqual([192, 192]);
+    expect(png("icon-512.png")).toEqual([512, 512]);
+    expect(png("icon-512-maskable.png")).toEqual([512, 512]);
+    expect(png("og-image.png")).toEqual([1200, 630]);
   });
 
-  it("58 · public/favicon.svg exists and is well-formed (parses as valid XML with no comment-syntax errors)", () => {
-    const svgPath = path.join(PUBLIC_DIR, "favicon.svg");
-    expect(fs.existsSync(svgPath)).toBe(true);
-    const svg = fs.readFileSync(svgPath, "utf-8");
-    expect(svg).toMatch(/^<svg\b/);
-    // XML comments must never contain a literal "--" anywhere in their body —
-    // this is exactly the class of bug caught and fixed while authoring this file.
-    const commentBodies = [...svg.matchAll(/<!--([\s\S]*?)-->/g)].map((m) => m[1]);
-    for (const body of commentBodies) {
-      expect(body).not.toMatch(/--/);
-    }
+  it("58 · the web manifest names CFOClose and lists only icons that exist", () => {
+    const mf = JSON.parse(readSource("public/site.webmanifest"));
+    expect([mf.name, mf.short_name]).toEqual(["CFOClose", "CFOClose"]);
+    for (const i of mf.icons) expect(fs.existsSync(path.join(PUBLIC_DIR, i.src.replace(/^\//, ""))), i.src).toBe(true);
   });
 
-  it("59 · favicon.svg's rendered content contains no SAFF, AAA/American Accounting Association text, and no third-party visual system", () => {
-    // Check only the rendered (non-comment) SVG content — an explanatory
-    // authoring comment documenting "this replaces the legacy SAFF glyph"
-    // is legitimate, non-rendered, non-visible source commentary, not a
-    // visible identity violation. Strip XML comments before asserting.
-    const svg = readSource("public/favicon.svg");
-    const rendered = svg.replace(/<!--[\s\S]*?-->/g, "");
-    expect(rendered).not.toMatch(/\bSAFF\b/);
-    expect(rendered).not.toMatch(/\bAAA\b|American Accounting Association/);
+  it("59 · the interim hand-drawn favicon.svg is gone; the icons derive from the committed approved logo", () => {
+    expect(fs.existsSync(path.join(PUBLIC_DIR, "favicon.svg"))).toBe(false);
+    expect(html).not.toMatch(/favicon\.svg/);
+    expect(fs.existsSync(path.join(REPO_ROOT, "brand/source/CFOClose_logo.png"))).toBe(true);
+    expect(readSource("scripts/brand/generateBrandAssets.mjs")).toMatch(/brand\/source\/CFOClose_logo\.png/);
   });
 
-  it("60 · favicon.svg embeds no external asset reference (no <image>, no xlink:href, no remote url())", () => {
-    const svg = readSource("public/favicon.svg");
-    expect(svg).not.toMatch(/<image\b/i);
-    expect(svg).not.toMatch(/xlink:href/i);
-    expect(svg).not.toMatch(/url\(\s*["']?https?:/i);
+  it("60 · social previews use the CFOClose image on the preferred origin, never a third-party host", () => {
+    expect(html).toMatch(/<meta property="og:image" content="https:\/\/cfoclose\.com\/og-image\.png" \/>/);
+    expect(html).toMatch(/<meta name="twitter:image" content="https:\/\/cfoclose\.com\/og-image\.png" \/>/);
+    expect(html).not.toMatch(/lovable|r2\.dev/i);
   });
 
-  it("61 · favicon.svg draws its mark as vector paths/shapes, not as embedded raster data (no base64 data: URI)", () => {
-    const svg = readSource("public/favicon.svg");
-    expect(svg).not.toMatch(/data:image\//i);
+  it("61 · the theme colour is the approved navy", () => {
+    expect(html).toMatch(/<meta name="theme-color" content="#0D1D3B" \/>/);
   });
 
   it("62 · public metadata remains fully CFOClose-branded alongside the favicon change (no regression)", () => {

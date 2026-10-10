@@ -1,3 +1,7 @@
+# CFOClose — https://cfoclose.com is the one public origin; previews are noindex (src/lib/seo/publicMeta.ts).
+# These rules only ask crawlers to stay out of signed-in areas. They are NOT a security boundary: every such page
+# requires sign-in and is protected by the database (row-level security), and every non-public page is also noindex.
+
 User-agent: Googlebot
 Allow: /
 Disallow: /dashboard

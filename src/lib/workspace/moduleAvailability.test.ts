@@ -420,7 +420,7 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
 
   it("the crawler-visible document (title, meta, structured data) carries none either", () => {
     const html = read("index.html").replace(/<!--[\s\S]*?-->/g, "");
-    expect(html).toMatch(/<title>CFOClose — Trial Balance Review Workspace<\/title>/);
+    expect(html).toMatch(/<title>CFOClose — Trial balance review software<\/title>/);
     expect(withoutSpecialist(html).match(WITHHELD_CLAIMS)?.[0]).toBeUndefined();
   });
 
