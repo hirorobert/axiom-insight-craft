@@ -130,9 +130,10 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
   const l = [...document.querySelectorAll("label")].find((x) => x.textContent.trim().toLowerCase().startsWith(lab.toLowerCase()));
   const el = l && (l.control ?? document.getElementById(l.htmlFor));
   if (!el) return false;
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), el.type === "checkbox" ? "checked" : "value").set;
-  setter.call(el, el.type === "checkbox" ? !!val : val);
-  el.dispatchEvent(new Event(el.type === "checkbox" ? "click" : "input", { bubbles: true }));
+  if (el.type === "checkbox") { if (el.checked !== !!val) el.click(); return true; }
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set;
+  setter.call(el, val);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
 }, label, value);
@@ -156,7 +157,16 @@ async function widths(name) {
     await page.setViewport(w, h);
     await sleep(600);
     const p = await page.evaluate(layoutProblems);
-    if (p.length) problems[w] = p;
+    if (p.length) {
+      // Name the elements that stick out, so an overflow is diagnosable from the evidence alone.
+      const culprits = await page.evaluate(() => {
+        const vw = document.documentElement.clientWidth;
+        return [...document.querySelectorAll("body *")].filter((el) => el.getBoundingClientRect().right > vw + 1)
+          .filter((el) => ![...el.children].some((c) => c.getBoundingClientRect().right > vw + 1))
+          .slice(0, 6).map((el) => `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}.${String(el.className).slice(0, 80)} right=${Math.round(el.getBoundingClientRect().right)}`);
+      });
+      problems[w] = [...p, ...culprits];
+    }
     await shot(`${name}-${w}`);
   }
   await page.setViewport(1280, 900);
@@ -235,7 +245,7 @@ async function main() {
     await sleep(300);
     await setByLabel("Prior start date", PERIODS.prior.start); await setByLabel("Prior end date", PERIODS.prior.end);
     await page.click({ text: "Set up the period" });
-    await page.waitForText("is set up", { timeout: 30000 });
+    await page.waitForText("is set up and linked for comparatives", { timeout: 30000 });
     await shot("04-periods");
     return true;
   });
@@ -250,9 +260,22 @@ async function main() {
   partner.api = await asUser(U.partner);
 
   startGroup("Trial balance: upload, check, review (real edge function)");
-  const uploadAndReview = async (year, file) => {
+  /** A period opened for the first time may show the launchpad and the data choice before the uploader. */
+  const openUploader = async (year) => {
     await go(`/workspace/${A}/${year}/trial-balance/review`, "");
-    await page.waitForSelector('[data-testid="trial-balance-file-input"]', { timeout: 45000 });
+    for (let i = 0; i < 3; i++) {
+      const where = await page.waitFor(() => (document.querySelector('[data-testid="trial-balance-file-input"]') ? "uploader"
+        : document.querySelector('[data-testid="launchpad-heading"]') ? "launchpad" : document.querySelector('[data-testid="data-choice-heading"]') ? "choice" : null), [], { label: "uploader or launchpad", timeout: 45000 });
+      if (where === "uploader") return;
+      if (where === "launchpad") { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
+      else { await page.click('[data-testid="primary-cta"]'); }
+      await sleep(1500);
+      await go(`/workspace/${A}/${year}/trial-balance/review`, "");
+    }
+    throw new Error("the uploader did not appear");
+  };
+  const uploadAndReview = async (year, file) => {
+    await openUploader(year);
     await page.setFiles('[data-testid="trial-balance-file-input"]', [file]);
     await page.click('[data-testid="trial-balance-upload-primary"]');
     await page.waitFor(() => /Reviewed|Needs review|Confirm the classification|Blocked/i.test(document.body.innerText), [], { label: "checked", timeout: 120000 });
@@ -267,7 +290,7 @@ async function main() {
     const { error: fnErr } = await owner.api.functions.invoke("process-trial-balance", { body: { uploadId: up.id, clientRequestId: op } });
     if (fnErr) throw new Error(`process-trial-balance: ${fnErr.message}`);
     await go(`/workspace/${A}/${year}/trial-balance/review`, "");
-    await page.waitForText("Reviewed", { timeout: 120000 });
+    await page.waitForText("ready for statement preparation", { timeout: 120000 });
     return up.id;
   };
   let currentUpload = null;
@@ -299,7 +322,7 @@ async function main() {
   await check("Close Review › Findings: the check runs from the page; findings are listed with a 'Review finding' action; keyboard opens one", async () => {
     await go(`${base}/close/findings`, "Check for findings");
     await page.click({ text: "Check for findings" });
-    await page.waitForText("unresolved", { timeout: 60000 });
+    await page.waitForSelector('[data-testid="findings-counts"]', { timeout: 60000 });
     const hasAction = await page.evaluate(() => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Review finding"));
     if (hasAction) {
       await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Review finding").focus());
@@ -350,12 +373,9 @@ async function main() {
     adjustmentId = r.adjustmentId;
     await go(`${base}/close/adjustments`, "Reclassify rent prepaid in salaries");
     await shot("10-adjustments-proposed");
-    await page.click({ text: "Approve" });
-    if (await page.evaluate(() => !!document.querySelector('[role="dialog"] textarea'))) {
-      await page.fill('[role="dialog"] textarea', "Agreed to journal voucher JV-0716");
-      await page.click({ selector: '[role="dialog"] button.bg-primary' });
-    }
-    await page.waitForText("Approved", { timeout: 30000 });
+    await setByLabel("Reason for your decision", "Agreed to journal voucher JV-0716");
+    await page.click({ text: "Approve", within: '[data-testid^="adjustment-"]' });
+    await page.waitForText(": Approved", { timeout: 30000 });
     return r.outcome === "recorded" && !!adjustmentId ? true : r;
   });
   await check("Reconcile shows earlier adjusting entries read-only and points to Close Review › Adjustments; no write control", async () => {

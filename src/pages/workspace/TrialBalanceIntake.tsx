@@ -62,7 +62,7 @@ export default function TrialBalanceIntake() {
   return (
     <div className="space-y-8 p-4">
       <h1 className="text-lg font-semibold">Trial balance — Intake</h1>
-      <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} />
+      <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} />
       <section aria-labelledby="tb-intake-upload" className="space-y-2">
         <h2 id="tb-intake-upload" className="text-base font-semibold">Upload</h2>
         <p className="text-sm">
