@@ -369,7 +369,7 @@ async function main() {
     await widths("09-comparatives-missing");
     return /Import the FY2025 trial balance/.test(t) && !/^COMPARATIVE_REQUIRED_MISSING/m.test(t) ? true : t.slice(0, 500);
   });
-  await check("FY2025 is uploaded through the uploader and reviewed; the comparatives become 'Not yet approved'", async () => {
+  await check("FY2025 is uploaded through the uploader (after its period is opened) and reviewed; FY2026 stays certified; the comparatives are no longer missing", async () => {
     await uploadAndReview(2025, tbPrior);
     const { data: c26 } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: 2026 });
     log(`        FY2026 still certified after FY2025: ${Array.isArray(c26) ? c26.length > 0 : !!c26}`);

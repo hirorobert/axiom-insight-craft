@@ -35,7 +35,23 @@ The frontend is safe before step 3:
 
 ## 4. Real-application journey
 
-See the PR's latest `real-app-evidence` artifact (`journey.log`, `results.json`, screenshots at 1280 and 375 px). The journey found and fixed three defects that isolated tests could not:
+**23/23 checks pass** in CI (job `real-app-e2e`; artifact `real-app-evidence`: `journey.log`, `results.json`, screenshots at 1280 and 375 px). Covered:
+- routing and sign-in, including keyboard and a refused password;
+- a new user's first run, with a 30 June year-end and distinct account codes;
+- explicit non-calendar periods with the prior period;
+- both years uploaded through the real uploader and checked by the real edge function;
+- the equation wording consistent between Overview and checks;
+- the prerequisite-aware next action;
+- Close Review findings (keyboard);
+- comparatives missing, then recovered and approved by a reviewer;
+- an adjustment proposed by the preparer and approved by the partner, with Reconcile read-only;
+- evidence validated and then stored with a version;
+- REVIEWED by the partner, FINAL by the owner, and the sealed export;
+- a later layout change making the result stale, while the sealed version stays FINAL;
+- two-account isolation (UI and API);
+- every request on loopback.
+
+The journey found and fixed three defects that isolated tests could not:
 - the launchpad's calendar-year TZS period;
 - uploads possible for an unopened period;
 - a hidden table header overflowing phone screens.
