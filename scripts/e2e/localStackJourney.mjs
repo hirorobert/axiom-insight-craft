@@ -299,19 +299,24 @@ async function main() {
     };
     const up = await settled("first");
     log(`        FY${year} first check: ${up.status}`);
-    await rpc(owner.api, "resolve_account_review_batch", { p_company_id: A, p_upload_id: up.id, p_client_request_id: uuid(), p_decisions: reviewDecisions() });
-    // A new check exactly as "Run the check again" requests it (src/lib/workspace/requestReprocess.ts): the server accepts
-    // the request for the current source, then processing runs with the same operation id.
-    const op = uuid();
-    const { data: src } = await owner.api.from("trial_balance_uploads").select("source_file_hash").eq("id", up.id).single();
-    const accepted = await rpc(owner.api, "tbu_request_reprocess", { p_upload_id: up.id, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
-    if (accepted?.outcome !== "accepted" && accepted?.outcome !== "replayed") throw new Error(`re-check refused: ${JSON.stringify(accepted)}`);
-    const { error: fnErr } = await owner.api.functions.invoke("process-trial-balance", { body: { uploadId: up.id, clientRequestId: op } });
-    if (fnErr) throw new Error(`process-trial-balance: ${fnErr.message}`);
-    const after = await settled("re-");
-    const { data: cert } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: year });
-    log(`        FY${year} re-check: ${after.status}; certified: ${Array.isArray(cert) ? cert.length > 0 : !!cert}`);
-    if (!(Array.isArray(cert) ? cert.length : cert)) log(`        FY${year} result: ${JSON.stringify(after.processing_result ?? {}).slice(0, 800)}`);
+    // Review only what the server holds for review: re-recording decisions that are already in force would change the
+    // company-wide mapping inputs and, correctly, put every other year's result out of date (the stale-validation gate).
+    const { data: certNow } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: year });
+    if (!(Array.isArray(certNow) ? certNow.length : certNow)) {
+      await rpc(owner.api, "resolve_account_review_batch", { p_company_id: A, p_upload_id: up.id, p_client_request_id: uuid(), p_decisions: reviewDecisions() });
+      // A new check exactly as "Run the check again" requests it (src/lib/workspace/requestReprocess.ts): the server accepts
+      // the request for the current source, then processing runs with the same operation id.
+      const op = uuid();
+      const { data: src } = await owner.api.from("trial_balance_uploads").select("source_file_hash").eq("id", up.id).single();
+      const accepted = await rpc(owner.api, "tbu_request_reprocess", { p_upload_id: up.id, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
+      if (accepted?.outcome !== "accepted" && accepted?.outcome !== "replayed") throw new Error(`re-check refused: ${JSON.stringify(accepted)}`);
+      const { error: fnErr } = await owner.api.functions.invoke("process-trial-balance", { body: { uploadId: up.id, clientRequestId: op } });
+      if (fnErr) throw new Error(`process-trial-balance: ${fnErr.message}`);
+      const after = await settled("re-");
+      const { data: cert } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: year });
+      log(`        FY${year} re-check: ${after.status}; certified: ${Array.isArray(cert) ? cert.length > 0 : !!cert}`);
+      if (!(Array.isArray(cert) ? cert.length : cert)) log(`        FY${year} result: ${JSON.stringify(after.processing_result ?? {}).slice(0, 800)}`);
+    }
     await go(`/workspace/${A}/${year}/trial-balance/review`, "");
     await page.waitForText("ready for statement preparation", { timeout: 120000 });
     return up.id;
@@ -366,6 +371,8 @@ async function main() {
   });
   await check("FY2025 is uploaded through the uploader and reviewed; the comparatives become 'Not yet approved'", async () => {
     await uploadAndReview(2025, tbPrior);
+    const { data: c26 } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: 2026 });
+    log(`        FY2026 still certified after FY2025: ${Array.isArray(c26) ? c26.length > 0 : !!c26}`);
     await go(`${base}/statements/comparatives`, "Not yet approved", 60000);
     return true;
   });
