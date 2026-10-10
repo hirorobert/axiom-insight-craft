@@ -119,7 +119,7 @@ const rpc = async (c, fn, args) => { const { data, error } = await c.rpc(fn, arg
 const browser = await Browser.launch();
 async function openPage() {
   const ctx = await browser.newContext();
-  const p = await browser.newPage(ctx);
+  const p = await ctx.newPage();
   await p.setViewport(1280, 900);
   return p; // Page records every request URL it issues (cdp.mjs: page.requests)
 }

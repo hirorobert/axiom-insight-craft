@@ -548,6 +548,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
           git fetch --no-tags --depth=1 origin 2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
           git fetch --no-tags --depth=1 origin 5358aefc999bd09f5d306e3e19ba3abbd79da082
+          git fetch --no-tags --depth=1 origin 2bef37d676af0a8f83d0c28bf42580b5dfdf68db
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
