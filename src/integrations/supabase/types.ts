@@ -8803,6 +8803,44 @@ export type Database = {
           },
         ]
       }
+      workspace_purpose_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          id: string
+          purpose: string
+          reason: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          purpose: string
+          reason: string
+          seq?: number
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          purpose?: string
+          reason?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_purpose_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xbrl_concept_map: {
         Row: {
           created_at: string
@@ -9180,6 +9218,10 @@ export type Database = {
         }
         Returns: string
       }
+      _commercial_licence_placement: {
+        Args: { p_at: string; p_billing_customer_id: string; p_plan_id: string }
+        Returns: Json
+      }
       _consume_free_retirement_approval: {
         Args: { p_by: string }
         Returns: boolean
@@ -9499,6 +9541,7 @@ export type Database = {
         Args: { p_owner_user_id: string; p_reason: string }
         Returns: Json
       }
+      admin_find_billing_account: { Args: { p_email: string }; Returns: Json }
       admin_get_billing_detail: {
         Args: { p_owner_user_id: string }
         Returns: Json
@@ -9545,6 +9588,15 @@ export type Database = {
         Args: { p_plan_code?: string }
         Returns: Json
       }
+      admin_list_payment_attention: { Args: never; Returns: Json }
+      admin_place_paid_licence: {
+        Args: {
+          p_checkout_intent_id: string
+          p_effective_start: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       admin_prepare_planned_reduction: {
         Args: {
           p_billing_customer_id: string
@@ -9563,6 +9615,14 @@ export type Database = {
           p_notification_reference: string
           p_purpose: string
           p_valid_hours?: number
+        }
+        Returns: Json
+      }
+      admin_record_reversal_review: {
+        Args: {
+          p_decision: string
+          p_reason: string
+          p_reversal_event_id: string
         }
         Returns: Json
       }
@@ -10046,6 +10106,10 @@ export type Database = {
           p_text: string
         }
         Returns: boolean
+      }
+      ensure_checkout_billing_customer: {
+        Args: { p_user_id: string }
+        Returns: string
       }
       financial_statements_workspace_access: {
         Args: { p_company_id: string }
@@ -10596,11 +10660,13 @@ export type Database = {
       get_member_company_ids: { Args: never; Returns: string[] }
       get_my_billing_summary: { Args: never; Returns: Json }
       get_my_entity_capacity: { Args: never; Returns: Json }
+      get_my_payments: { Args: never; Returns: Json }
       get_my_workspace_capabilities: {
         Args: { p_company_id: string }
         Returns: Json
       }
       get_named_user_roster: { Args: never; Returns: Json }
+      get_public_plan_prices: { Args: never; Returns: Json }
       get_trial_balance_removal_eligibility: {
         Args: { p_upload_id: string }
         Returns: Json
@@ -11170,6 +11236,10 @@ export type Database = {
       set_company_filing_jurisdiction: {
         Args: { p_company_id: string; p_jurisdiction: string }
         Returns: string
+      }
+      set_workspace_purpose: {
+        Args: { p_company_id: string; p_purpose: string; p_reason: string }
+        Returns: Json
       }
       staff_add_service_enquiry_note: {
         Args: { p_enquiry_id: string; p_note: string }
