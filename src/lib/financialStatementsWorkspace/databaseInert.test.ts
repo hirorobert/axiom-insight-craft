@@ -525,6 +525,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
+      // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).
+      "scripts/payments/providerSandboxSmoke.ts",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.
       "scripts/brand/generateBrandAssets.mjs", "scripts/ci/assertPublicMetadata.mjs", "scripts/ci/routeMetadataInBrowser.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
