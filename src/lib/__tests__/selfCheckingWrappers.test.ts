@@ -60,7 +60,7 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     for (const n of PAYMENTS_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${PAYMENTS_SOURCE_COMMIT}:`);
   });
   it("wraps exactly the paid-term seat preservation (commercial-p2), at the commit holding its reviewed bytes", () => {
-    expect(PAID_TERM_SOURCE_COMMIT).toBe("c950fc10a1e6dd75b0faf65d89c2cde6c153c52b");
+    expect(PAID_TERM_SOURCE_COMMIT).toBe("2656cf057d4e0386e4316ccff949914d4a5c20cc");
     expect([...PAID_TERM_WRAPPED_SOURCES]).toEqual(["20261030100000_paid_term_seat_preservation.sql"]);
     for (const n of PAID_TERM_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${PAID_TERM_SOURCE_COMMIT}:`);
   });

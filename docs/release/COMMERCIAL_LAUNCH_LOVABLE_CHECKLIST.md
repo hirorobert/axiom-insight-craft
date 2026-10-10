@@ -126,7 +126,7 @@ Nothing in Stage B lets anyone pay. `platform_state` stays `PAYMENTS_DISABLED` t
 **What the batches require and change:**
 - **p1 and p2** require `PAYMENTS_DISABLED` and refuse otherwise.
 - **p1 and p2** change no licence, order, payment or price.
-- **p2** changes only where a paid term is placed: an upgrade no longer ends paid additional named users automatically.
+- **p2** changes only where a paid term is placed and how a manual grant is serialised: an upgrade no longer ends paid additional named users automatically, and a manual grant waits for a payment being recorded for the same account.
 
 If B1.2 stopped part-way through, a re-run of A1 shows which c1 wrappers remain.
 

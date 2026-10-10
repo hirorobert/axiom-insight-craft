@@ -23,7 +23,7 @@
 
 | Area | Defect or gap found | Change | Regression coverage |
 |---|---|---|---|
-| Paid-term preservation (`commercial-p2`, migration `20261030100000`) | An upgrade ended the current term at once, **silently ending its paid additional named users** | The placement rule returns `BLOCKED_SEATS` for an upgrade over additional users. The payment is recorded once and the term waits for an administrator. Renewal and downgrade report the current term's seats, which continue until it ends. | `scripts/db-proof/paidTermPreservation.mjs` (17 assertions); wrapper proof; `paymentScreens.test.ts` |
+| Paid-term preservation (`commercial-p2`, migration `20261030100000`) | (a) An upgrade ended the current term at once, **silently ending its paid additional named users**. (b) Found by CI on Linux: a manual grant took no lock, so a grant **racing** a verified payment for the same account could make that payment's commit fail on the no-overlap constraint instead of being recorded. | (a) The placement rule returns `BLOCKED_SEATS` for an upgrade over additional users; the payment is recorded once and the term waits for an administrator. Renewal and downgrade report the current term's seats, which continue until it ends. (b) `admin_grant_commercial_licence` takes the commit's per-account lock, so the two are serialised. | `scripts/db-proof/paidTermPreservation.mjs` (18 assertions, including a deterministic lock-wait check and the simultaneous race); wrapper proof; `paymentScreens.test.ts` |
 | Delayed Polar notifications | A correctly signed delivery older than 5 minutes was dropped, relying on the customer or an administrator to recover the order | Such a delivery now reconciles: duplicate check by event id, then a read of Polar's own order, then the same idempotent commit. At most one read a minute per order. The body is never trusted, and a bad signature still gets 401. | `providerAdapters.test.ts`; E2E "delayed notification" (20 minutes old) |
 | Partial refunds | Polar reports the order's **cumulative** refunded amount. A partial refund followed by a full one recorded the full amount again. | Each reversal records only the change since the reversals already recorded. A redelivery records nothing. | `providerAdapters.test.ts`; E2E partial-then-full refund recorded as 200.00 then 290.00 |
 | Polar-only availability | The server would offer mobile money once a TZS price existed, and the price form defaulted to TZS | Snippe is gated off in code, the browser shows only launched markets, and the price form defaults to GLOBAL/USD with a Polar-only note | `providerAdapters.test.ts` owner-decision test; `landingPage.test.ts`; `noCheckoutClaims.test.ts` |
@@ -46,12 +46,12 @@
 | 4 | commercial-c1 | `20261027100000_workspace_purpose.wrapper.sql` | 7,192 | `44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f` | `0158258` | Pending |
 | 5 | commercial-c1 | `20261028100000_period_dates_from_company.wrapper.sql` | 11,708 | `c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529` | `0158258` | Pending |
 | 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | Pending |
-| 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 18,799 | `46fdfc422df34a812f5fb5b6b0ca84b06a9c051e6b29828d3d547ae230c68a5d` | `c950fc1` | Pending (new in this closure) |
+| 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | Pending (new in this closure) |
 
-- **p2 payload:** 17,223 bytes, SHA-256 `d98f4535c27d83a0d0d50a72fcae067ad692a8f5356a5dbbd6d6897cb582df7c`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
+- **p2 payload:** 22,439 bytes, SHA-256 `ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
 - **Preflight and postcondition:** `release/<batch>/preflight.sql` and `postcondition.sql`, all read-only.
 - **p2 preflight** refuses unless p1 is applied and payments are disabled, and refuses if p2 is already applied. It records three counts and digests (licences, intents, payment events).
-- **p2 postcondition** checks the placement rule, the commit, the scoping (service role only), and that payments are still disabled. Its digests must equal the preflight's.
+- **p2 postcondition** checks the placement rule, the commit, the manual grant's per-account lock, the scoping, and that payments are still disabled. Its digests must equal the preflight's.
 
 ## 4. Function deployment
 
@@ -116,7 +116,7 @@ See `REFUNDS_DISPUTES_AND_RECOVERY.md`:
 |---|---|---|---|---|
 | 1 | Release integrity: release commit, tree, exact-head and final-main CI | CI | `RELEASE.txt`, `evidence/ci/` | **PASS** (see `RELEASE.txt`) |
 | 2 | Payment authority (43 assertions) | Local, real PostgreSQL | `paymentProviders.mjs` | **PASS** (CI) |
-| 3 | Paid-term preservation (17 assertions): seats, renewal, downgrade, upgrade, 6 concurrent deliveries plus a replay, manual-versus-payment races, withheld pilot, bystander intact | Local, real PostgreSQL | `paidTermPreservation.mjs` | **PASS** (local and CI) |
+| 3 | Paid-term preservation (18 assertions): seats, renewal, downgrade, upgrade, 6 concurrent deliveries plus a replay, manual-versus-payment races (grant-first, payment-first, simultaneous, and a deterministic lock-wait check), withheld pilot, bystander intact | Local, real PostgreSQL | `paidTermPreservation.mjs` | **PASS** (local and CI) |
 | 4 | Self-checking wrappers p1 and p2 | Real PostgreSQL | `selfCheckingWrappers.mjs` | **PASS** (CI) |
 | 5 | Adapters, signatures, stale recovery, refund change amounts, Polar-only routing | **Mock** | `providerAdapters.test.ts` | **PASS** |
 | 6 | Screens: checkout (incl. the seats note and `BLOCKED_SEATS`), status, administrator | **Mock** server answers (jsdom, axe) | `paymentScreens.test.ts` | **PASS** |

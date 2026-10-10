@@ -77,7 +77,7 @@ The same 12 months are guaranteed under retries, concurrency and manual activati
 - Unrelated accounts and entitlements are untouched.
 - The financial-reporting pilot stays restricted to its rollout list.
 
-Evidence: `scripts/db-proof/paidTermPreservation.mjs` (17 assertions, real PostgreSQL) and `scripts/db-proof/paymentProviders.mjs`.
+Evidence: `scripts/db-proof/paidTermPreservation.mjs` (18 assertions, real PostgreSQL) and `scripts/db-proof/paymentProviders.mjs`.
 
 ## 4. Evidence and its limits
 

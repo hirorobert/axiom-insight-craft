@@ -463,7 +463,8 @@ src/
       intake/LayoutEditor.tsx ← Trial balance › Intake: manual layout, whole-file check report, confirmation, templates (behind the workbench gate)
       intake/PeriodSetup.tsx  ← Explicit period dates + currency (open_engagement_with_period); no defaults
     account/
-      AccountShell.tsx        ← THE signed-in frame outside a workspace (account home, /plans, checkout, orders); AccountOrPublicFrame keeps the public Header/Footer for signed-out visitors
+      AccountShell.tsx        ← THE signed-in frame outside a workspace (account home, /plans, checkout, orders); no session or client dependency
+      AccountOrPublicFrame.tsx ← /plans, checkout, orders: AccountShell when signed in, the public Header/Footer otherwise
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
       DataChoiceCard.tsx      ← The one data question
@@ -1165,7 +1166,10 @@ met only once the batch is applied on the hosted database; enabling payments sta
 fixed in source, pending hosted application after p1.** An upgrade over a current term with paid additional named users
 is never placed automatically: `_commercial_licence_placement` returns `BLOCKED_SEATS` and the commit records the
 payment once and leaves the intent in MANUAL_REVIEW (the commit treats every `BLOCKED_*` kind alike). Renewal and
-downgrade report the current term's seats, which continue until it ends. Proof: `scripts/db-proof/paidTermPreservation.mjs`.
+downgrade report the current term's seats, which continue until it ends. `admin_grant_commercial_licence` takes the commit's
+per-account advisory lock (`hashtext(billing_customer_id)`), so a manual grant and a verified payment for one account are
+serialised (a racing grant could otherwise make the payment's commit fail on the no-overlap constraint). Proof:
+`scripts/db-proof/paidTermPreservation.mjs` (18).
 
 **COMMERCIAL_LAUNCH_SCOPE_POLAR_CARD_ONLY** — owner decision (2026-10-10). Launch = Polar card payments (USD) only,
 conditional on Polar approving the merchant and on sandbox and controlled live verification. Approved annual prices: Solo

@@ -72,7 +72,7 @@ export const PAYMENTS_WRAPPED_SOURCES = Object.freeze([
   "20261029100000_payment_provider_routes.sql",
 ]);
 /** Commercial launch closure (commercial-p2): an upgrade never ends paid additional named users automatically. */
-export const PAID_TERM_SOURCE_COMMIT = "c950fc10a1e6dd75b0faf65d89c2cde6c153c52b";
+export const PAID_TERM_SOURCE_COMMIT = "2656cf057d4e0386e4316ccff949914d4a5c20cc";
 export const PAID_TERM_WRAPPED_SOURCES = Object.freeze([
   "20261030100000_paid_term_seat_preservation.sql",
 ]);
