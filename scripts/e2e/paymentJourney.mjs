@@ -7,7 +7,7 @@
 //
 //   operator    the first commercial administrator (operator bootstrap row), then everything else through /commercial/admin:
 //               online payment opened in SANDBOX_ONLY, the USD price approved, a TZS price added and approved
-//   public      in SANDBOX_ONLY the public plans stay "Proposed"; in CUSTOMER_PAYMENTS_ENABLED they show the approved prices
+//   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED
 //               and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
 //   card        sign in → /billing/checkout → card → the mock hosted page → Pay → signed order.paid → status page: payment
 //               received, plan active for 12 months, references; the licence is the payment's (source POLAR_VERIFIED_PAYMENT)
@@ -380,12 +380,14 @@ async function main() {
   await check("administrator pages at 1280 and 375 px", async () => { await adminTab("Payments needing attention"); return widths("20-admin-payments"); });
 
   startGroup("Public plans follow the server");
-  await check("in SANDBOX_ONLY the public plans stay 'Proposed' with activation requests (sandbox payments are never advertised)", async () => {
+  await check("in SANDBOX_ONLY sandbox payments are never advertised: the approved Solo price is shown with Request activation, no checkout action", async () => {
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
     await go("/", "Choose your capacity.");
     await sleep(1500);
     const t = await page.bodyText();
-    return t.includes("Proposed: USD 490 per year") && !t.includes("Choose Solo") ? true : "online pricing shown in sandbox";
+    // Approved but checkout closed to customers: the server's amount (no "Proposed"), the manual route, no checkout button.
+    const solo = t.includes("USD 490 per year") && !t.includes("Proposed: USD 490 per year");
+    return solo && t.includes("Request activation") && !t.includes("Choose Solo") && !/by card|TZS|mobile money/.test(t) ? true : t.slice(0, 1200);
   });
 
   startGroup("Card payment (Polar, mock hosted page)");
