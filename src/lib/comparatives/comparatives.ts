@@ -65,5 +65,31 @@ export function comparativesClient(db: ComparativesDb) {
       call("fs_decide_restatement", { p_restatement_id: restatementId, p_decision: decision, p_reason: reason, p_request_id: requestId }),
     approve: (companyId: string, periodYear: number, approve: boolean, reason: string, requestId: string) =>
       call("fs_approve_comparatives", { p_company_id: companyId, p_period_year: periodYear, p_approve: approve, p_reason: reason, p_request_id: requestId }),
+    /** The first-period exception (20261017100000): a genuinely first reporting period, with relevant evidence. */
+    declareFirstPeriod: (companyId: string, periodYear: number, reason: string, evidenceKind: FirstPeriodEvidenceKind, evidenceRef: string, evidenceDate: string) =>
+      call("fs_declare_first_period", { p_company_id: companyId, p_period_year: periodYear, p_declare: true, p_reason: reason, p_evidence_kind: evidenceKind, p_evidence_ref: evidenceRef, p_evidence_date: evidenceDate }),
   };
 }
+
+/** The evidence kinds the server accepts for a first-period declaration (fs_declare_first_period). */
+export const FIRST_PERIOD_EVIDENCE = {
+  certificate_of_incorporation: "Certificate of incorporation",
+  certificate_of_registration: "Certificate of registration",
+  commencement_resolution: "Commencement resolution",
+  regulatory_commencement_notice: "Regulator's commencement notice",
+} as const;
+export type FirstPeriodEvidenceKind = keyof typeof FIRST_PERIOD_EVIDENCE;
+
+/** The server's refusals of a first-period declaration, in words. */
+export const FIRST_PERIOD_OUTCOMES: Readonly<Record<string, string>> = {
+  recorded: "The first-period declaration is recorded; no comparatives are required for this period.",
+  unchanged: "A first-period declaration is already in force.",
+  forbidden: "Only a member who approves certifications can declare a first reporting period.",
+  feature_disabled: "Financial statements are not enabled for this company.",
+  invalid_request: "A reason, the evidence reference and its issue date are required.",
+  evidence_not_relevant: "That evidence does not establish a first reporting period.",
+  evidence_date_in_future: "The evidence's issue date cannot be in the future.",
+  no_period: "This reporting period is not set up for the company.",
+  earlier_reviewed_period_exists: "An earlier period has a reviewed trial balance: this is not a first period. Import or review the prior year instead.",
+  earlier_period_data_exists: "An earlier period has trial-balance data: this is not a first period. Import or review the prior year instead.",
+};

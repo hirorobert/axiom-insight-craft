@@ -56,6 +56,8 @@ export interface WorkspaceState {
   lastUpdatedAt?: string;
   missions: Record<WorkspaceMission, MissionState>;
   nextAction: NextAction;
+  /** Present (true) only when the current upload's stored exact amounts prove the statement equation (recordedEquation). */
+  statementEquationExact?: true;
 }
 
 /**
@@ -87,6 +89,8 @@ export interface UploadSnapshot {
   certificationVerdict?: "certified" | "review" | "blocked" | "pending" | "stale" | "unknown" | "superseded";
   /** Plain-language reason for the verdict, straight from computeCertificationReadiness — never re-derived here. */
   certificationBlocker?: string | null;
+  /** What the stored result proves about the statement equation (readRecordedEquation); undefined = not read. */
+  recordedEquation?: import("./computeCertificationReadiness").RecordedEquation;
   /** Recorded debit/credit totals in integer cents (validation_report.tb_balance_check); null = not computed. */
   trialBalanceTotals?: import("./trialBalanceVerdict").TrialBalanceTotals | null;
 }

@@ -11,7 +11,7 @@
  *
  * KingaFindingsPanel moved to ComplianceWorkspace (Phase C) — matches
  * Architecture v3.1's stage-5 "KINGA findings" engine assignment.
- * AdjustingJournalPanel moved to ReconcileWorkspace (Phase C).
+ * Adjusting entries: Close Review › Adjustments (the legacy journal panel is retired; Reconcile shows its history).
  *
  * Constitutional gate: prepare stage must be 'passed'.
  */

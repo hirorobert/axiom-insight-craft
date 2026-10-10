@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CURRENCY_REGISTRY, CURRENCY_REGISTRY_VERSION } from "@/lib/currency/registry";
 import { periodFormProblems } from "@/lib/workbench/intake/periodForm";
 import {
@@ -12,9 +12,26 @@ const CODES = Object.keys(CURRENCY_REGISTRY).sort();
  * period is optional and must end the day before this one starts (the server checks it). Refusals are shown in plain
  * words; a backend without this option leaves the existing setup in place.
  */
-export function PeriodSetup({ client, companyId, onOpened }: { client: RpcClient; companyId: string; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void }) {
+export function PeriodSetup({ client, companyId, periodYear, onOpened }: { client: RpcClient; companyId: string; periodYear?: number; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void }) {
   const id = useId();
   const [f, setF] = useState({ start: "", end: "", currency: "", withPrior: false, priorStart: "", priorEnd: "", priorCurrency: "" });
+  // The period this workspace already has (recorded dates and currency), stated and prefilled — so its prior period can be
+  // added without re-entering it, and nothing is presented as "not set up" when it is.
+  const [existing, setExisting] = useState<{ start: string; end: string; currency: string; hasPrior: boolean } | null>(null);
+  useEffect(() => {
+    if (!periodYear) return;
+    let live = true;
+    const reader = client as unknown as { from?: (t: "fiscal_periods") => { select(c: string): { eq(c: "company_id", v: string): PromiseLike<{ data: { reporting_start: string | null; reporting_end: string | null; fiscal_year_end: string; reporting_currency: string | null; prior_period_id: string | null }[] | null }> } } };
+    if (!reader.from) return;
+    void reader.from("fiscal_periods").select("reporting_start, reporting_end, fiscal_year_end, reporting_currency, prior_period_id").eq("company_id", companyId).then(({ data }) => {
+      const row = (data ?? []).find((r) => Number(String(r.reporting_end ?? r.fiscal_year_end).slice(0, 4)) === periodYear);
+      if (!live || !row?.reporting_start || !row.reporting_end || !row.reporting_currency) return;
+      const e = { start: row.reporting_start.slice(0, 10), end: row.reporting_end.slice(0, 10), currency: row.reporting_currency, hasPrior: !!row.prior_period_id };
+      setExisting(e);
+      setF((x) => (x.start || x.end ? x : { ...x, start: e.start, end: e.end, currency: e.currency }));
+    }, () => { /* the form stays as it is */ });
+    return () => { live = false; };
+  }, [client, companyId, periodYear]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -32,7 +49,11 @@ export function PeriodSetup({ client, companyId, onOpened }: { client: RpcClient
         prior: f.withPrior ? { start: f.priorStart, end: f.priorEnd, ...(f.priorCurrency ? { currency: f.priorCurrency } : {}) } : undefined,
       });
       if (r.outcome === "refused") setMessage({ tone: "error", text: r.message });
-      else { setMessage({ tone: "info", text: r.created ? `Reporting period ${f.start} to ${f.end} (${f.currency}) is set up.` : `This reporting period already exists and is ready.` }); onOpened?.(r); }
+      else {
+        const prior = f.withPrior && r.priorPeriodId ? ` The prior period ${f.priorStart} to ${f.priorEnd} is set up and linked for comparatives.` : "";
+        setMessage({ tone: "info", text: (r.created ? `Reporting period ${f.start} to ${f.end} (${f.currency}) is set up.` : `Reporting period ${f.start} to ${f.end} (${f.currency}) is ready.`) + prior });
+        onOpened?.(r);
+      }
     } catch (err) {
       if (err instanceof SetupFeatureUnavailable) setUnavailable(true);
       else setMessage({ tone: "error", text: err instanceof WorkspaceSetupError ? err.message : "The period could not be set up right now. Nothing was changed." });
@@ -47,6 +68,11 @@ export function PeriodSetup({ client, companyId, onOpened }: { client: RpcClient
   return (
     <form onSubmit={submit} aria-labelledby={`${id}-h`} className="space-y-3">
       <h2 id={`${id}-h`} className="text-base font-semibold">Reporting period</h2>
+      {existing ? (
+        <p className="text-sm text-muted-foreground" data-testid="period-existing">
+          This workspace's period: {existing.start} to {existing.end} ({existing.currency}).{existing.hasPrior ? " Its prior period is linked." : " Add the prior period below for comparatives."}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-3">
         <div><label htmlFor={`${id}-s`} className="block text-sm">Start date</label><input id={`${id}-s`} type="date" required className={input} value={f.start} onChange={(e) => set("start", e.target.value)} /></div>
         <div><label htmlFor={`${id}-e`} className="block text-sm">End date</label><input id={`${id}-e`} type="date" required className={input} value={f.end} onChange={(e) => set("end", e.target.value)} /></div>

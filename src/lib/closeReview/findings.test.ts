@@ -65,7 +65,7 @@ describe("status and resolution (mirror of the database)", () => {
     // Sign-off requires a checked Close Review (20261017100000): Findings is released with the reporting activation and,
     // like the reporting groups, reaches only companies the server reports enabled (REPORTING_GROUPS, ReportingAccessGate).
     expect(RELEASED_WORKBENCH_PAGES.has("close-findings")).toBe(true);
-    expect(RELEASED_WORKBENCH_PAGES.has("close-adjustments")).toBe(false);
+    expect(RELEASED_WORKBENCH_PAGES.has("close-adjustments")).toBe(true);
     const root = path.resolve(__dirname, "../../..");
     const files = ["src/lib/closeReview/findings.ts", "src/lib/closeReview/timeline.ts", "src/components/closeReview/FindingsView.tsx",
       "src/components/closeReview/ReviewTimeline.tsx", "src/pages/workspace/CloseFindings.tsx",

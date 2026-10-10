@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { LandingHero } from "@/components/landing/LandingHero";
-import { LandingIntentProvider } from "@/components/landing/LandingIntent";
-import { ServiceChooser } from "@/components/landing/ServiceChooser";
+import { SoftwareSection } from "@/components/landing/SoftwareSection";
+import { SpecialistServices } from "@/components/landing/SpecialistServices";
 import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { TrustStrip } from "@/components/landing/TrustStrip";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
@@ -59,17 +59,15 @@ const Index = () => {
         Skip to main content
       </a>
       <Header />
-      {/* A validated ?service= (a shared link, or a return from sign-in) preselects the outcome. */}
-      <LandingIntentProvider initial={currentServiceIntent(window.location.search)?.service}>
-        <main id="main-content">
-          <LandingHero />
-          <ServiceChooser />
-          <CapacityPlans />
-          <TrustStrip />
-          <LandingFAQ />
-          <LandingFinalCTA />
-        </main>
-      </LandingIntentProvider>
+      <main id="main-content">
+        <LandingHero />
+        <SoftwareSection />
+        <CapacityPlans />
+        <SpecialistServices />
+        <TrustStrip />
+        <LandingFAQ />
+        <LandingFinalCTA />
+      </main>
       <Footer />
     </div>
   );

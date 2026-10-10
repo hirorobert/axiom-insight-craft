@@ -198,4 +198,28 @@ describe("intake: the real page, end to end against the server contracts", () =>
     await flush();
     expect(document.body.textContent).toContain("Manual layouts are not available yet. The automatic reading of your file still works as before.");
   });
+  it("a file the automatic reading settled: the file summary leads (columns, the detected format with the file's own examples); the editor opens only on request", async () => {
+    const settled = { ...INSPECT, sheets: [{ ...INSPECT.sheets[0], suggestion: { headerRow: 1, columns: { account_code: "Code", account_name: "Name", debit: "Soll", credit: "Haben" } } }] };
+    invokeImpl = (_name, body) => (body.action === "inspect" ? { data: settled, error: null } : { data: null, error: null });
+    m = mount(page(h(WorkspaceContext.Provider, { value: workspace() }, h(TrialBalanceIntake))));
+    await flush();
+    const summary = document.querySelector('[data-testid="layout-summary"]')!;
+    expect(summary.textContent).toContain("Read automatically");
+    expect(summary.textContent).toContain("“Soll”");
+    expect(document.querySelector('[data-testid="layout-number-format"]')!.textContent).toMatch(/1\.234\.567,89.*“1\.234,567”/);
+    expect(byText(/Check against the whole file/)).toBeUndefined();
+    click(document.querySelector('[data-testid="layout-change"]')!); await flush();
+    // In the editor the detected format leads; the seven alternatives are one click away, not the first thing shown.
+    expect(document.querySelector('[data-testid="number-format-detected"] details')).not.toBeNull();
+    expect(byText(/Check against the whole file/)).toBeDefined();
+  });
+  it("a file whose check failed opens the editor directly", async () => {
+    const settled = { ...INSPECT, sheets: [{ ...INSPECT.sheets[0], suggestion: { headerRow: 1, columns: { account_code: "Code", account_name: "Name", debit: "Soll", credit: "Haben" } } }] };
+    invokeImpl = (_name, body) => (body.action === "inspect" ? { data: settled, error: null } : { data: null, error: null });
+    const ws = { companyId: "c1", periodYear: 2025, upload: { id: "u1", file_name: "tb.csv", status: "blocked", is_valid: false }, refreshUpload: vi.fn() } as never;
+    m = mount(page(h(WorkspaceContext.Provider, { value: ws }, h(TrialBalanceIntake))));
+    await flush();
+    expect(document.querySelector('[data-testid="layout-summary"]')).toBeNull();
+    expect(byText(/Check against the whole file/)).toBeDefined();
+  });
 });

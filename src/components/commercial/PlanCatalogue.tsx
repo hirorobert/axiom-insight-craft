@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Check } from "lucide-react";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { Button } from "@/components/ui/button";
-import { NO_CHECKOUT_NOTICE, PRICING_CATALOGUE, formatCatalogueAmount, planIncludes, type CataloguePlan } from "@/lib/commercial/pricingCatalogue";
+import { PRICING_CATALOGUE, formatCatalogueAmount, planIncludes } from "@/lib/commercial/pricingCatalogue";
+import { activationHref, MANUAL_ACTIVATION_NOTE, REQUEST_ACTIVATION_LABEL, type CommercialSource } from "@/lib/commercial/offerings";
 import { CUSTOMER_SERVICE_INTENT_IDS, SERVICE_INTENTS } from "@/lib/commercial/serviceIntent";
 import { WITHHELD_SERVICE_SURFACES_VISIBLE } from "@/lib/workspace/moduleAvailability";
 
@@ -14,14 +14,14 @@ import { WITHHELD_SERVICE_SURFACES_VISIBLE } from "@/lib/workspace/moduleAvailab
 // matrix; each card states only what differs. The raw feature matrix is not rendered: its plan-feature rows include
 // outputs the interface does not reach (structured filing packs).
 //
-// The contact form exists only behind the service-enquiry gate: link to it only when its route exists, otherwise say
-// plainly how a plan is obtained. Never a link to a page that is not there.
+// Every plan action is "Request activation" (Enterprise: "Discuss Enterprise"): the enquiry form preselected with the plan.
+// Subscriptions are sold by agreement and activated by our team — stated beside every action. The contact form exists only
+// behind the service-enquiry gate: link to it only when its route exists, otherwise say plainly how a plan is obtained.
 const COMMON_SERVICES = CUSTOMER_SERVICE_INTENT_IDS
   .filter((id) => PRICING_CATALOGUE.every((plan) => planIncludes(plan.code, SERVICE_INTENTS[id].capability)))
   .map((id) => SERVICE_INTENTS[id].name);
 
-export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.contactRoute }: { contactAvailable?: boolean } = {}) {
-  const [selected, setSelected] = useState<CataloguePlan | null>(null);
+export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.contactRoute, source = "landing_plans" }: { contactAvailable?: boolean; source?: CommercialSource } = {}) {
   return <div>
     <p className="text-center text-[11px] font-mono uppercase tracking-[0.16em] text-muted-foreground" data-testid="proposed-pricing">Proposed pricing · 12-month term</p>
     <ul className="mb-7 mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1" aria-label="Every plan includes" data-testid="common-services">
@@ -36,9 +36,11 @@ export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.cont
         <ul className="my-6 flex-1 space-y-2" aria-label={`${plan.name} adds`}>
           {WITHHELD_SERVICE_SURFACES_VISIBLE && planIncludes(plan.code, "MULTI_ENTITY_REPORTING") && <li className="flex gap-2 text-xs text-muted-foreground"><Check className="h-4 w-4 shrink-0" aria-hidden="true" />Multi-entity reporting</li>}
         </ul>
-        <Button type="button" variant={plan.code === "PRACTICE" ? "default" : "outline"} className="w-full" onClick={() => setSelected(plan)}>{plan.salesMode === "contact_sales" ? "Discuss Enterprise" : `Choose ${plan.name}`}</Button>
+        {contactAvailable
+          ? <Button asChild variant={plan.code === "PRACTICE" ? "default" : "outline"} className="w-full"><Link to={activationHref(plan.code, source)} data-testid={`request-activation-${plan.code}`}>{plan.salesMode === "contact_sales" ? "Discuss Enterprise" : REQUEST_ACTIVATION_LABEL}</Link></Button>
+          : <p className="text-sm text-muted-foreground" data-testid="plan-activation-route">{plan.salesMode === "contact_sales" ? "Enterprise terms are agreed directly with our team." : "Plans are activated by the CFOClose team."}</p>}
+        <p className="mt-2 text-[11px] leading-4 text-muted-foreground" data-testid={`activation-note-${plan.code}`}>{MANUAL_ACTIVATION_NOTE}</p>
       </li>)}
     </ul>
-    {selected && <div role="status" className="mt-8 border-t border-border py-6 text-center"><h2 className="text-lg font-semibold">{selected.name}{selected.salesMode === "contact_sales" ? "" : " · 12-month term"}</h2><p className="mt-2 text-sm text-muted-foreground">{NO_CHECKOUT_NOTICE}</p><div className="mt-4 flex flex-wrap justify-center gap-3"><Button variant="outline" onClick={() => setSelected(null)}>Return to plans</Button>{contactAvailable ? <Button asChild><Link to="/contact">{selected.salesMode === "contact_sales" ? "Discuss Enterprise" : "Billing support"}</Link></Button> : <p className="self-center text-sm text-muted-foreground" data-testid="plan-activation-route">{selected.salesMode === "contact_sales" ? "Enterprise terms are agreed directly with our team." : "Plans are activated by the CFO Close team."}</p>}</div></div>}
   </div>;
 }

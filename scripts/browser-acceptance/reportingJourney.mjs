@@ -96,10 +96,10 @@ try {
     await shot(preparer, "03-notes");
     const t = await preparer.bodyText();
     // The only open blocking requirements are the evidence-built statements (cash flows, changes in equity), whose
-    // evidence is supplied with a version on the Sign-off page.
+    // evidence is collected while preparing the statements; the page says so, so its count reconciles.
     const open = Number((t.match(/(\d+) blocking requirements? open/) ?? [])[1]);
     const missing = (t.match(/Evidence missing/g) ?? []).length;
-    return open === 2 && missing === 2 ? true : { open, missing, t: t.slice(0, 500) };
+    return open === 2 && missing === 2 && /0 need wording or a decision here; 2 need cash-flow or equity evidence/.test(t) ? true : { open, missing, t: t.slice(0, 500) };
   });
   await check("schedules: the property, plant and equipment schedule is reconciled to the statements by the server", async () => {
     await go(preparer, "preparer", "/statements/schedules", "Property, plant and equipment");
@@ -122,21 +122,25 @@ try {
     return true;
   });
 
-  console.log("\n== Sign-off: evidence and a version, through the one atomic save");
-  await check("the next action now asks for the cash-flow and equity evidence", async () => {
-    await go(preparer, "preparer", "/signoff", "Evidence for the cash-flow");
+  console.log("\n== Statements: evidence collected while preparing; stored only with a version (one atomic save)");
+  await check("the next action asks for the cash-flow and equity evidence on the Statements page, in readable words", async () => {
+    await go(preparer, "preparer", "/statements", "Evidence for the cash-flow");
     const na = await nextAction(preparer);
-    return /evidence/i.test(na?.text ?? "") && na.tone === "todo" ? true : na;
+    return /evidence/i.test(na?.text ?? "") && !/smes\./.test(na?.text ?? "") && na.tone === "todo" ? true : na;
   });
-  await check("six evidence files are picked and parsed in the browser; one save stores them with version 1 and re-saves version 2 on the changed dependencies; version 2 has no blocker", async () => {
+  await check("six evidence files are validated in the browser and shown as not stored; one save stores them with version 1 and re-saves version 2; each file then shows as in version 2, which has no blocker", async () => {
     for (const [slot, file] of Object.entries(seed.files)) await preparer.setFiles(`input[data-slot="${slot}"]`, [file]);
-    await preparer.waitFor(() => document.querySelectorAll('[data-parsed="ok"]').length === 6, [], { label: "six parsed files" });
+    await preparer.waitFor(() => document.querySelectorAll('[data-evidence-state="validated"]').length === 6, [], { label: "six validated files" });
+    const unsaved = await preparer.evaluate(() => !!document.querySelector('[data-testid="evidence-unsaved"]'));
     await shot(preparer, "06-evidence-picked");
-    await preparer.click('[data-testid="save-version"]');
+    await preparer.click('[data-testid="store-evidence"]');
     await preparer.waitForText("version 2 is saved", { timeout: 60000 });
+    await preparer.waitFor(() => (document.querySelector('[data-testid="evidence"]')?.textContent ?? "").split("in version 2").length - 1 === 6, [], { label: "six files bound to version 2", timeout: 30000 });
+    await go(preparer, "preparer", "/signoff", "Version 2");
     await preparer.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "true", [], { label: "version 2 ready", timeout: 30000 });
+    const summaryOnly = await preparer.evaluate(() => document.querySelector('[data-testid="evidence"]')?.getAttribute("data-mode") === "summary" && !document.querySelector('[data-testid="evidence"] input[type="file"]'));
     await shot(preparer, "07-version-saved-ready");
-    return true;
+    return unsaved && summaryOnly ? true : { unsaved, summaryOnly };
   });
   await check("a preparer cannot sign: no sign-off control, the page says who does", async () => {
     const t = await preparer.bodyText();

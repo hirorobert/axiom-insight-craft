@@ -78,7 +78,8 @@ async function main() {
   await check("a reviewer approves the comparatives; next action: add the evidence", async () => {
     await db.asUser(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed to the signed 2025 statements',$3) r", [A, Y, uuid()]);
     const a = await state(U.preparer, PREP);
-    return a.page === "signoff" && /evidence/.test(a.title) ? true : a;
+    // Evidence is collected while preparing the statements (Statements › Evidence), named in readable words.
+    return a.page === "fs-statements" && /evidence/.test(a.title) && !/smes\./.test(a.detail) ? true : a;
   });
 
   group("Evidence and the first version — one atomic commit, then re-bound");

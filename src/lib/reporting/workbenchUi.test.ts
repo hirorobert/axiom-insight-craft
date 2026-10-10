@@ -94,3 +94,43 @@ describe("an unsupported reporting case on the Notes page", () => {
     expect([...document.querySelectorAll('[data-testid="requirement-panel"] button')].map((b) => b.textContent)).not.toContain("Does not apply");
   });
 });
+
+describe("the commercial candidate's journey fixes", () => {
+  it("elsewhere, the report's next action is one quiet line (the page's own task leads); its wording never shows a requirement identifier", async () => {
+    await render(server(), "fs-schedules");
+    const na = document.querySelector('[data-testid="next-action"]')!;
+    expect(na.getAttribute("data-elsewhere")).toBe("true");
+    expect(na.textContent).toMatch(/^Next for this report: Complete 1 note requirement/);
+    expect(na.textContent).not.toMatch(/smes\./);
+  });
+  it("comparatives missing: the recovery names both supported paths; only an approver may declare a first period", async () => {
+    const missing = { ...CMP, comparative: { ...CMP.comparative, state: "missing", composedComparativeState: "missing", comparativeSha256: null, blockers: ["COMPARATIVE_REQUIRED_MISSING"] } };
+    await render(server({ fs_comparatives_status: () => missing }), "fs-comparatives", ["prepare_close"]);
+    const rec = document.querySelector('[data-testid="comparative-recovery"]')!;
+    expect(rec.textContent).toContain("Import the FY2025 trial balance");
+    expect(rec.querySelector('[data-testid="recover-intake"]')!.getAttribute("href")).toBe("/workspace/c1/2026/trial-balance/intake");
+    expect(rec.querySelector('[data-testid="open-first-period"]')).toBeNull();
+    expect(rec.textContent).toContain("A member who approves certifications records it.");
+    // The server code stays available, behind Technical details, never as the message itself.
+    expect(document.querySelector('[data-testid="comparative-technical"] code')!.textContent).toBe("COMPARATIVE_REQUIRED_MISSING");
+    m?.unmount(); m = null; document.body.innerHTML = "";
+    await render(server({ fs_comparatives_status: () => missing }), "fs-comparatives", ["approve_certification"]);
+    click(document.querySelector('[data-testid="open-first-period"]')!);
+    await settle();
+    expect((document.querySelector('[data-testid="record-first-period"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+  it("evidence is collected on Statements with explicit states; Sign-off shows them read-only", async () => {
+    await render(server(), "fs-statements");
+    const ev = document.querySelector('[data-testid="evidence"]')!;
+    expect(ev.getAttribute("data-mode")).toBe("prepare");
+    expect(ev.querySelectorAll('input[type="file"]')).toHaveLength(6);
+    expect([...ev.querySelectorAll("tr[data-evidence-state]")].every((r) => r.getAttribute("data-evidence-state") === "none")).toBe(true);
+    expect(ev.textContent).toContain("stored only together with a saved draft version");
+    m?.unmount(); m = null; document.body.innerHTML = "";
+    await render(server(), "signoff");
+    const sum = document.querySelector('[data-testid="evidence"]')!;
+    expect(sum.getAttribute("data-mode")).toBe("summary");
+    expect(sum.querySelectorAll('input[type="file"]')).toHaveLength(0);
+  });
+});

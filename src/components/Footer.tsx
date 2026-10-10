@@ -8,8 +8,9 @@ import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGat
 // No price is rendered in the footer: proposed plan sizes appear in exactly one place, the service
 // chooser. The footer carries the disclosures instead (commercial status and the scope note).
 const PRODUCT_LINKS = [
-  { label: "Services", href: "/#services" },
-  { label: "Plans",    href: "/pricing"   },
+  { label: "Software",            href: "/#software"            },
+  { label: "Plans",               href: "/pricing"              },
+  { label: "Specialist services", href: "/#specialist-services" },
 ] as const;
 
 const ACCOUNT_LINKS = [

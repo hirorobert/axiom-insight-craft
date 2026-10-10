@@ -16,9 +16,9 @@ import path from "node:path";
 import { applyChain, certifier, clientDb, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, makeWorld, openDatabase, prepareReporting } from "./lib/reportingKit.mjs";
 
 const PORT = Number(process.env.REPORTING_BRIDGE_PORT ?? 54998);
-const RPC = /^(fs_[a-z_]+|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
+const RPC = /^(fs_[a-z_]+|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
 const WRITE_RPC = /^fs_(assign_presentation|elect_early_application|decide_requirement|record_disclosure|record_schedule|bridge_comparative_account|propose_restatement|decide_restatement|approve_comparatives|commit_revision|set_publication_state)$/;
-const READ_RPC = /^(fs_(statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness)|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
+const READ_RPC = /^(fs_(statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness)|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
 const TABLES = /^(financial_evidence_batches|fs_disclosure_texts|account_mappings|financial_statement_reports|financial_statement_publications|fs_publication_bindings|fs_comparative_restatements|fs_comparative_restatement_decisions)$/;
 
 const db = await openDatabase("reporting_harness");

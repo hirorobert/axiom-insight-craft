@@ -1,9 +1,10 @@
 /**
- * ReconcileWorkspace — EFDMS reconciliation and adjusting journal review.
+ * ReconcileWorkspace — the jurisdiction reconciliation panel, and adjusting entries as a READ-ONLY history.
  *
- * Re-homed in Phase C:
- *   EFDMSReconciliationPanel (from PrepareWorkspace)
- *   AdjustingJournalPanel (from TaxWorkspace)
+ * One adjustment path. The retired journal panel wrote adjusting entries from the browser (and recorded the signed-in user
+ * as approver); 20261026100000 closes that write path in the database. Adjustments are proposed, reviewed and approved
+ * only in Close Review › Adjustments (server functions, separation of duties). This page links there when it is offered
+ * for the workspace and keeps earlier entries visible, read-only (LegacyAdjustmentsHistory).
  *
  * Mission status is "not_applicable" (always available) at the ENGINE level — deriveWorkspaceState
  * deliberately never gates this stage (see its own doc comment: "reconcile and compliance are na()
@@ -20,8 +21,10 @@
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { JurisdictionPanel } from "@/components/jurisdiction/JurisdictionPanel";
-import { AdjustingJournalPanel } from "@/components/AdjustingJournalPanel";
+import { LegacyAdjustmentsHistory } from "@/components/LegacyAdjustmentsHistory";
 import { RELEASED_WORKBENCH_PAGES } from "@/lib/workbench/routes";
+import { WORKBENCH_NAVIGATION_ENABLED } from "@/lib/workbench/gate";
+import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { WorkspaceGate } from "@/components/workspace/WorkspaceGate";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 
@@ -48,6 +51,10 @@ function deriveFiscalPeriod(upload: WorkspaceUpload, fiscalYearEnd: string | nul
 export default function ReconcileWorkspace() {
   const { upload, company, workspaceState, companyId, periodYear } = useWorkspace();
   const { user } = useAuth();
+  // Close Review › Adjustments is offered exactly where its route is registered and its gate admits (App.tsx).
+  const reporting = useReportingAccess(companyId);
+  const adjustmentsHref = WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && reporting.state === "enabled"
+    ? `/workspace/${companyId}/${periodYear}/close/adjustments` : null;
 
   // The same certification-blocked signal PATH 6B computes (workspaceState.nextAction) — never a
   // second, independently-derived readiness check. See stageLockGate.test.ts for the identical
@@ -93,17 +100,8 @@ export default function ReconcileWorkspace() {
         userId={user?.id ?? ""}
       />
 
-      {/* One adjustment path: once Close Review › Adjustments is released, the legacy journal panel (which writes from the
-          browser) is retired here. Until then it is unchanged. */}
-      {!RELEASED_WORKBENCH_PAGES.has("close-adjustments") && (
-        <AdjustingJournalPanel
-          companyId={upload.company_id}
-          uploadId={upload.id}
-          periodYear={fpYear}
-          companyName={upload.company_name ?? undefined}
-          userId={user?.id ?? ""}
-        />
-      )}
+      {/* One adjustment path: Close Review › Adjustments. Earlier entries stay visible here, read-only. */}
+      <LegacyAdjustmentsHistory companyId={upload.company_id} periodYear={fpYear} adjustmentsHref={adjustmentsHref} />
     </div>
   );
 }

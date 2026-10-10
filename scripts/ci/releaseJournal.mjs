@@ -407,6 +407,35 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 15105, sha256: "74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 15104, sha256: "55673777745529f9a1a8a7f8be209e00665372ff2d1c383d17e61c6b7bbe2730" }),
   }),
+  // The commercial candidate (batch commercial-c1): the enquiry additions, the retirement of browser journal writes, workspace purpose, periods from the company.
+  "20261025100000_commercial_enquiries.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 18051, sha256: "3051c74a0cf9b17ac212b95904b8acb8fa5bdd9c9158fa48e4d128540bc5064c" }),
+    finalLfRemoved: Object.freeze({ bytes: 18050, sha256: "3a43cb8c65e1d498235efdecf8012409b8a7af0d7f0bb7844a0cfe7a8a9cee05" }),
+    // Self-checking wrapper release/wrappers/20261025100000_commercial_enquiries.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 19613, sha256: "577cfa4c84399a22f50a9dfc52af2cfa68d09592c54a0440a41c3b39e46d8e90" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 19612, sha256: "373c9ad836ec4f006fe626b79074ec181fae4c3c3bb58d465791808b6cde1986" }),
+  }),
+  "20261026100000_retire_browser_adjusting_journal_writes.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 4584, sha256: "d87b600ac0a798a09e7bc9eb5cc1667235952edaba4ec53aaa9b0b9225d64c6f" }),
+    finalLfRemoved: Object.freeze({ bytes: 4583, sha256: "060e40537d196ef364a26811b2deda94e4753ade0e0afaa710aea9714042ef8f" }),
+    // Self-checking wrapper release/wrappers/20261026100000_retire_browser_adjusting_journal_writes.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 6182, sha256: "7ed2cee1836489a169f5193aa935291ecc9bceea5872f0b11aadc94c089c8934" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 6181, sha256: "48f72943b146e65330f2563a4199151fefb1e59eae6c90999002a718f2e9f8ca" }),
+  }),
+  "20261027100000_workspace_purpose.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 5638, sha256: "c1daa138672875d148439017b1f5e09fd926574ede0a28c1e32b0a9580f45c7c" }),
+    finalLfRemoved: Object.freeze({ bytes: 5637, sha256: "e461c0098c78a89f2026b07b4dc4d172b856e55bae65a4bc3565ba360639151f" }),
+    // Self-checking wrapper release/wrappers/20261027100000_workspace_purpose.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 7192, sha256: "44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 7191, sha256: "fcd896e5c034294aa1625aae19554da546ee785d5b9d310f28a9e99a80a43545" }),
+  }),
+  "20261028100000_period_dates_from_company.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 10136, sha256: "da14459f7557fb41ec25d91cba40801ba85245c0ae89c75ea72141be841fbc71" }),
+    finalLfRemoved: Object.freeze({ bytes: 10135, sha256: "b1e70493f5f730887267b1ea300a0b71f5febfe8f6617c9eb1867712415392e7" }),
+    // Self-checking wrapper release/wrappers/20261028100000_period_dates_from_company.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 11708, sha256: "c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 11707, sha256: "51104bb36a7f14dfd15fce8d585edc66437cf30a0677158e98c064fb75ae3943" }),
+  }),
 });
 
 /**

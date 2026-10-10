@@ -125,7 +125,7 @@ const App = () => (
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={null}><CloseFindings /></Suspense></ReportingAccessGate></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><CloseAdjustments /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={null}><CloseAdjustments /></Suspense></ReportingAccessGate></StageScopeGate>} />}
                   {/* Financial Statements and Sign-off & Exports: each registered only once its page is released (routes.ts
                       RELEASED_WORKBENCH_PAGES), behind ReportingAccessGate: server-granted access to the Statements stage AND the
                     company enabled for reporting by the server (rollout allow-list). */}

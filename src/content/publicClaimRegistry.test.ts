@@ -15,6 +15,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PUBLIC_CLAIM_REGISTRY } from "./publicClaimRegistry";
+import { LANDING_FAQ } from "./landing/landingContent";
+import { SPECIALIST_PUBLIC_STRINGS } from "@/lib/commercial/offerings";
+import { SPECIALIST_SERVICE_CODES } from "@/lib/serviceEnquiry/contract";
 
 const ROOT = path.resolve(__dirname, "../..");
 const LANDING_FILES = [
@@ -22,12 +25,13 @@ const LANDING_FILES = [
   "src/components/Header.tsx",
   "src/components/Footer.tsx",
   "src/components/landing/LandingHero.tsx",
-  "src/components/landing/ServiceChooser.tsx",
+  "src/components/landing/SoftwareSection.tsx",
+  "src/components/landing/SpecialistServices.tsx",
   "src/components/landing/CapacityPlans.tsx",
   "src/components/landing/TrustStrip.tsx",
   "src/components/landing/LandingFAQ.tsx",
   "src/components/landing/LandingFinalCTA.tsx",
-  "src/components/landing/LandingIntent.tsx",
+  "src/lib/commercial/offerings.ts",
   "src/pages/Plans.tsx",
   "src/content/landing/landingContent.ts",
   "src/constants/copy.ts",
@@ -37,7 +41,11 @@ const LANDING_FILES = [
 const RAW_LANDING_SOURCE = LANDING_FILES.map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n");
 // Strip comments before scanning for prohibited wording: a code comment explaining WHY a stronger
 // claim was removed is documentation, not a rendered user claim.
-const LANDING_SOURCE_NO_COMMENTS = RAW_LANDING_SOURCE
+// Specialist services are people-delivered enquiries that may NAME forecasting etc.; exactly their registered public strings
+// and the one specialist FAQ entry are removed before the prohibited-wording scan (src/lib/commercial/offerings.ts).
+const SPECIALIST_FAQ = LANDING_FAQ.find((f) => f.id === "specialist-services")!;
+const LANDING_SOURCE_NO_COMMENTS = [...SPECIALIST_PUBLIC_STRINGS, SPECIALIST_FAQ.question, SPECIALIST_FAQ.answer, ...SPECIALIST_SERVICE_CODES.map((c) => `"${c}"`)]
+  .reduce((acc, s) => acc.split(s).join(" "), RAW_LANDING_SOURCE)
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/^\s*\/\/.*$/gm, "")
   .replace(/<!--[\s\S]*?-->/g, "");

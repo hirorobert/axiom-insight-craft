@@ -317,6 +317,54 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  real-app-e2e:
+    name: Real application end to end (local Supabase stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup the Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start the local Supabase stack (Docker on loopback; the CLI applies supabase/migrations to a throwaway database)
+        run: supabase start -x studio,imgproxy,logflare,vector
+
+      - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
+        run: node scripts/e2e/localStackJourney.mjs real-app-evidence
+
+      - name: Keep the local Edge Functions log with the evidence when the journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
+
+      - name: Upload the real application evidence (screenshots, journey log, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-app-evidence
+          path: real-app-evidence
+          if-no-files-found: ignore
+
+      - name: Stop the local stack
+        if: always()
+        run: supabase stop --no-backup
+
   db-contract-tests:
     name: Disposable-DB Contract Tests (Ω∞ A+ closure)
     runs-on: ubuntu-latest
@@ -504,6 +552,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
           git fetch --no-tags --depth=1 origin 2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
           git fetch --no-tags --depth=1 origin 5358aefc999bd09f5d306e3e19ba3abbd79da082
+          git fetch --no-tags --depth=1 origin 015825859f4bd8641fba013636ae118f3aa5d5e8
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -541,6 +590,47 @@ jobs:
         run: |
           createdb signoff_policy_proof
           bun scripts/db-proof/signoffPolicy.mjs
+
+      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions, the retirement of browser adjusting-journal writes, workspace purpose and periods from the company; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_wrappers_proof
+          RELEASE_BATCH: commercial-c1
+        run: |
+          createdb commercial_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Commercial enquiries proof (20261025100000; activation requests name a catalogue plan, specialist-service enquiries take no payload, tracked staff replies are append-only and queued to the requester only with honest delivery status, staff-only and replay-safe; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_enquiries_proof
+        run: |
+          createdb commercial_enquiries_proof
+          bun scripts/db-proof/commercialEnquiries.mjs
+
+      - name: Legacy adjustments retirement proof (20261026100000; the browser-write defect reproduced and then refused for insert, update, delete and lines; no client write policy left; earlier entries byte-identical and readable by members only; service_role writes intact; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/legacy_adjustments_proof
+        run: |
+          createdb legacy_adjustments_proof
+          bun scripts/db-proof/legacyAdjustmentsRetirement.mjs
+
+      - name: Workspace purpose proof (20261027100000; client, test or training recorded only by the company owner with a reason, replay-safe; members read it, other tenants and anon do not; append-only; companies, engagements and uploads byte-identical; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/workspace_purpose_proof
+        run: |
+          createdb workspace_purpose_proof
+          bun scripts/db-proof/workspacePurpose.mjs
+
+      - name: Periods from the company proof (20261028100000; the launchpad period follows the company's stated year-end and currency, the defect reproduced first; 29 February clamps; the prior period links; table defaults never count; a legacy calendar period is never rewritten or refused; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/period_from_company_proof
+        run: |
+          createdb period_from_company_proof
+          bun scripts/db-proof/periodFromCompany.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:

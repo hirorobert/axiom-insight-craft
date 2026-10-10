@@ -6,6 +6,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { EvidenceIntake } from "./EvidenceIntake";
 import { DataTable, type DataColumn } from "@/components/workbench/DataTable";
 import { SecondaryPanel } from "@/components/workbench/SecondaryPanel";
 import { presentAmount } from "@/lib/presentation/amounts";
@@ -68,6 +69,8 @@ function Composed(p: PageProps & { c: Composition }) {
         </p>
       ) : null}
       <NotPresented {...p} />
+      {/* Cash-flow and equity evidence is part of preparing the statements; Sign-off only summarises it. */}
+      <EvidenceIntake {...p} mode="prepare" />
       <SecondaryPanel open={open !== null} title={open ? `Lineage — ${open.label}` : ""} onClose={() => setOpen(null)} returnSelector={open ? `[data-trace="${open.lineId}"]` : undefined}>
         {open?.lineage ? <Lineage lineage={open.lineage} exponent={p.c.current.exponent} /> : null}
       </SecondaryPanel>

@@ -1,66 +1,44 @@
 /**
- * LandingHero — the proposition and exactly two actions: Create account (carrying the selected service) and
- * "Explore a sample close", which goes to the outcome chooser. Below them, a compact service selector: choosing a
- * service here selects it in the chooser and scrolls there. No fictional progress panel.
+ * LandingHero — the brand panel and one proposition, with one request: "Request activation" (the preselected activation
+ * enquiry) and a way to the plans. Manual activation is stated beside the actions. No service strip, no progress panel.
  */
 
 import { ArrowDown, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LANDING_HERO, LANDING_SERVICES } from "@/content/landing/landingContent";
-import { serviceAuthHref } from "@/lib/commercial/serviceIntent";
-import { useLandingIntent } from "@/components/landing/landingIntentContext";
+import { BRAND_GOLD, BRAND_NAVY, CFOCloseWordmark } from "@/components/CFOCloseWordmark";
+import { LANDING_HERO } from "@/content/landing/landingContent";
+import { activationRequestHref, MANUAL_ACTIVATION_NOTE } from "@/lib/commercial/offerings";
+import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 export function LandingHero() {
-  const { service, setService } = useLandingIntent();
   return (
-    <section aria-labelledby="hero-title" className="border-b border-border bg-background">
-      <div className="mx-auto max-w-7xl px-6 pb-12 pt-24 lg:px-10 lg:pb-14 lg:pt-28">
-        <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">{LANDING_HERO.eyebrow}</p>
-        <h1
-          id="hero-title"
-          className="mt-5 max-w-4xl text-[2.1rem] font-semibold leading-[1.05] tracking-[-0.04em] text-foreground sm:text-[2.75rem] lg:text-[3.25rem]"
-        >
+    <section aria-labelledby="hero-title" className="border-b border-border text-white" style={{ backgroundColor: BRAND_NAVY }}>
+      <div className="mx-auto max-w-7xl px-6 pb-14 pt-24 lg:px-10 lg:pb-16 lg:pt-28">
+        <CFOCloseWordmark variant="panel" className="px-0 text-[1.6rem] sm:text-[2rem]" />
+        <p className="mt-8 text-[11px] font-mono uppercase tracking-[0.22em]" style={{ color: BRAND_GOLD }}>{LANDING_HERO.eyebrow}</p>
+        <h1 id="hero-title" className="mt-4 max-w-4xl text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.035em] text-white sm:text-[2.75rem] lg:text-[3.1rem]">
           {LANDING_HERO.headline}
         </h1>
-        <p className="mt-5 max-w-2xl text-[15px] leading-7 text-muted-foreground sm:text-base">{LANDING_HERO.supporting}</p>
+        <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/80 sm:text-base">{LANDING_HERO.supporting}</p>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button variant="hero" size="lg" asChild className="w-full sm:w-auto sm:min-w-[176px]">
-            <Link to={serviceAuthHref("signup", service)} data-testid="hero-create-account">
-              {LANDING_HERO.primaryCta.label}
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          </Button>
-          <Button variant="outline" size="lg" asChild className="w-full sm:w-auto">
-            <a href={LANDING_HERO.secondaryCta.href}>
+          {SERVICE_ENQUIRY_SURFACES.contactRoute && (
+            <Button size="lg" asChild className="w-full rounded-none text-[#0D1D3B] hover:opacity-90 sm:w-auto sm:min-w-[200px]" style={{ backgroundColor: BRAND_GOLD }}>
+              <Link to={activationRequestHref("landing_plans")} data-testid="hero-request-activation">
+                {LANDING_HERO.primaryCta.label}
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          )}
+          <Button size="lg" variant="outline" asChild className="w-full rounded-none border-white/40 bg-transparent text-white hover:bg-white/10 hover:text-white sm:w-auto">
+            <a href={LANDING_HERO.secondaryCta.href} data-testid="hero-see-plans">
               {LANDING_HERO.secondaryCta.label}
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
             </a>
           </Button>
         </div>
-
-        {/* Compact service selector — selects the outcome below and goes there. */}
-        <nav aria-label="Choose a service" className="mt-12">
-          <ul className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4">
-            {LANDING_SERVICES.map((s) => (
-              <li key={s.id} className="bg-background">
-                <a
-                  href="#services"
-                  onClick={() => setService(s.id)}
-                  aria-current={service === s.id ? "true" : undefined}
-                  data-testid={`hero-service-${s.id}`}
-                  className={`flex h-full items-center justify-between gap-2 px-4 py-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                    service === s.id ? "bg-foreground text-background" : "text-foreground hover:bg-muted/40"
-                  }`}
-                >
-                  {s.name}
-                  <ArrowDown className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden="true" />
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <p className="mt-4 text-[13px] text-white/70" data-testid="hero-activation-note">{MANUAL_ACTIVATION_NOTE}</p>
       </div>
     </section>
   );

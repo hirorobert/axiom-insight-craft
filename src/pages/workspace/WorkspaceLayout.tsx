@@ -52,6 +52,9 @@ import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { WORKBENCH_NAVIGATION_ENABLED } from "@/lib/workbench/gate";
 import { activeWorkbenchPage, canonicalWorkbenchHref, deriveWorkbenchNavigation, REPORTING_GROUPS } from "@/lib/workbench/routes";
 import { useReportingAccess } from "@/hooks/useReportingAccess";
+import { useReportingNextAction } from "@/hooks/useReportingNextAction";
+import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { isStageCustomerVisible } from "@/lib/workspace/moduleAvailability";
 import { missionStatusWord } from "@/lib/workbench/statusWords";
 import { parseReportVersion } from "@/lib/workbench/context";
 import { NextOpenItem, WorkbenchNav } from "@/components/workbench/WorkbenchNav";
@@ -436,15 +439,25 @@ function WorkbenchShell(props: {
   companyId: string;
   periodYear: number;
   missionStatus: (stage: WorkspaceMission) => MissionStatus | null;
-  nextAction: { label: string; href: string } | null;
+  nextAction: { label: string; href: string; mission: WorkspaceMission } | null;
   withheld: boolean;
 }) {
   const reporting = useReportingAccess(props.companyId);
+  const { state: caps } = useWorkspaceCapabilities(props.companyId);
   const model = deriveWorkbenchNavigation(props.basePath, props.navItems, undefined, reporting.state === "enabled");
   const activePage = activeWorkbenchPage(props.pathname, props.basePath);
   const reportVersion = parseReportVersion(props.search);
-  const next = props.nextAction ? { label: props.nextAction.label, href: canonicalWorkbenchHref(props.nextAction.href, props.basePath) } : null;
-  const showNext = !!next && activePage !== null && activePage !== "overview" && activeWorkbenchPage(next.href, props.basePath) !== activePage;
+  // One next open item, from the authority that owns the step: the workspace engine while its step is in a stage the
+  // customer can see (the trial balance); after that, for a reporting-enabled company, the reporting journey's own next
+  // action (Close Review, statements, comparatives, notes, evidence, version, sign-off) — never the engine's legacy
+  // statement step, which names a withheld stage and knows none of those prerequisites. Otherwise nothing.
+  const engineVisible = !!props.nextAction && isStageCustomerVisible(props.nextAction.mission);
+  const reportingNext = useReportingNextAction(props.companyId, props.periodYear, !engineVisible && reporting.state === "enabled", caps?.allowed ?? null, props.pathname);
+  const next = engineVisible && props.nextAction ? { label: props.nextAction.label, href: canonicalWorkbenchHref(props.nextAction.href, props.basePath) }
+    : reportingNext ? { label: reportingNext.action.title, href: reportingNext.href } : null;
+  // The reporting pages show the report's next action themselves (ReportingWorkbench).
+  const ownBar = activePage !== null && ["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"].includes(activePage);
+  const showNext = !!next && activePage !== null && activePage !== "overview" && !ownBar && activeWorkbenchPage(next.href, props.basePath) !== activePage;
   return (
     <div className="mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-1 md:grid-cols-[232px_1fr]">
       <div className="border-b border-border bg-muted/40 px-2 py-3 md:border-b-0 md:border-r">

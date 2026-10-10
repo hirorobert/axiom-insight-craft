@@ -62,7 +62,7 @@ export default function TrialBalanceIntake() {
   return (
     <div className="space-y-8 p-4">
       <h1 className="text-lg font-semibold">Trial balance — Intake</h1>
-      <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} />
+      <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} />
       <section aria-labelledby="tb-intake-upload" className="space-y-2">
         <h2 id="tb-intake-upload" className="text-base font-semibold">Upload</h2>
         <p className="text-sm">
@@ -72,8 +72,11 @@ export default function TrialBalanceIntake() {
       </section>
       {upload?.id ? (
         <>
+          {/* File summary first: the editor opens on request, or by itself when detection did not settle the layout or the
+              file's check failed. Whole-file validation and confirmation are unchanged. */}
           <LayoutEditor client={client} companyId={companyId} uploadId={upload.id} periodLabel={periodLabel}
-            templates={templates.state.status === "ready" ? templates.state.value : []} onConfirmed={setConfirmedNo} assist={assist} />
+            templates={templates.state.status === "ready" ? templates.state.value : []} onConfirmed={setConfirmedNo} assist={assist}
+            startCollapsed needsLayout={upload.status === "blocked" || upload.status === "error" || upload.is_valid === false} />
           {confirmedNo !== null ? (
             <div className="space-y-1">
               <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={recheck.busy} onClick={() => void checkAgain()}>

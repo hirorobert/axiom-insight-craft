@@ -1,10 +1,11 @@
 /** Types and small helpers shared by the reporting workbench pages (no server calls of its own). */
 import { useRef } from "react";
 import type { WorkbenchPageId } from "@/lib/workbench/routes";
-import type { compositionClient, CompositionResult } from "@/lib/statements/composition";
-import type { notesClient, NotesStatusResult } from "@/lib/notes/notesStatus";
-import type { comparativesClient, ComparativeStatus } from "@/lib/comparatives/comparatives";
-import type { ReportingDb, SavedVersion, signoffClient } from "@/lib/reporting/signoff";
+import type { compositionClient } from "@/lib/statements/composition";
+import type { notesClient } from "@/lib/notes/notesStatus";
+import type { comparativesClient } from "@/lib/comparatives/comparatives";
+import type { ReportingDb, signoffClient } from "@/lib/reporting/signoff";
+import type { ReportingSnapshot } from "@/lib/reporting/reportingState";
 
 export type ReportingPage = Extract<WorkbenchPageId, "fs-statements" | "fs-notes" | "fs-schedules" | "fs-comparatives" | "signoff" | "exports">;
 
@@ -22,13 +23,8 @@ export interface ReportingProps {
   readonly newRequestId?: () => string;
 }
 
-export interface ReportingState {
-  readonly composition: CompositionResult | null;
-  readonly notes: NotesStatusResult | null;
-  readonly comparatives: ComparativeStatus | { state: string } | null;
-  readonly versions: readonly SavedVersion[];
-  readonly latest: { readonly version: SavedVersion; readonly blockers: readonly string[]; readonly ready: boolean } | null;
-}
+/** Every server state the pages share (src/lib/reporting/reportingState.ts reads it). */
+export type ReportingState = ReportingSnapshot;
 
 export type Clients = { composition: ReturnType<typeof compositionClient>; notes: ReturnType<typeof notesClient>; comparatives: ReturnType<typeof comparativesClient>; signoff: ReturnType<typeof signoffClient> };
 export type PageProps = ReportingProps & { state: ReportingState; clients: Clients; refresh: () => Promise<void> };

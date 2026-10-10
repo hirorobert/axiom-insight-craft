@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)
       uploadAuthority.ts      ← Reads tb_upload_authority / tb_upload_attempts (S2): Needs re-check, Processing stopped, Retry now, history (F2)
       requestReprocess.ts     ← ONLY browser path to a new check: tbu_request_reprocess, then processing with the same operation id
       unavailableService.ts   ← An open engagement whose every service is withheld: listed as "service currently unavailable" (never "no engagement"); explicit user-chosen grant of Trial balance review on that SAME engagement via grant_engagement_capability

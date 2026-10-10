@@ -44,6 +44,8 @@ export function FindingsView(p: {
   const [evidence, setEvidence] = useState("");
   const pending = useRef<{ key: string; id: string } | null>(null);
   const seq = useRef(0);
+  // Reviewing a finding moves focus to its detail (keyboard and screen-reader users land where the work is).
+  const detailHeading = useRef<HTMLHeadingElement | null>(null);
   const newId = p.newRequestId ?? (() => crypto.randomUUID());
 
   const load = useCallback(async () => {
@@ -60,6 +62,7 @@ export function FindingsView(p: {
     }
   }, [p.client, p.companyId, p.periodYear]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (selected) { detailHeading.current?.focus(); detailHeading.current?.scrollIntoView?.({ block: "nearest" }); } }, [selected]);
 
   const evOf = (id: string) => events.filter((e) => e.subject_id === id);
   const statusOf = (r: FindingRow): FindingStatus => serverStates.get(r.id)?.status ?? findingStatus(evOf(r.id));
@@ -101,6 +104,8 @@ export function FindingsView(p: {
   }
 
   const sel = rows.find((r) => r.id === selected) ?? null;
+  const TH = "px-2 py-1.5 text-left font-medium";
+  const TD = "px-2 py-1.5 align-top";
   const notEvaluated = Object.entries(summary.ruleStatus).filter(([, s]) => !s.evaluated);
   const nextOpen = rows.find((r) => !resolvedOf(r));
   return (
@@ -111,26 +116,34 @@ export function FindingsView(p: {
       </p>
       {nextOpen ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" onClick={() => setSelected(nextOpen.id)}>Next open item</button> : null}
       {rows.length > 0 ? (
-        <table className="w-full text-sm" aria-label="Findings">
-          <thead><tr><th scope="col" className="text-left">Finding</th><th scope="col" className="text-left">Type</th><th scope="col" className="text-left">Account</th><th scope="col" className="text-right">Debit</th><th scope="col" className="text-right">Credit</th><th scope="col" className="text-left">Severity</th><th scope="col" className="text-left">Status</th><th scope="col"><span className="sr-only">Open</span></th></tr></thead>
+        <div className="relative w-full max-w-full overflow-x-auto rounded-md border border-border">
+        <table className="w-full border-collapse text-sm" aria-label="Findings">
+          <thead className="bg-muted/40"><tr>
+            <th scope="col" className={TH}>Finding</th><th scope="col" className={TH}>Type</th><th scope="col" className={TH}>Account</th>
+            <th scope="col" className={`${TH} text-right`}>Debit</th><th scope="col" className={`${TH} text-right`}>Credit</th>
+            <th scope="col" className={TH}>Severity</th><th scope="col" className={TH}>Status</th><th scope="col" className={TH}><span className="sr-only">Action</span></th>
+          </tr></thead>
           <tbody>
             {rows.map((r) => {
               const st = statusOf(r);
+              const isSel = r.id === selected;
               return (
-                <tr key={r.id} data-testid={`finding-${r.finding_key}`}>
-                  <td>{RULE_WORDS[r.rule_id]?.title ?? r.rule_id}</td>
-                  <td>{KIND_WORDS[r.kind] ?? r.kind}</td>
-                  <td>{r.account_code ? `${r.account_code} ` : ""}{r.account_name ?? "—"}</td>
-                  <td className="text-right"><Amount minor={r.debit_minor} exponent={summary.exponent} /></td>
-                  <td className="text-right"><Amount minor={r.credit_minor} exponent={summary.exponent} /></td>
-                  <td>{r.severity === "blocking" ? (r.mandatory ? "Blocking · mandatory" : "Blocking") : "Warning"}</td>
-                  <td>{STATUS_WORDS[st]}{resolvedOf(r) ? "" : st === "open" ? "" : " · not yet resolved"}</td>
-                  <td><button type="button" className="underline" onClick={() => setSelected(r.id)} aria-label={`Open ${RULE_WORDS[r.rule_id]?.title ?? r.rule_id}${r.account_name ? ` for ${r.account_name}` : ""}`}>Open</button></td>
+                <tr key={r.id} data-testid={`finding-${r.finding_key}`} className={`border-t border-border ${isSel ? "bg-[#eef3fb]" : ""}`}>
+                  <td className={`${TD} font-medium`}>{RULE_WORDS[r.rule_id]?.title ?? r.rule_id}</td>
+                  <td className={`${TD} text-muted-foreground`}>{KIND_WORDS[r.kind] ?? r.kind}</td>
+                  <td className={`${TD} break-words`}>{r.account_code ? <span className="tabular-nums">{r.account_code} </span> : null}{r.account_name ?? "—"}</td>
+                  <td className={`${TD} whitespace-nowrap text-right tabular-nums`}><Amount minor={r.debit_minor} exponent={summary.exponent} /></td>
+                  <td className={`${TD} whitespace-nowrap text-right tabular-nums`}><Amount minor={r.credit_minor} exponent={summary.exponent} /></td>
+                  <td className={`${TD} whitespace-nowrap`}>{r.severity === "blocking" ? (r.mandatory ? "Blocking · mandatory" : "Blocking") : "Warning"}</td>
+                  <td className={TD}>{STATUS_WORDS[st]}{resolvedOf(r) ? "" : st === "open" ? "" : " · not yet resolved"}</td>
+                  <td className={`${TD} whitespace-nowrap`}><button type="button" className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => setSelected(r.id)} aria-pressed={isSel}
+                    aria-label={`Open ${RULE_WORDS[r.rule_id]?.title ?? r.rule_id}${r.account_name ? ` for ${r.account_name}` : ""}`}>Review finding</button></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </div>
       ) : null}
       {notEvaluated.length > 0 ? (
         <details className="text-sm" data-testid="not-evaluated">
@@ -140,7 +153,7 @@ export function FindingsView(p: {
       ) : null}
       {sel ? (
         <section aria-label="Selected finding" className="space-y-2 rounded-md border border-input p-3" data-testid="finding-detail">
-          <h3 className="text-sm font-semibold">{RULE_WORDS[sel.rule_id]?.title}</h3>
+          <h3 className="text-sm font-semibold" tabIndex={-1} ref={detailHeading}>{RULE_WORDS[sel.rule_id]?.title}{sel.account_name ? ` — ${sel.account_code ? `${sel.account_code} ` : ""}${sel.account_name}` : ""}</h3>
           <p className="text-sm">{RULE_WORDS[sel.rule_id]?.explain}</p>
           <p className="text-sm">{RESOLUTION_WORDS[sel.required_resolution]}{sel.mandatory ? " — mandatory: it cannot be accepted or marked not applicable." : ""}</p>
           {(() => {

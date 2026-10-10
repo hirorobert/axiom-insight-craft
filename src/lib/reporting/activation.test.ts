@@ -93,8 +93,8 @@ describe("reporting is offered per company by the server, never to every custome
   it("with it, both reporting groups appear with their pages", () => {
     const m = deriveWorkbenchNavigation("/w", items, undefined, true);
     expect(m.groups.map((g) => g.id)).toEqual(["overview", "trial-balance", "close-review", "financial-statements", "signoff-exports"]);
-    // Close Review ships only its Findings page (sign-off requires a checked Close Review); Adjustments stays unreleased.
-    expect(m.groups.find((g) => g.id === "close-review")!.pages.map((p) => p.id)).toEqual(["close-findings"]);
+    // Close Review ships Findings and Adjustments (the one adjustment path; the legacy browser-write panel is retired).
+    expect(m.groups.find((g) => g.id === "close-review")!.pages.map((p) => p.id)).toEqual(["close-findings", "close-adjustments"]);
     expect(m.groups.find((g) => g.id === "signoff-exports")!.pages.map((p) => p.href)).toEqual(["/w/signoff", "/w/signoff/exports"]);
   });
   it("the server answer is read fail-closed: only an explicit enabled = true enables", () => {

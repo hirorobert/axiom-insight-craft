@@ -35,14 +35,15 @@ describe("no surface claims that an unavailable checkout exists", () => {
   it("public copy (landing content and shared copy) offers only non-transactional actions", () => {
     const all = JSON.stringify({ COPY, LANDING });
     expect(all).not.toMatch(TRANSACTIONAL);
-    expect(LANDING.LANDING_HERO.primaryCta.label).toBe("Create account");
-    expect(COPY.CTA.primary).toBe("Create account");
+    // Subscriptions are sold by agreement and activated manually: the public primary action is the activation REQUEST.
+    expect(LANDING.LANDING_HERO.primaryCta.label).toBe("Request activation");
+    expect(COPY.CTA.primary).toBe("Request activation");
   });
   it("no public copy invites self-serve workspace creation: the closing call to action says the team activates workspaces because online payment (checkout) is unavailable", () => {
     const all = JSON.stringify({ COPY, LANDING });
     expect(all).not.toMatch(/Create a workspace and explore|explore CFOCLOSE/i);
-    expect(LANDING.LANDING_FINAL_CTA.supporting).toMatch(/Online payment is not available yet/);
-    expect(LANDING.LANDING_FINAL_CTA.primaryCta.href).toBe("/auth?mode=signup");
+    expect(LANDING.LANDING_FINAL_CTA.supporting).toMatch(/there is no online payment/);
+    expect(LANDING.LANDING_FINAL_CTA.primaryCta.label).toBe("Request activation");
   });
   it("the rendered pricing page has no payment action and states that there is no online checkout", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Pricing)));
@@ -61,8 +62,8 @@ describe("no surface claims that an unavailable checkout exists", () => {
     const pkg = fs.readFileSync(path.join(ROOT, "package.json"), "utf8");
     expect(pkg).not.toMatch(/paddle|polar|snippe|stripe|flutterwave|pesapal|selcom/i);
   });
-  it("public acquisition goes to account creation and the legacy path redirects", () => {
-    expect(COPY.CTA.primaryHref).toBe("/auth?mode=signup");
+  it("public acquisition is the activation request (account creation only as the gate-off fallback) and the legacy path redirects", () => {
+    expect(COPY.CTA.fallbackHref).toBe("/auth?mode=signup");
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Plans)));
     expect(text(html)).not.toMatch(/Request access|Send an access request/);
     expect(fs.readFileSync(path.join(ROOT, "src/App.tsx"), "utf8")).toContain('<Route path="/request-access" element={<Navigate to="/pricing" replace />} />');

@@ -24,7 +24,7 @@ import { applyChainBefore, assignmentPairs, ASSIGN, certifier, clientDb, COMPREH
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient, SOLO_OWNER_CONFIRMATION } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
-import { packSignOffFor } from "../../src/lib/reporting/packSignOff.ts";
+import { sealedPackInput } from "../../src/lib/reporting/sealedPack.ts";
 import { buildReportPack } from "../../src/lib/exports/reportPack.ts";
 import { readStoredReport } from "../../src/lib/financialGeneration/composedReport.ts";
 
@@ -72,8 +72,9 @@ async function main() {
     const bindings = (await owner.c.bindings(rid)).filter((b) => b.reportVersion === v);
     const fin = bindings.find((b) => b.state === state);
     const ev = fin?.signoffPolicy === "solo_owner" && fin.signoffPolicyEventId ? await owner.c.signoffPolicyEvent(fin.signoffPolicyEventId) : null;
-    return buildReportPack({ document: readStoredReport(stored.document), entityName: "Synthetic SME Limited", editionTitle: "IFRS for SMEs (2015 edition)", adjustments: [],
-      signOff: packSignOffFor(state, bindings, ev ? { reason: ev.reason, setAt: ev.setAt } : null) }).html;
+    // The Exports page's own input builder: identity and edition from the saved version, sign-off from its bindings.
+    return buildReportPack(sealedPackInput({ document: readStoredReport(stored.document), versionState: state, bindings, adjustments: [],
+      soloOwnerEvent: ev ? { reason: ev.reason, setAt: ev.setAt } : null })).html;
   };
 
   group("Shared catalogues (the three USING (true) read policies of the reporting release)");
@@ -222,6 +223,32 @@ async function main() {
   });
   await check("every earlier sealed pack is unchanged by the later policy changes", async () => {
     return (await packFor(sealed, "FINAL")) === sealedPack ? true : "the pre-policy sealed pack changed";
+  });
+
+  group("Sealed identity: later company and framework settings cannot alter historical exports");
+  let signedNew, before;
+  await check("a version saved now records its edition (framework.version = the pack id); a version saved without one (as hosted version 6) prints the identical pack", async () => {
+    signedNew = await newVersion();
+    await sign(partner, signedNew, "REVIEWED"); await sign(owner, signedNew, "FINAL");
+    const newDoc = (await owner.c.report(rid, signedNew)).document, oldDoc = (await owner.c.report(rid, sealed)).document;
+    before = { neu: await packFor(signedNew, "FINAL"), old: await packFor(sealed, "FINAL") };
+    // Hosted version 6 was saved before the edition was recorded: the same stored document without framework.version must
+    // print exactly the same pack (the edition its period start requires).
+    const bindings = (await owner.c.bindings(rid)).filter((b) => b.reportVersion === sealed);
+    const legacyDoc = readStoredReport(oldDoc);
+    const legacy = buildReportPack(sealedPackInput({ document: { ...legacyDoc, framework: { kind: legacyDoc.framework.kind } }, versionState: "FINAL", bindings, adjustments: [], soloOwnerEvent: null })).html;
+    return newDoc.framework?.version === "ifrs-for-smes/2015" && legacy === before.old
+      && before.old.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("<h1>Synthetic SME Limited</h1>")
+      ? true : { neu: newDoc.framework, old: oldDoc.framework, legacySame: legacy === before.old };
+  });
+  await check("renaming the company, electing early application of the third edition and changing the recorded framework leave both exports byte-identical", async () => {
+    await db.admin.query("UPDATE public.companies SET name = 'Renamed Holdings Limited' WHERE id = $1", [A]);
+    const elect = await asU(U.owner, "SELECT public.fs_elect_early_application($1,$2,true,'NBAA-2026-TEST-CONFIRMATION','Early application elected for the regression test') r", [A, Y]).catch((e) => ({ r: { error: e.message } }));
+    await db.admin.query("UPDATE public.companies SET reporting_framework = 'ifrs' WHERE id = $1", [A]).catch(() => null);
+    const after = { neu: await packFor(signedNew, "FINAL"), old: await packFor(sealed, "FINAL") };
+    const fw = (await db.one("SELECT name, reporting_framework::text f FROM public.companies WHERE id = $1", [A]));
+    return after.neu === before.neu && after.old === before.old && after.old === sealedPack && !after.neu.includes("Renamed Holdings") && fw.name === "Renamed Holdings Limited"
+      ? true : { neuSame: after.neu === before.neu, oldSame: after.old === before.old, elect: elect?.r, fw };
   });
 }
 

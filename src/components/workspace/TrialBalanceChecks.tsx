@@ -40,6 +40,7 @@ function Row({ check, muted = false }: { check: TrialBalanceCheck; muted?: boole
 
 export function TrialBalanceChecks({ verdict }: { verdict: TrialBalanceVerdict }) {
   const passed = verdict.checks.filter((c) => c.state === "passed").length;
+  const allPassed = verdict.checks.length > 0 && passed === verdict.checks.length;
   return (
     <section id={TRIAL_BALANCE_CHECKS_ANCHOR} aria-labelledby={`${TRIAL_BALANCE_CHECKS_ANCHOR}-title`} className="border border-border bg-card" data-testid="trial-balance-checks">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-5 py-4 sm:px-7">
@@ -51,34 +52,41 @@ export function TrialBalanceChecks({ verdict }: { verdict: TrialBalanceVerdict }
       ) : (
         <ul>{verdict.checks.map((c) => <Row key={c.id} check={c} />)}</ul>
       )}
-      {verdict.milestones.length > 0 && (
-        <>
-          <p className="border-t border-border bg-muted/30 px-5 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:px-7">
-            What the last check did
-          </p>
-          <ol data-testid="trial-balance-milestones">
-            {verdict.milestones.map((m) => (
-              <li key={m.id} className="flex gap-3 border-t border-border px-5 py-2.5 first:border-t-0 sm:px-7" data-milestone={m.id} data-state={m.status}>
-                <span className="mt-0.5 shrink-0">{ICON[MILESTONE_AS_CHECK[m.status]]}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <p className={`text-[13px] font-medium ${m.status === "not_reached" ? "text-muted-foreground" : "text-foreground"}`}>{m.label}</p>
-                    <span className="text-[12px] text-muted-foreground">{MILESTONE_WORD[m.status]}</span>
+      {/* Lead with the result: when every check passed, how the last run got there (milestones) and the informational
+          rows are detail, collapsed. Anything that failed or needs review keeps them open. */}
+      {(verdict.milestones.length > 0 || verdict.informational.length > 0) && (
+        <details open={!allPassed} className="group" data-testid="trial-balance-detail">
+          <summary className="cursor-pointer border-t border-border px-5 py-2 text-[12px] text-muted-foreground sm:px-7">Processing detail</summary>
+        {verdict.milestones.length > 0 && (
+          <>
+            <p className="border-t border-border bg-muted/30 px-5 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:px-7">
+              What the last check did
+            </p>
+            <ol data-testid="trial-balance-milestones">
+              {verdict.milestones.map((m) => (
+                <li key={m.id} className="flex gap-3 border-t border-border px-5 py-2.5 first:border-t-0 sm:px-7" data-milestone={m.id} data-state={m.status}>
+                  <span className="mt-0.5 shrink-0">{ICON[MILESTONE_AS_CHECK[m.status]]}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <p className={`text-[13px] font-medium ${m.status === "not_reached" ? "text-muted-foreground" : "text-foreground"}`}>{m.label}</p>
+                      <span className="text-[12px] text-muted-foreground">{MILESTONE_WORD[m.status]}</span>
+                    </div>
+                    {m.detail && <p className="mt-0.5 break-words text-[12px] text-muted-foreground">{m.detail}</p>}
                   </div>
-                  {m.detail && <p className="mt-0.5 break-words text-[12px] text-muted-foreground">{m.detail}</p>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-      {verdict.informational.length > 0 && (
-        <>
-          <p className="border-t border-border bg-muted/30 px-5 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:px-7">
-            For information — does not decide acceptance
-          </p>
-          <ul>{verdict.informational.map((c) => <Row key={c.id} check={c} muted />)}</ul>
-        </>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+        {verdict.informational.length > 0 && (
+          <>
+            <p className="border-t border-border bg-muted/30 px-5 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground sm:px-7">
+              For information — does not decide acceptance
+            </p>
+            <ul>{verdict.informational.map((c) => <Row key={c.id} check={c} muted />)}</ul>
+          </>
+        )}
+        </details>
       )}
     </section>
   );

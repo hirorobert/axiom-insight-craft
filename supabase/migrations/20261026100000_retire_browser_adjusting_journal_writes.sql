@@ -1,0 +1,71 @@
+-- 20261026100000_retire_browser_adjusting_journal_writes.sql — one adjustment path (forward-only; nothing edited).
+--
+-- Defect closed: the legacy journal panel on the Reconcile page wrote `adjusting_journal_entries` and `aje_lines` directly
+-- from the browser under RLS policies that admitted any member holding `prepare_close`, and set `approved_by` to the
+-- signed-in user's auth id from the browser. That is a second, unreviewed adjustment pathway beside Close Review ›
+-- Adjustments (20261015100000: proposal, decision and reversal are server functions with separation of duties).
+--
+-- This migration removes every client write to the two legacy tables:
+--   - drops the INSERT/UPDATE policies (aje_insert, aje_update, aje_update_draft_preparer, aje_update_partner_owner,
+--     aje_lines_insert);
+--   - revokes INSERT, UPDATE, DELETE and TRUNCATE from anon and authenticated.
+-- Unchanged: SELECT for authenticated under the existing aje_select / aje_lines_select policies (earlier entries remain
+-- readable, read-only), and service_role (server functions). No row is changed or deleted: history is preserved as recorded.
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.adjusting_journal_entries') IS NULL OR to_regclass('public.aje_lines') IS NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the legacy adjusting journal tables do not exist; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                      WHERE n.nspname = 'public' AND p.proname = 'close_review_propose_adjustment') THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261015100000 (Close Review adjustments) must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT has_table_privilege('authenticated', 'public.adjusting_journal_entries', 'INSERT')
+     AND NOT has_table_privilege('authenticated', 'public.aje_lines', 'INSERT')
+     AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('adjusting_journal_entries', 'aje_lines')
+                      AND cmd <> 'SELECT') THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: browser writes to the legacy adjusting journal are already retired; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+DROP POLICY IF EXISTS "aje_insert"                ON public.adjusting_journal_entries;
+DROP POLICY IF EXISTS "aje_update"                ON public.adjusting_journal_entries;
+DROP POLICY IF EXISTS "aje_update_draft_preparer" ON public.adjusting_journal_entries;
+DROP POLICY IF EXISTS "aje_update_partner_owner"  ON public.adjusting_journal_entries;
+DROP POLICY IF EXISTS "aje_lines_insert"          ON public.aje_lines;
+
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.adjusting_journal_entries FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.aje_lines                 FROM anon, authenticated;
+
+COMMENT ON TABLE public.adjusting_journal_entries IS
+  'Legacy adjusting journal entries. Read-only to clients since 20261026100000; adjustments are proposed and approved only through Close Review (close_review_* functions). Server functions (service_role) only.';
+COMMENT ON TABLE public.aje_lines IS
+  'Lines of legacy adjusting journal entries. Read-only to clients since 20261026100000. Server functions (service_role) only.';
+
+DO $postcondition$
+DECLARE
+  v_role  TEXT;
+  v_table TEXT;
+  v_priv  TEXT;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    FOREACH v_table IN ARRAY ARRAY['public.adjusting_journal_entries', 'public.aje_lines'] LOOP
+      FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+        IF has_table_privilege(v_role, v_table, v_priv) THEN
+          RAISE EXCEPTION 'POSTCONDITION_FAILED: % still holds % on %', v_role, v_priv, v_table USING ERRCODE = 'P0001';
+        END IF;
+      END LOOP;
+    END LOOP;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('adjusting_journal_entries', 'aje_lines')
+              AND cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL')) THEN
+    RAISE EXCEPTION 'POSTCONDITION_FAILED: a client write policy remains on the legacy adjusting journal tables' USING ERRCODE = 'P0001';
+  END IF;
+  IF NOT has_table_privilege('authenticated', 'public.adjusting_journal_entries', 'SELECT')
+     OR NOT has_table_privilege('authenticated', 'public.aje_lines', 'SELECT') THEN
+    RAISE EXCEPTION 'POSTCONDITION_FAILED: earlier entries must remain readable' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$postcondition$;

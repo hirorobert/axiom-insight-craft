@@ -7,7 +7,7 @@ import { useGuardedRequest } from "@/components/workbench/useGuardedRequest";
 import type { InspectResult, InspectSheet, LayoutAnswer, LayoutClient, LayoutProfile, LayoutReport } from "@/lib/workbench/intake/layoutClient";
 import type { LayoutAssistClient } from "@/lib/workbench/intake/layoutAssistClient";
 import {
-  COLUMN_ROLES, DISPOSITION_WORDS, NUMBER_FORMAT_CHOICES, draftFromProfile, draftFromSuggestion, draftProblems, headerCells, toProfile,
+  COLUMN_ROLES, DISPOSITION_WORDS, NUMBER_FORMAT_CHOICES, draftFromProfile, draftFromSuggestion, draftProblems, headerCells, sampleAmounts, toProfile,
   type ColumnRole, type LayoutDraft,
 } from "@/lib/workbench/intake/layoutDraft";
 
@@ -36,6 +36,13 @@ export function LayoutEditor(p: {
   newKey?: () => string;
   /** AI-assisted suggestions (I1-C): passed only when released; offered only for a sheet the automatic reading could not read. */
   assist?: LayoutAssistClient;
+  /**
+   * Lead with a summary of the automatic reading; the editor opens on request. It opens by itself whenever detection did
+   * not settle the layout (no automatic reading, an ambiguous or undetected number format, an unreadable file) or the
+   * caller says the file needs a layout (its check failed).
+   */
+  startCollapsed?: boolean;
+  needsLayout?: boolean;
 }) {
   const ids = { sheet: useId(), header: useId(), format: useId(), sign: useId(), template: useId(), name: useId() };
   const inspected = useGuardedRequest<LayoutAnswer<InspectResult>>("layout-inspect", `${p.companyId}|${p.uploadId}`, () => p.client.inspect(p.uploadId), [p.client]);
@@ -52,6 +59,7 @@ export function LayoutEditor(p: {
   const [templateName, setTemplateName] = useState("");
   // Several plausible number formats give different values: the person must confirm the declared one explicitly.
   const [formatConfirmed, setFormatConfirmed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const inspect = inspected.state.status === "ready" && inspected.state.value.kind === "ok" ? inspected.state.value.value : null;
   const kind = inspect?.kind ?? "csv";
@@ -60,8 +68,13 @@ export function LayoutEditor(p: {
   // A fresh inspection (new file or reload) starts from the server's automatic reading; nothing is kept from another file.
   useEffect(() => {
     if (!inspect?.sheets?.length) return;
-    setDraft(draftFromSuggestion(inspect.sheets.length === 1 ? inspect.sheets[0] : inspect.sheets.find((s) => s.suggestion) ?? inspect.sheets[0]));
+    const first = inspect.sheets.length === 1 ? inspect.sheets[0] : inspect.sheets.find((s) => s.suggestion) ?? inspect.sheets[0];
+    const d0 = draftFromSuggestion(first);
+    setDraft(d0);
     setReport(null); setTemplate(null); setConflict(null);
+    // Whether the automatic reading settled the layout is decided once, from the server's reading (never from the
+    // person's later edits): no reading, an undetected or ambiguous number format, or an incomplete layout opens the editor.
+    setExpanded(!first.suggestion || d0.numberFormat === null || draftProblems(d0, inspect.kind ?? "csv").length > 0);
   }, [inspect]);
 
   if (inspected.state.status === "loading" || inspected.state.status === "idle") return <p role="status">Reading the file…</p>;
@@ -81,6 +94,11 @@ export function LayoutEditor(p: {
   const setRole = (role: ColumnRole, header: string) => change({ columns: { ...draft.columns, [role]: header || null } });
   const evidence = sheet?.numberFormats;
   const balanceOnly = !!draft.columns.balance && !(draft.columns.debit && draft.columns.credit);
+  const detectedFormat = NUMBER_FORMAT_CHOICES.find((f) => f.id === draft.numberFormat) ?? null;
+  // The detected format is settled only when the file's own amounts allow exactly one reading and it is the one chosen.
+  const formatSettled = !!detectedFormat && !!evidence && !evidence.ambiguous && evidence.textCells > 0 && evidence.consistent.includes(detectedFormat.id);
+  const examples = sampleAmounts(sheet, draft);
+  const showEditor = !p.startCollapsed || expanded || !!p.needsLayout;
 
   const handle = <T,>(a: LayoutAnswer<T>, what: string): T | null => {
     if (a.kind === "ok") return a.value;
@@ -134,6 +152,24 @@ export function LayoutEditor(p: {
       if (v) setNotice(v.unchanged || v.replay ? `Template “${templateName.trim()}” is unchanged (version ${v.version}).` : `Saved template “${templateName.trim()}”, version ${v.version}.`);
     } finally { setBusy(null); }
   };
+
+  if (!showEditor) {
+    const confirmedNo = answer.value.currentConfirmationNo;
+    return (
+      <section aria-labelledby={`${ids.sheet}-h`} className="space-y-2 text-sm" data-testid="layout-summary">
+        <h2 id={`${ids.sheet}-h`} className="text-base font-semibold">File layout</h2>
+        <p>{confirmedNo === 0 ? "Read automatically" : `Confirmed layout (confirmation ${confirmedNo})`}{sheet?.name ? `: sheet “${sheet.name}”` : ""}, headers on row {draft.headerRow}.</p>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+          {COLUMN_ROLES.filter((r) => draft.columns[r.id]).map((r) => (
+            <div key={r.id} className="contents"><dt className="text-muted-foreground">{r.label}</dt><dd>“{draft.columns[r.id]}”</dd></div>
+          ))}
+        </dl>
+        <p data-testid="layout-number-format">Amounts are written as <span className="font-mono">{detectedFormat!.example}</span> ({detectedFormat!.label.toLowerCase()})
+          {examples.length ? <>, for example {examples.map((e, i) => <span key={e}>{i ? " and " : ""}<span className="font-mono">“{e}”</span></span>)} in this file</> : null}.</p>
+        <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5" onClick={() => setExpanded(true)} data-testid="layout-change">Change the layout</button>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby={`${ids.sheet}-h`} className="space-y-4">
@@ -209,10 +245,8 @@ export function LayoutEditor(p: {
         </fieldset>
       ) : null}
 
-      <fieldset>
-        <legend className="text-sm font-medium">How amounts are written</legend>
-        {evidence?.ambiguous ? <p className="text-sm text-[#7a4a00]"><span aria-hidden="true">! </span>The amounts in this file can be read more than one way (for example “1.234”). Choose the format your system exported.</p> : null}
-        {NUMBER_FORMAT_CHOICES.map((f) => {
+      {(() => {
+        const choices = NUMBER_FORMAT_CHOICES.map((f) => {
           const id = `${ids.format}-${f.id}`;
           const fits = !evidence || evidence.textCells === 0 || evidence.consistent.includes(f.id);
           return (
@@ -221,8 +255,26 @@ export function LayoutEditor(p: {
               <label htmlFor={id}><span className="font-mono">{f.example}</span> — {f.label}{fits ? "" : " (does not match this file's amounts)"}</label>
             </div>
           );
-        })}
-      </fieldset>
+        });
+        // Detected and unambiguous: lead with the reading and the file's own examples; the alternatives stay one click away.
+        return formatSettled && detectedFormat ? (
+          <fieldset data-testid="number-format-detected">
+            <legend className="text-sm font-medium">How amounts are written</legend>
+            <p className="text-sm">Detected: <span className="font-mono">{detectedFormat.example}</span> — {detectedFormat.label}
+              {examples.length ? <> (for example {examples.map((e, i) => <span key={e}>{i ? ", " : ""}<span className="font-mono">“{e}”</span></span>)})</> : null}.</p>
+            <details className="mt-1">
+              <summary className="cursor-pointer text-sm">Use a different format</summary>
+              <div className="mt-1">{choices}</div>
+            </details>
+          </fieldset>
+        ) : (
+          <fieldset>
+            <legend className="text-sm font-medium">How amounts are written</legend>
+            {evidence?.ambiguous ? <p className="text-sm text-[#7a4a00]"><span aria-hidden="true">! </span>The amounts in this file can be read more than one way (for example “1.234”). Choose the format your system exported.</p> : null}
+            {choices}
+          </fieldset>
+        );
+      })()}
 
       {balanceOnly ? (
         <fieldset>

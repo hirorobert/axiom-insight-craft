@@ -121,7 +121,8 @@ export function assembleComposedReport(input: ComposedReportInput): ComposedRepo
     entity: { legalName: input.legalName },
     period: { periodId: "CURRENT", startDate: input.currentDates.start, endDate: input.currentDates.end, periodYear: c.current.periodYear },
     comparativePeriods: built.comparativePeriods,
-    framework: { kind: "IFRS_FOR_SMES" },
+    // The edition is SEALED with the version (its pack id): an export never reads the workspace's current election.
+    framework: { kind: "IFRS_FOR_SMES", version: c.pack.packId },
     presentationCurrency: { currency: c.current.currency, scale: c.current.exponent, roundingPolicy: { mode: "HALF_UP", scale: c.current.exponent }, presentationMultiplier: 1n },
     statements: [...built.statements],
     notes: [], noteReferences: [], accountingPolicies: [], textualDisclosures: [],

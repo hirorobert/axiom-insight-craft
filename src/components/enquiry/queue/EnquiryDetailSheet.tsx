@@ -21,6 +21,7 @@ import {
   STATUS_LABELS,
   addEnquiryNote,
   assignEnquiry,
+  replyToEnquiry,
   getEnquiry,
   isEnquiryStatus,
   listStaff,
@@ -83,6 +84,9 @@ export function EnquiryDetailSheet({ id, onClose }: Props) {
   const staff = useQuery({ queryKey: ["enquiry-staff"], queryFn: listStaff, retry: false, staleTime: 60_000 });
   const [transitionNote, setTransitionNote] = useState("");
   const [note, setNote] = useState("");
+  const [reply, setReply] = useState("");
+  // One request id per composed reply: a retry after a network error cannot send it twice (the server replays it).
+  const [replyRequest, setReplyRequest] = useState(() => crypto.randomUUID());
   const [assignee, setAssignee] = useState<string | null>(null);
 
   const refresh = () => {
@@ -120,10 +124,21 @@ export function EnquiryDetailSheet({ id, onClose }: Props) {
     onError: (e) => toast.error(errorMessage(e)),
   });
 
+  const sendReply = useMutation({
+    mutationFn: () => replyToEnquiry(id, reply.trim(), replyRequest),
+    onSuccess: async () => {
+      setReply("");
+      setReplyRequest(crypto.randomUUID());
+      toast.success("Reply queued for email. Its delivery state is shown below.");
+      await qc.invalidateQueries({ queryKey: ["enquiry", id] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
   const d: EnquiryDetail | undefined = detail.data;
   const emailOf = (uid: string | null) => (uid ? (staff.data?.find((s) => s.user_id === uid)?.email ?? "another staff member") : "nobody");
   const currentAssignee = assignee ?? d?.enquiry.assigned_to_user_id ?? "";
-  const busy = move.isPending || assign.isPending || addNote.isPending;
+  const busy = move.isPending || assign.isPending || addNote.isPending || sendReply.isPending;
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -245,6 +260,40 @@ export function EnquiryDetailSheet({ id, onClose }: Props) {
               </Button>
             </section>
 
+            <section aria-labelledby="det-reply" className="space-y-3" data-testid="enquiry-replies">
+              <h3 id="det-reply" className="text-sm font-semibold text-foreground">Reply to the requester</h3>
+              <p className="text-xs text-muted-foreground">
+                Sent by email to {d.enquiry.requester_email} with the reference. Each reply is kept as sent and shows what the email provider reported;
+                &quot;accepted&quot; means the provider took the message, not that it was delivered.
+              </p>
+              {d.replies.length > 0 && (
+                <ol className="space-y-2" data-testid="reply-list">
+                  {d.replies.map((r) => (
+                    <li key={r.id} className="rounded-md border border-border p-2 text-sm" data-testid="reply-item" data-delivery={r.delivery_status}>
+                      <p className="whitespace-pre-wrap break-words">{r.body}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {r.staff_email ?? "Staff"} · {when(r.created_at)} · <NotificationChip label="Email" state={r.delivery_status} />
+                        {notificationFailureNote(r.last_error_code) ? <> · {notificationFailureNote(r.last_error_code)}</> : null}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {d.enquiry.status === "spam" || d.enquiry.status === "withdrawn" ? (
+                <p className="text-sm text-muted-foreground">No reply is sent to an enquiry marked {labelOf(d.enquiry.status).toLowerCase()}.</p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="det-reply-text">Reply</Label>
+                    <Textarea id="det-reply-text" rows={4} maxLength={5000} value={reply} onChange={(e) => setReply(e.target.value)} />
+                  </div>
+                  <Button type="button" className="min-h-11" disabled={busy || reply.trim() === ""} onClick={() => sendReply.mutate()} data-testid="send-reply">
+                    Send reply
+                  </Button>
+                </>
+              )}
+            </section>
+
             <section aria-labelledby="det-note" className="space-y-3">
               <h3 id="det-note" className="text-sm font-semibold text-foreground">Internal note</h3>
               <p className="text-xs text-muted-foreground">Notes are append-only and visible to platform staff only. They are never shown or sent to the requester.</p>
@@ -267,6 +316,7 @@ export function EnquiryDetailSheet({ id, onClose }: Props) {
                       {ev.event_kind === "status_change" && `Status: ${labelOf(ev.previous_status)} → ${labelOf(ev.new_status)}`}
                       {ev.event_kind === "assignment" && `Assigned to ${emailOf(ev.assigned_to_user_id)}`}
                       {ev.event_kind === "note" && "Internal note"}
+                      {ev.event_kind === "reply" && "Reply sent to the requester"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {ev.actor_kind === "staff" ? (ev.actor_email ?? "Staff") : ev.actor_kind === "requester" ? "Requester" : "System"} · {when(ev.created_at)}
