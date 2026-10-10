@@ -349,6 +349,10 @@ jobs:
       - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
         run: node scripts/e2e/localStackJourney.mjs real-app-evidence
 
+      - name: Keep the local Edge Functions log with the evidence when the journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4

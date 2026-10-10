@@ -116,7 +116,7 @@ export function FindingsView(p: {
       </p>
       {nextOpen ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" onClick={() => setSelected(nextOpen.id)}>Next open item</button> : null}
       {rows.length > 0 ? (
-        <div className="w-full max-w-full overflow-x-auto rounded-md border border-border">
+        <div className="relative w-full max-w-full overflow-x-auto rounded-md border border-border">
         <table className="w-full border-collapse text-sm" aria-label="Findings">
           <thead className="bg-muted/40"><tr>
             <th scope="col" className={TH}>Finding</th><th scope="col" className={TH}>Type</th><th scope="col" className={TH}>Account</th>

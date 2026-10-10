@@ -278,8 +278,17 @@ async function main() {
     await openUploader(year);
     await page.setFiles('[data-testid="trial-balance-file-input"]', [file]);
     await page.click('[data-testid="trial-balance-upload-primary"]');
-    await page.waitFor(() => /Reviewed|Needs review|Confirm the classification|Blocked/i.test(document.body.innerText), [], { label: "checked", timeout: 120000 });
-    const { data: up } = await owner.api.from("trial_balance_uploads").select("id, status").eq("company_id", A).eq("period_year", year).order("uploaded_at", { ascending: false }).limit(1).single();
+    // The server's own state decides when the first check has finished (never a word on the page).
+    const settled = async (label) => {
+      for (let i = 0; i < 90; i++) {
+        const { data } = await owner.api.from("trial_balance_uploads").select("id, status, processing_result").eq("company_id", A).eq("period_year", year).order("uploaded_at", { ascending: false }).limit(1).maybeSingle();
+        if (data && !["pending", "processing", "queued", "validating"].includes(data.status)) return data;
+        await sleep(2000);
+      }
+      throw new Error(`the ${label} check for FY${year} did not finish`);
+    };
+    const up = await settled("first");
+    log(`        FY${year} first check: ${up.status}`);
     await rpc(owner.api, "resolve_account_review_batch", { p_company_id: A, p_upload_id: up.id, p_client_request_id: uuid(), p_decisions: reviewDecisions() });
     // A new check exactly as "Run the check again" requests it (src/lib/workspace/requestReprocess.ts): the server accepts
     // the request for the current source, then processing runs with the same operation id.
@@ -289,6 +298,10 @@ async function main() {
     if (accepted?.outcome !== "accepted" && accepted?.outcome !== "replayed") throw new Error(`re-check refused: ${JSON.stringify(accepted)}`);
     const { error: fnErr } = await owner.api.functions.invoke("process-trial-balance", { body: { uploadId: up.id, clientRequestId: op } });
     if (fnErr) throw new Error(`process-trial-balance: ${fnErr.message}`);
+    const after = await settled("re-");
+    const { data: cert } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: year });
+    log(`        FY${year} re-check: ${after.status}; certified: ${Array.isArray(cert) ? cert.length > 0 : !!cert}`);
+    if (!(Array.isArray(cert) ? cert.length : cert)) log(`        FY${year} result: ${JSON.stringify(after.processing_result ?? {}).slice(0, 800)}`);
     await go(`/workspace/${A}/${year}/trial-balance/review`, "");
     await page.waitForText("ready for statement preparation", { timeout: 120000 });
     return up.id;
