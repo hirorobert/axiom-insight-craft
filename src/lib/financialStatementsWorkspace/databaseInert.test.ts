@@ -498,6 +498,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/signoffPolicy.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs",
+      // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
+      "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
