@@ -438,11 +438,11 @@ export const SUBMISSION_FORMS = Object.freeze({
   }),
   // Online payment (batch commercial-p1): the provider routes and the renewal-aware placement of a paid term.
   "20261029100000_payment_provider_routes.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 46957, sha256: "45006e3c0ad61d6e7699e7364630245962d9ae1eefd0703fd09e78554dee23e3" }),
-    finalLfRemoved: Object.freeze({ bytes: 46956, sha256: "d18759a84367e60f9da0d8378c46d095435bec0ba5d749cb258d5e3bea48c1f8" }),
+    identical: Object.freeze({ bytes: 49007, sha256: "3b1b14d93bb2ee7ef21d416a89d5fa3490848f4bce53827979d0290d76e42818" }),
+    finalLfRemoved: Object.freeze({ bytes: 49006, sha256: "789666756ffaf9a2e74c998fde7ea006627fc5dd64ef853a62875085e10523ad" }),
     // Self-checking wrapper release/wrappers/20261029100000_payment_provider_routes.wrapper.sql:
-    wrapper: Object.freeze({ bytes: 48525, sha256: "439fb5cad7507cf67f8f9953955d9cf253f07d58b13141e42f96c0e5b5dae897" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 48524, sha256: "ad18a2006de36e63bb65a0cb467966acada017a00d59620bfc7cc1c2188fac4f" }),
+    wrapper: Object.freeze({ bytes: 50575, sha256: "407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 50574, sha256: "8a4487f2ec15d1f660f4b060d12eb4092197f07865eb1d28fc063ae398bf2dcb" }),
   }),
 });
 

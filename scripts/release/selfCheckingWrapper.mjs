@@ -67,7 +67,7 @@ export const COMMERCIAL_WRAPPED_SOURCES = Object.freeze([
   "20261028100000_period_dates_from_company.sql",
 ]);
 /** Online payment (commercial-p1): the provider routes and the renewal-aware placement of a paid term. */
-export const PAYMENTS_SOURCE_COMMIT = "ff2b6266a819c83e41fa02b303d96b4fce9bf9d5";
+export const PAYMENTS_SOURCE_COMMIT = "21387d52d432359eb46d34e6160b4876eeb42f63";
 export const PAYMENTS_WRAPPED_SOURCES = Object.freeze([
   "20261029100000_payment_provider_routes.sql",
 ]);

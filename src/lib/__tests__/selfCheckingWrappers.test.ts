@@ -55,7 +55,7 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     for (const n of COMMERCIAL_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${COMMERCIAL_SOURCE_COMMIT}:`);
   });
   it("wraps exactly the online payment migration (commercial-p1), at the commit holding its reviewed bytes", () => {
-    expect(PAYMENTS_SOURCE_COMMIT).toBe("ff2b6266a819c83e41fa02b303d96b4fce9bf9d5");
+    expect(PAYMENTS_SOURCE_COMMIT).toBe("21387d52d432359eb46d34e6160b4876eeb42f63");
     expect([...PAYMENTS_WRAPPED_SOURCES]).toEqual(["20261029100000_payment_provider_routes.sql"]);
     for (const n of PAYMENTS_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${PAYMENTS_SOURCE_COMMIT}:`);
   });
