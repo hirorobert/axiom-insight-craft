@@ -335,6 +335,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/commercial-payment-status/index.ts",
       "supabase/functions/_shared/payments/contracts.ts",
       "supabase/functions/_shared/payments/routing.ts",
+      // Launch closure: a signed but stale webhook is reconciled through the provider; refunds record only the change in the
+      // provider's cumulative refunded amount (serviceDbFrom adds that read). No financial-statements schema.
+      "supabase/functions/_shared/payments/settle.ts",
+      "supabase/functions/_shared/payments/webhookEndpoint.ts",
       // CFO Close walls: the paid-action gate in the Close Insights engines, the filing-pack and management-letter
       // generators; neutral customer-visible wording (no internal engine names) in their responses and in the shared
       // certified-trial-balance reader; the disclosure-notes generator's credit line. Accounting logic unchanged.
