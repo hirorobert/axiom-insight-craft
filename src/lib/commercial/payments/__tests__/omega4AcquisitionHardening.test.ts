@@ -44,6 +44,8 @@ const checkoutCode = stripTsComments(fs.readFileSync(CREATE_CHECKOUT_PATH, "utf-
 const paymentStatusCode = stripTsComments(fs.readFileSync(PAYMENT_STATUS_PATH, "utf-8"));
 const webhookCode = stripTsComments(fs.readFileSync(WEBHOOK_PATH, "utf-8"));
 const routingCode = stripTsComments(fs.readFileSync(ROUTING_PATH, "utf-8"));
+const settleCode = stripTsComments(fs.readFileSync(path.join(path.dirname(ROUTING_PATH), "settle.ts"), "utf-8"));
+const webhookEndpointCode = stripTsComments(fs.readFileSync(path.join(path.dirname(ROUTING_PATH), "webhookEndpoint.ts"), "utf-8"));
 const pricingCode = stripTsComments(fs.readFileSync(PRICING_PATH, "utf-8"));
 const settingsCode = stripTsComments(fs.readFileSync(SETTINGS_PATH, "utf-8"));
 const checkoutButtonCode = stripTsComments(fs.readFileSync(CHECKOUT_BUTTON_PATH, "utf-8"));
@@ -215,9 +217,11 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
     expect(assertIndex).toBeLessThan(lockIndex);
   });
 
-  it("getConfiguredProviders declares no provider at all after the Flutterwave decommission — it can never return a guessed environment", () => {
-    const fnBody = routingCode.match(/export function getConfiguredProviders\(\)[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(fnBody).toMatch(/return \[\];/);
+  it("a provider is declared only from its complete configuration with an EXPLICIT environment — it can never return a guessed one", () => {
+    expect(routingCode).toMatch(/const ENVIRONMENTS = new Set\(\['sandbox', 'production'\]\);/);
+    expect(routingCode).toMatch(/if \(ENVIRONMENTS\.has\(pEnv\) && pToken && /);
+    expect(routingCode).toMatch(/if \(ENVIRONMENTS\.has\(sEnv\) && sKey && /);
+    expect(routingCode).not.toMatch(/\?\? 'sandbox'|\?\? 'production'|\|\| 'sandbox'|\|\| 'production'/);
     expect(routingCode).not.toMatch(/FLUTTERWAVE_SECRET_KEY|FLUTTERWAVE_ENVIRONMENT|FLUTTERWAVE_WEBHOOK_SECRET/);
   });
 
@@ -225,9 +229,12 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
     expect(routingCode).toMatch(/export function getCapabilitiesForProvider\(provider: PaymentProvider\)/);
   });
 
-  it("the payment-status recovery path resolves environment via getCapabilitiesForProvider — no static provider capability constant", () => {
-    expect(paymentStatusCode).toMatch(/import \{ getCapabilitiesForProvider \} from '\.\.\/_shared\/payments\/routing\.ts';/);
+  it("the payment-status recovery path resolves the ACTUAL configured adapter of the intent's provider — and settlement refuses an intent from another environment and commits under the adapter's own environment", () => {
+    expect(paymentStatusCode).toMatch(/import \{ getAdapterForProvider \} from '\.\.\/_shared\/payments\/routing\.ts';/);
+    expect(paymentStatusCode).toMatch(/getAdapterForProvider\(claim\.provider\)/);
     expect(paymentStatusCode).not.toMatch(/FLUTTERWAVE_CAPABILITIES/);
+    expect(settleCode).toMatch(/intent\.provider !== adapter\.provider \|\| intent\.provider_environment !== adapter\.environment/);
+    expect(settleCode).toMatch(/p_provider_environment: adapter\.environment,/);
   });
 
   it("the webhook endpoint is decommissioned — it holds no provider adapter and cannot mutate billing state", () => {
@@ -237,11 +244,11 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
     expect(webhookCode).toMatch(/status: 410/);
   });
 
-  it("both the webhook and the payment-status recovery path fail closed (never commit) when getCapabilitiesForProvider returns null", () => {
-    for (const code of [paymentStatusCode]) {
-      expect(code).toMatch(/const capabilities = getCapabilitiesForProvider\(/);
-      expect(code).toMatch(/if \(!capabilities\)/);
-    }
+  it("both provider webhooks and the payment-status recovery path fail closed (never commit) when the provider is not configured", () => {
+    expect(paymentStatusCode).toMatch(/if \(!adapter\) \{\s*return jsonResponse\(\{ \.\.\.responseData, recovery: 'PROVIDER_UNAVAILABLE'/);
+    expect(webhookEndpointCode).toMatch(/if \(!adapter\) return reply\(\{ error: 'PAYMENT_PROVIDER_UNAVAILABLE', correlationId \}, 503\);/);
+    // Both reach the database only after that check.
+    expect(webhookEndpointCode.indexOf("if (!adapter)")).toBeLessThan(webhookEndpointCode.indexOf("createClient("));
   });
 });
 
@@ -271,9 +278,12 @@ describe("BLOCKER-4 — provider transaction ID is mandatory; webhook and status
     expect(fnBody).toMatch(/IF v_intent\.status NOT IN \('PENDING','MANUAL_REVIEW'\) THEN/);
   });
 
-  it("commercial-payment-status's recovery path computes the IDENTICAL idempotency key text for the same underlying transaction — no 'STATUS_POLL:' literal prefix", () => {
-    expect(paymentStatusCode).toMatch(/const idempotencyKey = await sha256Hex\(`\$\{tx\.provider\}:\$\{tx\.providerTransactionId\}:\$\{responseData\.intent_id\}`\);/);
-    expect(paymentStatusCode).not.toMatch(/STATUS_POLL:\$\{tx\.provider\}/);
+  it("the recovery path and both webhooks use the IDENTICAL idempotency key for the same underlying transaction — they share one settlement function, and no 'STATUS_POLL:' prefix exists", () => {
+    expect(settleCode).toMatch(/export const commitKey = \(tx: NormalizedTransaction, intentId: string\) => sha256Hex\(`\$\{tx\.provider\}:\$\{tx\.providerTransactionId\}:\$\{intentId\}`\);/);
+    expect(settleCode).toMatch(/p_idempotency_key: await commitKey\(tx, intent\.id\),/);
+    expect(paymentStatusCode).toMatch(/settleIntent\(/);
+    expect(webhookEndpointCode).toMatch(/settleIntent\(/);
+    for (const code of [paymentStatusCode, webhookEndpointCode, settleCode]) expect(code).not.toMatch(/STATUS_POLL:/);
   });
 });
 
@@ -289,7 +299,7 @@ describe("HIGH-1 — commercial-payment-status: GET read-only, POST durably thro
 
   it("POST claims a bounded verification attempt via claim_verification_attempt before ever calling the provider", () => {
     const claimIndex = paymentStatusCode.indexOf("serviceClient.rpc('claim_verification_attempt'");
-    const providerCallIndex = paymentStatusCode.indexOf("adapter.verifyTransactionByReference(");
+    const providerCallIndex = paymentStatusCode.indexOf("settleIntent(serviceClient");
     expect(claimIndex).toBeGreaterThan(-1);
     expect(claimIndex).toBeLessThan(providerCallIndex);
   });

@@ -282,6 +282,16 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261028100000_period_dates_from_company.sql",
       // Online payment (20261029100000): provider routes, renewal-aware placement of a paid term, paid-term protection.
       "supabase/migrations/20261029100000_payment_provider_routes.sql",
+      // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
+      // provider webhook endpoints. No financial-statements schema.
+      "supabase/functions/_shared/payments/http.ts",
+      "supabase/functions/_shared/payments/settle.ts",
+      "supabase/functions/_shared/payments/webhookEndpoint.ts",
+      "supabase/functions/_shared/payments/webhookSignature.ts",
+      "supabase/functions/_shared/payments/providers/polar.ts",
+      "supabase/functions/_shared/payments/providers/snippe.ts",
+      "supabase/functions/commercial-webhook-polar/index.ts",
+      "supabase/functions/commercial-webhook-snippe/index.ts",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -314,8 +324,15 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/kinga-comparative-engine/index.ts",
       "supabase/functions/_shared/actor.ts",
       "supabase/functions/_shared/idempotency.ts",
-      // The sweeper's verify_jwt = false entry (see the automation-surface test below).
+      // The sweeper's verify_jwt = false entry (see the automation-surface test below), and the two payment-provider
+      // webhooks' (their provider signature is the credential).
       "supabase/config.toml",
+      // Online payment (milestone "Commercial launch"): checkout creation routes to the configured provider adapter; the
+      // recovery request settles through the shared path; the provider vocabulary and configuration-driven routing.
+      "supabase/functions/commercial-create-checkout/index.ts",
+      "supabase/functions/commercial-payment-status/index.ts",
+      "supabase/functions/_shared/payments/contracts.ts",
+      "supabase/functions/_shared/payments/routing.ts",
       // CFO Close walls: the paid-action gate in the Close Insights engines, the filing-pack and management-letter
       // generators; neutral customer-visible wording (no internal engine names) in their responses and in the shared
       // certified-trial-balance reader; the disclosure-notes generator's credit line. Accounting logic unchanged.

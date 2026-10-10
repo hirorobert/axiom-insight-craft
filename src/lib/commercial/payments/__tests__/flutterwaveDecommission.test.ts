@@ -72,7 +72,7 @@ const HISTORICAL_LITERAL_ALLOWLIST: readonly { readonly path: string; readonly l
   { path: "src/lib/commercial/payments/paymentAuthority.ts", line: '"FLUTTERWAVE",', reason: "SUPPORTED_PROVIDERS historical value" },
   { path: "src/lib/commercial/payments/paymentTypes.ts", line: "'FLUTTERWAVE',", reason: "provider value list, mirrors the immutable DB CHECK enum" },
   { path: "src/lib/commercial/payments/routing.ts", line: 'export type PaymentProvider = "FLUTTERWAVE" | "PESAPAL" | "SELCOM" | "DPO" | "STRIPE";', reason: "PaymentProvider union" },
-  { path: "supabase/functions/_shared/payments/contracts.ts", line: "export type PaymentProvider = 'FLUTTERWAVE' | 'PESAPAL' | 'SELCOM' | 'DPO' | 'STRIPE';", reason: "PaymentProvider union" },
+  { path: "supabase/functions/_shared/payments/contracts.ts", line: "export type PaymentProvider = 'FLUTTERWAVE' | 'PESAPAL' | 'SELCOM' | 'DPO' | 'STRIPE' | 'SNIPPE' | 'POLAR';", reason: "PaymentProvider union (SNIPPE and POLAR are the implemented providers)" },
 ];
 
 /** Splits on LF or CRLF. A checkout with CRLF endings (Windows autocrlf) must scan identically to an LF one. */
@@ -175,10 +175,10 @@ describe("Flutterwave decommission — no active checkout can be created", () =>
   const clientRouting = read("src/lib/commercial/payments/routing.ts");
   const checkout = read("supabase/functions/commercial-create-checkout/index.ts");
 
-  it("no provider is configured server-side, so routing fails closed", () => {
-    const body = edgeRouting.match(/export function getConfiguredProviders\(\)[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(body).toMatch(/return \[\];/);
-    expect(edgeRouting).not.toMatch(/Deno\.env\.get\('FLUTTERWAVE/);
+  it("Flutterwave can never be configured server-side: only POLAR and SNIPPE are built from configuration, and neither reads a Flutterwave setting", () => {
+    expect(stripComments(edgeRouting)).not.toMatch(/FLUTTERWAVE_|'FLUTTERWAVE'|flutterwave/i);
+    const built = [...edgeRouting.matchAll(/capabilities: \{ provider: '([A-Z]+)'/g)].map((m) => m[1]);
+    expect(built).toEqual(["POLAR", "SNIPPE"]);
   });
 
   it("no provider capabilities are declared client-side", () => {
