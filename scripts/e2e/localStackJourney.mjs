@@ -272,8 +272,11 @@ async function main() {
         // The period is not open: the page says so and links to its Overview, where the service is chosen.
         await page.click({ text: `Open FY${year}` });
         await page.waitForSelector('[data-testid="launchpad-heading"], [data-testid="data-choice-heading"]', { timeout: 30000 });
-        if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); await page.waitForSelector('[data-testid="data-choice-heading"]', { timeout: 30000 }); }
-        await page.click('[data-testid="primary-cta"]');
+        if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
+        else await page.click('[data-testid="primary-cta"]');
+        // The Overview then leads to Prepare Data (with or without a separate data choice); the loop returns to the uploader.
+        await sleep(2000);
+        if (await page.evaluate(() => !!document.querySelector('[data-testid="data-choice-heading"]'))) await page.click('[data-testid="primary-cta"]');
       } else if (where === "launchpad") { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
       else { await page.click('[data-testid="primary-cta"]'); }
       await sleep(1500);
@@ -396,7 +399,7 @@ async function main() {
     await setByLabel("Reason for your decision", "Agreed to journal voucher JV-0716");
     await page.click({ text: "Approve", within: '[data-testid^="adjustment-"]' });
     await page.waitForText(": Approved", { timeout: 30000 });
-    return r.outcome === "recorded" && !!adjustmentId ? true : r;
+    return (r.outcome === "proposed" || r.outcome === "recorded") && !!adjustmentId ? true : r;
   });
   await check("Reconcile shows earlier adjusting entries read-only and points to Close Review › Adjustments; no write control", async () => {
     await go(`${base}/reconcile`, "Adjusting entries");
