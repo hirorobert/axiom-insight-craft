@@ -14,7 +14,10 @@ export const TOLERANCE_SECONDS = 300;
 const enc = new TextEncoder();
 
 async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
-  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  // A copy backed by a plain ArrayBuffer (Web Crypto's BufferSource excludes SharedArrayBuffer-backed views).
+  const raw = new Uint8Array(new ArrayBuffer(key.byteLength));
+  raw.set(key);
+  const k = await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(data)));
 }
 
