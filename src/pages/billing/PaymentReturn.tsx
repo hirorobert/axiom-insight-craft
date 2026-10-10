@@ -29,7 +29,7 @@ import { displayPlanName, formatLicenceDate } from "@/lib/commercial/billingDisp
 import { formatMoney } from "@/lib/commercial/planOffers";
 import { activationRequestHref } from "@/lib/commercial/offerings";
 
-type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "EXPIRED" | "REVIEW" | "TIMEOUT" | "NO_REF";
+type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "EXPIRED" | "REVIEW" | "TIMEOUT" | "NO_REF" | "NOT_FOUND";
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLLS = 100; // 5 minutes — a mobile-money prompt can take a few minutes to be approved
@@ -61,6 +61,12 @@ export default function PaymentReturn() {
 
   const applyStatus = useCallback((data: CheckoutStatusResponse) => {
     setStatus(data);
+    if (data.found === false) {
+      // Not this account's order (or no such order): the server reveals nothing more.
+      clearInterval(timerRef.current!);
+      setPhase("NOT_FOUND");
+      return;
+    }
     const final = data.status ? FINAL[data.status] : undefined;
     if (final) {
       clearInterval(timerRef.current!);
@@ -140,7 +146,16 @@ export default function PaymentReturn() {
           </div>
         )}
 
-        {saffRef && (
+        {phase === "NOT_FOUND" && (
+          <div className="space-y-4 text-center" data-testid="order-not-found">
+            <AlertCircle className="mx-auto h-12 w-12 text-destructive" aria-hidden="true" />
+            <h1 className="text-xl font-semibold">Order not found</h1>
+            <p className="text-sm text-muted-foreground">No order with this reference belongs to the account you are signed in with.</p>
+            <Button asChild className="w-full"><Link to="/billing/orders">See your orders</Link></Button>
+          </div>
+        )}
+
+        {saffRef && phase !== "NOT_FOUND" && (
           <>
             <header className="text-center" aria-live="polite">
               {phase === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}

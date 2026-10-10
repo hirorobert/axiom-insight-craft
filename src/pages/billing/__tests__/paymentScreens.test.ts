@@ -267,3 +267,14 @@ describe("administrator screen", () => {
     expect(supabaseRpc).toHaveBeenCalledWith("admin_place_paid_licence", expect.objectContaining({ p_checkout_intent_id: "i1", p_reason: "Placed after the open-ended agreement ended" }));
   });
 });
+
+describe("payment status page · another account's order", () => {
+  it("found:false (not this account's order) says so and stops; it reveals nothing about the order", async () => {
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValue({ data: { ...statusBase, found: false, status: "UNKNOWN", planCode: null, expectedAmountMinor: null }, throttled: false, retryAfterSeconds: null, error: null });
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: { ...statusBase, found: false, status: "UNKNOWN" }, error: null });
+    m = mount(at("/billing/payment/return?ref=SAFF-OTHER", h(PaymentReturn)));
+    await flush();
+    expect(byTestId(m, "order-not-found")).not.toBeNull();
+    expect(byTestId(m, "order-summary")).toBeNull();
+  });
+});

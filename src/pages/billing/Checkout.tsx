@@ -101,7 +101,9 @@ export default function Checkout() {
     setSubmitting(true);
     const result = await startCheckout(plan as PlanCode, chosen.paymentRoute, chosen.paymentRoute === "MOBILE_MONEY" ? phone : null);
     if ("checkoutUrl" in result) {
-      if (result.paymentRoute === "CARD" && /^https:\/\//.test(result.checkoutUrl)) { window.location.assign(result.checkoutUrl); return; }
+      // The provider's hosted page: https (a loopback page only in local sandbox tests — the server never returns one in
+      // production).
+      if (result.paymentRoute === "CARD" && /^(https:\/\/|http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/)/.test(result.checkoutUrl)) { window.location.assign(result.checkoutUrl); return; }
       navigate(`/billing/payment/return?ref=${encodeURIComponent(result.saffReference)}`);
       return;
     }
