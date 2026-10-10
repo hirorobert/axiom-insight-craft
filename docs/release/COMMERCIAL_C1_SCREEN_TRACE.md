@@ -32,13 +32,14 @@ Each observed problem is traced to its route, component, data source and the han
 | Company, period, currency, edition, comparative period, classifications and tasks | Dynamic: read from the server. The **exceptions found and fixed** follow |
 | Evidence intake periods `YYYY-01-01 … YYYY-12-31` | **Inappropriate hard-coding (fixed, `8a8aea6`)**: a July–June company's ledger was checked against the calendar year. It now uses the recorded period dates (`fs_reporting_input`) and refuses when they are unknown |
 | Reconcile's "TZS" and "IAS 8" | **Inappropriate hard-coding (fixed, `2d8e0e0`)** |
+| The launchpad's first period: calendar year, TZS (`open_engagement_with_scope`) | **Inappropriate hard-coding (fixed, `0158258`, migration `20261028100000`)**, found by the real-application journey. A company that stated a 30 June year-end and KES at first run had its first trial balance filed in a 1 January – 31 December TZS period. The period now follows the stated year-end and currency (basis `company_year_end`). Table defaults never count. Existing periods are never rewritten, and a company with a legacy calendar period keeps it rather than being refused. Intake now states and prefills the existing period, so its prior period can be added |
 | Comparative period = `period_year − 1` (`fs_reporting_input`, `20261016100000`) | **Recorded, not changed.** The prior period is the period labelled one year earlier; no explicit prior-period link or date contiguity is checked. Correct for consecutive 12-month periods, including non-calendar ones; **not** proven for a changed year-end or a short or long period. **Owner decision**: an explicit link, or a contiguity check that blocks otherwise. This needs a reviewed server change |
 | `deriveReportingPeriod` calendar fallback (`reportingPeriod.ts`) | Already flagged `CALENDAR_YEAR_ASSUMED`, so it requires confirmation. Left as is |
 | `ClientSummaryPanel` payment dates by calendar year | In the Tanzania pack (a withheld stage). Recorded only |
 
 ## 3. Separation of concerns
 
-- **Confirmed defects (fixed here):** 2, 3, 4, 9, 12, 15 and evidence calendar dates. Also, from the commercial milestone: the sealed-report edition identity (`0f5c205`).
+- **Confirmed defects (fixed here):** 2, 3, 4, 9, 12, 15, evidence calendar dates, and the launchpad's calendar-year TZS period. Also, from the commercial milestone: the sealed-report edition identity (`0f5c205`).
 - **Configuration requirements:** custom SMTP; enquiry email secrets; staff and commercial-admin enrolment; applying `reporting-r5` then `commercial-c1`; deploying two functions; Publish (see the Lovable checklist).
 - **Owner decisions:** the comparative-period link (above); an in-app activation screen; whether `manager` and `triage_agent` should differ in power; the internal notification address.
 - **External professional review (release requirements):** legal review of the terms and privacy pages before paid go-live; independent accounting validation of the financial-reporting pilot. Accounting coverage stays labelled *not independently validated*.
