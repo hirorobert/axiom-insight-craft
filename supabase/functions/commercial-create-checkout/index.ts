@@ -99,7 +99,8 @@ Deno.serve(async (req: Request) => {
       const displayArgs = { p_plan_code: planCode, p_billing_interval: 'ANNUAL', p_market_code: ROUTE_MARKET[route] };
       const { data } = await supabase.rpc('resolve_commercial_offer', displayArgs);
       const offer = (data ?? { resolution: 'UNKNOWN' }) as Offer;
-      if (offer.resolution !== 'AVAILABLE') { options.push({ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER' }); continue; }
+      // The resolver falls back to GLOBAL when a market has no offer; a route shows only its OWN market's price.
+      if (offer.resolution !== 'AVAILABLE' || offer.market_code !== ROUTE_MARKET[route]) { options.push({ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER' }); continue; }
       const sel = selectPaymentProvider({ currencyCode: offer.currency_code!, marketCode: offer.market_code!, providerRestriction: offer.provider_restriction ?? null }, configured);
       if (bc && placement === null) {
         const { data: place } = await supabase.rpc('_commercial_licence_placement', { p_billing_customer_id: bc.id, p_plan_id: offer.plan_id, p_at: new Date().toISOString() });
@@ -170,6 +171,11 @@ Deno.serve(async (req: Request) => {
   if (offer.resolution === 'AMBIGUOUS') {
     console.error('Ambiguous offer resolution — refusing to guess', { correlationId, planCode, marketCode });
     return jsonResponse({ error: 'Pricing configuration error. Please contact support.', correlationId }, 500);
+  }
+  // resolve_commercial_offer falls back to the GLOBAL offer when a market has none. A payment route never crosses into
+  // another route's market: mobile money with no TZ price is unavailable — never a card checkout in USD.
+  if (offer.market_code !== marketCode) {
+    return jsonResponse({ error: 'PRODUCT_PRICING_DECISION_REQUIRED: no purchasable offer configured for this plan/market', correlationId }, 402);
   }
 
   // 4. Route to the eligible configured provider. No fake checkout if none, and no silent environment default.

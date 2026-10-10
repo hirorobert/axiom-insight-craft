@@ -112,3 +112,17 @@ describe("DISPLAY_MARKET == CHECKOUT_MARKET — both paths call the identical re
     expect(parseBlock).not.toMatch(/amount|currency|price/i);
   });
 });
+
+describe("commercial-create-checkout — a payment route never crosses into another route's market", () => {
+  // resolve_commercial_offer falls back to the GLOBAL offer when the requested market has none. Without this guard, a
+  // customer choosing mobile money with no TZ price would be routed to a USD card checkout.
+  it("POST refuses an offer resolved for a different market than the route's (402), before any provider is selected", () => {
+    const guard = checkoutSrc.indexOf("if (offer.market_code !== marketCode) {");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(checkoutSrc.indexOf("selectPaymentProvider(\n"));
+    expect(checkoutSrc.slice(guard, guard + 200)).toMatch(/402\)/);
+  });
+  it("GET shows a route as available only with its own market's offer", () => {
+    expect(checkoutSrc).toMatch(/if \(offer\.resolution !== 'AVAILABLE' \|\| offer\.market_code !== ROUTE_MARKET\[route\]\) \{ options\.push\(\{ paymentRoute: route, available: false/);
+  });
+});
