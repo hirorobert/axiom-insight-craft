@@ -233,7 +233,8 @@ describe("migration directory integrity", () => {
     // 165 -> 167: 20261025100000_commercial_enquiries.sql and 20261026100000_retire_browser_adjusting_journal_writes.sql (the commercial candidate, batch commercial-c1), NEW forward-only migrations pending hosted application.
     // 167 -> 168: 20261027100000_workspace_purpose.sql (explicit workspace purpose, batch commercial-c1), a NEW forward-only migration pending hosted application.
     // 168 -> 169: 20261028100000_period_dates_from_company.sql (a workspace's first period from the company's stated year-end, batch commercial-c1), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(169);
+    // 169 -> 170: 20261029100000_payment_provider_routes.sql (online payment provider routes and renewal-aware placement, batch commercial-p1), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(170);
   });
 });
 

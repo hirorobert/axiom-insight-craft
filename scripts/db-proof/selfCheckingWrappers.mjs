@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "commercial-c1"
+const DRIZZLE_FAILURE = BATCH.id === "commercial-p1"
+  ? { object: "public.payment_webhook_processing_events", rolledBack: "SELECT position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_co_provider_restriction'))) = 0 AND position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_pci_provider'))) = 0 AND to_regprocedure('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)') IS NULL AS ok" }
+  : BATCH.id === "commercial-c1"
   ? { object: "public.workspace_purpose_events", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regclass('public.workspace_purpose_events') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'aje_insert') AND position('company_year_end' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fp_dates_basis'))) = 0 AS ok" }
   : BATCH.id === "reporting-r5"
   ? { object: "public.fs_signoff_policy_events", rolledBack: "SELECT to_regclass('public.fs_signoff_policy_events') IS NULL AND to_regprocedure('public.fs_set_signoff_policy(uuid,text,text,text,uuid)') IS NULL AS ok" }

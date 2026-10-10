@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RELEASE_JOURNAL, SUBMISSION_FORMS, checkReleaseEntry, submittedForm } from "../../../scripts/ci/releaseJournal.mjs";
 import { checkMigrationAuthority } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 import { lexSql } from "../../../scripts/ci/atomicEnvelope.mjs";
-import { RELEASE_BATCHES, REPORTING_SOURCE_COMMIT, REPORTING_WRAPPED_SOURCES, SOURCE_COMMIT, WRAPPED_SOURCES, enclosedPayload, render, wrapperFile, READINESS_SOURCE_COMMIT, READINESS_WRAPPED_SOURCES, SIGNOFF_POLICY_SOURCE_COMMIT, SIGNOFF_POLICY_WRAPPED_SOURCES, COMMERCIAL_SOURCE_COMMIT, COMMERCIAL_WRAPPED_SOURCES } from "../../../scripts/release/selfCheckingWrapper.mjs";
+import { RELEASE_BATCHES, REPORTING_SOURCE_COMMIT, REPORTING_WRAPPED_SOURCES, SOURCE_COMMIT, WRAPPED_SOURCES, enclosedPayload, render, wrapperFile, READINESS_SOURCE_COMMIT, READINESS_WRAPPED_SOURCES, SIGNOFF_POLICY_SOURCE_COMMIT, SIGNOFF_POLICY_WRAPPED_SOURCES, COMMERCIAL_SOURCE_COMMIT, COMMERCIAL_WRAPPED_SOURCES, PAYMENTS_SOURCE_COMMIT, PAYMENTS_WRAPPED_SOURCES } from "../../../scripts/release/selfCheckingWrapper.mjs";
 
 // Every registered wrapper, both batches (the applied milestone, then the reporting release).
 const ALL_WRAPPED = RELEASE_BATCHES.flatMap((b) => b.sources);
@@ -53,6 +53,11 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     expect(COMMERCIAL_SOURCE_COMMIT).toBe("015825859f4bd8641fba013636ae118f3aa5d5e8");
     expect([...COMMERCIAL_WRAPPED_SOURCES]).toEqual(["20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql", "20261028100000_period_dates_from_company.sql"]);
     for (const n of COMMERCIAL_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${COMMERCIAL_SOURCE_COMMIT}:`);
+  });
+  it("wraps exactly the online payment migration (commercial-p1), at the commit holding its reviewed bytes", () => {
+    expect(PAYMENTS_SOURCE_COMMIT).toBe("ff2b6266a819c83e41fa02b303d96b4fce9bf9d5");
+    expect([...PAYMENTS_WRAPPED_SOURCES]).toEqual(["20261029100000_payment_provider_routes.sql"]);
+    for (const n of PAYMENTS_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${PAYMENTS_SOURCE_COMMIT}:`);
   });
   for (const name of ALL_WRAPPED) {
     it(`${name}: the file is render() of the source; it encloses those bytes; both forms are pinned (recomputed here)`, () => {
@@ -213,7 +218,7 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     const entries = Object.entries(RELEASE_JOURNAL).filter(([, e]) => (e as { kind: string }).kind === "release_self_checking_wrapper");
     // 0033–0039, 0040–0044 and the readiness correction (0045, hosted 46) applied; the sign-off policy (r5) and the
     // commercial candidate (c1) are pending.
-    const PENDING = [...SIGNOFF_POLICY_WRAPPED_SOURCES, ...COMMERCIAL_WRAPPED_SOURCES];
+    const PENDING = [...SIGNOFF_POLICY_WRAPPED_SOURCES, ...COMMERCIAL_WRAPPED_SOURCES, ...PAYMENTS_WRAPPED_SOURCES];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
