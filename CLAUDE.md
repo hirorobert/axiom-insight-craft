@@ -1146,6 +1146,18 @@ auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
 
+**Status (2026-10-10, batch `commercial-p1`, `20261029100000_payment_provider_routes.sql`): fixed in source, pending
+hosted application.** `_commercial_licence_placement` is the one placement rule the commit uses: same plan → renewal
+after the current term; more entities → upgrade now (current term ends); fewer or equal → starts when the current term
+ends (downgrade at renewal); an open-ended licence or an upgrade over a queued term → the verified payment is recorded
+once, the intent stays MANUAL_REVIEW and `admin_place_paid_licence` places it (`admin_resolve_manual_review_intent` can
+never cancel/fail an intent whose payment is recorded). Only final provider outcomes (SUCCEEDED/FAILED/CANCELLED/EXPIRED)
+close an intent. `admin_grant_commercial_licence` refuses to shorten a payment-created term
+(`PAID_TERM_WOULD_BE_SHORTENED`). Providers: SNIPPE (TZ mobile money, TZS) and POLAR (merchant of record, USD cards) —
+evidence and routing in `docs/release/PAYMENT_PROVIDER_EVIDENCE.md`. Proof: `scripts/db-proof/paymentProviders.mjs`.
+The migration refuses unless `commercial_platform_state = PAYMENTS_DISABLED`; it activates nothing. The prerequisite is
+met only once the batch is applied on the hosted database; enabling payments stays a separate, owner-authorised step.
+
 **CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY** — product containment (2026-10-02, branch `fix/hide-tax-module-surfaces`).
 The customer-facing application exposes ONE proven workflow, presented as **Trial balance review** ("Upload, check and
 review the accounts in your trial balance."): 1. Upload trial balance → 2. Review accounts needing attention → 3. Reconcile

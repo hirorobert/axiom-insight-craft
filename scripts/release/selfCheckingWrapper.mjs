@@ -66,6 +66,11 @@ export const COMMERCIAL_WRAPPED_SOURCES = Object.freeze([
   "20261027100000_workspace_purpose.sql",
   "20261028100000_period_dates_from_company.sql",
 ]);
+/** Online payment (commercial-p1): the provider routes and the renewal-aware placement of a paid term. */
+export const PAYMENTS_SOURCE_COMMIT = "21387d52d432359eb46d34e6160b4876eeb42f63";
+export const PAYMENTS_WRAPPED_SOURCES = Object.freeze([
+  "20261029100000_payment_provider_routes.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -73,6 +78,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "reporting-r2", commit: READINESS_SOURCE_COMMIT, sources: READINESS_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r2/postcondition.sql" }),
   Object.freeze({ id: "reporting-r5", commit: SIGNOFF_POLICY_SOURCE_COMMIT, sources: SIGNOFF_POLICY_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r5/postcondition.sql" }),
   Object.freeze({ id: "commercial-c1", commit: COMMERCIAL_SOURCE_COMMIT, sources: COMMERCIAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-c1/postcondition.sql" }),
+  Object.freeze({ id: "commercial-p1", commit: PAYMENTS_SOURCE_COMMIT, sources: PAYMENTS_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

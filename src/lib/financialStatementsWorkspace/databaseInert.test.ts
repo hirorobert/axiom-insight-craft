@@ -280,6 +280,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261027100000_workspace_purpose.sql",
       // Periods from the company (20261028100000): the launchpad period follows the stated year-end and currency.
       "supabase/migrations/20261028100000_period_dates_from_company.sql",
+      // Online payment (20261029100000): provider routes, renewal-aware placement of a paid term, paid-term protection.
+      "supabase/migrations/20261029100000_payment_provider_routes.sql",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -500,6 +502,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/signoffPolicy.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
+      // Online payment (commercial-p1): the loopback-only payment authority proof.
+      "scripts/db-proof/paymentProviders.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.

@@ -436,6 +436,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 11708, sha256: "c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 11707, sha256: "51104bb36a7f14dfd15fce8d585edc66437cf30a0677158e98c064fb75ae3943" }),
   }),
+  // Online payment (batch commercial-p1): the provider routes and the renewal-aware placement of a paid term.
+  "20261029100000_payment_provider_routes.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 49007, sha256: "3b1b14d93bb2ee7ef21d416a89d5fa3490848f4bce53827979d0290d76e42818" }),
+    finalLfRemoved: Object.freeze({ bytes: 49006, sha256: "789666756ffaf9a2e74c998fde7ea006627fc5dd64ef853a62875085e10523ad" }),
+    // Self-checking wrapper release/wrappers/20261029100000_payment_provider_routes.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 50575, sha256: "407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 50574, sha256: "8a4487f2ec15d1f660f4b060d12eb4092197f07865eb1d28fc063ae398bf2dcb" }),
+  }),
 });
 
 /**
