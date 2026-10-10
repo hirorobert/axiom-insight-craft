@@ -44,7 +44,9 @@ describe("migration authority parity", () => {
     // 42: 0040–0044 (the reporting release, batch reporting-r1) are release_self_checking_wrapper entries too — 0040–0042 the
     // registered wrapper form, 0043–0044 the registered final-LF-removed form (hosted 41–45).
     // 43: 0045, the readiness correction (batch reporting-r2), the registered wrapper form (hosted 46).
-    expect(r.mirrored.length).toBe(43);
+    // 50: 0046–0052, the commercial launch (reporting-r5, commercial-c1, commercial-p1, commercial-p2), the registered wrapper
+    // form (hosted 47–53).
+    expect(r.mirrored.length).toBe(50);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -61,7 +63,7 @@ describe("migration authority parity", () => {
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
     // 20261011100000–20261017100000 are applied as 0033–0039 (self-checking wrappers). Nothing is pending.
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
-    expect(r.pending).toEqual(["20261024100000_fs_signoff_approval_policy.sql", "20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql", "20261028100000_period_dates_from_company.sql", "20261029100000_payment_provider_routes.sql", "20261030100000_paid_term_seat_preservation.sql"]); // the statement sign-off policy (reporting r5), authored and pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch is applied: r5, c1 and p1 as 0046–0051 (hosted 47–52), commercial-p2 as 0052 (hosted 53)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

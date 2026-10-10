@@ -221,10 +221,9 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
   }, 120_000);
   it("the repository: both batches applied (0033–0039, then 0040–0044), each through a reviewed entry pinning the exact registered wrapper form", () => {
     const entries = Object.entries(RELEASE_JOURNAL).filter(([, e]) => (e as { kind: string }).kind === "release_self_checking_wrapper");
-    // 0033–0039, 0040–0044 and the readiness correction (0045, hosted 46) applied; the sign-off policy (r5) and the
-    // commercial candidate (c1) are pending.
-    const PENDING = [...SIGNOFF_POLICY_WRAPPED_SOURCES, ...COMMERCIAL_WRAPPED_SOURCES, ...PAYMENTS_WRAPPED_SOURCES, ...PAID_TERM_WRAPPED_SOURCES];
-    expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
+    // Every registered wrapper is applied: 0033–0039, 0040–0044, the readiness correction (0045, hosted 46) and the
+    // commercial launch (0046–0052, hosted 47–53: r5, c1×4, p1, p2).
+    expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual([...ALL_WRAPPED]);
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
     for (const [tag, e] of entries) {
@@ -237,6 +236,6 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     }
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    for (const s of ALL_WRAPPED) expect(r.pending.includes(s), s).toBe(PENDING.includes(s));
+    for (const s of ALL_WRAPPED) expect(r.pending.includes(s), s).toBe(false);
   }, 120_000);
 });
