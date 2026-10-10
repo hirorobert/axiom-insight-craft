@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED POSTCONDITION for the commercial candidate (docs/release/COMMERCIAL_C1_RELEASE.md, step 3). Run AFTER
--- all three wrappers. Writes nothing; raises on the first violated expectation.
+-- all four wrappers. Writes nothing; raises on the first violated expectation.
 DO $$
 DECLARE
   v_role TEXT; v_table TEXT; v_priv TEXT;
@@ -53,6 +53,11 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_wpe_append_only' AND NOT tgisinternal AND tgenabled <> 'D') THEN
     RAISE EXCEPTION 'POSTCONDITION: workspace purpose events are not append-only';
+  END IF;
+  -- 20261028100000: the launchpad period follows the company's stated year-end.
+  IF position('company_year_end' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fp_dates_basis'))) = 0
+     OR position('company_year_end' IN pg_get_functiondef('public.open_engagement_with_scope(uuid,integer,text[],text)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: periods from the company (20261028100000) are not in force';
   END IF;
   RAISE NOTICE 'POSTCONDITION OK.';
 END;

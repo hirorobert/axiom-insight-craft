@@ -43,7 +43,7 @@ const N = WRAPPED_SOURCES.length;
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
 const DRIZZLE_FAILURE = BATCH.id === "commercial-c1"
-  ? { object: "public.adjusting_journal_entries", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regclass('public.workspace_purpose_events') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'aje_insert') AS ok" }
+  ? { object: "public.workspace_purpose_events", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regclass('public.workspace_purpose_events') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'aje_insert') AND position('company_year_end' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fp_dates_basis'))) = 0 AS ok" }
   : BATCH.id === "reporting-r5"
   ? { object: "public.fs_signoff_policy_events", rolledBack: "SELECT to_regclass('public.fs_signoff_policy_events') IS NULL AND to_regprocedure('public.fs_set_signoff_policy(uuid,text,text,text,uuid)') IS NULL AS ok" }
   : BATCH.id === "reporting-r2"
@@ -51,15 +51,18 @@ const DRIZZLE_FAILURE = BATCH.id === "commercial-c1"
   : BATCH.id === "reporting-r1"
   ? { object: "public.fs_publication_bindings", rolledBack: tablesAbsent("public.fs_presentation_lines", "public.fs_publication_bindings") }
   : { object: "public.close_review_adjustment_bindings", rolledBack: tablesAbsent("public.tb_source_objects", "public.close_review_findings") };
-// Sources that only remove objects (their fingerprint shrinks when applied).
+// Sources that only remove objects (their fingerprint shrinks when applied), and sources that only replace objects (the
+// fingerprint changes; its object count is not asserted).
 const REMOVES_ONLY = new Set(["20261026100000_retire_browser_adjusting_journal_writes.sql"]);
+const REPLACES_ONLY = new Set(["20261028100000_period_dates_from_company.sql"]);
 // Where an execution failure is injected inside each migration: "early" at the batch's earlyAt-th DDL command, "late" at
 // its first lateTag command. The readiness correction (r2) has exactly one DDL command, ALTER FUNCTION: both points are
 // that command, which proves the change itself is rolled back. Every other batch keeps DDL #3 and the first GRANT.
-// The commercial candidate's retirement migration grants nothing (it drops policies and revokes): its late point is the
-// first REVOKE, which the enquiry migration also has.
+// The commercial candidate's retirement migration grants nothing (it drops policies and revokes) and its period migration
+// revokes nothing (it replaces a function): its late point is the first REVOKE or CREATE FUNCTION, which every one of its
+// four sources reaches after at least three DDL commands.
 const SHAPE = BATCH.id === "reporting-r2" ? { earlyAt: 1, lateTag: "ALTER FUNCTION", minDdl: 1 }
-  : BATCH.id === "commercial-c1" ? { earlyAt: 3, lateTag: "REVOKE", minDdl: 3 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
+  : BATCH.id === "commercial-c1" ? { earlyAt: 3, lateTag: "REVOKE','CREATE FUNCTION", minDdl: 3 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -171,7 +174,7 @@ const INJECT = `CREATE SCHEMA IF NOT EXISTS proof_inject;
     v_n := coalesce(nullif(current_setting('proof_inject.n', true), ''), '0')::integer + 1;
     PERFORM set_config('proof_inject.n', v_n::text, true);
     IF v_mode = 'early' AND v_n = ${SHAPE.earlyAt} THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE early at DDL #% (%)', v_n, tg_tag USING ERRCODE = 'XX000'; END IF;
-    IF v_mode = 'late' AND tg_tag = '${SHAPE.lateTag}' THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE late at % after % DDL commands', tg_tag, v_n USING ERRCODE = 'XX000'; END IF;
+    IF v_mode = 'late' AND tg_tag IN ('${SHAPE.lateTag}') THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE late at % after % DDL commands', tg_tag, v_n USING ERRCODE = 'XX000'; END IF;
     IF v_mode LIKE 'object:%' THEN
       FOR r IN SELECT object_identity FROM pg_event_trigger_ddl_commands() LOOP
         IF r.object_identity = substr(v_mode, 8) THEN RAISE EXCEPTION 'PROOF_INJECTED_FAILURE at %', r.object_identity USING ERRCODE = 'XX000'; END IF;
@@ -293,7 +296,7 @@ async function main() {
         const added = j1.slice(j0.length);
         // The fingerprint must SEE the migration (otherwise "unchanged" above would prove nothing).
         // A migration that only removes (the browser-write retirement drops policies and revokes) shrinks the fingerprint.
-        const grew = REMOVES_ONLY.has(s) ? Number(f1.n) < Number(f0.n) : Number(f1.n) > Number(f0.n);
+        const grew = REMOVES_ONLY.has(s) ? Number(f1.n) < Number(f0.n) : REPLACES_ONLY.has(s) ? true : Number(f1.n) > Number(f0.n);
         return r.ok && f0.f !== f1.f && grew && added.length === 1 && added[0].hash === sha256(Buffer.from(submitted, "utf8")) ? true : { r, added, sees: f0.f !== f1.f };
       });
       for (const model of [false, true]) {

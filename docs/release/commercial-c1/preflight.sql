@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED PREFLIGHT for the commercial candidate (docs/release/COMMERCIAL_C1_RELEASE.md, step 1). Run BEFORE the
--- three wrappers. Writes nothing; raises on the first violated expectation.
+-- four wrappers. Writes nothing; raises on the first violated expectation.
 DO $$
 BEGIN
   IF to_regclass('public.fs_signoff_policy_events') IS NULL THEN
@@ -18,7 +18,10 @@ BEGIN
   IF to_regclass('public.workspace_purpose_events') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT: workspace purpose (20261027100000) is already applied';
   END IF;
-  RAISE NOTICE 'PREFLIGHT OK: apply 20261025100000, 20261026100000, then 20261027100000';
+  IF position('company_year_end' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fp_dates_basis'))) > 0 THEN
+    RAISE EXCEPTION 'PREFLIGHT: periods from the company (20261028100000) are already applied';
+  END IF;
+  RAISE NOTICE 'PREFLIGHT OK: apply 20261025100000, 20261026100000, 20261027100000, then 20261028100000';
 END;
 $$;
 -- Record before applying (compare after; neither migration changes a row of these tables):

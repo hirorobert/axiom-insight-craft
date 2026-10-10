@@ -548,7 +548,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 902a05763be23ef9b3ee762ae92401c0e32ddd84
           git fetch --no-tags --depth=1 origin 2a4d73d38ae1ac76b6983305f37d5d0b30f2b3db
           git fetch --no-tags --depth=1 origin 5358aefc999bd09f5d306e3e19ba3abbd79da082
-          git fetch --no-tags --depth=1 origin 2bef37d676af0a8f83d0c28bf42580b5dfdf68db
+          git fetch --no-tags --depth=1 origin 015825859f4bd8641fba013636ae118f3aa5d5e8
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -587,7 +587,7 @@ jobs:
           createdb signoff_policy_proof
           bun scripts/db-proof/signoffPolicy.mjs
 
-      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions, the retirement of browser adjusting-journal writes and workspace purpose; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Commercial candidate wrapper proof (the same reviewed proof for the commercial-c1 wrappers, enquiry additions, the retirement of browser adjusting-journal writes, workspace purpose and periods from the company; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/commercial_wrappers_proof
@@ -619,6 +619,14 @@ jobs:
         run: |
           createdb workspace_purpose_proof
           bun scripts/db-proof/workspacePurpose.mjs
+
+      - name: Periods from the company proof (20261028100000; the launchpad period follows the company's stated year-end and currency, the defect reproduced first; 29 February clamps; the prior period links; table defaults never count; a legacy calendar period is never rewritten or refused; re-application refused; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/period_from_company_proof
+        run: |
+          createdb period_from_company_proof
+          bun scripts/db-proof/periodFromCompany.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:
