@@ -2,8 +2,11 @@
  * landingContent — the single source of truth for every word rendered on the public
  * landing page (src/pages/Index.tsx and the components under src/components/landing/).
  *
+ * Phase 0 clarity (2026-10-10): the page leads with the outcome, states each limit once (the pilot label, the footer)
+ * instead of repeating negations, calls the product the product, and places expert help after the questions.
+ *
  * The commercial structure:
- *   Software       Trial balance review — a 12-month software subscription. Financial reporting — a pilot by invitation,
+ *   Product        Trial balance review — a 12-month software subscription. Financial reporting — a pilot by invitation,
  *                  not generally available, its accounting not independently validated.
  *   Plans          capacity, from the reviewed catalogue. What each plan card says about price and payment is decided by
  *                  the server at runtime (src/lib/commercial/planOffers.ts): a price the team has approved and online
@@ -24,10 +27,10 @@
 /** Every section id the page renders, and therefore every valid in-page anchor target. */
 export const LANDING_SECTION_IDS = [
   "main-content",
-  "software",
+  "product",
   "plans",
-  "specialist-services",
   "faq",
+  "specialist-services",
 ] as const;
 
 export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
@@ -37,10 +40,10 @@ export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
-  eyebrow: "Trial balance review software",
-  headline: "Check every trial balance before the statements are prepared.",
+  eyebrow: "Trial balance workspace",
+  headline: "From trial balance to review-ready accounts.",
   supporting:
-    "Import a trial balance, run the checks and record a classification decision for every account. The software performs the checks and records the decisions; professional judgement stays with you.",
+    "Import a trial balance, check it, and map every account to its statement category, with each decision recorded. CFOCLOSE performs the checks and records the decisions; professional judgement stays with you.",
   primaryCta: { label: "Explore plans", href: "#plans" },
   secondaryCta: { label: "Request activation" },
   /** A genuine screenshot of the product (local real-application run), with a fictitious demonstration company. */
@@ -54,13 +57,13 @@ export const LANDING_HERO = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Software — what the subscription includes, and the one pilot
+// Product — what every plan includes, and the one pilot
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LandingServiceOutput {
   readonly name: string;
-  /** Formats reachable from the current interface, or "On screen". */
-  readonly formats: string;
+  /** One short line saying what the output is. */
+  readonly detail: string;
 }
 
 export interface LandingService {
@@ -82,11 +85,11 @@ export const LANDING_SERVICES: readonly LandingService[] = [
     id: "prepare-review",
     name: "Trial balance review",
     outcome: "Upload, check and review the accounts in your trial balance.",
-    value: "A reviewed trial balance: checks passed, every classification confirmed, each decision recorded.",
+    value: "A reviewed trial balance: checks passed, every account mapped to its statement category, each decision recorded.",
     primaryOutputs: [
-      { name: "Trial balance checks", formats: "On screen" },
-      { name: "Account review decisions", formats: "On screen" },
-      { name: "Reviewed trial balance status", formats: "On screen" },
+      { name: "Trial balance checks", detail: "Totals, amounts and the statement equation, checked on every import" },
+      { name: "Account mapping", detail: "Every account mapped to its statement category; exceptions held for your decision" },
+      { name: "Reviewed trial balance", detail: "Balanced and mapped, ready for statement preparation" },
     ],
     moreOutputs: [],
   },
@@ -100,23 +103,23 @@ export const LANDING_WORKFLOW: readonly string[] = [
 ];
 
 export const LANDING_SERVICES_COPY = {
-  eyebrow: "Software",
-  heading: "One subscription for trial balance review.",
-  intro: "Every plan includes Trial balance review. Plans differ in capacity.",
+  eyebrow: "Product",
+  heading: "One workspace, from import to a reviewed trial balance.",
+  intro: "Every plan includes the full trial balance workflow. Plans differ only in capacity.",
   /** What goes in and what comes out — only what the current interface does. */
-  formats: "Imports trial balances from CSV and XLSX files exported from your accounting system; there is no direct connection to accounting systems. Checks, account decisions and the reviewed status are shown in the workspace.",
+  formats: "Works from the CSV or XLSX trial balance your accounting system already exports. Checks, mapping decisions and the reviewed status are kept in the workspace.",
   outputsHeading: "What you receive",
   workflowHeading: "How it works",
   seeAll: "See all included outputs",
   includedLabel: "Included in every plan",
-  frameworks: "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. Recording a framework does not generate statements.",
+  frameworks: "Each workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash.",
 } as const;
 
 /** The one pilot. Not for sale, not generally available, and never described as validated. */
 export const LANDING_PILOT = {
   name: "Financial reporting",
   label: "Pilot · by invitation",
-  text: "Statements, notes and sign-off for IFRS for SMEs are being piloted with selected users. Not generally available. The accounting has not been independently validated.",
+  text: "Statements, notes and sign-off for IFRS for SMEs, piloted with selected users. Not generally available; the accounting has not been independently validated.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,13 +142,13 @@ export const LANDING_PLANS_COPY = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Specialist services — enquiries, not features
+// Expert help — enquiries for work delivered by people, quoted separately
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_SPECIALIST_COPY = {
-  eyebrow: "Specialist services",
-  heading: "Work delivered by people, quoted separately.",
-  intro: "Ask for a quote. These are not features of the software and are not included in any plan.",
+  eyebrow: "Expert help",
+  heading: "Need a specialist alongside the product?",
+  intro: "Our specialists work with you from your own figures. Ask for a quote.",
   tag: "Specialist enquiry",
   action: "Ask for a quote",
 } as const;
@@ -173,27 +176,9 @@ export interface LandingFaqEntry {
 export const LANDING_FAQ: readonly LandingFaqEntry[] = [
   {
     id: "what-it-prepares",
-    question: "What does CFOCLOSE do today?",
+    question: "What does CFOCLOSE do?",
     answer:
       "CFOCLOSE checks an imported trial balance and holds the accounts that need a classification decision for review, until it is a reviewed trial balance ready for statement preparation. A reviewed trial balance is not reconciled to supporting evidence, audited or approved. It is a preparation and review workspace: the professional using it remains responsible for the conclusions reached.",
-  },
-  {
-    id: "activation",
-    question: "How is a subscription activated?",
-    answer:
-      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
-  },
-  {
-    id: "specialist-services",
-    question: "Are forecasting, budgeting and the other specialist services part of the software?",
-    answer:
-      "No. Forecasting, budgeting, financial analysis, accounting policies and close support are delivered by people and quoted separately. They are not features of the software and are not included in any plan.",
-  },
-  {
-    id: "frameworks",
-    question: "Which reporting frameworks can be selected?",
-    answer:
-      "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. Recording a framework does not generate statements. Financial reporting for IFRS for SMEs is a pilot by invitation and is not generally available.",
   },
   {
     id: "professional-judgement",
@@ -202,16 +187,10 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
       "No. Classification suggestions are graded, and accounts the workspace cannot resolve confidently are held as exceptions for a recorded decision. Checks report what they find rather than concluding that the accounts are correct. The professional preparing or reviewing the work remains responsible for it.",
   },
   {
-    id: "attribution",
-    question: "How are preparation decisions attributed?",
+    id: "frameworks",
+    question: "Which reporting frameworks can be selected?",
     answer:
-      "Review decisions are associated with the authenticated user account that recorded them. CFOCLOSE does not replace an organization's responsibility to define its own approval and professional-review policies.",
-  },
-  {
-    id: "lapsed-subscription",
-    question: "What happens to supported historical outputs after a subscription lapses?",
-    answer:
-      "Supported historical outputs remain readable under the defined lifecycle and subscription rules, so work already prepared does not disappear when a paid capacity ends. Preparing new work depends on the capacity then in force.",
+      "A workspace records its reporting framework: IFRS for SMEs, IFRS, IPSAS accrual or IPSAS cash. Recording a framework does not generate statements. Financial reporting for IFRS for SMEs is a pilot by invitation and is not generally available.",
   },
   {
     id: "formats",
@@ -220,10 +199,34 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
       "Trial balances import from CSV and XLSX. Checks and review decisions are shown in the workspace.",
   },
   {
+    id: "attribution",
+    question: "How are preparation decisions attributed?",
+    answer:
+      "Review decisions are associated with the authenticated user account that recorded them. CFOCLOSE does not replace an organization's responsibility to define its own approval and professional-review policies.",
+  },
+  {
+    id: "activation",
+    question: "How is a subscription activated?",
+    answer:
+      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
+  },
+  {
     id: "pricing-status",
-    question: "Is the displayed pricing final?",
+    question: "How is the amount for a plan confirmed?",
     answer:
       "Amounts marked Proposed are not final; they are confirmed with you before the plan is activated. An amount shown without that mark is what a 12-month term costs. Any sales tax added to a card payment is shown before you pay.",
+  },
+  {
+    id: "lapsed-subscription",
+    question: "What happens to supported historical outputs after a subscription lapses?",
+    answer:
+      "Supported historical outputs remain readable under the defined lifecycle and subscription rules, so work already prepared does not disappear when a paid capacity ends. Preparing new work depends on the capacity then in force.",
+  },
+  {
+    id: "specialist-services",
+    question: "Are forecasting, budgeting and the other expert services part of a plan?",
+    answer:
+      "No. Forecasting, budgeting, financial analysis, accounting policies and close support are delivered by people and quoted separately. They are not features of the software and are not included in any plan.",
   },
 ];
 

@@ -1,5 +1,5 @@
 /**
- * SoftwareSection — what the subscription includes (Trial balance review: its outputs and three-step workflow) and the
+ * SoftwareSection (the "Product" section, id="product") — what every plan includes (Trial balance review: its outputs and three-step workflow) and the
  * one pilot (Financial reporting), labelled as a pilot by invitation that is not generally available and whose accounting
  * has not been independently validated. Nothing here can be bought or started: activation is requested in the plans.
  */
@@ -8,9 +8,9 @@ import { LANDING_PILOT, LANDING_SERVICES, LANDING_SERVICES_COPY, LANDING_WORKFLO
 
 function OutputRow({ o }: { o: LandingServiceOutput }) {
   return (
-    <li className="flex items-baseline justify-between gap-4 border-b border-border py-3 last:border-b-0">
-      <span className="min-w-0 text-[14px] leading-5 text-foreground">{o.name}</span>
-      <span className="shrink-0 text-[11px] font-mono text-muted-foreground">{o.formats}</span>
+    <li className="border-b border-border py-3 last:border-b-0">
+      <span className="block text-[14px] font-medium leading-5 text-foreground">{o.name}</span>
+      <span className="mt-0.5 block text-[13px] leading-5 text-muted-foreground">{o.detail}</span>
     </li>
   );
 }
@@ -18,11 +18,11 @@ function OutputRow({ o }: { o: LandingServiceOutput }) {
 export function SoftwareSection() {
   const service = LANDING_SERVICES[0];
   return (
-    <section id="software" aria-labelledby="software-title" className="scroll-mt-20 border-b border-border bg-muted/20">
+    <section id="product" aria-labelledby="product-title" className="scroll-mt-20 border-b border-border bg-muted/20">
       <div className="mx-auto max-w-7xl px-6 py-14 lg:px-10 lg:py-20">
         <div className="max-w-2xl">
           <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted-foreground">{LANDING_SERVICES_COPY.eyebrow}</p>
-          <h2 id="software-title" className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-[2rem]">{LANDING_SERVICES_COPY.heading}</h2>
+          <h2 id="product-title" className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-[2rem]">{LANDING_SERVICES_COPY.heading}</h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">{LANDING_SERVICES_COPY.intro}</p>
         </div>
 

@@ -180,10 +180,10 @@ export const PRICING_SECTION = {
 // src/pages/Index.tsx — asserted by src/content/landing/__tests__/landingCopyDiscipline.test.ts,
 // so a renamed section can never leave a dead navigation link behind.
 export const NAV = [
-  { label: "Software",            href: "#software"            },
+  { label: "Product",             href: "#product"             },
   { label: "Plans",               href: "#plans"               },
-  { label: "Specialist services", href: "#specialist-services" },
   { label: "Questions",           href: "#faq"                 },
+  { label: "Expert help",         href: "#specialist-services" },
 ] as const;
 
 // UPLOAD_SECTION was removed with the landing-page rebuild: it was imported by nothing and claimed
