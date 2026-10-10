@@ -256,6 +256,38 @@ export const RELEASE_JOURNAL = {
   "0045_fs_report_readiness_volatility": { kind: "release_self_checking_wrapper", source: "20261023100000_fs_report_readiness_volatility.sql",
     bytes: 2900, digest: "112d54165a9e937b41c76e4e1d73006d7c267092d78dd2cddc2c400d8acea19a",
     form: "wrapper", submittedBytes: 4480, sha256: "d1801b37175b10ae36215e1fc7a3529429da7fdba84d30c8f7571479fe4d1222" },
+  // The commercial launch (main 9ac3456; PRs #101–#106), applied 2026-10-10 by Lovable's hosted migrator through the
+  // SELF-CHECKING WRAPPERS, in release order: reporting-r5 (0046), commercial-c1 (0047–0050), commercial-p1 (0051). Hosted
+  // journal ids 47–52; then commercial-p2 (0052, hosted 53). Each mirror is its registered wrapper byte for byte
+  // (recomputed here). Nothing of the release is pending.
+  // hosted id 47; journal "when" 1791651672909 = 2026-10-10T17:01:12.909Z.
+  "0046_fs_signoff_approval_policy_wrapper": { kind: "release_self_checking_wrapper", source: "20261024100000_fs_signoff_approval_policy.sql",
+    bytes: 13531, digest: "23a34a084fd7c2c0f6f51a63839ada07a47df0c16def867968c08a03b96f1202",
+    form: "wrapper", submittedBytes: 15105, sha256: "74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e" },
+  // hosted id 48; journal "when" 1791651815555 = 2026-10-10T17:03:35.555Z.
+  "0047_commercial_enquiries_wrapper": { kind: "release_self_checking_wrapper", source: "20261025100000_commercial_enquiries.sql",
+    bytes: 18051, digest: "3051c74a0cf9b17ac212b95904b8acb8fa5bdd9c9158fa48e4d128540bc5064c",
+    form: "wrapper", submittedBytes: 19613, sha256: "577cfa4c84399a22f50a9dfc52af2cfa68d09592c54a0440a41c3b39e46d8e90" },
+  // hosted id 49; journal "when" 1791652150780 = 2026-10-10T17:09:10.780Z.
+  "0048_retire_browser_adjusting_journal_writes_wrapper": { kind: "release_self_checking_wrapper", source: "20261026100000_retire_browser_adjusting_journal_writes.sql",
+    bytes: 4584, digest: "d87b600ac0a798a09e7bc9eb5cc1667235952edaba4ec53aaa9b0b9225d64c6f",
+    form: "wrapper", submittedBytes: 6182, sha256: "7ed2cee1836489a169f5193aa935291ecc9bceea5872f0b11aadc94c089c8934" },
+  // hosted id 50; journal "when" 1791652154022 = 2026-10-10T17:09:14.022Z.
+  "0049_workspace_purpose_wrapper": { kind: "release_self_checking_wrapper", source: "20261027100000_workspace_purpose.sql",
+    bytes: 5638, digest: "c1daa138672875d148439017b1f5e09fd926574ede0a28c1e32b0a9580f45c7c",
+    form: "wrapper", submittedBytes: 7192, sha256: "44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f" },
+  // hosted id 51; journal "when" 1791652157742 = 2026-10-10T17:09:17.742Z.
+  "0050_period_dates_from_company_wrapper": { kind: "release_self_checking_wrapper", source: "20261028100000_period_dates_from_company.sql",
+    bytes: 10136, digest: "da14459f7557fb41ec25d91cba40801ba85245c0ae89c75ea72141be841fbc71",
+    form: "wrapper", submittedBytes: 11708, sha256: "c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529" },
+  // hosted id 52; journal "when" 1791652405761 = 2026-10-10T17:13:25.761Z.
+  "0051_payment_provider_routes_wrapper": { kind: "release_self_checking_wrapper", source: "20261029100000_payment_provider_routes.sql",
+    bytes: 49007, digest: "3b1b14d93bb2ee7ef21d416a89d5fa3490848f4bce53827979d0290d76e42818",
+    form: "wrapper", submittedBytes: 50575, sha256: "407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627" },
+  // hosted id 53; journal "when" 1791652611862 = 2026-10-10T17:16:51.862Z.
+  "0052_paid_term_seat_preservation_wrapper": { kind: "release_self_checking_wrapper", source: "20261030100000_paid_term_seat_preservation.sql",
+    bytes: 22439, digest: "ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f",
+    form: "wrapper", submittedBytes: 24015, sha256: "8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f" },
 };
 
 /**

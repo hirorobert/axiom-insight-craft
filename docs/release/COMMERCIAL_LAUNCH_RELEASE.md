@@ -33,20 +33,20 @@
 
 ## 3. Migration inventory
 
-**Hosted state is authoritative:** run checklist **A1**.
+**Hosted state is authoritative:** run checklist **A1**. Recorded 2026-10-10 from main `717305f`: Lovable applied all seven rows through their wrappers, byte for byte (`scripts/ci/releaseJournal.mjs`, entries 0046–0052, hosted ids 47–53). Nothing is pending.
 - Claude has no hosted access.
 - No evidence has been received that any batch below is applied.
 - Every batch is idempotent: each refuses a second application.
 
 | Order | Batch | Wrapper (`release/wrappers/`) | Bytes | SHA-256 | Source commit | Status |
 |---|---|---|---|---|---|---|
-| 1 | reporting-r5 | `20261024100000_fs_signoff_approval_policy.wrapper.sql` | 15,105 | `74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e` | `5358aef` | Pending (verify at A1) |
-| 2 | commercial-c1 | `20261025100000_commercial_enquiries.wrapper.sql` | 19,613 | `577cfa4c84399a22f50a9dfc52af2cfa68d09592c54a0440a41c3b39e46d8e90` | `0158258` | Pending |
-| 3 | commercial-c1 | `20261026100000_retire_browser_adjusting_journal_writes.wrapper.sql` | 6,182 | `7ed2cee1836489a169f5193aa935291ecc9bceea5872f0b11aadc94c089c8934` | `0158258` | Pending |
-| 4 | commercial-c1 | `20261027100000_workspace_purpose.wrapper.sql` | 7,192 | `44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f` | `0158258` | Pending |
-| 5 | commercial-c1 | `20261028100000_period_dates_from_company.wrapper.sql` | 11,708 | `c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529` | `0158258` | Pending |
-| 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | Pending |
-| 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | Pending (new in this closure) |
+| 1 | reporting-r5 | `20261024100000_fs_signoff_approval_policy.wrapper.sql` | 15,105 | `74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e` | `5358aef` | **Applied** as hosted 0046 (id 47), byte for byte |
+| 2 | commercial-c1 | `20261025100000_commercial_enquiries.wrapper.sql` | 19,613 | `577cfa4c84399a22f50a9dfc52af2cfa68d09592c54a0440a41c3b39e46d8e90` | `0158258` | **Applied** as 0047 (id 48) |
+| 3 | commercial-c1 | `20261026100000_retire_browser_adjusting_journal_writes.wrapper.sql` | 6,182 | `7ed2cee1836489a169f5193aa935291ecc9bceea5872f0b11aadc94c089c8934` | `0158258` | **Applied** as 0048 (id 49) |
+| 4 | commercial-c1 | `20261027100000_workspace_purpose.wrapper.sql` | 7,192 | `44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f` | `0158258` | **Applied** as 0049 (id 50) |
+| 5 | commercial-c1 | `20261028100000_period_dates_from_company.wrapper.sql` | 11,708 | `c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529` | `0158258` | **Applied** as 0050 (id 51) |
+| 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | **Applied** as 0051 (id 52) |
+| 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | **Applied** as 0052 (id 53) |
 
 - **p2 payload:** 22,439 bytes, SHA-256 `ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
 - **Preflight and postcondition:** `release/<batch>/preflight.sql` and `postcondition.sql`, all read-only.
@@ -126,7 +126,7 @@ See `REFUNDS_DISPUTES_AND_RECOVERY.md`:
 | 8 | Polar eligibility from current documentation | Desk research | `PAYMENT_PROVIDER_EVIDENCE.md` §0 | **OWNER ACTION REQUIRED.** The country is supported for payouts; entity and offering are not approved. |
 | 9 | Polar sandbox verification | **Sandbox** | Checklist Stage D | **NOT RUN.** No sandbox credentials exist. |
 | 10 | Controlled live acceptance | Live | Checklist Stage E | **NOT RUN.** Not authorised; needs merchant approval. Real cost: USD 490 plus tax; Polar fees are not returned on refund. |
-| 11 | Hosted migrations r5, c1, p1, p2 applied | Hosted | Checklist B1 | **NOT RUN** (Lovable, with owner authorisation) |
+| 11 | Hosted migrations r5, c1, p1, p2 applied | Hosted | Checklist B1; hosted journal 0046–0052 | **APPLIED** by Lovable: r5, c1, p1 and p2 as 0046–0052, each the registered wrapper byte for byte. Postcondition outputs are not recorded in this repository. |
 | 12 | Function deployment and Publish | Hosted | Checklist B2, B5 | **NOT RUN** (Lovable) |
 | 13 | Custom SMTP and enquiry email | Hosted | Checklist B3 | **OWNER ACTION REQUIRED** |
 | 14 | First commercial administrator | Hosted | Checklist B4 | **OWNER ACTION REQUIRED** |

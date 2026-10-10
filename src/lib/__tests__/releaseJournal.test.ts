@@ -63,7 +63,8 @@ describe("the reviewed release journal", () => {
     // 25: 0033–0039 (the milestone, release_self_checking_wrapper, registered wrapper form).
     // 30: 0040–0044 (the reporting release, release_self_checking_wrapper; hosted 41–45).
     // 31: 0045 (the readiness correction, release_self_checking_wrapper; hosted 46).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(31);
+    // 38: 0046–0052 (the commercial launch: r5, c1×4, p1, p2; release_self_checking_wrapper; hosted 47–53).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(38);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -86,7 +87,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261024100000_fs_signoff_approval_policy.sql", "20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql", "20261028100000_period_dates_from_company.sql", "20261029100000_payment_provider_routes.sql", "20261030100000_paid_term_seat_preservation.sql"]); // the statement sign-off policy (reporting r5), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual([]); // the commercial launch is applied: r5, c1 and p1 as 0046–0051 (hosted 47–52), commercial-p2 as 0052 (hosted 53) // the reporting release is applied as 0040–0044 (hosted 41–45)
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -472,7 +473,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261024100000_fs_signoff_approval_policy.sql", "20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql", "20261028100000_period_dates_from_company.sql", "20261029100000_payment_provider_routes.sql", "20261030100000_paid_term_seat_preservation.sql"]); // the statement sign-off policy (reporting r5), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual([]); // the commercial launch is applied: r5, c1 and p1 as 0046–0051 (hosted 47–52), commercial-p2 as 0052 (hosted 53) // the reporting release is applied as 0040–0044 (hosted 41–45)
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
@@ -594,7 +595,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261024100000_fs_signoff_approval_policy.sql", "20261025100000_commercial_enquiries.sql", "20261026100000_retire_browser_adjusting_journal_writes.sql", "20261027100000_workspace_purpose.sql", "20261028100000_period_dates_from_company.sql", "20261029100000_payment_provider_routes.sql", "20261030100000_paid_term_seat_preservation.sql"]); // the statement sign-off policy (reporting r5), authored and pending hosted application // the reporting release is applied as 0040–0044 (hosted 41–45)
+    expect(r.pending).toEqual([]); // the commercial launch is applied: r5, c1 and p1 as 0046–0051 (hosted 47–52), commercial-p2 as 0052 (hosted 53) // the reporting release is applied as 0040–0044 (hosted 41–45)
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
       "0039_i1b_w7_signoff_completion_requirements"];

@@ -1150,8 +1150,8 @@ auth.uid()); there is no in-app admin UI for licence RPCs. **Do not merge
 PR #41 before the production preflight reads PASS and every listed provider session is reconciled**: Lovable syncs
 `main` and may apply hosted migrations.
 
-**Status (2026-10-10, batch `commercial-p1`, `20261029100000_payment_provider_routes.sql`): fixed in source, pending
-hosted application.** `_commercial_licence_placement` is the one placement rule the commit uses: same plan → renewal
+**Status (2026-10-10, batch `commercial-p1`, `20261029100000_payment_provider_routes.sql`): APPLIED on the hosted
+database as drizzle 0051 (hosted id 52), the registered wrapper byte for byte; r5 and c1 as 0046–0050, p2 as 0052.** `_commercial_licence_placement` is the one placement rule the commit uses: same plan → renewal
 after the current term; more entities → upgrade now (current term ends); fewer or equal → starts when the current term
 ends (downgrade at renewal); an open-ended licence or an upgrade over a queued term → the verified payment is recorded
 once, the intent stays MANUAL_REVIEW and `admin_place_paid_licence` places it (`admin_resolve_manual_review_intent` can
@@ -1163,7 +1163,7 @@ The migration refuses unless `commercial_platform_state = PAYMENTS_DISABLED`; it
 met only once the batch is applied on the hosted database; enabling payments stays a separate, owner-authorised step.
 
 **Status (2026-10-10, batch `commercial-p2`, `20261030100000_paid_term_seat_preservation.sql`, launch closure):
-fixed in source, pending hosted application after p1.** An upgrade over a current term with paid additional named users
+APPLIED on the hosted database as drizzle 0052 (hosted id 53), the registered wrapper byte for byte.** An upgrade over a current term with paid additional named users
 is never placed automatically: `_commercial_licence_placement` returns `BLOCKED_SEATS` and the commit records the
 payment once and leaves the intent in MANUAL_REVIEW (the commit treats every `BLOCKED_*` kind alike). Renewal and
 downgrade report the current term's seats, which continue until it ends. `admin_grant_commercial_licence` takes the commit's
