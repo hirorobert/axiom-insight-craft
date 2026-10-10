@@ -7,8 +7,8 @@
 //
 //   operator    the first commercial administrator (operator bootstrap row), then everything else through /commercial/admin:
 //               online payment opened in SANDBOX_ONLY, the USD price approved, a TZS price added and approved
-//   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED
-//               and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
+//   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED it shows
+//               "by card" and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
 //   card        sign in → /billing/checkout → card → the mock hosted page → Pay → signed order.paid → status page: payment
 //               received, plan active for 12 months, references; the licence is the payment's (source POLAR_VERIFIED_PAYMENT)
 //   webhooks    a replay is DUPLICATE; a bad signature and a stale timestamp are refused (401) and recorded; an unknown
