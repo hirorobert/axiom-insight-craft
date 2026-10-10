@@ -299,6 +299,12 @@ async function main() {
     };
     const up = await settled("first");
     log(`        FY${year} first check: ${up.status}`);
+    // Evidence only (never a pass/fail condition): the trial balance page while accounts still wait for a mapping
+    // decision — the candidate genuine product screenshot for the public landing page (1280 × 900).
+    if (year === 2026) {
+      try { await go(`/workspace/${A}/${year}/trial-balance/review`, ""); await sleep(2500); await shot("05a-account-review-pending"); }
+      catch (e) { log(`        (account-review screenshot not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
+    }
     // Review only what the server holds for review: re-recording decisions that are already in force would change the
     // company-wide mapping inputs and, correctly, put every other year's result out of date (the stale-validation gate).
     const { data: certNow } = await owner.api.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: year });

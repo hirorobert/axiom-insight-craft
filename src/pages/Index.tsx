@@ -18,11 +18,12 @@ import { checkoutHref, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 // ─── Page composition ────────────────────────────────────────────────────────
 //  1. Header
 //  2. Hero — the proposition, "Explore plans" (primary), an activation request, and one labelled product screenshot
-//  3. Choose your outcome + what you receive (single-select service; three outputs; one action)
+//  3. Product — what every plan includes (three outputs, the three-step workflow) and the one pilot, labelled
 //  4. Choose your capacity — plans from the catalogue; price and action per plan from the server's public prices
 //  5. Trust — three assurances in registered wording
-//  6. FAQ — the same data the FAQPage structured data in index.html is built from — then the final action
-//  7. Footer — the disclosures, stated once, at the foot of the page
+//  6. FAQ — the same data the FAQPage structured data in index.html is built from
+//  7. Expert help — enquiries for work delivered by people, quoted separately — then the final action
+//  8. Footer — the disclosures, stated once, at the foot of the page
 // The selected service travels with every call to action as a validated `service=` identifier.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,9 @@ const Index = () => {
   if (loading || user) return null;
 
   return (
-    <div className="min-h-screen bg-background">
+    // Proportional figures for the public page's prose: the global tabular-nums (src/index.css, kept for the app's financial
+    // tables) widens Inter's hyphen by about half, so "firm-wide" read as "firm - wide".
+    <div className="min-h-screen bg-background [font-variant-numeric:normal]">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:border focus:border-border focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -71,9 +74,9 @@ const Index = () => {
         <LandingHero />
         <SoftwareSection />
         <CapacityPlans prices={prices} />
-        <SpecialistServices />
         <TrustStrip />
         <LandingFAQ />
+        <SpecialistServices />
         <LandingFinalCTA />
       </main>
       <Footer />

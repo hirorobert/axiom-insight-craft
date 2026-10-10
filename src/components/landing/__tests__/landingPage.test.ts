@@ -87,9 +87,9 @@ const PAGE = renderToStaticMarkup(
       createElement(LandingHero),
       createElement(SoftwareSection),
       createElement(CapacityPlans),
-      createElement(SpecialistServices),
       createElement(TrustStrip),
       createElement(LandingFAQ),
+      createElement(SpecialistServices),
       createElement(LandingFinalCTA),
     ),
     createElement(Footer),
@@ -114,7 +114,7 @@ describe("page structure", () => {
     expect(PAGE_TEXT).toContain(LANDING_HERO.headline);
   });
 
-  it("renders exactly the declared sections, in order: software → plans → specialist services → questions", () => {
+  it("renders exactly the declared sections, in order: product → plans → questions → expert help", () => {
     const at = LANDING_SECTION_IDS.map((id) => PAGE.indexOf(`id="${id}"`));
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -158,16 +158,16 @@ describe("page structure", () => {
 // 2. Software and the pilot
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("software", () => {
+describe("product", () => {
   it("Trial balance review is included in every plan, with its three-step workflow and at most three outputs", () => {
-    const sw = section(PAGE, "software");
+    const sw = section(PAGE, "product");
     expect(visibleText(sw)).toContain("Included in every plan");
     expect((sw.match(/data-testid="service-workflow"[\s\S]*?<\/ol>/)?.[0].match(/<li/g) ?? []).length).toBe(3);
     expect((sw.match(/data-testid="primary-outputs"[\s\S]*?<\/ul>/)?.[0].match(/<li/g) ?? []).length).toBeLessThanOrEqual(3);
   });
 
   it("financial reporting appears only as a pilot by invitation, not generally available and not independently validated", () => {
-    const pilot = visibleText(section(PAGE, "software").match(/data-testid="software-pilot"[\s\S]*?<\/div>/)?.[0] ?? "");
+    const pilot = visibleText(section(PAGE, "product").match(/data-testid="software-pilot"[\s\S]*?<\/div>/)?.[0] ?? "");
     expect(pilot).toContain(LANDING_PILOT.label);
     expect(pilot).toMatch(/Not generally available/);
     expect(pilot).toMatch(/has not been independently validated/);
@@ -246,12 +246,14 @@ describe("specialist services", () => {
       expect(hrefOf(spec, `specialist-action-${s.code}`)).toBe(`/contact?service=${s.code}&from=landing_services`);
     }
     expect(visibleText(spec)).toContain(SPECIALIST_LABEL);
-    expect(visibleText(spec)).toMatch(/not features of the software and are not included in any plan/);
+    // The terms are stated once, in the section's label (delivered by people, quoted separately, not automated).
+    expect(visibleText(spec)).toMatch(/delivered by people, quoted separately/);
+    expect(visibleText(spec).split(SPECIALIST_LABEL).length - 1).toBe(1);
   });
 
   it("no specialist service is presented as part of the software or a plan anywhere else on the page", () => {
     const rest = PAGE.replace(section(PAGE, "specialist-services"), "");
-    for (const s of SPECIALIST_SERVICES) expect(visibleText(section(rest, "software")), s.name).not.toContain(s.name);
+    for (const s of SPECIALIST_SERVICES) expect(visibleText(section(rest, "product")), s.name).not.toContain(s.name);
     expect(visibleText(section(PAGE, "plans"))).not.toMatch(/forecast|budgeting|financial analysis|close support/i);
   });
 });
