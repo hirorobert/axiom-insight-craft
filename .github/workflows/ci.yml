@@ -570,6 +570,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 5358aefc999bd09f5d306e3e19ba3abbd79da082
           git fetch --no-tags --depth=1 origin 015825859f4bd8641fba013636ae118f3aa5d5e8
           git fetch --no-tags --depth=1 origin 21387d52d432359eb46d34e6160b4876eeb42f63
+          git fetch --no-tags --depth=1 origin c950fc10a1e6dd75b0faf65d89c2cde6c153c52b
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -665,6 +666,23 @@ jobs:
         run: |
           createdb payments_proof
           bun scripts/db-proof/paymentProviders.mjs
+
+      - name: Paid-term preservation wrapper proof (the same reviewed proof for the commercial-p2 wrapper; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/paid_term_wrappers_proof
+          RELEASE_BATCH: commercial-p2
+        run: |
+          createdb paid_term_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Paid-term preservation proof (20261030100000; an upgrade over additional named users is recorded for review and never ends them; renewal and downgrade start at the current end and keep its seats; 6 concurrent deliveries and a replay per placement; manual activation racing a payment in both orders and simultaneously; unrelated entitlements byte-identical; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/paid_term_proof
+        run: |
+          createdb paid_term_proof
+          bun scripts/db-proof/paidTermPreservation.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:

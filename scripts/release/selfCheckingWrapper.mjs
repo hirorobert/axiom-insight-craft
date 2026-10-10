@@ -71,6 +71,11 @@ export const PAYMENTS_SOURCE_COMMIT = "21387d52d432359eb46d34e6160b4876eeb42f63"
 export const PAYMENTS_WRAPPED_SOURCES = Object.freeze([
   "20261029100000_payment_provider_routes.sql",
 ]);
+/** Commercial launch closure (commercial-p2): an upgrade never ends paid additional named users automatically. */
+export const PAID_TERM_SOURCE_COMMIT = "c950fc10a1e6dd75b0faf65d89c2cde6c153c52b";
+export const PAID_TERM_WRAPPED_SOURCES = Object.freeze([
+  "20261030100000_paid_term_seat_preservation.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -79,6 +84,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "reporting-r5", commit: SIGNOFF_POLICY_SOURCE_COMMIT, sources: SIGNOFF_POLICY_WRAPPED_SOURCES, postcondition: "docs/release/reporting-r5/postcondition.sql" }),
   Object.freeze({ id: "commercial-c1", commit: COMMERCIAL_SOURCE_COMMIT, sources: COMMERCIAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-c1/postcondition.sql" }),
   Object.freeze({ id: "commercial-p1", commit: PAYMENTS_SOURCE_COMMIT, sources: PAYMENTS_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p1/postcondition.sql" }),
+  Object.freeze({ id: "commercial-p2", commit: PAID_TERM_SOURCE_COMMIT, sources: PAID_TERM_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p2/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

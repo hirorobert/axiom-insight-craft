@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "commercial-p1"
+const DRIZZLE_FAILURE = BATCH.id === "commercial-p2"
+  ? { object: "public._commercial_licence_placement(pg_catalog.uuid,pg_catalog.uuid,timestamp with time zone)", rolledBack: "SELECT position('BLOCKED_SEATS' IN pg_get_functiondef('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "commercial-p1"
   ? { object: "public.payment_webhook_processing_events", rolledBack: "SELECT position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_co_provider_restriction'))) = 0 AND position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_pci_provider'))) = 0 AND to_regprocedure('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)') IS NULL AS ok" }
   : BATCH.id === "commercial-c1"
   ? { object: "public.workspace_purpose_events", rolledBack: "SELECT to_regclass('public.service_enquiry_replies') IS NULL AND to_regclass('public.workspace_purpose_events') IS NULL AND has_table_privilege('authenticated', 'public.aje_lines', 'INSERT') AND EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'aje_insert') AND position('company_year_end' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fp_dates_basis'))) = 0 AS ok" }
@@ -56,7 +58,7 @@ const DRIZZLE_FAILURE = BATCH.id === "commercial-p1"
 // Sources that only remove objects (their fingerprint shrinks when applied), and sources that only replace objects (the
 // fingerprint changes; its object count is not asserted).
 const REMOVES_ONLY = new Set(["20261026100000_retire_browser_adjusting_journal_writes.sql"]);
-const REPLACES_ONLY = new Set(["20261028100000_period_dates_from_company.sql"]);
+const REPLACES_ONLY = new Set(["20261028100000_period_dates_from_company.sql", "20261030100000_paid_term_seat_preservation.sql"]);
 // Where an execution failure is injected inside each migration: "early" at the batch's earlyAt-th DDL command, "late" at
 // its first lateTag command. The readiness correction (r2) has exactly one DDL command, ALTER FUNCTION: both points are
 // that command, which proves the change itself is rolled back. Every other batch keeps DDL #3 and the first GRANT.
