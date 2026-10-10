@@ -6939,6 +6939,7 @@ export type Database = {
           last_attempt_at: string | null
           last_error_code: string | null
           provider_message_id: string | null
+          reply_id: string | null
           sent_at: string | null
           status: string
           updated_at: string
@@ -6952,6 +6953,7 @@ export type Database = {
           last_attempt_at?: string | null
           last_error_code?: string | null
           provider_message_id?: string | null
+          reply_id?: string | null
           sent_at?: string | null
           status?: string
           updated_at?: string
@@ -6965,6 +6967,7 @@ export type Database = {
           last_attempt_at?: string | null
           last_error_code?: string | null
           provider_message_id?: string | null
+          reply_id?: string | null
           sent_at?: string | null
           status?: string
           updated_at?: string
@@ -6975,6 +6978,13 @@ export type Database = {
             columns: ["enquiry_id"]
             isOneToOne: false
             referencedRelation: "service_enquiries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_service_enquiry_notifications_reply"
+            columns: ["reply_id"]
+            isOneToOne: false
+            referencedRelation: "service_enquiry_replies"
             referencedColumns: ["id"]
           },
         ]
@@ -6996,6 +7006,41 @@ export type Database = {
           window_start?: string
         }
         Relationships: []
+      }
+      service_enquiry_replies: {
+        Row: {
+          body: string
+          created_at: string
+          enquiry_id: string
+          id: string
+          request_id: string
+          staff_user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          enquiry_id: string
+          id?: string
+          request_id: string
+          staff_user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          enquiry_id?: string
+          id?: string
+          request_id?: string
+          staff_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_service_enquiry_replies_enquiry"
+            columns: ["enquiry_id"]
+            isOneToOne: false
+            referencedRelation: "service_enquiries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       service_enquiry_status_transitions: {
         Row: {
@@ -11150,6 +11195,10 @@ export type Database = {
           p_status?: string[]
           p_to?: string
         }
+        Returns: Json
+      }
+      staff_reply_service_enquiry: {
+        Args: { p_body: string; p_enquiry_id: string; p_request_id: string }
         Returns: Json
       }
       staff_transition_service_enquiry: {
