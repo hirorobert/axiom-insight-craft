@@ -99,7 +99,7 @@ export default function CommercialAdmin() {
       {message && <p className="border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="admin-message">{message}</p>}
 
       <Tabs defaultValue="payments">
-        <TabsList className="flex-wrap">
+        <TabsList className="h-auto flex-wrap justify-start gap-1">
           <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length})</TabsTrigger>
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
@@ -225,17 +225,16 @@ function Accounts({ act, busy }: { act: Act; busy: string | null }) {
       {account?.found && (
         <section className="space-y-4" data-testid="admin-account">
           <p className="text-sm"><strong>{account.email}</strong> · {account.companies} workspace{account.companies === 1 ? "" : "s"} · {account.billing_customer_id ? "billing record exists" : "no billing record yet"}</p>
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-muted-foreground"><th className="py-1">Plan</th><th>Status</th><th>Source</th><th>Period</th><th>Extra users</th><th /></tr></thead>
-            <tbody>
+          <ul className="divide-y divide-border border border-border text-sm" aria-label="Licences">
               {(account.licences ?? []).map((l) => {
                 const future = new Date(l.effective_start).getTime() > Date.now();
                 return (
-                  <tr key={l.licence_id} className="border-t align-top">
-                    <td className="py-2">{l.plan_code}</td><td>{l.status}</td><td className="text-xs">{l.source}</td>
-                    <td>{day(l.effective_start)} – {l.effective_end ? day(l.effective_end) : "open-ended"}</td>
-                    <td><Input className="h-8 w-20" type="number" min={0} value={seats[l.licence_id] ?? String(l.additional_seats ?? 0)} onChange={(e) => setSeats((s) => ({ ...s, [l.licence_id]: e.target.value }))} aria-label="Additional named users" /></td>
-                    <td className="space-x-1 whitespace-nowrap">
+                  <li key={l.licence_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3" data-licence={l.licence_id}>
+                    <span className="font-medium">{l.plan_code} · {l.status}</span>
+                    <span className="break-all text-xs text-muted-foreground">{l.source}</span>
+                    <span>{day(l.effective_start)} – {l.effective_end ? day(l.effective_end) : "open-ended"}</span>
+                    <label className="flex items-center gap-2 text-xs">Extra users<Input className="h-8 w-20" type="number" min={0} value={seats[l.licence_id] ?? String(l.additional_seats ?? 0)} onChange={(e) => setSeats((s) => ({ ...s, [l.licence_id]: e.target.value }))} /></label>
+                    <span className="flex flex-wrap gap-1">
                       <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => wrap(`seats-${l.licence_id}`,
                         () => rpc("admin_set_licence_additional_seats", { p_licence_id: l.licence_id, p_quantity: Number(seats[l.licence_id] ?? l.additional_seats ?? 0), p_reason: reason.trim() }), "Additional named users updated.")}>Save users</Button>
                       {["ACTIVE", "GRACE", "PENDING"].includes(l.status) && (future
@@ -247,12 +246,11 @@ function Accounts({ act, busy }: { act: Act; busy: string | null }) {
                             }, "Licence cancelled before it started."); }}>Cancel (not started)</Button>
                         : <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => { if (window.confirm("End this licence now? Access under it stops immediately.")) void wrap(`end-${l.licence_id}`,
                             () => rpc("admin_transition_licence_status", { p_licence_id: l.licence_id, p_new_status: "EXPIRED", p_reason: reason.trim() }), "Licence ended."); }}>End now</Button>)}
-                    </td>
-                  </tr>
+                    </span>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
+          </ul>
 
           <fieldset className="space-y-3 border border-border p-4">
             <legend className="px-1 text-sm font-medium">Manual activation (by agreement)</legend>
@@ -299,22 +297,20 @@ function Offers({ act, busy }: { act: Act; busy: string | null }) {
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">An annual offer marked purchasable is an approved price: the public pages show it, and checkout charges exactly it once online payment is open. Every change is recorded with its reason; existing orders keep the price they were created with.</p>
       <label className="block text-sm">Reason (recorded)<Input className="mt-1 max-w-md" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-      <table className="w-full text-sm">
-        <thead><tr className="text-left text-muted-foreground"><th>Offer</th><th>Plan</th><th>Market</th><th>Price</th><th>Term</th><th>Approved (purchasable)</th><th /></tr></thead>
-        <tbody>
+      <ul className="divide-y divide-border border border-border text-sm" aria-label="Prices">
           {(offers ?? []).filter((o) => o.is_active).map((o) => (
-            <tr key={o.id} className="border-t">
-              <td className="py-2 font-mono text-xs">{o.offer_code}</td><td>{o.plan_code}</td><td>{o.market_code}</td>
-              <td>{formatMoney(Number(o.amount_minor), o.currency_code, o.currency_exponent)}</td><td>{o.billing_interval}</td>
-              <td><Badge variant={o.is_purchasable ? "default" : "secondary"}>{o.is_purchasable ? "Yes" : "No"}</Badge></td>
-              <td><Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => {
+            <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3" data-offer-code={o.offer_code}>
+              <span className="break-all font-mono text-xs">{o.offer_code}</span>
+              <span>{o.plan_code} · {o.market_code} · {o.billing_interval}</span>
+              <span className="font-medium">{formatMoney(Number(o.amount_minor), o.currency_code, o.currency_exponent)}</span>
+              <Badge variant={o.is_purchasable ? "default" : "secondary"}>{o.is_purchasable ? "Approved" : "Not approved"}</Badge>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => {
                 if (!o.is_purchasable && !window.confirm(`Approve ${formatMoney(Number(o.amount_minor), o.currency_code, o.currency_exponent)} per year for ${o.plan_code} (${o.market_code})? It becomes the public price and what checkout charges.`)) return;
                 void save({ code: o.offer_code, plan: o.plan_code, market: o.market_code, currency: o.currency_code, amount: Number(o.amount_minor), exponent: o.currency_exponent, purchasable: !o.is_purchasable });
-              }}>{o.is_purchasable ? "Withdraw" : "Approve"}</Button></td>
-            </tr>
+              }}>{o.is_purchasable ? "Withdraw" : "Approve"}</Button>
+            </li>
           ))}
-        </tbody>
-      </table>
+      </ul>
       <fieldset className="space-y-3 border border-border p-4">
         <legend className="px-1 text-sm font-medium">Add an annual price for another market (for example TZS for mobile money)</legend>
         <div className="flex flex-wrap items-end gap-3">

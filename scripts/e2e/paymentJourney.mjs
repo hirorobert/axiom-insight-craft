@@ -136,12 +136,12 @@ const licencesOf = async (u) => {
 
 // ── Wait until the served functions answer with the payment configuration loaded ─────────────────────────────────────
 async function waitForFunctions() {
-  const c = await apiAs(U.admin);
-  const token = (await c.auth.getSession()).data.session.access_token;
+  // Configured = the Polar webhook endpoint has an adapter: an unsigned POST is refused with 401 (unconfigured: 503).
+  // (Checkout options name no provider while payments are disabled — the resolver withholds every offer then.)
   for (let i = 0; i < 90; i++) {
     try {
-      const r = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout?planCode=SOLO`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) { const j = await r.json(); if (j.options?.some((o) => o.provider)) return true; }
+      const r = await fetch(`${apiUrl}/functions/v1/commercial-webhook-polar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (r.status === 401) return true;
     } catch { /* not up yet */ }
     await sleep(2000);
   }
@@ -217,13 +217,13 @@ async function main() {
     await page.waitForText("CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL");
     await setByLabel("Reason (recorded)", "Approved for the payment journey test");
     await acceptConfirms();
-    await page.evaluate(() => { const row = [...document.querySelectorAll("tr")].find((r) => r.textContent.includes("CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL")); [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click(); });
+    await page.evaluate(() => { const row = document.querySelector('li[data-offer-code="CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL"]'); [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click(); });
     await page.waitForText("Price saved.");
     await setByLabel("Amount per year", "1250000");
     await page.click({ text: "Save (not yet approved)" });
     await page.waitForText("CFOCLOSE_SOLO_TZ_TZS_ANNUAL");
     await acceptConfirms();
-    await page.evaluate(() => { const row = [...document.querySelectorAll("tr")].find((r) => r.textContent.includes("CFOCLOSE_SOLO_TZ_TZS_ANNUAL")); [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click(); });
+    await page.evaluate(() => { const row = document.querySelector('li[data-offer-code="CFOCLOSE_SOLO_TZ_TZS_ANNUAL"]'); [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click(); });
     await sleep(1500);
     const offers = (await admin.from("commercial_offers").select("offer_code, is_purchasable, amount_minor, currency_code").in("offer_code", ["CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL", "CFOCLOSE_SOLO_TZ_TZS_ANNUAL"])).data;
     const audit = (await admin.from("commercial_catalog_audit_events").select("action").eq("actor_user_id", U.admin.id).in("action", ["OFFER_UPDATED", "OFFER_CREATED"])).data ?? [];
