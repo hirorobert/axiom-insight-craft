@@ -308,9 +308,18 @@ async function main() {
       try {
         await page.click({ text: "Resolve account classifications" });
         await page.waitForSelector('[data-testid="account-review-workbench"]', { timeout: 30000 });
-        await page.evaluate(() => { document.querySelector('[data-testid="account-review-workbench"]').scrollIntoView({ block: "start" }); window.scrollBy(0, -16); });
-        await sleep(1500);
+        await sleep(2000); // the button's own smooth scroll must finish first, or it overrides the jump below
+        const top = await page.evaluate(() => {
+          const el = document.querySelector('[data-testid="account-review-workbench"]');
+          el.scrollIntoView({ block: "start", behavior: "instant" });
+          // The workspace may scroll an inner container rather than the window: bring the panel to the top of whichever does.
+          for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY)) p.scrollTop += el.getBoundingClientRect().top - 72;
+          window.scrollBy({ top: el.getBoundingClientRect().top - 72, behavior: "instant" });
+          return Math.round(el.getBoundingClientRect().top);
+        });
+        await sleep(800);
         await shot("05b-account-review-list");
+        log(`        account-review list panel top after scroll: ${top}px`);
         log(`        account-review list: ${await page.evaluate(() => document.querySelector('[data-testid="account-review-workbench"]')?.innerText.split(/\r?\n/).slice(0, 3).join(" | "))}`);
       } catch (e) { log(`        (account-review list not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
     }
