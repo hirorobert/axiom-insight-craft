@@ -8803,6 +8803,44 @@ export type Database = {
           },
         ]
       }
+      workspace_purpose_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          id: string
+          purpose: string
+          reason: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          purpose: string
+          reason: string
+          seq?: number
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          purpose?: string
+          reason?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_purpose_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xbrl_concept_map: {
         Row: {
           created_at: string
@@ -11170,6 +11208,10 @@ export type Database = {
       set_company_filing_jurisdiction: {
         Args: { p_company_id: string; p_jurisdiction: string }
         Returns: string
+      }
+      set_workspace_purpose: {
+        Args: { p_company_id: string; p_purpose: string; p_reason: string }
+        Returns: Json
       }
       staff_add_service_enquiry_note: {
         Args: { p_enquiry_id: string; p_note: string }
