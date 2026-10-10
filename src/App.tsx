@@ -68,6 +68,9 @@ function LegacySubRouteRedirect({ to }: { to: string }) {
 // code there and the route below is never registered.
 // Workbench Trial balance › Intake (I1-A A3): a separate chunk, reached only through the gated route below.
 const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceIntake"));
+// Online payment: loaded only when a customer opens checkout or their orders.
+const Checkout = lazy(() => import("@/pages/billing/Checkout"));
+const Orders = lazy(() => import("@/pages/billing/Orders"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
 // Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
@@ -175,6 +178,8 @@ const App = () => (
                 {/* /contact and /admin/enquiries exist only behind the `service_enquiry_phase1` gate (OFF by default). */}
                 {serviceEnquiryRoutes()}
                 <Route path="/terms" element={<Terms />} />
+                <Route path="/billing/checkout" element={<Suspense fallback={null}><Checkout /></Suspense>} />
+                <Route path="/billing/orders" element={<Suspense fallback={null}><Orders /></Suspense>} />
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
                 <Route path="/privacy" element={<Privacy />} />

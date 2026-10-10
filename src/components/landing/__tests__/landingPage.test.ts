@@ -47,7 +47,7 @@ import { SoftwareSection } from "@/components/landing/SoftwareSection";
 import { SpecialistServices } from "@/components/landing/SpecialistServices";
 import { TrustStrip } from "@/components/landing/TrustStrip";
 import { NAV } from "@/constants/copy";
-import { COMMERCIAL_NOTICE, LANDING_FAQ, LANDING_HERO, LANDING_PILOT, LANDING_SECTION_IDS, LANDING_TRUST } from "@/content/landing/landingContent";
+import { COMMERCIAL_NOTICE, LANDING_FAQ, LANDING_HERO, LANDING_PILOT, LANDING_PLANS_COPY, LANDING_SECTION_IDS, LANDING_TRUST } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
 import { MANUAL_ACTIVATION_NOTE, SPECIALIST_LABEL, SPECIALIST_SERVICES } from "@/lib/commercial/offerings";
 import { PUBLIC_CLAIM_REGISTRY } from "@/content/publicClaimRegistry";
@@ -125,13 +125,27 @@ describe("page structure", () => {
     for (const m of PAGE.matchAll(/href="#([a-z-]+)"/g)) expect(PAGE, `#${m[1]}`).toContain(`id="${m[1]}"`);
   });
 
-  it("the hero has one request and one way to the plans — no selector strip, no fictional status panel", () => {
+  it("the hero: 'Explore plans' first, an activation request second, one genuine labelled screenshot; the brand only in the header; no repeated disclaimer", () => {
     const hero = section(PAGE, "hero-title");
+    expect(hrefOf(hero, "hero-explore-plans")).toBe("#plans");
+    expect(hero.indexOf('data-testid="hero-explore-plans"')).toBeLessThan(hero.indexOf('data-testid="hero-request-activation"'));
+    expect(visibleText(hero)).toMatch(/^.*Explore plans.*Request activation/);
     expect(hrefOf(hero, "hero-request-activation")).toBe("/contact?service=plan_activation&from=landing_plans");
-    expect(hrefOf(hero, "hero-see-plans")).toBe("#plans");
     expect(hero).not.toMatch(/Choose a service|hero-service-|grid-cols-4/);
-    expect(visibleText(hero)).toContain(MANUAL_ACTIVATION_NOTE);
-    expect(hero).toContain('data-testid="brand-mark"');
+    expect(visibleText(hero)).not.toContain(MANUAL_ACTIVATION_NOTE);
+    // The brand mark is in the header (and footer), not repeated in the hero.
+    expect(hero).not.toContain('data-testid="brand-mark"');
+    expect(PAGE).toContain('data-testid="brand-mark"');
+    // One real product screenshot, served from public/, with a descriptive alt text and a visible label saying so.
+    const img = hero.match(/<img[^>]*>/g) ?? [];
+    expect(img).toHaveLength(1);
+    expect(img[0]).toContain(`src="${LANDING_HERO.screenshot.src}"`);
+    expect(img[0]).toMatch(/alt="[^"]{40,}"/);
+    expect(fs.existsSync(path.join(ROOT, "public", LANDING_HERO.screenshot.src))).toBe(true);
+    expect(visibleText(hero)).toContain("Product screenshot");
+    expect(visibleText(hero)).toMatch(/demonstration company/);
+    // The division of responsibility, stated once in the hero: the software checks and records; judgement stays with the user.
+    expect(LANDING_HERO.supporting).toMatch(/performs the checks and records the decisions; professional judgement stays with you/);
   });
 
   it("copy budgets: hero ≤ 40 words; each specialist description ≤ 25", () => {
@@ -166,24 +180,53 @@ describe("software", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("plans", () => {
-  it("every figure derives from the catalogue and stays 'Proposed'", () => {
+  it("without the server's prices (or with online payment closed), every figure is the catalogue's and stays 'Proposed'", () => {
     const plans = visibleText(section(PAGE, "plans"));
     for (const p of PROPOSED_PLANS) {
       expect(plans).toContain(p.name);
-      expect(plans).toContain(p.proposedAmount);
+      if (!p.contactSales) expect(plans).toContain(p.proposedAmount);
     }
-    expect(plans).toMatch(/Proposed price/);
+    expect(plans).toContain("Terms agreed with our team");   // Enterprise
+    expect(plans).toMatch(/Price per year/);
+    // Entities, named users and the additional-user charge are stated for every plan that has them.
+    expect(plans).toContain("Additional named users: proposed USD 200 per year each, arranged with our team");
+    expect(plans).toMatch(/12-month term and does not renew automatically/);
   });
 
-  it("every plan action requests activation of that plan, and the manual-activation note stands beside each", () => {
+  it("every plan action requests activation of that plan; the activation note is stated once, under the table", () => {
     for (const p of PROPOSED_PLANS) {
       expect(hrefOf(PAGE, `plan-action-${p.name}`)).toBe(`/contact?service=plan_activation&plan=${p.code}&from=landing_plans`);
-      expect(PAGE).toContain(`data-testid="plan-activation-note-${p.name}"`);
     }
     const plans = visibleText(section(PAGE, "plans"));
     expect(plans.split("Request activation").length - 1).toBe(PROPOSED_PLANS.filter((p) => !p.contactSales).length);
+    expect(plans.split(LANDING_PLANS_COPY.activationNote).length - 1).toBe(1);
+    expect(plans).not.toContain(LANDING_PLANS_COPY.onlineNote);
     expect(plans).toContain("Discuss Enterprise");
     expect(plans).not.toMatch(/Choose (Solo|Practice|Firm)/);
+  });
+
+  it("with an approved price and online payment open, that plan shows the server's price and 'Choose <plan>' to checkout; the others stay proposed", () => {
+    const prices = { onlinePayment: true, offers: [
+      { planCode: "PRACTICE", marketCode: "GLOBAL", currencyCode: "USD", currencyExponent: 2, amountMinor: 99000 },
+      { planCode: "PRACTICE", marketCode: "TZ", currencyCode: "TZS", currencyExponent: 0, amountMinor: 2500000 },
+    ] };
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CapacityPlans, { prices })));
+    const text = visibleText(html);
+    expect(hrefOf(html, "plan-action-Practice")).toBe("/billing/checkout?plan=PRACTICE");
+    expect(text).toContain("Choose Practice");
+    expect(text).toContain("USD 990 per year by card");
+    expect(text).toContain("TZS 2,500,000 per year by mobile money");
+    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?service=plan_activation&plan=SOLO&from=landing_plans");
+    expect(text).toContain("Proposed: USD 490 per year");
+    expect(text).toContain(LANDING_PLANS_COPY.onlineNote);
+    expect(text).toContain(LANDING_PLANS_COPY.activationNote);
+    expect(html).not.toMatch(/<button[^>]*>[^<]*(Buy|Subscribe|Checkout|Pay)/i);
+  });
+
+  it("an approved price with online payment closed is never offered for purchase", () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CapacityPlans, { prices: { onlinePayment: false, offers: [{ planCode: "SOLO", marketCode: "GLOBAL", currencyCode: "USD", currencyExponent: 2, amountMinor: 49000 }] } })));
+    expect(html).not.toContain("/billing/checkout");
+    expect(visibleText(html)).not.toMatch(/Choose (Solo|Practice|Firm)/);
   });
 });
 
@@ -232,8 +275,8 @@ describe("commercial honesty", () => {
     expect(PAGE_TEXT.split(COMMERCIAL_NOTICE).length - 1).toBe(1);
   });
 
-  it("the closing action requests activation and offers sign-in; no account creation is presented as activation", () => {
-    expect(hrefOf(PAGE, "final-request-activation")).toBe("/contact?service=plan_activation&from=landing_plans");
+  it("the closing action returns to the plans and offers sign-in; no account creation is presented as activation", () => {
+    expect(hrefOf(PAGE, "final-explore-plans")).toBe("#plans");
     expect(hrefOf(PAGE, "final-sign-in")).toBe("/auth");
   });
 });

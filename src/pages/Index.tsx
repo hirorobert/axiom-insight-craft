@@ -12,12 +12,14 @@ import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { currentServiceIntent } from "@/lib/commercial/serviceIntent";
 import { Footer } from "@/components/Footer";
 import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
+import { takeCheckoutPlan, usePublicPlanPrices } from "@/lib/commercial/checkoutClient";
+import { checkoutHref, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 
 // ─── Page composition ────────────────────────────────────────────────────────
 //  1. Header
-//  2. Hero — the proposition, two actions and a compact service selector
+//  2. Hero — the proposition, "Explore plans" (primary), an activation request, and one labelled product screenshot
 //  3. Choose your outcome + what you receive (single-select service; three outputs; one action)
-//  4. Choose your capacity — plans, derived from the catalogue (a separate decision)
+//  4. Choose your capacity — plans from the catalogue; price and action per plan from the server's public prices
 //  5. Trust — three assurances in registered wording
 //  6. FAQ — the same data the FAQPage structured data in index.html is built from — then the final action
 //  7. Footer — the disclosures, stated once, at the foot of the page
@@ -27,6 +29,9 @@ import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErro
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  // The server's public prices decide, per plan, between an approved price with "Choose <plan>" and "Proposed" with
+  // "Request activation" (src/lib/commercial/planOffers.ts). Until they are read, every plan shows the proposed form.
+  const prices = usePublicPlanPrices();
 
   // A repeat/expired confirmation-link click lands here with an auth error in
   // the URL hash — show a friendly explanation instead of a silent redirect.
@@ -35,6 +40,9 @@ const Index = () => {
   // Authenticated users go directly to the workspace — never see the marketing page.
   useEffect(() => {
     if (!loading && user) {
+      // A visitor who chose a plan before signing up / in continues to that plan's checkout (plan code only, one use).
+      const checkoutPlan = takeCheckoutPlan(parseCheckoutPlan);
+      if (checkoutPlan) { navigate(checkoutHref(checkoutPlan), { replace: true }); return; }
       // A validated service intent (e.g. from the confirmation link) is forwarded to the gateway.
       const intent = currentServiceIntent(window.location.search);
       navigate(intent ? `/dashboard?service=${intent.service}${intent.plan ? `&plan=${intent.plan.toLowerCase()}` : ""}` : "/dashboard", { replace: true });
@@ -62,7 +70,7 @@ const Index = () => {
       <main id="main-content">
         <LandingHero />
         <SoftwareSection />
-        <CapacityPlans />
+        <CapacityPlans prices={prices} />
         <SpecialistServices />
         <TrustStrip />
         <LandingFAQ />

@@ -1,6 +1,7 @@
 // commercial/offerings.ts — the ONE registry of what CFOCLOSE sells and how each is requested. Pure data and links.
 //
-//   Software subscriptions   sold by agreement and activated MANUALLY by our team. There is no online checkout. Plans and
+//   Software subscriptions   a 12-month term: paid online where the team has opened it (planOffers.ts), otherwise sold by
+//                            agreement and activated MANUALLY by our team (the activation request below). Plans and
 //                            prices are the reviewed catalogue's (src/lib/commercial/pricingCatalogue.ts) — never restated.
 //   Specialist services      forecasting, budgeting, financial analysis, accounting policies and close support are delivered
 //                            by people and quoted separately from any subscription. They are NOT automated features of the
@@ -34,7 +35,7 @@ export const SPECIALIST_SERVICES: readonly SpecialistService[] = [
 export const SPECIALIST_LABEL = "Specialist enquiry — delivered by people, quoted separately. Not an automated feature of the software.";
 
 /** Shown beside every plan action. */
-export const MANUAL_ACTIVATION_NOTE = "Subscriptions are sold by agreement and activated by our team. There is no online payment.";
+export const MANUAL_ACTIVATION_NOTE = "Plans requested here are activated by our team after we agree terms with you.";
 
 export const REQUEST_ACTIVATION_LABEL = "Request activation";
 

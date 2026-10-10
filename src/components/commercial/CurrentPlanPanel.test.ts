@@ -51,11 +51,12 @@ describe("plan presentation is read-only", () => {
     expect(html.split(">Request activation<").length - 1).toBe(3);
     expect(html).toContain("Discuss Enterprise");
     expect(html).toContain('href="/contact?service=plan_activation&amp;plan=SOLO&amp;from=landing_plans"');
-    expect(html.split("Subscriptions are sold by agreement and activated by our team. There is no online payment.").length - 1).toBe(4);
+    // Without the server's public prices (or with online payment closed) every plan is the proposed, activation form.
+    expect(html.split("Plans requested here are activated by our team after we agree terms with you.").length - 1).toBe(4);
     expect(html).not.toMatch(/Choose (Solo|Practice|Firm)/);
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
-    expect(html).toContain("Proposed pricing · 12-month term");
-    expect(html).toMatch(/data-testid="price-SOLO">\$490<span[^>]*> \/ year/);
+    expect(html).toContain("12-month term · no automatic renewal");
+    expect(html).toMatch(/data-testid="price-SOLO"><p[^>]*>Proposed: USD 490 per year<\/p>/);
     expect(html).not.toMatch(/selected plan has been saved|deactivation/i);
   });
   it('shows a prepaid next term as its own scheduled period, never relabelled as current', () => {

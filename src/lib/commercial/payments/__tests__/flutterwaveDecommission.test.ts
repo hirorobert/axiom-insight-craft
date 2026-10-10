@@ -256,9 +256,10 @@ describe("Flutterwave decommission — honest user-facing copy", () => {
     expect(catalogue).not.toMatch(/flutterwave/i);
   });
 
-  it("the pricing page states checkout is unavailable without naming a retired provider", () => {
+  it("the pricing page takes payment availability from the server's public prices and never names a retired provider", () => {
     const pricing = read("src/pages/Pricing.tsx");
-    expect(pricing).toContain(HONEST);
+    expect(pricing).toContain("usePublicPlanPrices()");
+    expect(pricing).toContain("<PlanCatalogue prices={prices} />");
     expect(pricing).not.toMatch(/flutterwave/i);
   });
 

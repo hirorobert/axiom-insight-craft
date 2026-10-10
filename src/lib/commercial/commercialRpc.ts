@@ -151,6 +151,23 @@ export interface CheckoutStatusResponse {
   purchasedLicenceStatus: string | null;
   purchasedEffectiveStart: string | null;
   purchasedEffectiveEnd: string | null;
+  /** The order itself (server snapshot at checkout creation): what is being bought and the amount payable. */
+  provider: string | null;
+  purchasedPlanCode: string | null;
+  expectedAmountMinor: number | null;
+  currencyCode: string | null;
+  currencyExponent: number | null;
+  createdAt: string | null;
+  expiresAt: string | null;
+  /** The verified payment, once recorded (never inferred from a redirect). */
+  paymentRecorded: boolean;
+  paymentReference: string | null;
+  paidAt: string | null;
+  reversalType: string | null;
+  /** MANUAL_REVIEW only: PAID_LICENCE_PLACEMENT_REQUIRED (paid; the term is being placed) or OUTCOME_UNCERTAIN. */
+  reviewReason: string | null;
+  /** POST recovery only: what the provider check concluded (PROCESSED, NOT_FINAL, …). */
+  recovery: string | null;
   correlationId: string;
 }
 
@@ -168,6 +185,19 @@ interface RawCheckoutStatusResponse {
   purchased_licence_status?: string | null;
   purchased_effective_start?: string | null;
   purchased_effective_end?: string | null;
+  provider?: string | null;
+  purchased_plan_code?: string | null;
+  expected_amount_minor?: number | string | null;
+  currency_code?: string | null;
+  currency_exponent?: number | null;
+  created_at?: string | null;
+  expires_at?: string | null;
+  payment_recorded?: boolean | null;
+  payment_reference?: string | null;
+  paid_at?: string | null;
+  reversal_type?: string | null;
+  review_reason?: string | null;
+  recovery?: string | null;
   correlationId: string;
 }
 
@@ -295,6 +325,19 @@ function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): Checkout
     purchasedLicenceStatus: json.purchased_licence_status ?? null,
     purchasedEffectiveStart: json.purchased_effective_start ?? null,
     purchasedEffectiveEnd: json.purchased_effective_end ?? null,
+    provider: json.provider ?? null,
+    purchasedPlanCode: json.purchased_plan_code ?? null,
+    expectedAmountMinor: json.expected_amount_minor === null || json.expected_amount_minor === undefined ? null : Number(json.expected_amount_minor),
+    currencyCode: json.currency_code ?? null,
+    currencyExponent: json.currency_exponent ?? null,
+    createdAt: json.created_at ?? null,
+    expiresAt: json.expires_at ?? null,
+    paymentRecorded: json.payment_recorded === true,
+    paymentReference: json.payment_reference ?? null,
+    paidAt: json.paid_at ?? null,
+    reversalType: json.reversal_type ?? null,
+    reviewReason: json.review_reason ?? null,
+    recovery: json.recovery ?? null,
     correlationId: json.correlationId,
   };
 }

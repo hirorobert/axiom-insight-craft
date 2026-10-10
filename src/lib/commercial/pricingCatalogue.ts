@@ -17,8 +17,8 @@
  *                          (get_workspace_seat_capacity); allowedNamedUsers() combines it with the included seats.
  *
  * Prices are marketing and catalogue data. They never decide authorization: the database authority checks the
- * capabilities and capacity attached to the purchased plan (authorize_paid_action, the walls). No checkout exists in
- * this build; nothing here is purchasable until checkout is separately activated.
+ * capabilities and capacity attached to the purchased plan (authorize_paid_action, the walls). Whether a plan can be
+ * bought online is decided by the server (planOffers.ts), never by this catalogue.
  */
 import type { CapabilityCode, PlanFeatureCode } from "./featureRegistry";
 import { CAPABILITIES, PLAN_FEATURES } from "./featureRegistry";
@@ -26,14 +26,14 @@ import { CAPABILITIES, PLAN_FEATURES } from "./featureRegistry";
 export const CATALOGUE_CURRENCY = { code: "USD", exponent: 2 } as const;
 
 /**
- * There is no online checkout or payment provider in this build. Every customer-facing action is non-transactional
- * ("Choose plan", "Talk to sales"); plans are activated by the commercial team (admin_grant_commercial_licence).
- * Nothing may render Buy, Subscribe, Start free, Start trial or any payment step while this is false
- * (src/lib/commercial/__tests__/noCheckoutClaims.test.ts).
+ * The legacy in-app upgrade control (CheckoutUpgradeButton, rendered nowhere) never offers a payment step. Online
+ * purchase exists only on /billing/checkout, and only where the SERVER reports it open for a plan (get_public_plan_prices
+ * and the checkout options of commercial-create-checkout; src/lib/commercial/planOffers.ts). Static copy never claims
+ * online payment (src/lib/commercial/__tests__/noCheckoutClaims.test.ts).
  */
 export const CHECKOUT_AVAILABLE = false as const;
 
-/** The one truthful sentence shown wherever a payment step would otherwise be. */
+/** Shown by the legacy upgrade control instead of a payment step. */
 export const NO_CHECKOUT_NOTICE = "Online payment is not available yet. No plan is activated by choosing one here.";
 
 export type PlanCode = "SOLO" | "PRACTICE" | "FIRM" | "ENTERPRISE";
