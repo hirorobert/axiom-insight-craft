@@ -172,6 +172,9 @@ jobs:
       - name: Type-check the complete layout-assist function (I1-C; no provider wired) against the real Supabase client types
         run: deno check supabase/functions/layout-assist/index.ts
 
+      - name: Type-check the online payment functions (checkout, recovery and the Polar and Snippe webhooks) against the real Supabase client types
+        run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
+
       - name: Type-check the ingestion core and the function-path test
         run: deno check --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/_shared/tbIngestion.ts supabase/functions/_shared/tbSource.ts supabase/functions/_shared/layoutProfile.ts supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 

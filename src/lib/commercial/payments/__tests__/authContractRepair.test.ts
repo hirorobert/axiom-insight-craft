@@ -182,7 +182,7 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
     expect(getBranch).toMatch(/return jsonResponse/);
   });
 
-  it("the service-role client is constructed only inside the POST branch, strictly after the ownership-proving anon-key client, and is used for exactly claim_verification_attempt and commit_verified_commercial_payment — nothing else", () => {
+  it("the service-role client is constructed only inside the POST branch, strictly after the ownership-proving anon-key client, and is used for exactly claim_verification_attempt, the claimed intent's own row, and the shared settlement path — nothing else", () => {
     const readClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SUPABASE_ANON_KEY");
     const serviceClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SERVICE_KEY)");
     expect(readClientIndex).toBeGreaterThan(-1);
@@ -191,9 +191,13 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
 
     const serviceClientToEnd = paymentStatusCode.slice(serviceClientIndex);
     const rpcCallsAfter = serviceClientToEnd.match(/serviceClient\.rpc\(/g) ?? [];
-    expect(rpcCallsAfter.length).toBe(2);
+    expect(rpcCallsAfter.length).toBe(1);
     expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('claim_verification_attempt'/);
-    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('commit_verified_commercial_payment'/);
+    // The commit happens inside settleIntent (_shared/payments/settle.ts), the one path shared with the webhooks.
+    expect(serviceClientToEnd).toMatch(/settleIntent\(serviceClient as unknown as ServiceDb, adapter, intent\)/);
+    // The only table read is the claimed intent itself, by the id the owner-scoped read resolved.
+    expect(serviceClientToEnd.match(/serviceClient\.from\(/g) ?? []).toHaveLength(1);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.from\('payment_checkout_intents'\)\s*\.select\(SETTLEMENT_INTENT_COLUMNS\)\.eq\('id', responseData\.intent_id\)/);
   });
 
   it("a verification/commit attempt can only ever be reached via a successful claim_verification_attempt claim — the durable server-side throttle authority, never an in-process check", () => {
@@ -205,7 +209,7 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
   });
 
   it("the claimed-verification branch is wrapped so its own failure can never break the underlying successful read this endpoint already produced", () => {
-    expect(paymentStatusCode).toMatch(/try \{[\s\S]*?verifyTransactionByReference[\s\S]*?\} catch \(fallbackErr\)/);
+    expect(paymentStatusCode).toMatch(/try \{[\s\S]*?settleIntent[\s\S]*?\} catch \(fallbackErr\)/);
   });
 
   it("readClient forwards the caller's own bearer token — preserving auth.uid() inside get_checkout_status", () => {
@@ -251,9 +255,12 @@ describe("payment firewall — zero semantic change outside the auth-helper inte
     expect(createCheckoutCode).not.toMatch(/verifyWebhookAuthenticity|verifyTransaction|commit_verified_commercial_payment|commercial_licences|entitlement/i);
   });
 
-  it("commercial-payment-status (Ω3-CHECKOUT correction) DOES now reference verifyTransactionByReference and commit_verified_commercial_payment — the intentional independent verify+commit fallback for a lost/delayed webhook — but still never references Gate A webhook-signature verification or entitlement resolution, which remain the webhook's and get_effective_entitlement's own exclusive concerns", () => {
-    expect(paymentStatusCode).toMatch(/verifyTransactionByReference/);
-    expect(paymentStatusCode).toMatch(/commit_verified_commercial_payment/);
+  it("commercial-payment-status recovers a lost/delayed webhook through the SAME settlement path as the webhooks (settle.ts: verifyTransactionByReference, then commit_verified_commercial_payment) — but never references Gate A webhook-signature verification or entitlement resolution", () => {
+    const settle = stripTsComments(fs.readFileSync(path.join(__dirname, "../../../../../supabase/functions/_shared/payments/settle.ts"), "utf-8"));
+    expect(paymentStatusCode).toMatch(/import \{ SETTLEMENT_INTENT_COLUMNS, settleIntent, type ServiceDb \} from '\.\.\/_shared\/payments\/settle\.ts';/);
+    expect(settle).toMatch(/adapter\.verifyTransactionByReference\(/);
+    expect(settle).toMatch(/db\.rpc\('commit_verified_commercial_payment'/);
+    expect(settle).not.toMatch(/verifyWebhookAuthenticity|entitlement/i);
     expect(paymentStatusCode).not.toMatch(/verifyWebhookAuthenticity/i);
     expect(paymentStatusCode).not.toMatch(/entitlement/i);
   });

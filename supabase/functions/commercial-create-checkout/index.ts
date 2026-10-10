@@ -1,66 +1,36 @@
 /**
- * commercial-create-checkout — Ω∞ A+ closure Edge Function
+ * commercial-create-checkout — server-authoritative checkout creation (and, on GET, the payment options for a plan).
  *
- * Creates a checkout intent server-side and returns a hosted payment URL.
- * Browser sends: { planCode: string, billingInterval: string } — nothing
- * else. Server resolves: the commercial offer (plan + interval + market +
- * currency + price), routes to an eligible configured provider, and
- * creates the intent.
+ * Browser sends: { planCode, billingInterval, paymentRoute, phoneNumber? } — nothing else. paymentRoute is the
+ * customer's choice of HOW to pay ('CARD' | 'MOBILE_MONEY'); the server maps it to a commercial market (ROUTE_MARKET:
+ * CARD → GLOBAL, MOBILE_MONEY → TZ) and resolves that market's offer itself. The browser NEVER supplies price,
+ * currency, market, offer identity, product identity, billing owner, provider environment, or entitlements; a market or
+ * currency it sends is never read. phoneNumber (mobile money only) is passed to the provider and never stored.
  *
- * Browser NEVER supplies price, currency, market, offer identity, product
- * identity, billing owner, provider environment, or entitlements. Market is
- * ALWAYS 'GLOBAL' — the Ω3-CHECKOUT charter's own frozen decision and trust
- * boundary are absolute, not a default a caller could override.
+ * Flow (unchanged authority, Ω∞ A+ closure):
+ *   1. acquire_checkout_attempt() — atomic, advisory-lock-serialized per (billing_customer_id, product_id); enforces
+ *      the platform-state × provider-environment × acceptance-identity matrix; returns a fencing creation_token for a
+ *      genuinely NEW attempt, or the existing attempt to reuse (no second charge is ever started for an open one);
+ *   2. begin_provider_checkout_request() — durable point-of-no-return before any provider request;
+ *   3. the provider call (no database transaction open), then exactly one token-fenced terminal action:
+ *      persist_checkout_provider_result (success) | mark_checkout_attempt_failed (provider definitively created nothing)
+ *      | mark_checkout_attempt_uncertain (unknown — lands in MANUAL_REVIEW, never auto-retried).
+ * A checkout URL is returned ONLY once persisted under the exact token. "Checkout created" is never "paid": access is
+ * granted only by commit_verified_commercial_payment after the provider is independently verified (webhook or
+ * recovery), never here.
  *
- * Ω∞ A+ closure (BLOCKER-1, BLOCKER-2, BLOCKER-3): the previous revision's
- * acquire-or-reuse logic lived entirely in this function's own
- * read-then-insert-then-update sequence, and returned a live provider
- * checkout URL even when the DB write persisting it had failed. Both gaps
- * are closed by moving acquisition and persistence into two DB-authoritative,
- * token-fenced RPCs:
- *
- *   1. acquire_checkout_attempt() — atomic, advisory-lock-serialized per
- *      (billing_customer_id, product_id) — NOT per offer, so a MONTHLY and
- *      ANNUAL attempt for the same product can never both be payable at
- *      once. Returns a fencing creation_token for a genuinely NEW attempt.
- *      Also enforces the platform-state x provider-environment x
- *      acceptance-identity matrix (assert_platform_state_permits) — a
- *      disallowed combination raises and no attempt row is ever created.
- *   2. begin_provider_checkout_request() — durable point-of-no-return
- *      transition from CREATING to PROVIDER_CREATING before any provider
- *      network request is attempted.
- *   3. persist_checkout_provider_result() — a compare-and-swap keyed on
- *      (intent id, creation_token, status='PROVIDER_CREATING'). Zero affected rows
- *      is a real, checked failure: this function is structurally unable to
- *      return a checkout URL that was not durably persisted under the
- *      exact token it was issued.
- *
- * The provider network call happens BETWEEN these two RPC calls — never
- * while a database transaction is open — and its outcome routes to exactly
- * one of three token-fenced terminal actions: persist (success),
- * mark_checkout_attempt_failed (provider definitively reported no charge —
- * safe to retry), or mark_checkout_attempt_uncertain (network/parse error —
- * genuinely unknown whether the provider created a charge; lands in
- * MANUAL_REVIEW, never automatically retried or superseded).
- *
- * Iron Dome:
- *   - Authenticated only (validateAuth)
- *   - Offer resolved server-side via resolve_commercial_offer() RPC
- *   - Provider selected server-side via selectPaymentProvider() — no fake
- *     checkout when no eligible provider is configured
- *   - No secrets in response
- *   - Returns safe { checkoutUrl, saffReference, expiresAt } only, and only
- *     once durably persisted
+ * Before acquiring, the server checks where the paid term would go (_commercial_licence_placement): a purchase that
+ * could not be placed automatically (an open-ended agreement, an upgrade over a queued term) is refused BEFORE any
+ * charge and sent to support.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
-import { selectPaymentProvider, getConfiguredProviders } from '../_shared/payments/routing.ts';
+import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const REDIRECT_URL = Deno.env.get('SAFF_PAYMENT_REDIRECT_URL') ?? 'https://app.cfoclose.com/billing/payment/return';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -74,14 +44,14 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
-// Flutterwave decommission: no provider adapter is implemented in this
-// deployment. getConfiguredProviders() is empty, so selectPaymentProvider()
-// returns PAYMENT_PROVIDER_UNAVAILABLE long before this point is reached —
-// this exists only so a future provider has one obvious wiring site, and it
-// never fabricates a checkout.
-function adapterFor(provider: string): never {
-  throw new Error(`No adapter implemented for provider: ${provider}`);
-}
+type Offer = {
+  resolution: 'AVAILABLE' | 'NOT_AVAILABLE' | 'AMBIGUOUS' | 'UNKNOWN';
+  offer_id?: string; plan_id?: string; market_code?: string;
+  currency_code?: string; amount_minor?: number; currency_exponent?: number;
+  billing_interval?: string; billing_interval_count?: number;
+  provider_restriction?: string | null;
+};
+const ROUTES: readonly PaymentRoute[] = ['CARD', 'MOBILE_MONEY'];
 
 Deno.serve(async (req: Request) => {
   const correlationId = generateCorrelationId();
@@ -92,7 +62,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  if (req.method !== 'POST') {
+  if (req.method !== 'POST' && req.method !== 'GET') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
@@ -103,11 +73,43 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Unauthorized', correlationId }, 401);
   }
   const user = { id: authResult.userId, email: authResult.email };
+  const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  // 2. Parse request — browser supplies planCode + billingInterval ONLY.
+  // ── GET: what this plan costs on each route, which routes are available, and where the term would go. ──────────
+  if (req.method === 'GET') {
+    const planCode = new URL(req.url).searchParams.get('planCode');
+    if (!planCode) return jsonResponse({ error: 'planCode required', correlationId }, 400);
+    const configured = getConfiguredProviders();
+    const { data: bc } = await supabase.from('billing_customers').select('id').eq('owner_user_id', user.id).maybeSingle();
+    const options = [];
+    let placement: unknown = null;
+    for (const route of ROUTES) {
+      // Display only: the annual offer of the market each route maps to (the POST path below resolves again itself).
+      const displayArgs = { p_plan_code: planCode, p_billing_interval: 'ANNUAL', p_market_code: ROUTE_MARKET[route] };
+      const { data } = await supabase.rpc('resolve_commercial_offer', displayArgs);
+      const offer = (data ?? { resolution: 'UNKNOWN' }) as Offer;
+      if (offer.resolution !== 'AVAILABLE') { options.push({ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER' }); continue; }
+      const sel = selectPaymentProvider({ currencyCode: offer.currency_code!, marketCode: offer.market_code!, providerRestriction: offer.provider_restriction ?? null }, configured);
+      if (bc && placement === null) {
+        const { data: place } = await supabase.rpc('_commercial_licence_placement', { p_billing_customer_id: bc.id, p_plan_id: offer.plan_id, p_at: new Date().toISOString() });
+        placement = place;
+      }
+      options.push(sel.selected
+        ? { paymentRoute: route, available: true, provider: sel.provider, environment: sel.environment, amountMinor: offer.amount_minor,
+            currencyCode: offer.currency_code, currencyExponent: offer.currency_exponent, billingInterval: offer.billing_interval,
+            billingIntervalCount: offer.billing_interval_count }
+        : { paymentRoute: route, available: false, reason: sel.reason, amountMinor: offer.amount_minor, currencyCode: offer.currency_code,
+            currencyExponent: offer.currency_exponent });
+    }
+    const { data: state } = await supabase.from('commercial_platform_state').select('state').eq('id', true).maybeSingle();
+    return jsonResponse({ planCode, options, placement: placement ?? { kind: 'NEW' }, platformState: state?.state ?? null, correlationId }, 200);
+  }
+
+  // 2. Parse request — browser supplies planCode + billingInterval + paymentRoute (+ phoneNumber) ONLY.
   let planCode: string;
   let billingInterval: string;
-  const marketCode = 'GLOBAL';
+  let paymentRoute: PaymentRoute;
+  let phoneNumber: string | null = null;
   try {
     const body = await req.json();
     planCode = body.planCode;
@@ -116,11 +118,21 @@ Deno.serve(async (req: Request) => {
     if (billingInterval !== 'MONTHLY' && billingInterval !== 'ANNUAL') {
       return jsonResponse({ error: 'billingInterval must be MONTHLY or ANNUAL', correlationId }, 400);
     }
+    if (body.paymentRoute !== 'CARD' && body.paymentRoute !== 'MOBILE_MONEY') {
+      return jsonResponse({ error: 'paymentRoute must be CARD or MOBILE_MONEY', correlationId }, 400);
+    }
+    paymentRoute = body.paymentRoute;
+    if (paymentRoute === 'MOBILE_MONEY') phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber : null;
   } catch {
-    return jsonResponse({ error: 'planCode and billingInterval are required', correlationId }, 400);
+    return jsonResponse({ error: 'planCode, billingInterval and paymentRoute are required', correlationId }, 400);
   }
+  // The market follows ONLY from the server's own mapping of the chosen route.
+  const marketCode = ROUTE_MARKET[paymentRoute];
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+  const returnUrl = returnUrlFrom((n) => Deno.env.get(n));
+  if (!returnUrl) {
+    return jsonResponse({ error: 'PAYMENT_PROVIDER_UNAVAILABLE', correlationId }, 503);
+  }
 
   // 3. Resolve the commercial offer server-side.
   const { data: resolution, error: resolveErr } = await supabase.rpc('resolve_commercial_offer', {
@@ -134,13 +146,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Could not resolve a commercial offer.', correlationId }, 500);
   }
 
-  const offer = resolution as {
-    resolution: 'AVAILABLE' | 'NOT_AVAILABLE' | 'AMBIGUOUS' | 'UNKNOWN';
-    offer_id?: string; plan_id?: string; market_code?: string;
-    currency_code?: string; amount_minor?: number; currency_exponent?: number;
-    billing_interval?: string; billing_interval_count?: number;
-    provider_restriction?: string | null;
-  };
+  const offer = resolution as Offer;
 
   if (offer.resolution === 'UNKNOWN') {
     return jsonResponse({ error: 'Unknown plan or market.', correlationId }, 404);
@@ -153,10 +159,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Pricing configuration error. Please contact support.', correlationId }, 500);
   }
 
-  // 4. Route to an eligible configured provider. No fake checkout if none,
-  //    and no silent environment default (getConfiguredProviders() itself
-  //    excludes any provider whose environment is not explicitly and
-  //    validly declared).
+  // 4. Route to the eligible configured provider. No fake checkout if none, and no silent environment default.
   const providerSelection = selectPaymentProvider(
     {
       currencyCode: offer.currency_code!,
@@ -172,16 +175,9 @@ Deno.serve(async (req: Request) => {
   }
   const provider = providerSelection.provider;
   const providerEnvironment = providerSelection.environment;
-
-  // 5. Resolve billing customer for this user.
-  const { data: billingCustomer, error: bcErr } = await supabase
-    .from('billing_customers')
-    .select('id')
-    .eq('owner_user_id', user.id)
-    .single();
-
-  if (bcErr || !billingCustomer) {
-    return jsonResponse({ error: 'Billing account not found. Please contact support.', correlationId }, 404);
+  const adapter = getAdapterForProvider(provider);
+  if (!adapter || adapter.environment !== providerEnvironment) {
+    return jsonResponse({ error: 'PAYMENT_PROVIDER_UNAVAILABLE', correlationId }, 503);
   }
 
   if (!user.email) {
@@ -189,10 +185,15 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Your account has no email on record. Please contact support.', correlationId }, 422);
   }
 
-  // 6. Load plan name + product id. product_id is required by
-  //    acquire_checkout_attempt's atomic (customer, product) boundary —
-  //    resolve_commercial_offer's own response only carries plan_id, so it
-  //    is resolved here via the same read used for the plan's display name.
+  // 5. The account's billing record (created on first checkout for a user without a workspace).
+  const { data: billingCustomerId, error: bcErr } = await supabase.rpc('ensure_checkout_billing_customer', { p_user_id: user.id });
+  if (bcErr || !billingCustomerId) {
+    console.error('ensure_checkout_billing_customer failed', { correlationId, error: bcErr?.message });
+    return jsonResponse({ error: 'Billing account not available. Please contact support.', correlationId }, 500);
+  }
+  const billingCustomer = { id: billingCustomerId as string };
+
+  // 6. Load plan name + product id.
   const { data: plan, error: planErr } = await supabase
     .from('commercial_plans')
     .select('name, product_id')
@@ -204,13 +205,22 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Pricing configuration error. Please contact support.', correlationId }, 500);
   }
 
-  // 7. Generate unique SAFF reference.
+  // 7. Where would the paid term go? Refuse BEFORE any charge when it could not be placed automatically.
+  const { data: placement, error: placeErr } = await supabase.rpc('_commercial_licence_placement', {
+    p_billing_customer_id: billingCustomer.id, p_plan_id: offer.plan_id, p_at: new Date().toISOString(),
+  });
+  const placementKind = (placement as { kind?: string } | null)?.kind;
+  if (placeErr || !placementKind) {
+    return jsonResponse({ error: 'Checkout is not currently available. Please contact support.', correlationId }, 503);
+  }
+  if (placementKind.startsWith('BLOCKED')) {
+    return jsonResponse({ error: 'CHECKOUT_REQUIRES_SUPPORT: this plan change needs to be arranged with us.', placement: placementKind, correlationId }, 409);
+  }
+
+  // 8. Generate the order reference (≤ 30 characters: it is also the provider idempotency key).
   const saffReference = `SAFF-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
-  // 8. Atomic acquisition — Ω∞ A+ closure BLOCKER-2/BLOCKER-3 fix. The sole
-  //    authoritative decision on whether this call starts a new attempt,
-  //    safely reuses an existing one, or must be refused, lives entirely
-  //    inside this one DB-atomic RPC. No network call has been made yet.
+  // 9. Atomic acquisition. No network call has been made yet.
   const { data: acquireData, error: acquireErr } = await supabase.rpc('acquire_checkout_attempt', {
     p_billing_customer_id: billingCustomer.id,
     p_product_id: plan.product_id,
@@ -229,9 +239,8 @@ Deno.serve(async (req: Request) => {
   });
 
   if (acquireErr) {
-    // assert_platform_state_permits raising surfaces here — never a fake
-    // checkout when the platform-state/environment/acceptance-identity
-    // matrix disallows this attempt.
+    // assert_platform_state_permits raising surfaces here — never a fake checkout when the platform-state matrix
+    // disallows this attempt (e.g. PAYMENTS_DISABLED).
     console.error('acquire_checkout_attempt failed', { correlationId, error: acquireErr.message });
     return jsonResponse({ error: 'Checkout is not currently available. Please contact support.', correlationId }, 503);
   }
@@ -246,14 +255,19 @@ Deno.serve(async (req: Request) => {
   if (acquisition.action === 'REUSE_EXISTING') {
     return jsonResponse({
       saffReference: acquisition.saff_reference, checkoutUrl: acquisition.checkout_url,
-      expiresAt: acquisition.expires_at, provider: acquisition.provider, correlationId,
+      expiresAt: acquisition.expires_at, provider: acquisition.provider, reused: true, correlationId,
     }, 200);
   }
   if (acquisition.action === 'ALREADY_IN_PROGRESS') {
     return jsonResponse({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }, 409);
   }
   if (acquisition.action === 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT') {
-    return jsonResponse({ error: 'CHECKOUT_REQUIRES_SUPPORT: a prior attempt for this product needs manual reconciliation before a new one can start.', correlationId }, 409);
+    // The earlier attempt must be checked with the provider first (the status page's "Check again" does exactly that,
+    // and frees the way when the provider confirms nothing was paid). Never a second charge.
+    const { data: blocking } = await supabase.from('payment_checkout_intents').select('saff_reference')
+      .eq('id', acquisition.intent_id).eq('billing_customer_id', billingCustomer.id).maybeSingle();
+    return jsonResponse({ error: 'CHECKOUT_REQUIRES_SUPPORT: a prior attempt for this product needs manual reconciliation before a new one can start.',
+      previousSaffReference: blocking?.saff_reference ?? null, correlationId }, 409);
   }
   if (acquisition.action === 'CONFLICT_DIFFERENT_INTERVAL') {
     return jsonResponse({
@@ -263,22 +277,18 @@ Deno.serve(async (req: Request) => {
     }, 409);
   }
 
-  // acquisition.action === 'NEW_ATTEMPT' — the ONLY branch permitted to
-  // proceed to a provider network call. No database transaction is open
-  // across this call: acquire_checkout_attempt has already committed.
+  // acquisition.action === 'NEW_ATTEMPT' — the ONLY branch permitted to proceed to a provider network call.
   const intentId = acquisition.intent_id!;
   const creationToken = acquisition.creation_token!;
 
-  // 9. Resolve customer display info.
+  // 10. Customer display info.
   const { data: profile } = await supabase
     .from('profiles')
     .select('display_name')
     .eq('user_id', user.id)
     .maybeSingle();
 
-  // 10. Cross the durable provider side-effect boundary BEFORE making the
-  //     network request. Once PROVIDER_CREATING is committed, a timeout or
-  //     worker crash can never be interpreted as "safe to retry".
+  // 11. Cross the durable provider side-effect boundary BEFORE making the network request.
   const { data: beginData, error: beginErr } = await supabase.rpc('begin_provider_checkout_request', {
     p_checkout_intent_id: intentId,
     p_creation_token: creationToken,
@@ -286,32 +296,29 @@ Deno.serve(async (req: Request) => {
   const beganProviderRequest = !beginErr &&
     (beginData as { transitioned?: boolean } | null)?.transitioned === true;
   if (!beganProviderRequest) {
-    console.error('begin_provider_checkout_request failed', {
-      correlationId, intentId, error: beginErr?.message,
-    });
+    console.error('begin_provider_checkout_request failed', { correlationId, intentId, error: beginErr?.message });
     return jsonResponse({ error: 'CHECKOUT_ALREADY_IN_PROGRESS', correlationId }, 409);
   }
 
-  // 11. Call the routed provider — create hosted payment page.
-  const adapter = adapterFor(provider);
+  // 12. Call the routed provider.
   let checkoutResult;
   try {
     checkoutResult = await adapter.createCheckout({
       saffReference,
+      intentId,
+      billingCustomerId: billingCustomer.id,
       amountMinor:      BigInt(offer.amount_minor!),
       currencyCode:     offer.currency_code!,
       currencyExponent: offer.currency_exponent!,
+      planCode,
       planName:         plan.name ?? planCode,
       customerEmail:    user.email,
       customerName:     profile?.display_name ?? null,
-      redirectUrl:      `${REDIRECT_URL}?ref=${saffReference}`,
+      redirectUrl:      `${returnUrl}?ref=${saffReference}`,
+      phoneNumber,
     });
   } catch {
-    // Ω∞ A+ closure BLOCKER-1 fix: an exception here means it is GENUINELY
-    // UNKNOWN whether the provider created a real charge (e.g. the request
-    // reached the provider but the response never arrived) — never
-    // auto-retried, never silently marked FAILED. Routed to MANUAL_REVIEW
-    // for human reconciliation.
+    // GENUINELY UNKNOWN whether the provider created a charge — never auto-retried, never silently FAILED.
     console.error('Provider checkout threw', { correlationId, provider });
     const { data: uncertainData, error: uncertainErr } = await supabase.rpc('mark_checkout_attempt_uncertain', {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
@@ -320,14 +327,14 @@ Deno.serve(async (req: Request) => {
     if (uncertainErr || !(uncertainData as { updated?: boolean } | null)?.updated) {
       console.error('Could not persist uncertain provider outcome', { correlationId, intentId, error: uncertainErr?.message });
     }
-    return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
+    return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', saffReference, correlationId }, 502);
   }
 
   if (!checkoutResult.success) {
     const transitionRpc = checkoutResult.outcome === 'DEFINITIVE_FAILURE'
       ? 'mark_checkout_attempt_failed'
       : 'mark_checkout_attempt_uncertain';
-    console.error('Provider checkout did not succeed', { correlationId, provider, outcome: checkoutResult.outcome });
+    console.error('Provider checkout did not succeed', { correlationId, provider, outcome: checkoutResult.outcome, error: checkoutResult.error });
     const { data: transitionData, error: transitionErr } = await supabase.rpc(transitionRpc, {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
       p_reason: checkoutResult.error,
@@ -336,15 +343,13 @@ Deno.serve(async (req: Request) => {
       console.error('Could not persist provider failure outcome', { correlationId, intentId, error: transitionErr?.message });
     }
     return checkoutResult.outcome === 'DEFINITIVE_FAILURE'
-      ? jsonResponse({ error: 'Payment service rejected the checkout request. Please contact support.', correlationId }, 422)
-      : jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
+      ? jsonResponse({ error: checkoutResult.error === 'SNIPPE_PHONE_INVALID'
+          ? 'PHONE_NUMBER_INVALID: enter a Tanzanian mobile number, for example 0712 345 678.'
+          : 'Payment service rejected the checkout request. Please contact support.', correlationId }, 422)
+      : jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', saffReference, correlationId }, 502);
   }
 
-  // 12. Ω∞ A+ closure BLOCKER-1 fix: compare-and-swap persistence. A
-  //     checkout URL is returned to the browser ONLY if this call reports
-  //     persisted:true — there is no code path from here that can return
-  //     checkoutResult.checkoutUrl without it having been durably written
-  //     first.
+  // 13. Compare-and-swap persistence. A checkout URL is returned ONLY if this call reports persisted:true.
   const { data: persistData, error: persistErr } = await supabase.rpc('persist_checkout_provider_result', {
     p_checkout_intent_id: intentId,
     p_creation_token: creationToken,
@@ -355,14 +360,6 @@ Deno.serve(async (req: Request) => {
   const persisted = !persistErr && (persistData as { persisted?: boolean } | null)?.persisted === true;
 
   if (!persisted) {
-    // Zero rows affected (stale token, already-transitioned row) or an
-    // RPC error. Either way: a real, provider-created checkout now exists
-    // that this response can never safely hand to the browser, because it
-    // was not proven durably recorded. Route to MANUAL_REVIEW rather than
-    // silently losing track of it — the provider may or may not eventually
-    // deliver a webhook for a reference this system can no longer resolve
-    // to a PENDING intent, which is exactly why this is an operator
-    // reconciliation case, not a customer-safe retry.
     console.error('persist_checkout_provider_result did not persist — routing to manual review', {
       correlationId, intentId, error: persistErr?.message,
     });
@@ -373,18 +370,18 @@ Deno.serve(async (req: Request) => {
     if (uncertainErr || !(uncertainData as { updated?: boolean } | null)?.updated) {
       console.error('Could not persist provider-result uncertainty', { correlationId, intentId, error: uncertainErr?.message });
     }
-    return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', correlationId }, 502);
+    return jsonResponse({ error: 'CHECKOUT_OUTCOME_UNCERTAIN: please contact support before retrying.', saffReference, correlationId }, 502);
   }
 
   const persistedIntent = persistData as { intent_id: string; saff_reference: string; expires_at: string };
 
-  // 13. Return SAFE response — no secrets, no raw provider data. Only
-  //     reachable once persistence has been proven.
+  // 14. Return SAFE response — no secrets, no raw provider data. Only reachable once persistence has been proven.
   return jsonResponse({
     saffReference: persistedIntent.saff_reference,
     checkoutUrl:   checkoutResult.checkoutUrl,
     expiresAt:     persistedIntent.expires_at,
     provider,
+    paymentRoute,
     correlationId,
   }, 200);
 });

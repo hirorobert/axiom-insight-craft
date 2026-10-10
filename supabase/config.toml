@@ -18,3 +18,8 @@ project_id = "bvyivmmfjejbmqoydezk"
   # Called by the database (pg_cron + pg_net) with a single-use, database-minted ticket; the ticket is the credential.
   [functions.trial-balance-source-sweeper]
     verify_jwt = false
+  # Payment provider deliveries: the provider's signature over the raw body is the credential (no Supabase JWT exists).
+  [functions.commercial-webhook-polar]
+    verify_jwt = false
+  [functions.commercial-webhook-snippe]
+    verify_jwt = false

@@ -64,16 +64,16 @@ describe("resolve_commercial_offer — SQL default is neutral GLOBAL, never TZ",
 });
 
 describe("commercial-create-checkout — market is server-owned GLOBAL, never browser-supplied (Ω∞ A+ audit BLOCKER fix)", () => {
-  it("marketCode is a hardcoded 'GLOBAL' constant — the request body's marketCode field, if a caller sends one, is never read at all", () => {
-    // CORRECTED (Codex Ω∞ A+ audit, BLOCKER): the prior revision read an
-    // OPTIONAL marketCode from the request body, defaulting to GLOBAL only
-    // when omitted — meaning a direct API caller COULD request a different
-    // market's offer/pricing than the UI ever displays. The Marshall Plan
-    // requires server-owned GLOBAL, not merely a GLOBAL default: market is
-    // now a hardcoded constant, and `body.marketCode` is never referenced
-    // anywhere in this file.
-    expect(checkoutSrc).toMatch(/const marketCode = 'GLOBAL';/);
-    expect(checkoutSrc).not.toMatch(/body\.marketCode/);
+  it("marketCode is server-owned: derived ONLY from the server's fixed mapping of the validated payment route (CARD → GLOBAL, MOBILE_MONEY → TZ); a body marketCode is never read", () => {
+    // History: the Ω∞ A+ audit (BLOCKER) removed an OPTIONAL body marketCode — a direct API caller could request a
+    // market the UI never displayed. The online-payment milestone keeps that boundary: the customer chooses only HOW to
+    // pay (paymentRoute, validated to exactly two values), and the market — hence the offer and its price — follows
+    // from a constant server-side table. A caller still cannot name a market, a currency or a price.
+    expect(checkoutSrc).toMatch(/const marketCode = ROUTE_MARKET\[paymentRoute\];/);
+    expect(checkoutSrc).toMatch(/if \(body\.paymentRoute !== 'CARD' && body\.paymentRoute !== 'MOBILE_MONEY'\) \{/);
+    expect(checkoutSrc).not.toMatch(/body\.marketCode|body\.currency|body\.market/);
+    const routing = fs.readFileSync(path.join(__dirname, "../../../../../supabase/functions/_shared/payments/routing.ts"), "utf-8");
+    expect(routing).toMatch(/export const ROUTE_MARKET: Readonly<Record<PaymentRoute, string>> = Object\.freeze\(\{ CARD: 'GLOBAL', MOBILE_MONEY: 'TZ' \}\);/);
   });
 
   it("never defaults an omitted market to TZ or any market other than GLOBAL", () => {
@@ -81,7 +81,7 @@ describe("commercial-create-checkout — market is server-owned GLOBAL, never br
     expect(checkoutSrc).not.toMatch(/:\s*'(MU|GB|EU)'/);
   });
 
-  it("passes the hardcoded GLOBAL constant to resolve_commercial_offer unmodified — no transformation, mapping, or override, and no path by which a caller-supplied value could reach it", () => {
+  it("passes the server-derived marketCode to resolve_commercial_offer unmodified — no path by which a caller-supplied value could reach it", () => {
     const rpcCall = checkoutSrc.match(/supabase\.rpc\('resolve_commercial_offer', \{([\s\S]*?)\}\)/)?.[1] ?? "";
     expect(rpcCall).toMatch(/p_plan_code:\s*planCode/);
     expect(rpcCall).toMatch(/p_market_code:\s*marketCode/);

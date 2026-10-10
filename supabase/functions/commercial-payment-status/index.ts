@@ -10,15 +10,15 @@
  *   POST — authenticated recovery request that may claim ONE bounded
  *          verification attempt. Proves ownership via the caller's own
  *          JWT (through the identical get_checkout_status() read used by
- *          GET), then calls claim_verification_attempt() — a DB-atomic,
- *          row-locked, durably-throttled claim. Only on a successful claim
- *          does this function call the provider (verifyTransactionByReference)
- *          and, if that independently verifies, commit via
- *          commit_verified_commercial_payment through a narrowly-scoped
- *          service-role client. If the claim is refused (already verified
- *          recently, already in flight, or the intent is not in a
- *          verifiable state), this returns 202 with a bounded Retry-After
- *          — never silently ignored, never an unbounded retry loop.
+ *          GET; a commercial administrator passes the same read), then calls
+ *          claim_verification_attempt() — a DB-atomic, row-locked,
+ *          durably-throttled claim. Only on a successful claim does this
+ *          function ask the provider and settle through the shared path
+ *          (_shared/payments/settle.ts — the same one the webhooks use). If
+ *          the claim is refused (already verified recently, already in
+ *          flight, or the intent is not in a verifiable state), this returns
+ *          202 with a bounded Retry-After — never silently ignored, never an
+ *          unbounded retry loop.
  *
  * The prior revision ran independent provider verification and a
  * commit attempt INSIDE the GET handler itself, gated only by an
@@ -39,20 +39,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
-import { authoriseCommit, sha256Hex } from '../_shared/payments/authority.ts';
-import { getCapabilitiesForProvider } from '../_shared/payments/routing.ts';
+import { getAdapterForProvider } from '../_shared/payments/routing.ts';
+import { SETTLEMENT_INTENT_COLUMNS, settleIntent, type ServiceDb } from '../_shared/payments/settle.ts';
 
 const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SERVICE_KEY       = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-
-// Flutterwave decommission: no provider adapter exists in this deployment,
-// so recovery verification is structurally impossible and this always returns
-// null. Callers already treat null as "no new information" and fall back to
-// reporting the durable database status only — never a guessed outcome.
-function adapterFor(_provider: string): null {
-  return null;
-}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -165,86 +157,25 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Claimed — this request is the sole holder of the verification attempt
-  // for this intent for the cooldown window.
+  // Claimed — this request is the sole holder of the verification attempt for this intent for the cooldown window.
+  // It goes through the SAME settlement path as a provider webhook (_shared/payments/settle.ts): Gate B against the
+  // provider's own record of this checkout (adapter.verifyTransactionByReference), then commit_verified_commercial_payment
+  // under the canonical idempotency key — so a recovery and a late webhook converge on one payment and one licence.
   try {
-    const adapter = claim.provider ? adapterFor(claim.provider) : null;
-    if (!adapter || claim.expected_amount_minor == null || !claim.currency_code || !claim.saff_reference) {
-      return jsonResponse({ ...responseData, correlationId }, 200);
+    const adapter = claim.provider ? getAdapterForProvider(claim.provider) : null;
+    if (!adapter) {
+      // The intent's provider is not configured in this deployment: no new information, never a guessed outcome.
+      return jsonResponse({ ...responseData, recovery: 'PROVIDER_UNAVAILABLE', correlationId }, 200);
     }
+    const { data: intent, error: intentErr } = await serviceClient.from('payment_checkout_intents')
+      .select(SETTLEMENT_INTENT_COLUMNS).eq('id', responseData.intent_id).maybeSingle();
+    if (intentErr || !intent) return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
 
-    const verifyResult = await adapter.verifyTransactionByReference(
-      claim.saff_reference,
-      BigInt(claim.expected_amount_minor),
-      claim.currency_code,
-    );
-
-    if (!verifyResult.verified) {
-      // NOT_FOUND_YET or a genuine verification failure — nothing to
-      // commit. The customer is shown their existing non-terminal status
-      // and may poll GET or retry POST after the cooldown.
-      return jsonResponse({ ...responseData, correlationId }, 200);
-    }
-
-    const tx = verifyResult.transaction;
-    const authority = authoriseCommit(
-      {
-        id: responseData.intent_id,
-        expected_amount_minor: BigInt(claim.expected_amount_minor),
-        currency_code: claim.currency_code,
-        saff_reference: claim.saff_reference,
-        status: responseData.status ?? claim.status ?? 'PENDING',
-        expires_at: new Date().toISOString(),
-      },
-      tx,
-    );
-
-    if (!authority.authorised) {
-      return jsonResponse({ ...responseData, correlationId }, 200);
-    }
-
-    // Ω∞ A+ closure BLOCKER-3/BLOCKER-4 fix: canonical idempotency
-    // identity (no 'STATUS_POLL:' prefix — identical text to the webhook's
-    // own key for the same underlying transaction), and the actual
-    // provider's own resolved environment (never an arbitrary configured
-    // entry, never a silent default).
-    const capabilities = getCapabilitiesForProvider(tx.provider);
-    if (!capabilities) {
-      console.error('No valid environment configured for provider — refusing to commit', { correlationId, provider: tx.provider });
-      return jsonResponse({ ...responseData, correlationId }, 200);
-    }
-
-    const idempotencyKey = await sha256Hex(`${tx.provider}:${tx.providerTransactionId}:${responseData.intent_id}`);
-
-    const { data: commitData, error: commitErr } = await serviceClient.rpc('commit_verified_commercial_payment', {
-      p_checkout_intent_id:      responseData.intent_id,
-      p_provider:                tx.provider,
-      p_provider_transaction_id: tx.providerTransactionId,
-      p_provider_status:         tx.providerStatus,
-      p_normalized_status:       tx.normalizedStatus,
-      p_amount_minor:            tx.amountMinor,
-      p_currency_code:           tx.currencyCode,
-      p_payload_hash:            tx.payloadHash,
-      p_verified_at:             tx.verifiedAt,
-      p_verification_method:     tx.verificationMethod,
-      p_idempotency_key:         idempotencyKey,
-      p_saff_reference:          tx.saffReference,
-      p_provider_environment:    capabilities.environment,
-    });
-
-    if (commitErr) {
-      console.error('POST-recovery-triggered commit failed', { correlationId, error: commitErr.message });
-      return jsonResponse({ ...responseData, correlationId }, 200);
-    }
-
-    if ((commitData as { committed?: boolean } | null)?.committed) {
-      const { data: refreshed } = await readClient.rpc('get_checkout_status', { p_saff_reference: saffReference });
-      if (refreshed) return jsonResponse({ ...refreshed, correlationId }, 200);
-    }
-
-    return jsonResponse({ ...responseData, correlationId }, 200);
+    const outcome = await settleIntent(serviceClient as unknown as ServiceDb, adapter, intent);
+    const { data: refreshed } = await readClient.rpc('get_checkout_status', { p_saff_reference: saffReference });
+    return jsonResponse({ ...((refreshed ?? responseData) as Record<string, unknown>), recovery: outcome.result, correlationId }, 200);
   } catch (fallbackErr) {
     console.error('POST recovery verification threw', { correlationId, error: String(fallbackErr) });
-    return jsonResponse({ ...responseData, correlationId }, 200);
+    return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
   }
 });
