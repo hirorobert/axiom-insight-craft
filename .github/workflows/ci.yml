@@ -365,6 +365,10 @@ jobs:
         if: failure()
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
 
+      - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
+        if: always()
+        run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4

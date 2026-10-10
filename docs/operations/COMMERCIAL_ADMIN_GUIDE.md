@@ -75,33 +75,61 @@ VALUES ('<founder auth.users.id>', NULL, true);
 **Activating a plan after terms are agreed.** The flow:
 1. The customer sends *Request activation* from Plans, naming a plan (`plan_activation`, with `plan_code` SOLO, PRACTICE, FIRM or ENTERPRISE).
 2. A manager replies from the queue to agree terms.
-3. When terms are agreed, the commercial administrator records the plan **on the account registered to the requester's email**.
+3. When terms are agreed, the commercial administrator records the plan on the account registered to the requester's email.
 
-The `admin_*` functions act as the signed-in administrator (`auth.uid()`), so the actor recorded is the administrator. The application has no screen for this yet (`/commercial/admin` manages offers and shows billing state only), so this is an **owner decision** (§7). Until a screen exists, an operator runs the call **with the administrator's identity**:
+Do step 3 in the application: sign in at `/commercial/admin` with the administrator's own account, then go to **Accounts and manual activation**.
+- Find the account by its sign-in email.
+- Type the reason, for example "Activation agreed by email on <date>, enquiry <reference>".
+- Choose the plan, the start date and the end date. The end date defaults to 12 months after the start.
+- Select **Activate the plan**.
 
-```sql
-BEGIN;
-SELECT set_config('request.jwt.claim.sub', '<commercial admin auth.users.id>', true);
-SELECT set_config('request.jwt.claims', json_build_object('sub', '<commercial admin auth.users.id>', 'role', 'authenticated')::text, true);
-SELECT public.admin_ensure_billing_customer('<customer auth.users.id>', 'Activation agreed by email on <date>, enquiry <reference>');
--- Use the billing_customer_id that the call above returns:
-SELECT public.admin_grant_commercial_licence('<billing_customer_id>', 'PRACTICE', now(), now() + interval '12 months',
-  'Activation agreed by email on <date>, enquiry <reference>');
-COMMIT;
-```
+The screen calls `admin_ensure_billing_customer`, then `admin_grant_commercial_licence`, as the signed-in administrator. The administrator is recorded as the actor, with the reason. No SQL and no identity claims are needed. A session that is not an active `commercial_admins` row is refused; owning a workspace or company does not count.
 
-- Plan codes and capacities come from the reviewed catalogue (`src/content/landing/proposedPlans.ts`, `commercial_plans`). Do not invent a plan or a price. A hosted edit that differs from the reviewed catalogue is drift; correct it through a reviewed change.
-- No checkout is activated and no payment is taken in the application.
-- Suspension, cancellation and seats use `admin_transition_licence_status`, `admin_cancel_future_licence` and `admin_set_licence_additional_seats`, each with a reason.
+- Plan codes and capacities come from the reviewed catalogue (`src/content/landing/proposedPlans.ts`, `commercial_plans`). Do not invent a plan or a price.
+- **A paid term is never shortened.** A manual grant that would overlap a payment-created licence is refused (`PAID_TERM_WOULD_BE_SHORTENED`). Start it on or after the paid term's end.
+- On the same screen, each with a recorded reason:
+  - **End now** uses `admin_transition_licence_status` → EXPIRED.
+  - **Cancel (not started)** uses `admin_cancel_future_licence`. Its reason is an UPPER_SNAKE code, such as `CUSTOMER_REQUEST`. One idempotency key is generated per request and reused on every retry.
+  - **Additional named users** uses `admin_set_licence_additional_seats`.
+
+## 5a. Online payments: what needs a person
+
+**Payments needing attention** in `/commercial/admin` lists three kinds of item.
+
+**Orders the server could not settle by itself:**
+- an attempt whose outcome is uncertain (the provider did not answer, or the result was not recorded);
+- a checkout that expired without a confirmed outcome;
+- a payment that is recorded but whose 12-month term could not be placed automatically. This happens when the account has an open-ended agreement, or when an upgrade would sit over a queued term.
+
+**Refunds and disputes** reported by a provider. These never change a licence by themselves.
+
+For each order:
+1. **Check with the provider.** This asks the provider again, through the same throttled recovery customers use. It never charges anyone. A paid order is then settled automatically, and an unpaid one is closed as failed or expired.
+2. **Paid, term not placed.** Decide where the term goes; end the open-ended agreement first if that is the agreement. Then use **Place the paid 12-month term** with a start date and a reason (`admin_place_paid_licence`). The payment is never discarded: review can no longer cancel or fail an order whose payment is recorded.
+3. **Not paid.** Use **Close as uncharged** only after the provider's own dashboard shows that no payment was taken (`admin_resolve_manual_review_intent`). The customer can then start a new payment.
+
+For each refund or dispute:
+1. If access should end, end the licence under **Accounts**.
+2. Then record the decision (`admin_record_reversal_review`: licence ended, or kept), once.
+
+**Prices.** An annual offer marked **Approved (purchasable)** is the public price and exactly what checkout charges once online payment is open. New TZS prices for mobile money are saved as not approved, and approved separately. Every change records its reason. Existing orders keep the price they were created with.
+
+**Online payment state** (owner decision; follow the launch checklist). The **Online payment** tab shows the platform state and the routes the server has configured. Changing the state requires typing the target state and a reason (`admin_transition_platform_state`). The order is:
+1. `SANDBOX_ONLY`
+2. `LIVE_ACCEPTANCE`, for testers on the live-acceptance allowlist
+3. `CUSTOMER_PAYMENTS_ENABLED`
+
+`PAYMENTS_DISABLED` closes checkout again.
 
 ## 6. Not provided, on purpose
 
 - **No blanket tenant access.** No role here can open a customer's workspace. Support work inside a workspace requires the customer to invite the person as a member, which is recorded and can be removed by the customer.
 - **No account deletion.** Deletion requests are handled outside this guide, under the published privacy terms after legal review. Nothing here deletes `auth.users`, companies, uploads, certifications, report versions or sealed packs.
 - **No hosted action by Claude.** Every step above is performed by the people named.
+- **No card details.** Card payments are taken on Polar's hosted page and mobile-money approvals happen on the customer's phone; CFOClose never receives a card number or a PIN.
 
 ## 7. Owner decisions
 
-1. Whether to add an in-app activation screen for commercial administrators. It would replace the identity-claim SQL in §5 and record the same actor.
+1. When to open online payment to customers (§5a), after merchant approval by Polar and/or Snippe and the legal review of the terms.
 2. Who holds `manager` and who holds `triage_agent`, and whether the two roles should differ in power (today they do not).
 3. The internal notification address (`ENQUIRY_INTERNAL_NOTIFY_TO`). It is never guessed.

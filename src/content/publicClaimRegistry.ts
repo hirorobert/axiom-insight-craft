@@ -140,13 +140,13 @@ export const PUBLIC_CLAIM_REGISTRY: readonly PublicClaim[] = [
   {
     id: "commercial-manual-activation",
     claimText:
-      "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available.",
+      "Plans run for 12 months and do not renew automatically. Specialist services are quoted separately and are not included in any plan. Financial reporting is a pilot and is not generally available.",
     evidenceSource:
-      "src/lib/commercial/pricingCatalogue.ts (CHECKOUT_AVAILABLE = false; commercial_platform_state remains PAYMENTS_DISABLED so src/components/commercial/CheckoutUpgradeButton.tsx fails closed) + src/lib/commercial/offerings.ts (every plan action is an activation REQUEST through the enquiry system; specialist services are enquiries) + supabase/migrations/20261025100000_commercial_enquiries.sql (plan_activation and the specialist service codes) + src/lib/workspace/moduleAvailability.ts (financial reporting offered only to companies on the rollout allow-list)",
+      "supabase/migrations/20261001120000_annual_commercial_term.sql (one 12-month term; monthly retired) + supabase/migrations/20261029100000_payment_provider_routes.sql (a paid term is placed once per verified payment; get_public_plan_prices) + supabase/functions/_shared/payments/providers/polar.ts and snippe.ts (one-time payments; no provider subscription is created, so nothing renews) + src/lib/commercial/planOffers.ts (a price is shown as approved, with online purchase, only when the server reports it purchasable and online payment open; otherwise 'Proposed' and an activation request) + src/lib/commercial/offerings.ts (specialist services are enquiries) + src/lib/workspace/moduleAvailability.ts (financial reporting offered only to companies on the rollout allow-list)",
     evidenceScope:
-      "This row supports a DISCLOSURE, not a capability. Nothing on the site activates or sells a plan: a request is answered by our team, terms are agreed, and the plan is then activated. It is the reason no price, offer or availability field appears in any structured data, metadata, or sitemap entry on this site.",
+      "This row supports a DISCLOSURE, not a capability. It is true whether or not online payment is open: no plan renews by itself, specialist work is quoted separately, and financial reporting is a pilot. No price, offer or availability field appears in any structured data, metadata, or sitemap entry on this site.",
     approvedWording:
-      "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available.",
+      "Plans run for 12 months and do not renew automatically. Specialist services are quoted separately and are not included in any plan. Financial reporting is a pilot and is not generally available.",
     prohibitedWording: [
       "no credit card",
       "cancel anytime",

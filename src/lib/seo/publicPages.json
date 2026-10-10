@@ -11,14 +11,14 @@
     {
       "path": "/plans",
       "title": "Plans — CFOClose",
-      "description": "Compare CFOClose plans by entities and named users. Pricing shown is proposed; a plan is activated by our team after terms are agreed. There is no online payment.",
+      "description": "Compare CFOClose plans by entities and named users. Every plan is a 12-month term with no automatic renewal; a price marked proposed is confirmed before activation.",
       "sitemap": true
     },
     {
       "path": "/pricing",
       "canonical": "/plans",
       "title": "Plans — CFOClose",
-      "description": "Compare CFOClose plans by entities and named users. Pricing shown is proposed; a plan is activated by our team after terms are agreed. There is no online payment.",
+      "description": "Compare CFOClose plans by entities and named users. Every plan is a 12-month term with no automatic renewal; a price marked proposed is confirmed before activation.",
       "sitemap": false
     },
     {

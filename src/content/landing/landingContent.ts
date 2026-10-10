@@ -2,16 +2,18 @@
  * landingContent — the single source of truth for every word rendered on the public
  * landing page (src/pages/Index.tsx and the components under src/components/landing/).
  *
- * The commercial structure (approved for the commercial milestone):
- *   Software       Trial balance review — a software subscription sold by agreement and activated manually by our
- *                  team; no online payment. Financial reporting — a pilot by invitation, not generally available, its
- *                  accounting not independently validated.
- *   Plans          capacity, from the reviewed catalogue (prices stay "Proposed"); every action is "Request activation".
+ * The commercial structure:
+ *   Software       Trial balance review — a 12-month software subscription. Financial reporting — a pilot by invitation,
+ *                  not generally available, its accounting not independently validated.
+ *   Plans          capacity, from the reviewed catalogue. What each plan card says about price and payment is decided by
+ *                  the server at runtime (src/lib/commercial/planOffers.ts): a price the team has approved and online
+ *                  payment that is open → the price and "Choose <plan>"; otherwise the catalogue figure marked "Proposed"
+ *                  and "Request activation". Every sentence below is therefore true in BOTH states.
  *   Specialist     forecasting, budgeting, financial analysis, accounting policies and close support: enquiries for work
  *                  delivered by people and quoted separately — never presented as automated features.
  *
  * Discipline enforced by src/components/landing/__tests__/landingPage.test.ts:
- *   - strict word limits; no assurance or acquisition vocabulary; no checkout, buy or subscribe wording;
+ *   - strict word limits; no assurance or acquisition vocabulary; no "buy now", "subscribe" or trial wording;
  *   - no internal engine names, no jurisdiction-specific terminology;
  *   - every anchor referenced by navigation exists as a section id below.
  *
@@ -31,16 +33,24 @@ export const LANDING_SECTION_IDS = [
 export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hero — one proposition, one request
+// Hero — one proposition, one primary action (the plans), one product screenshot
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
   eyebrow: "Trial balance review software",
   headline: "Check every trial balance before the statements are prepared.",
   supporting:
-    "Import a trial balance, run the checks and record a classification decision for every account. Software you operate; it does not prepare, review or audit your accounts for you.",
-  primaryCta: { label: "Request activation" },
-  secondaryCta: { label: "See the plans", href: "#plans" },
+    "Import a trial balance, run the checks and record a classification decision for every account. The software performs the checks and records the decisions; professional judgement stays with you.",
+  primaryCta: { label: "Explore plans", href: "#plans" },
+  secondaryCta: { label: "Request activation" },
+  /** A genuine screenshot of the product (local real-application run), with a fictitious demonstration company. */
+  screenshot: {
+    src: "/landing/trial-balance-review.png",
+    width: 1280,
+    height: 900,
+    alt: "The CFOCLOSE trial balance page for a demonstration company: reviewed status, debit and credit totals of 64,400.00 that agree, and the list of trial balance checks, all passed.",
+    caption: "Product screenshot · a reviewed trial balance · demonstration company and figures",
+  },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,8 +101,10 @@ export const LANDING_WORKFLOW: readonly string[] = [
 
 export const LANDING_SERVICES_COPY = {
   eyebrow: "Software",
-  heading: "One subscription, activated by our team.",
+  heading: "One subscription for trial balance review.",
   intro: "Every plan includes Trial balance review. Plans differ in capacity.",
+  /** What goes in and what comes out — only what the current interface does. */
+  formats: "Imports trial balances from CSV and XLSX files exported from your accounting system; there is no direct connection to accounting systems. Checks, account decisions and the reviewed status are shown in the workspace.",
   outputsHeading: "What you receive",
   workflowHeading: "How it works",
   seeAll: "See all included outputs",
@@ -114,10 +126,12 @@ export const LANDING_PILOT = {
 export const LANDING_PLANS_COPY = {
   eyebrow: "Plans",
   heading: "Choose your capacity.",
-  intro: "Plans differ in how many entities and named users they cover. One 12-month term; pricing shown is proposed.",
-  columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Proposed price", action: "Action" },
-  /** Beside every plan action. */
-  activationNote: "Sold by agreement; activated by our team. No online payment.",
+  intro: "Plans differ in how many entities and named users they cover. Every plan is a 12-month term and does not renew automatically.",
+  columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Price per year", action: "Action" },
+  /** Stated once, under the table, when a plan is shown with a proposed price. */
+  activationNote: "A price marked Proposed is confirmed with you before our team activates the plan.",
+  /** Stated once, under the table, when a plan can be paid online. */
+  onlineNote: "Paid plans start once the payment is verified. Card payments are processed by our merchant of record, which may add sales tax; the total is shown before you pay.",
   enterpriseAction: "Discuss Enterprise",
   /** Shown instead when the enquiry surface is off: no link, no activation implied. */
   enterpriseUnavailable: "Terms are agreed directly with our team.",
@@ -167,7 +181,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "activation",
     question: "How is a subscription activated?",
     answer:
-      "Send an activation request naming the plan you need. We reply by email to agree terms, then activate the plan on the CFOCLOSE account registered to the email address in your request. There is no online payment, and nothing is activated by sending a request.",
+      "Choose a plan. Where online payment is open for it, pay by card or by mobile money (M-Pesa, Airtel Money, Mixx by Yas or Halotel); the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
   },
   {
     id: "specialist-services",
@@ -209,7 +223,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "pricing-status",
     question: "Is the displayed pricing final?",
     answer:
-      "No. The displayed pricing is proposed. The terms of a subscription are agreed with you before it is activated, and there is no online checkout.",
+      "Amounts marked Proposed are not final; they are confirmed with you before the plan is activated. An amount shown without that mark is what a 12-month term costs. Any sales tax added to a card payment is shown before you pay.",
   },
 ];
 
@@ -219,8 +233,8 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
 
 export const LANDING_FINAL_CTA = {
   heading: "Ready to review your next trial balance?",
-  supporting: "Request activation of the plan you need. We reply to agree terms; there is no online payment.",
-  primaryCta: { label: "Request activation" },
+  supporting: "Choose the plan that fits your entities and users, or ask us to activate one for you.",
+  primaryCta: { label: "Explore plans", href: "#plans" },
   secondaryCta: { label: "Sign in", href: "/auth" },
 } as const;
 
@@ -229,7 +243,7 @@ export const LANDING_FINAL_CTA = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const COMMERCIAL_NOTICE =
-  "Subscriptions are sold by agreement and activated by our team; there is no online checkout. Specialist services are quoted separately. Financial reporting is a pilot and is not generally available." as const;
+  "Plans run for 12 months and do not renew automatically. Specialist services are quoted separately and are not included in any plan. Financial reporting is a pilot and is not generally available." as const;
 
 export const LANDING_FOOTER_NOTE =
   "CFOCLOSE is a trial balance preparation and review workspace. It does not provide an audit, an audit opinion or legal advice." as const;

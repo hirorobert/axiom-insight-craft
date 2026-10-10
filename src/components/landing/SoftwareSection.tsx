@@ -47,7 +47,8 @@ export function SoftwareSection() {
                 </li>
               ))}
             </ol>
-            <p className="mt-5 text-[11px] leading-4 text-muted-foreground">{LANDING_SERVICES_COPY.frameworks}</p>
+            <p className="mt-5 text-[12px] leading-5 text-foreground" data-testid="software-formats">{LANDING_SERVICES_COPY.formats}</p>
+            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">{LANDING_SERVICES_COPY.frameworks}</p>
           </div>
         </div>
 
