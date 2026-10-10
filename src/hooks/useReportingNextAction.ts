@@ -5,10 +5,8 @@
  * and knows nothing of Close Review, comparatives, notes or the saved version). Reads only; null until read or when
  * reporting is not enabled.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { supabaseReportingDb } from "@/lib/reporting/supabaseDb";
-import { nextActionFor, readReportingSnapshot, reportingClients } from "@/lib/reporting/reportingState";
 import type { NextAction } from "@/lib/reporting/nextAction";
 import { WORKBENCH_GROUPS } from "@/lib/workbench/routes";
 
@@ -18,15 +16,18 @@ export interface ReportingNextAction { readonly action: NextAction; readonly hre
 
 export function useReportingNextAction(companyId: string | null | undefined, periodYear: number | null | undefined, enabled: boolean,
   allowed: readonly string[] | null, refreshKey?: string): ReportingNextAction | null {
-  const db = useMemo(() => supabaseReportingDb(supabase), []);
-  const clients = useMemo(() => reportingClients(db), [db]);
   const [result, setResult] = useState<ReportingNextAction | null>(null);
   const allowedKey = (allowed ?? []).join(",");
   useEffect(() => {
     let live = true;
     if (!enabled || !companyId || !periodYear || allowed === null) { setResult(null); return; }
-    readReportingSnapshot(db, clients, companyId, periodYear).then(
-      (s) => {
+    // Loaded on demand: the reporting reader (and the sign-off client it uses) stays out of the entry chunk, in the
+    // reporting chunk where it belongs (harnessIsolation.test.ts); only reporting-enabled companies ever load it.
+    Promise.all([import("@/lib/reporting/reportingState"), import("@/lib/reporting/supabaseDb")]).then(async ([rs, sdb]) => {
+      const db = sdb.supabaseReportingDb(supabase);
+      return { s: await rs.readReportingSnapshot(db, rs.reportingClients(db), companyId, periodYear), nextActionFor: rs.nextActionFor };
+    }).then(
+      ({ s, nextActionFor }) => {
         if (!live) return;
         const action = nextActionFor(s, allowed);
         setResult({ action, href: `/workspace/${companyId}/${periodYear}/${SEGMENT[action.page] ?? ""}`.replace(/\/$/, "") });
@@ -35,6 +36,6 @@ export function useReportingNextAction(companyId: string | null | undefined, per
     );
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- allowed is keyed by its contents
-  }, [db, clients, companyId, periodYear, enabled, allowedKey, refreshKey]);
+  }, [companyId, periodYear, enabled, allowedKey, refreshKey]);
   return result;
 }

@@ -137,6 +137,15 @@ jobs:
 
       - name: Jurisdiction pack isolation (the pack is a separate lazy chunk; entry chunks carry no statutory wording)
         run: node scripts/ci/assertPackIsolation.mjs dist
+
+      - name: Public search identity (the production build's icons, social image, manifest, per-route canonicals and sitemap on https://cfoclose.com)
+        run: node scripts/ci/assertPublicMetadata.mjs dist
+
+      - name: Public search identity in the browser (the production build served on loopback; each route's title, single canonical on https://cfoclose.com, robots, in headless Chrome)
+        run: node scripts/ci/routeMetadataInBrowser.mjs dist
+
+      - name: Production bundle isolation (the bundle guard re-run against the build; the full suite above runs before dist exists, where it skips)
+        run: bunx vitest run src/lib/financialStatementsWorkspace/harnessIsolation.test.ts
       - name: Development gallery excluded from the production bundle
         run: node scripts/ci/assertDevGalleryExcluded.mjs dist
 

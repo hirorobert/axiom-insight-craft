@@ -59,7 +59,7 @@ describe("dev-harness isolation", () => {
 
   it("production default-off: with the gate closed, no workspace UI, hook or copy is present in any built asset (tree-shaken, not merely hidden)", () => {
     const dist = path.join(ROOT, "dist");
-    if (!fs.existsSync(dist)) return; // enforced whenever a production build exists; the release gate always builds first
+    if (!fs.existsSync(dist)) return; // enforced whenever a production build exists; the release gate re-runs this file after its build step
     const needles = ["Internal preview", "unsaved draft", "Session only", "Professional Review", "Print / save as PDF", "fs-print-document", "Correct a figure", "financial_statement_reports", "NON-PRODUCTION HARNESS", "Harness Trading", "dev-harness"];
     const hits: string[] = [];
     const allFiles = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? allFiles(path.join(dir, e.name)) : [path.join(dir, e.name)]));
@@ -70,7 +70,9 @@ describe("dev-harness isolation", () => {
     const REPORTING_ALLOWED = new Set(["Print / save as PDF", "financial_statement_reports"]);
     for (const f of files) {
       const text = fs.readFileSync(f, "utf8");
-      const reportingChunk = /^ReportingWorkbenchPage-[A-Za-z0-9_-]+\.js$/.test(path.basename(f));
+      // The reporting reader (reportingState) is also its own lazy chunk: the workspace shell and Overview load it on demand,
+      // only for a reporting-enabled company (useReportingNextAction), so it is never in the entry chunk.
+      const reportingChunk = /^(ReportingWorkbenchPage|reportingState)-[A-Za-z0-9_-]+\.js$/.test(path.basename(f));
       for (const n of needles) if (text.includes(n) && !(reportingChunk && REPORTING_ALLOWED.has(n))) hits.push(`${path.relative(dist, f)} contains "${n}"`);
     }
     expect(hits).toEqual([]);

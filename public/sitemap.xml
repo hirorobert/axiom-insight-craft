@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Public, unauthenticated routes only. Every authenticated route (/dashboard, /workspace/*,
-  /settings, /uploads/status, /commercial/admin) is intentionally excluded: it requires sign-in,
-  is scoped per-firm by RLS, and has no meaning to a crawler or an anonymous visitor.
+  Public, unauthenticated pages only, on the preferred origin https://cfoclose.com — exactly the pages marked
+  "sitemap": true in src/lib/seo/publicPages.json (checked by scripts/ci/assertPublicMetadata.mjs). /pricing is not listed:
+  it shows the same catalogue as /plans and canonicalises to it. Every authenticated route (/dashboard, /workspace/*,
+  /settings, /uploads/status, /commercial/admin, /admin/*) is excluded and noindex.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -11,9 +12,14 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://cfoclose.com/pricing</loc>
+    <loc>https://cfoclose.com/plans</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://cfoclose.com/contact</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://cfoclose.com/terms</loc>

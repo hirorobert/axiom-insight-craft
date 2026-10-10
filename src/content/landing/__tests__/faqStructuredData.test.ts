@@ -126,9 +126,11 @@ describe("page metadata is present and specific", () => {
     expect(description.length).toBeLessThanOrEqual(200);
   });
 
-  it("declares canonical, Open Graph and Twitter card metadata", () => {
-    expect(INDEX_HTML).toMatch(/<link rel="canonical" href="https:\/\/cfoclose\.com\/"/);
-    for (const property of ["og:title", "og:description", "og:type", "og:url"]) {
+  it("declares Open Graph and Twitter card metadata; the canonical is per route, never one static URL for every page", () => {
+    // A static canonical in index.html would point every route (/plans, /terms, ...) at the homepage. Each route sets its
+    // own on https://cfoclose.com (src/components/seo/RouteMeta.tsx; src/lib/seo/publicMeta.test.ts).
+    expect(INDEX_HTML).not.toMatch(/<link rel="canonical"/);
+    for (const property of ["og:title", "og:description", "og:type", "og:url", "og:image", "og:site_name"]) {
       expect(INDEX_HTML, `missing ${property}`).toContain(`property="${property}"`);
     }
     expect(INDEX_HTML).toContain('name="twitter:card"');
