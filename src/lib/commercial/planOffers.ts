@@ -1,11 +1,15 @@
 // commercial/planOffers.ts — what a plan card may say about price and payment. Pure: no network, storage or clock.
 //
-// The server decides (get_public_plan_prices, 20261029100000):
+// The server decides (get_public_plan_prices, 20261029100000). Three states per plan:
+//   approved price + online payment open → the price and "Choose <plan>";
+//   approved price, online payment closed → the price (no "Proposed") and "Request activation";
+//   no approved price → the catalogue figure marked "Proposed" and "Request activation".
+// Where:
 //   - a price is APPROVED only when a commercial administrator has made that plan's annual offer purchasable;
 //   - customers can pay online only while commercial_platform_state is CUSTOMER_PAYMENTS_ENABLED.
-// A plan is offered for online purchase only when BOTH hold for it. Otherwise it is shown exactly as before: the
-// catalogue figure labelled "Proposed", and "Request activation" (the enquiry preselected with the plan) — so manual
-// activation stays the path whenever online payment is not open. Enterprise is always agreed with the team.
+// A plan is offered for online purchase only when BOTH hold for it; otherwise its action is "Request activation" (the
+// enquiry preselected with the plan), so manual activation stays the path whenever online payment is not open. Only a
+// launched route's market is ever shown (LAUNCHED_MARKETS). Enterprise is always agreed with the team.
 // No price is ever invented here: an approved price is the server's own amount; a proposed one is the catalogue's.
 
 import { PRICING_CATALOGUE, type CataloguePlan, type PlanCode } from "./pricingCatalogue";
@@ -52,6 +56,12 @@ export type PlanPurchaseView =
   | { readonly mode: "enterprise"; readonly priceLines: readonly string[]; readonly actionLabel: string; readonly href: string };
 
 const ROUTE_NAME: Readonly<Record<string, string>> = { GLOBAL: "card", TZ: "mobile money" };
+/**
+ * The markets whose payment route is launched. Owner decision (2026-10-10): Polar card payments only — the TZ (Snippe,
+ * mobile money) route is not offered (no TZS price is approved), so a TZ offer is never shown, even if one is approved
+ * later by mistake. Mirrors SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false on the server.
+ */
+export const LAUNCHED_MARKETS: readonly string[] = ["GLOBAL"];
 
 export const checkoutHref = (plan: PlanCode): string => `/billing/checkout?plan=${plan}`;
 
@@ -59,10 +69,15 @@ export function planPurchaseView(plan: CataloguePlan, prices: PublicPrices | nul
   if (plan.salesMode === "contact_sales") {
     return { mode: "enterprise", priceLines: ["Terms agreed with our team"], actionLabel: "Discuss Enterprise", href: activationHref(plan.code, source) };
   }
-  const offers = (prices?.offers ?? []).filter((o) => o.planCode === plan.code);
+  const offers = (prices?.offers ?? []).filter((o) => o.planCode === plan.code && LAUNCHED_MARKETS.includes(o.marketCode));
   if (prices?.onlinePayment && offers.length > 0) {
     const priceLines = offers.map((o) => `${formatMoney(o.amountMinor, o.currencyCode, o.currencyExponent)} per year${ROUTE_NAME[o.marketCode] ? ` by ${ROUTE_NAME[o.marketCode]}` : ""}`);
     return { mode: "online", priceLines, actionLabel: `Choose ${plan.name}`, href: checkoutHref(plan.code) };
+  }
+  if (offers.length > 0) {
+    // An approved price while online payment is closed: the server's amount, without "Proposed", and the activation request.
+    const priceLines = offers.map((o) => `${formatMoney(o.amountMinor, o.currencyCode, o.currencyExponent)} per year`);
+    return { mode: "activation", priceLines, actionLabel: "Request activation", href: activationHref(plan.code, source) };
   }
   const proposed = plan.annualMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${(plan.annualMinor / 100).toLocaleString("en-US")} per year`;
   return { mode: "activation", priceLines: [proposed], actionLabel: "Request activation", href: activationHref(plan.code, source) };

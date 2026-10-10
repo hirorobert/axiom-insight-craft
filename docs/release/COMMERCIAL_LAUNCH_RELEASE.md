@@ -1,128 +1,138 @@
-# CFOClose commercial launch: plans and online payment
+# CFOClose commercial launch: plans and online payment (closure)
 
-- **Milestone:** *Commercial launch: plans and online payment*. The three PRs are dependency-ordered:
-  1. **#103:** database authority for payment (`commercial-p1`).
-  2. **#104:** server functions, which are the provider adapters, the verified webhooks and the shared settlement path.
-  3. **#105:** customer and administrator screens, the landing refinement and the end-to-end journey.
-- **Builds on:** release `1e4d4d0` (PRs #101, #102), whose package `handoff-commercial-c1-20261010.zip` this release **supersedes**.
-- **Not done:** no hosted migration, deployment, publication, provider account, sandbox run, price approval or charge. The platform stays `PAYMENTS_DISABLED` until the owner opens it, stage by stage (`COMMERCIAL_LAUNCH_LOVABLE_CHECKLIST.md` §7).
+- **Milestone:** *Commercial launch: plans and online payment*.
+  - **Merged:** #103 (database authority, `commercial-p1`), #104 (server functions) and #105 (screens), at main `c9460b2`.
+  - **The closure PR** adds `commercial-p2` and the fixes in §2.
+  - The release commit, its tree and its CI runs are in `RELEASE.txt`.
+- **Supersedes:** `handoff-commercial-launch-20261010.zip`, and every earlier package.
+- **Not done under this release:** no hosted migration, deployment, publication, merchant account, sandbox run, live payment or charge. The platform stays `PAYMENTS_DISABLED` until the owner opens it, stage by stage (`COMMERCIAL_LAUNCH_LOVABLE_CHECKLIST.md`, Stages C–F).
 
-## 1. The customer journey
+## 1. Owner decisions (10 October 2026)
 
-1. **Understand the product.** The landing hero carries:
-   - one proposition;
-   - one genuine, labelled screenshot;
-   - the statement that the software performs the checks and records the decisions, while professional judgement stays with the user.
-
-   The import formats are stated (CSV and XLSX exports, with no accounting-system integration).
-2. **Choose a plan.** The plans show entities, included named users, the additional-user charge and a 12-month term with no automatic renewal.
-   - An **approved** price, with online payment open, shows that price and **Choose <plan>**.
-   - Otherwise the plan shows **Proposed** and **Request activation**, preselected with the plan.
-3. **Create an account or sign in.** The plan is remembered (only its code), and the customer returns to its checkout after confirming their email.
-4. **Pay through an eligible provider.**
-   - **Card:** Polar, merchant of record, USD.
-   - **Mobile money:** Snippe, M-Pesa / Airtel / Mixx / Halotel, TZS.
-   - The server chooses the price, the currency, the term and the provider. The browser sends a plan and a route.
-5. **Server-authorised access.** Access starts only after the server has verified the payment with the provider.
-   - The first verification is by signed webhook. The status page's bounded recovery check is the fallback.
-   - Verification checks the merchant, the order, the account, the amount, the currency and the status.
-   - The commit is atomic and replay-safe.
-6. **Start a trial-balance review.** The status page's next action does exactly that.
-
-Specialist consulting stays on **Ask for a quote**, preselected for the service. It is never part of a plan.
-
-## 2. What changes
-
-| Layer | Change |
+| Decision | How the release honours it |
 |---|---|
-| Database (`20261029100000`, batch `commercial-p1`) | SNIPPE/POLAR identifiers; the placement rule (renewal, downgrade at renewal, upgrade now, review); the commit accepts only final outcomes and never applies a second transaction to a paid intent; paid-term placement by an administrator; manual activation never shortens a paid term; recovery claims by an administrator; a billing record at checkout; customer and administrator reads; the public price read. Refuses unless `PAYMENTS_DISABLED`; refuses a second application. |
-| Edge Functions | Polar and Snippe adapters (fetch only, no SDK); Standard Webhooks and HMAC verification with a 5-minute window; one settlement path for webhooks and recovery; two webhook endpoints; checkout routing by route (card → GLOBAL/USD → Polar; mobile money → TZ/TZS → Snippe), without crossing routes and only where the platform state permits. |
-| Customer UI | Landing, plans, `/billing/checkout`, the status page, `/billing/orders`. |
-| Administrator UI | `/commercial/admin`: payments needing attention, accounts and manual activation, prices, the online-payment state. |
+| Annual prices approved: Solo USD 490, Practice USD 990, Firm USD 2,990 | Recorded by an administrator at checklist C3. No price is hard-coded: the site shows the server's approved amount. |
+| Enterprise quoted separately | Always **Discuss Enterprise**; never sold online |
+| Additional-user prices (USD 200 a year, Practice and Firm) kept, **not approved** | Shown as "proposed … arranged with our team". Never sold online, and never part of a checkout. **Outstanding owner approval** before seats could ever be sold. |
+| Launch scope: Polar card payments only, conditional on merchant approval and verification | Checkout opens only at Stage F, after C4 (approval), D (sandbox) and E (controlled live) |
+| No TZS prices; Snippe disabled but preserved | `SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false` on the server; `LAUNCHED_MARKETS = ["GLOBAL"]` in the browser. Neither the landing, the plans nor the administrator's price form offers TZS or mobile money. The adapter and webhook remain. |
+| Consulting stays enquiry and quotation | **Ask for a quote**. Also outside Polar's acceptable use (human services). |
+| Financial reporting stays a restricted pilot | A purchase never touches the rollout tables. Proven in `paidTermPreservation.mjs` ("Withheld services"). |
 
-## 3. Migration batch `commercial-p1`
+## 2. What the closure changes
 
-- **Wrapper:** `release/wrappers/20261029100000_payment_provider_routes.wrapper.sql`. It encloses the source exactly as committed at `21387d52d432359eb46d34e6160b4876eeb42f63`:
-  - payload 49,007 bytes, SHA-256 `3b1b14d93bb2ee7ef21d416a89d5fa3490848f4bce53827979d0290d76e42818`;
-  - wrapper 50,575 bytes, SHA-256 `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627`.
-  - Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
-- **Order:** after `reporting-r5` and `commercial-c1`.
-- **Preflight:** `release/commercial-p1/preflight.sql` (read-only). It requires c1 and `PAYMENTS_DISABLED`, refuses if p1 is already applied, and records four counts and digests: licences, intents, payment events, offers.
-- **Postcondition:** `release/commercial-p1/postcondition.sql` (read-only). It checks:
-  - the identifiers and the placement rule;
-  - the paid-term guard;
-  - the scoping of every new function (server-only functions run for no client role; administrator functions run for authenticated callers only);
-  - that the public read is open to everyone;
-  - that payments are still disabled.
-
-  The same four counts and digests must match the preflight's.
-
-## 4. Function deployment manifest
-
-| Function | Files (all under `supabase/functions/`) | JWT | Reads secrets |
+| Area | Defect or gap found | Change | Regression coverage |
 |---|---|---|---|
-| `commercial-create-checkout` | `commercial-create-checkout/index.ts`, `_shared/auth.ts`, `_shared/correlationId.ts`, `_shared/payments/{contracts,routing,http,webhookSignature}.ts`, `_shared/payments/providers/{polar,snippe}.ts` | on | `SAFF_PAYMENT_REDIRECT_URL`, `POLAR_*`, `SNIPPE_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
-| `commercial-payment-status` | `commercial-payment-status/index.ts`, `_shared/auth.ts`, `_shared/correlationId.ts`, `_shared/payments/{contracts,routing,http,webhookSignature,settle}.ts`, `_shared/payments/providers/*` | on | as above, plus `SUPABASE_ANON_KEY` |
-| `commercial-webhook-polar` | `commercial-webhook-polar/index.ts`, `_shared/payments/webhookEndpoint.ts` (and the shared modules above) | **off** | `POLAR_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
-| `commercial-webhook-snippe` | `commercial-webhook-snippe/index.ts`, `_shared/payments/webhookEndpoint.ts` (and the shared modules above) | **off** | `SNIPPE_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
-| `commercial-payment-webhook` | unchanged (retired, 410) | unchanged | none |
-| `submit-service-enquiry`, `dispatch-enquiry-notifications` | unchanged from c1 | unchanged | unchanged |
+| Paid-term preservation (`commercial-p2`, migration `20261030100000`) | (a) An upgrade ended the current term at once, **silently ending its paid additional named users**. (b) Found by CI on Linux: a manual grant took no lock, so a grant **racing** a verified payment for the same account could make that payment's commit fail on the no-overlap constraint instead of being recorded. | (a) The placement rule returns `BLOCKED_SEATS` for an upgrade over additional users; the payment is recorded once and the term waits for an administrator. Renewal and downgrade report the current term's seats, which continue until it ends. (b) `admin_grant_commercial_licence` takes the commit's per-account lock, so the two are serialised. | `scripts/db-proof/paidTermPreservation.mjs` (18 assertions, including a deterministic lock-wait check and the simultaneous race); wrapper proof; `paymentScreens.test.ts` |
+| Delayed Polar notifications | A correctly signed delivery older than 5 minutes was dropped, relying on the customer or an administrator to recover the order | Such a delivery now reconciles: duplicate check by event id, then a read of Polar's own order, then the same idempotent commit. At most one read a minute per order. The body is never trusted, and a bad signature still gets 401. | `providerAdapters.test.ts`; E2E "delayed notification" (20 minutes old) |
+| Partial refunds | Polar reports the order's **cumulative** refunded amount. A partial refund followed by a full one recorded the full amount again. | Each reversal records only the change since the reversals already recorded. A redelivery records nothing. | `providerAdapters.test.ts`; E2E partial-then-full refund recorded as 200.00 then 290.00 |
+| Polar-only availability | The server would offer mobile money once a TZS price existed, and the price form defaulted to TZS | Snippe is gated off in code, the browser shows only launched markets, and the price form defaults to GLOBAL/USD with a Polar-only note | `providerAdapters.test.ts` owner-decision test; `landingPage.test.ts`; `noCheckoutClaims.test.ts` |
+| Approved price while checkout is closed | Showed "Proposed" | Shows the approved amount with **Request activation**: no dead button and no invented price | `landingPage.test.ts`; `noCheckoutClaims.test.ts` |
+| Copy | The FAQ and guides mentioned mobile money | Card through Polar only | `landingPage.test.ts`; documents |
+| Account home (owner's screenshots of `cfoclose.com/dashboard` and `/plans`, 10 October 2026) | The screenshots are this candidate's code rendering hosted data, not an older build. "Proposed" prices are the configuration-dependent fallback: no offer is approved on the hosted project yet. Confirmed gaps: (1) no single next action; (2) a disabled "Start Trial balance review" button; (3) "No active plan" stated three times; (4) company creation only through Settings; (5) `/plans`, checkout and orders used the public header, and the footer offered "Sign in" to a signed-in person; (6) a fresh account without a plan was silently redirected to `/plans`. | `deriveAccountNextAction` (pure) chooses **one** primary action from the plan, capacity, company, period and review-permission reads. Blocked actions state their prerequisite instead of showing a disabled button. The missing plan is said once. "Add a company" opens the existing `create_entity` form on the home when capacity permits. `AccountShell` is the one signed-in frame (Home, Plans, Orders, Settings, Sign out) for the home, plans, checkout and orders. A fresh account stays on the home with "Choose a plan to begin". | `accountNextAction.test.ts`; `EngagementHub.unavailable.test.ts`; `Dashboard.test.ts`; `TrialBalanceSurfaces.test.ts`; E2E "Fresh account" group |
 
-## 5. Configuration (names only; values come from the provider dashboards and are never committed)
+## 3. Migration inventory
 
-| Name | Required for | Value / rule |
-|---|---|---|
-| `SAFF_PAYMENT_REDIRECT_URL` | Any provider | `https://cfoclose.com/billing/payment/return` (https; loopback http only in local tests). Without it, no provider is configured. |
-| `POLAR_ENVIRONMENT` | Polar | `sandbox` or `production`. Never defaulted: any other value disables Polar. |
-| `POLAR_ACCESS_TOKEN` | Polar | An organization access token for that environment (scope: checkouts and orders). |
-| `POLAR_WEBHOOK_SECRET` | Polar | The endpoint's `whsec_…` secret. Secrets created from 8 September 2026 use Standard Webhooks. |
-| `POLAR_ORGANIZATION_ID` | Polar | A UUID. The verified order's product must belong to it. |
-| `POLAR_PRODUCT_IDS` | Polar | JSON object with `SOLO`, `PRACTICE` and `FIRM`, each a product UUID (one-time products). |
-| `SNIPPE_ENVIRONMENT` | Snippe | `sandbox` or `production`. |
-| `SNIPPE_API_KEY` | Snippe | `snp_…` |
-| `SNIPPE_WEBHOOK_SECRET` | Snippe | The webhook signing key. |
-| `POLAR_API_BASE_URL`, `SNIPPE_API_BASE_URL` | Local tests only | **Never set on the hosted project.** They are accepted only for a sandbox provider pointing at loopback. |
+**Hosted state is authoritative:** run checklist **A1**.
+- Claude has no hosted access.
+- No evidence has been received that any batch below is applied.
+- Every batch is idempotent: each refuses a second application.
 
-A provider is offered only when **all** of its settings are present and valid. A partial configuration is treated as none.
+| Order | Batch | Wrapper (`release/wrappers/`) | Bytes | SHA-256 | Source commit | Status |
+|---|---|---|---|---|---|---|
+| 1 | reporting-r5 | `20261024100000_fs_signoff_approval_policy.wrapper.sql` | 15,105 | `74d6cd987a0063809414f336b17bd7afd3199ce3349f9b5ee3e7b1cf8e11487e` | `5358aef` | Pending (verify at A1) |
+| 2 | commercial-c1 | `20261025100000_commercial_enquiries.wrapper.sql` | 19,613 | `577cfa4c84399a22f50a9dfc52af2cfa68d09592c54a0440a41c3b39e46d8e90` | `0158258` | Pending |
+| 3 | commercial-c1 | `20261026100000_retire_browser_adjusting_journal_writes.wrapper.sql` | 6,182 | `7ed2cee1836489a169f5193aa935291ecc9bceea5872f0b11aadc94c089c8934` | `0158258` | Pending |
+| 4 | commercial-c1 | `20261027100000_workspace_purpose.wrapper.sql` | 7,192 | `44daa7f7aa1305789cf1e342ddf49aae1e423dafc3a2213d1498ea91c06f2f2f` | `0158258` | Pending |
+| 5 | commercial-c1 | `20261028100000_period_dates_from_company.wrapper.sql` | 11,708 | `c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529` | `0158258` | Pending |
+| 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | Pending |
+| 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | Pending (new in this closure) |
 
-## 6. Provider eligibility
+- **p2 payload:** 22,439 bytes, SHA-256 `ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
+- **Preflight and postcondition:** `release/<batch>/preflight.sql` and `postcondition.sql`, all read-only.
+- **p2 preflight** refuses unless p1 is applied and payments are disabled, and refuses if p2 is already applied. It records three counts and digests (licences, intents, payment events).
+- **p2 postcondition** checks the placement rule, the commit, the manual grant's per-account lock, the scoping, and that payments are still disabled. Its digests must equal the preflight's.
 
-The full facts, dated 10 October 2026, are in `docs/release/PAYMENT_PROVIDER_EVIDENCE.md`. In brief:
-- **Polar** is a merchant of record. It accepts software and B2B SaaS, and excludes human services and "financial advice … related to tax guidance". It pays out to Tanzania through Stripe Connect Express. Its account review can take up to 14 days.
-- **Snippe** offers TZS mobile money only, through Tanzanian merchant KYC. It documents no sandbox, refunds or recurring billing.
-- **Neither provider has confirmed that it will onboard the merchant.**
+## 4. Function deployment
 
-## 7. Verification
+`release/FUNCTIONS_MANIFEST.json` names every file each function deploys, with its SHA-256 at the release commit.
 
-| Area | Kind | Evidence | Result |
+| Function | JWT | Reads secrets | Changed in the closure |
 |---|---|---|---|
-| Payment authority on PostgreSQL. It covers 43 assertions:<br>• refusal unless disabled; re-application refused;<br>• provider identifiers; the platform matrix;<br>• one licence per verified payment, under replay and 8 concurrent deliveries;<br>• amount, currency, provider, environment and non-final mismatches;<br>• FAILED, CANCELLED and EXPIRED, each with a late success refused; an uncertain outcome honoured;<br>• renewal, downgrade at renewal, upgrade now; unplaceable payments recorded once and placed;<br>• manual activation versus paid;<br>• refund review;<br>• cross-account and role denial; company ownership is not administration;<br>• billing record under concurrency;<br>• withheld capabilities (Consolidation, multi-entity for Solo);<br>• the public price read. | **Local**, real PostgreSQL | `scripts/db-proof/paymentProviders.mjs` | PASS 43/43 (local; CI on #103) |
-| Self-checking wrapper `commercial-p1` | Local and CI, real PostgreSQL | `RELEASE_BATCH=commercial-p1 scripts/db-proof/selfCheckingWrappers.mjs` | PASS 32/32 |
-| Existing proofs, re-run because the commit and the manual grant changed: `annualTerm` 91, `planCapabilities` 112, `entitlements` 67, `billingSuspension` 52 | Local, real PostgreSQL | — | PASS |
-| Adapters, signatures, routing and settlement against recorded provider HTTP | **Mock** | `providerAdapters.test.ts` | PASS 54/54 |
-| Checkout, status and administrator screens (jsdom, axe) | **Mock** server answers | `paymentScreens.test.ts` | PASS 21/21 |
-| Real application on a local stack: admin opens sandbox and approves prices; card and mobile-money purchases; signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries; expiry and a new attempt; refund review; manual activation and the paid-term guard; cross-account denial; 1280 and 375 px | **Local** app, database and functions; **mock** providers | `scripts/e2e/paymentJourney.mjs` (CI job `real-app-e2e`) | *see `RELEASE.txt` (final-main CI)* |
-| Provider sandbox (Polar sandbox; Snippe test keys) | **Sandbox** | `scripts/payments/providerSandboxSmoke.ts` | **NOT RUN.** No sandbox credentials exist in this environment. The owner runs it (checklist §7.4). |
-| Hosted application, live payments | **Hosted** | Checklist §6 and §7 | **NOT RUN** (not authorised) |
+| `commercial-create-checkout` | on | `SAFF_PAYMENT_REDIRECT_URL`, `POLAR_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (`SNIPPE_*` are read but never offered) | Yes (shared routing) |
+| `commercial-payment-status` | on | as above, plus `SUPABASE_ANON_KEY` | Yes (settlement) |
+| `commercial-webhook-polar` | **off** | `POLAR_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Yes (delayed-notification recovery) |
+| `commercial-webhook-snippe` | **off** | `SNIPPE_*` (unset: 503) | Shared modules only |
+| `commercial-payment-webhook` | unchanged | none | No (retired, 410) |
+| `submit-service-enquiry`, `dispatch-enquiry-notifications` | unchanged | unchanged | No |
 
-**Defined handling, and what is not implemented:**
-- **Disputes:**
-  - Polar is the merchant of record and handles disputes itself; it may refund early to prevent a chargeback. A refund arrives as a reversal and is reviewed by the administrator. No separate dispute event is documented.
-  - Snippe documents no disputes.
-  - `record_payment_reversal` supports `CHARGEBACK` for a provider that reports one.
-- **Renewal** is a new 12-month purchase that starts when the current term ends. No provider subscription exists, so nothing renews or needs cancelling.
-- **Partial refunds** are recorded at their amount for review.
+## 5. Configuration names
 
-## 8. Remaining external prerequisites and owner decisions
+Names only; never commit values.
 
-1. **Merchant entity and accounts.**
-   - Decide which legal entity sells.
-   - Complete Polar's review and Snippe's KYC. Approval is at each provider's discretion.
-2. **Prices.**
-   - Confirm that the USD annual prices are approved (490 / 990 / 2,990).
-   - Decide whether to approve TZS prices for mobile money. None exist, and none were invented.
-3. **Legal review** of the terms and privacy pages for paid sales, including Polar's merchant-of-record terms (`LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE`).
-4. **Tax.** For TZS sales through Snippe, CFOClose's entity is the seller; its TRA obligations are the owner's to confirm.
-5. **Custom SMTP**, the enquiry email secrets, and the enrolment of staff and the first commercial administrator.
-6. **Owner-authorised hosted steps**, in this order: r5, c1, p1 → function deploys → Publish → the staged opening of payments.
-7. **Independent accounting validation** of the reporting pilot. This is unchanged; the reporting pilot is not part of this release.
+| Name | Rule |
+|---|---|
+| `SAFF_PAYMENT_REDIRECT_URL` | `https://cfoclose.com/billing/payment/return` |
+| `POLAR_ENVIRONMENT` | `sandbox` or `production`. Never defaulted. |
+| `POLAR_ACCESS_TOKEN` | Organization token for that environment, with the checkouts and orders scopes |
+| `POLAR_WEBHOOK_SECRET` | `whsec_…` (Standard Webhooks) |
+| `POLAR_ORGANIZATION_ID` | UUID |
+| `POLAR_PRODUCT_IDS` | `{"SOLO":…,"PRACTICE":…,"FIRM":…}`, one-time products with no Polar benefits |
+| `SNIPPE_*` | **Do not set.** The route is not launched. |
+| `POLAR_API_BASE_URL`, `SNIPPE_API_BASE_URL` | **Never on the hosted project.** For local tests only. |
+
+## 6. Merchant eligibility, email and administrators
+
+- **Merchant:** `PAYMENT_PROVIDER_EVIDENCE.md` §0 and §5.
+  - Tanzania is a Polar **payout** country, which is not an approval.
+  - Software is accepted.
+  - Human services and tax advice are not, so consulting is never sold through Polar.
+  - Onboarding needs three steps: approval, the owner's identity verification, and the payout account. It can take up to 14 days.
+- **Email:**
+  - custom SMTP (`PRODUCTION_AUTH_SMTP_CONFIGURATION_REQUIRED`);
+  - enquiry email (`ENQUIRY_EMAIL_ENABLED`, `LOVABLE_API_KEY`, `ENQUIRY_INTERNAL_NOTIFY_TO`).
+
+  See checklist B3.
+- **Administrators:**
+  - one commercial administrator by operator bootstrap (B4);
+  - enquiry operators by `platform_staff_grant`;
+  - live-acceptance testers by allow-list (E2).
+
+## 7. Refunds, disputes and recovery
+
+See `REFUNDS_DISPUTES_AND_RECOVERY.md`:
+- **Automated:** settlement, delayed-notification recovery, and the recording of refunds as change amounts.
+- **Manual:** placement review, uncertain outcomes, the access decision on every refund, and disputes. Polar documents no dispute webhook.
+- **Unsupported:** automatic pro-rata refunds; automatic access changes on refund or dispute (by design).
+
+## 8. Verification matrix
+
+**Kinds of evidence:**
+- **Mock** means recorded provider HTTP, or a local mock provider.
+- **Local** means a real PostgreSQL, or the real app and functions on a local stack.
+- None of this is evidence of Polar's real behaviour or of the hosted project.
+
+| # | Check | Kind | Evidence | Result |
+|---|---|---|---|---|
+| 1 | Release integrity: release commit, tree, exact-head and final-main CI | CI | `RELEASE.txt`, `evidence/ci/` | **PASS** (see `RELEASE.txt`) |
+| 2 | Payment authority (43 assertions) | Local, real PostgreSQL | `paymentProviders.mjs` | **PASS** (CI) |
+| 3 | Paid-term preservation (18 assertions): seats, renewal, downgrade, upgrade, 6 concurrent deliveries plus a replay, manual-versus-payment races (grant-first, payment-first, simultaneous, and a deterministic lock-wait check), withheld pilot, bystander intact | Local, real PostgreSQL | `paidTermPreservation.mjs` | **PASS** (local and CI) |
+| 4 | Self-checking wrappers p1 and p2 | Real PostgreSQL | `selfCheckingWrappers.mjs` | **PASS** (CI) |
+| 5 | Adapters, signatures, stale recovery, refund change amounts, Polar-only routing | **Mock** | `providerAdapters.test.ts` | **PASS** |
+| 6 | Screens: checkout (incl. the seats note and `BLOCKED_SEATS`), status, administrator | **Mock** server answers (jsdom, axe) | `paymentScreens.test.ts` | **PASS** |
+| 7 | End-to-end journey: purchase, signed webhooks (replay, bad signature, stale), **delayed notification recovered once**, partial then full refund, expiry, manual activation, cross-account denial, landing without TZS or mobile money, 1280 and 375 px | Local app and functions; **mock** Polar | `paymentJourney.mjs` (CI `real-app-e2e`), `evidence/payments-e2e/` | **PASS** (CI) |
+| 7a | Fresh account, desktop and mobile:<br>• no company, engagement, demonstration data or privilege;<br>• one next step;<br>• one frame;<br>• keyboard;<br>• back and refresh;<br>• a failed plan read recovered by Try again;<br>• return from plan selection;<br>• server refusal of `create_entity` without a plan, of another account's company and of the administrator screen;<br>• after a manual activation, a company created from the home | Local app, database and functions | `paymentJourney.mjs` group "Fresh account" (CI `real-app-e2e`) | **PASS** (CI) |
+| 7b | The same on the **hosted** project with a genuinely fresh account | Hosted | Checklist B6 | **NOT RUN.** Claude does not create accounts on the hosted service. The owner or Lovable runs it after Publish; NBAA's existing account is not used for it. |
+| 8 | Polar eligibility from current documentation | Desk research | `PAYMENT_PROVIDER_EVIDENCE.md` §0 | **OWNER ACTION REQUIRED.** The country is supported for payouts; entity and offering are not approved. |
+| 9 | Polar sandbox verification | **Sandbox** | Checklist Stage D | **NOT RUN.** No sandbox credentials exist. |
+| 10 | Controlled live acceptance | Live | Checklist Stage E | **NOT RUN.** Not authorised; needs merchant approval. Real cost: USD 490 plus tax; Polar fees are not returned on refund. |
+| 11 | Hosted migrations r5, c1, p1, p2 applied | Hosted | Checklist B1 | **NOT RUN** (Lovable, with owner authorisation) |
+| 12 | Function deployment and Publish | Hosted | Checklist B2, B5 | **NOT RUN** (Lovable) |
+| 13 | Custom SMTP and enquiry email | Hosted | Checklist B3 | **OWNER ACTION REQUIRED** |
+| 14 | First commercial administrator | Hosted | Checklist B4 | **OWNER ACTION REQUIRED** |
+| 15 | Legal review of terms and privacy for paid sales | External | Checklist C5 | **OWNER ACTION REQUIRED** |
+| 16 | Additional-user price approval | Owner | §1 | **OWNER ACTION REQUIRED** (only if seats are ever sold online) |
+| 17 | Independent accounting validation of the reporting pilot | External | — | **NOT RUN** (unchanged; not part of this release) |
+| 18 | Polar dispute notifications | Provider | `PAYMENT_PROVIDER_EVIDENCE.md` §3b | **Not supported by Polar's documentation.** Handled manually. |
+
+**No production readiness is claimed.** Mock and local evidence prove the implementation's handling of documented behaviour. Customer checkout stays closed until Stages C–E pass and the owner decides Stage F.

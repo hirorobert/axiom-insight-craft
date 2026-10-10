@@ -278,3 +278,19 @@ describe("payment status page · another account's order", () => {
     expect(byTestId(m, "order-summary")).toBeNull();
   });
 });
+
+describe("checkout · additional named users are never lost silently", () => {
+  it("an upgrade that would end paid additional users is not offered: it is sent to the team, with the count", async () => {
+    client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, placement: { kind: "BLOCKED_SEATS", additional_seats: 2 } }, error: null });
+    m = mount(at("/billing/checkout?plan=FIRM", h(Checkout)));
+    await flush();
+    expect(byTestId(m, "checkout-unavailable")!.textContent).toContain("2 additional named users");
+    expect(byTestId(m, "checkout-continue")).toBeNull();
+  });
+  it("a renewal states that the current term's additional users are not part of the purchase", async () => {
+    client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, placement: { kind: "RENEWAL", start: "2027-03-01T00:00:00Z", additional_seats: 3 } }, error: null });
+    m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
+    await flush();
+    expect(byTestId(m, "checkout-seats-note")!.textContent).toContain("3 additional named users");
+  });
+});

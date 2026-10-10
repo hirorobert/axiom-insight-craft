@@ -444,6 +444,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 50575, sha256: "407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 50574, sha256: "8a4487f2ec15d1f660f4b060d12eb4092197f07865eb1d28fc063ae398bf2dcb" }),
   }),
+  // Commercial launch closure (batch commercial-p2): an upgrade never ends paid additional named users automatically.
+  "20261030100000_paid_term_seat_preservation.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 22439, sha256: "ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f" }),
+    finalLfRemoved: Object.freeze({ bytes: 22438, sha256: "f5dcb32819bc450ffbd4ef1cc867e352d747f9220313dac0ac85547828bce57e" }),
+    // Self-checking wrapper release/wrappers/20261030100000_paid_term_seat_preservation.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 24015, sha256: "8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 24014, sha256: "89ba277da4415e5de3e1967541603891f7260f2b3f4f14dee2d76c08dbcc06c1" }),
+  }),
 });
 
 /**

@@ -40,7 +40,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
 import { getAdapterForProvider } from '../_shared/payments/routing.ts';
-import { SETTLEMENT_INTENT_COLUMNS, settleIntent, type ServiceDb } from '../_shared/payments/settle.ts';
+import { SETTLEMENT_INTENT_COLUMNS, serviceDbFrom, settleIntent } from '../_shared/payments/settle.ts';
 
 const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -171,7 +171,7 @@ Deno.serve(async (req: Request) => {
       .select(SETTLEMENT_INTENT_COLUMNS).eq('id', responseData.intent_id).maybeSingle();
     if (intentErr || !intent) return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
 
-    const outcome = await settleIntent(serviceClient as unknown as ServiceDb, adapter, intent);
+    const outcome = await settleIntent(serviceDbFrom(serviceClient), adapter, intent);
     const { data: refreshed } = await readClient.rpc('get_checkout_status', { p_saff_reference: saffReference });
     return jsonResponse({ ...((refreshed ?? responseData) as Record<string, unknown>), recovery: outcome.result, correlationId }, 200);
   } catch (fallbackErr) {

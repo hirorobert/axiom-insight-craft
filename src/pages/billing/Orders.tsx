@@ -5,8 +5,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { AccountOrPublicFrame } from "@/components/account/AccountOrPublicFrame";
 import { useAuth } from "@/contexts/AuthContext";
 import { getMyPayments, type MyPayment } from "@/lib/commercial/checkoutClient";
 import { formatLicenceDate } from "@/lib/commercial/billingDisplay";
@@ -27,12 +26,11 @@ export default function Orders() {
   }, [user, loading]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background"><Header />
-      <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 pb-16 pt-28 sm:px-6">
+    <AccountOrPublicFrame publicMainClassName="mx-auto w-full max-w-4xl flex-1 px-4 pb-16 pt-28 sm:px-6" accountMainClassName="mx-auto w-full max-w-4xl flex-1 px-4 py-10 sm:px-6">
         <h1 className="text-2xl font-semibold">Your orders</h1>
         {!loading && !user && <p className="mt-4 text-sm">Sign in to see your orders. <Link className="underline" to="/auth">Sign in</Link></p>}
         {user && !orders && !failed && <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading…</p>}
-        {failed && <p className="mt-4 text-sm text-destructive" role="alert">Your orders could not be loaded. Refresh to try again.</p>}
+        {failed && <p className="mt-4 text-sm text-destructive" role="alert">Your orders could not be loaded. <button type="button" className="underline" data-testid="orders-retry" onClick={() => { setFailed(false); setOrders(null); getMyPayments().then((r) => (r ? setOrders(r) : setFailed(true))); }}>Try again</button></p>}
         {orders && orders.length === 0 && <p className="mt-4 text-sm text-muted-foreground" data-testid="orders-empty">No online orders yet. <Link className="underline" to="/plans">See the plans</Link></p>}
         {orders && orders.length > 0 && (
           <ul className="mt-6 divide-y divide-border border border-border" data-testid="orders-list">
@@ -48,7 +46,6 @@ export default function Orders() {
             ))}
           </ul>
         )}
-      </main><Footer />
-    </div>
+    </AccountOrPublicFrame>
   );
 }

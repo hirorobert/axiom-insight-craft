@@ -234,7 +234,8 @@ describe("migration directory integrity", () => {
     // 167 -> 168: 20261027100000_workspace_purpose.sql (explicit workspace purpose, batch commercial-c1), a NEW forward-only migration pending hosted application.
     // 168 -> 169: 20261028100000_period_dates_from_company.sql (a workspace's first period from the company's stated year-end, batch commercial-c1), a NEW forward-only migration pending hosted application.
     // 169 -> 170: 20261029100000_payment_provider_routes.sql (online payment provider routes and renewal-aware placement, batch commercial-p1), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(170);
+    // 170 -> 171: 20261030100000_paid_term_seat_preservation.sql (an upgrade never ends paid additional named users, batch commercial-p2), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(171);
   });
 });
 

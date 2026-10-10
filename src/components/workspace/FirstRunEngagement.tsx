@@ -97,9 +97,13 @@ type SubmitState = "idle" | "submitting" | "error";
 
 export default function FirstRunEngagement({
   onCreated,
+  headingLevel = "h1",
 }: {
   onCreated: (companyId: string, periodYear: number) => void;
+  /** "h2" when embedded in a page that already has its own h1 (the account home). */
+  headingLevel?: "h1" | "h2";
 }) {
+  const Heading = headingLevel;
   const { user } = useAuth();
   const defaultYear = new Date().getFullYear() - 1;
 
@@ -215,9 +219,9 @@ export default function FirstRunEngagement({
     >
       {/* Header */}
       <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+        <Heading className="text-xl font-semibold tracking-tight text-foreground">
           Set up your reporting workspace
-        </h1>
+        </Heading>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Add the organization and reporting period you want to work on.
           You can configure reporting and tax requirements later.

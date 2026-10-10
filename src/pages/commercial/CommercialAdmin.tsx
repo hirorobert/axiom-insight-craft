@@ -281,7 +281,7 @@ interface OfferRow { id: string; offer_code: string; plan_code: string; market_c
 
 function Offers({ act, busy }: { act: Act; busy: string | null }) {
   const [offers, setOffers] = useState<OfferRow[] | null>(null);
-  const [form, setForm] = useState({ plan: "SOLO", market: "TZ", currency: "TZS", amount: "", exponent: "0" });
+  const [form, setForm] = useState({ plan: "SOLO", market: "GLOBAL", currency: "USD", amount: "", exponent: "2" });
   const [reason, setReason] = useState("");
   const load = useCallback(async () => { const { data } = await callCommercialRpc("admin_list_commercial_offers", {}); setOffers((data ?? []) as OfferRow[]); }, []);
   useEffect(() => { void load(); }, [load]);
@@ -312,10 +312,11 @@ function Offers({ act, busy }: { act: Act; busy: string | null }) {
           ))}
       </ul>
       <fieldset className="space-y-3 border border-border p-4">
-        <legend className="px-1 text-sm font-medium">Add an annual price for another market (for example TZS for mobile money)</legend>
+        <legend className="px-1 text-sm font-medium">Add or correct an annual price</legend>
+        <p className="text-xs text-muted-foreground" data-testid="admin-polar-only">Launch scope: card payments through Polar (USD). Mobile money (TZS) is not launched — a TZ price is never shown to customers or charged, even if approved here.</p>
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">Plan<select className="mt-1 block h-9 border bg-background px-2" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}>{["SOLO", "PRACTICE", "FIRM"].map((p) => <option key={p}>{p}</option>)}</select></label>
-          <label className="text-sm">Market<select className="mt-1 block h-9 border bg-background px-2" value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value, currency: e.target.value === "TZ" ? "TZS" : "USD", exponent: e.target.value === "TZ" ? "0" : "2" })}><option>TZ</option><option>GLOBAL</option></select></label>
+          <label className="text-sm">Market<select className="mt-1 block h-9 border bg-background px-2" value={form.market} onChange={(e) => setForm({ ...form, market: e.target.value, currency: e.target.value === "TZ" ? "TZS" : "USD", exponent: e.target.value === "TZ" ? "0" : "2" })}><option>GLOBAL</option><option>TZ</option></select></label>
           <label className="text-sm">Amount per year ({form.currency}{form.exponent === "2" ? ", in cents" : ""})<Input className="mt-1 w-40" type="number" min={1} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></label>
         </div>
         <Button size="sm" disabled={busy !== null || !reason.trim() || !(Number(form.amount) > 0)} onClick={() => save({ code: `CFOCLOSE_${form.plan}_${form.market}_${form.currency}_ANNUAL`, plan: form.plan, market: form.market,

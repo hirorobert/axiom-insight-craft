@@ -194,7 +194,7 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
     expect(rpcCallsAfter.length).toBe(1);
     expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('claim_verification_attempt'/);
     // The commit happens inside settleIntent (_shared/payments/settle.ts), the one path shared with the webhooks.
-    expect(serviceClientToEnd).toMatch(/settleIntent\(serviceClient as unknown as ServiceDb, adapter, intent\)/);
+    expect(serviceClientToEnd).toMatch(/settleIntent\(serviceDbFrom\(serviceClient\), adapter, intent\)/);
     // The only table read is the claimed intent itself, by the id the owner-scoped read resolved.
     expect(serviceClientToEnd.match(/serviceClient\.from\(/g) ?? []).toHaveLength(1);
     expect(serviceClientToEnd).toMatch(/serviceClient\.from\('payment_checkout_intents'\)\s*\.select\(SETTLEMENT_INTENT_COLUMNS\)\.eq\('id', responseData\.intent_id\)/);
@@ -257,7 +257,7 @@ describe("payment firewall — zero semantic change outside the auth-helper inte
 
   it("commercial-payment-status recovers a lost/delayed webhook through the SAME settlement path as the webhooks (settle.ts: verifyTransactionByReference, then commit_verified_commercial_payment) — but never references Gate A webhook-signature verification or entitlement resolution", () => {
     const settle = stripTsComments(fs.readFileSync(path.join(__dirname, "../../../../../supabase/functions/_shared/payments/settle.ts"), "utf-8"));
-    expect(paymentStatusCode).toMatch(/import \{ SETTLEMENT_INTENT_COLUMNS, settleIntent, type ServiceDb \} from '\.\.\/_shared\/payments\/settle\.ts';/);
+    expect(paymentStatusCode).toMatch(/import \{ SETTLEMENT_INTENT_COLUMNS, serviceDbFrom, settleIntent \} from '\.\.\/_shared\/payments\/settle\.ts';/);
     expect(settle).toMatch(/adapter\.verifyTransactionByReference\(/);
     expect(settle).toMatch(/db\.rpc\('commit_verified_commercial_payment'/);
     expect(settle).not.toMatch(/verifyWebhookAuthenticity|entitlement/i);

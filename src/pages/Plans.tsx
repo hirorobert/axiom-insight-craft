@@ -1,6 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { AccountOrPublicFrame } from "@/components/account/AccountOrPublicFrame";
 import { PlanCatalogue } from "@/components/commercial/PlanCatalogue";
 import { planByCode } from "@/lib/commercial/pricingCatalogue";
 import { usePublicPlanPrices } from "@/lib/commercial/checkoutClient";
@@ -13,5 +12,5 @@ export default function Plans() {
   const service = parseServiceIntent(params.get("service"));
   const plan = service ? parsePlanIntent(params.get("plan")) : null;
   const prices = usePublicPlanPrices();
-  return <div className="flex min-h-screen flex-col bg-background"><Header /><main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-28 sm:px-5"><p className="text-xs uppercase text-muted-foreground">CFOClose · Plans</p><h1 className="mt-3 text-3xl font-semibold text-foreground">Choose your plan</h1><p className="mt-3 mb-10 max-w-2xl text-sm text-muted-foreground">Plans differ in how many entities and named users they cover. Every plan is a 12-month term and does not renew automatically.</p>{service && <div data-testid="plans-selected-service" className="mb-8 max-w-2xl border-l-2 border-foreground bg-muted/30 px-4 py-3 text-sm text-foreground"><p className="font-semibold">You chose {SERVICE_INTENTS[service].name}{plan ? ` · ${planByCode(plan)?.name} plan` : ""}.</p><p className="mt-1 text-muted-foreground">{serviceAvailabilityLabel(service)}. Choose the capacity you need; once the plan is active you go straight to it.</p></div>}<PlanCatalogue source="plan_wall" prices={prices} /></main><Footer /></div>;
+  return <AccountOrPublicFrame publicMainClassName="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-28 sm:px-5" accountMainClassName="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-5"><p className="text-xs uppercase text-muted-foreground">CFOClose · Plans</p><h1 className="mt-3 text-3xl font-semibold text-foreground">Choose your plan</h1><p className="mt-3 mb-10 max-w-2xl text-sm text-muted-foreground">Plans differ in how many entities and named users they cover. Every plan is a 12-month term and does not renew automatically.</p>{service && <div data-testid="plans-selected-service" className="mb-8 max-w-2xl border-l-2 border-foreground bg-muted/30 px-4 py-3 text-sm text-foreground"><p className="font-semibold">You chose {SERVICE_INTENTS[service].name}{plan ? ` · ${planByCode(plan)?.name} plan` : ""}.</p><p className="mt-1 text-muted-foreground">{serviceAvailabilityLabel(service)}. Choose the capacity you need; once the plan is active you go straight to it.</p></div>}<PlanCatalogue source="plan_wall" prices={prices} /></AccountOrPublicFrame>;
 }

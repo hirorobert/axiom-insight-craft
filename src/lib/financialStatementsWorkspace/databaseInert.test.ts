@@ -282,6 +282,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261028100000_period_dates_from_company.sql",
       // Online payment (20261029100000): provider routes, renewal-aware placement of a paid term, paid-term protection.
       "supabase/migrations/20261029100000_payment_provider_routes.sql",
+      // Paid-term seat preservation (20261030100000, commercial-p2): an upgrade never ends paid additional named users.
+      "supabase/migrations/20261030100000_paid_term_seat_preservation.sql",
       // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
       // provider webhook endpoints. No financial-statements schema.
       "supabase/functions/_shared/payments/http.ts",
@@ -333,6 +335,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/commercial-payment-status/index.ts",
       "supabase/functions/_shared/payments/contracts.ts",
       "supabase/functions/_shared/payments/routing.ts",
+      // Launch closure: a signed but stale webhook is reconciled through the provider; refunds record only the change in the
+      // provider's cumulative refunded amount (serviceDbFrom adds that read). No financial-statements schema.
+      "supabase/functions/_shared/payments/settle.ts",
+      "supabase/functions/_shared/payments/webhookEndpoint.ts",
       // CFO Close walls: the paid-action gate in the Close Insights engines, the filing-pack and management-letter
       // generators; neutral customer-visible wording (no internal engine names) in their responses and in the shared
       // certified-trial-balance reader; the disclosure-notes generator's credit line. Accounting logic unchanged.
@@ -521,6 +527,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
       "scripts/db-proof/paymentProviders.mjs",
+      "scripts/db-proof/paidTermPreservation.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).

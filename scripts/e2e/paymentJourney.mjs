@@ -7,18 +7,25 @@
 //
 //   operator    the first commercial administrator (operator bootstrap row), then everything else through /commercial/admin:
 //               online payment opened in SANDBOX_ONLY, the USD price approved, a TZS price added and approved
-//   public      in SANDBOX_ONLY the public plans stay "Proposed"; in CUSTOMER_PAYMENTS_ENABLED they show the approved prices
-//               and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
+//   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED it shows
+//               "by card" and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
 //   card        sign in → /billing/checkout → card → the mock hosted page → Pay → signed order.paid → status page: payment
 //               received, plan active for 12 months, references; the licence is the payment's (source POLAR_VERIFIED_PAYMENT)
 //   webhooks    a replay is DUPLICATE; a bad signature and a stale timestamp are refused (401) and recorded; an unknown
 //               checkout is REFERENCE_MISMATCH; 5 concurrent deliveries leave one licence and one payment event
-//   mobile      sign in → mobile money → phone → status page "approve on your phone" → signed payment.completed → received
+//   mobile      (NOT LAUNCHED — owner decision; exercised only against the loopback mock, which is the one configuration
+//               the server accepts for it) mobile money → phone → status page → signed payment.completed → received
+//   delayed     a correctly signed notification 20 minutes old recovers a paid order through the provider, exactly once
+//   refunds     a partial then a full refund are recorded as changes (20,000 then 29,000); a redelivery records nothing
 //   expiry      a card checkout left unpaid expires at the provider → status page: no payment taken → a new payment starts
 //   refund      the provider refunds → recorded for review, customer sees "refunded", the administrator records a decision
 //   manual      manual activation from the screen; a manual grant over a paid term is refused
 //   isolation   another account opening the order sees "Order not found"; its API read returns found:false
 //   widths      checkout, status, orders and administrator pages at 1280 and 375 px
+//   fresh       a new account sees no company, engagement, demonstration data or privilege; one next step (choose a plan);
+//               one signed-in frame; keyboard, back, refresh, a failed plan read, return from plan selection; the server
+//               refuses create_entity without a plan, another account's company and the administrator screen; after a
+//               manual activation the home offers "Add a company" and the form creates one (1280 and 375 px)
 //
 //   node scripts/e2e/paymentJourney.mjs <evidence-dir>
 import crypto from "node:crypto";
@@ -109,7 +116,7 @@ const preview = await vite.preview({ root: REPO, configFile: path.join(REPO, "vi
 // ── Accounts (generated test passwords, never printed) ───────────────────────────────────────────────────────────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other") };
+const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other"), manual: mk("buyer-manual"), fresh: mk("fresh"), owner: mk("company-owner") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -122,6 +129,19 @@ const apiAs = async (u) => {
   const { error } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
   if (error) throw new Error(`api sign-in failed: ${error.message}`);
   return c;
+};
+/** Manual activation by agreement — the same RPCs /commercial/admin → Accounts → "Activate the plan" calls. */
+const activatePlan = async (u, plan, reason) => {
+  const ops = await apiAs(U.admin);
+  let acct = (await ops.rpc("admin_find_billing_account", { p_email: u.email })).data;
+  if (!acct?.billing_customer_id) {
+    const { error } = await ops.rpc("admin_ensure_billing_customer", { p_owner_user_id: u.id, p_reason: reason });
+    if (error) throw new Error(`ensure billing customer: ${error.message}`);
+    acct = (await ops.rpc("admin_find_billing_account", { p_email: u.email })).data;
+  }
+  const start = new Date(); const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 12);
+  const { error } = await ops.rpc("admin_grant_commercial_licence", { p_billing_customer_id: acct.billing_customer_id, p_plan_code: plan, p_effective_start: start.toISOString(), p_effective_end: end.toISOString(), p_reason: reason });
+  if (error) throw new Error(`grant: ${error.message}`);
 };
 const intentsOf = async (u) => {
   const bc = (await admin.from("billing_customers").select("id").eq("owner_user_id", u.id).maybeSingle()).data;
@@ -197,6 +217,132 @@ async function main() {
   startGroup("Setup (local stack, served payment functions, mock providers)");
   await check("the payment functions are served from this repository with the generated configuration (Polar and Snippe, sandbox)", async () => (await waitForFunctions()) || "functions did not load the payment configuration");
 
+  startGroup("Fresh account: nothing appears without an authorised creation, invitation or membership");
+  // Another account's company (the role NBAA plays on the hosted project) — created for that account only.
+  // Created by that account itself, through the authorised path (an activated plan, then create_entity).
+  await activatePlan(U.owner, "SOLO", "fresh-account journey: another account's company");
+  const otherCo = await (async () => {
+    const api = await apiAs(U.owner);
+    const { data, error } = await api.rpc("create_entity", { p_request_id: crypto.randomUUID(), p_name: `Owner Co ${run}`, p_fiscal_year_end: "2025-12-31", p_currency: "USD", p_reporting_framework: null });
+    if (error || (data?.outcome !== "created" && data?.outcome !== "already_created")) throw new Error(`the other account's company was not created: ${error?.message ?? JSON.stringify(data)}`);
+    return { id: data.company_id };
+  })();
+  await signInAs(U.fresh);
+  await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — and one next step: choose a plan", async () => {
+    await go("/dashboard", "Choose a plan to begin");
+    const t = await page.bodyText();
+    const kind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
+    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
+    const disabled = await page.evaluate(() => [...document.querySelectorAll("button[disabled]")].map((b) => b.innerText.trim()));
+    const api = await apiAs(U.fresh);
+    const companies = (await api.from("companies").select("id")).data ?? [];
+    const noPlanCount = (t.match(/No active plan/g) ?? []).length;
+    return kind === "choose_plan" && primaries === 1 && disabled.length === 0 && companies.length === 0 && noPlanCount <= 1
+      && !t.includes(`Owner Co ${run}`) && !/demonstration|Your engagements\s*\n\s*\d+ open/i.test(t)
+      ? true : { kind, primaries, disabled, companies: companies.length, noPlanCount, text: t.slice(0, 600) };
+  });
+  await check("one signed-in frame: Home, Plans, Orders, Settings and Sign out on the home, the plans and the orders pages; no public 'Sign in'", async () => {
+    const seen = {};
+    for (const route of ["/dashboard", "/plans", "/billing/orders"]) {
+      await go(route);
+      await page.waitFor(() => !!document.querySelector('[data-testid="account-shell"]'), [], { label: `account shell on ${route}` });
+      const nav = await page.evaluate(() => [...document.querySelectorAll('nav[aria-label="Account"] a, nav[aria-label="Account"] button')].map((e) => e.innerText.trim()).filter(Boolean));
+      const signIn = await page.evaluate(() => [...document.querySelectorAll("a")].some((a) => a.innerText.trim() === "Sign in"));
+      seen[route] = { nav, signIn };
+    }
+    return Object.values(seen).every((s) => ["Home", "Plans", "Orders", "Settings", "Sign out"].every((n) => s.nav.includes(n)) && !s.signIn) ? true : seen;
+  });
+  await check("keyboard: Tab reaches the skip link first and then the one primary action; Enter on it opens the plans", async () => {
+    await go("/dashboard", "Choose a plan to begin");
+    await page.press("Tab");
+    const first = await page.evaluate(() => document.activeElement?.innerText?.trim());
+    let reached = false;
+    for (let i = 0; i < 20 && !reached; i++) {
+      await page.press("Tab");
+      reached = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") === "next-action-primary");
+    }
+    if (!reached) return { first, reached };
+    await page.press("Enter");
+    await page.waitFor(() => location.pathname === "/plans", [], { label: "plans opened by keyboard" });
+    return first === "Skip to content" ? true : { first };
+  });
+  await check("home at 1280 and 375 px (fresh account): no sideways scrolling", async () => {
+    await go("/dashboard", "Choose a plan to begin");
+    return widths("00-fresh-home");
+  });
+  await go("/dashboard", "Choose a plan to begin");
+  await page.click('[data-testid="next-action-primary"]');
+  await page.waitFor(() => location.pathname === "/plans", [], { label: "plans from the next step" });
+  await check("plans (online payment closed, no approved price): 'Proposed' and Request activation — no checkout action, no TZS, no mobile money", async () => {
+    await page.waitForText("Choose your plan");
+    const t = await page.bodyText();
+    return t.includes("Proposed: USD 490 per year") && t.includes("Request activation") && !/Choose Solo|TZS|mobile money/i.test(t) ? true : t.slice(0, 800);
+  });
+  await check("back navigation and refresh return to the same home and the same next step", async () => {
+    await page.evaluate(() => history.back());
+    await page.waitFor(() => location.pathname === "/dashboard", [], { label: "back to home" });
+    await page.waitForText("Choose a plan to begin");
+    await page.evaluate(() => location.reload());
+    await page.waitForText("Choose a plan to begin");
+    return true;
+  });
+  await check("a failed plan read is a retriable step (never 'no plan'); Try again recovers once the request succeeds", async () => {
+    await page.send("Network.setBlockedURLs", { urls: ["*get_my_billing_summary*"] });
+    await go("/dashboard", "We couldn’t confirm your plan");
+    const failedKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
+    await page.send("Network.setBlockedURLs", { urls: [] });
+    await page.click('[data-testid="next-action-primary"]');
+    await page.waitForText("Choose a plan to begin");
+    return failedKind === "retry" ? true : { failedKind };
+  });
+  await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame, with the manual route", async () => {
+    page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
+    await go("/billing/checkout?plan=PRACTICE", "Sign in");
+    await page.click('[data-testid="checkout-sign-in"]');
+    await page.waitForText("Sign in to your CFOClose account");
+    await page.fill("#email", U.fresh.email);
+    await page.fill("#password", U.fresh.password);
+    await page.press("Enter");
+    await page.waitFor(() => location.pathname === "/billing/checkout" && location.search.includes("PRACTICE"), [], { label: "returned to the chosen plan", timeout: 30000 });
+    await page.waitForText("Online payment is not open for this plan yet.");
+    const shell = await page.evaluate(() => !!document.querySelector('[data-testid="account-shell"]'));
+    const t = await page.bodyText();
+    return shell && t.includes("Request activation") && !/Continue to Polar|mobile money/i.test(t) ? true : { shell, text: t.slice(0, 600) };
+  });
+  await check("changing the interface grants nothing: create_entity without a plan, another account's company and the administrator screen are all refused by the server", async () => {
+    const api = await apiAs(U.fresh);
+    const created = await api.rpc("create_entity", { p_request_id: crypto.randomUUID(), p_name: "Forged Co", p_fiscal_year_end: "2025-12-31", p_currency: "USD", p_reporting_framework: null });
+    const outcome = created.error ? `error:${created.error.code}` : created.data?.outcome;
+    const theirs = (await api.from("companies").select("id").eq("id", otherCo.id)).data ?? [];
+    const caps = await api.rpc("get_my_workspace_capabilities", { p_company_id: otherCo.id });
+    const mine = (await api.from("companies").select("id")).data ?? [];
+    await go("/commercial/admin");
+    await page.waitForSelector('[data-testid="admin-forbidden"]');
+    const capAccess = caps.error ? false : caps.data?.access === true;
+    return outcome !== "created" && outcome !== "already_created" && theirs.length === 0 && !capAccess && mine.length === 0
+      ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
+  });
+  await check("with a plan granted by an administrator: the next step becomes 'Add your first company', the form is on the home, and creating one opens its workspace", async () => {
+    await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
+    await go("/dashboard", "Add your first company");
+    await page.waitForSelector('[data-testid="add-company-form"]');
+    await page.fill("#fr-org", `Fresh Co ${run}`);
+    await page.click("#fr-currency");
+    await page.click({ text: "USD — US Dollar", within: '[role="listbox"]' });
+    await page.click({ text: "Create workspace" });
+    await page.waitFor(() => location.pathname.startsWith("/workspace/"), [], { label: "opened the new workspace", timeout: 30000 });
+    const api = await apiAs(U.fresh);
+    const mine = (await api.from("companies").select("id, name")).data ?? [];
+    return mine.length === 1 && mine[0].name === `Fresh Co ${run}` ? true : mine;
+  });
+  await check("signed-in plans and orders at 1280 and 375 px: no sideways scrolling", async () => {
+    await go("/plans", "Choose your plan");
+    const plans = await widths("00-fresh-plans");
+    await go("/billing/orders", "Your orders");
+    const orders = await widths("00-fresh-orders");
+    return plans === true && orders === true ? true : { plans, orders };
+  });
+
   startGroup("Administrator: online payment opened in sandbox; prices approved — all from /commercial/admin");
   await signInAs(U.admin);
   await check("a commercial administrator opens /commercial/admin (genuine signed-in session)", async () => { await go("/commercial/admin", "Commercial administration"); return true; });
@@ -219,6 +365,8 @@ async function main() {
     await acceptConfirms();
     await page.evaluate(() => { const row = document.querySelector('li[data-offer-code="CFOCLOSE_SOLO_GLOBAL_USD_ANNUAL"]'); [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click(); });
     await page.waitForText("Price saved.");
+    await setByLabel("Market", "TZ");
+    await sleep(200);
     await setByLabel("Amount per year", "1250000");
     await page.click({ text: "Save (not yet approved)" });
     await page.waitForText("CFOCLOSE_SOLO_TZ_TZS_ANNUAL");
@@ -232,12 +380,14 @@ async function main() {
   await check("administrator pages at 1280 and 375 px", async () => { await adminTab("Payments needing attention"); return widths("20-admin-payments"); });
 
   startGroup("Public plans follow the server");
-  await check("in SANDBOX_ONLY the public plans stay 'Proposed' with activation requests (sandbox payments are never advertised)", async () => {
+  await check("in SANDBOX_ONLY sandbox payments are never advertised: the approved Solo price is shown with Request activation, no checkout action", async () => {
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
     await go("/", "Choose your capacity.");
     await sleep(1500);
     const t = await page.bodyText();
-    return t.includes("Proposed: USD 490 per year") && !t.includes("Choose Solo") ? true : "online pricing shown in sandbox";
+    // Approved but checkout closed to customers: the server's amount (no "Proposed"), the manual route, no checkout button.
+    const solo = t.includes("USD 490 per year") && !t.includes("Proposed: USD 490 per year");
+    return solo && t.includes("Request activation") && !t.includes("Choose Solo") && !/by card|TZS|mobile money/.test(t) ? true : t.slice(0, 1200);
   });
 
   startGroup("Card payment (Polar, mock hosted page)");
@@ -296,9 +446,14 @@ async function main() {
     const pe = (await admin.from("payment_webhook_processing_events").select("processing_result, signature_valid").eq("processing_result", "INVALID_SIGNATURE")).data ?? [];
     return r.status === 401 && pe.length >= 1 && pe.every((x) => x.signature_valid === false) ? true : { r: r.response, pe };
   });
-  await check("a correctly signed capture replayed 10 minutes later is refused (401 STALE_TIMESTAMP)", async () => {
+  await check("a correctly signed capture replayed 10 minutes later is never believed: no new licence or event (DUPLICATE or throttled reconciliation)", async () => {
+    const intent = (await intentsOf(U.card))[0];
+    const before = { lic: (await licencesOf(U.card)).length, ev: ((await admin.from("payment_events").select("id").eq("checkout_intent_id", intent.id)).data ?? []).length };
     const r = await mock.deliver("POLAR", JSON.parse(firstPaid.body), { timestamp: Math.floor(Date.now() / 1000) - 600 });
-    return r.status === 401 && r.response?.error === "STALE_TIMESTAMP" ? true : r.response;
+    const after = { lic: (await licencesOf(U.card)).length, ev: ((await admin.from("payment_events").select("id").eq("checkout_intent_id", intent.id)).data ?? []).length };
+    const stale = (await admin.from("payment_webhook_processing_events").select("id").eq("processing_result", "STALE_TIMESTAMP")).data ?? [];
+    return [200, 202].includes(r.status) && ["DUPLICATE", "RECONCILIATION_THROTTLED"].includes(r.response?.outcome) && JSON.stringify(before) === JSON.stringify(after) && stale.length >= 1
+      ? true : { r: r.response, before, after };
   });
   await check("a delivery naming a checkout this system never created is REFERENCE_MISMATCH (200, nothing written)", async () => {
     const body = JSON.parse(firstPaid.body); body.data.checkout_id = crypto.randomUUID();
@@ -360,6 +515,18 @@ async function main() {
     const all = await intentsOf(U.other);
     return all.length === 2 && all[1].status === "PENDING" ? true : all;
   });
+  await check("a legitimately DELAYED notification (correctly signed, 20 minutes old) recovers a paid order through the provider: one licence, one payment event", async () => {
+    const pending = (await intentsOf(U.other))[1];
+    mock.markPaidSilently(pending.provider_checkout_ref);
+    const c = mock.checkouts.get(pending.provider_checkout_ref);
+    const r = await mock.deliver("POLAR", { type: "order.paid", data: mock.orderFor(c) }, { timestamp: Math.floor(Date.now() / 1000) - 1200 });
+    const again = await mock.deliver("POLAR", { type: "order.paid", data: mock.orderFor(c) }, { timestamp: Math.floor(Date.now() / 1000) - 1200 });
+    const lic = (await licencesOf(U.other)).filter((l) => l.source === "POLAR_VERIFIED_PAYMENT");
+    const ev = (await admin.from("payment_events").select("id").eq("checkout_intent_id", pending.id).eq("event_type", "PAYMENT_CONFIRMED")).data ?? [];
+    const st = (await intentsOf(U.other))[1].status;
+    return r.status === 200 && r.response?.outcome === "PROCESSED" && r.response?.reconciled === true && [200, 202].includes(again.status)
+      && lic.length === 1 && ev.length === 1 && st === "SUCCEEDED" ? true : { r: r.response, again: again.response, lic: lic.length, ev: ev.length, st };
+  });
   await check("another account opening the paid order sees 'Order not found'; its API read returns found:false", async () => {
     await go(`/billing/payment/return?ref=${cardRef}`, "Order not found");
     const api = await apiAs(U.other);
@@ -368,15 +535,18 @@ async function main() {
   });
 
   startGroup("Refund, reviewed by the administrator");
-  await check("the provider refunds the card order → recorded for review; the licence is unchanged; the customer sees 'refunded'", async () => {
+  await check("a partial refund then the rest → two reversals recorded as changes (20,000 then 29,000); the licence is unchanged; the customer sees 'refunded'", async () => {
     const licBefore = JSON.stringify(await licencesOf(U.card));
-    const r = await mock.refundPolar(cardCheckout);
-    const rv = (await admin.from("payment_events").select("event_type, amount_minor").eq("event_type", "REFUND")).data ?? [];
+    const r1 = await mock.refundPolar(cardCheckout, 20000);
+    const r2 = await mock.refundPolar(cardCheckout, 49000);
+    const r3 = await mock.refundPolar(cardCheckout, 49000);   // a redelivery of the full refund records nothing new
+    const rv = ((await admin.from("payment_events").select("event_type, amount_minor, recorded_at").eq("event_type", "REFUND").order("recorded_at")).data ?? []).map((x) => Number(x.amount_minor));
     await signInAs(U.card);
     await go(`/billing/payment/return?ref=${cardRef}`, "Payment refunded", 60000);
-    return r.status === 200 && r.response?.outcome === "REVERSAL_RECORDED" && rv.length === 1 && Number(rv[0].amount_minor) === 49000 && JSON.stringify(await licencesOf(U.card)) === licBefore ? true : { r: r.response, rv };
+    return r1.status === 200 && r2.status === 200 && r3.status === 200 && JSON.stringify(rv) === JSON.stringify([20000, 29000]) && JSON.stringify(await licencesOf(U.card)) === licBefore
+      ? true : { r1: r1.response, r2: r2.response, r3: r3.response, rv };
   });
-  await check("the administrator sees the refund and records the decision once, with a reason", async () => {
+  await check("the administrator sees the refunds and records a decision once, with a reason", async () => {
     await signInAs(U.admin);
     await go("/commercial/admin", "Refunds and disputes");
     await page.waitForText("REFUND");
@@ -396,14 +566,14 @@ async function main() {
   startGroup("Manual activation from the screen");
   await check("Accounts: find by email, manual activation of Practice for 12 months, audited as the administrator", async () => {
     await adminTab("Accounts and manual activation");
-    await setInput('[data-testid="admin-find-email"]', U.other.email);
+    await setInput('[data-testid="admin-find-email"]', U.manual.email);
     await page.click('[data-testid="admin-find"]');
     await page.waitForSelector('[data-testid="admin-account"]');
     await setByLabel("Plan", "PRACTICE");
     await setInput('[data-testid="admin-reason"]', "Activation agreed by email (payment journey test)");
     await page.click('[data-testid="admin-activate"]');
     await page.waitForText("PRACTICE activated from");
-    const lic = await licencesOf(U.other);
+    const lic = await licencesOf(U.manual);
     const audit = (await admin.from("billing_audit_events").select("actor_user_id").eq("action", "LICENCE_GRANTED").eq("actor_user_id", U.admin.id)).data ?? [];
     return lic.some((l) => l.source === "MANUAL_ADMIN_GRANT") && audit.length >= 1 ? true : { lic, audit: audit.length };
   });
@@ -420,7 +590,7 @@ async function main() {
   await check("administrator accounts page at 1280 and 375 px", async () => widths("26-admin-accounts"));
 
   startGroup("Public plans when online payment is open to customers");
-  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved prices and 'Choose Solo'; the other plans stay proposed", async () => {
+  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved USD price and 'Choose Solo', no mobile money; the other plans stay proposed", async () => {
     const ops = await apiAs(U.admin);
     { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "CUSTOMER_PAYMENTS_ENABLED", p_reason: "payment journey: public view" }); if (error) return error.message; }
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
@@ -429,7 +599,8 @@ async function main() {
     const t = await page.bodyText();
     await page.evaluate(() => document.getElementById("plans")?.scrollIntoView());
     await widths("27-landing-plans-online");
-    return t.includes("TZS 1,250,000 per year by mobile money") && t.includes("Choose Solo") && t.includes("Proposed: USD 990 per year") ? true : t.slice(0, 1200);
+    // Polar card payments only: the approved TZS price is never shown (mobile money is not launched).
+    return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 990 per year") ? true : t.slice(0, 1200);
   });
   await check("…and a sandbox route is then not offered at checkout (the platform matrix): online payment is not open", async () => {
     await signInAs(U.mobile);
