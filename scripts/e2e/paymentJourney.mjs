@@ -421,7 +421,8 @@ async function main() {
 
   startGroup("Public plans when online payment is open to customers");
   await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved prices and 'Choose Solo'; the other plans stay proposed", async () => {
-    await admin.from("commercial_platform_state").update({ state: "CUSTOMER_PAYMENTS_ENABLED", reason: "payment journey: public view" }).eq("id", true);
+    const ops = await apiAs(U.admin);
+    { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "CUSTOMER_PAYMENTS_ENABLED", p_reason: "payment journey: public view" }); if (error) return error.message; }
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
     await go("/", "Choose your capacity.");
     await page.waitForText("USD 490 per year by card", { timeout: 30000 });
@@ -433,7 +434,8 @@ async function main() {
   await check("…and a sandbox route is then not offered at checkout (the platform matrix): online payment is not open", async () => {
     await signInAs(U.mobile);
     await go("/billing/checkout?plan=SOLO", "Online payment is not open for this plan yet.");
-    await admin.from("commercial_platform_state").update({ state: "PAYMENTS_DISABLED", reason: "payment journey: closed again" }).eq("id", true);
+    const ops = await apiAs(U.admin);
+    { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "PAYMENTS_DISABLED", p_reason: "payment journey: closed again" }); if (error) return error.message; }
     return true;
   });
 
