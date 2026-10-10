@@ -4737,7 +4737,10 @@ export type Database = {
           publication_id: string
           report_id: string
           report_version: number
+          same_approver: boolean | null
           seq: number
+          signoff_policy: string | null
+          signoff_policy_event_id: string | null
           state: string
         }
         Insert: {
@@ -4756,7 +4759,10 @@ export type Database = {
           publication_id: string
           report_id: string
           report_version: number
+          same_approver?: boolean | null
           seq?: never
+          signoff_policy?: string | null
+          signoff_policy_event_id?: string | null
           state: string
         }
         Update: {
@@ -4775,7 +4781,10 @@ export type Database = {
           publication_id?: string
           report_id?: string
           report_version?: number
+          same_approver?: boolean | null
           seq?: never
+          signoff_policy?: string | null
+          signoff_policy_event_id?: string | null
           state?: string
         }
         Relationships: [
@@ -4798,6 +4807,13 @@ export type Database = {
             columns: ["publication_id"]
             isOneToOne: true
             referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_publication_bindings_signoff_policy_event_id_fkey"
+            columns: ["signoff_policy_event_id"]
+            isOneToOne: false
+            referencedRelation: "fs_signoff_policy_events"
             referencedColumns: ["id"]
           },
         ]
@@ -4979,6 +4995,63 @@ export type Database = {
           },
           {
             foreignKeyName: "fs_schedule_submissions_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_signoff_policy_events: {
+        Row: {
+          actor_role: string | null
+          actor_user_id: string
+          company_id: string
+          confirmation: string | null
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          policy: string
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          actor_role?: string | null
+          actor_user_id: string
+          company_id: string
+          confirmation?: string | null
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          policy: string
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          actor_role?: string | null
+          actor_user_id?: string
+          company_id?: string
+          confirmation?: string | null
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          policy?: string
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_signoff_policy_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_signoff_policy_events_firm_member_id_fkey"
             columns: ["firm_member_id"]
             isOneToOne: false
             referencedRelation: "firm_members"
@@ -9215,6 +9288,13 @@ export type Database = {
         Returns: string
       }
       _fs_section: { Args: { p_classification: string }; Returns: string }
+      _fs_signoff_policy: {
+        Args: { p_company_id: string }
+        Returns: {
+          event_id: string
+          policy: string
+        }[]
+      }
       _fs_smes_edition_decide: {
         Args: { p_elected: boolean; p_framework: string; p_start: string }
         Returns: Json
@@ -10358,7 +10438,18 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      fs_set_signoff_policy: {
+        Args: {
+          p_company_id: string
+          p_confirmation: string
+          p_policy: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       fs_sha256_hex: { Args: { p_text: string }; Returns: string }
+      fs_signoff_policy: { Args: { p_company_id: string }; Returns: Json }
       fs_statement_composition: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json

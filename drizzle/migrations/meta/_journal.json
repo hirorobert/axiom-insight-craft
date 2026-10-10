@@ -323,6 +323,13 @@
       "when": 1791545776962,
       "tag": "0045_fs_report_readiness_volatility",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791651672909,
+      "tag": "0046_fs_signoff_approval_policy_wrapper",
+      "breakpoints": true
     }
   ]
 }
