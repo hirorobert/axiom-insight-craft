@@ -134,19 +134,24 @@ describe("Account home (the CFOClose logo from inside a workspace)", () => {
   });
   const hub = (acc: ReturnType<typeof account> | undefined) =>
     render(createElement(EngagementHub, { entries: [], companiesWithoutEngagement: [], onResume: () => {}, onStartService: () => {}, account: acc }));
-  it("existing navigation only: Plans, Settings, Sign out, the existing company flow in Settings and the current plan", () => {
+  it("the one account frame: Home, Plans, Orders, Settings, Sign out; companies and the plan below the next step", () => {
     const html = hub(account({ capacity: 5, used: 2, determined: true }));
-    for (const href of ['href="/plans"', 'href="/settings"']) expect(html).toContain(href);
+    for (const href of ['href="/dashboard"', 'href="/plans"', 'href="/billing/orders"', 'href="/settings"']) expect(html).toContain(href);
     expect(html).toContain("Sign out");
+    expect(html).toContain('data-testid="account-shell"');
+    expect(html).toContain('data-testid="account-next-action"');
     expect(html).toContain('data-testid="manage-companies"');
-    expect(html).toContain('data-testid="account-plan"');
-    expect(html).toContain("No open engagements");
   });
-  it("capacity is stated by the existing notice (it hides itself when there is room); no client-side creation logic", () => {
-    expect(hub(account({ capacity: 5, used: 2, determined: true }))).not.toContain("Entity capacity reached");
-    expect(hub(account({ capacity: 1, used: 1, determined: true }))).toContain("Entity capacity reached");
+  it("capacity is said once; creation decisions come from the pure derivation and the server's create_entity, never ad-hoc client arithmetic", () => {
+    const withPlan = (c: { capacity: number | null; used: number | null; determined: boolean }) => ({ ...account(c), billingError: false,
+      billing: { hasBillingCustomer: true, planCode: "PRACTICE", licenceStatus: "ACTIVE", effectiveStart: null, effectiveEnd: null, entitlements: [], billingInterval: null, billingIntervalCount: null, scheduledEffectiveEnd: null, nextEffectiveStart: null, nextEffectiveEnd: null, nextBillingInterval: null, nextBillingIntervalCount: null } as never });
+    expect(hub(withPlan({ capacity: 5, used: 2, determined: true }))).not.toContain("Entity capacity reached");
+    const full = hub(withPlan({ capacity: 1, used: 1, determined: true }));
+    expect(full).toContain('data-kind="capacity_reached"');
+    expect(full).not.toContain("Entity capacity reached"); // the next step already says it
     const src2 = src("src/pages/workspace/EngagementHub.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(src2).not.toMatch(/FirstRunEngagement|create_entity|canAddCompany|capacity\.used\s*</);
+    expect(src2).not.toMatch(/create_entity|canAddCompany|capacity\.used\s*</);
+    expect(src2).toMatch(/companyCreation\(reads\)/);
     expect(src("src/lib/commercial/paidActions.ts")).not.toContain("canAddCompany");
   });
   it("the plain chooser (no account) is unchanged", () => {

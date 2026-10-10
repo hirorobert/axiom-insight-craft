@@ -13,7 +13,9 @@
  *   >1 open engagements                               → EngagementHub, a deterministic chooser
  *   0 open engagements, exactly 1 company             → auto-navigate in (ServiceLaunchpad shows there)
  *   0 open engagements, >1 companies                  → EngagementHub, "start another service" list
- *   0 companies                                        → FirstRunEngagement
+ *   0 companies                                        → the account home (EngagementHub) with its one next step:
+ *                                                        choose a plan, or add the first company (FirstRunEngagement,
+ *                                                        create_entity) when the server's capacity answer permits
  *
  * "Open engagement" is read via useActiveEngagements, which is the SAME authority
  * (fetchWorkspaceSnapshot → deriveWorkspaceState) every workspace page itself uses — this page
@@ -26,8 +28,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
-import { decideEmptyAccountScreen } from "@/lib/commercial/dashboardPlanDecision";
-import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
+import { companyCreation } from "@/lib/workspace/accountNextAction";
+import { AccountShell } from "@/components/account/AccountShell";
 import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { addTrialBalanceReview, trialBalanceReviewPath, type AddReviewOutcome, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 import { useReviewActionAccess } from "@/hooks/useReviewActionAccess";
@@ -38,9 +40,7 @@ import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useAct
 import { decideReturningUserRoute, applyForceHub } from "@/lib/workspace/resolveReturningUserRoute";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
-import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
 import EngagementHub from "@/pages/workspace/EngagementHub";
-import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -230,52 +230,28 @@ export default function Dashboard() {
     );
   }
 
+  const signOutHome = () => { void signOut().then(() => navigate("/auth", { replace: true })); };
+
   // ── The read itself failed — never conflated with "no companies"/"no engagements" ─────────────
   if (fetchFailed) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-5 text-center">
-        <CFOCloseWordmark className="text-lg" />
-        <p className="text-[13px] text-muted-foreground max-w-sm">
-          Could not load your engagements. This is a connection problem, not a sign that anything is missing.
-        </p>
-        <Button onClick={() => refresh()} className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none">
-          Try again
-        </Button>
-      </div>
+      <AccountShell onSignOut={signOutHome}>
+        <div className="flex flex-col items-center gap-4 text-center" data-testid="engagements-read-failed">
+          <p role="alert" className="text-[13px] text-muted-foreground max-w-sm">
+            Could not load your engagements. This is a connection problem, not a sign that anything is missing.
+          </p>
+          <Button onClick={() => refresh()} className="h-10 px-5 text-[13px] font-semibold rounded-none shadow-none">
+            Try again
+          </Button>
+        </div>
+      </AccountShell>
     );
   }
 
-  // ── First run: no companies yet ────────────────────────────────────────────
-  if (route?.kind === "first_run") {
-    if (billingError || capacityError || !billing || !capacity) return (
-      <div className="min-h-screen bg-background px-5 py-16 mx-auto max-w-xl">
-        <CFOCloseWordmark className="text-lg" />
-        <CurrentPlanPanel billing={null} loading={false} error onRetry={() => { retryBilling(); retryCapacity(); }} />
-      </div>
-    );
-    const emptyScreen = decideEmptyAccountScreen(billing, capacity, (sharedWorkspaces?.length ?? 0) > 0);
-    if (emptyScreen === "plans") return <Navigate to="/plans" replace />;
-    if (emptyScreen !== "setup") return <div className="min-h-screen bg-background px-5 py-16 mx-auto max-w-xl"><CurrentPlanPanel billing={billing} capacity={capacity} loading={false} error={emptyScreen === "unavailable"} onRetry={() => { retryBilling(); retryCapacity(); }} /></div>;
-    return (
-      <div className="min-h-screen bg-background">
-        <header className="border-b border-border h-14 flex items-center px-6">
-          <CFOCloseWordmark className="text-lg" />
-        </header>
-
-        <main className="flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] px-5 py-10">
-          {/* One inline form. On success we route straight into the workspace —
-              no nested dialogs, no "reload the page" dead end. */}
-          <div className="w-full max-w-2xl"><CurrentPlanPanel billing={billing} capacity={capacity} loading={false} error={false} /></div>
-          <FirstRunEngagement
-            onCreated={(companyId, year) =>
-              navigate(`/workspace/${companyId}/${year}`, { replace: true })
-            }
-          />
-        </main>
-      </div>
-    );
-  }
-
+  // ── First run (no companies yet) and the ambiguous cases share ONE account home. Its next step is derived from the
+  // authoritative plan and capacity reads (accountNextAction): choose a plan, or add the first company — never a dead
+  // end and never a silent redirect. The server (create_entity) remains the authority for creating a company.
+  const firstRun = route?.kind === "first_run";
   // ── Ambiguous: more than one open engagement, or more than one company with none open ──────────
   return (
     <EngagementHub
@@ -304,7 +280,12 @@ export default function Dashboard() {
         capacityLoading,
         capacityError: !!capacityError,
         onRetry: () => { retryBilling(); retryCapacity(); },
-        onSignOut: () => { void signOut().then(() => navigate("/auth", { replace: true })); },
+        onSignOut: signOutHome,
+        onCompanyCreated: (companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true }),
+        initialAddOpen: firstRun && companyCreation({
+          billing: { loading: billingLoading, error: !!billingError, summary: billing },
+          capacity: { loading: capacityLoading, error: !!capacityError, answer: capacity },
+        }) === "allowed",
       }}
     />
   );

@@ -96,7 +96,7 @@ afterEach(() => {
   navigateSpy.mockClear();
   supaMock.update.mockClear();
   billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: "ACTIVE", planCode: "SOLO" }, loading: false, error: null };
-  capacityMock.value = { ...capacityMock.value, capacity: { ...capacityMock.value.capacity, used: 0 }, loading: false, error: false };
+  capacityMock.value = { ...capacityMock.value, capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" }, loading: false, error: false };
 });
 
 describe("Dashboard — returning-user routing never guesses among multiple engagements", () => {
@@ -163,15 +163,22 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     const html = await renderDashboard();
 
     expect(html).toContain("first-run-engagement");
+    // Inside the one account frame, with "Add your first company" as the single next step.
+    expect(html).toContain('data-testid="account-shell"');
+    expect(html).toContain('data-kind="add_company"');
   });
 
-  it("new no-plan user without entities goes to plans and never mounts setup", async () => {
+  it("new no-plan user without entities: the account home says to choose a plan (no silent redirect, no setup, no dead button)", async () => {
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
     billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: null, planCode: null } };
+    capacityMock.value = { ...capacityMock.value, capacity: { capacity: 0, used: 0, determined: true, planCode: null } };
     const html = await renderDashboard();
     expect(html).not.toContain("first-run-engagement");
-    expect(html).not.toContain("Your engagements");
-    expect(html).toBe(""); // Navigate renders no HTML before the client router changes location.
+    expect(html).toContain('data-kind="choose_plan"');
+    expect(html).toContain("Choose a plan to begin");
+    expect(html).toContain('href="/plans"');
+    expect(html).not.toMatch(/<button[^>]*disabled=""/);
+    expect((html.match(/No active plan/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 
   it("billing loading never mounts setup or redirects", async () => {
@@ -186,8 +193,9 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
     billingMock.value = { ...billingMock.value, error: "sensitive server text" };
     const html = await renderDashboard();
-    expect(html).toContain("We couldn’t load your plan");
-    expect(html).toContain("Retry");
+    expect(html).toContain("We couldn’t confirm your plan");
+    expect(html).toContain("Try again");
+    expect(html).not.toContain("We couldn’t load your plan"); // said once, by the next step
     expect(html).not.toContain("sensitive server text");
     expect(html).not.toContain("first-run-engagement");
   });
