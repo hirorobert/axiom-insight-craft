@@ -9,7 +9,7 @@ import { createHmac } from "node:crypto";
 import { createPolarAdapter } from "../../../../../supabase/functions/_shared/payments/providers/polar.ts";
 import { createSnippeAdapter, normaliseTzMobile } from "../../../../../supabase/functions/_shared/payments/providers/snippe.ts";
 import { verifySnippeSignature, verifyStandardWebhook } from "../../../../../supabase/functions/_shared/payments/webhookSignature.ts";
-import { providersFromEnv, selectPaymentProvider } from "../../../../../supabase/functions/_shared/payments/routing.ts";
+import { providersFromEnv, selectPaymentProvider, SNIPPE_CUSTOMER_CHECKOUT_ENABLED } from "../../../../../supabase/functions/_shared/payments/routing.ts";
 import { settleIntent, type ServiceDb } from "../../../../../supabase/functions/_shared/payments/settle.ts";
 import type { ProviderAdapter } from "../../../../../supabase/functions/_shared/payments/contracts.ts";
 
@@ -241,14 +241,23 @@ describe("routing from configuration (a provider exists only with its complete, 
   const full: Record<string, string> = {
     SAFF_PAYMENT_REDIRECT_URL: "https://cfoclose.com/billing/payment/return", SUPABASE_URL: "https://x.supabase.co",
     POLAR_ENVIRONMENT: "sandbox", POLAR_ACCESS_TOKEN: "polar_oat_x", POLAR_WEBHOOK_SECRET: "whsec_abc", POLAR_ORGANIZATION_ID: ORG, POLAR_PRODUCT_IDS: JSON.stringify(PRODUCTS),
-    SNIPPE_ENVIRONMENT: "production", SNIPPE_API_KEY: "snp_x", SNIPPE_WEBHOOK_SECRET: "sig",
+    // Snippe is not launched: it is configured only as a sandbox adapter pointed at a loopback mock (local tests).
+    SNIPPE_ENVIRONMENT: "sandbox", SNIPPE_API_KEY: "snp_x", SNIPPE_WEBHOOK_SECRET: "sig", SNIPPE_API_BASE_URL: "http://host.docker.internal:9911",
   };
   const caps = (env: Record<string, string | undefined>) => providersFromEnv((n) => env[n]).map((p) => p.capabilities);
-  it("with every setting: Polar (USD, GLOBAL, card) and Snippe (TZS, TZ, mobile money), each in its declared environment", () => {
+  it("with every setting: Polar (USD, GLOBAL, card) and — only as a loopback mock — Snippe (TZS, TZ, mobile money)", () => {
     expect(caps(full)).toEqual([
       { provider: "POLAR", supportedCurrencies: ["USD"], supportedMarkets: ["GLOBAL"], supportedMethods: ["card"], environment: "sandbox" },
-      { provider: "SNIPPE", supportedCurrencies: ["TZS"], supportedMarkets: ["TZ"], supportedMethods: ["mobile_money"], environment: "production" },
+      { provider: "SNIPPE", supportedCurrencies: ["TZS"], supportedMarkets: ["TZ"], supportedMethods: ["mobile_money"], environment: "sandbox" },
     ]);
+  });
+  it("owner decision (Polar only): Snippe is never offered on a hosted configuration, whatever its secrets — production, or sandbox against the real host", () => {
+    expect(SNIPPE_CUSTOMER_CHECKOUT_ENABLED).toBe(false);
+    const hosted = { ...full, SNIPPE_API_BASE_URL: undefined };
+    expect(caps({ ...hosted, SNIPPE_ENVIRONMENT: "production" }).map((c) => c.provider)).toEqual(["POLAR"]);
+    expect(caps({ ...hosted, SNIPPE_ENVIRONMENT: "sandbox" }).map((c) => c.provider)).toEqual(["POLAR"]);
+    expect(selectPaymentProvider({ currencyCode: "TZS", marketCode: "TZ", providerRestriction: null }, caps({ ...hosted, SNIPPE_ENVIRONMENT: "production" })))
+      .toEqual({ selected: false, reason: "PAYMENT_PROVIDER_UNAVAILABLE" });
   });
   it("nothing set → no provider; the return URL missing or not https → no provider at all", () => {
     expect(caps({})).toEqual([]);
@@ -269,12 +278,12 @@ describe("routing from configuration (a provider exists only with its complete, 
   it("an API base override is accepted only for a sandbox provider pointed at loopback", () => {
     expect(caps({ ...full, POLAR_API_BASE_URL: "http://host.docker.internal:9911" }).map((c) => c.provider)).toEqual(["POLAR", "SNIPPE"]);
     expect(caps({ ...full, POLAR_API_BASE_URL: "https://evil.example.com" }).map((c) => c.provider)).toEqual(["SNIPPE"]);
-    expect(caps({ ...full, SNIPPE_API_BASE_URL: "http://127.0.0.1:9911" }).map((c) => c.provider)).toEqual(["POLAR"]);   // Snippe is production here
+    expect(caps({ ...full, SNIPPE_ENVIRONMENT: "production" }).map((c) => c.provider)).toEqual(["POLAR"]);   // an override is never honoured in production
   });
   it("selection: USD/GLOBAL → Polar; TZS/TZ → Snippe; USD offered in TZ, or TZS in GLOBAL → unavailable (no cross-route fallback)", () => {
     const c = caps(full);
     expect(selectPaymentProvider({ currencyCode: "USD", marketCode: "GLOBAL", providerRestriction: null }, c)).toEqual({ selected: true, provider: "POLAR", environment: "sandbox" });
-    expect(selectPaymentProvider({ currencyCode: "TZS", marketCode: "TZ", providerRestriction: null }, c)).toEqual({ selected: true, provider: "SNIPPE", environment: "production" });
+    expect(selectPaymentProvider({ currencyCode: "TZS", marketCode: "TZ", providerRestriction: null }, c)).toEqual({ selected: true, provider: "SNIPPE", environment: "sandbox" });
     expect(selectPaymentProvider({ currencyCode: "USD", marketCode: "TZ", providerRestriction: null }, c)).toEqual({ selected: false, reason: "PAYMENT_PROVIDER_UNAVAILABLE" });
     expect(selectPaymentProvider({ currencyCode: "TZS", marketCode: "GLOBAL", providerRestriction: null }, c)).toEqual({ selected: false, reason: "PAYMENT_PROVIDER_UNAVAILABLE" });
     expect(selectPaymentProvider({ currencyCode: "USD", marketCode: "GLOBAL", providerRestriction: "SNIPPE" }, c)).toEqual({ selected: false, reason: "OFFER_RESTRICTED_TO_UNAVAILABLE_PROVIDER" });
@@ -334,6 +343,21 @@ describe("settlement (the one path from a provider answer to the database)", () 
     expect(await settleIntent(fakeDb({ data: { status: "ALREADY_COMMITTED" } }).db, adapterWith({ verified: true, transaction: tx() }), intent)).toMatchObject({ result: "DUPLICATE" });
     expect(await settleIntent(fakeDb({ data: { status: "PLACEMENT_REVIEW_REQUIRED", event_id: "e" } }).db, adapterWith({ verified: true, transaction: tx() }), intent)).toMatchObject({ result: "PLACEMENT_REVIEW" });
     expect(await settleIntent(fakeDb({ error: { message: "Iron Dome: amount mismatch" } }).db, adapterWith({ verified: true, transaction: tx() }), intent)).toMatchObject({ result: "ERROR" });
+  });
+  it("refunds are recorded as the change since those already recorded: partial 20,000 then full 49,000 records 20,000 then 29,000; a redelivery records nothing", async () => {
+    let prior = 0n;
+    const recorded: string[] = [];
+    const db: ServiceDb = {
+      rpc: (fn, args) => { if (fn === "record_payment_reversal") { recorded.push(String(args.p_amount_minor)); prior += BigInt(String(args.p_amount_minor)); } return Promise.resolve({ data: fn === "commit_verified_commercial_payment" ? { status: "ALREADY_COMMITTED" } : { status: "REVERSAL_RECORDED" }, error: null }); },
+      from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { id: "evt-1" }, error: null }) }) }) }) }),
+      priorRefundedMinor: async () => prior,
+    };
+    const refund = (total: bigint) => adapterWith({ verified: true, transaction: tx({ reversals: [{ type: "REFUND", providerEventId: `${ORDER}:refunded:${total}`, amountMinor: total, currencyCode: "USD" }] }) });
+    await settleIntent(db, refund(20000n), intent);
+    await settleIntent(db, refund(49000n), intent);
+    const again = await settleIntent(db, refund(49000n), intent);
+    expect(recorded).toEqual(["20000", "29000"]);
+    expect(again.result).toBe("DUPLICATE");
   });
   it("a refund reported against the paid order is recorded once per refund state, against the original payment event", async () => {
     const { db, calls } = fakeDb({ data: { status: "ALREADY_COMMITTED" } });

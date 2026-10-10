@@ -94,42 +94,78 @@ The screen calls `admin_ensure_billing_customer`, then `admin_grant_commercial_l
 
 ## 5a. Online payments: what needs a person
 
-**Payments needing attention** in `/commercial/admin` lists three kinds of item.
+**Launch scope (owner decision, 10 October 2026):** card payments through **Polar** only.
+- Mobile money (Snippe, TZS) is implemented but **not launched**. The server never offers it on the hosted project.
+- Enterprise and specialist consulting are quoted separately.
+- Financial reporting stays a restricted pilot. A purchase never changes its rollout list.
+
+**Payments needing attention** in `/commercial/admin` lists two groups.
 
 **Orders the server could not settle by itself:**
-- an attempt whose outcome is uncertain (the provider did not answer, or the result was not recorded);
-- a checkout that expired without a confirmed outcome;
-- a payment that is recorded but whose 12-month term could not be placed automatically. This happens when the account has an open-ended agreement, or when an upgrade would sit over a queued term.
+- an attempt whose outcome is uncertain (Polar did not answer, or the result was not recorded);
+- a checkout still pending after it expired;
+- a paid order whose 12-month term could not be placed automatically:
+  - the account has an open-ended agreement;
+  - an upgrade would sit over a queued term;
+  - an upgrade would end **additional named users** on the current term (`BLOCKED_SEATS`).
 
-**Refunds and disputes** reported by a provider. These never change a licence by themselves.
+**Refunds and disputes** reported by Polar. These never change a licence by themselves.
 
-For each order:
-1. **Check with the provider.** This asks the provider again, through the same throttled recovery customers use. It never charges anyone. A paid order is then settled automatically, and an unpaid one is closed as failed or expired.
-2. **Paid, term not placed.** Decide where the term goes; end the open-ended agreement first if that is the agreement. Then use **Place the paid 12-month term** with a start date and a reason (`admin_place_paid_licence`). The payment is never discarded: review can no longer cancel or fail an order whose payment is recorded.
-3. **Not paid.** Use **Close as uncharged** only after the provider's own dashboard shows that no payment was taken (`admin_resolve_manual_review_intent`). The customer can then start a new payment.
+### For each order
 
-For each refund or dispute:
-1. If access should end, end the licence under **Accounts**.
-2. Then record the decision (`admin_record_reversal_review`: licence ended, or kept), once.
+1. **Check with the provider.** This reads Polar's own record of the order. It never charges anyone. A paid order is then settled, exactly once. A failed or expired one is closed as such, and one still open is left unchanged.
+   - Delayed or missing Polar notifications are recovered the same way.
+   - A correctly signed but old notification also triggers this read, at most once a minute per order. It is never believed by itself.
+2. **Paid, term not placed.** Decide where the term goes.
+   - Open-ended agreement: end it under **Accounts** first.
+   - Additional named users: agree with the customer how they carry into the new plan, then set them under **Accounts** after placing.
 
-**Prices.** An annual offer marked **Approved (purchasable)** is the public price and exactly what checkout charges once online payment is open. New TZS prices for mobile money are saved as not approved, and approved separately. Every change records its reason. Existing orders keep the price they were created with.
+   Then use **Place the paid 12-month term**, with a start date and a reason (`admin_place_paid_licence`). Review can never cancel or fail an order whose payment is recorded.
+3. **Not paid.** Use **Close as uncharged** only after Polar's dashboard shows that no payment was taken (`admin_resolve_manual_review_intent`). The customer can then start a new payment.
 
-**Online payment state** (owner decision; follow the launch checklist). The **Online payment** tab shows the platform state and the routes the server has configured. Changing the state requires typing the target state and a reason (`admin_transition_platform_state`). The order is:
+### Refunds and disputes
+
+`docs/release/REFUNDS_DISPUTES_AND_RECOVERY.md` holds the full table. In short:
+
+| Event | Recorded | Access |
+|---|---|---|
+| Full or partial refund issued in Polar (or by Polar itself) | Automatically, as a REFUND reversal for the amount refunded since the last one recorded. The customer's order shows "refunded". | **Unchanged until you decide.** |
+| Dispute or chargeback | **Not reported by Polar**: no dispute event is documented. Watch Polar's dashboard. If Polar refunds early to prevent a chargeback, that arrives as a refund. | **Unchanged until you decide.** |
+
+**Your decision, once per reversal:**
+1. If access should end, end the licence under **Accounts**:
+   - **End now** for a current term;
+   - **Cancel (not started)** for a future one.
+2. Then record the decision (`admin_record_reversal_review`: licence ended, or kept).
+
+Polar being merchant of record settles tax and payment liability. It does **not** decide CFOClose access: your access policy does.
+
+### Prices
+
+An annual offer marked **Approved** is the public price and exactly what checkout charges once online payment is open.
+- Approved by the owner: Solo USD 490, Practice USD 990, Firm USD 2,990 (`CFOCLOSE_*_GLOBAL_USD_ANNUAL`).
+- Additional-user prices stay **proposed**. They are not sold online.
+- No TZS price is approved, and a TZ price is never shown or charged.
+- Every change records its reason. Existing orders keep their price.
+
+### Online payment state
+
+This is an owner decision; follow the launch checklist's stages. The **Online payment** tab shows the platform state and the routes the server has configured. Changing the state requires typing the target state and a reason (`admin_transition_platform_state`). The order is:
 1. `SANDBOX_ONLY`
-2. `LIVE_ACCEPTANCE`, for testers on the live-acceptance allowlist
+2. `LIVE_ACCEPTANCE` (allow-listed testers)
 3. `CUSTOMER_PAYMENTS_ENABLED`
 
-`PAYMENTS_DISABLED` closes checkout again.
+`PAYMENTS_DISABLED` closes checkout again at any time.
 
 ## 6. Not provided, on purpose
 
 - **No blanket tenant access.** No role here can open a customer's workspace. Support work inside a workspace requires the customer to invite the person as a member, which is recorded and can be removed by the customer.
 - **No account deletion.** Deletion requests are handled outside this guide, under the published privacy terms after legal review. Nothing here deletes `auth.users`, companies, uploads, certifications, report versions or sealed packs.
 - **No hosted action by Claude.** Every step above is performed by the people named.
-- **No card details.** Card payments are taken on Polar's hosted page and mobile-money approvals happen on the customer's phone; CFOClose never receives a card number or a PIN.
+- **No card details.** Card payments are taken on Polar's hosted page; CFOClose never receives a card number.
 
 ## 7. Owner decisions
 
-1. When to open online payment to customers (§5a), after merchant approval by Polar and/or Snippe and the legal review of the terms.
+1. When to open online payment to customers (§5a). This comes after Polar approves the merchant account, the sandbox and controlled live acceptance stages pass, and the legal review of the terms is done.
 2. Who holds `manager` and who holds `triage_agent`, and whether the two roles should differ in power (today they do not).
 3. The internal notification address (`ENQUIRY_INTERNAL_NOTIFY_TO`). It is never guessed.

@@ -6,7 +6,7 @@
  *
  * The two implemented routes (docs/release/PAYMENT_PROVIDER_EVIDENCE.md §3):
  *   POLAR   merchant of record, cards        USD   market GLOBAL
- *   SNIPPE  Tanzania mobile money            TZS   market TZ
+ *   SNIPPE  Tanzania mobile money            TZS   market TZ      NOT LAUNCHED (SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false)
  * Their capabilities do not overlap, so for any offer at most one provider is eligible — there is no fallback from one
  * to the other and no "first match" ambiguity.
  *
@@ -78,6 +78,9 @@ export function selectPaymentProvider(
 
 export type EnvReader = (name: string) => string | undefined;
 
+/** Snippe (TZS mobile money) is not launched: no TZS price is approved (owner decision, 2026-10-10). Fails closed. */
+export const SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false as const;
+
 const ENVIRONMENTS = new Set(['sandbox', 'production']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SELF_SERVE_PLANS = ['SOLO', 'PRACTICE', 'FIRM'] as const;
@@ -138,7 +141,11 @@ export function providersFromEnv(env: EnvReader, fetchImpl?: (input: string, ini
   const sSecret = env('SNIPPE_WEBHOOK_SECRET');
   const supabaseUrl = env('SUPABASE_URL');
   const sBase = apiBase(env('SNIPPE_API_BASE_URL'), SNIPPE_API_BASE, sEnv);
-  if (ENVIRONMENTS.has(sEnv) && sKey && sSecret && supabaseUrl && sBase) {
+  // Owner decision (2026-10-10): launch with Polar card payments only; no TZS price is approved. The Snippe route stays
+  // implemented but is offered ONLY to a sandbox adapter pointed at a loopback mock (local tests) — never on the hosted
+  // project, whatever secrets are set — until this source constant is changed by a reviewed release.
+  const snippeLoopbackMock = sEnv === 'sandbox' && sBase !== null && sBase !== SNIPPE_API_BASE;
+  if ((SNIPPE_CUSTOMER_CHECKOUT_ENABLED || snippeLoopbackMock) && ENVIRONMENTS.has(sEnv) && sKey && sSecret && supabaseUrl && sBase) {
     const environment = sEnv as 'sandbox' | 'production';
     out.push({
       capabilities: { provider: 'SNIPPE', supportedCurrencies: ['TZS'], supportedMarkets: ['TZ'], supportedMethods: ['mobile_money'], environment },

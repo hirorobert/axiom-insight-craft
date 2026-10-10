@@ -215,7 +215,8 @@ describe("plans", () => {
     expect(hrefOf(html, "plan-action-Practice")).toBe("/billing/checkout?plan=PRACTICE");
     expect(text).toContain("Choose Practice");
     expect(text).toContain("USD 990 per year by card");
-    expect(text).toContain("TZS 2,500,000 per year by mobile money");
+    // Polar card payments only (owner decision): a TZS (mobile money) offer is never shown, even if one were approved.
+    expect(text).not.toMatch(/TZS|mobile money/);
     expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?service=plan_activation&plan=SOLO&from=landing_plans");
     expect(text).toContain("Proposed: USD 490 per year");
     expect(text).toContain(LANDING_PLANS_COPY.onlineNote);
@@ -223,10 +224,13 @@ describe("plans", () => {
     expect(html).not.toMatch(/<button[^>]*>[^<]*(Buy|Subscribe|Checkout|Pay)/i);
   });
 
-  it("an approved price with online payment closed is never offered for purchase", () => {
+  it("an approved price with online payment closed is shown as the price (not 'Proposed') but never offered for purchase", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CapacityPlans, { prices: { onlinePayment: false, offers: [{ planCode: "SOLO", marketCode: "GLOBAL", currencyCode: "USD", currencyExponent: 2, amountMinor: 49000 }] } })));
     expect(html).not.toContain("/billing/checkout");
     expect(visibleText(html)).not.toMatch(/Choose (Solo|Practice|Firm)/);
+    expect(visibleText(html)).toContain("USD 490 per year Request activation");
+    expect(visibleText(html)).not.toContain("Proposed: USD 490");
+    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?service=plan_activation&plan=SOLO&from=landing_plans");
   });
 });
 

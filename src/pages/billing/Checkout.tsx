@@ -10,8 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, CreditCard, Loader2, Smartphone } from "lucide-react";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { AccountOrPublicFrame } from "@/components/account/AccountShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -141,7 +140,10 @@ export default function Checkout() {
 
       {options && (blocked || open.length === 0) && (
         <div className="mt-6 border border-border p-4" data-testid="checkout-unavailable">
-          <p className="text-sm font-medium">{blocked ? "This change to your plan needs to be arranged with our team." : "Online payment is not open for this plan yet."}</p>
+          <p className="text-sm font-medium">{!blocked ? "Online payment is not open for this plan yet."
+            : options.placement.kind === "BLOCKED_SEATS"
+              ? `Your current plan includes ${options.placement.additional_seats ?? "additional"} additional named user${options.placement.additional_seats === 1 ? "" : "s"}. An upgrade would end them, so it is arranged with our team instead.`
+              : "This change to your plan needs to be arranged with our team."}</p>
           <p className="mt-1 text-sm text-muted-foreground">Send an activation request naming the plan. We reply by email to agree terms, then activate it on your account; nothing is charged by sending a request.</p>
           <Button asChild className="mt-4"><Link to={activationHref(plan as PlanCode, "plan_wall")} data-testid="checkout-request-activation">Request activation</Link></Button>
         </div>
@@ -150,6 +152,11 @@ export default function Checkout() {
       {options && !blocked && open.length > 0 && (
         <>
           <p className="mt-6 text-sm text-foreground" data-testid="checkout-placement">{placementSentence(options.placement.kind, options.placement.start, catalogue.name)}</p>
+          {(options.placement.additional_seats ?? 0) > 0 && (
+            <p className="mt-2 text-sm text-foreground" data-testid="checkout-seats-note">
+              Your current term has {options.placement.additional_seats} additional named user{options.placement.additional_seats === 1 ? "" : "s"}. They continue until that term ends and are not part of this purchase; arrange them for the new term with our team.
+            </p>
+          )}
           <fieldset className="mt-6">
             <legend className="text-sm font-medium">How would you like to pay?</legend>
             <div className="mt-3 grid gap-3">
@@ -207,5 +214,5 @@ export default function Checkout() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="flex min-h-screen flex-col bg-background"><Header /><main id="main-content" className="mx-auto w-full max-w-2xl flex-1 px-4 pb-16 pt-28 sm:px-6">{children}</main><Footer /></div>;
+  return <AccountOrPublicFrame publicMainClassName="mx-auto w-full max-w-2xl flex-1 px-4 pb-16 pt-28 sm:px-6" accountMainClassName="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6">{children}</AccountOrPublicFrame>;
 }

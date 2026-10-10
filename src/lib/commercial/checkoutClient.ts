@@ -38,7 +38,7 @@ export interface RouteOption {
   currencyCode?: string;
   currencyExponent?: number;
 }
-export interface Placement { kind: "NEW" | "RENEWAL" | "UPGRADE" | "AT_RENEWAL" | "BLOCKED_OPEN_ENDED" | "BLOCKED_QUEUED"; start?: string }
+export interface Placement { kind: "NEW" | "RENEWAL" | "UPGRADE" | "AT_RENEWAL" | "BLOCKED_OPEN_ENDED" | "BLOCKED_QUEUED" | "BLOCKED_SEATS"; start?: string; additional_seats?: number }
 export interface CheckoutOptions { planCode: string; options: RouteOption[]; placement: Placement; platformState: string | null }
 
 export async function getCheckoutOptions(plan: PlanCode): Promise<{ data: CheckoutOptions | null; error: string | null }> {

@@ -385,6 +385,7 @@ src/
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
+      accountNextAction.ts    ← THE account home's one primary next action (plan → existing work → review → companies → shared → add company → capacity), pure; companyCreation() says whether creation is offered (create_entity stays the authority)
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
     workbench/
@@ -461,6 +462,8 @@ src/
       DataTable.tsx           ← Workbench table: sticky header, tabular amounts, roving keyboard focus, guarded batch, value states, progressive rendering
       intake/LayoutEditor.tsx ← Trial balance › Intake: manual layout, whole-file check report, confirmation, templates (behind the workbench gate)
       intake/PeriodSetup.tsx  ← Explicit period dates + currency (open_engagement_with_period); no defaults
+    account/
+      AccountShell.tsx        ← THE signed-in frame outside a workspace (account home, /plans, checkout, orders); AccountOrPublicFrame keeps the public Header/Footer for signed-out visitors
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)
       DataChoiceCard.tsx      ← The one data question
@@ -1157,6 +1160,24 @@ close an intent. `admin_grant_commercial_licence` refuses to shorten a payment-c
 evidence and routing in `docs/release/PAYMENT_PROVIDER_EVIDENCE.md`. Proof: `scripts/db-proof/paymentProviders.mjs`.
 The migration refuses unless `commercial_platform_state = PAYMENTS_DISABLED`; it activates nothing. The prerequisite is
 met only once the batch is applied on the hosted database; enabling payments stays a separate, owner-authorised step.
+
+**Status (2026-10-10, batch `commercial-p2`, `20261030100000_paid_term_seat_preservation.sql`, launch closure):
+fixed in source, pending hosted application after p1.** An upgrade over a current term with paid additional named users
+is never placed automatically: `_commercial_licence_placement` returns `BLOCKED_SEATS` and the commit records the
+payment once and leaves the intent in MANUAL_REVIEW (the commit treats every `BLOCKED_*` kind alike). Renewal and
+downgrade report the current term's seats, which continue until it ends. Proof: `scripts/db-proof/paidTermPreservation.mjs`.
+
+**COMMERCIAL_LAUNCH_SCOPE_POLAR_CARD_ONLY** — owner decision (2026-10-10). Launch = Polar card payments (USD) only,
+conditional on Polar approving the merchant and on sandbox and controlled live verification. Approved annual prices: Solo
+USD 490, Practice USD 990, Firm USD 2,990 (recorded by an administrator, never hard-coded); additional-seat prices stay
+PROPOSED and are never sold online; Enterprise and consulting are quoted. No TZS price is approved: Snippe stays
+implemented but is never offered — `SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false` (`_shared/payments/routing.ts`; only a
+sandbox adapter pointed at a loopback mock is exempt, for local tests) and `LAUNCHED_MARKETS = ["GLOBAL"]`
+(`src/lib/commercial/planOffers.ts`). Do not flip either without a new owner decision and an approved TZS price. A
+correctly signed but stale webhook is reconciled by reading the provider (never trusted by itself); refunds record only
+the change in the provider's cumulative refunded amount. Release, checklist and procedures:
+`docs/release/COMMERCIAL_LAUNCH_RELEASE.md`, `COMMERCIAL_LAUNCH_LOVABLE_CHECKLIST.md` (Stages A–G; deploying with
+payments disabled is separate from enabling checkout), `REFUNDS_DISPUTES_AND_RECOVERY.md`.
 
 **CUSTOMER_SCOPE_TRIAL_BALANCE_REVIEW_ONLY** — product containment (2026-10-02, branch `fix/hide-tax-module-surfaces`).
 The customer-facing application exposes ONE proven workflow, presented as **Trial balance review** ("Upload, check and

@@ -26,7 +26,7 @@ export function CapacityPlans({ prices = null }: { prices?: PublicPrices | null 
     return { p, view: planPurchaseView(plan, prices, "landing_plans"), extraUsers: additionalUserLine(plan) };
   });
   const anyOnline = rows.some((r) => r.view.mode === "online");
-  const anyProposed = rows.some((r) => r.view.mode === "activation");
+  const anyProposed = rows.some((r) => r.view.priceLines.some((l) => l.startsWith("Proposed")));
   return (
     <section id="plans" aria-labelledby="plans-title" className="scroll-mt-20 border-b border-border bg-background">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-10 lg:py-20">

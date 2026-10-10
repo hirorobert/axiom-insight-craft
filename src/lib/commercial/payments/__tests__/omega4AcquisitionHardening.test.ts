@@ -220,7 +220,7 @@ describe("BLOCKER-3 — platform-state x provider-environment x acceptance-ident
   it("a provider is declared only from its complete configuration with an EXPLICIT environment — it can never return a guessed one", () => {
     expect(routingCode).toMatch(/const ENVIRONMENTS = new Set\(\['sandbox', 'production'\]\);/);
     expect(routingCode).toMatch(/if \(ENVIRONMENTS\.has\(pEnv\) && pToken && /);
-    expect(routingCode).toMatch(/if \(ENVIRONMENTS\.has\(sEnv\) && sKey && /);
+    expect(routingCode).toMatch(/if \(\(SNIPPE_CUSTOMER_CHECKOUT_ENABLED \|\| snippeLoopbackMock\) && ENVIRONMENTS\.has\(sEnv\) && sKey && /);
     expect(routingCode).not.toMatch(/\?\? 'sandbox'|\?\? 'production'|\|\| 'sandbox'|\|\| 'production'/);
     expect(routingCode).not.toMatch(/FLUTTERWAVE_SECRET_KEY|FLUTTERWAVE_ENVIRONMENT|FLUTTERWAVE_WEBHOOK_SECRET/);
   });
@@ -299,7 +299,7 @@ describe("HIGH-1 — commercial-payment-status: GET read-only, POST durably thro
 
   it("POST claims a bounded verification attempt via claim_verification_attempt before ever calling the provider", () => {
     const claimIndex = paymentStatusCode.indexOf("serviceClient.rpc('claim_verification_attempt'");
-    const providerCallIndex = paymentStatusCode.indexOf("settleIntent(serviceClient");
+    const providerCallIndex = paymentStatusCode.indexOf("settleIntent(serviceDbFrom(serviceClient)");
     expect(claimIndex).toBeGreaterThan(-1);
     expect(claimIndex).toBeLessThan(providerCallIndex);
   });

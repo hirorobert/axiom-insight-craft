@@ -141,9 +141,17 @@ export function startMockProviders({ port, polar, snippe, webhookBase, organizat
       c.status = "expired";
       return deliver("POLAR", { type: "checkout.expired", data: { id: c.id, status: "expired", metadata: c.metadata } });
     },
-    async refundPolar(checkoutId) {
+    /** The customer paid, but the provider's notification has not arrived (it will be delayed). */
+    markPaidSilently(checkoutId) {
       const c = checkouts.get(checkoutId);
-      c.refunded = c.amount;
+      c.status = "succeeded";
+      c.orderId = crypto.randomUUID();
+      orders.set(c.orderId, c);
+      return c;
+    },
+    async refundPolar(checkoutId, amount) {
+      const c = checkouts.get(checkoutId);
+      c.refunded = amount ?? c.amount;
       return deliver("POLAR", { type: "order.refunded", data: orderFor(c) });
     },
     close: () => new Promise((r) => server.close(() => r())),

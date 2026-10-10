@@ -181,7 +181,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "activation",
     question: "How is a subscription activated?",
     answer:
-      "Choose a plan. Where online payment is open for it, pay by card or by mobile money (M-Pesa, Airtel Money, Mixx by Yas or Halotel); the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
+      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
   },
   {
     id: "specialist-services",

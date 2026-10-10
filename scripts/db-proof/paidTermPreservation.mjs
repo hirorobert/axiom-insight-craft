@@ -13,6 +13,7 @@
 //               licence, the earlier term changed only by an upgrade, its seats never;
 //   Manual      manual activation racing a verified payment (either order, or simultaneously) never overlaps or shortens
 //               the paid term;
+//   Withheld    a paid term never opens the financial-reporting pilot (rollout allow-list and kill switch unchanged);
 //   Unrelated   a bystander account's licence and seats are byte-identical after every placement.
 //
 //   DB_PROOF_MODULES_DIR=<dir whose node_modules has pg + embedded-postgres> node scripts/db-proof/paidTermPreservation.mjs
@@ -311,6 +312,20 @@ async function main() {
         ? true : { outcomes: outcomes.map((e) => e?.message ?? null), ls, st: st.status };
     });
   }
+
+  group("Withheld services · a purchase never opens the financial-reporting pilot");
+  await check("a company not on the reporting rollout stays outside it after a paid Firm term; the rollout tables are byte-identical", async () => {
+    const a = await account("rollout");
+    await licence(a, "SOLO", new Date(Date.now() - 10 * DAY), new Date(Date.now() + 355 * DAY));
+    const co = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Rollout Co') RETURNING id", [a.uid])).rows[0].id;
+    const ROLLOUT = "SELECT md5(coalesce((SELECT string_agg(to_jsonb(s)::text, '|') FROM public.financial_statements_rollout_state s), '') || coalesce((SELECT string_agg(to_jsonb(c)::text, '|' ORDER BY c.company_id) FROM public.financial_statements_rollout_companies c), '')) AS h";
+    const before = (await admin.query(ROLLOUT)).rows[0].h;
+    const allowedBefore = (await admin.query("SELECT public.fs_rollout_allows($1) AS ok", [co])).rows[0].ok;
+    const i = await acquire(a, "FIRM");
+    const r = await commit(i);
+    const allowedAfter = (await admin.query("SELECT public.fs_rollout_allows($1) AS ok", [co])).rows[0].ok;
+    return r.committed === true && allowedBefore === false && allowedAfter === false && (await admin.query(ROLLOUT)).rows[0].h === before ? true : { r, allowedBefore, allowedAfter };
+  });
 
   group("Unrelated entitlements");
   await check("the bystander account's licence and 3 additional users are byte-identical after every placement above", async () => (await snap(bystander)) === bystanderBefore ? true : "bystander changed");

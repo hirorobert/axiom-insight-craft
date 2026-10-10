@@ -74,7 +74,10 @@ describe("payment is offered only where the server says it is open", () => {
     expect(open).not.toContain('href="/billing/checkout?plan=PRACTICE"');
     const closed = render(createElement(PlanCatalogue, { prices: CLOSED }));
     expect(closed).not.toContain("/billing/checkout");
-    expect(text(closed)).toContain("Proposed: USD 490 per year");
+    // Approved but not open: the approved amount, never "Proposed", and the activation request.
+    expect(text(closed)).toContain("USD 490 per year");
+    expect(text(closed)).not.toContain("Proposed: USD 490");
+    expect(text(closed)).toContain("Proposed: USD 990 per year");
   });
   it("planPurchaseView never invents a price: an online price is the server's amount; otherwise the catalogue's, marked Proposed", () => {
     const solo = PRICING_CATALOGUE.find((p) => p.code === "SOLO")!;
@@ -94,5 +97,18 @@ describe("payment is offered only where the server says it is open", () => {
     const html = render(createElement(Plans));
     expect(text(html)).not.toMatch(/Request access|Send an access request/);
     expect(fs.readFileSync(path.join(ROOT, "src/App.tsx"), "utf8")).toContain('<Route path="/request-access" element={<Navigate to="/pricing" replace />} />');
+  });
+});
+
+describe("Polar card payments only (owner decision, 2026-10-10)", () => {
+  it("a TZS / mobile-money offer is never shown, whatever the server returns; only the card route's market is launched", async () => {
+    const { LAUNCHED_MARKETS } = await import("../planOffers");
+    expect(LAUNCHED_MARKETS).toEqual(["GLOBAL"]);
+    const solo = PRICING_CATALOGUE.find((p) => p.code === "SOLO")!;
+    const tzOnly = parsePublicPrices({ online_payment: true, offers: [{ plan_code: "SOLO", market_code: "TZ", currency_code: "TZS", currency_exponent: 0, amount_minor: 1250000, billing_interval: "ANNUAL" }] });
+    expect(planPurchaseView(solo, tzOnly, "landing_plans")).toMatchObject({ mode: "activation", priceLines: ["Proposed: USD 490 per year"] });
+  });
+  it("no public copy offers mobile money or names the mobile-money provider", () => {
+    expect(JSON.stringify({ COPY, LANDING })).not.toMatch(/mobile money|M-Pesa|Snippe/i);
   });
 });

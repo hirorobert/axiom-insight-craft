@@ -52,6 +52,23 @@ export interface ServiceDb {
       };
     };
   };
+  /** Sum of the REFUND reversals already recorded against a payment event (null when it cannot be read). */
+  priorRefundedMinor?(originalEventId: string): Promise<bigint | null>;
+}
+
+/** Wraps a supabase-js service client into the ServiceDb this module uses (adds the refund-sum read). */
+export function serviceDbFrom(client: unknown): ServiceDb {
+  const c = client as ServiceDb;
+  const list = client as { from(t: string): { select(c: string): { eq(a: string, b: unknown): { eq(a: string, b: unknown): PromiseLike<{ data: unknown; error: unknown }> } } } };
+  return {
+    rpc: (fn, args) => c.rpc(fn, args),
+    from: (t) => c.from(t),
+    async priorRefundedMinor(originalEventId) {
+      const { data, error } = await list.from('payment_events').select('amount_minor').eq('event_type', 'REFUND').eq('metadata->>original_event_id', originalEventId);
+      if (error || !Array.isArray(data)) return null;
+      return (data as { amount_minor: number | string | null }[]).reduce((s, r) => s + BigInt(r.amount_minor ?? 0), 0n);
+    },
+  };
 }
 
 export const SETTLEMENT_INTENT_COLUMNS =
@@ -115,12 +132,22 @@ export async function settleIntent(db: ServiceDb, adapter: ProviderAdapter, inte
     const originalId = (original as { id?: string } | null)?.id;
     if (lookupErr || !originalId) return { result: 'ERROR', detail: 'refund reported but the payment event could not be read', ...base };
     for (const r of tx.reversals) {
+      // The provider reports the order's CUMULATIVE refunded total; each reversal row records only what is new since
+      // the reversals already recorded against this payment (a partial then a full refund records 20,000 then 29,000,
+      // never 20,000 then 49,000).
+      let amountMinor = r.amountMinor;
+      if (r.type === 'REFUND' && db.priorRefundedMinor) {
+        const prior = await db.priorRefundedMinor(originalId);
+        if (prior === null) return { result: 'ERROR', detail: 'earlier refunds could not be read', ...base };
+        amountMinor = r.amountMinor - prior;
+        if (amountMinor <= 0n) continue;   // nothing new (a redelivery of a refund already recorded)
+      }
       const { data: rv, error: rvErr } = await db.rpc('record_payment_reversal', {
         p_original_event_id: originalId,
         p_reversal_type: r.type,
         p_provider: tx.provider,
         p_provider_event_id: r.providerEventId,
-        p_amount_minor: r.amountMinor.toString(),
+        p_amount_minor: amountMinor.toString(),
         p_currency_code: r.currencyCode,
         p_idempotency_key: await sha256Hex(`${tx.provider}:reversal:${r.providerEventId}`),
         p_payload_hash: tx.payloadHash,
