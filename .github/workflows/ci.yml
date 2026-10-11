@@ -571,6 +571,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 015825859f4bd8641fba013636ae118f3aa5d5e8
           git fetch --no-tags --depth=1 origin 21387d52d432359eb46d34e6160b4876eeb42f63
           git fetch --no-tags --depth=1 origin 2656cf057d4e0386e4316ccff949914d4a5c20cc
+          git fetch --no-tags --depth=1 origin a4f80c033f74bb65dbebc2770589d10a411fde0e
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -683,6 +684,23 @@ jobs:
         run: |
           createdb paid_term_proof
           bun scripts/db-proof/paidTermPreservation.mjs
+
+      - name: Sandbox licence isolation wrapper proof (the same reviewed proof for the commercial-p3 wrapper; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/sandbox_isolation_wrappers_proof
+          RELEASE_BATCH: commercial-p3
+        run: |
+          createdb sandbox_isolation_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Sandbox licence isolation proof (20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/sandbox_isolation_proof
+        run: |
+          createdb sandbox_isolation_proof
+          bun scripts/db-proof/sandboxLicenceIsolation.mjs
 
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:

@@ -263,10 +263,14 @@ Nothing in Stage C opens checkout.
 
 1. In `/commercial/admin` → **Online payment**, set `SANDBOX_ONLY`, with typed confirmation and a reason.
 2. With a test account that is a member of the sandbox organization (sandbox emails go only to members):
-   1. Buy Solo with test card 4242 4242 4242 4242. The status page shows "Payment received", with 12 months. The order appears in `/billing/orders`. Polar's dashboard shows the delivery answered 2xx.
+   1. Buy Solo with test card 4242 4242 4242 4242.
+      - The status page shows **"Test payment received"** and **"No plan was activated"**.
+      - `/billing/orders` lists it as **"Test payment · no access"**.
+      - The account has **no plan**: a sandbox payment never grants access (commercial-p3, `SANDBOX_LICENCE_ISOLATION.md`).
+      - Polar's dashboard shows the delivery answered 2xx.
    2. **Delayed notification:** in Polar's sandbox dashboard, **redeliver** that `order.paid` some minutes later. It must answer 200 (`DUPLICATE`), with no second payment or licence. Report the status Polar shows.
    3. **Partial, then full refund** in Polar's sandbox. `/commercial/admin` lists two refunds whose amounts add up to the price. Record a decision on each (§2.2 of `REFUNDS_DISPUTES_AND_RECOVERY.md`).
-   4. **Renewal:** buy Solo again on the same account. The new term starts exactly when the current one ends.
+   4. **A second test purchase** on the same account is recorded the same way: test payment, no plan. No term is placed, ended or changed.
    5. **Check with the provider** on any order: no change, no charge.
 3. Optionally run `scripts/payments/providerSandboxSmoke.ts` from a terminal with the sandbox secrets.
 4. Set `PAYMENTS_DISABLED` again.

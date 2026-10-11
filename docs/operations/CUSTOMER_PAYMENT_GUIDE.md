@@ -40,6 +40,7 @@ The approved annual prices are Solo USD 490, Practice USD 990 and Firm USD 2,990
    - **Waiting for payment confirmation.**
    - **Payment received:** the plan is active until its end date, or scheduled from a later start date.
    - **The payment did not go through / was cancelled / expired:** no payment was taken. **Start a new payment** is offered.
+   - **Test payment received:** shown only while online payment is being tested. A test payment is recorded but never activates a plan.
    - **Payment received — setting up your plan:** the payment is recorded and will not be taken again. The team places the term.
    - **Confirming this payment:** the outcome is not yet known. **Do not pay again.** Use **Check again**, or contact us.
    - **Payment refunded / disputed:** our team reviews the plan's access and contacts the customer.
