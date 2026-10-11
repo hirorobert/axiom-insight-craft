@@ -77,9 +77,9 @@ export const PAID_TERM_WRAPPED_SOURCES = Object.freeze([
   "20261030100000_paid_term_seat_preservation.sql",
 ]);
 /** Commercial release correction (commercial-p3): a sandbox payment never grants production access (DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001). */
-export const SANDBOX_ISOLATION_SOURCE_COMMIT = "a4f80c033f74bb65dbebc2770589d10a411fde0e";
+export const SANDBOX_ISOLATION_SOURCE_COMMIT = "762f3d97f5e07651640c2184aeb4d3defcb64b1e";
 export const SANDBOX_ISOLATION_WRAPPED_SOURCES = Object.freeze([
-  "20261031100000_sandbox_licence_isolation.sql",
+  "20261031110000_sandbox_licence_isolation.sql",
 ]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([

@@ -151,7 +151,7 @@ export interface CheckoutStatusResponse {
   purchasedLicenceStatus: string | null;
   purchasedEffectiveStart: string | null;
   purchasedEffectiveEnd: string | null;
-  /** The order's provider environment. A sandbox (test) payment is recorded but never grants access (20261031100000). */
+  /** The order's provider environment. A sandbox (test) payment is recorded but never grants access (20261031110000). */
   providerEnvironment: "sandbox" | "production" | null;
   /** Whether the purchased licence grants access: false for a test payment; null until a licence is recorded. */
   grantsAccess: boolean | null;

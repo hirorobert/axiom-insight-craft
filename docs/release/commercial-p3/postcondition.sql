@@ -1,6 +1,7 @@
 -- READ-ONLY HOSTED POSTCONDITION for sandbox licence isolation (batch commercial-p3). Run AFTER the wrapper. Writes nothing;
 -- raises on the first violated expectation. Then repeat the preflight's section 4: licences, licence_terms_md5, intents and
--- payment_events must be identical; audit_events grows by exactly the number of contained licences.
+-- payment_events must be identical; audit_events grows by exactly the number of sandbox licences (one SANDBOX_LICENCE_CONTAINED
+-- row for each contained licence, one SANDBOX_PROVENANCE_RECORDED row for each cancelled one).
 DO $$
 DECLARE v_fn TEXT;
 BEGIN
@@ -14,14 +15,18 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cl_provenance_guard' AND tgrelid = 'public.commercial_licences'::regclass AND tgenabled = 'O') THEN
     RAISE EXCEPTION 'POSTCONDITION: the provenance guard trigger is missing or disabled';
   END IF;
-  -- The invariant, on the live data: no sandbox licence grants; nothing else is SANDBOX.
-  IF EXISTS (SELECT 1 FROM public.commercial_licences WHERE provenance = 'SANDBOX_PAYMENT' AND status <> 'SANDBOX')
+  IF position('cfoclose.licence_provenance_review' IN pg_get_functiondef('public.commercial_licence_provenance_guard()'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: the provenance guard is not the reviewed one (20261031110000)';
+  END IF;
+  -- The invariant, on the live data: no sandbox licence grants (SANDBOX, or CANCELLED and terminal); nothing else is SANDBOX.
+  IF EXISTS (SELECT 1 FROM public.commercial_licences WHERE provenance = 'SANDBOX_PAYMENT' AND status NOT IN ('SANDBOX', 'CANCELLED'))
      OR EXISTS (SELECT 1 FROM public.commercial_licences WHERE status = 'SANDBOX' AND provenance <> 'SANDBOX_PAYMENT') THEN
     RAISE EXCEPTION 'POSTCONDITION: a sandbox licence can grant, or a non-sandbox licence is SANDBOX';
   END IF;
   IF EXISTS (SELECT 1 FROM public.commercial_licences l WHERE l.provenance = 'SANDBOX_PAYMENT'
-              AND NOT EXISTS (SELECT 1 FROM public.billing_audit_events a WHERE a.action = 'SANDBOX_LICENCE_CONTAINED' AND a.new_state->>'licence_id' = l.id::text)) THEN
-    RAISE EXCEPTION 'POSTCONDITION: a sandbox licence was contained without its audit row';
+              AND NOT EXISTS (SELECT 1 FROM public.billing_audit_events a WHERE a.action IN ('SANDBOX_LICENCE_CONTAINED', 'SANDBOX_PROVENANCE_RECORDED')
+                               AND a.new_state->>'licence_id' = l.id::text)) THEN
+    RAISE EXCEPTION 'POSTCONDITION: a sandbox licence was contained or recorded without its audit row';
   END IF;
   IF position('SANDBOX_RECORD' IN pg_get_functiondef('public.commit_verified_commercial_payment(uuid,text,text,text,text,bigint,text,text,timestamp with time zone,text,text,text,text)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: the commit still places sandbox payments';
@@ -55,8 +60,8 @@ SELECT provenance, status, count(*) FROM public.commercial_licences GROUP BY pro
 SELECT id, status, provenance, provenance_evidence FROM public.commercial_licences WHERE id = 'ba803893-8116-454f-bea2-0f2a7c7f2603';
 SELECT public_review.* FROM (SELECT id, billing_customer_id, status, source, provenance_evidence->>'basis' AS basis
                               FROM public.commercial_licences WHERE provenance = 'REVIEW_REQUIRED' ORDER BY created_at) public_review;
-SELECT new_state->>'licence_id' AS contained_licence_id, new_state->>'ended_production_licence_id' AS ended_term_to_review, created_at
-  FROM public.billing_audit_events WHERE action = 'SANDBOX_LICENCE_CONTAINED' ORDER BY created_at;
+SELECT action, new_state->>'licence_id' AS sandbox_licence_id, new_state->>'status' AS status, new_state->>'ended_production_licence_id' AS ended_term_to_review, created_at
+  FROM public.billing_audit_events WHERE action IN ('SANDBOX_LICENCE_CONTAINED', 'SANDBOX_PROVENANCE_RECORDED') ORDER BY created_at;
 
 -- Compare with the preflight's section 4:
 SELECT count(*) AS licences,

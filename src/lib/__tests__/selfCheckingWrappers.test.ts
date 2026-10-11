@@ -65,8 +65,8 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     for (const n of PAID_TERM_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${PAID_TERM_SOURCE_COMMIT}:`);
   });
   it("wraps exactly the sandbox licence isolation (commercial-p3), at the commit holding its reviewed bytes", () => {
-    expect(SANDBOX_ISOLATION_SOURCE_COMMIT).toBe("a4f80c033f74bb65dbebc2770589d10a411fde0e");
-    expect([...SANDBOX_ISOLATION_WRAPPED_SOURCES]).toEqual(["20261031100000_sandbox_licence_isolation.sql"]);
+    expect(SANDBOX_ISOLATION_SOURCE_COMMIT).toBe("762f3d97f5e07651640c2184aeb4d3defcb64b1e");
+    expect([...SANDBOX_ISOLATION_WRAPPED_SOURCES]).toEqual(["20261031110000_sandbox_licence_isolation.sql"]);
     for (const n of SANDBOX_ISOLATION_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${SANDBOX_ISOLATION_SOURCE_COMMIT}:`);
   });
   for (const name of ALL_WRAPPED) {

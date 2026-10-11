@@ -284,8 +284,11 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261029100000_payment_provider_routes.sql",
       // Paid-term seat preservation (20261030100000, commercial-p2): an upgrade never ends paid additional named users.
       "supabase/migrations/20261030100000_paid_term_seat_preservation.sql",
-      // Sandbox licence isolation (20261031100000, commercial-p3): a sandbox payment never grants production access.
-      "supabase/migrations/20261031100000_sandbox_licence_isolation.sql",
+      // Sandbox licence isolation (20261031110000, commercial-p3): a sandbox payment never grants production access. It
+      // supersedes 20261031100000, whose one hosted submission failed atomically (PT422 CANCELLED_LICENCE_IMMUTABLE); that
+      // source is quarantined byte for byte after a comment-only notice (pinned in scripts/db-proof/lib/parkedMigrations.mjs).
+      "supabase/migrations/20261031110000_sandbox_licence_isolation.sql",
+      "supabase/migrations_historical/20261031100000_sandbox_licence_isolation.sql.historical",
       // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
       // provider webhook endpoints. No financial-statements schema.
       "supabase/functions/_shared/payments/http.ts",
@@ -387,6 +390,8 @@ describe("database inertness — schema and functions", () => {
     const removed = new Set([
       "supabase/migrations/20261004100000_reconciliation_server_authority.sql",
       "supabase/migrations/20261005100000_safisha_ingestion_authority.sql",
+      // ...and the superseded sandbox licence isolation (commercial-p3), quarantined the same way (added above).
+      "supabase/migrations/20261031100000_sandbox_licence_isolation.sql",
     ]);
     expect(unreviewedChanges(changed, { added, modified, removed })).toEqual([]);
   });

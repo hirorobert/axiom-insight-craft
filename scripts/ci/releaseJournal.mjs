@@ -484,13 +484,15 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 24015, sha256: "8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 24014, sha256: "89ba277da4415e5de3e1967541603891f7260f2b3f4f14dee2d76c08dbcc06c1" }),
   }),
-  // Commercial release correction (batch commercial-p3): a sandbox payment never grants production access.
-  "20261031100000_sandbox_licence_isolation.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 48537, sha256: "c7b43ab18ae0da77400f6f0947c1a9c4c75ecc768c6098ae59588a98733b959c" }),
-    finalLfRemoved: Object.freeze({ bytes: 48536, sha256: "c26bc0a0b4af92c587b9c5e1d7bca7e1ad3a20e29e53b6001f74c2a95d14b5d0" }),
-    // Self-checking wrapper release/wrappers/20261031100000_sandbox_licence_isolation.wrapper.sql:
-    wrapper: Object.freeze({ bytes: 50109, sha256: "36bd80c0950a17d79586cd907b839e33529563ef51f222230bc83f1f17d4baa0" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 50108, sha256: "a54991d667cc243244a5b51c76549e4da014062767d604d5ac48ba29dd6a4d96" }),
+  // Commercial release correction (batch commercial-p3): a sandbox payment never grants production access. It supersedes
+  // 20261031100000, which failed atomically on submission (PT422 CANCELLED_LICENCE_IMMUTABLE) and is deliberately NOT a
+  // registered form: its bytes are pinned in scripts/db-proof/lib/parkedMigrations.mjs (SUPERSEDED_SUBMISSIONS) only.
+  "20261031110000_sandbox_licence_isolation.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 52723, sha256: "790a4fb8a6aa4b196513cb93383bc5452c2e89278876f2884bc10896a7884472" }),
+    finalLfRemoved: Object.freeze({ bytes: 52722, sha256: "355bb954257d1db7f473d13d481db3d93652b5c6232c1201d1ae91a7bfa43a01" }),
+    // Self-checking wrapper release/wrappers/20261031110000_sandbox_licence_isolation.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 54295, sha256: "12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 54294, sha256: "9014e097f874544be2bd4b991afbe299c6f9de76d41dedf2b6b3ed32d85c46ca" }),
   }),
 });
 

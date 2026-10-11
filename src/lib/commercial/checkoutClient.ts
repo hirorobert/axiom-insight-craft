@@ -81,7 +81,7 @@ export interface MyPayment {
   amount_minor: number; currency_code: string; currency_exponent: number; billing_interval: string;
   created_at: string; completed_at: string | null; payment_reference: string | null; paid_at: string | null;
   licence_start: string | null; licence_end: string | null; reversal_type: string | null;
-  /** A sandbox (test) order is recorded but never grants access (20261031100000). */
+  /** A sandbox (test) order is recorded but never grants access (20261031110000). */
   provider_environment?: "sandbox" | "production" | null; grants_access?: boolean | null;
 }
 

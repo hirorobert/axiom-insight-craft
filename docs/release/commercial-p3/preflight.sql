@@ -1,6 +1,8 @@
 -- READ-ONLY HOSTED PREFLIGHT for sandbox licence isolation (batch commercial-p3, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001).
 -- Run AFTER commercial-p2 and BEFORE the commercial-p3 wrapper. Writes nothing; raises on the first violated expectation.
 -- Paste the whole output into the report: it is the classification the migration will apply, from authoritative records.
+-- 20261031110000 supersedes 20261031100000, whose single submission failed atomically (PT422 CANCELLED_LICENCE_IMMUTABLE)
+-- and wrote nothing: this preflight passes on that unchanged state. Never submit the superseded wrapper.
 DO $$
 BEGIN
   IF to_regprocedure('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)') IS NULL
@@ -11,9 +13,9 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT: commercial_platform_state must be PAYMENTS_DISABLED (the migration refuses otherwise)';
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'commercial_licences' AND column_name = 'provenance') THEN
-    RAISE EXCEPTION 'PREFLIGHT: sandbox licence isolation (20261031100000) is already applied';
+    RAISE EXCEPTION 'PREFLIGHT: sandbox licence isolation (20261031110000) is already applied';
   END IF;
-  RAISE NOTICE 'PREFLIGHT OK: apply 20261031100000_sandbox_licence_isolation.wrapper.sql';
+  RAISE NOTICE 'PREFLIGHT OK: apply 20261031110000_sandbox_licence_isolation.wrapper.sql';
 END;
 $$;
 
@@ -34,7 +36,9 @@ SELECT cl.id AS licence_id, cl.billing_customer_id, cp.code AS plan_code, cl.sta
          WHEN cl.source = 'MANUAL_ADMIN_GRANT' THEN 'MANUAL_GRANT'
          WHEN cl.source = 'SYSTEM_DEFAULT_FREE' THEN 'SYSTEM_FREE'
          WHEN cl.source LIKE '%\_VERIFIED\_PAYMENT' ESCAPE '\' AND e.licence_id IS NOT NULL AND e.environments = 1 AND NOT e.any_unknown
-              THEN CASE e.environment WHEN 'production' THEN 'PRODUCTION_PAYMENT' WHEN 'sandbox' THEN 'SANDBOX_PAYMENT (WILL BE CONTAINED)' END
+              THEN CASE e.environment WHEN 'production' THEN 'PRODUCTION_PAYMENT'
+                                      WHEN 'sandbox' THEN CASE WHEN cl.status = 'CANCELLED' THEN 'SANDBOX_PAYMENT (STAYS CANCELLED; PROVENANCE RECORDED)'
+                                                               ELSE 'SANDBOX_PAYMENT (WILL BE CONTAINED)' END END
          ELSE 'REVIEW_REQUIRED'
        END AS provenance_to_record
   FROM public.commercial_licences cl
