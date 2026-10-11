@@ -145,7 +145,9 @@ export function providersFromEnv(env: EnvReader, fetchImpl?: (input: string, ini
   // implemented but is offered ONLY to a sandbox adapter pointed at a loopback mock (local tests) — never on the hosted
   // project, whatever secrets are set — until this source constant is changed by a reviewed release.
   const snippeLoopbackMock = sEnv === 'sandbox' && sBase !== null && sBase !== SNIPPE_API_BASE;
-  if ((SNIPPE_CUSTOMER_CHECKOUT_ENABLED || snippeLoopbackMock) && ENVIRONMENTS.has(sEnv) && sKey && sSecret && supabaseUrl && sBase) {
+  // The signing key is documented with the prefix whsec_; anything else is a misconfiguration (an API key pasted in the
+  // wrong setting) and the provider is not configured.
+  if ((SNIPPE_CUSTOMER_CHECKOUT_ENABLED || snippeLoopbackMock) && ENVIRONMENTS.has(sEnv) && sKey && sSecret?.startsWith('whsec_') && supabaseUrl && sBase) {
     const environment = sEnv as 'sandbox' | 'production';
     out.push({
       capabilities: { provider: 'SNIPPE', supportedCurrencies: ['TZS'], supportedMarkets: ['TZ'], supportedMethods: ['mobile_money'], environment },

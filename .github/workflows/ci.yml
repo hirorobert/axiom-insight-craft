@@ -702,6 +702,14 @@ jobs:
           createdb sandbox_isolation_proof
           bun scripts/db-proof/sandboxLicenceIsolation.mjs
 
+      - name: Snippe ledger proof (Tanzania mobile money and TZS on the one commercial ledger; no TZS price unless an administrator records and approves an explicit amount; one licence per verified success to the right account; failed, voided, expired, mismatched and duplicate payments grant nothing; delayed success, Polar and Snippe attempts, renewal, upgrade, downgrade, sandbox, reversal review, administrator resolution, paid terms, paid users and the reporting rollout preserved)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/snippe_ledger_proof
+        run: |
+          createdb snippe_ledger_proof
+          bun scripts/db-proof/snippeLedger.mjs
+
       - name: Statement composition proof (the database composes the statement of financial position and of comprehensive income from the authoritative reporting input and reviewed presentation assignments; hand-computed figures for two years; lineage; approved adjustments as a layer; the edition table equal to the TypeScript pack; authority, idempotency, tenancy and append-only history; on the same throwaway container)
         env:
           DB_PROOF_MODE: external

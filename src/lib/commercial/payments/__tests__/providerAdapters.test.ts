@@ -33,7 +33,7 @@ function mockFetch(responder: (url: string, init: RequestInit, n: number) => { s
   return { impl, calls };
 }
 const polar = (f: ReturnType<typeof mockFetch>) => createPolarAdapter({ environment: "sandbox", accessToken: "polar_oat_test", webhookSecret: "whsec_" + Buffer.from("k".repeat(32)).toString("base64"), organizationId: ORG, productIds: PRODUCTS, apiBase: "https://sandbox-api.polar.sh" }, f.impl);
-const snippe = (f: ReturnType<typeof mockFetch>) => createSnippeAdapter({ environment: "sandbox", apiKey: "snp_test", webhookSecret: "snippe-signing-key", webhookUrl: "https://x.supabase.co/functions/v1/commercial-webhook-snippe", apiBase: "https://api.snippe.sh" }, f.impl);
+const snippe = (f: ReturnType<typeof mockFetch>) => createSnippeAdapter({ environment: "sandbox", apiKey: "snp_test", webhookSecret: "whsec_snippe-signing-key", webhookUrl: "https://x.supabase.co/functions/v1/commercial-webhook-snippe", apiBase: "https://api.snippe.sh" }, f.impl);
 const params = (over: Partial<Parameters<ProviderAdapter["createCheckout"]>[0]> = {}) => ({
   saffReference: REF, intentId: "intent-1", billingCustomerId: BC, amountMinor: 49000n, currencyCode: "USD", currencyExponent: 2,
   planCode: "SOLO", planName: "Solo", customerEmail: "owner@example.test", customerName: "Asha Mushi", redirectUrl: `https://cfoclose.com/billing/payment/return?ref=${REF}`,
@@ -227,13 +227,77 @@ describe("Snippe adapter (Tanzania mobile money, TZS)", () => {
     });
   }
   it("pending is NOT_FINAL; an amount, currency, reference or account that differs is refused", async () => {
-    const v = (data: Record<string, unknown>) => snippe(mockFetch(() => ({ status: 200, body: { data } }))).verifyTransactionByReference(sRef, 1_250_000n, "TZS");
+    const v = (data: Record<string, unknown>) => snippe(mockFetch(() => ({ status: 200, body: { data: { reference: "pi_abc", ...data } } }))).verifyTransactionByReference(sRef, 1_250_000n, "TZS");
     expect(await v({ status: "pending" })).toMatchObject({ verified: false, result: "NOT_FINAL" });
     expect(await v({ status: "completed", amount: { value: 1000, currency: "TZS" } })).toMatchObject({ result: "AMOUNT_MISMATCH" });
     expect(await v({ status: "completed", amount: { value: 1250000, currency: "KES" } })).toMatchObject({ result: "CURRENCY_MISMATCH" });
     expect(await v({ status: "completed", reference: "pi_other" })).toMatchObject({ result: "REFERENCE_MISMATCH" });
     expect(await v({ status: "completed", metadata: { saff_reference: REF, billing_customer_id: "someone-else" } })).toMatchObject({ result: "ACCOUNT_MISMATCH" });
     expect(await v({ status: "mystery" })).toMatchObject({ result: "UNKNOWN_PROVIDER_STATUS" });
+  });
+  it("the documented status answer (reference, status, amount; no metadata) verifies; a completed payment without an amount, or an answer without the reference, never does", async () => {
+    const v = (data: Record<string, unknown>) => snippe(mockFetch(() => ({ status: 200, body: { status: "success", code: 200, data } }))).verifyTransactionByReference(sRef, 1_250_000n, "TZS");
+    // The shape from docs.snippe.sh (GET /v1/payments/{reference}): no metadata in the answer.
+    expect(await v({ reference: "pi_abc", status: "completed", object: "payment", payment_type: "mobile", amount: { currency: "TZS", value: 1250000 },
+      channel: { provider: "mpesa", type: "mobile_money" }, completed_at: "2026-10-11T10:00:00Z" }))
+      .toMatchObject({ verified: true, transaction: { normalizedStatus: "SUCCEEDED", amountMinor: 1_250_000n, currencyCode: "TZS" } });
+    expect(await v({ reference: "pi_abc", status: "completed" })).toMatchObject({ verified: false, result: "AMOUNT_MISMATCH" });
+    expect(await v({ status: "completed", amount: { currency: "TZS", value: 1250000 } })).toMatchObject({ verified: false, result: "REFERENCE_MISMATCH" });
+    // A failed payment grants nothing, so it is final even without an amount.
+    expect(await v({ reference: "pi_abc", status: "failed", failure_reason: "Transaction declined by user" })).toMatchObject({ verified: true, transaction: { normalizedStatus: "FAILED" } });
+  });
+  it("creation: 409 or 422 (a payment may already exist under this Idempotency-Key) is UNCERTAIN; 400, 401, 403 and 429 are definitive; a 5xx is retried once with the same key", async () => {
+    for (const [status, outcome] of [[409, "UNCERTAIN"], [422, "UNCERTAIN"], [400, "DEFINITIVE_FAILURE"], [401, "DEFINITIVE_FAILURE"], [403, "DEFINITIVE_FAILURE"], [429, "DEFINITIVE_FAILURE"], [500, "UNCERTAIN"]] as const) {
+      const f = mockFetch(() => ({ status, body: { status: "error", code: status } }));
+      expect(await snippe(f).createCheckout(tz()), String(status)).toMatchObject({ success: false, outcome });
+      if (status === 500) expect(f.calls.map((c) => (c.init.headers as Record<string, string>)["Idempotency-Key"])).toEqual([REF, REF]);
+    }
+  });
+  it("an order reference longer than the documented 30-character Idempotency-Key limit is refused before any request", async () => {
+    const f = mockFetch(() => ({ status: 201, body: {} }));
+    expect(await snippe(f).createCheckout(tz({ saffReference: "S".repeat(31) }))).toMatchObject({ outcome: "DEFINITIVE_FAILURE", error: "IDEMPOTENCY_KEY_TOO_LONG" });
+    expect(f.calls).toHaveLength(0);
+  });
+  it("webhook claims: API 2026-01-25 (type + data) and the 2026-01-01 flat format (event) both name the payment to read back; nothing else is believed", () => {
+    const a = snippe(mockFetch(() => ({ status: 200 })));
+    expect(a.parseWebhook(JSON.stringify({ id: "evt_1", type: "payment.completed", data: { reference: "pi_abc", metadata: { saff_reference: REF } } })))
+      .toEqual({ providerEventId: "evt_1", eventType: "payment.completed", providerCheckoutRef: "pi_abc", providerOrderId: null, saffReference: REF });
+    expect(a.parseWebhook(JSON.stringify({ event: "payment.completed", reference: "pi_abc", status: "completed" })))
+      .toMatchObject({ eventType: "payment.completed", providerCheckoutRef: "pi_abc" });
+    expect(a.parseWebhook(JSON.stringify({ id: "evt_2", type: "payout.completed", data: { reference: "po_1" } }))).toMatchObject({ providerCheckoutRef: null });
+    expect(a.parseWebhook("not json")).toMatchObject({ eventType: "unknown", providerCheckoutRef: null });
+  });
+  it("settlement through the Snippe adapter: a completed TZS payment commits once as SNIPPE in the adapter's environment; failed, voided and expired commit their non-success; pending, mismatched or unreadable commit nothing", async () => {
+    const tzIntent = { id: "intent-tz", saff_reference: REF, provider: "SNIPPE", provider_environment: "sandbox", provider_checkout_ref: "pi_abc", billing_customer_id: BC, expected_amount_minor: "1250000", currency_code: "TZS", status: "PENDING" };
+    const run = async (answer: { status: number; body?: unknown } | "network") => {
+      const calls: { fn: string; args: Record<string, unknown> }[] = [];
+      const db: ServiceDb = { rpc: (fn, args) => { calls.push({ fn, args }); return Promise.resolve({ data: { status: "COMMITTED", event_id: "e1" }, error: null }); },
+        from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }) }) };
+      return { out: await settleIntent(db, snippe(mockFetch(() => answer)), tzIntent), calls };
+    };
+    const ok = await run({ status: 200, body: { data: { reference: "pi_abc", status: "completed", amount: { value: 1250000, currency: "TZS" } } } });
+    expect(ok.out).toMatchObject({ result: "PROCESSED" });
+    expect(ok.calls).toHaveLength(1);
+    expect(ok.calls[0].args).toMatchObject({ p_provider: "SNIPPE", p_normalized_status: "SUCCEEDED", p_amount_minor: "1250000", p_currency_code: "TZS", p_provider_environment: "sandbox", p_provider_transaction_id: "pi_abc" });
+    for (const [status, normalized] of [["failed", "FAILED"], ["voided", "CANCELLED"], ["expired", "EXPIRED"]]) {
+      const r = await run({ status: 200, body: { data: { reference: "pi_abc", status } } });
+      expect(r.calls.map((c) => c.args.p_normalized_status), status).toEqual([normalized]);
+    }
+    const refused: [unknown, string][] = [
+      [{ status: 200, body: { data: { reference: "pi_abc", status: "pending" } } }, "NOT_FINAL"],
+      [{ status: 200, body: { data: { reference: "pi_abc", status: "completed", amount: { value: 1249999, currency: "TZS" } } } }, "AMOUNT_MISMATCH"],
+      [{ status: 200, body: { data: { reference: "pi_abc", status: "completed", amount: { value: 1250000, currency: "USD" } } } }, "CURRENCY_MISMATCH"],
+      [{ status: 200, body: { data: { reference: "pi_other", status: "completed", amount: { value: 1250000, currency: "TZS" } } } }, "REFERENCE_MISMATCH"],
+      [{ status: 404, body: {} }, "ERROR"], ["network", "ERROR"]];
+    for (const [answer, result] of refused) {
+      const r = await run(answer as never);
+      expect(r.out.result, JSON.stringify(answer)).toBe(result);
+      expect(r.calls).toHaveLength(0);
+    }
+    // A sandbox adapter never settles a production intent (no provider call either).
+    const prod = await settleIntent({ rpc: () => { throw new Error("no write"); }, from: () => { throw new Error("no read"); } } as never,
+      snippe(mockFetch(() => { throw new Error("no provider call"); })), { ...tzIntent, provider_environment: "production" });
+    expect(prod).toMatchObject({ result: "MERCHANT_MISMATCH" });
   });
 });
 
@@ -242,7 +306,7 @@ describe("routing from configuration (a provider exists only with its complete, 
     SAFF_PAYMENT_REDIRECT_URL: "https://cfoclose.com/billing/payment/return", SUPABASE_URL: "https://x.supabase.co",
     POLAR_ENVIRONMENT: "sandbox", POLAR_ACCESS_TOKEN: "polar_oat_x", POLAR_WEBHOOK_SECRET: "whsec_abc", POLAR_ORGANIZATION_ID: ORG, POLAR_PRODUCT_IDS: JSON.stringify(PRODUCTS),
     // Snippe is not launched: it is configured only as a sandbox adapter pointed at a loopback mock (local tests).
-    SNIPPE_ENVIRONMENT: "sandbox", SNIPPE_API_KEY: "snp_x", SNIPPE_WEBHOOK_SECRET: "sig", SNIPPE_API_BASE_URL: "http://host.docker.internal:9911",
+    SNIPPE_ENVIRONMENT: "sandbox", SNIPPE_API_KEY: "snp_x", SNIPPE_WEBHOOK_SECRET: "whsec_sig", SNIPPE_API_BASE_URL: "http://host.docker.internal:9911",
   };
   const caps = (env: Record<string, string | undefined>) => providersFromEnv((n) => env[n]).map((p) => p.capabilities);
   it("with every setting: Polar (USD, GLOBAL, card) and — only as a loopback mock — Snippe (TZS, TZ, mobile money)", () => {
@@ -270,6 +334,9 @@ describe("routing from configuration (a provider exists only with its complete, 
   for (const k of ["SNIPPE_ENVIRONMENT", "SNIPPE_API_KEY", "SNIPPE_WEBHOOK_SECRET"]) {
     it(`Snippe without ${k} is not configured (Polar unaffected)`, () => expect(caps({ ...full, [k]: undefined }).map((c) => c.provider)).toEqual(["POLAR"]));
   }
+  it("a Snippe signing key without the documented whsec_ prefix (e.g. the API key pasted into the wrong setting) leaves Snippe unconfigured", () => {
+    expect(caps({ ...full, SNIPPE_WEBHOOK_SECRET: "snp_live_key_in_the_wrong_place" }).map((c) => c.provider)).toEqual(["POLAR"]);
+  });
   it("an invalid environment, a product map missing a plan, or a secret that is not whsec_ disables Polar — never a default", () => {
     expect(caps({ ...full, POLAR_ENVIRONMENT: "live" }).map((c) => c.provider)).toEqual(["SNIPPE"]);
     expect(caps({ ...full, POLAR_PRODUCT_IDS: JSON.stringify({ SOLO: PRODUCTS.SOLO }) }).map((c) => c.provider)).toEqual(["SNIPPE"]);

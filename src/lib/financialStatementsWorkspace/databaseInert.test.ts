@@ -344,6 +344,10 @@ describe("database inertness — schema and functions", () => {
       // provider's cumulative refunded amount (serviceDbFrom adds that read). No financial-statements schema.
       "supabase/functions/_shared/payments/settle.ts",
       "supabase/functions/_shared/payments/webhookEndpoint.ts",
+      // Snippe readiness (route still disabled): the adapter requires the payment's reference and, for a completed
+      // payment, its own amount on read-back; 409/422 on creation are uncertain; the signing key must be whsec_; the flat
+      // webhook format is recognised. No schema.
+      "supabase/functions/_shared/payments/providers/snippe.ts",
       // CFO Close walls: the paid-action gate in the Close Insights engines, the filing-pack and management-letter
       // generators; neutral customer-visible wording (no internal engine names) in their responses and in the shared
       // certified-trial-balance reader; the disclosure-notes generator's credit line. Accounting logic unchanged.
@@ -536,6 +540,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/paymentProviders.mjs",
       "scripts/db-proof/paidTermPreservation.mjs",
       "scripts/db-proof/sandboxLicenceIsolation.mjs",
+      // Snippe readiness: the loopback-only TZS/Snippe ledger proof (no provider, no secret).
+      "scripts/db-proof/snippeLedger.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
