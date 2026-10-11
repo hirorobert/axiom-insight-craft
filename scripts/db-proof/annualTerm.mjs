@@ -188,15 +188,16 @@ async function main() {
     }
     return { uid, bc, lic, co };
   };
+  // Paid terms are PRODUCTION payments: since 20261031100000 a sandbox payment records a SANDBOX licence that grants nothing.
   const intentRow = async (acct, o, over = {}) => (await admin.query(`INSERT INTO public.payment_checkout_intents
         (billing_customer_id, commercial_offer_id, plan_id, market_code, expected_amount_minor, currency_code, currency_exponent,
          billing_interval, billing_interval_count, provider, saff_reference, status, created_by_user_id, provider_environment, product_id, provider_checkout_ref)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'STRIPE',$10,$13,$11,'sandbox',$12,$14) RETURNING id`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'STRIPE',$10,$13,$11,'production',$12,$14) RETURNING id`,
       [acct.bc, o.id, over.plan_id ?? o.plan_id, o.market_code, o.amount_minor, o.currency_code, o.currency_exponent,
        over.billing_interval ?? o.billing_interval, ("billing_interval_count" in over) ? over.billing_interval_count : o.billing_interval_count, `SAFF-${uuid()}`, acct.uid, over.product_id ?? product,
        over.status ?? 'PENDING', over.provider_checkout_ref ?? null])).rows[0].id;
   const intent = async (acct, offerCode, over) => intentRow(acct, await offer(offerCode), over);
-  const commit = async (intentId, amount, status = "SUCCEEDED", method = "PROVIDER_API_VERIFY") => (await admin.query(`SELECT public.commit_verified_commercial_payment($1,'STRIPE',$2,$3,$4,$5,'USD',$6,now(),$9,$7,$8,'sandbox') r`,
+  const commit = async (intentId, amount, status = "SUCCEEDED", method = "PROVIDER_API_VERIFY") => (await admin.query(`SELECT public.commit_verified_commercial_payment($1,'STRIPE',$2,$3,$4,$5,'USD',$6,now(),$9,$7,$8,'production') r`,
     [intentId, `tx-${uuid()}`, status.toLowerCase(), status, amount, "h".repeat(64), `idem-${uuid()}`, `SAFF-${uuid()}`, method])).rows[0].r;
   const commitAs = async (intentId, status, method) => {
     const amount = (await admin.query("SELECT expected_amount_minor a FROM public.payment_checkout_intents WHERE id=$1", [intentId])).rows[0].a;
@@ -225,7 +226,9 @@ async function main() {
   const stackedLic = async () => (await admin.query(`SELECT l.id, l.status, l.effective_start, l.effective_end, l.effective_start > now() AS future
       FROM public.commercial_licences l WHERE l.billing_customer_id=$1 ORDER BY l.effective_start`, [stacked.bc])).rows;
   const [stackedAnnual, stackedFuture] = await stackedLic();
-  const fullLic = async () => (await admin.query("SELECT to_jsonb(l) AS row FROM public.commercial_licences l ORDER BY id")).rows;
+  // provenance / provenance_evidence are added by a LATER migration (20261031100000, sandbox licence isolation), which this
+  // proof also applies before comparing; they are not this migration's columns, so they are left out of the comparison.
+  const fullLic = async () => (await admin.query("SELECT to_jsonb(l) - 'provenance' - 'provenance_evidence' AS row FROM public.commercial_licences l ORDER BY id")).rows;
   const snapOffers = async () => (await admin.query("SELECT offer_code, to_jsonb(o) AS row FROM public.commercial_offers o ORDER BY offer_code")).rows;
   const platformState = async () => (await admin.query("SELECT state FROM public.commercial_platform_state")).rows.map((r) => r.state).join(",");
   const platformBefore = await platformState();

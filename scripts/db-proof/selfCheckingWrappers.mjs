@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "commercial-p2"
+const DRIZZLE_FAILURE = BATCH.id === "commercial-p3"
+  ? { object: "public.admin_restore_term_ended_by_sandbox(pg_catalog.uuid,pg_catalog.text)", rolledBack: "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'commercial_licences' AND column_name = 'provenance') AND position('SANDBOX' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_cl_status'))) = 0 AS ok" }
+  : BATCH.id === "commercial-p2"
   ? { object: "public._commercial_licence_placement(pg_catalog.uuid,pg_catalog.uuid,timestamp with time zone)", rolledBack: "SELECT position('BLOCKED_SEATS' IN pg_get_functiondef('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "commercial-p1"
   ? { object: "public.payment_webhook_processing_events", rolledBack: "SELECT position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_co_provider_restriction'))) = 0 AND position('POLAR' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_pci_provider'))) = 0 AND to_regprocedure('public._commercial_licence_placement(uuid,uuid,timestamp with time zone)') IS NULL AS ok" }

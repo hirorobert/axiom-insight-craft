@@ -10,7 +10,8 @@
 //   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED it shows
 //               "by card" and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
 //   card        sign in → /billing/checkout → card → the mock hosted page → Pay → signed order.paid → status page: payment
-//               received, plan active for 12 months, references; the licence is the payment's (source POLAR_VERIFIED_PAYMENT)
+//               "Test payment received", no plan activated, references; in sandbox the licence is SANDBOX (it never grants
+//               access: DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001) and the account has no plan
 //   webhooks    a replay is DUPLICATE; a bad signature and a stale timestamp are refused (401) and recorded; an unknown
 //               checkout is REFERENCE_MISMATCH; 5 concurrent deliveries leave one licence and one payment event
 //   mobile      (NOT LAUNCHED — owner decision; exercised only against the loopback mock, which is the one configuration
@@ -411,21 +412,22 @@ async function main() {
     const lic = await licencesOf(U.card);
     return i?.status === "PENDING" && i.provider === "POLAR" && c?.amount === 49000 && c?.currency === "usd" && c?.taxBehavior === "exclusive" && c?.discounts === false && lic.length === 0 ? true : { i, c, lic: lic.length };
   });
-  await check("Pay → signed order.paid → the status page shows payment received and the plan active for 12 months, with references", async () => {
+  await check("Pay → signed order.paid → the status page says TEST payment received and no plan activated; the licence is SANDBOX and the account has no plan", async () => {
     await shot("22-mock-provider-page");
     await page.click('[data-testid="mock-pay"]');
     await page.waitForUrl(/\/billing\/payment\/return\?ref=/, { timeout: 30000 });
-    await page.waitForText("Payment received", { timeout: 60000 });
-    await page.waitForText("plan is active");
+    await page.waitForText("Test payment received", { timeout: 60000 });
+    await page.waitForText("No plan was activated");
     const lic = await licencesOf(U.card);
-    const yearMs = new Date(lic[0]?.effective_end).getTime() - new Date(lic[0]?.effective_start).getTime();
     const t = await page.bodyText();
-    return lic.length === 1 && lic[0].source === "POLAR_VERIFIED_PAYMENT" && yearMs > 364 * 864e5 && yearMs < 367 * 864e5 && t.includes(cardRef) && t.includes("emails your receipt") ? true : { lic, t: t.slice(0, 600) };
+    const summary = (await (await apiAs(U.card)).rpc("get_my_billing_summary")).data;
+    return lic.length === 1 && lic[0].source === "POLAR_VERIFIED_PAYMENT" && lic[0].status === "SANDBOX" && summary?.licence_status == null
+      && t.includes(cardRef) && !/plan is active|Start a trial balance review/.test(t) ? true : { lic, summary, t: t.slice(0, 600) };
   });
   await check("status page at 1280 and 375 px", async () => widths("23-status-received"));
-  await check("the orders page lists the paid order with its 12-month term", async () => {
+  await check("the orders page lists the test order as a test payment with no access (never as an active term)", async () => {
     await go("/billing/orders", "Your orders");
-    await page.waitForText("Paid");
+    await page.waitForText("Test payment · no access");
     await widths("24-orders");
     return (await page.bodyText()).includes(cardRef) ? true : "order not listed";
   });
@@ -484,11 +486,11 @@ async function main() {
     return i?.provider === "SNIPPE" && pm?.amount === 1250000 && pm?.currency === "TZS" && pm?.phone === "255712345678" && pm?.metadata?.saff_reference === i.saff_reference ? true : { i, pm };
   });
   await check("mobile-money status page at 1280 and 375 px", async () => widths("25-status-mobile-pending"));
-  await check("the customer approves → signed payment.completed → payment received, plan active", async () => {
+  await check("the customer approves → signed payment.completed → TEST payment received; the licence is SANDBOX (no access)", async () => {
     const r = await mock.completeSnippe(mmRef);
-    await page.waitForText("Payment received", { timeout: 60000 });
+    await page.waitForText("Test payment received", { timeout: 60000 });
     const lic = await licencesOf(U.mobile);
-    return r.status === 200 && lic.length === 1 && lic[0].source === "SNIPPE_VERIFIED_PAYMENT" ? true : { r: r.response, lic };
+    return r.status === 200 && lic.length === 1 && lic[0].source === "SNIPPE_VERIFIED_PAYMENT" && lic[0].status === "SANDBOX" ? true : { r: r.response, lic };
   });
 
   startGroup("An unpaid checkout that expires");
@@ -577,15 +579,18 @@ async function main() {
     const audit = (await admin.from("billing_audit_events").select("actor_user_id").eq("action", "LICENCE_GRANTED").eq("actor_user_id", U.admin.id)).data ?? [];
     return lic.some((l) => l.source === "MANUAL_ADMIN_GRANT") && audit.length >= 1 ? true : { lic, audit: audit.length };
   });
-  await check("a manual grant over a paid term is refused (PAID_TERM_WOULD_BE_SHORTENED) and the paid term is unchanged", async () => {
-    const before = JSON.stringify(await licencesOf(U.card));
+  await check("a test payment is not a paid term: manual activation of the same account applies, and the SANDBOX licence stays SANDBOX (the paid-term guard is proven with production payments in the database proofs)", async () => {
+    const sandboxBefore = (await licencesOf(U.card)).filter((l) => l.status === "SANDBOX");
     await setInput('[data-testid="admin-find-email"]', U.card.email);
     await page.click('[data-testid="admin-find"]');
     await page.waitForText(U.card.email);
-    await setInput('[data-testid="admin-reason"]', "Attempt to overlap a paid term (must be refused)");
+    await setInput('[data-testid="admin-reason"]', "Activation by agreement after a test payment");
     await page.click('[data-testid="admin-activate"]');
-    await page.waitForText("PAID_TERM_WOULD_BE_SHORTENED");
-    return JSON.stringify(await licencesOf(U.card)) === before ? true : "paid term changed";
+    await page.waitForText("activated from");
+    const after = await licencesOf(U.card);
+    const summary = (await (await apiAs(U.card)).rpc("get_my_billing_summary")).data;
+    return after.some((l) => l.source === "MANUAL_ADMIN_GRANT" && l.status === "ACTIVE") && JSON.stringify(after.filter((l) => l.status === "SANDBOX")) === JSON.stringify(sandboxBefore)
+      && summary?.licence_status === "ACTIVE" ? true : { after, summary };
   });
   await check("administrator accounts page at 1280 and 375 px", async () => widths("26-admin-accounts"));
 

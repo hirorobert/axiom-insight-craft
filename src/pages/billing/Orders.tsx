@@ -39,7 +39,9 @@ export default function Orders() {
                 <span className="font-medium">{o.plan_name} · 12 months<span className="block text-xs font-normal text-muted-foreground">{formatLicenceDate(o.created_at)}</span></span>
                 <span>{formatMoney(Number(o.amount_minor), o.currency_code, o.currency_exponent)}<span className="block text-xs text-muted-foreground">{o.provider === "POLAR" ? "Card (Polar)" : o.provider === "SNIPPE" ? "Mobile money (Snippe)" : o.provider}</span></span>
                 <span>{o.reversal_type ? (o.reversal_type === "CHARGEBACK" ? "Disputed" : "Refunded") : STATE[o.status] ?? o.status}
-                  {o.licence_start && o.licence_end && <span className="block text-xs text-muted-foreground">{formatLicenceDate(o.licence_start)} – {formatLicenceDate(o.licence_end)}</span>}</span>
+                  {o.provider_environment === "sandbox"
+                    ? <span className="block text-xs text-muted-foreground" data-testid="order-test-payment">Test payment · no access</span>
+                    : o.licence_start && o.licence_end && <span className="block text-xs text-muted-foreground">{formatLicenceDate(o.licence_start)} – {formatLicenceDate(o.licence_end)}</span>}</span>
                 <span className="sm:text-right"><Link className="underline underline-offset-4" to={`/billing/payment/return?ref=${encodeURIComponent(o.saff_reference)}`}>Details</Link>
                   <span className="block break-all font-mono text-[11px] text-muted-foreground">{o.saff_reference}</span></span>
               </li>

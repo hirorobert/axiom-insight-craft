@@ -284,6 +284,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261029100000_payment_provider_routes.sql",
       // Paid-term seat preservation (20261030100000, commercial-p2): an upgrade never ends paid additional named users.
       "supabase/migrations/20261030100000_paid_term_seat_preservation.sql",
+      // Sandbox licence isolation (20261031100000, commercial-p3): a sandbox payment never grants production access.
+      "supabase/migrations/20261031100000_sandbox_licence_isolation.sql",
       // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
       // provider webhook endpoints. No financial-statements schema.
       "supabase/functions/_shared/payments/http.ts",
@@ -528,6 +530,7 @@ describe("database inertness — schema and functions", () => {
       // Online payment (commercial-p1): the loopback-only payment authority proof.
       "scripts/db-proof/paymentProviders.mjs",
       "scripts/db-proof/paidTermPreservation.mjs",
+      "scripts/db-proof/sandboxLicenceIsolation.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).

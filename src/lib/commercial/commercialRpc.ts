@@ -151,6 +151,10 @@ export interface CheckoutStatusResponse {
   purchasedLicenceStatus: string | null;
   purchasedEffectiveStart: string | null;
   purchasedEffectiveEnd: string | null;
+  /** The order's provider environment. A sandbox (test) payment is recorded but never grants access (20261031100000). */
+  providerEnvironment: "sandbox" | "production" | null;
+  /** Whether the purchased licence grants access: false for a test payment; null until a licence is recorded. */
+  grantsAccess: boolean | null;
   /** The order itself (server snapshot at checkout creation): what is being bought and the amount payable. */
   provider: string | null;
   purchasedPlanCode: string | null;
@@ -183,6 +187,8 @@ interface RawCheckoutStatusResponse {
   billing_interval_count?: number | null;
   purchased_licence_id?: string | null;
   purchased_licence_status?: string | null;
+  provider_environment?: "sandbox" | "production" | null;
+  grants_access?: boolean | null;
   purchased_effective_start?: string | null;
   purchased_effective_end?: string | null;
   provider?: string | null;
@@ -325,6 +331,8 @@ function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): Checkout
     purchasedLicenceStatus: json.purchased_licence_status ?? null,
     purchasedEffectiveStart: json.purchased_effective_start ?? null,
     purchasedEffectiveEnd: json.purchased_effective_end ?? null,
+    providerEnvironment: json.provider_environment ?? null,
+    grantsAccess: typeof json.grants_access === "boolean" ? json.grants_access : null,
     provider: json.provider ?? null,
     purchasedPlanCode: json.purchased_plan_code ?? null,
     expectedAmountMinor: json.expected_amount_minor === null || json.expected_amount_minor === undefined ? null : Number(json.expected_amount_minor),

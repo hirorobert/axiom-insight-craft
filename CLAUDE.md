@@ -1171,6 +1171,18 @@ per-account advisory lock (`hashtext(billing_customer_id)`), so a manual grant a
 serialised (a racing grant could otherwise make the payment's commit fail on the no-overlap constraint). Proof:
 `scripts/db-proof/paidTermPreservation.mjs` (18).
 
+**DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001** — fixed in source (2026-10-11), batch `commercial-p3`,
+`20261031100000_sandbox_licence_isolation.sql` (source `a4f80c0`, wrapper 50,109 B); pending hosted application. A verified
+SANDBOX payment used to create an ACTIVE licence that every access decision honoured; PAYMENTS_DISABLED did not revoke it; a
+sandbox upgrade ended a genuine term. Now: a sandbox payment records a licence with status `SANDBOX` (excluded by every
+consumer, all of which select `status IN ('ACTIVE','GRACE')`) and never runs placement; `commercial_licences.provenance`
+(PRODUCTION_PAYMENT | SANDBOX_PAYMENT | MANUAL_GRANT | SYSTEM_FREE | REVIEW_REQUIRED, default REVIEW_REQUIRED) is backfilled only
+from authoritative records (PAYMENT_CONFIRMED event or placed_licence_id -> intent.provider_environment); the trigger
+`trg_cl_provenance_guard` keeps SANDBOX_PAYMENT <=> SANDBOX and provenance fixed except REVIEW_REQUIRED -> reviewed. Never
+make placement or access depend on commercial_platform_state, and never assume an unproven licence is production. Payment
+proofs exercise placement with PRODUCTION payments. Record and procedures: `docs/release/SANDBOX_LICENCE_ISOLATION.md`;
+proof `scripts/db-proof/sandboxLicenceIsolation.mjs`.
+
 **COMMERCIAL_LAUNCH_SCOPE_POLAR_CARD_ONLY** — owner decision (2026-10-10). Launch = Polar card payments (USD) only,
 conditional on Polar approving the merchant and on sandbox and controlled live verification. Approved annual prices: Solo
 USD 490, Practice USD 990, Firm USD 2,990 (recorded by an administrator, never hard-coded); additional-seat prices stay
