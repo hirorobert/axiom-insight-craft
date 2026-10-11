@@ -68,17 +68,17 @@ Polar's merchant-of-record arrangements **do not cover Snippe.** For Snippe sale
 | # | Area | To confirm, in writing, with Snippe or the owner's advisers |
 |---|---|---|
 | 1 | Merchant onboarding | KYC completed for CFOClose's Tanzanian entity: eligible business type (software subscriptions), required documents, account approval and the transaction maximum. |
-| 2 | Environment separation | How test and live are separated: separate accounts, keys or hosts. Whether a payment made with a test key can ever be live, and whether Snippe can mark a payment as a test. **Until this is confirmed, never configure production with a key whose mode is unknown.** |
+| 2 | Environment separation | How test and live are separated: separate accounts, keys or hosts. Whether a payment made with a test key can ever be live, and whether Snippe can mark a payment as a test. **Provider evidence so far (2026-10-11):** the documentation index lists "environments" as an Authentication topic, but the page says only that a test key used in production is refused (401). It documents no sandbox host, no key prefix per mode and no test marker on a payment. **Not confirmed.** Labelling a payment "sandbox" in our configuration is not isolation. Never configure production with a key whose mode Snippe has not confirmed in writing. |
 | 3 | Settlement | The payout account (bank or mobile wallet), the schedule and any minimum. Settlement currency TZS. How a settlement report reconciles to `payment_events`. |
 | 4 | Fees | The fee schedule per network (M-Pesa, Airtel Money, Mixx by Yas, Halotel), who bears it, and whether it is shown to the customer. The example shows 9 TZS on 500. |
-| 5 | Refunds and reversals | How a refund is made (Snippe dashboard or support, since no API is documented), how long it takes, and whether it is reported. **A refund made at Snippe is not reported to this system.** Recording one needs an owner-approved procedure and a new administrator path, which does not exist today. |
+| 5 | Refunds and reversals | How a refund is made (Snippe dashboard or support, since no API is documented), how long it takes, what reference Snippe issues for it, and whether it ever appears in a settlement report. **A refund made at Snippe is never reported to this system.** It exists in CFOClose only once an administrator records it with `admin_record_provider_refund` (commercial-p4, `PAYMENT_REVERSAL_AUTHORITY.md` §5): Snippe's refund reference, the evidence, the reconciled amount and an explicit licence decision, all audited. The owner still has to approve the operating procedure: who checks Snippe, how often, and what evidence is kept. |
 | 6 | Disputes and chargebacks | Whether mobile-money reversals can be initiated by the network or the customer, and how they are notified. |
 | 7 | Tax and invoicing | VAT registration status and rate, EFD/EFDMS receipting duties for each TZS sale, invoice content and numbering, and withholding (if any) on B2B sales. This is TRA compliance for CFOClose's own entity, and Polar does not carry it. |
 | 8 | Customer terms | `/terms` and `/privacy` cover TZS mobile-money purchases: refunds, payment data processed by Snippe, and the dispute route. Legal review is still open (`LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE`). |
 | 9 | Operations | Snippe's webhook source IPs (if allow-listing is wanted); support contacts; what happens on an `abandoned` webhook (the customer's status page and an administrator's recovery still read back from Snippe). |
 | 10 | Prices | Explicit TZS amounts for Solo, Practice and Firm, approved by the owner. These are not derived from USD. |
 
-## 5. Registered defect found here, not fixed here
+## 5. Registered defect found here (now fixed in source by commercial-p4, pending hosted application)
 
 **DEFECT-PAYMENT-REVERSAL-UNBOUND-001** (medium; pre-existing, live since `20260906083524`).
 
@@ -92,7 +92,7 @@ Polar's merchant-of-record arrangements **do not cover Snippe.** For Snippe sale
 - **Records:** a malformed provider report could still be recorded as a wrong-currency or excessive refund.
 - **Snippe:** not reachable, because Snippe reports no reversals.
 
-**Repair:** a forward migration, owned by a separate release. It needs its own hosted application, so it is not part of this route's readiness.
+**Repair:** `20261101100000_payment_reversal_authority.sql` (batch **commercial-p4**). It bounds every reversal, makes a licence decision take effect, and adds the audited Snippe refund workflow. Historical discrepancies are reported, never rewritten. Record: `PAYMENT_REVERSAL_AUTHORITY.md`; hosted steps: `COMMERCIAL_P4_LOVABLE_DELTA.md`.
 
 ## 6. Enabling later (not under this release)
 
@@ -101,3 +101,22 @@ Polar's merchant-of-record arrangements **do not cover Snippe.** For Snippe sale
 3. A reviewed release changes `SNIPPE_CUSTOMER_CHECKOUT_ENABLED` and `LAUNCHED_MARKETS`.
 4. Sandbox acceptance runs with Snippe's sandbox or test arrangement (§4 #2), then a controlled live payment.
 5. Payments open through the commercial checklist.
+
+## 7. Remaining work
+
+This is a **readiness** release, not launch certification. Each row says what kind of evidence exists, and what is still needed.
+
+| Area | Code proof (local / mock) | Provider verification (Snippe) | Hosted acceptance | Owner decision |
+|---|---|---|---|---|
+| Adapter against the documentation (auth, TZS units, phone formats, idempotency, read-back, signature, retries) | **Done.** `providerAdapters.test.ts` | **Not run.** One sandbox or test request per behaviour, once #2 is answered | **Not run.** Deploy with Snippe disabled (readiness package S-1 to S-4) | — |
+| Ledger: one licence per verified success; failed, expired, forged, duplicate, delayed and mismatched payments grant nothing; Polar and Snippe attempts; placement | **Done.** `snippeLedger.mjs` 30/30 | — | **Not run** | — |
+| Webhook attacks through the real Edge Functions (replay, forged, stale, unknown, concurrent) | **Done (mock Snippe).** CI journey | **Not run.** Snippe's real signatures and retry timing | **Not run** | — |
+| Test/live separation | Configuration only: a sandbox payment never grants (commercial-p3) | **Not confirmed.** No sandbox host or test marker is documented (§4 #2) | **Not run** | Get Snippe's written confirmation |
+| Reversal bounds (confirmed original, currency, positive amount, cumulative, idempotency, concurrency); history reported, not rewritten | **Done.** `paymentReversalAuthority.mjs` 38/38 | — | **Pending:** commercial-p4 apply and postcondition (P4-1 to P4-6) | Decide any historical discrepancy the postcondition lists |
+| Snippe refunds recorded by an administrator, with evidence, reconciliation and a licence decision | **Done (database).** RPC proven; no screen yet | **Not run.** A real refund reference and how it appears at Snippe | **Pending** with commercial-p4 | Approve the operating procedure (§4 #5); decide whether to build a screen |
+| Licence decision after a refund takes effect | **Done.** `paymentReversalAuthority.mjs` | — | **Pending** with commercial-p4 | — |
+| Merchant onboarding, settlement, fees, disputes | — | **Not run** (§4 #1, #3, #4, #6) | — | Owner, with Snippe |
+| Tax and invoicing (TRA, VAT, EFD) for CFOClose's own entity | — | — | — | Owner and advisers (§4 #7); Polar's merchant of record does not cover this |
+| Customer terms for TZS mobile money | — | — | — | Legal review (§4 #8) |
+| TZS prices | No price exists; nothing derived from USD (proven) | — | — | Owner approves explicit amounts (§4 #10) |
+| Enablement | `SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`, `LAUNCHED_MARKETS = ["GLOBAL"]` | Sandbox acceptance, then a controlled live payment | After every row above | A reviewed release |

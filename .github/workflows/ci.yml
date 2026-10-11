@@ -572,6 +572,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 21387d52d432359eb46d34e6160b4876eeb42f63
           git fetch --no-tags --depth=1 origin 2656cf057d4e0386e4316ccff949914d4a5c20cc
           git fetch --no-tags --depth=1 origin 762f3d97f5e07651640c2184aeb4d3defcb64b1e
+          git fetch --no-tags --depth=1 origin f35252dced2a5ba8fabc189fb2022a831e15774e
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -693,6 +694,23 @@ jobs:
         run: |
           createdb sandbox_isolation_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Payment reversal authority wrapper proof (the same reviewed proof for the commercial-p4 wrapper; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/reversal_wrappers_proof
+          RELEASE_BATCH: commercial-p4
+        run: |
+          createdb reversal_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Payment reversal authority proof (20261101100000, DEFECT-PAYMENT-REVERSAL-UNBOUND-001; the defect reproduced first; history byte-identical and every historical discrepancy reported, never rewritten; confirmed original, same provider and currency, positive amount, cumulative within the amount paid, idempotency and concurrency; the audited Snippe refund workflow with evidence, reconciliation and an explicit licence decision; review decisions take effect)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/payment_reversal_proof
+        run: |
+          createdb payment_reversal_proof
+          bun scripts/db-proof/paymentReversalAuthority.mjs
 
       - name: Sandbox licence isolation proof (20261031110000 superseding 20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the hosted scenario through the exact wrappers with a 53-row journal, the superseded wrapper failing atomically with CANCELLED_LICENCE_IMMUTABLE and an injected failure rolled back; cancelled sandbox licences stay cancelled; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
         env:

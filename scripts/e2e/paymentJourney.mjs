@@ -592,11 +592,11 @@ async function main() {
     await page.evaluate(() => {
       const li = [...document.querySelectorAll("li")].find((x) => x.textContent.includes("REFUND"));
       const input = li.querySelector("input");
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Customer refunded within 14 days; access ended separately");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "Customer refunded within 14 days; licence kept by agreement");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await sleep(300);
-    await page.click({ text: "Record: licence kept" });
+    await page.click({ text: "Keep the licence" });
     await page.waitForText("Decision recorded.");
     const a = (await admin.from("billing_audit_events").select("action").eq("action", "REVERSAL_REVIEWED")).data ?? [];
     return a.length === 1 ? true : a;

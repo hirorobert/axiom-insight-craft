@@ -413,7 +413,7 @@ async function main() {
   });
 
   group("Reversal · recorded for review, never silent");
-  await check("a refund is recorded without touching the licence; the customer sees it; one review decision is accepted", async () => {
+  await check("a refund is recorded without touching the licence; the customer sees it; one review decision is accepted, and LICENCE_ENDED ends access", async () => {
     const a = await account("refund");
     const i = await acquire(a, "SOLO");
     const c = await commit(i);
@@ -424,10 +424,13 @@ async function main() {
     const mine = await one(user(a.uid), "SELECT public.get_my_payments() r");
     const att = await one(user(ADMIN), "SELECT public.admin_list_payment_attention() r");
     const listed = att.r.reversals.some((x) => x.event_id === rv.r.event_id);
-    await one(user(ADMIN), "SELECT public.admin_record_reversal_review($1,'LICENCE_ENDED','refunded at customer request') r", [rv.r.event_id]);
+    // Recording the refund never touches the licence; the administrator decision then does (20261101100000: LICENCE_ENDED ends access).
+    const untouched = lBefore === JSON.stringify(await licences(a));
+    const d = await one(user(ADMIN), "SELECT public.admin_record_reversal_review($1,'LICENCE_ENDED','refunded at customer request') r", [rv.r.event_id]);
     const twice = await errOf(() => one(user(ADMIN), "SELECT public.admin_record_reversal_review($1,'LICENCE_KEPT','x') r", [rv.r.event_id]));
     const att2 = await one(user(ADMIN), "SELECT public.admin_list_payment_attention() r");
-    return rv.r.licence_action === "REVIEW_REQUIRED" && replay.r.status === "ALREADY_RECORDED" && lBefore === JSON.stringify(await licences(a))
+    const ended = (await licences(a)).every((l) => l.status === "CANCELLED");
+    return rv.r.licence_action === "REVIEW_REQUIRED" && replay.r.status === "ALREADY_RECORDED" && untouched && d.r.licence_effect === "ENDED_NOW" && ended
       && st.r.reversal_type === "REFUND" && mine.r[0].reversal_type === "REFUND" && listed && twice?.message === "REVERSAL_ALREADY_REVIEWED"
       && !att2.r.reversals.some((x) => x.event_id === rv.r.event_id) ? true : { rv: rv.r, st: st.r.reversal_type, listed, twice: twice?.message };
   });

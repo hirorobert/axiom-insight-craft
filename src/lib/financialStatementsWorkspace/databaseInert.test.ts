@@ -289,6 +289,9 @@ describe("database inertness — schema and functions", () => {
       // source is quarantined byte for byte after a comment-only notice (pinned in scripts/db-proof/lib/parkedMigrations.mjs).
       "supabase/migrations/20261031110000_sandbox_licence_isolation.sql",
       "supabase/migrations_historical/20261031100000_sandbox_licence_isolation.sql.historical",
+      // Payment reversal authority (20261101100000, commercial-p4): every reversal bounded; a licence decision takes effect; an
+      // audited refund workflow for providers that report none. No financial-statements schema.
+      "supabase/migrations/20261101100000_payment_reversal_authority.sql",
       // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
       // provider webhook endpoints. No financial-statements schema.
       "supabase/functions/_shared/payments/http.ts",
@@ -542,6 +545,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/sandboxLicenceIsolation.mjs",
       // Snippe readiness: the loopback-only TZS/Snippe ledger proof (no provider, no secret).
       "scripts/db-proof/snippeLedger.mjs",
+      // Payment reversal authority: the loopback-only reversal proof.
+      "scripts/db-proof/paymentReversalAuthority.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
