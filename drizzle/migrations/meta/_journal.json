@@ -372,6 +372,13 @@
       "when": 1791652611862,
       "tag": "0052_paid_term_seat_preservation_wrapper",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791725527221,
+      "tag": "0053_sandbox_licence_isolation_wrapper",
+      "breakpoints": true
     }
   ]
 }
