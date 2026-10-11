@@ -113,7 +113,7 @@ UPDATE public.commercial_licences cl
            WHEN e.any_unknown THEN 'a linked checkout intent has no recorded provider_environment'
            WHEN e.environments > 1 THEN 'linked checkout intents disagree on provider_environment'
            ELSE 'provider_environment of the linked checkout intent' END,
-         'source', cl.source, 'links', COALESCE(e.evidence, '[]'::jsonb), 'backfilled_by', '20261031100000')
+         'source', cl.source, 'links', COALESCE(e.evidence, '[]'::jsonb), 'backfilled_by', '20261031110000')
   FROM (SELECT id FROM public.commercial_licences) all_l
   LEFT JOIN envs e ON e.licence_id = all_l.id
  WHERE cl.id = all_l.id;
@@ -127,7 +127,7 @@ ALTER TABLE public.commercial_licences ADD CONSTRAINT chk_cl_provenance
   CHECK (provenance IN ('PRODUCTION_PAYMENT','SANDBOX_PAYMENT','MANUAL_GRANT','SYSTEM_FREE','REVIEW_REQUIRED'));
 
 COMMENT ON COLUMN public.commercial_licences.provenance IS
-  'Where this licence came from, proven from authoritative records (20261031100000). SANDBOX_PAYMENT licences are always status SANDBOX and grant nothing; REVIEW_REQUIRED awaits admin_resolve_licence_provenance.';
+  'Where this licence came from, proven from authoritative records (20261031110000). SANDBOX_PAYMENT licences are status SANDBOX, or CANCELLED when already cancelled, and grant nothing; REVIEW_REQUIRED awaits admin_resolve_licence_provenance.';
 
 -- ── 2. Containment: every licence proven to come from a sandbox payment stops granting access, audited ───────────────
 -- A CANCELLED licence is terminal (commercial_cancelled_future_licence_guard): it already grants nothing and never can again,
