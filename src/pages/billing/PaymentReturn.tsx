@@ -132,6 +132,8 @@ export default function PaymentReturn() {
     ? formatMoney(status.expectedAmountMinor, status.currencyCode, status.currencyExponent ?? 0) : null;
   const retryHref = status?.purchasedPlanCode ? `/billing/checkout?plan=${status.purchasedPlanCode}` : "/plans";
   const mobileMoney = status?.provider === "SNIPPE";
+  // A sandbox (test) payment is recorded but never grants access (DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001): say so plainly.
+  const testPayment = status?.providerEnvironment === "sandbox" || status?.purchasedLicenceStatus === "SANDBOX";
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
@@ -164,7 +166,7 @@ export default function PaymentReturn() {
               {(phase === "REVIEW" || phase === "TIMEOUT") && <Clock className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />}
               <h1 className="mt-3 text-xl font-semibold" data-testid="payment-heading">
                 {phase === "POLLING" && (mobileMoney ? "Approve the payment on your phone" : "Waiting for payment confirmation")}
-                {phase === "CONFIRMED" && (status?.reversalType ? "Payment refunded" : "Payment received")}
+                {phase === "CONFIRMED" && (status?.reversalType ? "Payment refunded" : testPayment ? "Test payment received" : "Payment received")}
                 {phase === "FAILED" && "The payment did not go through"}
                 {phase === "CANCELLED" && "The payment was cancelled"}
                 {phase === "EXPIRED" && "The payment request expired"}
@@ -175,7 +177,9 @@ export default function PaymentReturn() {
                 {phase === "POLLING" && (mobileMoney
                   ? "A prompt has been sent to your mobile money number. Enter your PIN to approve it. This page updates by itself."
                   : "We are confirming the payment with the provider. This usually takes a few seconds.")}
-                {phase === "CONFIRMED" && !status?.reversalType && "The provider confirmed the payment and it was verified by CFOCLOSE."}
+                {phase === "CONFIRMED" && !status?.reversalType && (testPayment
+                  ? "This was a test payment. Test payments are recorded, but they never activate a plan or grant access."
+                  : "The provider confirmed the payment and it was verified by CFOCLOSE.")}
                 {phase === "CONFIRMED" && status?.reversalType && `This payment was ${status.reversalType === "CHARGEBACK" ? "disputed" : "refunded"}. Our team reviews the plan's access and will contact you.`}
                 {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && "The provider confirmed that no payment was taken. You can start a new payment."}
                 {phase === "REVIEW" && (status?.paymentRecorded
@@ -194,7 +198,13 @@ export default function PaymentReturn() {
               {status?.paidAt && <><dt className="text-muted-foreground">Paid on</dt><dd className="text-right">{formatLicenceDate(status.paidAt)}</dd></>}
             </dl>
 
-            {phase === "CONFIRMED" && !status?.reversalType && (
+            {phase === "CONFIRMED" && !status?.reversalType && testPayment && (
+              <p className="border-l-2 border-amber-600 pl-3 text-sm" data-testid="access-state" data-test-payment="true">
+                No plan was activated: this test payment grants no access.
+              </p>
+            )}
+
+            {phase === "CONFIRMED" && !status?.reversalType && !testPayment && (
               <p className="border-l-2 border-green-700 pl-3 text-sm" data-testid="access-state">
                 {purchasedStartsInFuture && status?.purchasedEffectiveStart ? (
                   <>Your {displayPlanName(status.planCode)} plan is scheduled from <strong>{formatLicenceDate(status.purchasedEffectiveStart)}</strong>
@@ -206,7 +216,7 @@ export default function PaymentReturn() {
               </p>
             )}
 
-            {phase === "CONFIRMED" && !status?.reversalType && (
+            {phase === "CONFIRMED" && !status?.reversalType && !testPayment && (
               <p className="text-xs text-muted-foreground" data-testid="receipt-note">
                 {status?.provider === "POLAR"
                   ? "Polar, our merchant of record for card payments, emails your receipt and invoice. Keep the references above for your records."
@@ -215,8 +225,11 @@ export default function PaymentReturn() {
             )}
 
             <div className="flex flex-col gap-2">
-              {phase === "CONFIRMED" && !status?.reversalType && (
+              {phase === "CONFIRMED" && !status?.reversalType && !testPayment && (
                 <Button asChild className="w-full" data-testid="next-start-review"><Link to="/dashboard">Start a trial balance review</Link></Button>
+              )}
+              {phase === "CONFIRMED" && !status?.reversalType && testPayment && (
+                <Button asChild variant="outline" className="w-full" data-testid="next-see-plans"><Link to="/plans">See the plans</Link></Button>
               )}
               {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && (
                 <Button asChild className="w-full" data-testid="next-try-again"><Link to={retryHref}>Start a new payment</Link></Button>

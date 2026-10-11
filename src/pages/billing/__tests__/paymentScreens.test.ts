@@ -200,6 +200,20 @@ describe("payment status page", () => {
     expect(byTestId(m!, "next-start-review")!.getAttribute("href")).toBe("/dashboard");
     expect(await axeViolations(m!.container)).toEqual([]);
   });
+  it("a test (sandbox) payment is shown as a test: no plan activated, no access, no review button; the next step is the plans", async () => {
+    await showStatus({ status: "SUCCEEDED", paymentRecorded: true, paymentReference: "order-test", paidAt: "2026-10-10T08:01:00Z",
+      purchasedLicenceId: "l1", purchasedLicenceStatus: "SANDBOX", purchasedEffectiveStart: "2026-10-10T08:01:00Z", purchasedEffectiveEnd: "2027-10-10T08:01:00Z",
+      providerEnvironment: "sandbox", grantsAccess: false });
+    expect(byTestId(m!, "payment-heading")!.textContent).toBe("Test payment received");
+    const access = byTestId(m!, "access-state")!;
+    expect(access.textContent).toContain("No plan was activated");
+    expect(access.getAttribute("data-test-payment")).toBe("true");
+    expect(textOf(m!)).not.toMatch(/plan is active|Access through/);
+    expect(byTestId(m!, "next-start-review")).toBeNull();
+    expect(byTestId(m!, "receipt-note")).toBeNull();
+    expect(byTestId(m!, "next-see-plans")!.getAttribute("href")).toBe("/plans");
+    expect(await axeViolations(m!.container)).toEqual([]);
+  });
   it("a term that starts later is shown as scheduled, never as active now", async () => {
     await showStatus({ status: "SUCCEEDED", paymentRecorded: true, purchasedEffectiveStart: "2099-01-01T00:00:00Z", purchasedEffectiveEnd: "2100-01-01T00:00:00Z" });
     expect(byTestId(m!, "access-state")!.textContent).toContain("scheduled from");
