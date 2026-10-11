@@ -58,12 +58,19 @@ Each recorded reversal carries:
 
 ## 5. Snippe refunds: the administrator workflow
 
-**Snippe documents no refund API and no refund event.** A refund made in Snippe's dashboard, or by Snippe's support, **never reaches CFOClose by itself.** It exists here only once a commercial administrator records it with `admin_record_provider_refund`, in one audited transaction:
+**Recording a refund is not issuing one.** CFOClose never issues, initiates or requests a refund, and `admin_record_provider_refund` moves no money. It only **records**, after the fact, a refund that has **already been completed outside CFOClose**, from the provider's own evidence.
+
+**What Snippe supports is not known.** Snippe documents no refund API, no refund event and no refund procedure, so it is **not confirmed** that Snippe can refund a mobile-money collection at all, or how: by dashboard, by support or by any other route. That is a provider prerequisite (`SNIPPE_TZ_READINESS.md` §4 #5). Until Snippe confirms it in writing, there is no supported way to issue a Snippe refund. A customer refund would have to be made by whatever means the owner and Snippe agree, and then recorded here.
+
+**Nothing reaches CFOClose by itself.** However a refund is completed, it exists here only once a commercial administrator records it with `admin_record_provider_refund`, in one audited transaction:
 1. **Who:** an active commercial administrator, with a recorded reason.
 2. **What:** a **production** Snippe payment. It refuses Polar, which reports its own refunds, so recording one by hand would count it twice. It also refuses sandbox payments, which moved no money.
 3. **Evidence:**
    - Snippe's own **refund reference**, which can be recorded only once;
-   - the evidence kind (`PROVIDER_DASHBOARD`, `PROVIDER_SUPPORT_CONFIRMATION` or `SETTLEMENT_REPORT`);
+   - the evidence kind, meaning where the completed refund was **seen**. It is not a claim about how the refund was made:
+     - `PROVIDER_DASHBOARD`: the provider's account view shows it;
+     - `PROVIDER_SUPPORT_CONFIRMATION`: written confirmation from the provider;
+     - `SETTLEMENT_REPORT`: it appears in a settlement report;
    - a note of at least 10 characters;
    - optionally, the SHA-256 of a saved document.
 4. **Reconciliation:** the amount is bounded by §2. The answer gives `reversed_minor`, `paid_minor` and `fully_reversed`.
@@ -89,6 +96,13 @@ COMMIT;
 ```
 
 Keep the idempotency key if you may retry: a retry with the same key and the same facts records nothing twice.
+
+**Before calling it:**
+- the refund must already be **complete** at the provider, with a reference the provider issued;
+- the amount must be exactly what was returned;
+- the licence decision must be the owner's.
+
+Calling it does **not** contact Snippe and does not return money to anyone.
 
 ## 6. Proof
 

@@ -158,7 +158,7 @@ async function main() {
   const licence = async (id) => (await admin.query("SELECT id, status, effective_start, effective_end FROM public.commercial_licences WHERE id=$1", [id])).rows[0];
   const reversalsOf = async (p) => (await admin.query("SELECT id, event_type, amount_minor, currency, provider, metadata FROM public.payment_events WHERE event_type IN ('REFUND','CHARGEBACK') AND metadata->>'original_event_id'=$1 ORDER BY recorded_at, id", [p.event])).rows;
   const audit = async (action, key, value) => (await admin.query("SELECT * FROM public.billing_audit_events WHERE action=$1 AND new_state->>$2 = $3", [action, key, value])).rows;
-  const refundByAdmin = (p, { amount, currency = p.currency, reference = `SNP-RF-${uuid().slice(0, 8)}`, kind = "PROVIDER_DASHBOARD", note = "Refund shown as completed in the Snippe dashboard", sha = null, decision = "LICENCE_KEPT", reason = "customer refund", key = uuid(), caller = user(ADMIN) } = {}) =>
+  const refundByAdmin = (p, { amount, currency = p.currency, reference = `SNP-RF-${uuid().slice(0, 8)}`, kind = "PROVIDER_DASHBOARD", note = "Completed refund seen in the provider account view", sha = null, decision = "LICENCE_KEPT", reason = "customer refund", key = uuid(), caller = user(ADMIN) } = {}) =>
     one(caller, "SELECT public.admin_record_provider_refund($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) r", [p.event, amount, currency, reference, kind, note, sha, decision, reason, key]).then((x) => x?.r);
   const HISTORY = `SELECT md5(coalesce((SELECT string_agg(to_jsonb(e)::text,'|' ORDER BY e.id) FROM public.payment_events e),'')
       || coalesce((SELECT string_agg(to_jsonb(a)::text,'|' ORDER BY a.id) FROM public.billing_audit_events a),'')) AS h`;
