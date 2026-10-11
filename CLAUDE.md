@@ -1172,7 +1172,8 @@ serialised (a racing grant could otherwise make the payment's commit fail on the
 `scripts/db-proof/paidTermPreservation.mjs` (18).
 
 **DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001** — fixed in source (2026-10-11), batch `commercial-p3`,
-`20261031110000_sandbox_licence_isolation.sql` (source `762f3d9`, wrapper 54,295 B, SHA-256 `12a7e924…`); pending hosted application.
+`20261031110000_sandbox_licence_isolation.sql` (source `762f3d9`, wrapper 54,295 B, SHA-256 `12a7e924…`); APPLIED on the hosted database as drizzle 0053 (hosted id 54, 2026-10-11),
+the registered wrapper byte for byte (RELEASE_JOURNAL entry; nothing pending). Hosted postcondition output is not in the repository.
 It SUPERSEDES `20261031100000` (source `a4f80c0`, wrapper 50,109 B `36bd80c0…`), whose one hosted submission failed atomically with
 PT422 CANCELLED_LICENCE_IMMUTABLE (its containment changed a CANCELLED future sandbox licence; journal stayed at 53). The old
 source and wrapper are quarantined byte for byte (`supabase/migrations_historical/`, `release/wrappers_historical/`) and pinned in

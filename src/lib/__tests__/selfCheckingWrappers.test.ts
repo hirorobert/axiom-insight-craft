@@ -226,9 +226,9 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
   }, 120_000);
   it("the repository: both batches applied (0033–0039, then 0040–0044), each through a reviewed entry pinning the exact registered wrapper form", () => {
     const entries = Object.entries(RELEASE_JOURNAL).filter(([, e]) => (e as { kind: string }).kind === "release_self_checking_wrapper");
-    // Applied: 0033–0039, 0040–0044, the readiness correction (0045, hosted 46) and the commercial launch (0046–0052,
-    // hosted 47–53: r5, c1×4, p1, p2). Pending: the sandbox isolation correction (commercial-p3).
-    const PENDING = [...SANDBOX_ISOLATION_WRAPPED_SOURCES];
+    // Every registered wrapper is applied: 0033–0039, 0040–0044, the readiness correction (0045, hosted 46), the commercial
+    // launch (0046–0052, hosted 47–53: r5, c1×4, p1, p2) and the sandbox isolation correction (0053, hosted 54: commercial-p3).
+    const PENDING: string[] = [];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
