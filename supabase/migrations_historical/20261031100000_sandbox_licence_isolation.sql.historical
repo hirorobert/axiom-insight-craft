@@ -1,3 +1,18 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- SUPERSEDED SUBMISSION — commercial-p3 correction (2026-10-11)
+--
+-- This file was authored as 20261031100000_sandbox_licence_isolation.sql (batch commercial-p3, source a4f80c0) and was
+-- NEVER applied to the hosted database. Its self-checking wrapper was submitted once and FAILED with
+-- PT422 CANCELLED_LICENCE_IMMUTABLE (its containment step tried to change a CANCELLED future sandbox licence to
+-- SANDBOX, which commercial_cancelled_future_licence_guard correctly refuses). The wrapper is one transaction: nothing
+-- was written and the hosted journal stayed at 53.
+--
+-- It is superseded by 20261031110000_sandbox_licence_isolation.sql and MUST NEVER BE APPLIED. It is renamed
+-- `.sql.historical` and moved out of supabase/migrations/ (PPG-1 / S1 precedent). Its SQL is preserved byte for byte
+-- below this notice; its SHA-256 and that of its submitted wrapper are pinned in scripts/db-proof/lib/parkedMigrations.mjs
+-- (SUPERSEDED_SUBMISSIONS), and neither is a registered submission form in scripts/ci/releaseJournal.mjs.
+-- ════════════════════════════════════════════════════════════════════════════
+
 -- 20261031100000_sandbox_licence_isolation.sql
 --
 -- DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001 (commercial release correction, batch commercial-p3).
