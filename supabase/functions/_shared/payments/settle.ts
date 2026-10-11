@@ -152,7 +152,16 @@ export async function settleIntent(db: ServiceDb, adapter: ProviderAdapter, inte
         p_idempotency_key: await sha256Hex(`${tx.provider}:reversal:${r.providerEventId}`),
         p_payload_hash: tx.payloadHash,
       });
-      if (rvErr) return { result: 'ERROR', detail: `reversal: ${rvErr.message.split('\n')[0]}`, ...base };
+      if (rvErr) {
+        // A reversal the ledger refuses (20261101100000) is a definite answer — retrying cannot change it — so it is
+        // recorded as such instead of asking the provider to redeliver forever; a database failure is still ERROR.
+        const m = rvErr.message;
+        const refused = /REVERSAL_CURRENCY_MISMATCH/.test(m) ? 'CURRENCY_MISMATCH'
+          : /REVERSAL_(EXCEEDS_PAYMENT|AMOUNT_INVALID)/.test(m) ? 'AMOUNT_MISMATCH'
+          : /REVERSAL_PROVIDER_MISMATCH/.test(m) ? 'MERCHANT_MISMATCH'
+          : /REVERSAL_ORIGINAL_NOT_/.test(m) ? 'REFERENCE_MISMATCH' : null;
+        return { result: refused ?? 'ERROR', detail: `reversal: ${m.split('\n')[0]}`, ...base };
+      }
       if ((rv as { status?: string } | null)?.status === 'REVERSAL_RECORDED') result = 'REVERSAL_RECORDED';
     }
   }

@@ -502,6 +502,15 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 54295, sha256: "12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 54294, sha256: "9014e097f874544be2bd4b991afbe299c6f9de76d41dedf2b6b3ed32d85c46ca" }),
   }),
+  // Payment reversal authority (batch commercial-p4): every reversal bounded; a licence decision takes effect; an audited
+  // refund workflow for providers that report no refunds (DEFECT-PAYMENT-REVERSAL-UNBOUND-001).
+  "20261101100000_payment_reversal_authority.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 23281, sha256: "b2477026bc1fa7c6767e609591328d61ffaca1f19bfdea0d4021a446536638ee" }),
+    finalLfRemoved: Object.freeze({ bytes: 23280, sha256: "7ec38bf8174505feb766d7363c23caf51bf00a6d48c2be6581e8bcdb998b0a6f" }),
+    // Self-checking wrapper release/wrappers/20261101100000_payment_reversal_authority.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 24855, sha256: "a8fe9755aaa8f655445ad1c0eb5810e6512920fa2f95daa176691e26fc8c38eb" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 24854, sha256: "510deb91abf854a9301b1703b6d46cbb8325e16a02568b176bc16061d8865b2f" }),
+  }),
 });
 
 /**

@@ -185,7 +185,7 @@ function ReversalRow({ r, busy, act }: { r: Reversal; busy: string | null; act: 
         {(["LICENCE_ENDED", "LICENCE_KEPT"] as const).map((d) => (
           <Button key={d} size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => act(`rev-${r.event_id}`,
             () => rpc("admin_record_reversal_review", { p_reversal_event_id: r.event_id, p_decision: d, p_reason: reason.trim() }), "Decision recorded.")}>
-            {d === "LICENCE_ENDED" ? "Record: licence ended" : "Record: licence kept"}
+            {d === "LICENCE_ENDED" ? "End the licence now" : "Keep the licence"}
           </Button>
         ))}
       </div>

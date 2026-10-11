@@ -48,6 +48,7 @@
 | 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | **Applied** as 0051 (id 52) |
 | 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | **Applied** as 0052 (id 53) |
 | 8 | commercial-p3 | `20261031110000_sandbox_licence_isolation.wrapper.sql` | 54,295 | `12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83` | `762f3d9` | **Applied** as 0053 (id 54), the registered wrapper byte for byte. Correction for DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; it supersedes `20261031100000_sandbox_licence_isolation.wrapper.sql` (50,109 B, `36bd80c0…`), which failed atomically and was never applied. |
+| 9 | commercial-p4 | `20261101100000_payment_reversal_authority.wrapper.sql` | 24,855 | `a8fe9755aaa8f655445ad1c0eb5810e6512920fa2f95daa176691e26fc8c38eb` | `f35252d` | **Pending.** DEFECT-PAYMENT-REVERSAL-UNBOUND-001; see `COMMERCIAL_P4_LOVABLE_DELTA.md` |
 
 - **p2 payload:** 22,439 bytes, SHA-256 `ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
 - **Preflight and postcondition:** `release/<batch>/preflight.sql` and `postcondition.sql`, all read-only.

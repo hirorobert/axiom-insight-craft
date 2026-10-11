@@ -1,0 +1,307 @@
+-- 20261101100000_payment_reversal_authority.sql
+--
+-- DEFECT-PAYMENT-REVERSAL-UNBOUND-001 (batch commercial-p4). Forward-only; nothing earlier is edited.
+--
+-- Reproduced on real PostgreSQL before this change (scripts/db-proof/paymentReversalAuthority.mjs, "before" group):
+--   record_payment_reversal (20260906083524, service role) recorded a refund or chargeback against ANY payment_events row:
+--   a failed payment, another reversal, a different currency, a zero or negative amount, and any number of reversals whose
+--   total exceeded what was paid. A reversal never changed a licence, and admin_record_reversal_review's "LICENCE_ENDED"
+--   decision only recorded words: the licence kept granting access.
+--
+-- After this migration:
+--   1. _record_payment_reversal_core — the ONE writer of REFUND / CHARGEBACK events. Under a per-payment advisory lock it
+--      requires: a known reversal type; a non-blank idempotency key (a replay with identical facts answers ALREADY_RECORDED,
+--      different facts under the same key are refused); an original that is a PAYMENT_CONFIRMED event with
+--      normalized_status SUCCEEDED and a positive amount; the same provider and currency as the original; a positive
+--      amount; and reversals that, together with those already recorded against the payment, never exceed the amount paid.
+--   2. record_payment_reversal (same 8 arguments, service role only) — provider-reported reversals go through the core.
+--   3. admin_record_provider_refund — a commercial administrator records a refund the PROVIDER cannot report (Snippe
+--      documents no refund API or refund event): the provider's own refund reference, evidence (where it was seen, a
+--      note, optionally the SHA-256 of a saved document), the reconciled amount and an explicit licence decision, in one
+--      audited transaction. Only for a production payment of a provider that reports no refunds (SNIPPE); a Polar refund
+--      arrives from Polar and recording it by hand would count it twice. A dashboard refund is NEVER assumed to have
+--      reached CFOClose: it exists here only once an administrator records it.
+--   4. A licence decision now takes effect: LICENCE_ENDED ends access (a current term ends now, a future term is
+--      cancelled with its dates kept), audited; LICENCE_KEPT changes nothing. Used by admin_record_reversal_review (same
+--      signature) and by admin_record_provider_refund.
+--   5. admin_list_reversal_discrepancies — read-only, for commercial administrators: every EXISTING reversal that would
+--      now be refused (original missing or not a confirmed payment, provider or currency mismatch, non-positive amount,
+--      cumulative reversals above the amount paid). Historical rows are reported, never rewritten.
+-- No table, column or existing row changes; payment_events stays append-only. One partial index is added.
+
+DO $preflight$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'commercial_licences' AND column_name = 'provenance') THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: sandbox licence isolation (20261031110000, commercial-p3) must be applied first' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regprocedure('public._record_payment_reversal_core(uuid,text,text,text,bigint,text,text,text,text,uuid,jsonb)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: payment reversal authority (20261101100000) is already in force' USING ERRCODE = 'P0001';
+  END IF;
+END
+$preflight$;
+
+CREATE INDEX IF NOT EXISTS idx_pe_reversal_original
+  ON public.payment_events ((metadata->>'original_event_id'))
+  WHERE event_type IN ('REFUND','CHARGEBACK');
+
+-- ── 1. The one writer of reversals ──────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public._record_payment_reversal_core(
+  p_original_event_id UUID, p_reversal_type TEXT, p_provider TEXT, p_provider_event_id TEXT,
+  p_amount_minor BIGINT, p_currency_code TEXT, p_idempotency_key TEXT, p_payload_hash TEXT,
+  p_source TEXT, p_actor UUID, p_evidence JSONB
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog AS $$
+DECLARE
+  v_original RECORD; v_existing RECORD; v_event_id UUID; v_prior BIGINT; v_after BIGINT;
+BEGIN
+  IF p_reversal_type IS NULL OR p_reversal_type NOT IN ('REFUND','CHARGEBACK') THEN
+    RAISE EXCEPTION 'REVERSAL_TYPE_INVALID: %', p_reversal_type USING ERRCODE = '22023';
+  END IF;
+  IF p_idempotency_key IS NULL OR btrim(p_idempotency_key) = '' THEN
+    RAISE EXCEPTION 'REVERSAL_IDEMPOTENCY_KEY_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+  IF p_original_event_id IS NULL THEN RAISE EXCEPTION 'REVERSAL_ORIGINAL_REQUIRED' USING ERRCODE = '22023'; END IF;
+  -- Every reversal of one payment is decided one at a time (the cumulative bound below needs it).
+  PERFORM pg_advisory_xact_lock(hashtext('payment-reversal:' || p_original_event_id::text));
+
+  SELECT * INTO v_existing FROM public.payment_events WHERE idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_existing.event_type = p_reversal_type AND v_existing.metadata->>'original_event_id' = p_original_event_id::text
+       AND v_existing.amount_minor = p_amount_minor AND upper(v_existing.currency) = upper(p_currency_code) THEN
+      RETURN jsonb_build_object('status','ALREADY_RECORDED','event_id',v_existing.id,'committed',false);
+    END IF;
+    RAISE EXCEPTION 'REVERSAL_IDEMPOTENCY_KEY_REUSED: the key names a different record' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_original FROM public.payment_events WHERE id = p_original_event_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REVERSAL_ORIGINAL_NOT_FOUND' USING ERRCODE = '22023'; END IF;
+  IF v_original.event_type <> 'PAYMENT_CONFIRMED' OR v_original.normalized_status IS DISTINCT FROM 'SUCCEEDED'
+     OR v_original.amount_minor IS NULL OR v_original.amount_minor <= 0 THEN
+    RAISE EXCEPTION 'REVERSAL_ORIGINAL_NOT_A_CONFIRMED_PAYMENT (event type %, status %)', v_original.event_type, v_original.normalized_status
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_provider IS DISTINCT FROM v_original.provider THEN
+    RAISE EXCEPTION 'REVERSAL_PROVIDER_MISMATCH (payment %, reversal %)', v_original.provider, p_provider USING ERRCODE = '22023';
+  END IF;
+  IF p_currency_code IS NULL OR upper(p_currency_code) <> upper(v_original.currency) THEN
+    RAISE EXCEPTION 'REVERSAL_CURRENCY_MISMATCH (payment %, reversal %)', v_original.currency, p_currency_code USING ERRCODE = '22023';
+  END IF;
+  IF p_amount_minor IS NULL OR p_amount_minor <= 0 THEN
+    RAISE EXCEPTION 'REVERSAL_AMOUNT_INVALID: %', p_amount_minor USING ERRCODE = '22023';
+  END IF;
+  SELECT COALESCE(sum(e.amount_minor), 0) INTO v_prior FROM public.payment_events e
+   WHERE e.event_type IN ('REFUND','CHARGEBACK') AND e.metadata->>'original_event_id' = p_original_event_id::text;
+  v_after := v_prior + p_amount_minor;
+  IF v_after > v_original.amount_minor THEN
+    RAISE EXCEPTION 'REVERSAL_EXCEEDS_PAYMENT (paid %, already reversed %, this reversal %)', v_original.amount_minor, v_prior, p_amount_minor
+      USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.payment_events (
+    billing_customer_id, licence_id, provider, external_event_id, idempotency_key,
+    event_type, amount, currency, amount_minor, provider_transaction_id,
+    provider_status, normalized_status, saff_reference, payload_hash, event_time, recorded_by, metadata
+  ) VALUES (
+    v_original.billing_customer_id, v_original.licence_id, p_provider, p_provider_event_id,
+    p_idempotency_key, p_reversal_type,
+    p_amount_minor::NUMERIC, v_original.currency, p_amount_minor, p_provider_event_id,
+    p_reversal_type,
+    CASE p_reversal_type WHEN 'REFUND' THEN 'REFUNDED' ELSE 'UNKNOWN' END,
+    v_original.saff_reference, p_payload_hash, now(), p_actor,
+    jsonb_build_object('original_event_id', p_original_event_id, 'reversal_type', p_reversal_type,
+      'licence_action', 'REVIEW_REQUIRED', 'auto_licence_mutation', false, 'source', p_source,
+      'reversed_before_minor', v_prior, 'reversed_after_minor', v_after, 'paid_minor', v_original.amount_minor)
+      || CASE WHEN p_evidence IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('evidence', p_evidence) END
+  ) RETURNING id INTO v_event_id;
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (v_original.billing_customer_id, p_actor, 'REVERSAL_REQUIRES_REVIEW',
+    jsonb_build_object('original_event_id', p_original_event_id, 'reversed_minor', v_prior),
+    jsonb_build_object('reversal_event_id', v_event_id, 'original_event_id', p_original_event_id, 'reversal_type', p_reversal_type,
+      'amount_minor', p_amount_minor, 'currency_code', v_original.currency, 'reversed_minor', v_after, 'source', p_source),
+    'REVIEW_REQUIRED: no automatic licence mutation on reversal');
+  RETURN jsonb_build_object('status','REVERSAL_RECORDED','event_id',v_event_id,'licence_action','REVIEW_REQUIRED','committed',false,
+    'reversed_minor', v_after, 'paid_minor', v_original.amount_minor, 'fully_reversed', v_after = v_original.amount_minor);
+EXCEPTION WHEN unique_violation THEN
+  RAISE EXCEPTION 'REVERSAL_PROVIDER_REFERENCE_ALREADY_RECORDED: % %', p_provider, p_provider_event_id USING ERRCODE = '22023';
+END;
+$$;
+REVOKE ALL ON FUNCTION public._record_payment_reversal_core(UUID,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TEXT,TEXT,UUID,JSONB) FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── 2. Provider-reported reversals (same arguments as before; service role only) ───────────────────────────────────
+CREATE OR REPLACE FUNCTION public.record_payment_reversal(
+  p_original_event_id UUID, p_reversal_type TEXT,
+  p_provider TEXT, p_provider_event_id TEXT,
+  p_amount_minor BIGINT, p_currency_code TEXT,
+  p_idempotency_key TEXT, p_payload_hash TEXT
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  RETURN public._record_payment_reversal_core(p_original_event_id, p_reversal_type, p_provider, p_provider_event_id,
+    p_amount_minor, p_currency_code, p_idempotency_key, p_payload_hash, 'PROVIDER_REPORTED', NULL, NULL);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.record_payment_reversal(UUID,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_payment_reversal(UUID,TEXT,TEXT,TEXT,BIGINT,TEXT,TEXT,TEXT) TO service_role;
+
+-- ── 4. A licence decision that takes effect ─────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public._apply_reversal_licence_decision(p_reversal_event_id UUID, p_decision TEXT, p_actor UUID, p_reason TEXT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog AS $$
+DECLARE v_ev RECORD; v_lic RECORD; v_audit UUID; v_now TIMESTAMPTZ := now(); v_effect TEXT := 'NO_CHANGE';
+BEGIN
+  IF p_decision IS NULL OR p_decision NOT IN ('LICENCE_ENDED','LICENCE_KEPT') THEN
+    RAISE EXCEPTION 'UNKNOWN_DECISION' USING ERRCODE = '22023';
+  END IF;
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
+  SELECT * INTO v_ev FROM public.payment_events WHERE id = p_reversal_event_id AND event_type IN ('REFUND','CHARGEBACK');
+  IF NOT FOUND THEN RAISE EXCEPTION 'REVERSAL_NOT_FOUND' USING ERRCODE = '22023'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('reversal-review:' || p_reversal_event_id::text));
+  IF EXISTS (SELECT 1 FROM public.billing_audit_events a WHERE a.action = 'REVERSAL_REVIEWED' AND a.new_state->>'reversal_event_id' = p_reversal_event_id::text) THEN
+    RAISE EXCEPTION 'REVERSAL_ALREADY_REVIEWED' USING ERRCODE = '22023';
+  END IF;
+  IF p_decision = 'LICENCE_ENDED' AND v_ev.licence_id IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtext(v_ev.billing_customer_id::text));
+    SELECT * INTO v_lic FROM public.commercial_licences WHERE id = v_ev.licence_id FOR UPDATE;
+    IF FOUND AND v_lic.status IN ('ACTIVE','GRACE','PENDING','SUSPENDED') THEN
+      IF v_lic.effective_start <= v_now THEN
+        -- A current term ends now (a term may always end earlier).
+        UPDATE public.commercial_licences SET status = 'CANCELLED', effective_end = v_now, updated_at = v_now WHERE id = v_lic.id;
+        v_effect := 'ENDED_NOW';
+      ELSE
+        -- A term that has not started is cancelled with its dates kept (it never grants).
+        UPDATE public.commercial_licences SET status = 'CANCELLED', updated_at = v_now WHERE id = v_lic.id;
+        v_effect := 'FUTURE_TERM_CANCELLED';
+      END IF;
+      INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+      VALUES (v_lic.billing_customer_id, p_actor, 'LICENCE_ENDED_AFTER_REVERSAL',
+        jsonb_build_object('licence_id', v_lic.id, 'status', v_lic.status, 'effective_start', v_lic.effective_start, 'effective_end', v_lic.effective_end),
+        jsonb_build_object('licence_id', v_lic.id, 'status', 'CANCELLED', 'effective_end', CASE WHEN v_effect = 'ENDED_NOW' THEN v_now ELSE v_lic.effective_end END,
+                           'reversal_event_id', p_reversal_event_id),
+        p_reason);
+    ELSIF FOUND THEN
+      v_effect := 'ALREADY_NOT_GRANTING';
+    END IF;
+  END IF;
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (v_ev.billing_customer_id, p_actor, 'REVERSAL_REVIEWED', NULL,
+          jsonb_build_object('reversal_event_id', p_reversal_event_id, 'decision', p_decision, 'licence_id', v_ev.licence_id, 'licence_effect', v_effect), p_reason)
+  RETURNING id INTO v_audit;
+  RETURN jsonb_build_object('recorded', true, 'audit_event_id', v_audit, 'decision', p_decision, 'licence_id', v_ev.licence_id, 'licence_effect', v_effect);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._apply_reversal_licence_decision(UUID,TEXT,UUID,TEXT) FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.admin_record_reversal_review(p_reversal_event_id UUID, p_decision TEXT, p_reason TEXT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog AS $$
+DECLARE v_actor UUID := auth.uid();
+BEGIN
+  IF v_actor IS NULL OR NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_actor AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  RETURN public._apply_reversal_licence_decision(p_reversal_event_id, p_decision, v_actor, p_reason);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_record_reversal_review(UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_record_reversal_review(UUID, TEXT, TEXT) TO authenticated;
+
+-- ── 3. A refund the provider cannot report, recorded by an administrator from the provider's own evidence ─────────
+CREATE OR REPLACE FUNCTION public.admin_record_provider_refund(
+  p_original_event_id UUID, p_amount_minor BIGINT, p_currency_code TEXT,
+  p_provider_refund_reference TEXT, p_evidence_kind TEXT, p_evidence_note TEXT, p_evidence_sha256 TEXT,
+  p_licence_decision TEXT, p_reason TEXT, p_idempotency_key UUID
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE
+SET search_path = public, pg_catalog AS $$
+DECLARE
+  v_actor UUID := auth.uid(); v_original RECORD; v_env TEXT; v_ref TEXT := btrim(coalesce(p_provider_refund_reference, ''));
+  v_rec JSONB; v_decision JSONB; v_key TEXT;
+BEGIN
+  IF v_actor IS NULL OR NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_actor AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_idempotency_key IS NULL THEN RAISE EXCEPTION 'IDEMPOTENCY_KEY_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF length(v_ref) < 3 OR length(v_ref) > 200 THEN RAISE EXCEPTION 'PROVIDER_REFUND_REFERENCE_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_evidence_kind IS NULL OR p_evidence_kind NOT IN ('PROVIDER_DASHBOARD','PROVIDER_SUPPORT_CONFIRMATION','SETTLEMENT_REPORT') THEN
+    RAISE EXCEPTION 'EVIDENCE_KIND_INVALID' USING ERRCODE = '22023';
+  END IF;
+  IF p_evidence_note IS NULL OR length(btrim(p_evidence_note)) < 10 THEN RAISE EXCEPTION 'EVIDENCE_NOTE_REQUIRED' USING ERRCODE = '22023'; END IF;
+  IF p_evidence_sha256 IS NOT NULL AND p_evidence_sha256 !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'EVIDENCE_SHA256_INVALID' USING ERRCODE = '22023'; END IF;
+  IF p_licence_decision IS NULL OR p_licence_decision NOT IN ('LICENCE_ENDED','LICENCE_KEPT') THEN
+    RAISE EXCEPTION 'LICENCE_DECISION_REQUIRED' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_original FROM public.payment_events WHERE id = p_original_event_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REVERSAL_ORIGINAL_NOT_FOUND' USING ERRCODE = '22023'; END IF;
+  -- Only a provider that reports no refunds: a refund Polar reports is recorded from Polar, never by hand (no double count).
+  IF v_original.provider IS DISTINCT FROM 'SNIPPE' THEN
+    RAISE EXCEPTION 'PROVIDER_REPORTS_REFUNDS: % refunds are recorded from the provider', v_original.provider USING ERRCODE = '22023';
+  END IF;
+  SELECT ci.provider_environment INTO v_env FROM public.payment_checkout_intents ci WHERE ci.id = v_original.checkout_intent_id;
+  IF v_env IS DISTINCT FROM 'production' THEN
+    RAISE EXCEPTION 'NOT_A_PRODUCTION_PAYMENT: a sandbox payment moved no money' USING ERRCODE = '22023';
+  END IF;
+
+  v_key := 'admin-provider-refund:' || p_idempotency_key::text;
+  v_rec := public._record_payment_reversal_core(p_original_event_id, 'REFUND', v_original.provider, v_ref,
+    p_amount_minor, p_currency_code, v_key, encode(sha256(convert_to(v_ref || '|' || coalesce(p_evidence_sha256, '') || '|' || btrim(p_evidence_note), 'UTF8')), 'hex'),
+    'ADMIN_RECORDED_PROVIDER_REFUND', v_actor,
+    jsonb_build_object('kind', p_evidence_kind, 'note', btrim(p_evidence_note), 'document_sha256', p_evidence_sha256,
+                       'provider_refund_reference', v_ref, 'recorded_by', v_actor, 'recorded_at', now()));
+  IF v_rec->>'status' = 'ALREADY_RECORDED' THEN
+    RETURN v_rec || jsonb_build_object('licence_decision', (SELECT a.new_state FROM public.billing_audit_events a
+      WHERE a.action = 'REVERSAL_REVIEWED' AND a.new_state->>'reversal_event_id' = v_rec->>'event_id' LIMIT 1));
+  END IF;
+  v_decision := public._apply_reversal_licence_decision((v_rec->>'event_id')::uuid, p_licence_decision, v_actor, p_reason);
+  INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
+  VALUES (v_original.billing_customer_id, v_actor, 'PROVIDER_REFUND_RECORDED_BY_ADMIN', NULL,
+    jsonb_build_object('reversal_event_id', v_rec->>'event_id', 'original_event_id', p_original_event_id, 'provider', v_original.provider,
+      'provider_refund_reference', v_ref, 'amount_minor', p_amount_minor, 'currency_code', v_original.currency,
+      'evidence_kind', p_evidence_kind, 'evidence_sha256', p_evidence_sha256,
+      'reversed_minor', v_rec->'reversed_minor', 'paid_minor', v_rec->'paid_minor', 'licence_decision', p_licence_decision,
+      'licence_effect', v_decision->>'licence_effect'),
+    p_reason);
+  RETURN v_rec || jsonb_build_object('licence_decision', v_decision);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_record_provider_refund(UUID,BIGINT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,UUID) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_record_provider_refund(UUID,BIGINT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,UUID) TO authenticated;
+
+-- ── 5. Historical discrepancies, reported (never rewritten) ─────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.admin_list_reversal_discrepancies()
+RETURNS JSONB LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+BEGIN
+  IF auth.uid() IS NULL OR NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = auth.uid() AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  RETURN COALESCE((
+    WITH r AS (
+      SELECT rv.id, rv.event_type, rv.provider, rv.currency, rv.amount_minor, rv.recorded_at, rv.billing_customer_id,
+             (rv.metadata->>'original_event_id') AS original_text,
+             o.id AS original_id, o.event_type AS original_type, o.normalized_status AS original_status,
+             o.provider AS original_provider, o.currency AS original_currency, o.amount_minor AS paid_minor,
+             sum(rv.amount_minor) OVER (PARTITION BY rv.metadata->>'original_event_id' ORDER BY rv.recorded_at, rv.id) AS cumulative_minor
+        FROM public.payment_events rv
+        LEFT JOIN public.payment_events o ON o.id::text = rv.metadata->>'original_event_id'
+       WHERE rv.event_type IN ('REFUND','CHARGEBACK')
+    )
+    SELECT jsonb_agg(jsonb_build_object('reversal_event_id', id, 'reversal_type', event_type, 'billing_customer_id', billing_customer_id,
+             'recorded_at', recorded_at, 'amount_minor', amount_minor, 'currency', currency, 'original_event_id', original_text,
+             'paid_minor', paid_minor, 'cumulative_minor', cumulative_minor,
+             'issues', to_jsonb(array_remove(ARRAY[
+               CASE WHEN original_id IS NULL THEN 'ORIGINAL_MISSING' END,
+               CASE WHEN original_id IS NOT NULL AND (original_type <> 'PAYMENT_CONFIRMED' OR original_status IS DISTINCT FROM 'SUCCEEDED') THEN 'ORIGINAL_NOT_A_CONFIRMED_PAYMENT' END,
+               CASE WHEN original_id IS NOT NULL AND provider IS DISTINCT FROM original_provider THEN 'PROVIDER_MISMATCH' END,
+               CASE WHEN original_id IS NOT NULL AND upper(coalesce(currency,'')) <> upper(coalesce(original_currency,'')) THEN 'CURRENCY_MISMATCH' END,
+               CASE WHEN amount_minor IS NULL OR amount_minor <= 0 THEN 'AMOUNT_NOT_POSITIVE' END,
+               CASE WHEN paid_minor IS NOT NULL AND cumulative_minor > paid_minor THEN 'CUMULATIVE_EXCEEDS_PAYMENT' END], NULL)))
+           ORDER BY recorded_at)
+      FROM r
+     WHERE original_id IS NULL OR original_type <> 'PAYMENT_CONFIRMED' OR original_status IS DISTINCT FROM 'SUCCEEDED'
+        OR provider IS DISTINCT FROM original_provider OR upper(coalesce(currency,'')) <> upper(coalesce(original_currency,''))
+        OR amount_minor IS NULL OR amount_minor <= 0 OR (paid_minor IS NOT NULL AND cumulative_minor > paid_minor)), '[]'::jsonb);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.admin_list_reversal_discrepancies() FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_list_reversal_discrepancies() TO authenticated;

@@ -81,6 +81,11 @@ export const SANDBOX_ISOLATION_SOURCE_COMMIT = "762f3d97f5e07651640c2184aeb4d3de
 export const SANDBOX_ISOLATION_WRAPPED_SOURCES = Object.freeze([
   "20261031110000_sandbox_licence_isolation.sql",
 ]);
+/** Payment reversal authority (commercial-p4): every reversal bounded; a licence decision takes effect; an audited refund workflow for providers that report none (DEFECT-PAYMENT-REVERSAL-UNBOUND-001). */
+export const REVERSAL_SOURCE_COMMIT = "f35252dced2a5ba8fabc189fb2022a831e15774e";
+export const REVERSAL_WRAPPED_SOURCES = Object.freeze([
+  "20261101100000_payment_reversal_authority.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -91,6 +96,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "commercial-p1", commit: PAYMENTS_SOURCE_COMMIT, sources: PAYMENTS_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p1/postcondition.sql" }),
   Object.freeze({ id: "commercial-p2", commit: PAID_TERM_SOURCE_COMMIT, sources: PAID_TERM_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p2/postcondition.sql" }),
   Object.freeze({ id: "commercial-p3", commit: SANDBOX_ISOLATION_SOURCE_COMMIT, sources: SANDBOX_ISOLATION_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p3/postcondition.sql" }),
+  Object.freeze({ id: "commercial-p4", commit: REVERSAL_SOURCE_COMMIT, sources: REVERSAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p4/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

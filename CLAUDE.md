@@ -850,7 +850,10 @@ from the code at main `ae162b5`:
 Lifting the restriction is the releasing change's own reviewed step. It
 removes the `WITHHELD_SERVICES` entry and closes the items above.
 
-**DEFECT-PAYMENT-REVERSAL-UNBOUND-001** — Severity: MEDIUM — Status: OPEN / PRE-EXISTING (found 2026-10-11, Snippe
+**DEFECT-PAYMENT-REVERSAL-UNBOUND-001** — Severity: MEDIUM — Status: FIXED IN SOURCE by `20261101100000_payment_reversal_authority.sql`
+(batch commercial-p4; PENDING HOSTED APPLICATION; record `docs/release/PAYMENT_REVERSAL_AUTHORITY.md`). One bounded writer of
+reversals; LICENCE_ENDED now ends access; `admin_record_provider_refund` RECORDS a Snippe refund already completed outside CFOClose (it issues none; whether
+Snippe can refund at all is unconfirmed — no refund API, event or procedure is documented); historical rows reported by `admin_list_reversal_discrepancies`, never rewritten. Found 2026-10-11 (Snippe
 readiness pass). `record_payment_reversal` (live since `20260906083524`, service-role only) records a refund or chargeback
 against an original payment event without checking that the original is a PAYMENT_CONFIRMED event, that the currency
 matches, or that the amount does not exceed what was paid. No access impact (a reversal never changes a licence; an
