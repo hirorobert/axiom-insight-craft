@@ -62,10 +62,15 @@ SELECT a.new_state->>'licence_id' AS sandbox_licence_id, a.previous_state->>'clo
   JOIN public.payment_checkout_intents ci ON ci.id = pe.checkout_intent_id AND ci.provider_environment = 'sandbox'
  WHERE a.action = 'LICENCE_GRANTED' AND a.previous_state ? 'closed_prior_licence_id';
 
--- 4. Record before applying (compare after with the postcondition):
+-- 4. Record before applying. The postcondition's PART B repeats exactly these; every value must be equal (history preserved).
 SELECT count(*) AS licences,
        coalesce(md5(string_agg(jsonb_build_array(l.id, l.billing_customer_id, l.plan_id, l.source, l.effective_start, l.effective_end, l.additional_seats)::text, '' ORDER BY l.id)), '') AS licence_terms_md5
-  FROM public.commercial_licences l;
+  FROM public.commercial_licences l WHERE l.source <> 'TERM_RESTORED_AFTER_SANDBOX';
+SELECT count(*) AS cancelled_licences,
+       coalesce(md5(string_agg(jsonb_build_array(l.id, l.billing_customer_id, l.plan_id, l.source, l.status, l.effective_start, l.effective_end, l.additional_seats)::text, '' ORDER BY l.id)), '') AS cancelled_licences_md5
+  FROM public.commercial_licences l WHERE l.status = 'CANCELLED';
 SELECT count(*) AS intents, coalesce(md5(string_agg(to_jsonb(i)::text, '' ORDER BY i.id)), '') AS intents_md5 FROM public.payment_checkout_intents i;
 SELECT count(*) AS payment_events, coalesce(md5(string_agg(to_jsonb(e)::text, '' ORDER BY e.id)), '') AS payment_events_md5 FROM public.payment_events e;
-SELECT count(*) AS audit_events FROM public.billing_audit_events;
+SELECT count(*) AS audit_history, coalesce(md5(string_agg(to_jsonb(a)::text, '' ORDER BY a.id)), '') AS audit_history_md5
+  FROM public.billing_audit_events a
+ WHERE a.action NOT IN ('SANDBOX_LICENCE_CONTAINED', 'SANDBOX_PROVENANCE_RECORDED', 'LICENCE_PROVENANCE_CONFIRMED', 'SANDBOX_PROVENANCE_CONFIRMED', 'TERM_RESTORED_AFTER_SANDBOX');

@@ -45,17 +45,25 @@ Apply `release/wrappers/20261031110000_sandbox_licence_isolation.wrapper.sql` **
 
 ## P3-4. Postcondition (read-only)
 
-Run `release/commercial-p3/postcondition.sql`, the corrected version in this package.
-- It must report `POSTCONDITION OK.`
-- Its section-4 counts must equal the preflight's: `licences`, `licence_terms_md5`, `intents` and `payment_events`.
-- `audit_events` grows by exactly the number of sandbox licences. Each gets one `SANDBOX_LICENCE_CONTAINED` or `SANDBOX_PROVENANCE_RECORDED` row.
-- Paste its listing:
-  - provenance by status;
-  - licence `ba803893-…`, which should be `SANDBOX` / `SANDBOX_PAYMENT` if the preflight showed it as sandbox;
-  - any `REVIEW_REQUIRED` rows;
-  - the contained and recorded sandbox licences, with any term to restore.
+Run `release/commercial-p3/postcondition.sql`, the corrected version in this package, and paste the **whole** output. Report it in two separate parts.
 
-A cancelled sandbox licence correctly stays `CANCELLED`; it grants nothing and cannot be reactivated.
+**Part 1: containment.** This is the migration's result, and it must be complete. The DO block must report `POSTCONDITION OK.` It proves, on the live data:
+- **A3:** for every account holding a sandbox licence, the live access functions report a plan, company capacity and named-user seats only from a non-sandbox current term, or none at all. The active sandbox licence no longer grants anything.
+- **A4:** every cancelled sandbox licence is still `CANCELLED`, with the account, source and dates it was cancelled with. Its cancellation record is intact.
+- **A5:** no continuation term exists unless it restores a term proven genuine, to the end that term's own grant record states. Right after the migration there are none.
+- **A2:** every sandbox licence has its audit row.
+- **A6:** payments are still disabled.
+
+Then compare **PART B** with the preflight's section 4. These five values must be **identical**: `licence_terms_md5`, `cancelled_licences_md5`, `intents_md5`, `payment_events_md5` and `audit_history_md5`. Together they show that no licence term, cancelled licence, checkout, payment or earlier audit row changed. Also paste PART C1:
+- provenance by status;
+- licence `ba803893-…`;
+- each sandbox licence with the plan, company capacity and seats its account has now.
+
+**Part 2: owner decisions still open.** These are **not** a failure of containment. PART C2 lists them:
+- licences still `REVIEW_REQUIRED`;
+- terms a sandbox payment ended, each with its `next_step`, for example `RESTORABLE …` or `OWNER DECISION: …`.
+
+Report them as open decisions. Do not resolve or restore anything at this step.
 
 ## P3-5. Review and restoration *(owner authorisation per row; skip if P3-4 listed none)*
 
@@ -69,7 +77,7 @@ Follow `SANDBOX_LICENCE_ISOLATION.md` §5:
   - It also refuses a term that has changed since, a term with no recorded grant end, an end already past, an overlap, and a second restore.
   - Report any refusal verbatim. **Do not work around it**: an unrecorded original end is the owner's decision, not a repair.
 
-Re-run the postcondition: it must still read `POSTCONDITION OK.` Resolve every row before any payment state is opened again.
+Re-run the postcondition. It must still read `POSTCONDITION OK.`, and `intents_md5` and `payment_events_md5` must still equal the preflight. Review actions add audit rows of their own, so `audit_history_md5` may change only by those. Any row that stays open in PART C2 remains an owner decision: report it, and keep payments disabled until the owner has decided every row.
 
 ## P3-6. Publish *(owner authorisation)*
 

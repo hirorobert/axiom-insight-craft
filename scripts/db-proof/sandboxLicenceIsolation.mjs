@@ -303,6 +303,25 @@ async function main() {
       return null;
     } catch (e) { await admin.query("ROLLBACK"); return e; }
   };
+  const PREFLIGHT = fs.readFileSync(path.join(REPO, "docs/release/commercial-p3/preflight.sql"), "utf8");
+  const POSTCONDITION = fs.readFileSync(path.join(REPO, "docs/release/commercial-p3/postcondition.sql"), "utf8");
+  /** One documented SQL file in one transaction (READ ONLY unless a negative case writes first); its result sets and notices. */
+  const runDoc = async (text, { readOnly = true, before = null } = {}) => {
+    const notices = []; const on = (n) => notices.push(n.message);
+    admin.on("notice", on);
+    try {
+      await admin.query(readOnly ? "BEGIN READ ONLY" : "BEGIN");
+      if (before) await admin.query(before);
+      const res = await admin.query(text);
+      return { sets: (Array.isArray(res) ? res : [res]).filter((r) => r.fields?.length), notices };
+    } catch (e) { return { error: e, notices }; } finally { await admin.query("ROLLBACK"); admin.off("notice", on); }
+  };
+  /** The single-row result set that has column `col`. */
+  const setWith = (out, col) => out.sets.find((r) => r.fields.some((f) => f.name === col));
+  const HISTORY = ["licence_terms_md5", "cancelled_licences_md5", "intents_md5", "payment_events_md5", "audit_history_md5"];
+  const history = (out) => Object.fromEntries(HISTORY.map((c) => [c, setWith(out, c)?.rows[0]?.[c]]));
+  let preHistory = null;
+
   group("Gate");
   await check("with payments in SANDBOX_ONLY the wrapper refuses (P0001 PREFLIGHT_REFUSED); nothing changes and no journal row is written", async () => {
     await setState("SANDBOX_ONLY");
@@ -313,6 +332,16 @@ async function main() {
     return e?.code === "P0001" && /PREFLIGHT_REFUSED: payments must be disabled/.test(e.message) && same ? true : { e: e?.message, same };
   });
   group("Hosted scenario · the superseded wrapper fails atomically; the replacement applies through its exact wrapper");
+  await check("the documented preflight runs READ ONLY: the cancelled sandbox licence will stay cancelled, the active one will be contained, the legacy licence goes to review", async () => {
+    const out = await runDoc(PREFLIGHT);
+    if (out.error) return out.error.message;
+    const cls = Object.fromEntries(setWith(out, "provenance_to_record").rows.map((r) => [r.licence_id, r.provenance_to_record]));
+    preHistory = history(out);
+    return out.notices.some((n) => /PREFLIGHT OK: apply 20261031110000_sandbox_licence_isolation\.wrapper\.sql/.test(n))
+      && cls[cancelledSb] === "SANDBOX_PAYMENT (STAYS CANCELLED; PROVENANCE RECORDED)" && cls[hostedActiveLicence] === "SANDBOX_PAYMENT (WILL BE CONTAINED)"
+      && cls[legacyTerm] === "REVIEW_REQUIRED" && HISTORY.every((c) => typeof preHistory[c] === "string" && preHistory[c].length === 32)
+      ? true : { notices: out.notices, cancelled: cls[cancelledSb], active: cls[hostedActiveLicence], legacy: cls[legacyTerm], preHistory };
+  });
   await check("the superseded wrapper (20261031100000, as submitted) fails with PT422 CANCELLED_LICENCE_IMMUTABLE; every row and object unchanged; the journal stays at 53", async () => {
     const before = await fingerprint(); const j = await journal();
     const e = await submit(supersededText);
@@ -334,6 +363,22 @@ async function main() {
     const fp = await fingerprint();
     const again = await submit(wrapperText);
     return await journal() === 54 && /already in force/.test(again?.message ?? "") && fp === await fingerprint() ? true : { again: again?.message, journal: await journal() };
+  });
+  await check("the documented postcondition passes READ ONLY: containment proven (A1–A6); history equal to the preflight; open legacy decisions listed separately, none guessed", async () => {
+    const out = await runDoc(POSTCONDITION);
+    if (out.error) return out.error.message;
+    const post = history(out);
+    const contained = setWith(out, "plan_now").rows;
+    const active = contained.find((r) => r.sandbox_licence_id === hostedActiveLicence);
+    const cancelled = contained.find((r) => r.sandbox_licence_id === cancelledSb);
+    const review = setWith(out, "review_required_licence_id").rows.map((r) => r.review_required_licence_id);
+    const ended = Object.fromEntries(setWith(out, "next_step").rows.map((r) => [r.ended_term_id, r.next_step]));
+    return out.notices.includes("POSTCONDITION OK.") && JSON.stringify(post) === JSON.stringify(preHistory)
+      && active?.status_now === "SANDBOX" && active.plan_now === null && active.company_capacity_now.source !== "ACTIVE_LICENCE" && active.seats_now.plan_code === null
+      && cancelled?.status_now === "CANCELLED" && review.includes(legacyTerm)
+      && /OWNER DECISION: provenance unproven/.test(ended[legacyTerm] ?? "") && /RESTORABLE/.test(ended[victimTerm] ?? "") && /RESTORABLE/.test(ended[paidVictimTerm] ?? "")
+      && (await admin.query("SELECT count(*)::int n FROM public.commercial_licences WHERE source = 'TERM_RESTORED_AFTER_SANDBOX'")).rows[0].n === 0
+      ? true : { notices: out.notices, post, preHistory, active, cancelled, review, ended };
   });
   await check("every later migration applies", async () => { for (const f of files.slice(cut + 1)) await applyMigration(f); return true; });
 
@@ -454,6 +499,29 @@ async function main() {
   });
 
   // ════ THE INVARIANT ═══════════════════════════════════════════════════════════════════════════════════════════════
+  group("Postcondition · after review and restoration, and its refusals");
+  await check("the postcondition still passes after the reviews and restorations: each continuation proven against its term's own grant record (A5); payments and intents unchanged", async () => {
+    const out = await runDoc(POSTCONDITION);
+    if (out.error) return out.error.message;
+    const post = history(out);
+    const ended = setWith(out, "next_step").rows.map((r) => r.ended_term_id);
+    return out.notices.includes("POSTCONDITION OK.") && post.intents_md5 === preHistory.intents_md5 && post.payment_events_md5 === preHistory.payment_events_md5
+      && !ended.includes(victimTerm) && !ended.includes(paidVictimTerm) && ended.includes(legacyTerm)
+      ? true : { notices: out.notices, ended };
+  });
+  await check("a guessed restoration fails it (A5): a continuation for the legacy term, which has no recorded original end", async () => {
+    const out = await runDoc(POSTCONDITION, { readOnly: false, before: {
+      text: "INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end, provenance, provenance_evidence) SELECT billing_customer_id, plan_id, 'ACTIVE', 'TERM_RESTORED_AFTER_SANDBOX', effective_end, effective_end + interval '300 days', provenance, jsonb_build_object('restores_licence_id', id) FROM public.commercial_licences WHERE id = $1",
+      values: [legacyTerm] } });
+    return /POSTCONDITION A5/.test(out.error?.message ?? "") ? true : out.error?.message ?? "no error";
+  });
+  await check("an access function that counted sandbox licences fails it (A3)", async () => {
+    const def = (await admin.query("SELECT pg_get_functiondef('public._account_current_plan_code(uuid)'::regprocedure) d")).rows[0].d;
+    if (!def.includes("IN ('ACTIVE','GRACE')")) return "unexpected definition";
+    const out = await runDoc(POSTCONDITION, { readOnly: false, before: def.replace("IN ('ACTIVE','GRACE')", "IN ('ACTIVE','GRACE','SANDBOX')") });
+    return /POSTCONDITION A3/.test(out.error?.message ?? "") ? true : out.error?.message ?? "no error";
+  });
+
   group("Invariant · a sandbox settlement cannot unlock production access");
   const fresh = await account("fresh-sandbox");
   let freshI, freshLicence;
