@@ -309,6 +309,12 @@ async function main() {
         await page.click({ text: "Resolve account classifications" });
         await page.waitForSelector('[data-testid="account-review-workbench"]', { timeout: 30000 });
         await sleep(2000); // the button's own smooth scroll must finish first, or it overrides the jump below
+        // The panel opens one account at a time; every account already carries a suggestion, so show the full list.
+        await page.click({ text: "Show the full list", within: '[data-testid="account-review-workbench"]' }).catch(() => undefined);
+        await sleep(1000);
+        // A taller viewport: the panel is the last section of the page, so the page cannot scroll it to the top.
+        await page.setViewport(1280, 1500);
+        await sleep(800);
         const top = await page.evaluate(() => {
           const el = document.querySelector('[data-testid="account-review-workbench"]');
           el.scrollIntoView({ block: "start", behavior: "instant" });
@@ -319,7 +325,8 @@ async function main() {
         });
         await sleep(800);
         await shot("05b-account-review-list");
-        log(`        account-review list panel top after scroll: ${top}px`);
+        await page.setViewport(1280, 900);
+        log(`        account-review list panel top after scroll: ${top}px; rows: ${await page.evaluate(() => document.querySelectorAll('[data-testid="account-review-workbench"] tbody tr, [data-testid="account-review-workbench"] [role="row"]').length)}`);
         log(`        account-review list: ${await page.evaluate(() => document.querySelector('[data-testid="account-review-workbench"]')?.innerText.split(/\r?\n/).slice(0, 3).join(" | "))}`);
       } catch (e) { log(`        (account-review list not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
     }
