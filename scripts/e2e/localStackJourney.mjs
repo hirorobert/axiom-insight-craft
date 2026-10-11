@@ -304,6 +304,31 @@ async function main() {
     if (year === 2026) {
       try { await go(`/workspace/${A}/${year}/trial-balance/review`, ""); await sleep(2500); await shot("05a-account-review-pending"); }
       catch (e) { log(`        (account-review screenshot not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
+      // ...and the list itself: "Resolve account classifications" opens the accounts awaiting a mapping decision.
+      try {
+        await page.click({ text: "Resolve account classifications" });
+        await page.waitForSelector('[data-testid="account-review-workbench"]', { timeout: 30000 });
+        await sleep(2000); // the button's own smooth scroll must finish first, or it overrides the jump below
+        // The panel opens one account at a time; every account already carries a suggestion, so show the full list.
+        await page.click({ text: "Show the full list", within: '[data-testid="account-review-workbench"]' }).catch(() => undefined);
+        await sleep(1000);
+        // A taller viewport: the panel is the last section of the page, so the page cannot scroll it to the top.
+        await page.setViewport(1280, 1500);
+        await sleep(800);
+        const top = await page.evaluate(() => {
+          const el = document.querySelector('[data-testid="account-review-workbench"]');
+          el.scrollIntoView({ block: "start", behavior: "instant" });
+          // The workspace may scroll an inner container rather than the window: bring the panel to the top of whichever does.
+          for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY)) p.scrollTop += el.getBoundingClientRect().top - 72;
+          window.scrollBy({ top: el.getBoundingClientRect().top - 72, behavior: "instant" });
+          return Math.round(el.getBoundingClientRect().top);
+        });
+        await sleep(800);
+        await shot("05b-account-review-list");
+        await page.setViewport(1280, 900);
+        log(`        account-review list panel top after scroll: ${top}px; rows: ${await page.evaluate(() => document.querySelectorAll('[data-testid="account-review-workbench"] tbody tr, [data-testid="account-review-workbench"] [role="row"]').length)}`);
+        log(`        account-review list: ${await page.evaluate(() => document.querySelector('[data-testid="account-review-workbench"]')?.innerText.split(/\r?\n/).slice(0, 3).join(" | "))}`);
+      } catch (e) { log(`        (account-review list not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
     }
     // Review only what the server holds for review: re-recording decisions that are already in force would change the
     // company-wide mapping inputs and, correctly, put every other year's result out of date (the stale-validation gate).

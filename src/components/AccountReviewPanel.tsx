@@ -640,7 +640,7 @@ export function AccountReviewPanel({
       <p className="px-5 py-3 text-[13px] text-muted-foreground border-b border-border leading-relaxed">
         {focusMode
           ? "One account at a time. Set a classification, or exclude it. Nothing is written until you save."
-          : "SAFF could not map these accounts on evidence it can defend. Set a classification, or exclude the account explicitly. Nothing is written until you save."}
+          : "These accounts could not be mapped on evidence the workspace can defend. Set a classification, or exclude the account explicitly. Nothing is written until you save."}
         {/* Mobile equivalent of the column-header affordance — the stacked
             records have no header row to hang it on. */}
         <span className="md:hidden ml-1.5">
@@ -672,7 +672,7 @@ export function AccountReviewPanel({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-border">
-              {["Account", "Balance", "SAFF assessment", "Decision"].map((h, i) => (
+              {["Account", "Balance", "Suggested classification", "Decision"].map((h, i) => (
                 <th
                   key={h}
                   className={[
