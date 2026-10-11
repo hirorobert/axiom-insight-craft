@@ -47,7 +47,7 @@
 | 5 | commercial-c1 | `20261028100000_period_dates_from_company.wrapper.sql` | 11,708 | `c2c3afed5cb93b225b466f3e5d0ecfba2ab2a701a94c0e50035006e6b0569529` | `0158258` | **Applied** as 0050 (id 51) |
 | 6 | commercial-p1 | `20261029100000_payment_provider_routes.wrapper.sql` | 50,575 | `407e056d63f0083137bceb4dbb10c27beafba11c326701589ef838549d8b6627` | `21387d5` | **Applied** as 0051 (id 52) |
 | 7 | commercial-p2 | `20261030100000_paid_term_seat_preservation.wrapper.sql` | 24,015 | `8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f` | `2656cf0` | **Applied** as 0052 (id 53) |
-| 8 | commercial-p3 | `20261031100000_sandbox_licence_isolation.wrapper.sql` | 50,109 | `36bd80c0950a17d79586cd907b839e33529563ef51f222230bc83f1f17d4baa0` | `a4f80c0` | **Pending.** Correction for DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; see `COMMERCIAL_P3_LOVABLE_DELTA.md` |
+| 8 | commercial-p3 | `20261031110000_sandbox_licence_isolation.wrapper.sql` | 54,295 | `12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83` | `762f3d9` | **Pending.** Correction for DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; see `COMMERCIAL_P3_LOVABLE_DELTA.md`. It supersedes `20261031100000_sandbox_licence_isolation.wrapper.sql` (50,109 B, `36bd80c0…`), which failed atomically (`PT422 CANCELLED_LICENCE_IMMUTABLE`, journal stayed at 53) and must never be submitted. |
 
 - **p2 payload:** 22,439 bytes, SHA-256 `ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f`. Both registered submission forms are pinned in `scripts/ci/releaseJournal.mjs`.
 - **Preflight and postcondition:** `release/<batch>/preflight.sql` and `postcondition.sql`, all read-only.

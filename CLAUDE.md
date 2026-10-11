@@ -1172,13 +1172,21 @@ serialised (a racing grant could otherwise make the payment's commit fail on the
 `scripts/db-proof/paidTermPreservation.mjs` (18).
 
 **DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001** — fixed in source (2026-10-11), batch `commercial-p3`,
-`20261031100000_sandbox_licence_isolation.sql` (source `a4f80c0`, wrapper 50,109 B); pending hosted application. A verified
+`20261031110000_sandbox_licence_isolation.sql` (source `762f3d9`, wrapper 54,295 B, SHA-256 `12a7e924…`); pending hosted application.
+It SUPERSEDES `20261031100000` (source `a4f80c0`, wrapper 50,109 B `36bd80c0…`), whose one hosted submission failed atomically with
+PT422 CANCELLED_LICENCE_IMMUTABLE (its containment changed a CANCELLED future sandbox licence; journal stayed at 53). The old
+source and wrapper are quarantined byte for byte (`supabase/migrations_historical/`, `release/wrappers_historical/`) and pinned in
+`SUPERSEDED_SUBMISSIONS` (`scripts/db-proof/lib/parkedMigrations.mjs`); they are never a registered submission form. Never
+change a cancelled licence guarded by `commercial_cancelled_future_licence_guard` (status, plan, source, account, seats, dates);
+a cancelled sandbox licence stays CANCELLED (SANDBOX_PAYMENT => SANDBOX or CANCELLED). A provenance change is allowed only
+inside `admin_resolve_licence_provenance` for the licence under review. A shortened paid term is restored by a continuation
+licence (source TERM_RESTORED_AFTER_SANDBOX), never by extending it (`commercial_annual_term_licence_guard`). A verified
 SANDBOX payment used to create an ACTIVE licence that every access decision honoured; PAYMENTS_DISABLED did not revoke it; a
 sandbox upgrade ended a genuine term. Now: a sandbox payment records a licence with status `SANDBOX` (excluded by every
 consumer, all of which select `status IN ('ACTIVE','GRACE')`) and never runs placement; `commercial_licences.provenance`
 (PRODUCTION_PAYMENT | SANDBOX_PAYMENT | MANUAL_GRANT | SYSTEM_FREE | REVIEW_REQUIRED, default REVIEW_REQUIRED) is backfilled only
 from authoritative records (PAYMENT_CONFIRMED event or placed_licence_id -> intent.provider_environment); the trigger
-`trg_cl_provenance_guard` keeps SANDBOX_PAYMENT <=> SANDBOX and provenance fixed except REVIEW_REQUIRED -> reviewed. Never
+`trg_cl_provenance_guard` keeps SANDBOX_PAYMENT => SANDBOX or CANCELLED, SANDBOX => SANDBOX_PAYMENT, and provenance fixed except REVIEW_REQUIRED -> reviewed in the review procedure. Never
 make placement or access depend on commercial_platform_state, and never assume an unproven licence is production. Payment
 proofs exercise placement with PRODUCTION payments. Record and procedures: `docs/release/SANDBOX_LICENCE_ISOLATION.md`;
 proof `scripts/db-proof/sandboxLicenceIsolation.mjs`.

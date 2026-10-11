@@ -1,6 +1,18 @@
--- 20261031100000_sandbox_licence_isolation.sql
+-- 20261031110000_sandbox_licence_isolation.sql
 --
 -- DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001 (commercial release correction, batch commercial-p3).
+--
+-- SUPERSEDES 20261031100000_sandbox_licence_isolation.sql, which was submitted once and failed atomically on the hosted
+-- database (PT422 CANCELLED_LICENCE_IMMUTABLE: its containment changed a CANCELLED future sandbox licence, which
+-- commercial_cancelled_future_licence_guard correctly forbids; nothing was written, the journal stayed at 53). That source
+-- is quarantined in supabase/migrations_historical/ and must never be applied. This version differs exactly here:
+--   - a CANCELLED sandbox licence stays CANCELLED (terminal, never granting); only its provenance is recorded, with an
+--     audited SANDBOX_PROVENANCE_RECORDED row — the cancelled-licence invariant is untouched;
+--   - the guard's invariant is SANDBOX_PAYMENT => status SANDBOX or CANCELLED (neither grants, neither can return), and a
+--     reviewed provenance change is authorised for exactly one licence, inside admin_resolve_licence_provenance only;
+--   - a term a sandbox upgrade shortened is restored by a CONTINUATION term, never by extending a licence (payment terms
+--     may only end earlier: commercial_annual_term_licence_guard), and only for a term whose provenance is proven genuine;
+--   - the manual-grant paid-term guard also protects licences proven PRODUCTION_PAYMENT (so it covers continuations).
 --
 -- Reproduced on real PostgreSQL before this change (scripts/db-proof/sandboxLicenceIsolation.mjs, "before" group):
 --   1. a verified SANDBOX payment created an ACTIVE licence (source POLAR_VERIFIED_PAYMENT) indistinguishable from a paid
@@ -20,9 +32,11 @@
 --      authoritative records — a payment licence takes the environment of the checkout intent its own PAYMENT_CONFIRMED
 --      event (or its placement record) names; a licence whose environment cannot be proven is REVIEW_REQUIRED, never
 --      assumed production;
---   2. contains every licence whose authoritative provenance is SANDBOX_PAYMENT: status -> SANDBOX, dates, payment and
---      audit history unchanged, one SANDBOX_LICENCE_CONTAINED audit row each (system actor, previous and new state);
---   3. a guard trigger: provenance is immutable except REVIEW_REQUIRED -> a reviewed value; SANDBOX status <=> SANDBOX_PAYMENT;
+--   2. contains every licence whose authoritative provenance is SANDBOX_PAYMENT: a non-cancelled one becomes SANDBOX
+--      (one SANDBOX_LICENCE_CONTAINED row), a CANCELLED one stays CANCELLED (one SANDBOX_PROVENANCE_RECORDED row); dates,
+--      payment and earlier audit history unchanged; system actor, previous and new state recorded;
+--   3. a guard trigger: provenance is immutable except REVIEW_REQUIRED -> a reviewed value, authorised for one licence
+--      inside the review procedure; SANDBOX_PAYMENT => SANDBOX or CANCELLED; SANDBOX => SANDBOX_PAYMENT;
 --   4. commit_verified_commercial_payment (same 13 arguments): a sandbox payment records a SANDBOX licence and never runs
 --      placement; a production payment records PRODUCTION_PAYMENT; everything else unchanged from commercial-p2;
 --   5. admin_grant_commercial_licence (same 5 arguments): records MANUAL_GRANT; unchanged otherwise;
@@ -99,7 +113,7 @@ UPDATE public.commercial_licences cl
            WHEN e.any_unknown THEN 'a linked checkout intent has no recorded provider_environment'
            WHEN e.environments > 1 THEN 'linked checkout intents disagree on provider_environment'
            ELSE 'provider_environment of the linked checkout intent' END,
-         'source', cl.source, 'links', COALESCE(e.evidence, '[]'::jsonb), 'backfilled_by', '20261031100000')
+         'source', cl.source, 'links', COALESCE(e.evidence, '[]'::jsonb), 'backfilled_by', '20261031110000')
   FROM (SELECT id FROM public.commercial_licences) all_l
   LEFT JOIN envs e ON e.licence_id = all_l.id
  WHERE cl.id = all_l.id;
@@ -113,9 +127,11 @@ ALTER TABLE public.commercial_licences ADD CONSTRAINT chk_cl_provenance
   CHECK (provenance IN ('PRODUCTION_PAYMENT','SANDBOX_PAYMENT','MANUAL_GRANT','SYSTEM_FREE','REVIEW_REQUIRED'));
 
 COMMENT ON COLUMN public.commercial_licences.provenance IS
-  'Where this licence came from, proven from authoritative records (20261031100000). SANDBOX_PAYMENT licences are always status SANDBOX and grant nothing; REVIEW_REQUIRED awaits admin_resolve_licence_provenance.';
+  'Where this licence came from, proven from authoritative records (20261031110000). SANDBOX_PAYMENT licences are status SANDBOX, or CANCELLED when already cancelled, and grant nothing; REVIEW_REQUIRED awaits admin_resolve_licence_provenance.';
 
 -- ── 2. Containment: every licence proven to come from a sandbox payment stops granting access, audited ───────────────
+-- A CANCELLED licence is terminal (commercial_cancelled_future_licence_guard): it already grants nothing and never can again,
+-- so it stays CANCELLED; only its provenance (recorded above) is audited. Every other sandbox licence becomes SANDBOX.
 DO $contain$
 DECLARE r RECORD; v_closed RECORD;
 BEGIN
@@ -124,13 +140,17 @@ BEGIN
     SELECT a.previous_state INTO v_closed FROM public.billing_audit_events a
      WHERE a.action = 'LICENCE_GRANTED' AND a.new_state->>'licence_id' = r.id::text AND a.previous_state ? 'closed_prior_licence_id'
      ORDER BY a.created_at LIMIT 1;
-    UPDATE public.commercial_licences SET status = 'SANDBOX', updated_at = now() WHERE id = r.id;
+    IF r.status <> 'CANCELLED' THEN
+      UPDATE public.commercial_licences SET status = 'SANDBOX', updated_at = now() WHERE id = r.id;
+    END IF;
     INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
-    VALUES (r.billing_customer_id, NULL, 'SANDBOX_LICENCE_CONTAINED',
+    VALUES (r.billing_customer_id, NULL,
+            CASE WHEN r.status = 'CANCELLED' THEN 'SANDBOX_PROVENANCE_RECORDED' ELSE 'SANDBOX_LICENCE_CONTAINED' END,
             jsonb_build_object('licence_id', r.id, 'status', r.status, 'source', r.source, 'effective_start', r.effective_start, 'effective_end', r.effective_end),
-            jsonb_build_object('licence_id', r.id, 'status', 'SANDBOX', 'provenance', 'SANDBOX_PAYMENT', 'provenance_evidence', r.provenance_evidence,
+            jsonb_build_object('licence_id', r.id, 'status', CASE WHEN r.status = 'CANCELLED' THEN 'CANCELLED' ELSE 'SANDBOX' END,
+                               'provenance', 'SANDBOX_PAYMENT', 'provenance_evidence', r.provenance_evidence,
                                'ended_production_licence_id', v_closed.previous_state->>'closed_prior_licence_id'),
-            'DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001: a sandbox payment never grants access (migration 20261031100000)');
+            'DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001: a sandbox payment never grants access (migration 20261031110000)');
   END LOOP;
 END
 $contain$;
@@ -139,10 +159,15 @@ $contain$;
 CREATE OR REPLACE FUNCTION public.commercial_licence_provenance_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
 BEGIN
-  IF TG_OP = 'UPDATE' AND NEW.provenance IS DISTINCT FROM OLD.provenance AND OLD.provenance <> 'REVIEW_REQUIRED' THEN
-    RAISE EXCEPTION 'LICENCE_PROVENANCE_IS_FIXED (licence %: % cannot become %)', OLD.id, OLD.provenance, NEW.provenance USING ERRCODE = '42501';
+  IF TG_OP = 'UPDATE' AND NEW.provenance IS DISTINCT FROM OLD.provenance THEN
+    -- Only a REVIEW_REQUIRED licence is ever reclassified, and only by admin_resolve_licence_provenance, which authorises
+    -- exactly this licence for its own transaction.
+    IF OLD.provenance <> 'REVIEW_REQUIRED' OR NEW.provenance = 'REVIEW_REQUIRED'
+       OR coalesce(current_setting('cfoclose.licence_provenance_review', true), '') <> OLD.id::text THEN
+      RAISE EXCEPTION 'LICENCE_PROVENANCE_IS_FIXED (licence %: % cannot become %)', OLD.id, OLD.provenance, NEW.provenance USING ERRCODE = '42501';
+    END IF;
   END IF;
-  IF NEW.provenance = 'SANDBOX_PAYMENT' AND NEW.status <> 'SANDBOX' THEN
+  IF NEW.provenance = 'SANDBOX_PAYMENT' AND NEW.status NOT IN ('SANDBOX', 'CANCELLED') THEN
     RAISE EXCEPTION 'SANDBOX_LICENCE_NEVER_GRANTS (licence %: status % refused)', NEW.id, NEW.status USING ERRCODE = '42501';
   END IF;
   IF NEW.status = 'SANDBOX' AND NEW.provenance <> 'SANDBOX_PAYMENT' THEN
@@ -418,7 +443,7 @@ BEGIN
   -- A payment-created term is never shortened or replaced by a manual grant: choose a start on or after its end.
   IF EXISTS (SELECT 1 FROM public.commercial_licences
               WHERE billing_customer_id = p_billing_customer_id AND status IN ('ACTIVE','GRACE')
-                AND source LIKE '%\_VERIFIED\_PAYMENT' ESCAPE '\'
+                AND (source LIKE '%\_VERIFIED\_PAYMENT' ESCAPE '\' OR provenance = 'PRODUCTION_PAYMENT')
                 AND effective_range && tstzrange(p_effective_start, p_effective_end, '[)')) THEN
     RAISE EXCEPTION 'PAID_TERM_WOULD_BE_SHORTENED' USING ERRCODE = '22023';
   END IF;
@@ -656,7 +681,7 @@ BEGIN
         'restored', EXISTS (SELECT 1 FROM public.billing_audit_events r WHERE r.action = 'TERM_RESTORED_AFTER_SANDBOX'
                               AND r.new_state->>'licence_id' = a.new_state->>'ended_production_licence_id')) ORDER BY a.created_at)
       FROM public.billing_audit_events a
-     WHERE a.action IN ('SANDBOX_LICENCE_CONTAINED','SANDBOX_PROVENANCE_CONFIRMED') AND a.new_state->>'ended_production_licence_id' IS NOT NULL), '[]'::jsonb));
+     WHERE a.action IN ('SANDBOX_LICENCE_CONTAINED','SANDBOX_PROVENANCE_RECORDED','SANDBOX_PROVENANCE_CONFIRMED') AND a.new_state->>'ended_production_licence_id' IS NOT NULL), '[]'::jsonb));
 END;
 $$;
 REVOKE ALL ON FUNCTION public.admin_list_licence_provenance_review() FROM PUBLIC, anon, service_role;
@@ -683,9 +708,10 @@ BEGIN
   SELECT a.previous_state INTO v_closed FROM public.billing_audit_events a
    WHERE a.action = 'LICENCE_GRANTED' AND a.new_state->>'licence_id' = p_licence_id::text AND a.previous_state ? 'closed_prior_licence_id'
    ORDER BY a.created_at LIMIT 1;
+  PERFORM set_config('cfoclose.licence_provenance_review', p_licence_id::text, true);
   UPDATE public.commercial_licences
      SET provenance = p_provenance,
-         status = CASE WHEN p_provenance = 'SANDBOX_PAYMENT' THEN 'SANDBOX' ELSE status END,
+         status = CASE WHEN p_provenance = 'SANDBOX_PAYMENT' AND status <> 'CANCELLED' THEN 'SANDBOX' ELSE status END,
          provenance_evidence = provenance_evidence || jsonb_build_object('reviewed_by', v_actor, 'reviewed_at', now(), 'review_reason', p_reason),
          updated_at = now()
    WHERE id = p_licence_id;
@@ -694,58 +720,71 @@ BEGIN
           CASE WHEN p_provenance = 'SANDBOX_PAYMENT' THEN 'SANDBOX_PROVENANCE_CONFIRMED' ELSE 'LICENCE_PROVENANCE_CONFIRMED' END,
           jsonb_build_object('licence_id', p_licence_id, 'status', v_lic.status, 'provenance', v_lic.provenance),
           jsonb_build_object('licence_id', p_licence_id, 'provenance', p_provenance,
-                             'status', CASE WHEN p_provenance = 'SANDBOX_PAYMENT' THEN 'SANDBOX' ELSE v_lic.status END,
+                             'status', CASE WHEN p_provenance = 'SANDBOX_PAYMENT' AND v_lic.status <> 'CANCELLED' THEN 'SANDBOX' ELSE v_lic.status END,
                              'ended_production_licence_id', CASE WHEN p_provenance = 'SANDBOX_PAYMENT' THEN v_closed.previous_state->>'closed_prior_licence_id' END),
           p_reason);
+  PERFORM set_config('cfoclose.licence_provenance_review', '', true);
   RETURN jsonb_build_object('resolved', true, 'licence_id', p_licence_id, 'provenance', p_provenance);
 END;
 $$;
 REVOKE ALL ON FUNCTION public.admin_resolve_licence_provenance(UUID, TEXT, TEXT) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.admin_resolve_licence_provenance(UUID, TEXT, TEXT) TO authenticated;
 
--- A term a sandbox upgrade ended is restored to the end its own grant recorded — and only if nothing has changed it since.
+-- A term a sandbox upgrade shortened is restored by a CONTINUATION term covering exactly the lost period — never by
+-- extending a licence (a payment term may only end earlier: commercial_annual_term_licence_guard). Only from authoritative
+-- evidence (the term's own grant record), only for a term whose provenance is proven genuine, and only if nothing has
+-- changed it since (account lock; its end is still where the sandbox licence began; not already restored).
 CREATE OR REPLACE FUNCTION public.admin_restore_term_ended_by_sandbox(p_licence_id UUID, p_reason TEXT)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $$
-DECLARE v_actor UUID := auth.uid(); v_lic RECORD; v_containment RECORD; v_sandbox RECORD; v_grant RECORD; v_original_end TIMESTAMPTZ;
+DECLARE v_actor UUID := auth.uid(); v_lic RECORD; v_containment RECORD; v_sandbox RECORD; v_grant RECORD; v_original_end TIMESTAMPTZ; v_new UUID;
 BEGIN
   IF v_actor IS NULL OR NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_actor AND active) THEN
     RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
   END IF;
   IF p_reason IS NULL OR length(trim(p_reason)) < 10 THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
-  SELECT * INTO v_lic FROM public.commercial_licences WHERE id = p_licence_id FOR UPDATE;
+  SELECT * INTO v_lic FROM public.commercial_licences WHERE id = p_licence_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'LICENCE_NOT_FOUND' USING ERRCODE = '22023'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext(v_lic.billing_customer_id::text));
+  SELECT * INTO v_lic FROM public.commercial_licences WHERE id = p_licence_id FOR UPDATE;   -- re-read under the lock
   IF EXISTS (SELECT 1 FROM public.billing_audit_events WHERE action = 'TERM_RESTORED_AFTER_SANDBOX' AND new_state->>'licence_id' = p_licence_id::text) THEN
     RAISE EXCEPTION 'TERM_ALREADY_RESTORED' USING ERRCODE = '22023';
   END IF;
+  IF v_lic.provenance NOT IN ('PRODUCTION_PAYMENT', 'MANUAL_GRANT') OR v_lic.status NOT IN ('ACTIVE', 'GRACE') THEN
+    RAISE EXCEPTION 'TERM_NOT_PROVEN_GENUINE (provenance %, status %): resolve its provenance first', v_lic.provenance, v_lic.status USING ERRCODE = '22023';
+  END IF;
   SELECT * INTO v_containment FROM public.billing_audit_events
-   WHERE action IN ('SANDBOX_LICENCE_CONTAINED','SANDBOX_PROVENANCE_CONFIRMED') AND new_state->>'ended_production_licence_id' = p_licence_id::text
+   WHERE action IN ('SANDBOX_LICENCE_CONTAINED','SANDBOX_PROVENANCE_RECORDED','SANDBOX_PROVENANCE_CONFIRMED') AND new_state->>'ended_production_licence_id' = p_licence_id::text
    ORDER BY created_at LIMIT 1;
   IF NOT FOUND THEN RAISE EXCEPTION 'NOT_ENDED_BY_A_SANDBOX_PAYMENT' USING ERRCODE = '22023'; END IF;
   SELECT * INTO v_sandbox FROM public.commercial_licences WHERE id = (v_containment.new_state->>'licence_id')::uuid;
-  -- Untouched since: the term still ends exactly where the sandbox licence began.
   IF v_lic.effective_end IS DISTINCT FROM v_sandbox.effective_start THEN
     RAISE EXCEPTION 'TERM_CHANGED_SINCE_SANDBOX_PAYMENT (ends %, sandbox began %)', v_lic.effective_end, v_sandbox.effective_start USING ERRCODE = '22023';
   END IF;
-  -- The authoritative original end: the term's own grant record.
+  -- The authoritative original end: the term's own grant record (manual grant, verified payment commit or placement).
   SELECT * INTO v_grant FROM public.billing_audit_events
    WHERE action IN ('LICENCE_GRANTED','PAID_LICENCE_PLACED') AND new_state->>'licence_id' = p_licence_id::text ORDER BY created_at LIMIT 1;
   v_original_end := COALESCE((v_grant.new_state->>'period_end')::timestamptz, (v_grant.new_state->>'effective_end')::timestamptz);
   IF v_grant.id IS NULL OR v_original_end IS NULL OR v_original_end <= v_lic.effective_end THEN
     RAISE EXCEPTION 'ORIGINAL_END_NOT_RECORDED' USING ERRCODE = '22023';
   END IF;
+  IF v_original_end <= now() THEN RAISE EXCEPTION 'TERM_WOULD_ALREADY_HAVE_ENDED' USING ERRCODE = '22023'; END IF;
   BEGIN
-    UPDATE public.commercial_licences SET effective_end = v_original_end, updated_at = now() WHERE id = p_licence_id;
+    INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end, additional_seats, provenance, provenance_evidence)
+    VALUES (v_lic.billing_customer_id, v_lic.plan_id, 'ACTIVE', 'TERM_RESTORED_AFTER_SANDBOX', v_lic.effective_end, v_original_end, v_lic.additional_seats, v_lic.provenance,
+            jsonb_build_object('basis', 'continuation of a term a sandbox upgrade shortened', 'restores_licence_id', p_licence_id,
+                               'original_grant_audit_event_id', v_grant.id, 'sandbox_licence_id', v_sandbox.id))
+    RETURNING id INTO v_new;
   EXCEPTION WHEN exclusion_violation THEN
     RAISE EXCEPTION 'RESTORED_TERM_WOULD_OVERLAP_ANOTHER_TERM' USING ERRCODE = '22023';
   END;
   INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
   VALUES (v_lic.billing_customer_id, v_actor, 'TERM_RESTORED_AFTER_SANDBOX',
           jsonb_build_object('licence_id', p_licence_id, 'effective_end', v_lic.effective_end),
-          jsonb_build_object('licence_id', p_licence_id, 'effective_end', v_original_end, 'sandbox_licence_id', v_sandbox.id,
-                             'original_grant_audit_event_id', v_grant.id),
+          jsonb_build_object('licence_id', p_licence_id, 'continuation_licence_id', v_new, 'effective_start', v_lic.effective_end,
+                             'effective_end', v_original_end, 'sandbox_licence_id', v_sandbox.id, 'original_grant_audit_event_id', v_grant.id),
           p_reason);
-  RETURN jsonb_build_object('restored', true, 'licence_id', p_licence_id, 'effective_end', v_original_end);
+  RETURN jsonb_build_object('restored', true, 'licence_id', p_licence_id, 'continuation_licence_id', v_new,
+                            'effective_start', v_lic.effective_end, 'effective_end', v_original_end);
 END;
 $$;
 REVOKE ALL ON FUNCTION public.admin_restore_term_ended_by_sandbox(UUID, TEXT) FROM PUBLIC, anon, service_role;

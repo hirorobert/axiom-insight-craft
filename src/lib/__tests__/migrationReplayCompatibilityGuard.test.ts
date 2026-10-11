@@ -235,7 +235,7 @@ describe("migration directory integrity", () => {
     // 168 -> 169: 20261028100000_period_dates_from_company.sql (a workspace's first period from the company's stated year-end, batch commercial-c1), a NEW forward-only migration pending hosted application.
     // 169 -> 170: 20261029100000_payment_provider_routes.sql (online payment provider routes and renewal-aware placement, batch commercial-p1), a NEW forward-only migration pending hosted application.
     // 170 -> 171: 20261030100000_paid_term_seat_preservation.sql (an upgrade never ends paid additional named users, batch commercial-p2), a NEW forward-only migration pending hosted application.
-    // 171 -> 172: 20261031100000_sandbox_licence_isolation.sql (a sandbox payment never grants production access, batch commercial-p3), a NEW forward-only migration pending hosted application.
+    // 171 -> 172: 20261031110000_sandbox_licence_isolation.sql (a sandbox payment never grants production access, batch commercial-p3), a NEW forward-only migration pending hosted application. It replaces 20261031100000 (quarantined in supabase/migrations_historical after its one submission failed atomically), so the count is unchanged.
     expect(files.length).toBe(172);
   });
 });

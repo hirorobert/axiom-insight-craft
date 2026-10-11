@@ -14,6 +14,21 @@ export const PARKED_MIGRATIONS = Object.freeze({
   "20261005100000_safisha_ingestion_authority.sql": "d814bbebeeaa541cbbe703aa3c037759e0b41882f7c64575f58ee3ed24bcc425",
 });
 
+/**
+ * Submitted once, failed atomically on the hosted database (PT422 CANCELLED_LICENCE_IMMUTABLE; journal stayed at 53), never
+ * applied, superseded by 20261031110000_sandbox_licence_isolation.sql. Kept byte for byte as the record of what was
+ * submitted — the source quarantined like the parked migrations, the wrapper unchanged in release/wrappers_historical/ —
+ * and NEVER to be applied or revived: it is not a registered submission form (scripts/ci/releaseJournal.mjs).
+ */
+export const SUPERSEDED_SUBMISSIONS = Object.freeze({
+  "20261031100000_sandbox_licence_isolation.sql": Object.freeze({
+    source: Object.freeze({ file: "supabase/migrations_historical/20261031100000_sandbox_licence_isolation.sql.historical", bytes: 48537, sha256: "c7b43ab18ae0da77400f6f0947c1a9c4c75ecc768c6098ae59588a98733b959c" }),
+    wrapper: Object.freeze({ file: "release/wrappers_historical/20261031100000_sandbox_licence_isolation.wrapper.sql", bytes: 50109, sha256: "36bd80c0950a17d79586cd907b839e33529563ef51f222230bc83f1f17d4baa0" }),
+    supersededBy: "20261031110000_sandbox_licence_isolation.sql",
+    failure: "PT422 CANCELLED_LICENCE_IMMUTABLE",
+  }),
+});
+
 const NOTICE_END = "-- ════════════════════════════════════════════════════════════════════════════\n\n";
 
 /** The current source chain (supabase/migrations/*.sql, sorted) — never containing a parked migration. */

@@ -188,7 +188,7 @@ async function main() {
     "INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end) VALUES ($1,$2,'ACTIVE',$3,$4,$5) RETURNING id",
     [acct.bc, PLAN[plan], source, start, end]).then((r) => r.rows[0].id);
   // A PENDING intent whose provider checkout was durably persisted, built through the real acquisition RPCs.
-// Placement is exercised with PRODUCTION payments: since 20261031100000 a sandbox payment is recorded as a SANDBOX
+// Placement is exercised with PRODUCTION payments: since 20261031110000 a sandbox payment is recorded as a SANDBOX
   // licence that grants nothing and never runs placement (DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; sandboxLicenceIsolation.mjs).
   const acquire = async (acct, plan, provider = "POLAR", env = "production") => {
     const o = OFFER[plan];

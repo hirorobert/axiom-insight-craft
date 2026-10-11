@@ -188,7 +188,7 @@ async function main() {
     }
     return { uid, bc, lic, co };
   };
-  // Paid terms are PRODUCTION payments: since 20261031100000 a sandbox payment records a SANDBOX licence that grants nothing.
+  // Paid terms are PRODUCTION payments: since 20261031110000 a sandbox payment records a SANDBOX licence that grants nothing.
   const intentRow = async (acct, o, over = {}) => (await admin.query(`INSERT INTO public.payment_checkout_intents
         (billing_customer_id, commercial_offer_id, plan_id, market_code, expected_amount_minor, currency_code, currency_exponent,
          billing_interval, billing_interval_count, provider, saff_reference, status, created_by_user_id, provider_environment, product_id, provider_checkout_ref)
@@ -226,7 +226,7 @@ async function main() {
   const stackedLic = async () => (await admin.query(`SELECT l.id, l.status, l.effective_start, l.effective_end, l.effective_start > now() AS future
       FROM public.commercial_licences l WHERE l.billing_customer_id=$1 ORDER BY l.effective_start`, [stacked.bc])).rows;
   const [stackedAnnual, stackedFuture] = await stackedLic();
-  // provenance / provenance_evidence are added by a LATER migration (20261031100000, sandbox licence isolation), which this
+  // provenance / provenance_evidence are added by a LATER migration (20261031110000, sandbox licence isolation), which this
   // proof also applies before comparing; they are not this migration's columns, so they are left out of the comparison.
   const fullLic = async () => (await admin.query("SELECT to_jsonb(l) - 'provenance' - 'provenance_evidence' AS row FROM public.commercial_licences l ORDER BY id")).rows;
   const snapOffers = async () => (await admin.query("SELECT offer_code, to_jsonb(o) AS row FROM public.commercial_offers o ORDER BY offer_code")).rows;
