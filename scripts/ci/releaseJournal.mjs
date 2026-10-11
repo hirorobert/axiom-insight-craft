@@ -288,6 +288,14 @@ export const RELEASE_JOURNAL = {
   "0052_paid_term_seat_preservation_wrapper": { kind: "release_self_checking_wrapper", source: "20261030100000_paid_term_seat_preservation.sql",
     bytes: 22439, digest: "ff5e89bae9aa261f68e85d504ba03b5f0c76230d97ca7d5fa6e247c169b1913f",
     form: "wrapper", submittedBytes: 24015, sha256: "8a54ebef4d13b2ed51b6740e2a2cd6be9e14b218553b45a397e53968f98f878f" },
+  // The sandbox licence isolation correction (batch commercial-p3; main d2ab84b, PR #111), applied 2026-10-11 by Lovable's
+  // hosted migrator through its SELF-CHECKING WRAPPER, byte for byte (recomputed here). It is 20261031110000, which
+  // supersedes 20261031100000: that wrapper's one submission failed atomically (PT422 CANCELLED_LICENCE_IMMUTABLE) and wrote
+  // no journal row; it is pinned only in SUPERSEDED_SUBMISSIONS and is never a registered form. Nothing is pending.
+  // hosted id 54; journal "when" 1791725527221 = 2026-10-11T13:32:07.221Z.
+  "0053_sandbox_licence_isolation_wrapper": { kind: "release_self_checking_wrapper", source: "20261031110000_sandbox_licence_isolation.sql",
+    bytes: 52723, digest: "790a4fb8a6aa4b196513cb93383bc5452c2e89278876f2884bc10896a7884472",
+    form: "wrapper", submittedBytes: 54295, sha256: "12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83" },
 };
 
 /**

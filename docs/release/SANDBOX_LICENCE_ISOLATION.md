@@ -1,7 +1,7 @@
 # DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001: a sandbox payment granted production access
 
 - **Severity:** high (access control).
-- **Status:** fixed in source by migration `20261031110000_sandbox_licence_isolation.sql` (batch **commercial-p3**). Pending hosted application.
+- **Status:** fixed in source by migration `20261031110000_sandbox_licence_isolation.sql` (batch **commercial-p3**). **Applied** on the hosted database as drizzle `0053` (hosted id 54, 2026-10-11), the registered wrapper byte for byte. The hosted preflight and postcondition outputs, and any P3-5 owner decisions, are not recorded in this repository.
 - **Superseded:** `20261031100000_sandbox_licence_isolation.sql`. Its wrapper was submitted once and failed atomically with `PT422 CANCELLED_LICENCE_IMMUTABLE`; see §0. **Never submit it.**
 - **Applied delta:** `COMMERCIAL_P3_LOVABLE_DELTA.md`.
 - **Reported instance:** licence `ba803893-8116-454f-bea2-0f2a7c7f2603`, created by a sandbox purchase on the hosted project.

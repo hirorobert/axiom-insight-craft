@@ -46,7 +46,8 @@ describe("migration authority parity", () => {
     // 43: 0045, the readiness correction (batch reporting-r2), the registered wrapper form (hosted 46).
     // 50: 0046–0052, the commercial launch (reporting-r5, commercial-c1, commercial-p1, commercial-p2), the registered wrapper
     // form (hosted 47–53).
-    expect(r.mirrored.length).toBe(50);
+    // 51: 0053, the sandbox isolation correction (commercial-p3, 20261031110000), the registered wrapper form (hosted 54).
+    expect(r.mirrored.length).toBe(51);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -63,7 +64,7 @@ describe("migration authority parity", () => {
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
     // 20261011100000–20261017100000 are applied as 0033–0039 (self-checking wrappers). Nothing is pending.
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
-    expect(r.pending).toEqual(["20261031110000_sandbox_licence_isolation.sql"]); // the commercial launch is applied (0046–0052, hosted 47–53); the sandbox isolation correction (commercial-p3) is authored and pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch is applied (0046–0052, hosted 47–53) and so is the sandbox isolation correction (commercial-p3, 0053, hosted 54)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
