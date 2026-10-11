@@ -850,6 +850,21 @@ from the code at main `ae162b5`:
 Lifting the restriction is the releasing change's own reviewed step. It
 removes the `WITHHELD_SERVICES` entry and closes the items above.
 
+**DEFECT-PAYMENT-REVERSAL-UNBOUND-001** — Severity: MEDIUM — Status: OPEN / PRE-EXISTING (found 2026-10-11, Snippe
+readiness pass). `record_payment_reversal` (live since `20260906083524`, service-role only) records a refund or chargeback
+against an original payment event without checking that the original is a PAYMENT_CONFIRMED event, that the currency
+matches, or that the amount does not exceed what was paid. No access impact (a reversal never changes a licence; an
+administrator decides); a malformed provider report could still be recorded as a wrong-currency or excessive refund. Not
+reachable from Snippe (it reports no reversals). Repair is a forward migration with its own hosted application — do not
+fold it into unrelated work. Record: `docs/release/SNIPPE_TZ_READINESS.md` §5.
+
+**SNIPPE_TZ_ROUTE_NOT_LAUNCHED** — Snippe (Tanzania mobile money, TZS) is implemented on the one commercial ledger and
+checked against Snippe's documentation, but stays disabled (`SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`,
+`LAUNCHED_MARKETS = ["GLOBAL"]`). Snippe documents no sandbox host, no test-mode marker on a payment and no refund
+API or event; Polar's merchant-of-record arrangements do not cover Snippe sales. Enabling needs the written
+confirmations in `docs/release/SNIPPE_TZ_READINESS.md` §4, owner-approved explicit TZS prices (never derived from USD)
+and a reviewed release. Proof: `scripts/db-proof/snippeLedger.mjs`.
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code

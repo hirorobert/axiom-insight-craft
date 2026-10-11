@@ -87,7 +87,7 @@ const APP = `http://127.0.0.1:${APP_PORT}`;
 const ORG = crypto.randomUUID();
 const PRODUCTS = { SOLO: crypto.randomUUID(), PRACTICE: crypto.randomUUID(), FIRM: crypto.randomUUID() };
 const polar = { accessToken: `polar_oat_e2e_${crypto.randomBytes(8).toString("hex")}`, webhookSecret: `whsec_${crypto.randomBytes(32).toString("base64")}` };
-const snippe = { apiKey: `snp_e2e_${crypto.randomBytes(8).toString("hex")}`, webhookSecret: crypto.randomBytes(24).toString("hex") };
+const snippe = { apiKey: `snp_e2e_${crypto.randomBytes(8).toString("hex")}`, webhookSecret: `whsec_${crypto.randomBytes(24).toString("hex")}` };
 const mock = await startMockProviders({ port: MOCK_PORT, polar, snippe, webhookBase: `${apiUrl}/functions/v1`, organizationId: ORG });
 const envFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-payments-env-")), "functions.env");
 fs.writeFileSync(envFile, [
@@ -491,6 +491,43 @@ async function main() {
     await page.waitForText("Test payment received", { timeout: 60000 });
     const lic = await licencesOf(U.mobile);
     return r.status === 200 && lic.length === 1 && lic[0].source === "SNIPPE_VERIFIED_PAYMENT" && lic[0].status === "SANDBOX" ? true : { r: r.response, lic };
+  });
+  // The Snippe webhook endpoint, attacked the same way as Polar's (signing key used as-is, hex HMAC over
+  // "<X-Webhook-Timestamp>.<raw body>"; deduplicated by event id; every delivery read back from the provider).
+  const snippePaid = mock.deliveries.find((d) => d.provider === "SNIPPE" && JSON.parse(d.body).type === "payment.completed");
+  const mmEvents = async () => {
+    const [i] = await intentsOf(U.mobile);
+    return ((await admin.from("payment_events").select("id").eq("checkout_intent_id", i.id)).data ?? []).length;
+  };
+  await check("Snippe: a replay of the same event id answers 200 DUPLICATE and changes nothing", async () => {
+    const before = { lic: (await licencesOf(U.mobile)).length, ev: await mmEvents() };
+    const r = await mock.deliver("SNIPPE", JSON.parse(snippePaid.body));
+    return r.status === 200 && r.response?.outcome === "DUPLICATE" && (await licencesOf(U.mobile)).length === before.lic && await mmEvents() === before.ev ? true : r.response;
+  });
+  await check("Snippe: a delivery signed with another key is refused (401 INVALID_SIGNATURE) and recorded; nothing changes", async () => {
+    const before = await mmEvents();
+    const r = await mock.deliver("SNIPPE", JSON.parse(snippePaid.body), { tamper: true });
+    const pe = (await admin.from("payment_webhook_processing_events").select("signature_valid").eq("provider", "SNIPPE").eq("processing_result", "INVALID_SIGNATURE")).data ?? [];
+    return r.status === 401 && pe.length >= 1 && pe.every((x) => x.signature_valid === false) && await mmEvents() === before ? true : { r: r.response, pe };
+  });
+  await check("Snippe: a correctly signed capture replayed 10 minutes later is never believed (DUPLICATE or throttled reconciliation); nothing changes", async () => {
+    const before = { lic: (await licencesOf(U.mobile)).length, ev: await mmEvents() };
+    const body = JSON.parse(snippePaid.body); body.id = `evt_${crypto.randomUUID().slice(0, 12)}`;
+    const r = await mock.deliver("SNIPPE", body, { timestamp: Math.floor(Date.now() / 1000) - 600 });
+    const stale = (await admin.from("payment_webhook_processing_events").select("id").eq("provider", "SNIPPE").eq("processing_result", "STALE_TIMESTAMP")).data ?? [];
+    return [200, 202].includes(r.status) && ["DUPLICATE", "RECONCILIATION_THROTTLED"].includes(r.response?.outcome) && stale.length >= 1
+      && (await licencesOf(U.mobile)).length === before.lic && await mmEvents() === before.ev ? true : { r: r.response, before };
+  });
+  await check("Snippe: a signed delivery naming a payment this system never created is REFERENCE_MISMATCH (200, nothing written)", async () => {
+    const body = JSON.parse(snippePaid.body); body.id = `evt_${crypto.randomUUID().slice(0, 12)}`; body.data.reference = `pi_${crypto.randomBytes(6).toString("hex")}`;
+    const r = await mock.deliver("SNIPPE", body);
+    return r.status === 200 && r.response?.outcome === "REFERENCE_MISMATCH" ? true : r.response;
+  });
+  await check("Snippe: 5 concurrent deliveries (distinct event ids) of the completed payment leave exactly one licence and one payment event", async () => {
+    const rs = await Promise.all(Array.from({ length: 5 }, () => { const b = JSON.parse(snippePaid.body); b.id = `evt_${crypto.randomUUID().slice(0, 12)}`; return mock.deliver("SNIPPE", b); }));
+    const [i] = await intentsOf(U.mobile);
+    const confirmed = (await admin.from("payment_events").select("id").eq("checkout_intent_id", i.id).eq("event_type", "PAYMENT_CONFIRMED")).data ?? [];
+    return rs.every((r) => r.status === 200) && (await licencesOf(U.mobile)).length === 1 && confirmed.length === 1 ? true : { st: rs.map((r) => r.response?.outcome), confirmed: confirmed.length };
   });
 
   startGroup("An unpaid checkout that expires");
