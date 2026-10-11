@@ -28,7 +28,8 @@
 --   5. admin_grant_commercial_licence (same 5 arguments): records MANUAL_GRANT; unchanged otherwise;
 --   6. admin_place_paid_licence (same 3 arguments): a sandbox payment is recorded as SANDBOX, a production one as
 --      PRODUCTION_PAYMENT, an intent without a proven environment is refused (PROVENANCE_UNKNOWN);
---   7. get_checkout_status (same argument): also returns provider_environment and grants_access;
+--   7. get_checkout_status (same argument) and get_my_payments(): also return provider_environment and grants_access, so a
+--      test order is never shown as an active plan;
 --   8. review and containment procedures for commercial administrators, each audited:
 --      admin_list_licence_provenance_review(), admin_resolve_licence_provenance(licence, provenance, reason),
 --      admin_restore_term_ended_by_sandbox(licence, reason).
@@ -606,6 +607,37 @@ REVOKE ALL ON FUNCTION public.get_checkout_status(TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_checkout_status(TEXT) TO authenticated;
 
 -- The signed-in customer's own orders, newest first.
+
+CREATE OR REPLACE FUNCTION public.get_my_payments()
+RETURNS JSONB LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_catalog AS $$
+  SELECT COALESCE(jsonb_agg(row ORDER BY created_at DESC), '[]'::jsonb) FROM (
+    SELECT ci.created_at,
+           jsonb_build_object(
+             'saff_reference', ci.saff_reference, 'status', ci.status, 'provider', ci.provider,
+             'plan_code', cp.code, 'plan_name', cp.name,
+             'amount_minor', ci.expected_amount_minor, 'currency_code', ci.currency_code, 'currency_exponent', ci.currency_exponent,
+             'billing_interval', ci.billing_interval, 'created_at', ci.created_at, 'completed_at', ci.completed_at,
+             'payment_reference', pe.provider_transaction_id, 'paid_at', pe.verified_at,
+             'licence_start', cl.effective_start, 'licence_end', cl.effective_end,
+             'reversal_type', rv.event_type,
+             'provider_environment', ci.provider_environment,
+             'grants_access', CASE WHEN cl.id IS NULL THEN NULL ELSE cl.status IN ('ACTIVE','GRACE') END) AS row
+      FROM public.payment_checkout_intents ci
+      JOIN public.billing_customers bc ON bc.id = ci.billing_customer_id AND bc.owner_user_id = auth.uid()
+      JOIN public.commercial_plans cp ON cp.id = ci.plan_id
+      LEFT JOIN LATERAL (SELECT e.id, e.provider_transaction_id, e.verified_at, e.licence_id FROM public.payment_events e
+                          WHERE e.checkout_intent_id = ci.id AND e.event_type = 'PAYMENT_CONFIRMED' ORDER BY e.event_time DESC LIMIT 1) pe ON true
+      LEFT JOIN public.commercial_licences cl ON cl.id = COALESCE(pe.licence_id, NULLIF(ci.metadata->>'placed_licence_id', '')::uuid)
+      LEFT JOIN LATERAL (SELECT r.event_type FROM public.payment_events r
+                          WHERE r.event_type IN ('REFUND','CHARGEBACK') AND r.metadata->>'original_event_id' = pe.id::text
+                          ORDER BY r.event_time DESC LIMIT 1) rv ON true
+     ORDER BY ci.created_at DESC
+     LIMIT 25
+  ) s;
+$$;
+REVOKE ALL ON FUNCTION public.get_my_payments() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_payments() TO authenticated;
 
 -- ── 8. Review and containment procedures (commercial administrators; every action audited) ──────────────────────────
 CREATE OR REPLACE FUNCTION public.admin_list_licence_provenance_review()

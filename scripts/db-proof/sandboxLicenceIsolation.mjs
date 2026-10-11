@@ -318,9 +318,12 @@ async function main() {
     return c.status === "COMMITTED" && c.grants_access === false && c.placement === "SANDBOX_RECORD" && p.status === "SANDBOX" && p.provenance === "SANDBOX_PAYMENT"
       && NO_ACCESS(a) && created !== "created" ? true : { c, a, created, p };
   });
-  await check("the order status says so: provider_environment sandbox, grants_access false", async () => {
+  await check("the order status and the orders list say so: provider_environment sandbox, grants_access false", async () => {
     const s = await as(fresh, "SELECT public.get_checkout_status($1) r", [freshI.ref]);
-    return s.provider_environment === "sandbox" && s.grants_access === false && s.purchased_licence_status === "SANDBOX" ? true : s;
+    const list = await as(fresh, "SELECT public.get_my_payments() r");
+    const row = list.find((o) => o.saff_reference === freshI.ref);
+    return s.provider_environment === "sandbox" && s.grants_access === false && s.purchased_licence_status === "SANDBOX"
+      && row?.provider_environment === "sandbox" && row?.grants_access === false ? true : { s, row };
   });
   const holder = await account("production-holder");
   await check("a sandbox upgrade, renewal or downgrade never changes a genuine term", async () => {
