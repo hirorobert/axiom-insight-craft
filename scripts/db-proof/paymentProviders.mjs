@@ -188,7 +188,9 @@ async function main() {
     "INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end) VALUES ($1,$2,'ACTIVE',$3,$4,$5) RETURNING id",
     [acct.bc, PLAN[plan], source, start, end]).then((r) => r.rows[0].id);
   // A PENDING intent whose provider checkout was durably persisted, built through the real acquisition RPCs.
-  const acquire = async (acct, plan, provider = "POLAR", env = "sandbox") => {
+// Placement is exercised with PRODUCTION payments: since 20261031100000 a sandbox payment is recorded as a SANDBOX
+  // licence that grants nothing and never runs placement (DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; sandboxLicenceIsolation.mjs).
+  const acquire = async (acct, plan, provider = "POLAR", env = "production") => {
     const o = OFFER[plan];
     const ref = `SAFF-${uuid().slice(0, 12)}`;
     const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
@@ -201,7 +203,7 @@ async function main() {
   };
   const commit = (intent, over = {}) => one(SERVICE, `SELECT public.commit_verified_commercial_payment($1,$2,$3,$4,$5,$6,$7,$8,now(),'PROVIDER_API_VERIFY',$9,$10,$11) r`, [
     intent.id, over.provider ?? "POLAR", over.tx ?? `tx-${intent.ref}`, over.providerStatus ?? "paid", over.status ?? "SUCCEEDED",
-    over.amount ?? intent.amount, over.currency ?? "USD", "h".repeat(64), over.key ?? `key-${intent.ref}`, intent.ref, over.env ?? "sandbox"]).then((x) => x.r);
+    over.amount ?? intent.amount, over.currency ?? "USD", "h".repeat(64), over.key ?? `key-${intent.ref}`, intent.ref, over.env ?? "production"]).then((x) => x.r);
   const intentStatus = async (id) => (await admin.query("SELECT status, metadata FROM public.payment_checkout_intents WHERE id=$1", [id])).rows[0];
   const licences = async (acct) => (await admin.query(
     "SELECT l.id, cp.code, l.status, l.source, l.effective_start, l.effective_end FROM public.commercial_licences l JOIN public.commercial_plans cp ON cp.id=l.plan_id WHERE l.billing_customer_id=$1 ORDER BY l.effective_start", [acct.bc])).rows;
@@ -230,6 +232,7 @@ async function main() {
     const ok = await acquire(a, "SOLO", "POLAR", "sandbox");
     return /PLATFORM_STATE_MATRIX_VIOLATION/.test(e?.message ?? "") && !!ok.id ? true : e?.message;
   });
+  await setState("CUSTOMER_PAYMENTS_ENABLED");
 
   group("Commit · one verified payment, one licence");
   await check("a verified success yields exactly one ACTIVE licence of exactly 12 months, source POLAR_VERIFIED_PAYMENT", async () => {
@@ -267,7 +270,7 @@ async function main() {
   });
 
   group("Mismatch · nothing is written");
-  for (const [label, over] of [["amount", { amount: 1 }], ["currency", { currency: "TZS" }], ["provider", { provider: "SNIPPE" }], ["environment", { env: "production" }]]) {
+  for (const [label, over] of [["amount", { amount: 1 }], ["currency", { currency: "TZS" }], ["provider", { provider: "SNIPPE" }], ["environment", { env: "sandbox" }]]) {
     await check(`a ${label} mismatch raises and leaves licences, events and the intent unchanged`, async () => {
       const a = await account(`mismatch-${label}`);
       const i = await acquire(a, "SOLO");
@@ -362,7 +365,7 @@ async function main() {
     const i = await acquire(a, "FIRM");
     const r = await commit(i);
     const o = OFFER.SOLO;
-    const again = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','sandbox',$11,$12) r`,
+    const again = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,'POLAR','production',$11,$12) r`,
       [a.bc, product, o.plan_id, o.id, o.market_code, o.currency_code, o.currency_exponent, o.amount_minor, o.billing_interval, o.billing_interval_count, a.uid, `SAFF-${uuid().slice(0, 10)}`]);
     return r.status === "PLACEMENT_REVIEW_REQUIRED" && again.r.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" ? true : { r, again: again.r };
   });

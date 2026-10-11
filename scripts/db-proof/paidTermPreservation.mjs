@@ -183,7 +183,9 @@ async function main() {
     "INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end) VALUES ($1,$2,'ACTIVE',$3,$4,$5) RETURNING id",
     [acct.bc, PLAN[plan], source, start, end]).then((r) => r.rows[0].id);
   // A PENDING intent whose provider checkout was durably persisted, built through the real acquisition RPCs.
-  const acquire = async (acct, plan, provider = "POLAR", env = "sandbox") => {
+// Placement is exercised with PRODUCTION payments: since 20261031100000 a sandbox payment is recorded as a SANDBOX
+  // licence that grants nothing and never runs placement (DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; sandboxLicenceIsolation.mjs).
+  const acquire = async (acct, plan, provider = "POLAR", env = "production") => {
     const o = OFFER[plan];
     const ref = `SAFF-${uuid().slice(0, 12)}`;
     const a = await one(SERVICE, `SELECT public.acquire_checkout_attempt($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10::smallint,$11,$12,$13,$14) r`,
@@ -196,7 +198,7 @@ async function main() {
   };
   const commit = (intent, over = {}) => one(SERVICE, `SELECT public.commit_verified_commercial_payment($1,$2,$3,$4,$5,$6,$7,$8,now(),'PROVIDER_API_VERIFY',$9,$10,$11) r`, [
     intent.id, over.provider ?? "POLAR", over.tx ?? `tx-${intent.ref}`, over.providerStatus ?? "paid", over.status ?? "SUCCEEDED",
-    over.amount ?? intent.amount, over.currency ?? "USD", "h".repeat(64), over.key ?? `key-${intent.ref}`, intent.ref, over.env ?? "sandbox"]).then((x) => x.r);
+    over.amount ?? intent.amount, over.currency ?? "USD", "h".repeat(64), over.key ?? `key-${intent.ref}`, intent.ref, over.env ?? "production"]).then((x) => x.r);
   const intentStatus = async (id) => (await admin.query("SELECT status, metadata FROM public.payment_checkout_intents WHERE id=$1", [id])).rows[0];
   const licences = async (acct) => (await admin.query(
     "SELECT l.id, cp.code, l.status, l.source, l.effective_start, l.effective_end, l.additional_seats FROM public.commercial_licences l JOIN public.commercial_plans cp ON cp.id=l.plan_id WHERE l.billing_customer_id=$1 ORDER BY l.effective_start", [acct.bc])).rows;
@@ -211,7 +213,7 @@ async function main() {
   const byLic = await licence(bystander, "PRACTICE", new Date(Date.now() - 10 * DAY), new Date(Date.now() + 355 * DAY));
   await withSeats(byLic, 3);
   const bystanderBefore = await snap(bystander);
-  await setState("SANDBOX_ONLY");
+  await setState("CUSTOMER_PAYMENTS_ENABLED");
 
   group("Seats · an upgrade never ends paid additional named users automatically");
   await check("Practice with 2 additional users → buying Firm: payment recorded once, no licence granted, intent in review; term, seats, end and overrides untouched", async () => {
