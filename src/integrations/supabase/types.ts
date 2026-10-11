@@ -2020,6 +2020,8 @@ export type Database = {
           effective_start: string
           id: string
           plan_id: string
+          provenance: string
+          provenance_evidence: Json
           source: string
           status: string
           updated_at: string
@@ -2033,6 +2035,8 @@ export type Database = {
           effective_start: string
           id?: string
           plan_id: string
+          provenance?: string
+          provenance_evidence?: Json
           source: string
           status: string
           updated_at?: string
@@ -2046,6 +2050,8 @@ export type Database = {
           effective_start?: string
           id?: string
           plan_id?: string
+          provenance?: string
+          provenance_evidence?: Json
           source?: string
           status?: string
           updated_at?: string
@@ -9588,6 +9594,7 @@ export type Database = {
         Args: { p_plan_code?: string }
         Returns: Json
       }
+      admin_list_licence_provenance_review: { Args: never; Returns: Json }
       admin_list_payment_attention: { Args: never; Returns: Json }
       admin_place_paid_licence: {
         Args: {
@@ -9626,12 +9633,20 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_resolve_licence_provenance: {
+        Args: { p_licence_id: string; p_provenance: string; p_reason: string }
+        Returns: Json
+      }
       admin_resolve_manual_review_intent: {
         Args: {
           p_checkout_intent_id: string
           p_reason: string
           p_resolution: string
         }
+        Returns: Json
+      }
+      admin_restore_term_ended_by_sandbox: {
+        Args: { p_licence_id: string; p_reason: string }
         Returns: Json
       }
       admin_revoke_entitlement_override: {
