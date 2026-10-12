@@ -1,7 +1,7 @@
 # DEFECT-PAYMENT-REVERSAL-UNBOUND-001: payment reversals were unbounded
 
 - **Severity:** medium. It affected the integrity of financial records, not access: a reversal never changed a licence.
-- **Status:** fixed in source by `20261101100000_payment_reversal_authority.sql` (batch **commercial-p4**). **Pending hosted application:** see `COMMERCIAL_P4_LOVABLE_DELTA.md`.
+- **Status:** fixed in source by `20261101100000_payment_reversal_authority.sql` (batch **commercial-p4**). **Applied** on the hosted database as drizzle `0054` (hosted id 55, 2026-10-12), the registered wrapper byte for byte. The hosted gate, preflight and postcondition outputs are not recorded in this repository.
 - **Proof:** `scripts/db-proof/paymentReversalAuthority.mjs`, on local real PostgreSQL. Its results are in §6.
 
 ## 1. Reproduction (real PostgreSQL, before the change)

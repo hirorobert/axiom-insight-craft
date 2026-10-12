@@ -296,6 +296,12 @@ export const RELEASE_JOURNAL = {
   "0053_sandbox_licence_isolation_wrapper": { kind: "release_self_checking_wrapper", source: "20261031110000_sandbox_licence_isolation.sql",
     bytes: 52723, digest: "790a4fb8a6aa4b196513cb93383bc5452c2e89278876f2884bc10896a7884472",
     form: "wrapper", submittedBytes: 54295, sha256: "12a7e92421978e3c4bf2aaa939021558762c1ec47cf69baf703c0ee660adae83" },
+  // Payment reversal authority (batch commercial-p4; main 6378bfe, PRs #114 and #115), applied 2026-10-12 by Lovable's hosted
+  // migrator through its SELF-CHECKING WRAPPER, byte for byte (recomputed here). Nothing is pending.
+  // hosted id 55; journal "when" 1791785944509 = 2026-10-12T06:19:04.509Z.
+  "0054_payment_reversal_authority_wrapper": { kind: "release_self_checking_wrapper", source: "20261101100000_payment_reversal_authority.sql",
+    bytes: 23281, digest: "b2477026bc1fa7c6767e609591328d61ffaca1f19bfdea0d4021a446536638ee",
+    form: "wrapper", submittedBytes: 24855, sha256: "a8fe9755aaa8f655445ad1c0eb5810e6512920fa2f95daa176691e26fc8c38eb" },
 };
 
 /**
