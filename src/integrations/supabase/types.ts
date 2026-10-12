@@ -9201,6 +9201,15 @@ export type Database = {
         }
         Returns: Json
       }
+      _apply_reversal_licence_decision: {
+        Args: {
+          p_actor: string
+          p_decision: string
+          p_reason: string
+          p_reversal_event_id: string
+        }
+        Returns: Json
+      }
       _authorize_paid_action: {
         Args: { p_capability: string; p_company_id: string; p_user: string }
         Returns: Json
@@ -9442,6 +9451,22 @@ export type Database = {
       _plan_lock_key: { Args: { p_account: string }; Returns: number }
       _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
       _processing_control_state: { Args: never; Returns: Json }
+      _record_payment_reversal_core: {
+        Args: {
+          p_actor: string
+          p_amount_minor: number
+          p_currency_code: string
+          p_evidence: Json
+          p_idempotency_key: string
+          p_original_event_id: string
+          p_payload_hash: string
+          p_provider: string
+          p_provider_event_id: string
+          p_reversal_type: string
+          p_source: string
+        }
+        Returns: Json
+      }
       _reporting_pack_object_matches: {
         Args: { p_byte_size: number; p_storage_path: string }
         Returns: boolean
@@ -9596,6 +9621,7 @@ export type Database = {
       }
       admin_list_licence_provenance_review: { Args: never; Returns: Json }
       admin_list_payment_attention: { Args: never; Returns: Json }
+      admin_list_reversal_discrepancies: { Args: never; Returns: Json }
       admin_place_paid_licence: {
         Args: {
           p_checkout_intent_id: string
@@ -9622,6 +9648,21 @@ export type Database = {
           p_notification_reference: string
           p_purpose: string
           p_valid_hours?: number
+        }
+        Returns: Json
+      }
+      admin_record_provider_refund: {
+        Args: {
+          p_amount_minor: number
+          p_currency_code: string
+          p_evidence_kind: string
+          p_evidence_note: string
+          p_evidence_sha256: string
+          p_idempotency_key: string
+          p_licence_decision: string
+          p_original_event_id: string
+          p_provider_refund_reference: string
+          p_reason: string
         }
         Returns: Json
       }
