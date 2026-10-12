@@ -379,6 +379,13 @@
       "when": 1791725527221,
       "tag": "0053_sandbox_licence_isolation_wrapper",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791785944509,
+      "tag": "0054_payment_reversal_authority_wrapper",
+      "breakpoints": true
     }
   ]
 }
