@@ -47,7 +47,8 @@ describe("migration authority parity", () => {
     // 50: 0046–0052, the commercial launch (reporting-r5, commercial-c1, commercial-p1, commercial-p2), the registered wrapper
     // form (hosted 47–53).
     // 51: 0053, the sandbox isolation correction (commercial-p3, 20261031110000), the registered wrapper form (hosted 54).
-    expect(r.mirrored.length).toBe(51);
+    // 52: 0054, payment reversal authority (commercial-p4, 20261101100000), the registered wrapper form (hosted 55).
+    expect(r.mirrored.length).toBe(52);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -64,7 +65,7 @@ describe("migration authority parity", () => {
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
     // 20261011100000–20261017100000 are applied as 0033–0039 (self-checking wrappers). Nothing is pending.
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
-    expect(r.pending).toEqual(["20261101100000_payment_reversal_authority.sql"]); // the commercial launch and commercial-p3 are applied (0046–0053, hosted 47–54); payment reversal authority (commercial-p4) is pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch, commercial-p3 and commercial-p4 are applied (0046–0054, hosted 47–55)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {
