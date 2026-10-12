@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getMyPayments, type MyPayment } from "@/lib/commercial/checkoutClient";
 import { formatLicenceDate } from "@/lib/commercial/billingDisplay";
 import { formatMoney } from "@/lib/commercial/planOffers";
+import { BillingHelpLine } from "@/components/contact/ContactChannels";
 
 const STATE: Record<string, string> = {
   SUCCEEDED: "Paid", PENDING: "Awaiting payment", CREATING: "Being prepared", PROVIDER_CREATING: "Being prepared",
@@ -48,6 +49,7 @@ export default function Orders() {
             ))}
           </ul>
         )}
+        {user && <BillingHelpLine className="mt-8" subject="Question about an order" />}
     </AccountOrPublicFrame>
   );
 }

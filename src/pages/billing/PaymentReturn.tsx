@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
 import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { Button } from "@/components/ui/button";
 import { displayPlanName, formatLicenceDate } from "@/lib/commercial/billingDisplay";
 import { formatMoney } from "@/lib/commercial/planOffers";
@@ -247,6 +248,7 @@ export default function PaymentReturn() {
             </div>
             {notice && <p className="text-center text-xs text-muted-foreground" role="status">{notice}</p>}
             {phase === "POLLING" && <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground"><Clock className="h-3 w-3" aria-hidden="true" />Checked {pollCount} {pollCount === 1 ? "time" : "times"}</p>}
+            <BillingHelpLine className="justify-center" subject={saffRef ? `Payment ${saffRef}` : "Payment question"} />
           </>
         )}
       </main>

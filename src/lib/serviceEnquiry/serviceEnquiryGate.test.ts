@@ -37,6 +37,10 @@
 // Product · Plans · Questions · Expert help and the footer links Product · Plans · Expert help (anchors #product and
 // #specialist-services); main-Header-inner.html re-rendered byte-identical. Those are the only differences.
 
+// RE-CAPTURED again (2026-10-12, published email addresses) through the same withGate(false) path: main-Footer.html gains
+// a "Contact" column listing support@, billing@ and contact@cfoclose.com as mailto links (src/lib/contact/contactChannels.ts),
+// which are not part of the enquiry experience and so appear whatever the gate says; the column spans change to fit it.
+// Nothing else changed: the gated /contact link is still absent while the gate is OFF.
 import fs from "node:fs";
 import path from "node:path";
 import { createElement, type ComponentType, type ReactElement } from "react";
@@ -196,7 +200,10 @@ describe("4/9. OFF: every public entry point is absent and existing behaviour is
     const { Footer } = await withGate(false, () => import("@/components/Footer"));
     const html = renderComponent(Footer);
     expect(normalizeYear(html)).toBe(normalizeYear(fixture("main-Footer.html")));
-    expect(html).not.toMatch(/Contact|\/contact/);
+    // No entry to the gated enquiry experience: no link to /contact and no link labelled Contact. (The published mailboxes —
+    // mailto links such as contact@cfoclose.com under a "Contact" heading — are not that experience and are shown either way.)
+    expect(html).not.toMatch(/href="[^"]*\/contact|>Contact<\/a>/);
+    expect(html).toMatch(/href="mailto:support@cfoclose\.com"/);
   });
 
   it("every entry point in the registry is disabled by the OFF surfaces, and no source path reaches contactHref except behind a surface flag", () => {

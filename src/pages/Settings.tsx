@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, User, Building2, Save, Loader2, CreditCard, ShieldCheck, Users } from "lucide-react";
+import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
 import { AuditTrail } from "@/components/AuditTrail";
@@ -249,6 +250,7 @@ export default function Settings() {
             {activeSection === "billing" && (
               <div>
                 <SectionDivider title="Plan & Billing" />
+                <BillingHelpLine className="mb-4" subject="Plan and billing" />
                 <CurrentPlanPanel billing={billing} capacity={capacity} loading={billingLoading || capacityLoading} error={!!billingError} onRetry={() => { retryBilling(); retryCapacity(); }} archiveOnly={!!billing && (billing.licenceStatus === "EXPIRED" || billing.licenceStatus === "CANCELLED" || !billing.licenceStatus) && (capacity?.used ?? 0) > 0} />
 
 

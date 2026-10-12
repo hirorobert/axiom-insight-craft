@@ -7,6 +7,7 @@
  * Navigation only: it decides nothing about plans, entitlements or companies. Every action reached from it is
  * re-checked by the server (RLS, create_entity, acquire_checkout_attempt).
  */
+import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { LogOut } from "lucide-react";
@@ -56,6 +57,7 @@ export function AccountShell({ children, onSignOut, mainClassName = "mx-auto w-f
       <footer className="border-t border-border px-4 py-5 text-[12px] text-muted-foreground sm:px-6">
         <nav aria-label="Help and legal" className="flex flex-wrap gap-x-4 gap-y-1">
           <Link to="/contact" className="hover:text-foreground">Contact</Link>
+          <a href={mailtoHref("support")} className="hover:text-foreground" data-testid="account-support-email" aria-label={`Support: email ${channel("support").address}`}>{channel("support").address}</a>
           <Link to="/privacy" className="hover:text-foreground">Privacy Policy</Link>
           <Link to="/terms" className="hover:text-foreground">Terms of Service</Link>
         </nav>

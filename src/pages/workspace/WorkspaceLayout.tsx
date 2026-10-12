@@ -46,6 +46,7 @@ import {
   RefreshCw,
   LogOut,
   LifeBuoy,
+  Mail,
   ChevronDown,
 } from "lucide-react";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
@@ -60,6 +61,7 @@ import { parseReportVersion } from "@/lib/workbench/context";
 import { NextOpenItem, WorkbenchNav } from "@/components/workbench/WorkbenchNav";
 import { ContextAnnouncer } from "@/components/workbench/ContextAnnouncer";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
+import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
 
@@ -184,6 +186,16 @@ function UserMenu({ email }: { email: string }) {
               Help &amp; support
             </Link>
           )}
+          <a
+            href={mailtoHref("support")}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-secondary transition-colors"
+            onClick={() => setOpen(false)}
+            data-testid="workspace-support-email"
+            aria-label={`Email support at ${channel("support").address}`}
+          >
+            <Mail className="w-4 h-4" />
+            Email support
+          </a>
           <button
             onClick={handleSignOut}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/5 transition-colors"
