@@ -56,6 +56,7 @@ Mock and local proofs show what this code and database do. They cannot show what
 ## 3. Prices
 
 - **No TZS price exists in the repository or the hosted migrations.** The TZ market resolves to nothing, and the public price list has no TZS.
+- **The hosted database carries two legacy TZS rows** under the retired plan `PAID`: `SANDBOX-TEST-PAID-TZ` and `SANDBOX-TEST-PAID-GLOBAL`, both active and **not** purchasable. They are historical records, not prices. Release gates list them unchanged and refuse only a **purchasable** TZS/TZ offer (`docs/release/commercial-p4/purchasing_gate.sql`).
 - **A TZS price exists only when a commercial administrator records an explicit amount and approves it,** with a reason, through `admin_upsert_commercial_offer`.
 - **Nothing converts USD to TZS.** There is no exchange-rate logic, and a test guards against it.
 - **An approved TZS price is still not offered:** the server never configures Snippe on the hosted project, and the frontend shows only `GLOBAL`.

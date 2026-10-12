@@ -547,6 +547,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/snippeLedger.mjs",
       // Payment reversal authority: the loopback-only reversal proof.
       "scripts/db-proof/paymentReversalAuthority.mjs",
+      // commercial-p4 on the exact hosted baseline (legacy non-purchasable TZS offers): the loopback-only release-gate proof.
+      "scripts/db-proof/p4HostedBaseline.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).

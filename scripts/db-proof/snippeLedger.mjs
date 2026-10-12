@@ -176,7 +176,9 @@ async function main() {
 
   // ════ Offers ════════════════════════════════════════════════════════════════════════════════════════════════════
   group("Offers · no TZS price unless an administrator records and approves one");
-  await check("the current chain holds no TZS offer: the TZ market resolves to nothing for every plan, and the public price list has no TZS", async () => {
+  // The replayed migration chain creates no TZS offer. (The hosted database also carries two legacy, NON-purchasable TZS
+  // rows under plan PAID; release gates report historical rows and refuse only purchasable ones — p4HostedBaseline.mjs.)
+  await check("the migration chain itself creates no TZS offer: the TZ market resolves to nothing for every plan, and the public price list has no TZS", async () => {
     const n = (await admin.query("SELECT count(*)::int n FROM public.commercial_offers WHERE currency_code='TZS' OR market_code='TZ'")).rows[0].n;
     const r = await Promise.all(["SOLO", "PRACTICE", "FIRM"].map(resolveTz));
     await setState("CUSTOMER_PAYMENTS_ENABLED");

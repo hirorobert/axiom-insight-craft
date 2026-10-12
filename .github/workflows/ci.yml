@@ -712,6 +712,14 @@ jobs:
           createdb payment_reversal_proof
           bun scripts/db-proof/paymentReversalAuthority.mjs
 
+      - name: commercial-p4 hosted baseline proof (journal 54, payments disabled and the two legacy non-purchasable TZS offers under plan PAID; the purchasing gate, preflight, exact wrapper and postcondition; historical rows listed and byte-identical; any purchasable TZS or TZ offer refused even while payments are disabled)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/p4_baseline_proof
+        run: |
+          createdb p4_baseline_proof
+          bun scripts/db-proof/p4HostedBaseline.mjs
+
       - name: Sandbox licence isolation proof (20261031110000 superseding 20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the hosted scenario through the exact wrappers with a 53-row journal, the superseded wrapper failing atomically with CANCELLED_LICENCE_IMMUTABLE and an injected failure rolled back; cancelled sandbox licences stay cancelled; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
         env:
           DB_PROOF_MODE: external
