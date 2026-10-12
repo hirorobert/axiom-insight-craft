@@ -23,12 +23,25 @@ Snippe customer checkout stays **disabled**. Nothing here enables a payment rout
 
 ```sql
 SELECT (SELECT count(*) FROM drizzle.__drizzle_migrations) AS journal_rows,
-       to_regprocedure('public._record_payment_reversal_core(uuid,text,text,text,bigint,text,text,text,text,uuid,jsonb)') IS NOT NULL AS p4_applied,
-       (SELECT state FROM public.commercial_platform_state WHERE id = true) AS platform_state,
-       (SELECT count(*) FROM public.commercial_offers WHERE currency_code = 'TZS' OR market_code = 'TZ') AS tzs_offers;
+       to_regprocedure('public._record_payment_reversal_core(uuid,text,text,text,bigint,text,text,text,text,uuid,jsonb)') IS NOT NULL AS p4_applied;
 ```
 
-Expect `journal_rows = 54`, `p4_applied = false` and `tzs_offers = 0`. Record `platform_state`: it must be unchanged at the end. Otherwise stop and report.
+Expect `journal_rows = 54` and `p4_applied = false`.
+
+Then run `release/commercial-p4/purchasing_gate.sql` and paste the whole output. It must report `PURCHASING GATE OK`, which proves three independent things:
+1. `commercial_platform_state` is `PAYMENTS_DISABLED`;
+2. **no** TZS or TZ offer is purchasable, checked regardless of the platform state;
+3. the public price list carries no TZS or TZ price.
+
+**Historical offers are not purchasing authority.** The gate **lists** every TZS or TZ row and changes none. The two known legacy rows are expected, and are left exactly as they are:
+- `95dc943c-9d5e-433f-906c-5528bd0302cd` `SANDBOX-TEST-PAID-TZ`;
+- `68d35bb6-1663-4045-910e-97c983cee690` `SANDBOX-TEST-PAID-GLOBAL`.
+
+Both are under the legacy plan `PAID`, active and **not** purchasable. Keep each row's `row_md5` from this output for P4-7.
+
+Also, signed in, `GET commercial-create-checkout?planCode=SOLO` must show `MOBILE_MONEY` as unavailable.
+
+If any check fails, stop and report. Never delete, deactivate or edit an offer to make the gate pass.
 
 ## P4-2. Preflight (read-only)
 
@@ -67,8 +80,9 @@ Publish the release commit. The admin "Refunds and disputes" buttons now read "E
 
 ## P4-7. Confirm (read-only)
 
-- Re-run P4-1: `journal_rows = 55`, `p4_applied = true`, `tzs_offers = 0`, and `platform_state` unchanged.
-- Signed in, `GET commercial-create-checkout?planCode=SOLO` must still show `MOBILE_MONEY` as unavailable, with the card option unchanged.
+- Re-run the P4-1 query: expect `journal_rows = 55` and `p4_applied = true`.
+- Re-run `release/commercial-p4/purchasing_gate.sql`: it must report `PURCHASING GATE OK` again, and every listed row's `row_md5` must equal P4-1's.
+- Signed in, `GET commercial-create-checkout?planCode=SOLO` must still show `MOBILE_MONEY` as unavailable, with the card option unchanged. This is the deployed code's `SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`, checked independently of the database.
 
 ## After
 
