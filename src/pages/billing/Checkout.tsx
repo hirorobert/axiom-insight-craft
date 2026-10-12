@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { planByCode, type PlanCode } from "@/lib/commercial/pricingCatalogue";
 import { activationHref } from "@/lib/commercial/offerings";
 import { formatMoney, parseCheckoutPlan } from "@/lib/commercial/planOffers";
+import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { getCheckoutOptions, rememberCheckoutPlan, startCheckout, type CheckoutOptions, type PaymentRoute, type RouteOption } from "@/lib/commercial/checkoutClient";
 
 const TZ_MOBILE = /^(?:\+?255|0)[67]\d{8}$/;
@@ -207,6 +208,7 @@ export default function Checkout() {
             {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to Polar"}
           </Button>
           <p className="mt-3 text-xs text-muted-foreground">Your plan starts only once the payment is verified with the provider. Specialist services are not part of any plan.</p>
+          <BillingHelpLine className="mt-6 border-t border-border pt-4" subject="Checkout question" />
         </>
       )}
     </Shell>

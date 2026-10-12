@@ -17,6 +17,7 @@ import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGat
 import { contactIntentFromSearch, MANUAL_ACTIVATION_NOTE, SPECIALIST_LABEL, REQUEST_ACTIVATION_LABEL } from "@/lib/commercial/offerings";
 import { PRICING_CATALOGUE } from "@/lib/commercial/pricingCatalogue";
 import NotFound from "@/pages/NotFound";
+import { BillingHelpLine, ContactChannelOptions } from "@/components/contact/ContactChannels";
 
 const GENERAL_CHOICES = [
   { code: "general", label: "A general question" },
@@ -63,6 +64,9 @@ function ContactPage() {
       <main id="main" className="mx-auto w-full max-w-2xl flex-1 px-4 pb-20 pt-28 sm:px-6 sm:pt-32">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">{heading}</h1>
         <p className="mb-8 mt-3 text-sm leading-relaxed text-muted-foreground" data-testid="contact-intro">{intro}</p>
+        {intent.kind === "general" && <ContactChannelOptions className="mb-10" />}
+        {intent.kind === "activation" && <BillingHelpLine className="mb-8" subject="Plan activation" />}
+        {intent.kind === "general" && <h2 className="mb-4 text-[11px] font-mono uppercase tracking-[0.16em] text-muted-foreground">Or send us a message</h2>}
         {form}
       </main>
       <Footer />

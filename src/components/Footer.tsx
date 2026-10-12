@@ -4,6 +4,7 @@ import { FOOTER, BRAND } from "@/constants/copy";
 import { COMMERCIAL_NOTICE, LANDING_FOOTER_NOTE } from "@/content/landing/landingContent";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
+import { ContactChannelList } from "@/components/contact/ContactChannels";
 
 // No price is rendered in the footer: proposed plan sizes appear in exactly one place, the service
 // chooser. The footer carries the disclosures instead (commercial status and the scope note).
@@ -27,7 +28,7 @@ export function Footer() {
         <div className="grid grid-cols-1 gap-8 sm:grid-cols-12">
 
           {/* Brand column */}
-          <div className="sm:col-span-5 lg:col-span-4">
+          <div className="sm:col-span-12 lg:col-span-4">
             <CFOCloseWordmark className="text-xl" />
             <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">
               {FOOTER.description}
@@ -38,10 +39,10 @@ export function Footer() {
           </div>
 
           {/* Spacer */}
-          <div className="hidden lg:block lg:col-span-2" />
+          <div className="hidden lg:block lg:col-span-1" />
 
           {/* Product links */}
-          <div className="sm:col-span-3 lg:col-span-3">
+          <div className="sm:col-span-4 lg:col-span-2">
             <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
               Product
             </p>
@@ -60,7 +61,7 @@ export function Footer() {
           </div>
 
           {/* Account links */}
-          <div className="sm:col-span-3 lg:col-span-3">
+          <div className="sm:col-span-3 lg:col-span-2">
             <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
               Account
             </p>
@@ -76,6 +77,14 @@ export function Footer() {
                 </li>
               ))}
             </ul>
+          </div>
+
+          {/* Contact: the published mailboxes (src/lib/contact/contactChannels.ts) */}
+          <div className="sm:col-span-5 lg:col-span-3">
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
+              Contact
+            </p>
+            <ContactChannelList className="mt-4" />
           </div>
         </div>
       </div>
