@@ -228,12 +228,13 @@ async function main() {
 
   group("Non-success · failed, voided and expired grant nothing");
   for (const [status, providerStatus, closes] of [["FAILED", "failed", "FAILED"], ["CANCELLED", "voided", "CANCELLED"], ["EXPIRED", "expired", "EXPIRED"]]) {
-    await check(`Snippe ${providerStatus}: recorded once, the order closes ${closes}, no licence; a later "success" for the same order grants nothing`, async () => {
+    await check(`Snippe ${providerStatus}: recorded once, the order closes ${closes}, no licence; a later "success" for the same order grants nothing and is recorded once for recovery`, async () => {
       const a = await account(`ns-${providerStatus}`);
       const i = await order(a, "SOLO");
       const r = await commit(i, { status, providerStatus });
       const late = await commit(i, { tx: `${i.pref}-late` });
-      return r.status === "NON_SUCCESS_RECORDED" && await intent(i) === closes && late.committed === false && (await lic(a)).length === 0 && await plan(a) === null ? true : { r, late };
+      return r.status === "NON_SUCCESS_RECORDED" && await intent(i) === closes && late.status === "RECOVERY_REQUIRED" && late.reason === "PAYMENT_AFTER_PROVIDER_REPORTED_NON_SUCCESS"
+        && (await lic(a)).length === 0 && await plan(a) === null ? true : { r, late };
     });
   }
 
@@ -260,7 +261,7 @@ async function main() {
   });
 
   group("Delayed · a success verified after the order's local expiry");
-  await check("the order passed its 1-hour local expiry and a new attempt was blocked; the payment then completes (Snippe allows up to 4 hours): one licence; another transaction for the order is never applied", async () => {
+  await check("the order passed its 1-hour local expiry and a new attempt was blocked; the payment then completes (Snippe allows up to 4 hours): one licence; another transaction for the order is never applied as a licence (it is recorded for recovery)", async () => {
     const a = await account("delayed");
     const i = await order(a, "SOLO");
     await admin.query("UPDATE public.payment_checkout_intents SET expires_at = now() - interval '2 hours' WHERE id=$1", [i.id]);
@@ -269,7 +270,7 @@ async function main() {
     await setState("PAYMENTS_DISABLED");
     const r = await commit(i);
     const other = await commit(i, { tx: `${i.pref}-second` });
-    return blocked.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" && r.committed === true && other.committed === false && (await lic(a)).length === 1 ? true : { blocked, r, other };
+    return blocked.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" && r.committed === true && other.status === "RECOVERY_REQUIRED" && other.licence_id === null && (await lic(a)).length === 1 ? true : { blocked, r, other };
   });
 
   group("Polar and Snippe · one account, both providers");

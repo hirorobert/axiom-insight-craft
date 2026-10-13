@@ -86,6 +86,11 @@ export const REVERSAL_SOURCE_COMMIT = "f35252dced2a5ba8fabc189fb2022a831e15774e"
 export const REVERSAL_WRAPPED_SOURCES = Object.freeze([
   "20261101100000_payment_reversal_authority.sql",
 ]);
+/** Verified charge outcomes (commercial-p5): a verified charge is never dropped (DEFECT-VERIFIED-CHARGE-DROPPED-001). */
+export const CHARGE_OUTCOMES_SOURCE_COMMIT = "fea6f4751fd2dab6ed04767deaa77fd53497a2f6";
+export const CHARGE_OUTCOMES_WRAPPED_SOURCES = Object.freeze([
+  "20261102100000_verified_charge_outcomes.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -97,6 +102,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "commercial-p2", commit: PAID_TERM_SOURCE_COMMIT, sources: PAID_TERM_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p2/postcondition.sql" }),
   Object.freeze({ id: "commercial-p3", commit: SANDBOX_ISOLATION_SOURCE_COMMIT, sources: SANDBOX_ISOLATION_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p3/postcondition.sql" }),
   Object.freeze({ id: "commercial-p4", commit: REVERSAL_SOURCE_COMMIT, sources: REVERSAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p4/postcondition.sql" }),
+  Object.freeze({ id: "commercial-p5", commit: CHARGE_OUTCOMES_SOURCE_COMMIT, sources: CHARGE_OUTCOMES_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p5/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

@@ -122,14 +122,18 @@ export async function settleIntent(db: ServiceDb, adapter: ProviderAdapter, inte
   const base = { providerTransactionId: tx.providerTransactionId, paymentEventId: commit.event_id ?? null, committedStatus: commit.status ?? null };
 
   let result: ProcessingResult =
-    commit.status === 'PLACEMENT_REVIEW_REQUIRED' ? 'PLACEMENT_REVIEW'
+    // RECOVERY_REQUIRED (20261102100000): a verified charge on a closed or already-paid intent — recorded once, with an OPEN
+    // recovery case for a commercial administrator. It needs a person, exactly like a placement review; never a DUPLICATE.
+    commit.status === 'PLACEMENT_REVIEW_REQUIRED' || commit.status === 'RECOVERY_REQUIRED' ? 'PLACEMENT_REVIEW'
     : commit.status === 'COMMITTED' || commit.status === 'NON_SUCCESS_RECORDED' ? 'PROCESSED'
     : 'DUPLICATE';
 
   if (tx.normalizedStatus === 'SUCCEEDED' && tx.reversals.length > 0) {
-    const { data: original, error: lookupErr } = await db.from('payment_events').select('id')
-      .eq('checkout_intent_id', intent.id).eq('event_type', 'PAYMENT_CONFIRMED').maybeSingle();
-    const originalId = (original as { id?: string } | null)?.id;
+    // The payment THIS transaction recorded (an intent may also hold a recovery payment for another transaction).
+    const { data: original, error: lookupErr } = await db.from('payment_events').select('id, checkout_intent_id, provider')
+      .eq('provider_transaction_id', tx.providerTransactionId).eq('event_type', 'PAYMENT_CONFIRMED').maybeSingle();
+    const row = original as { id?: string; checkout_intent_id?: string; provider?: string } | null;
+    const originalId = row && row.checkout_intent_id === intent.id && row.provider === tx.provider ? row.id : undefined;
     if (lookupErr || !originalId) return { result: 'ERROR', detail: 'refund reported but the payment event could not be read', ...base };
     for (const r of tx.reversals) {
       // The provider reports the order's CUMULATIVE refunded total; each reversal row records only what is new since

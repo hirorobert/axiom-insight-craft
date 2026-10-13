@@ -65,7 +65,7 @@ describe("migration authority parity", () => {
     // I1-B (20261011100000, two years from one file, shared source) is authored and pending hosted application.
     // 20261011100000–20261017100000 are applied as 0033–0039 (self-checking wrappers). Nothing is pending.
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
-    expect(r.pending).toEqual([]); // the commercial launch, commercial-p3 and commercial-p4 are applied (0046–0054, hosted 47–55)
+    expect(r.pending).toEqual(["20261102100000_verified_charge_outcomes.sql"]); // commercial launch, p3 and p4 applied (0046–0054, hosted 47–55); verified charge outcomes (commercial-p5) pending hosted application
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

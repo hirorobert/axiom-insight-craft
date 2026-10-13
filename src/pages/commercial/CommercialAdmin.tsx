@@ -62,6 +62,7 @@ export default function CommercialAdmin() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [intents, setIntents] = useState<AttentionIntent[]>([]);
   const [reversals, setReversals] = useState<Reversal[]>([]);
+  const [recoveries, setRecoveries] = useState<RecoveryCase[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -71,6 +72,9 @@ export default function CommercialAdmin() {
     setAllowed(true);
     const d = data as { intents: AttentionIntent[]; reversals: Reversal[] };
     setIntents(d.intents ?? []); setReversals(d.reversals ?? []);
+    // Verified charges that are not an order's own placed payment (20261102100000). Absent before that migration: hidden.
+    const rc = await rpc("admin_list_payment_recovery_cases");
+    setRecoveries(rc.error ? [] : ((rc.data as RecoveryCase[] | null) ?? []).filter((c) => c.status === "OPEN"));
   }, []);
 
   useEffect(() => { if (!loading && user) loadAttention(); }, [loading, user, loadAttention]);
@@ -100,7 +104,7 @@ export default function CommercialAdmin() {
 
       <Tabs defaultValue="payments">
         <TabsList className="h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length})</TabsTrigger>
+          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length + recoveries.length})</TabsTrigger>
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
           <TabsTrigger value="platform">Online payment</TabsTrigger>
@@ -116,10 +120,18 @@ export default function CommercialAdmin() {
           </section>
           <section aria-labelledby="attention-reversals">
             <h2 id="attention-reversals" className="text-lg font-medium">Refunds and disputes</h2>
-            <p className="text-sm text-muted-foreground">A refund or dispute never changes a licence by itself. Decide, and if access should end, end the licence under Accounts first.</p>
+            <p className="text-sm text-muted-foreground">A refund or dispute never changes a licence by itself. "End the licence now" ends access at once; "Keep the licence" changes nothing. Each is decided once and recorded.</p>
             {reversals.length === 0 && <p className="mt-2 text-sm text-muted-foreground">None waiting for a decision.</p>}
             <ul className="mt-3 space-y-3">
               {reversals.map((r) => <ReversalRow key={r.event_id} r={r} busy={busy} act={act} />)}
+            </ul>
+          </section>
+          <section aria-labelledby="attention-recoveries">
+            <h2 id="attention-recoveries" className="text-lg font-medium">Charges needing a decision</h2>
+            <p className="text-sm text-muted-foreground">A verified payment on an order that was already paid, or on an older checkout paid after the customer started a new one. The money is recorded; no term was granted for it. Place it as an additional term, or refund it with the provider and then mark it refunded.</p>
+            {recoveries.length === 0 && <p className="mt-2 text-sm text-muted-foreground" data-testid="no-recoveries">None waiting for a decision.</p>}
+            <ul className="mt-3 space-y-3">
+              {recoveries.map((c) => <RecoveryRow key={c.id} c={c} busy={busy} act={act} />)}
             </ul>
           </section>
         </TabsContent>
@@ -166,6 +178,43 @@ function IntentRow({ i, busy, act }: { i: AttentionIntent; busy: string | null; 
             void act(`close-${i.intent_id}`, () => rpc("admin_resolve_manual_review_intent", { p_checkout_intent_id: i.intent_id, p_resolution: "CONFIRMED_UNCHARGED_CANCEL", p_reason: reason.trim() }), "Closed as uncharged. The customer can start a new payment.");
           }}>Close as uncharged</Button>
         )}
+      </div>
+    </li>
+  );
+}
+
+type RecoveryCase = {
+  id: string; status: string; reason: string; created_at: string; owner_email: string | null; plan_code: string; provider: string;
+  provider_environment: string; provider_transaction_id: string; amount_minor: number | string; currency_code: string;
+  saff_reference: string | null; refunded_minor: number | string;
+};
+const RECOVERY_REASON: Record<string, string> = {
+  PAYMENT_AFTER_REPLACEMENT_STARTED: "Older checkout paid after a new one was started",
+  ADDITIONAL_PAYMENT_ON_PAID_INTENT: "Second payment on an order already paid",
+};
+
+function RecoveryRow({ c, busy, act }: { c: RecoveryCase; busy: string | null; act: Act }) {
+  const [reason, setReason] = useState("");
+  const exp = (c.currency_code ?? "").toUpperCase() === "TZS" ? 0 : 2;
+  const sandbox = c.provider_environment === "sandbox";
+  const refundedInFull = Number(c.refunded_minor) >= Number(c.amount_minor);
+  const resolve = (resolution: string, done: string) => act(`rec-${c.id}`, () => rpc("admin_resolve_payment_recovery", { p_case_id: c.id, p_resolution: resolution, p_reason: reason.trim() }), done);
+  return (
+    <li className="border border-border p-4 text-sm" data-testid={`recovery-${c.id}`}>
+      <div className="flex flex-wrap gap-x-4">
+        <Badge variant="outline">{RECOVERY_REASON[c.reason] ?? c.reason}</Badge>
+        <span>{formatMoney(Number(c.amount_minor), (c.currency_code ?? "").toUpperCase(), exp)} · {c.plan_code} · {c.provider}{sandbox ? " (test)" : ""}</span>
+        <span className="text-muted-foreground">{c.owner_email ?? "—"} · {day(c.created_at)} · {c.saff_reference ?? ""}</span>
+      </div>
+      <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{c.provider_transaction_id}{Number(c.refunded_minor) > 0 ? ` · refunds recorded ${formatMoney(Number(c.refunded_minor), (c.currency_code ?? "").toUpperCase(), exp)}` : ""}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Input className="h-8 w-56" placeholder="Reason (recorded)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for the decision" />
+        {sandbox
+          ? <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => resolve("TEST_PAYMENT_CLOSED", "Test payment closed.")}>Close test payment</Button>
+          : <>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || Number(c.refunded_minor) > 0} onClick={() => resolve("PLACE_ADDITIONAL_TERM", "Additional term placed.")}>Place as an additional term</Button>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || !refundedInFull} onClick={() => resolve("REFUNDED", "Marked refunded.")} title={refundedInFull ? undefined : "Refund it with the provider first; the refund must be recorded in full"}>Mark refunded</Button>
+            </>}
       </div>
     </li>
   );

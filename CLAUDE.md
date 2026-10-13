@@ -861,6 +861,14 @@ administrator decides); a malformed provider report could still be recorded as a
 reachable from Snippe (it reports no reversals). Repair is a forward migration with its own hosted application — do not
 fold it into unrelated work. Record: `docs/release/SNIPPE_TZ_READINESS.md` §5.
 
+**DEFECT-VERIFIED-CHARGE-DROPPED-001** — Severity: HIGH — Status: FIXED IN SOURCE by `20261102100000_verified_charge_outcomes.sql`
+(batch commercial-p5; PENDING HOSTED APPLICATION; record `docs/release/VERIFIED_CHARGE_OUTCOMES.md`). Neither Polar nor Snippe can
+cancel a checkout on request, so an older session can be paid after CFOClose closed its intent; the commit used to answer
+INTENT_ALREADY_RESOLVED / INTENT_ALREADY_PAID and record nothing. Now every verified charge has one outcome: a late payment that
+nothing replaced is placed (audited as late); a payment after a replacement started, or a second transaction on a paid intent,
+is recorded once with an OPEN `payment_recovery_cases` row that a commercial administrator resolves (additional term, refunded,
+or test payment closed). Never read a RECOVERY_REQUIRED payment as an intent's own payment.
+
 **SNIPPE_TZ_ROUTE_NOT_LAUNCHED** — Snippe (Tanzania mobile money, TZS) is implemented on the one commercial ledger and
 checked against Snippe's documentation, but stays disabled (`SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`,
 `LAUNCHED_MARKETS = ["GLOBAL"]`). Snippe documents no sandbox host, no test-mode marker on a payment and no refund

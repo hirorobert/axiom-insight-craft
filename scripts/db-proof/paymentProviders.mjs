@@ -260,13 +260,14 @@ async function main() {
     const ev = await events(i);
     return committed === 1 && ls.length === 1 && ev.length === 1 ? true : { committed, ls: ls.length, ev: ev.length, rs: rs.map((x) => x.value?.status ?? x.reason?.message) };
   });
-  await check("concurrent deliveries under different keys (webhook vs. recovery) still yield one licence; the other is refused as resolved", async () => {
+  await check("concurrent deliveries under different keys (webhook vs. recovery) still yield one licence; the other is recognised as the same transaction (ALREADY_COMMITTED)", async () => {
     const a = await account("concurrent-keys");
     const i = await acquire(a, "SOLO");
     const rs = await Promise.allSettled([commit(i, { key: `k1-${i.ref}` }), commit(i, { key: `k2-${i.ref}` })]);
     const ls = await licences(a);
     const statuses = rs.map((x) => x.value?.status).sort();
-    return ls.length === 1 && JSON.stringify(statuses) === JSON.stringify(["COMMITTED", "INTENT_ALREADY_RESOLVED"]) ? true : { statuses, ls: ls.length };
+    // Since 20261102100000 a verified charge is never dropped: the same provider transaction under another key is a redelivery.
+    return ls.length === 1 && JSON.stringify(statuses) === JSON.stringify(["ALREADY_COMMITTED", "COMMITTED"]) ? true : { statuses, ls: ls.length };
   });
 
   group("Mismatch · nothing is written");
@@ -291,13 +292,14 @@ async function main() {
 
   group("Outcomes · final non-success, late success, uncertain");
   for (const [s, expected] of [["FAILED", "FAILED"], ["CANCELLED", "CANCELLED"], ["EXPIRED", "EXPIRED"]]) {
-    await check(`${s}: the intent closes as ${expected}, no licence; a later success for it grants nothing`, async () => {
+    await check(`${s}: the intent closes as ${expected}, no licence; a later success for it grants nothing and is recorded once as a recovery case`, async () => {
       const a = await account(`final-${s}`);
       const i = await acquire(a, "SOLO");
       const r = await commit(i, { status: s, key: `n-${i.ref}`, tx: `n-${i.ref}` });
       const late = await commit(i, { key: `late-${i.ref}`, tx: `late-${i.ref}` });
-      return r.status === "NON_SUCCESS_RECORDED" && (await intentStatus(i.id)).status === expected && late.status === "INTENT_ALREADY_RESOLVED"
-        && (await licences(a)).length === 0 ? true : { r, late };
+      // The provider itself reported a non-success, then a success: a contradiction a person decides (20261102100000).
+      return r.status === "NON_SUCCESS_RECORDED" && (await intentStatus(i.id)).status === expected && late.status === "RECOVERY_REQUIRED"
+        && late.reason === "PAYMENT_AFTER_PROVIDER_REPORTED_NON_SUCCESS" && (await licences(a)).length === 0 ? true : { r, late };
     });
   }
   await check("an uncertain attempt (MANUAL_REVIEW) is honoured when a later verification proves the payment", async () => {
@@ -307,13 +309,16 @@ async function main() {
     const r = await commit(i);
     return r.committed === true && (await licences(a)).length === 1 ? true : r;
   });
-  await check("after a payment is recorded, a different provider transaction for the same intent is never applied", async () => {
+  await check("after a payment is recorded, a different provider transaction for the same intent is never applied as a licence: it is recorded once as a recovery case", async () => {
     const a = await account("second-tx");
     await licence(a, "SOLO", new Date(Date.now() - DAY), null);   // open-ended → placement review keeps the intent open
     const i = await acquire(a, "SOLO");
     const r1 = await commit(i);
     const r2 = await commit(i, { tx: `other-${i.ref}`, key: `other-${i.ref}` });
-    return r1.status === "PLACEMENT_REVIEW_REQUIRED" && r2.status === "INTENT_ALREADY_PAID" && (await events(i)).length === 1 ? true : { r1, r2 };
+    // Since 20261102100000 the second charge is recorded (never dropped) for a commercial administrator; it places nothing.
+    const evs = await events(i);
+    return r1.status === "PLACEMENT_REVIEW_REQUIRED" && r2.status === "RECOVERY_REQUIRED" && r2.reason === "ADDITIONAL_PAYMENT_ON_PAID_INTENT" && r2.licence_id === null
+      && evs.length === 2 && evs.every((e) => e.licence_id === null) ? true : { r1, r2, evs };
   });
 
   group("Placement · renewal, downgrade at renewal, upgrade now");

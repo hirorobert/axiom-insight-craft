@@ -117,7 +117,7 @@ const preview = await vite.preview({ root: REPO, configFile: path.join(REPO, "vi
 // ── Accounts (generated test passwords, never printed) ───────────────────────────────────────────────────────────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other"), manual: mk("buyer-manual"), fresh: mk("fresh"), owner: mk("company-owner") };
+const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other"), manual: mk("buyer-manual"), fresh: mk("fresh"), owner: mk("company-owner"), late: mk("buyer-late") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -571,6 +571,66 @@ async function main() {
     const api = await apiAs(U.other);
     const { data } = await api.rpc("get_checkout_status", { p_saff_reference: cardRef });
     return data?.found === false ? true : data;
+  });
+
+  startGroup("An older Polar session paid after CFOClose closed its intent and a replacement started (real functions, mock Polar)");
+  // Neither provider can cancel a checkout on request (Polar's checkout update has no expiry or status field), so the old
+  // mock session stays payable — exactly as at Polar. Before 20261102100000 its payment was answered DUPLICATE and recorded
+  // nowhere. Now: the money is recorded once, with an OPEN recovery case; the replacement grants the one term.
+  const lateApi = await apiAs(U.late);
+  const createCheckout = async () => {
+    const { data: { session } } = await lateApi.auth.getSession();
+    const res = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout`, { method: "POST", headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", apikey: anonKey },
+      body: JSON.stringify({ planCode: "SOLO", billingInterval: "ANNUAL", paymentRoute: "CARD" }) });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  let oldIntent = null, replacement = null;
+  await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt sends it to review, and the administrator resolves it as uncharged", async () => {
+    const first = await createCheckout();
+    [oldIntent] = await intentsOf(U.late);
+    // Time travel for the test only: CFOClose's own one-hour expiry passes while the provider session stays open.
+    await admin.from("payment_checkout_intents").update({ expires_at: new Date(Date.now() - 60_000).toISOString() }).eq("id", oldIntent.id);
+    const blocked = await createCheckout();
+    const reviewed = (await intentsOf(U.late))[0].status;
+    const ops = await apiAs(U.admin);
+    const { error } = await ops.rpc("admin_resolve_manual_review_intent", { p_checkout_intent_id: oldIntent.id, p_resolution: "CONFIRMED_UNCHARGED_CANCEL", p_reason: "no payment seen when reviewed" });
+    const closed = (await intentsOf(U.late))[0].status;
+    return first.status === 200 && oldIntent?.provider === "POLAR" && !!mock.checkouts.get(oldIntent.provider_checkout_ref) && blocked.status >= 400 && reviewed === "MANUAL_REVIEW" && !error && closed === "CANCELLED"
+      ? true : { first, blocked, reviewed, error: error?.message, closed };
+  });
+  await check("a replacement checkout then starts; the old session is still payable at the provider", async () => {
+    const r = await createCheckout();
+    replacement = (await intentsOf(U.late))[1];
+    const old = mock.checkouts.get(oldIntent.provider_checkout_ref);
+    return r.status === 200 && replacement?.status === "PENDING" && old && old.status !== "succeeded" && old.status !== "expired" ? true : { r, replacement };
+  });
+  let oldDelivery = null;
+  await check("the customer pays the OLD session: the real webhook records the charge once as a recovery case (PLACEMENT_REVIEW, never DUPLICATE); no licence is granted for it", async () => {
+    const res = await fetch(`http://127.0.0.1:9911/pay/${oldIntent.provider_checkout_ref}`, { method: "POST", redirect: "manual" });
+    oldDelivery = mock.deliveries.filter((d) => d.provider === "POLAR" && JSON.parse(d.body).type === "order.paid").pop();
+    const cases = (await admin.from("payment_recovery_cases").select("id, status, reason, checkout_intent_id, newer_attempt_id").eq("checkout_intent_id", oldIntent.id)).data ?? [];
+    const events = (await admin.from("payment_events").select("id, event_type, licence_id").eq("checkout_intent_id", oldIntent.id)).data ?? [];
+    return [303, 302].includes(res.status) && oldDelivery?.status === 200 && oldDelivery.response?.outcome === "PLACEMENT_REVIEW"
+      && cases.length === 1 && cases[0].status === "OPEN" && cases[0].reason === "PAYMENT_AFTER_REPLACEMENT_STARTED" && cases[0].newer_attempt_id === replacement.id
+      && events.length === 1 && events[0].event_type === "PAYMENT_CONFIRMED" && events[0].licence_id === null && (await licencesOf(U.late)).length === 0
+      ? true : { res: res.status, delivery: oldDelivery?.response, cases, events };
+  });
+  await check("the replacement is paid: exactly one term; a redelivery of the old payment (same id, then a new id) changes nothing", async () => {
+    await fetch(`http://127.0.0.1:9911/pay/${replacement.provider_checkout_ref}`, { method: "POST", redirect: "manual" });
+    const again = await mock.deliver("POLAR", JSON.parse(oldDelivery.body), { id: oldDelivery.id });
+    const again2 = await mock.deliver("POLAR", JSON.parse(oldDelivery.body));
+    const cases = (await admin.from("payment_recovery_cases").select("id").eq("checkout_intent_id", oldIntent.id)).data ?? [];
+    const lic = await licencesOf(U.late);
+    return again.status === 200 && again2.status === 200 && ["DUPLICATE", "PLACEMENT_REVIEW"].includes(again2.response?.outcome) && cases.length === 1 && lic.length === 1 ? true : { again: again.response, again2: again2.response, cases, lic };
+  });
+  await check("the administrator sees the open case and closes it as a test payment (sandbox: no money moved); it is resolved once, audited", async () => {
+    const ops = await apiAs(U.admin);
+    const list = (await ops.rpc("admin_list_payment_recovery_cases")).data ?? [];
+    const c = list.find((x) => x.checkout_intent_id === oldIntent.id);
+    const { data, error } = await ops.rpc("admin_resolve_payment_recovery", { p_case_id: c?.id, p_resolution: "TEST_PAYMENT_CLOSED", p_reason: "sandbox test of a replaced checkout" });
+    const twice = await ops.rpc("admin_resolve_payment_recovery", { p_case_id: c?.id, p_resolution: "TEST_PAYMENT_CLOSED", p_reason: "again" });
+    const audit = (await admin.from("billing_audit_events").select("action").eq("action", "PAYMENT_RECOVERY_RESOLVED")).data ?? [];
+    return c?.status === "OPEN" && !error && data?.resolved === true && /RECOVERY_CASE_ALREADY_RESOLVED/.test(twice.error?.message ?? "") && audit.length >= 1 ? true : { c, error: error?.message, twice: twice.error?.message };
   });
 
   startGroup("Refund, reviewed by the administrator");
