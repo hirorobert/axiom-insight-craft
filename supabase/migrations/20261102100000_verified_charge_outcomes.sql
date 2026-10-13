@@ -13,9 +13,11 @@
 --
 -- After this migration every verified successful charge has exactly one explicit outcome:
 --   1. the intent's own payment (unchanged): the term is placed, or the payment waits for placement review;
---   2. a LATE payment on an intent CFOClose closed without a payment, when nothing replaced it (no newer attempt for the
---      same account and product): placed by the normal rule, the intent becomes SUCCEEDED, audited as late;
---   3. a payment after a replacement was started, or a second different transaction on an already-paid intent: the money is
+--   2. a LATE payment on an intent CFOClose closed (no provider outcome was ever recorded for it), when nothing replaced it
+--      (no newer attempt for the same account and product): placed by the normal rule, the intent becomes SUCCEEDED,
+--      audited as late;
+--   3. a payment after a replacement was started, a second different transaction on an already-paid intent, or a success
+--      that contradicts a non-success the PROVIDER itself reported for the intent: the money is
 --      recorded ONCE (payment event, placement RECOVERY_REQUIRED) with an OPEN payment_recovery_cases row and an audit
 --      row; a commercial administrator resolves it — PLACE_ADDITIONAL_TERM (a 12-month term queued after the account's
 --      current paid time, never shortening or overlapping one), REFUNDED (only once refunds recorded against that payment
@@ -46,7 +48,7 @@ CREATE TABLE public.payment_recovery_cases (
   amount_minor            BIGINT      NOT NULL CHECK (amount_minor > 0),
   currency_code           TEXT        NOT NULL,
   plan_id                 UUID        NOT NULL REFERENCES public.commercial_plans(id),
-  reason                  TEXT        NOT NULL CHECK (reason IN ('PAYMENT_AFTER_REPLACEMENT_STARTED','ADDITIONAL_PAYMENT_ON_PAID_INTENT')),
+  reason                  TEXT        NOT NULL CHECK (reason IN ('PAYMENT_AFTER_REPLACEMENT_STARTED','ADDITIONAL_PAYMENT_ON_PAID_INTENT','PAYMENT_AFTER_PROVIDER_REPORTED_NON_SUCCESS')),
   newer_attempt_id        UUID        NULL REFERENCES public.payment_checkout_intents(id),
   status                  TEXT        NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','TERM_PLACED','REFUNDED','TEST_PAYMENT_CLOSED')),
   licence_id              UUID        NULL REFERENCES public.commercial_licences(id),
@@ -118,6 +120,8 @@ DECLARE
   v_existing_tx         UUID;
   v_case_id             UUID;
   v_late                BOOLEAN := false;
+  v_provider_outcome    BOOLEAN;
+  v_reason              TEXT;
 BEGIN
   IF p_provider_transaction_id IS NULL OR trim(p_provider_transaction_id) = '' THEN
     RAISE EXCEPTION 'Iron Dome: provider_transaction_id must not be blank for intent %', p_checkout_intent_id
@@ -180,9 +184,15 @@ BEGIN
        AND id <> v_intent.id AND created_at > v_intent.created_at
        AND status IN ('CREATING','PROVIDER_CREATING','PENDING','MANUAL_REVIEW','SUCCEEDED')
      ORDER BY created_at DESC LIMIT 1;
-    IF NOT v_paid_already AND v_newer_attempt IS NULL THEN
-      -- The intent was closed without a payment and nothing replaced it: this is simply a late payment for exactly what
-      -- the intent offered. It is placed by the normal rule below (the intent becomes SUCCEEDED), and audited as late.
+    -- Did the PROVIDER report an outcome for this intent (a non-success event)? Then a later success contradicts the provider.
+    v_provider_outcome := EXISTS (SELECT 1 FROM public.payment_events WHERE checkout_intent_id = p_checkout_intent_id);
+    v_reason := CASE WHEN v_paid_already THEN 'ADDITIONAL_PAYMENT_ON_PAID_INTENT'
+                     WHEN v_newer_attempt IS NOT NULL THEN 'PAYMENT_AFTER_REPLACEMENT_STARTED'
+                     WHEN v_provider_outcome THEN 'PAYMENT_AFTER_PROVIDER_REPORTED_NON_SUCCESS' END;
+    IF v_reason IS NULL THEN
+      -- CFOClose closed the intent (no provider outcome was ever recorded for it) and nothing replaced it: this is simply a
+      -- late payment for exactly what the intent offered. It is placed by the normal rule below (the intent becomes
+      -- SUCCEEDED), and audited as late.
       v_late := true;
     ELSE
       -- Paid twice for one purchase, or paid an older session after starting a replacement: the money is recorded once and
@@ -202,14 +212,14 @@ BEGIN
         p_verification_method, p_checkout_intent_id, v_intent.commercial_offer_id,
         v_intent.plan_id, now(), now(),
         jsonb_build_object('placement','RECOVERY_REQUIRED','recovery_reason',
-          CASE WHEN v_paid_already THEN 'ADDITIONAL_PAYMENT_ON_PAID_INTENT' ELSE 'PAYMENT_AFTER_REPLACEMENT_STARTED' END,
+          v_reason,
           'newer_attempt_id', v_newer_attempt, 'intent_status_at_payment', v_intent.status)
       ) RETURNING id INTO v_event_id;
       INSERT INTO public.payment_recovery_cases (payment_event_id, checkout_intent_id, billing_customer_id, provider, provider_environment,
         provider_transaction_id, amount_minor, currency_code, plan_id, reason, newer_attempt_id)
       VALUES (v_event_id, v_intent.id, v_intent.billing_customer_id, p_provider, v_intent.provider_environment,
         p_provider_transaction_id, p_amount_minor, p_currency_code, v_intent.plan_id,
-        CASE WHEN v_paid_already THEN 'ADDITIONAL_PAYMENT_ON_PAID_INTENT' ELSE 'PAYMENT_AFTER_REPLACEMENT_STARTED' END, v_newer_attempt)
+        v_reason, v_newer_attempt)
       RETURNING id INTO v_case_id;
       INSERT INTO public.billing_audit_events (billing_customer_id, actor_user_id, action, previous_state, new_state, reason)
       VALUES (v_intent.billing_customer_id, NULL, 'VERIFIED_CHARGE_REQUIRES_RECOVERY',
@@ -217,9 +227,9 @@ BEGIN
         jsonb_build_object('recovery_case_id', v_case_id, 'payment_event_id', v_event_id, 'provider', p_provider,
           'provider_transaction_id', p_provider_transaction_id, 'amount_minor', p_amount_minor, 'currency_code', p_currency_code,
           'plan_code', v_plan.code, 'newer_attempt_id', v_newer_attempt),
-        'A verified charge for a purchase that was already paid or replaced: recorded once; an administrator places it or refunds it');
+        'A verified charge for a purchase that was already paid, replaced, or reported unsuccessful by the provider: recorded once; an administrator places it or refunds it');
       RETURN jsonb_build_object('status','RECOVERY_REQUIRED','committed',true,'event_id',v_event_id,'recovery_case_id',v_case_id,
-        'licence_id',NULL,'reason',CASE WHEN v_paid_already THEN 'ADDITIONAL_PAYMENT_ON_PAID_INTENT' ELSE 'PAYMENT_AFTER_REPLACEMENT_STARTED' END);
+        'licence_id',NULL,'reason',v_reason);
     END IF;
   END IF;
   IF p_provider IS DISTINCT FROM v_intent.provider THEN
