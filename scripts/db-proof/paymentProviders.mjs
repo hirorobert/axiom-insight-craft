@@ -5,7 +5,8 @@
 //
 //   Gate        the migration refuses unless payments are disabled (schema and rows byte-identical); re-runnable;
 //   Providers   SNIPPE and POLAR are accepted identifiers; anything else is refused;
-//   Matrix      no checkout attempt while payments are disabled; sandbox-only refuses production;
+//   Matrix      no checkout attempt while payments are disabled; sandbox-only refuses production; live acceptance
+//               admits only an active acceptance-list identity, and only in production; a client cannot list itself;
 //   Commit      a verified success yields exactly one 12-month licence; replay and 8 concurrent deliveries converge on
 //               one licence and one payment event; a second transaction for a paid intent is never applied;
 //   Mismatch    amount, currency, provider and environment mismatches write nothing; a non-final status writes nothing;
@@ -231,6 +232,32 @@ async function main() {
     const e = await errOf(() => acquire(a, "SOLO", "POLAR", "production"));
     const ok = await acquire(a, "SOLO", "POLAR", "sandbox");
     return /PLATFORM_STATE_MATRIX_VIOLATION/.test(e?.message ?? "") && !!ok.id ? true : e?.message;
+  });
+  await setState("LIVE_ACCEPTANCE");
+  const intentCount = async (a) => (await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
+  await check("LIVE_ACCEPTANCE: an account not on the acceptance list is refused a production checkout; no intent is written", async () => {
+    const a = await account("acceptance-other");
+    const e = await errOf(() => acquire(a, "SOLO", "POLAR", "production"));
+    return /LIVE_ACCEPTANCE permits only explicitly allowlisted/.test(e?.message ?? "") && await intentCount(a) === 0 ? true : { e: e?.message, n: await intentCount(a) };
+  });
+  await check("LIVE_ACCEPTANCE: the designated tester (active on the list) reaches a production checkout, and only a production one", async () => {
+    const a = await account("acceptance-tester");
+    await admin.query("INSERT INTO public.commercial_live_acceptance_allowlist (user_id, reason) VALUES ($1, 'designated live-acceptance buyer')", [a.uid]);
+    const sandbox = await errOf(() => acquire(a, "SOLO", "POLAR", "sandbox"));
+    const ok = await acquire(a, "SOLO", "POLAR", "production");
+    return /LIVE_ACCEPTANCE permits only production/.test(sandbox?.message ?? "") && !!ok.id && await intentCount(a) === 1 ? true : { sandbox: sandbox?.message, n: await intentCount(a) };
+  });
+  await check("LIVE_ACCEPTANCE: a deactivated list entry is refused like any other account", async () => {
+    const a = await account("acceptance-revoked");
+    await admin.query("INSERT INTO public.commercial_live_acceptance_allowlist (user_id, reason, active) VALUES ($1, 'acceptance finished', false)", [a.uid]);
+    const e = await errOf(() => acquire(a, "SOLO", "POLAR", "production"));
+    return /LIVE_ACCEPTANCE permits only explicitly allowlisted/.test(e?.message ?? "") && await intentCount(a) === 0 ? true : e?.message;
+  });
+  await check("a signed-in client cannot put itself on the acceptance list (no write grant; it may read only its own entry)", async () => {
+    const a = await account("acceptance-self");
+    const w = await errOf(() => one(user(a.uid), "INSERT INTO public.commercial_live_acceptance_allowlist (user_id, reason) VALUES ($1, 'self-granted') RETURNING user_id", [a.uid]));
+    const listed = (await admin.query("SELECT count(*)::int n FROM public.commercial_live_acceptance_allowlist WHERE user_id=$1", [a.uid])).rows[0].n;
+    return !!w && listed === 0 ? true : { w: w?.message, listed };
   });
   await setState("CUSTOMER_PAYMENTS_ENABLED");
 

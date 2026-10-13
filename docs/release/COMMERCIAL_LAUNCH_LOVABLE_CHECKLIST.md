@@ -282,6 +282,9 @@ Nothing in Stage C opens checkout.
 ## Stage E — Controlled live acceptance *(separate owner authorisation, including each charge)*
 
 **Requires:**
+- commercial-p5 is applied (journal 56, `POSTCONDITION OK.`), and its functions and frontend are deployed (`COMMERCIAL_P5_LOVABLE_DELTA.md`, P5-1 to P5-7);
+- the historical dropped-charge reconciliation (`PAYMENT_LAUNCH_HANDOFF.md` §7, step 2) shows no unresolved charge;
+- the owner has named the one designated buyer and authorised the specific charge, after seeing the total and the non-refundable costs (`PAYMENT_LAUNCH_HANDOFF.md` §7);
 - Polar has **approved** the production account (C4);
 - D has passed;
 - C5 is done, or the owner explicitly accepts it is outstanding for the test charge only.
