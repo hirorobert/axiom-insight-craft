@@ -62,6 +62,7 @@ export default function CommercialAdmin() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [intents, setIntents] = useState<AttentionIntent[]>([]);
   const [reversals, setReversals] = useState<Reversal[]>([]);
+  const [recoveryRead, setRecoveryRead] = useState<RecoveryRead>({ state: "loading" });
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -73,7 +74,28 @@ export default function CommercialAdmin() {
     setIntents(d.intents ?? []); setReversals(d.reversals ?? []);
   }, []);
 
+  // Verified charges that are not an order's own payment (20261102100000). Read on its own: a failure here never hides or
+  // empties the other sections, and a failed, malformed or unavailable answer is never shown as "none waiting".
+  const loadRecoveries = useCallback(async () => {
+    setRecoveryRead({ state: "loading" });
+    try {
+      const rc = await rpc("admin_list_payment_recovery_cases");
+      if (rc.error) {
+        setRecoveryRead(isMissingFunction(rc.error) ? { state: "unavailable" } : { state: "error", message: rc.error.message.split("\n")[0] });
+        return;
+      }
+      if (!Array.isArray(rc.data) || !rc.data.every(isRecoveryCase)) {
+        setRecoveryRead({ state: "error", message: "The answer was not a list of cases." });
+        return;
+      }
+      setRecoveryRead({ state: "ready", cases: (rc.data as RecoveryCase[]).filter((c) => c.status === "OPEN") });
+    } catch (e) {
+      setRecoveryRead({ state: "error", message: e instanceof Error ? e.message : "The request failed." });
+    }
+  }, []);
+
   useEffect(() => { if (!loading && user) loadAttention(); }, [loading, user, loadAttention]);
+  useEffect(() => { if (!loading && user && allowed) loadRecoveries(); }, [loading, user, allowed, loadRecoveries]);
 
   const act = async (key: string, run: () => Promise<{ error: { message: string } | null } | void>, done: string) => {
     setBusy(key); setMessage(null);
@@ -82,6 +104,7 @@ export default function CommercialAdmin() {
     if (r && r.error) { setMessage(r.error.message.split("\n")[0]); return; }
     setMessage(done);
     await loadAttention();
+    await loadRecoveries();
   };
 
   if (loading) return <Centered><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" /></Centered>;
@@ -94,13 +117,13 @@ export default function CommercialAdmin() {
       <div className="flex items-center gap-3">
         <ShieldCheck className="h-6 w-6 text-primary" aria-hidden="true" />
         <h1 className="text-2xl font-semibold">Commercial administration</h1>
-        <Button size="sm" variant="outline" className="ml-auto" onClick={loadAttention}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh</Button>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={() => { loadAttention(); loadRecoveries(); }}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh</Button>
       </div>
       {message && <p className="border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="admin-message">{message}</p>}
 
       <Tabs defaultValue="payments">
         <TabsList className="h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length})</TabsTrigger>
+          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length + (recoveryRead.state === "ready" ? recoveryRead.cases.length : 0)}{recoveryRead.state === "error" || recoveryRead.state === "unavailable" ? " · one list not loaded" : ""})</TabsTrigger>
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
           <TabsTrigger value="platform">Online payment</TabsTrigger>
@@ -116,11 +139,35 @@ export default function CommercialAdmin() {
           </section>
           <section aria-labelledby="attention-reversals">
             <h2 id="attention-reversals" className="text-lg font-medium">Refunds and disputes</h2>
-            <p className="text-sm text-muted-foreground">A refund or dispute never changes a licence by itself. Decide, and if access should end, end the licence under Accounts first.</p>
+            <p className="text-sm text-muted-foreground">A refund or dispute never changes a licence by itself. "End the licence now" ends access at once; "Keep the licence" changes nothing. Each is decided once and recorded.</p>
             {reversals.length === 0 && <p className="mt-2 text-sm text-muted-foreground">None waiting for a decision.</p>}
             <ul className="mt-3 space-y-3">
               {reversals.map((r) => <ReversalRow key={r.event_id} r={r} busy={busy} act={act} />)}
             </ul>
+          </section>
+          <section aria-labelledby="attention-recoveries">
+            <h2 id="attention-recoveries" className="text-lg font-medium">Charges needing a decision</h2>
+            <p className="text-sm text-muted-foreground">A verified payment on an order that was already paid, on an older checkout paid after the customer started a new one, or reported unsuccessful by the provider before. The money is recorded; no term was granted for it. Refund it with the provider and mark it refunded — or, only if the customer agrees to receive another term, place it as an additional term.</p>
+            {recoveryRead.state === "loading" && <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="recoveries-loading"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading…</p>}
+            {recoveryRead.state === "unavailable" && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="recoveries-unavailable">
+                <span>This list is not available on this database yet (the commercial-p5 release is not applied). It is not empty — it cannot be read.</span>
+                <Button size="sm" variant="outline" onClick={loadRecoveries} data-testid="recoveries-retry">Retry</Button>
+              </div>
+            )}
+            {recoveryRead.state === "error" && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 border-l-2 border-destructive pl-3 text-sm text-destructive" role="alert" data-testid="recoveries-error">
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>The charges needing a decision could not be loaded: {recoveryRead.message} Nothing here is shown as empty.</span>
+                <Button size="sm" variant="outline" onClick={loadRecoveries} data-testid="recoveries-retry">Retry</Button>
+              </div>
+            )}
+            {recoveryRead.state === "ready" && recoveryRead.cases.length === 0 && <p className="mt-2 text-sm text-muted-foreground" data-testid="no-recoveries">None waiting for a decision.</p>}
+            {recoveryRead.state === "ready" && recoveryRead.cases.length > 0 && (
+              <ul className="mt-3 space-y-3">
+                {recoveryRead.cases.map((c) => <RecoveryRow key={c.id} c={c} busy={busy} act={act} />)}
+              </ul>
+            )}
           </section>
         </TabsContent>
 
@@ -166,6 +213,56 @@ function IntentRow({ i, busy, act }: { i: AttentionIntent; busy: string | null; 
             void act(`close-${i.intent_id}`, () => rpc("admin_resolve_manual_review_intent", { p_checkout_intent_id: i.intent_id, p_resolution: "CONFIRMED_UNCHARGED_CANCEL", p_reason: reason.trim() }), "Closed as uncharged. The customer can start a new payment.");
           }}>Close as uncharged</Button>
         )}
+      </div>
+    </li>
+  );
+}
+
+type RecoveryRead =
+  | { state: "loading" } | { state: "ready"; cases: RecoveryCase[] } | { state: "unavailable" } | { state: "error"; message: string };
+/** PostgREST and PostgreSQL say a function does not exist: the release that adds it is not applied. */
+const isMissingFunction = (e: { message: string; code?: string }) =>
+  e.code === "PGRST202" || e.code === "42883" || /could not find the function|function .* does not exist/i.test(e.message);
+const isRecoveryCase = (v: unknown): boolean => {
+  const c = v as Record<string, unknown> | null;
+  return !!c && typeof c === "object" && typeof c.id === "string" && typeof c.status === "string" && typeof c.reason === "string"
+    && (typeof c.amount_minor === "number" || typeof c.amount_minor === "string") && typeof c.provider_environment === "string";
+};
+type RecoveryCase = {
+  id: string; status: string; reason: string; created_at: string; owner_email: string | null; plan_code: string; provider: string;
+  provider_environment: string; provider_transaction_id: string; amount_minor: number | string; currency_code: string;
+  saff_reference: string | null; refunded_minor: number | string;
+};
+const RECOVERY_REASON: Record<string, string> = {
+  PAYMENT_AFTER_REPLACEMENT_STARTED: "Older checkout paid after a new one was started",
+  ADDITIONAL_PAYMENT_ON_PAID_INTENT: "Second payment on an order already paid",
+};
+
+function RecoveryRow({ c, busy, act }: { c: RecoveryCase; busy: string | null; act: Act }) {
+  const [reason, setReason] = useState("");
+  const [agreement, setAgreement] = useState("");
+  const exp = (c.currency_code ?? "").toUpperCase() === "TZS" ? 0 : 2;
+  const sandbox = c.provider_environment === "sandbox";
+  const refundedInFull = Number(c.refunded_minor) >= Number(c.amount_minor);
+  const resolve = (resolution: string, done: string) => act(`rec-${c.id}`, () => rpc("admin_resolve_payment_recovery", {
+    p_case_id: c.id, p_resolution: resolution, p_reason: reason.trim(), ...(resolution === "PLACE_ADDITIONAL_TERM" ? { p_customer_agreement: agreement.trim() } : {}) }), done);
+  return (
+    <li className="border border-border p-4 text-sm" data-testid={`recovery-${c.id}`}>
+      <div className="flex flex-wrap gap-x-4">
+        <Badge variant="outline">{RECOVERY_REASON[c.reason] ?? c.reason}</Badge>
+        <span>{formatMoney(Number(c.amount_minor), (c.currency_code ?? "").toUpperCase(), exp)} · {c.plan_code} · {c.provider}{sandbox ? " (test)" : ""}</span>
+        <span className="text-muted-foreground">{c.owner_email ?? "—"} · {day(c.created_at)} · {c.saff_reference ?? ""}</span>
+      </div>
+      <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{c.provider_transaction_id}{Number(c.refunded_minor) > 0 ? ` · refunds recorded ${formatMoney(Number(c.refunded_minor), (c.currency_code ?? "").toUpperCase(), exp)}` : ""}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Input className="h-8 w-56" placeholder="Reason (recorded)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for the decision" />
+        {!sandbox && <Input className="h-8 w-72" placeholder="Customer's agreement to another term (how, when)" value={agreement} onChange={(e) => setAgreement(e.target.value)} aria-label="The customer's recorded agreement to receive another term" />}
+        {sandbox
+          ? <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => resolve("TEST_PAYMENT_CLOSED", "Test payment closed.")}>Close test payment</Button>
+          : <>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || agreement.trim().length < 10 || Number(c.refunded_minor) > 0} onClick={() => resolve("PLACE_ADDITIONAL_TERM", "Additional term placed.")} title="Only with the customer's agreement to receive another term; otherwise refund it">Place as an additional term</Button>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || !refundedInFull} onClick={() => resolve("REFUNDED", "Marked refunded.")} title={refundedInFull ? undefined : "Refund it with the provider first; the refund must be recorded in full"}>Mark refunded</Button>
+            </>}
       </div>
     </li>
   );

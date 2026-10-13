@@ -517,6 +517,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 24855, sha256: "a8fe9755aaa8f655445ad1c0eb5810e6512920fa2f95daa176691e26fc8c38eb" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 24854, sha256: "510deb91abf854a9301b1703b6d46cbb8325e16a02568b176bc16061d8865b2f" }),
   }),
+  // Verified charge outcomes (batch commercial-p5): a verified charge is never dropped (DEFECT-VERIFIED-CHARGE-DROPPED-001).
+  "20261102100000_verified_charge_outcomes.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 45711, sha256: "b20bf253961a14c3a1c9e66b3602295831a81b614b2da8eae19295dc40e31ae4" }),
+    finalLfRemoved: Object.freeze({ bytes: 45710, sha256: "302bdd5c4759ee90ea3a45caefc5e7578e9e0bf9451cb6faabeeef7ba6670570" }),
+    // Self-checking wrapper release/wrappers/20261102100000_verified_charge_outcomes.wrapper.sql:
+    wrapper: Object.freeze({ bytes: 47281, sha256: "a215cc20994f91c57fe0774401decd21a8129013a6fecb1e70ae3cf1567b57ea" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 47280, sha256: "bf5cd81f20e2a6f7500398259491a3e634a9ec9d6b855775b98657fe9d74d15d" }),
+  }),
 });
 
 /**

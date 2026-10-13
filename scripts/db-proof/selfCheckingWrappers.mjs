@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "commercial-p4"
+const DRIZZLE_FAILURE = BATCH.id === "commercial-p5"
+  ? { object: "public.admin_resolve_payment_recovery(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text)", rolledBack: "SELECT to_regclass('public.payment_recovery_cases') IS NULL AND to_regprocedure('public.admin_resolve_payment_recovery(uuid,text,text,text)') IS NULL AS ok" }
+  : BATCH.id === "commercial-p4"
   ? { object: "public.admin_list_reversal_discrepancies()", rolledBack: "SELECT to_regprocedure('public._record_payment_reversal_core(uuid,text,text,text,bigint,text,text,text,text,uuid,jsonb)') IS NULL AND to_regprocedure('public.admin_record_provider_refund(uuid,bigint,text,text,text,text,text,text,text,uuid)') IS NULL AND position('_record_payment_reversal_core' IN pg_get_functiondef('public.record_payment_reversal(uuid,text,text,text,bigint,text,text,text)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "commercial-p3"
   ? { object: "public.admin_restore_term_ended_by_sandbox(pg_catalog.uuid,pg_catalog.text)", rolledBack: "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'commercial_licences' AND column_name = 'provenance') AND position('SANDBOX' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_cl_status'))) = 0 AS ok" }

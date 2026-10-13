@@ -573,6 +573,7 @@ jobs:
           git fetch --no-tags --depth=1 origin 2656cf057d4e0386e4316ccff949914d4a5c20cc
           git fetch --no-tags --depth=1 origin 762f3d97f5e07651640c2184aeb4d3defcb64b1e
           git fetch --no-tags --depth=1 origin f35252dced2a5ba8fabc189fb2022a831e15774e
+          git fetch --no-tags --depth=1 origin 82659bb045f16f166d26952c3ca7fc7a2fb36130
           node scripts/release/selfCheckingWrapper.mjs --check
           node scripts/db-proof/selfCheckingWrappers.mjs
 
@@ -719,6 +720,23 @@ jobs:
         run: |
           createdb p4_baseline_proof
           bun scripts/db-proof/p4HostedBaseline.mjs
+
+      - name: Verified charge outcomes wrapper proof (the same reviewed proof for the commercial-p5 wrapper; every refusal before any statement, injected failures rolled back, the hosted-executor model, re-application refused, the read-only postcondition)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/charge_outcomes_wrappers_proof
+          RELEASE_BATCH: commercial-p5
+        run: |
+          createdb charge_outcomes_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/verified_charge_proof
+        run: |
+          createdb verified_charge_proof
+          bun scripts/db-proof/verifiedChargeOutcomes.mjs
 
       - name: Sandbox licence isolation proof (20261031110000 superseding 20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the hosted scenario through the exact wrappers with a 53-row journal, the superseded wrapper failing atomically with CANCELLED_LICENCE_IMMUTABLE and an injected failure rolled back; cancelled sandbox licences stay cancelled; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
         env:

@@ -292,6 +292,8 @@ describe("database inertness — schema and functions", () => {
       // Payment reversal authority (20261101100000, commercial-p4): every reversal bounded; a licence decision takes effect; an
       // audited refund workflow for providers that report none. No financial-statements schema.
       "supabase/migrations/20261101100000_payment_reversal_authority.sql",
+      // Verified charge outcomes (20261102100000, commercial-p5): a verified charge is never dropped. No financial-statements schema.
+      "supabase/migrations/20261102100000_verified_charge_outcomes.sql",
       // Online payment: the Polar and Snippe adapters, signatures, bounded HTTP, the shared settlement path and the two
       // provider webhook endpoints. No financial-statements schema.
       "supabase/functions/_shared/payments/http.ts",
@@ -549,6 +551,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/paymentReversalAuthority.mjs",
       // commercial-p4 on the exact hosted baseline (legacy non-purchasable TZS offers): the loopback-only release-gate proof.
       "scripts/db-proof/p4HostedBaseline.mjs",
+      // Verified charge outcomes: the loopback-only proof.
+      "scripts/db-proof/verifiedChargeOutcomes.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
