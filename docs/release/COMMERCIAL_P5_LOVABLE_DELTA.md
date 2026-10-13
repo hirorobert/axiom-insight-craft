@@ -2,10 +2,14 @@
 
 **This is a delta.** It follows commercial-p4, which is applied as drizzle `0054` (hosted id 55).
 
-**This package supersedes every earlier deploy or Publish source.** Its release commit contains everything in the business-email release (`004a055`), `handoff-commercial-p4r-20261012` and every earlier package.
-- After this release, **deploy and Publish only from its release commit**.
-- The older packages' Edge Functions predate this `settle.ts`, and the business-email Publish predates the new admin section. Deploying or publishing either after this release would undo part of it.
-- If the business-email release has not been published yet, publishing this release commit publishes it too.
+**This package supersedes every earlier deploy or Publish source.**
+
+**What "supersedes" means here, and what it does not:**
+- **It includes the earlier application changes.** The release commit's frontend and Edge Function code contains everything from the business-email release (`004a055`), `handoff-commercial-p4r-20261012` and every earlier package.
+- **It replaces their deployment instructions.** Publish and deploy only from this release commit. Using an older package's build after it would undo part of it.
+- **It does NOT repeat any migration.** commercial-p4 and everything before it are already applied on the hosted database and stay applied. The only migration in this delta is `20261102100000` (commercial-p5). The package carries only that wrapper. No earlier wrapper, preflight or postcondition is to be run again.
+
+If the business-email release has not been published yet, publishing this release commit publishes it too.
 
 This release brings:
 - **one migration batch**, `commercial-p5`;

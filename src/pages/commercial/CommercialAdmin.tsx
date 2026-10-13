@@ -62,7 +62,7 @@ export default function CommercialAdmin() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [intents, setIntents] = useState<AttentionIntent[]>([]);
   const [reversals, setReversals] = useState<Reversal[]>([]);
-  const [recoveries, setRecoveries] = useState<RecoveryCase[]>([]);
+  const [recoveryRead, setRecoveryRead] = useState<RecoveryRead>({ state: "loading" });
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -72,12 +72,30 @@ export default function CommercialAdmin() {
     setAllowed(true);
     const d = data as { intents: AttentionIntent[]; reversals: Reversal[] };
     setIntents(d.intents ?? []); setReversals(d.reversals ?? []);
-    // Verified charges that are not an order's own placed payment (20261102100000). Absent before that migration: hidden.
-    const rc = await rpc("admin_list_payment_recovery_cases");
-    setRecoveries(!rc.error && Array.isArray(rc.data) ? (rc.data as RecoveryCase[]).filter((c) => c.status === "OPEN") : []);
+  }, []);
+
+  // Verified charges that are not an order's own payment (20261102100000). Read on its own: a failure here never hides or
+  // empties the other sections, and a failed, malformed or unavailable answer is never shown as "none waiting".
+  const loadRecoveries = useCallback(async () => {
+    setRecoveryRead({ state: "loading" });
+    try {
+      const rc = await rpc("admin_list_payment_recovery_cases");
+      if (rc.error) {
+        setRecoveryRead(isMissingFunction(rc.error) ? { state: "unavailable" } : { state: "error", message: rc.error.message.split("\n")[0] });
+        return;
+      }
+      if (!Array.isArray(rc.data) || !rc.data.every(isRecoveryCase)) {
+        setRecoveryRead({ state: "error", message: "The answer was not a list of cases." });
+        return;
+      }
+      setRecoveryRead({ state: "ready", cases: (rc.data as RecoveryCase[]).filter((c) => c.status === "OPEN") });
+    } catch (e) {
+      setRecoveryRead({ state: "error", message: e instanceof Error ? e.message : "The request failed." });
+    }
   }, []);
 
   useEffect(() => { if (!loading && user) loadAttention(); }, [loading, user, loadAttention]);
+  useEffect(() => { if (!loading && user && allowed) loadRecoveries(); }, [loading, user, allowed, loadRecoveries]);
 
   const act = async (key: string, run: () => Promise<{ error: { message: string } | null } | void>, done: string) => {
     setBusy(key); setMessage(null);
@@ -86,6 +104,7 @@ export default function CommercialAdmin() {
     if (r && r.error) { setMessage(r.error.message.split("\n")[0]); return; }
     setMessage(done);
     await loadAttention();
+    await loadRecoveries();
   };
 
   if (loading) return <Centered><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" /></Centered>;
@@ -98,13 +117,13 @@ export default function CommercialAdmin() {
       <div className="flex items-center gap-3">
         <ShieldCheck className="h-6 w-6 text-primary" aria-hidden="true" />
         <h1 className="text-2xl font-semibold">Commercial administration</h1>
-        <Button size="sm" variant="outline" className="ml-auto" onClick={loadAttention}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh</Button>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={() => { loadAttention(); loadRecoveries(); }}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh</Button>
       </div>
       {message && <p className="border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="admin-message">{message}</p>}
 
       <Tabs defaultValue="payments">
         <TabsList className="h-auto flex-wrap justify-start gap-1">
-          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length + recoveries.length})</TabsTrigger>
+          <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length + (recoveryRead.state === "ready" ? recoveryRead.cases.length : 0)}{recoveryRead.state === "error" || recoveryRead.state === "unavailable" ? " · one list not loaded" : ""})</TabsTrigger>
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
           <TabsTrigger value="platform">Online payment</TabsTrigger>
@@ -129,10 +148,26 @@ export default function CommercialAdmin() {
           <section aria-labelledby="attention-recoveries">
             <h2 id="attention-recoveries" className="text-lg font-medium">Charges needing a decision</h2>
             <p className="text-sm text-muted-foreground">A verified payment on an order that was already paid, on an older checkout paid after the customer started a new one, or reported unsuccessful by the provider before. The money is recorded; no term was granted for it. Refund it with the provider and mark it refunded — or, only if the customer agrees to receive another term, place it as an additional term.</p>
-            {recoveries.length === 0 && <p className="mt-2 text-sm text-muted-foreground" data-testid="no-recoveries">None waiting for a decision.</p>}
-            <ul className="mt-3 space-y-3">
-              {recoveries.map((c) => <RecoveryRow key={c.id} c={c} busy={busy} act={act} />)}
-            </ul>
+            {recoveryRead.state === "loading" && <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="recoveries-loading"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading…</p>}
+            {recoveryRead.state === "unavailable" && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="recoveries-unavailable">
+                <span>This list is not available on this database yet (the commercial-p5 release is not applied). It is not empty — it cannot be read.</span>
+                <Button size="sm" variant="outline" onClick={loadRecoveries} data-testid="recoveries-retry">Retry</Button>
+              </div>
+            )}
+            {recoveryRead.state === "error" && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 border-l-2 border-destructive pl-3 text-sm text-destructive" role="alert" data-testid="recoveries-error">
+                <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>The charges needing a decision could not be loaded: {recoveryRead.message} Nothing here is shown as empty.</span>
+                <Button size="sm" variant="outline" onClick={loadRecoveries} data-testid="recoveries-retry">Retry</Button>
+              </div>
+            )}
+            {recoveryRead.state === "ready" && recoveryRead.cases.length === 0 && <p className="mt-2 text-sm text-muted-foreground" data-testid="no-recoveries">None waiting for a decision.</p>}
+            {recoveryRead.state === "ready" && recoveryRead.cases.length > 0 && (
+              <ul className="mt-3 space-y-3">
+                {recoveryRead.cases.map((c) => <RecoveryRow key={c.id} c={c} busy={busy} act={act} />)}
+              </ul>
+            )}
           </section>
         </TabsContent>
 
@@ -183,6 +218,16 @@ function IntentRow({ i, busy, act }: { i: AttentionIntent; busy: string | null; 
   );
 }
 
+type RecoveryRead =
+  | { state: "loading" } | { state: "ready"; cases: RecoveryCase[] } | { state: "unavailable" } | { state: "error"; message: string };
+/** PostgREST and PostgreSQL say a function does not exist: the release that adds it is not applied. */
+const isMissingFunction = (e: { message: string; code?: string }) =>
+  e.code === "PGRST202" || e.code === "42883" || /could not find the function|function .* does not exist/i.test(e.message);
+const isRecoveryCase = (v: unknown): boolean => {
+  const c = v as Record<string, unknown> | null;
+  return !!c && typeof c === "object" && typeof c.id === "string" && typeof c.status === "string" && typeof c.reason === "string"
+    && (typeof c.amount_minor === "number" || typeof c.amount_minor === "string") && typeof c.provider_environment === "string";
+};
 type RecoveryCase = {
   id: string; status: string; reason: string; created_at: string; owner_email: string | null; plan_code: string; provider: string;
   provider_environment: string; provider_transaction_id: string; amount_minor: number | string; currency_code: string;

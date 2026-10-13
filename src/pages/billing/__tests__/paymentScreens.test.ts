@@ -282,6 +282,64 @@ describe("administrator screen", () => {
   });
 });
 
+describe("administrator screen · charges needing a decision (a failed read is never an empty list)", () => {
+  const ATTENTION = { data: { intents: [{ intent_id: "i1", saff_reference: "SAFF-KEEP", status: "MANUAL_REVIEW", provider: "POLAR", provider_environment: "production", plan_code: "SOLO", amount_minor: 49000, currency_code: "USD", currency_exponent: 2, created_at: "2026-10-10T08:00:00Z", expires_at: "2026-10-10T09:00:00Z", billing_customer_id: "b1", owner_email: "c@example.test", reason: "PAID_LICENCE_PLACEMENT_REQUIRED", payment_recorded: true }], reversals: [] }, error: null };
+  const withRecoveries = (answer: () => unknown) => supabaseRpc.mockImplementation(async (fn: string) =>
+    fn === "admin_list_payment_attention" ? ATTENTION : fn === "admin_list_payment_recovery_cases" ? answer() : { data: null, error: null });
+  const CASE = { id: "rc1", status: "OPEN", reason: "PAYMENT_AFTER_REPLACEMENT_STARTED", created_at: "2026-10-13T08:00:00Z", owner_email: "c@example.test", plan_code: "SOLO", provider: "POLAR", provider_environment: "production", provider_transaction_id: "order-1", amount_minor: 49000, currency_code: "USD", saff_reference: "SAFF-OLD", refunded_minor: 0 };
+
+  for (const [label, answer] of [
+    ["a failed read", { data: null, error: { message: "connection reset", code: "08006" } }],
+    ["a malformed answer (not a list)", { data: { cases: [] }, error: null }],
+    ["a list whose items are not cases", { data: [{ nope: true }], error: null }],
+  ] as const) {
+    it(`${label}: an explicit error with Retry — never "none waiting"; the other sections still show`, async () => {
+      withRecoveries(() => answer);
+      m = mount(at("/commercial/admin", h(CommercialAdmin)));
+      await flush();
+      expect(byTestId(m, "recoveries-error")).not.toBeNull();
+      expect(byTestId(m, "recoveries-error")!.getAttribute("role")).toBe("alert");
+      expect(byTestId(m, "recoveries-retry")).not.toBeNull();
+      expect(byTestId(m, "no-recoveries")).toBeNull();
+      expect(byTestId(m, "attention-SAFF-KEEP")).not.toBeNull();
+      expect(m.container.textContent).toContain("one list not loaded");
+    });
+  }
+  it("a database without the release (the function does not exist): an explicit 'not available yet' state with Retry, not an empty list", async () => {
+    withRecoveries(() => ({ data: null, error: { message: "Could not find the function public.admin_list_payment_recovery_cases without parameters in the schema cache", code: "PGRST202" } }));
+    m = mount(at("/commercial/admin", h(CommercialAdmin)));
+    await flush();
+    expect(byTestId(m, "recoveries-unavailable")).not.toBeNull();
+    expect(byTestId(m, "no-recoveries")).toBeNull();
+    expect(byTestId(m, "attention-SAFF-KEEP")).not.toBeNull();
+  });
+  it("Retry reads again: after a failure, a genuine empty list shows 'none waiting'", async () => {
+    let calls = 0;
+    withRecoveries(() => (++calls === 1 ? { data: null, error: { message: "timeout" } } : { data: [], error: null }));
+    m = mount(at("/commercial/admin", h(CommercialAdmin)));
+    await flush();
+    expect(byTestId(m, "recoveries-error")).not.toBeNull();
+    click(byTestId(m, "recoveries-retry") as HTMLButtonElement);
+    await flush();
+    expect(byTestId(m, "recoveries-error")).toBeNull();
+    expect(byTestId(m, "no-recoveries")).not.toBeNull();
+  });
+  it("an open case is listed; placing it as an additional term needs a reason AND the customer's agreement", async () => {
+    withRecoveries(() => ({ data: [CASE, { ...CASE, id: "rc2", status: "REFUNDED" }], error: null }));
+    m = mount(at("/commercial/admin", h(CommercialAdmin)));
+    await flush();
+    const row = byTestId(m, "recovery-rc1")!;
+    expect(byTestId(m, "recovery-rc2")).toBeNull();   // only open cases are listed
+    const place = [...row.querySelectorAll("button")].find((b) => b.textContent?.includes("Place as an additional term"))!;
+    typeInto(row.querySelector('input[aria-label^="Reason"]') as HTMLInputElement, "customer keeps both");
+    expect(place.disabled).toBe(true);
+    typeInto(row.querySelector('input[aria-label^="The customer"]') as HTMLInputElement, "confirmed by email on 13 Oct");
+    expect(place.disabled).toBe(false);
+    const refunded = [...row.querySelectorAll("button")].find((b) => b.textContent?.includes("Mark refunded"))!;
+    expect(refunded.disabled).toBe(true);   // nothing refunded yet
+  });
+});
+
 describe("payment status page · another account's order", () => {
   it("found:false (not this account's order) says so and stops; it reveals nothing about the order", async () => {
     rpcMod.requestPaymentVerificationRecovery.mockResolvedValue({ data: { ...statusBase, found: false, status: "UNKNOWN", planCode: null, expectedAmountMinor: null }, throttled: false, retryAfterSeconds: null, error: null });
