@@ -10,7 +10,7 @@
 | Kind | What it is | State |
 |---|---|---|
 | **Repository** | The code and migrations on `main` | Complete for the Polar card launch. Release commit `d83542f77ec614fb5f801ac1e87ebe34a0aa1d5f` (§2). |
-| **Hosted** | What the live database and functions actually run | Hosted journal **55** (commercial-p4 applied as `0054`, recorded in this repository by PR #116). **commercial-p5 is not applied.** The p5 functions are not deployed, and the release is not published. P5-1 checks this again before anything changes. |
+| **Hosted** | What the live database and functions actually run | **commercial-p5 is applied:** hosted journal **56**, drizzle `0055_verified_charge_outcomes_wrapper`, journal time 2026-10-13T17:08:58.723Z. The journal file Lovable committed (`ce41133`) is byte-identical to the registered wrapper (47,281 B, `a215cc20…7b57ea`) and is registered in `scripts/ci/releaseJournal.mjs`. **Not evidenced in this repository:** the P5-2 preflight and P5-4 postcondition outputs, the function deployment (P5-5), the Publish (P5-6) and the P5-7 checks. They are to be reported; P5-3 is never repeated. |
 | **Provider** | What Polar or Snippe actually did | **No production payment and no refund has been completed** (owner's statement, 13 October 2026). This repository's payment evidence uses mock providers only. |
 | **Owner** | Decisions and accounts only the owner can make | **Reported complete** (§1a): Polar merchant onboarding, production configuration, the USD price approval and the tester designation. **Open:** the controlled live charge and refund authorisations, and the final launch authorisation (§9). |
 
@@ -183,9 +183,9 @@ The site header's primary action is **Request activation** in every server state
 | 7 | Purchase journey for each server state (§5) | CI journey, real PostgreSQL | PASS, except rows 8 and 9 |
 | 8 | `LIVE_ACCEPTANCE` pages with a production configuration | Hosted, provider | NOT RUN (§7, step 3) |
 | 9 | Production checkout under `CUSTOMER_PAYMENTS_ENABLED` | Hosted, provider | NOT RUN (Stage F) |
-| 10 | Hosted journal at 55 with p4 applied and p5 unapplied | Hosted | Recorded earlier; **fresh check at P5-1** (Lovable) |
-| 11 | p5 applied and postcondition OK, with preservation | Hosted | NOT RUN (P5-3, P5-4) |
-| 12 | Functions deployed; release published | Hosted | NOT RUN (P5-5, P5-6) |
+| 10 | Hosted journal before p5: 55, p4 applied | Hosted | Superseded by row 11 |
+| 11 | p5 applied and postcondition OK, with preservation | Hosted | **Applied** as 0055 (hosted 56), the registered wrapper byte for byte (verified from the committed journal file). Postcondition and preservation outputs: **not yet reported** (P5-4). |
+| 12 | Functions deployed; release published | Hosted | No evidence in this repository (P5-5, P5-6) |
 | 13 | Historical dropped charges reconciled with Polar's records | Hosted, provider | NOT RUN (§7, step 2) |
 | 14 | Polar merchant onboarding (approval, identity, payout account) | Provider | **Reported complete** by the owner, 13 Oct 2026 (§1a). Not independently verified; the Polar dashboard check is recorded at §7, step 3. |
 | 15 | Polar production configuration | Hosted | **Reported complete** (§1a). The `/commercial/admin` read is recorded at §7, step 3. |
@@ -212,7 +212,7 @@ Onboarding, price approval and the tester designation are reported complete and 
 
 | Step | What | Who | Evidence required |
 |---|---|---|---|
-| 1 | **Deploy p5:** P5-1 to P5-7 (§3) | Lovable, with owner authorisation for P5-3, P5-5 and P5-6 | The P5-1 and P5-2 outputs; journal 56; `POSTCONDITION OK.` with equal digests; deployed file hashes against the manifest; the P5-7 checks |
+| 1 | **Deploy p5:** P5-1 to P5-7 (§3). **P5-3 is done** (applied as 0055, hosted 56, 13 October 2026); do not apply it again. Report the P5-2 and P5-4 outputs, then P5-5 to P5-7. | Lovable, with owner authorisation for P5-3, P5-5 and P5-6 | The P5-1 and P5-2 outputs; journal 56; `POSTCONDITION OK.` with equal digests; deployed file hashes against the manifest; the P5-7 checks |
 | 2 | **Reconcile historical dropped charges.** List every *succeeded* order in Polar's dashboard for the production organization, and the sandbox one for completeness. Match each to a `payment_events` row by provider transaction id. Include every row from P5-2 section 1b. | Owner and Lovable, read-only | A list of unmatched charges, or "none". For each one, the owner chooses: refund it in Polar, then record it; or arrange an additional term **with the customer's written agreement**. Never re-run verification on a closed order. |
 | 3 | **Controlled live acceptance (Stage E).** First, read-only and without repeating anything: `/commercial/admin` → **Online payment** lists the card route in **production**; **Prices** shows the three USD offers approved; the allow-list row for cfoclose@gmail.com's account is **active**; Polar's dashboard shows the account approved. Then set `LIVE_ACCEPTANCE`, confirm a non-listed account is refused, and make **one** real Solo purchase as cfoclose@gmail.com through `/billing/checkout?plan=SOLO`. | Owner authorisation **for this specific charge**, given after the disclosure below | The four read-only results; the refusal for the other account; the buyer's status page, order and licence; Polar's order id and the **actual** total charged |
 | 4 | **Refund and access resolution.** Refund that charge in Polar. Confirm the refund is listed against **that exact transaction**. End the licence and record **licence ended**. Deactivate the allow-list entry. Set `PAYMENTS_DISABLED`. | Owner authorisation **for this specific refund**; administrator | The refund recorded against the transaction; access ended and audited; the platform disabled; the **actual** fees Polar retained |

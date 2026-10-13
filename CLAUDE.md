@@ -862,7 +862,7 @@ reachable from Snippe (it reports no reversals). Repair is a forward migration w
 fold it into unrelated work. Record: `docs/release/SNIPPE_TZ_READINESS.md` §5.
 
 **DEFECT-VERIFIED-CHARGE-DROPPED-001** — Severity: HIGH — Status: FIXED IN SOURCE by `20261102100000_verified_charge_outcomes.sql`
-(batch commercial-p5; PENDING HOSTED APPLICATION; record `docs/release/VERIFIED_CHARGE_OUTCOMES.md`). Neither Polar nor Snippe can
+(batch commercial-p5; APPLIED as drizzle 0055, hosted id 56, 2026-10-13; record `docs/release/VERIFIED_CHARGE_OUTCOMES.md`). Neither Polar nor Snippe can
 cancel a checkout on request, so an older session can be paid after CFOClose closed its intent; the commit used to answer
 INTENT_ALREADY_RESOLVED / INTENT_ALREADY_PAID and record nothing. Now every verified charge has one outcome: a late payment that
 nothing replaced is placed (audited as late); a payment after a replacement started, or a second transaction on a paid intent,

@@ -1,7 +1,7 @@
 # DEFECT-VERIFIED-CHARGE-DROPPED-001: a verified charge could be recorded nowhere
 
 - **Severity:** high. Customer money was taken with no record, no entitlement and nothing for anyone to act on.
-- **Status:** fixed in source by `20261102100000_verified_charge_outcomes.sql` (batch **commercial-p5**). **Pending hosted application:** see `COMMERCIAL_P5_LOVABLE_DELTA.md`.
+- **Status:** fixed in source by `20261102100000_verified_charge_outcomes.sql` (batch **commercial-p5**). **Applied** on the hosted database as drizzle `0055` (hosted id 56) on 13 October 2026, through the registered wrapper byte for byte (`scripts/ci/releaseJournal.mjs`). Steps: `COMMERCIAL_P5_LOVABLE_DELTA.md`.
 - **Proofs:**
   - `scripts/db-proof/verifiedChargeOutcomes.mjs` (local, real PostgreSQL);
   - the CI payment journey group "An older Polar session paid after CFOClose closed its intent", which runs through the real Edge Functions against a mock Polar.
