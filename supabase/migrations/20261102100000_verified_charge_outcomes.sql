@@ -19,9 +19,10 @@
 --   3. a payment after a replacement was started, a second different transaction on an already-paid intent, or a success
 --      that contradicts a non-success the PROVIDER itself reported for the intent: the money is
 --      recorded ONCE (payment event, placement RECOVERY_REQUIRED) with an OPEN payment_recovery_cases row and an audit
---      row; a commercial administrator resolves it — PLACE_ADDITIONAL_TERM (a 12-month term queued after the account's
---      current paid time, never shortening or overlapping one), REFUNDED (only once refunds recorded against that payment
---      cover it in full), or TEST_PAYMENT_CLOSED (a sandbox payment, which moved no money).
+--      row; a commercial administrator resolves it — PLACE_ADDITIONAL_TERM (only with the customer's recorded agreement to
+--      receive another term, and only where the current placement rule allows it), REFUNDED (only once refunds recorded
+--      against that payment cover it in full), or TEST_PAYMENT_CLOSED (a sandbox payment, which moved no money). An
+--      unintended second charge is refunded; it never silently becomes a renewal.
 -- The same provider transaction is never recorded twice, whatever the key; a commit and a replacement attempt for the
 -- same account and product are serialised under the acquisition lock. Payment history and existing terms are untouched.
 
@@ -589,10 +590,19 @@ $$;
 REVOKE ALL ON FUNCTION public.admin_list_payment_recovery_cases() FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.admin_list_payment_recovery_cases() TO authenticated;
 
-CREATE OR REPLACE FUNCTION public.admin_resolve_payment_recovery(p_case_id UUID, p_resolution TEXT, p_reason TEXT)
+-- A recovery case closes only with a valid outcome:
+--   PLACE_ADDITIONAL_TERM  a production payment, nothing refunded, the customer's RECORDED AGREEMENT to receive another term
+--                          (how and when they agreed — an unintended second charge is refunded, never silently a renewal), and
+--                          a placement the CURRENT rule allows (_commercial_licence_placement: renewal queued at the end, a
+--                          downgrade at renewal, an upgrade from now; every BLOCKED_* result — an open-ended agreement, a queued
+--                          term, paid additional named users — refuses it);
+--   REFUNDED               refunds recorded against THAT payment cover it in full;
+--   TEST_PAYMENT_CLOSED    a sandbox payment (it moved no money and is never placed).
+CREATE OR REPLACE FUNCTION public.admin_resolve_payment_recovery(p_case_id UUID, p_resolution TEXT, p_reason TEXT, p_customer_agreement TEXT DEFAULT NULL)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path = public, pg_catalog AS $$
 DECLARE
   v_actor UUID := auth.uid(); v_case RECORD; v_intent RECORD; v_refunded BIGINT; v_start TIMESTAMPTZ; v_end TIMESTAMPTZ; v_licence UUID;
+  v_place JSONB; v_ended UUID;
 BEGIN
   IF v_actor IS NULL OR NOT public.is_commercial_admin() THEN RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501'; END IF;
   IF p_reason IS NULL OR btrim(p_reason) = '' THEN RAISE EXCEPTION 'REASON_REQUIRED' USING ERRCODE = '22023'; END IF;
@@ -617,21 +627,28 @@ BEGIN
   ELSE
     IF v_case.provider_environment <> 'production' THEN RAISE EXCEPTION 'NOT_A_PRODUCTION_PAYMENT' USING ERRCODE = '22023'; END IF;
     IF v_refunded > 0 THEN RAISE EXCEPTION 'PAYMENT_PARTLY_OR_FULLY_REFUNDED' USING ERRCODE = '22023'; END IF;
-    IF EXISTS (SELECT 1 FROM public.commercial_licences WHERE billing_customer_id = v_case.billing_customer_id
-                AND status IN ('ACTIVE','GRACE') AND effective_end IS NULL) THEN
-      RAISE EXCEPTION 'PLACEMENT_BLOCKED_OPEN_ENDED_AGREEMENT' USING ERRCODE = '22023';
+    IF p_customer_agreement IS NULL OR length(btrim(p_customer_agreement)) < 10 THEN
+      RAISE EXCEPTION 'CUSTOMER_AGREEMENT_REQUIRED: record how and when the customer agreed to receive another term' USING ERRCODE = '22023';
     END IF;
     SELECT * INTO v_intent FROM public.payment_checkout_intents WHERE id = v_case.checkout_intent_id;
-    -- Queued after every granting term the account already has: never shortens, never overlaps.
-    SELECT greatest(now(), COALESCE(max(effective_end), now())) INTO v_start FROM public.commercial_licences
-     WHERE billing_customer_id = v_case.billing_customer_id AND status IN ('ACTIVE','GRACE');
+    -- The CURRENT placement rule, exactly as a verified payment is placed (renewal, downgrade at renewal, upgrade, or refusal).
+    v_place := public._commercial_licence_placement(v_case.billing_customer_id, v_case.plan_id, now());
+    IF v_place IS NULL OR left(coalesce(v_place->>'kind', ''), 8) = 'BLOCKED_' THEN
+      RAISE EXCEPTION 'PLACEMENT_RULE_REFUSES: %', coalesce(v_place->>'kind', 'NO_PLACEMENT') USING ERRCODE = '22023';
+    END IF;
+    v_start := (v_place->>'start')::timestamptz;
+    IF v_place->>'kind' = 'UPGRADE' THEN
+      v_ended := (v_place->>'ends_licence_id')::uuid;
+      UPDATE public.commercial_licences SET effective_end = v_start, updated_at = now() WHERE id = v_ended;
+    END IF;
     v_end := CASE v_intent.billing_interval
       WHEN 'MONTHLY' THEN v_start + (v_intent.billing_interval_count || ' months')::interval
       ELSE v_start + (v_intent.billing_interval_count * 12 || ' months')::interval END;
     INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end, provenance, provenance_evidence)
     VALUES (v_case.billing_customer_id, v_case.plan_id, 'ACTIVE', v_case.provider || '_VERIFIED_PAYMENT', v_start, v_end, 'PRODUCTION_PAYMENT',
             jsonb_build_object('basis', 'verified charge placed by an administrator as an additional term', 'recovery_case_id', v_case.id,
-                               'payment_event_id', v_case.payment_event_id, 'provider_transaction_id', v_case.provider_transaction_id))
+                               'payment_event_id', v_case.payment_event_id, 'provider_transaction_id', v_case.provider_transaction_id,
+                               'placement', v_place->>'kind', 'customer_agreement', btrim(p_customer_agreement)))
     RETURNING id INTO v_licence;
   END IF;
 
@@ -643,10 +660,12 @@ BEGIN
   VALUES (v_case.billing_customer_id, v_actor, 'PAYMENT_RECOVERY_RESOLVED',
     jsonb_build_object('recovery_case_id', p_case_id, 'status', 'OPEN'),
     jsonb_build_object('recovery_case_id', p_case_id, 'resolution', p_resolution, 'licence_id', v_licence, 'effective_start', v_start,
-                       'effective_end', v_end, 'payment_event_id', v_case.payment_event_id, 'refunded_minor', v_refunded),
+                       'effective_end', v_end, 'payment_event_id', v_case.payment_event_id, 'refunded_minor', v_refunded,
+                       'placement', v_place->>'kind', 'closed_prior_licence_id', v_ended, 'customer_agreement', btrim(p_customer_agreement)),
     p_reason);
-  RETURN jsonb_build_object('resolved', true, 'resolution', p_resolution, 'licence_id', v_licence, 'effective_start', v_start, 'effective_end', v_end);
+  RETURN jsonb_build_object('resolved', true, 'resolution', p_resolution, 'licence_id', v_licence, 'effective_start', v_start, 'effective_end', v_end,
+    'placement', v_place->>'kind');
 END;
 $$;
-REVOKE ALL ON FUNCTION public.admin_resolve_payment_recovery(UUID,TEXT,TEXT) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.admin_resolve_payment_recovery(UUID,TEXT,TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public.admin_resolve_payment_recovery(UUID,TEXT,TEXT,TEXT) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.admin_resolve_payment_recovery(UUID,TEXT,TEXT,TEXT) TO authenticated;
