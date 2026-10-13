@@ -302,6 +302,12 @@ export const RELEASE_JOURNAL = {
   "0054_payment_reversal_authority_wrapper": { kind: "release_self_checking_wrapper", source: "20261101100000_payment_reversal_authority.sql",
     bytes: 23281, digest: "b2477026bc1fa7c6767e609591328d61ffaca1f19bfdea0d4021a446536638ee",
     form: "wrapper", submittedBytes: 24855, sha256: "a8fe9755aaa8f655445ad1c0eb5810e6512920fa2f95daa176691e26fc8c38eb" },
+  // Verified charge outcomes (batch commercial-p5; main d83542f, PR #118), applied 2026-10-13 by Lovable's hosted migrator
+  // through its SELF-CHECKING WRAPPER, byte for byte (recomputed here). Nothing is pending.
+  // hosted id 56; journal "when" 1791911338723 = 2026-10-13T17:08:58.723Z.
+  "0055_verified_charge_outcomes_wrapper": { kind: "release_self_checking_wrapper", source: "20261102100000_verified_charge_outcomes.sql",
+    bytes: 45711, digest: "b20bf253961a14c3a1c9e66b3602295831a81b614b2da8eae19295dc40e31ae4",
+    form: "wrapper", submittedBytes: 47281, sha256: "a215cc20994f91c57fe0774401decd21a8129013a6fecb1e70ae3cf1567b57ea" },
 };
 
 /**

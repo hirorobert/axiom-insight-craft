@@ -66,7 +66,8 @@ describe("the reviewed release journal", () => {
     // 38: 0046–0052 (the commercial launch: r5, c1×4, p1, p2; release_self_checking_wrapper; hosted 47–53).
     // 39: 0053 (the sandbox isolation correction, commercial-p3; release_self_checking_wrapper; hosted 54).
     // 40: 0054 (payment reversal authority, commercial-p4; release_self_checking_wrapper; hosted 55).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(40);
+    // 41: 0055 (verified charge outcomes, commercial-p5; release_self_checking_wrapper; hosted 56).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(41);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -89,7 +90,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261102100000_verified_charge_outcomes.sql"]); // commercial launch, p3 and p4 applied (0046–0054, hosted 47–55); verified charge outcomes (commercial-p5) pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -475,7 +476,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261102100000_verified_charge_outcomes.sql"]); // commercial launch, p3 and p4 applied (0046–0054, hosted 47–55); verified charge outcomes (commercial-p5) pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
@@ -597,7 +598,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261102100000_verified_charge_outcomes.sql"]); // commercial launch, p3 and p4 applied (0046–0054, hosted 47–55); verified charge outcomes (commercial-p5) pending hosted application
+    expect(r.pending).toEqual([]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
       "0039_i1b_w7_signoff_completion_requirements"];
