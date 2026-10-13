@@ -415,6 +415,24 @@ describe("settlement (the one path from a provider answer to the database)", () 
     const out = await settleIntent(fakeDb({ data: { status: "RECOVERY_REQUIRED", event_id: "evt-9", recovery_case_id: "case-1" } }).db, adapterWith({ verified: true, transaction: tx() }), intent);
     expect(out).toMatchObject({ result: "PLACEMENT_REVIEW", paymentEventId: "evt-9" });
   });
+  it("two charges on one intent: the refund lookup selects by the refunded transaction and records the reversal against THAT payment", async () => {
+    const rows: Record<string, { id: string; checkout_intent_id: string; provider: string }> = {
+      [ORDER]: { id: "evt-first", checkout_intent_id: "intent-1", provider: "POLAR" },
+      "order-second": { id: "evt-second", checkout_intent_id: "intent-1", provider: "POLAR" },
+    };
+    const filters: [string, unknown][] = [];
+    const reversals: unknown[] = [];
+    const db: ServiceDb = {
+      rpc: (fn, args) => { if (fn === "record_payment_reversal") reversals.push(args.p_original_event_id); return Promise.resolve({ data: fn === "commit_verified_commercial_payment" ? { status: "ALREADY_COMMITTED" } : { status: "REVERSAL_RECORDED" }, error: null }); },
+      from: () => ({ select: () => ({ eq: (c1: string, v1: unknown) => { filters.push([c1, v1]); return { eq: (c2: string, v2: unknown) => { filters.push([c2, v2]); return { maybeSingle: () => Promise.resolve({ data: rows[String(v1)] ?? null, error: null }) }; } }; } }) }) as never,
+      priorRefundedMinor: async () => 0n,
+    };
+    const refundOf = (txId: string) => adapterWith({ verified: true, transaction: tx({ providerTransactionId: txId, reversals: [{ type: "REFUND", providerEventId: `${txId}:refund`, amountMinor: 49000n, currencyCode: "USD" }] }) });
+    expect(await settleIntent(db, refundOf("order-second"), intent)).toMatchObject({ result: "REVERSAL_RECORDED" });
+    expect(await settleIntent(db, refundOf(ORDER), intent)).toMatchObject({ result: "REVERSAL_RECORDED" });
+    expect(reversals).toEqual(["evt-second", "evt-first"]);
+    expect(filters.filter(([c]) => c === "provider_transaction_id").map(([, v]) => v)).toEqual(["order-second", ORDER]);
+  });
   it("a refund binds only to the payment its own transaction recorded on this intent; a row for another intent or provider is ERROR (redelivery), never a guess", async () => {
     for (const row of [{ id: "evt-x", checkout_intent_id: "another-intent", provider: "POLAR" }, { id: "evt-x", checkout_intent_id: "intent-1", provider: "SNIPPE" }, null]) {
       const calls: string[] = [];

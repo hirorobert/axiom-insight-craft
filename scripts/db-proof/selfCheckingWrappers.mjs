@@ -43,7 +43,7 @@ const N = WRAPPED_SOURCES.length;
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
 const DRIZZLE_FAILURE = BATCH.id === "commercial-p5"
-  ? { object: "public.admin_resolve_payment_recovery(pg_catalog.uuid,pg_catalog.text,pg_catalog.text)", rolledBack: "SELECT to_regclass('public.payment_recovery_cases') IS NULL AND to_regprocedure('public.admin_resolve_payment_recovery(uuid,text,text)') IS NULL AS ok" }
+  ? { object: "public.admin_resolve_payment_recovery(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text)", rolledBack: "SELECT to_regclass('public.payment_recovery_cases') IS NULL AND to_regprocedure('public.admin_resolve_payment_recovery(uuid,text,text,text)') IS NULL AS ok" }
   : BATCH.id === "commercial-p4"
   ? { object: "public.admin_list_reversal_discrepancies()", rolledBack: "SELECT to_regprocedure('public._record_payment_reversal_core(uuid,text,text,text,bigint,text,text,text,text,uuid,jsonb)') IS NULL AND to_regprocedure('public.admin_record_provider_refund(uuid,bigint,text,text,text,text,text,text,text,uuid)') IS NULL AND position('_record_payment_reversal_core' IN pg_get_functiondef('public.record_payment_reversal(uuid,text,text,text,bigint,text,text,text)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "commercial-p3"

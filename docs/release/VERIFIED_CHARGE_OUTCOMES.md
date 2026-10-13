@@ -54,23 +54,46 @@ It is never both and never neither.
 
 | Resolution | When it is allowed | Effect |
 |---|---|---|
-| **Place as an additional term** | A production payment with no refund recorded, and no open-ended agreement on the account | A 12-month term for the paid plan, **queued after every granting term the account already has**. It never shortens or overlaps one. Provenance `PRODUCTION_PAYMENT`. |
+| **Place as an additional term** | A production payment with no refund recorded, **the customer's recorded agreement to receive another term** (how and when they agreed), and a placement the **current rule** allows | Placed exactly as a verified payment would be: renewal queued at the end, downgrade at renewal, upgrade from now. Every `BLOCKED_*` result refuses it: an open-ended agreement, a queued term, or paid additional named users. Provenance `PRODUCTION_PAYMENT`. The agreement and the placement are audited. |
 | **Mark refunded** | Refunds recorded against **that** payment cover it in full. For Polar, the refund is made in Polar and arrives by webhook. For Snippe, it is recorded with `admin_record_provider_refund`. | The case closes. The original purchase's licence is untouched. |
 | **Close test payment** | A sandbox payment, which moved no money | The case closes. A sandbox payment can never be placed as a term. |
 
+**An unintended second charge never silently becomes a renewal.** Without the customer's recorded agreement, the only way to close the case is a refund. An unknown resolution, a blank reason, or a test-payment closure of a production payment are all refused, and the case stays OPEN.
+
 Each case is **resolved once and audited** (`PAYMENT_RECOVERY_RESOLVED`). Cases are permanent and their facts are fixed: a direct update or delete is refused, even by the table owner. Clients cannot read the table.
 
-## 5. Preventing unmanaged sessions
+## 5. Historical dropped charges: discoverable, not recovered automatically
+
+**This forward fix does not recover charges dropped before it was applied.** They need an explicit, separately approved decision.
+
+**Discoverable in CFOClose's own records:**
+- When the old commit dropped a charge that arrived by webhook, the endpoint logged a processing event `DUPLICATE`, with the provider transaction id and the order reference.
+- No payment event exists for that transaction.
+- The commercial-p5 preflight, section 1b, lists exactly these. The proof finds one in the endpoint's own record shape.
+
+**Discoverable only at the provider:**
+- A charge whose webhook never reached CFOClose leaves no trace here. It appears only in Polar's orders or Snippe's payments.
+- Finding it means comparing those with `payment_events`. That is a manual reconciliation, and nothing here automates it.
+
+**Not re-verifiable in the app:** the in-app payment verification (`claim_verification_attempt`) accepts only open orders, so a closed order is never re-checked by it.
+
+## 6. Refunds bind to the exact provider transaction
+
+- **Webhooks:** a refund webhook finds the payment its **own** transaction recorded (`settle.ts` looks the payment up by provider transaction id, then checks the intent and provider match). It is never "the intent's payment".
+- **Two charges on one intent:** with the original and a recovery payment present, a refund of the second records against the second only. The first's refunded total stays 0, the licence is untouched, and the case closes `REFUNDED`. This is proven on real PostgreSQL and in the unit tests.
+- **Cumulative bounds:** the commercial-p4 rules apply per payment.
+
+## 7. Preventing unmanaged sessions
 
 - **A replacement never silently abandons a payable session.** A pending intent that can't be reused still goes to review and blocks a new attempt, as before.
 - **Closing a review is now safe.** Once an administrator has closed it, any later payment on the old session reaches an outcome through §3.
 - **Exposure is reported.** The hosted preflight lists every intent CFOClose closed with no provider-reported outcome while a provider session existed. Those sessions may still be payable until the provider's expiry.
 
-## 6. Proof
+## 8. Proof
 
 | Proof | Kind | Result |
 |---|---|---|
-| `verifiedChargeOutcomes.mjs` | Local, real PostgreSQL | **22/22** |
+| `verifiedChargeOutcomes.mjs` | Local, real PostgreSQL | **26/26** |
 | The CI payment journey: the old Polar session paid after review and a replacement; the replacement paid; redeliveries; the administrator's resolution | Real Edge Functions, mock Polar, local Supabase | CI (`real-app-e2e`) |
 | `selfCheckingWrappers` with `RELEASE_BATCH=commercial-p5` (32); on the new chain `paymentProviders` 43, `snippeLedger` 30, `paidTermPreservation` 18, `sandboxLicenceIsolation` 45, `paymentReversalAuthority` 38, `p4HostedBaseline` 19, `annualTerm` 91. Three older checks that said a later success "grants nothing" now also prove it is recorded once for recovery. | Local, real PostgreSQL | PASS |
 | A real Polar or Snippe late payment | Provider | **NOT RUN.** No charge was made. |

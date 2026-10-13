@@ -2,6 +2,11 @@
 
 **This is a delta.** It follows commercial-p4, which is applied as drizzle `0054` (hosted id 55).
 
+**This package supersedes every earlier deploy or Publish source.** Its release commit contains everything in the business-email release (`004a055`), `handoff-commercial-p4r-20261012` and every earlier package.
+- After this release, **deploy and Publish only from its release commit**.
+- The older packages' Edge Functions predate this `settle.ts`, and the business-email Publish predates the new admin section. Deploying or publishing either after this release would undo part of it.
+- If the business-email release has not been published yet, publishing this release commit publishes it too.
+
 This release brings:
 - **one migration batch**, `commercial-p5`;
 - **three Edge Function deploys**: the shared settlement code changed;
@@ -28,7 +33,8 @@ Expect `journal_rows = 55` and `p5_applied = false`. Record `platform_state`: it
 
 Run `release/commercial-p5/preflight.sql` and paste the **whole** output:
 1. **exposure:** intents CFOClose closed with no provider-reported outcome while a provider session existed;
-2. the digests to compare after.
+2. **historical dropped charges** (1b): webhook deliveries answered `DUPLICATE` whose provider transaction has no payment event. **Report them; do not act on them.** This release does not record them; each needs a separate, owner-approved decision.
+3. the digests to compare after.
 
 ## P5-3. Apply *(owner authorisation)*
 
@@ -57,3 +63,4 @@ Publish the release commit.
 
 - Re-run P5-1: expect `journal_rows = 56`, `p5_applied = true`, and `platform_state` unchanged.
 - `/commercial/admin` shows "Charges needing a decision", with none waiting.
+- The signed-in checkout read still shows `MOBILE_MONEY` as unavailable, with the card option unchanged.

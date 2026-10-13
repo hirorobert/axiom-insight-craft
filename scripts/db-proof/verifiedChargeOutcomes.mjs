@@ -179,6 +179,20 @@ async function main() {
     const r = await commit(i, { tx: `order-second-${i.session}` });
     return ["INTENT_ALREADY_RESOLVED", "INTENT_ALREADY_PAID"].includes(r.status) && r.committed === false && (await events(a)).length === 1 ? true : { r };
   });
+  await check("discovery: a dropped charge leaves the webhook endpoint's record (processing_result DUPLICATE with the provider transaction) and no payment event — the commercial-p5 preflight lists it (read-only; it records nothing)", async () => {
+    const a = await account("before-discover");
+    const old = await checkout(a, "SOLO");
+    await closeByReview(a, old, "SOLO");
+    const r = await commit(old);
+    // Exactly what handleProviderWebhook writes for that outcome: a receipt, then the processing event settle.ts reported.
+    const rec = (await admin.query("INSERT INTO public.payment_webhook_receipts (provider, signature_present, payload_hash, provider_event_id, saff_reference, correlation_id) VALUES ('POLAR', true, $1, $2, $3, 'proof') RETURNING id", ["p".repeat(64), `wh-${old.session}`, old.ref])).rows[0].id;
+    await admin.query("INSERT INTO public.payment_webhook_processing_events (receipt_id, provider, signature_valid, processing_result, provider_transaction_id, saff_reference, correlation_id) VALUES ($1,'POLAR',true,'DUPLICATE',$2,$3,'proof')", [rec, `order-${old.session}`, old.ref]);
+    const out = []; const on = (n) => out.push(n.message); admin.on("notice", on);
+    let sets;
+    try { await admin.query("BEGIN READ ONLY"); const res = await admin.query(fs.readFileSync(path.join(REPO, "docs/release/commercial-p5/preflight.sql"), "utf8")); sets = res; } finally { await admin.query("ROLLBACK"); admin.off("notice", on); }
+    const found = sets.some((x) => x.fields?.some((f) => f.name === "deliveries") && x.rows.some((row) => row.provider_transaction_id === `order-${old.session}`));
+    return r.status === "INTENT_ALREADY_RESOLVED" && found && out.some((n) => /PREFLIGHT OK/.test(n)) ? true : { r, found, out };
+  });
   const cutoff = (await admin.query("SELECT clock_timestamp() t")).rows[0].t;
   const HIST = `SELECT md5(coalesce((SELECT string_agg(to_jsonb(e)::text,'|' ORDER BY e.id) FROM public.payment_events e WHERE e.recorded_at <= $1),'')
     || coalesce((SELECT string_agg(to_jsonb(l)::text,'|' ORDER BY l.id) FROM public.commercial_licences l WHERE l.created_at <= $1),'')
@@ -306,18 +320,45 @@ async function main() {
     const r = await commit(i, { tx: `order-extra-${i.session}` });
     return { a, i, caseId: r.recovery_case_id, eventId: r.event_id };
   };
-  await check("PLACE_ADDITIONAL_TERM: a 12-month term queued exactly after the account's paid time (never shortening or overlapping it), audited; resolved once", async () => {
+  await check("PLACE_ADDITIONAL_TERM with the customer's recorded agreement: the CURRENT placement rule (same plan → RENEWAL) queues a 12-month term exactly after the paid time, never shortening or overlapping it; agreement and placement audited; resolved once", async () => {
     const { a, caseId } = await openCase("place");
     const before = await lic(a);
-    const r = await asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','customer keeps both purchases') r", [caseId]);
+    const r = await asAdmin(`SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','customer keeps both purchases','the customer confirmed by email on 2026-10-13 that they want a second term') r`, [caseId]);
     const ls = await lic(a);
     const added = ls.find((l) => l.id === r.licence_id);
     const twice = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'REFUNDED','again') r", [caseId]));
     return sameInstant(added.effective_start, before[0].effective_end) && sameInstant(added.effective_end, addMonths(before[0].effective_end, 12))
       && added.provenance === "PRODUCTION_PAYMENT" && JSON.stringify(ls.find((l) => l.id === before[0].id)) === JSON.stringify(before[0])
-      && /RECOVERY_CASE_ALREADY_RESOLVED/.test(twice?.message ?? "") ? true : { r, ls, twice: twice?.message };
+      && r.placement === "RENEWAL" && /RECOVERY_CASE_ALREADY_RESOLVED/.test(twice?.message ?? "")
+      && (await admin.query("SELECT new_state->>'customer_agreement' ca FROM public.billing_audit_events WHERE action='PAYMENT_RECOVERY_RESOLVED' AND new_state->>'recovery_case_id'=$1", [caseId])).rows[0]?.ca?.includes("confirmed by email")
+      ? true : { r, ls, twice: twice?.message };
   });
-  await check("PLACE_ADDITIONAL_TERM is refused under an open-ended agreement, and for a payment already partly refunded", async () => {
+  await check("a case cannot be closed without a valid outcome: an unknown resolution, a blank reason, or an additional term without the customer's agreement are refused, and the case stays OPEN (an unintended second charge never silently becomes a renewal)", async () => {
+    const { caseId } = await openCase("no-outcome");
+    const e1 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'IGNORE','x') r", [caseId]));
+    const e2 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'REFUNDED',' ') r", [caseId]));
+    const e3 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','looks intended') r", [caseId]));
+    const e4 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','looks intended','yes') r", [caseId]));
+    const e5 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'TEST_PAYMENT_CLOSED','x') r", [caseId]));
+    const st = (await admin.query("SELECT status FROM public.payment_recovery_cases WHERE id=$1", [caseId])).rows[0].status;
+    return /UNKNOWN_RESOLUTION/.test(e1?.message ?? "") && /REASON_REQUIRED/.test(e2?.message ?? "") && /CUSTOMER_AGREEMENT_REQUIRED/.test(e3?.message ?? "")
+      && /CUSTOMER_AGREEMENT_REQUIRED/.test(e4?.message ?? "") && /NOT_A_TEST_PAYMENT/.test(e5?.message ?? "") && st === "OPEN" ? true : [e1, e2, e3, e4, e5].map((e) => e?.message);
+  });
+  await check("paid additional named users are preserved: a second charge for a FIRM upgrade over a PRACTICE term with 3 paid users is refused by the placement rule (BLOCKED_SEATS); the term and its users are untouched", async () => {
+    const a = await account("seats");
+    const prac = await checkout(a, "PRACTICE");
+    const p1 = await commit(prac);
+    await admin.query("UPDATE public.commercial_licences SET additional_seats = 3 WHERE id=$1", [p1.licence_id]);
+    const firm = await checkout(a, "FIRM");
+    const f1 = await commit(firm);
+    const f2 = await commit(firm, { tx: `order-extra-${firm.session}` });
+    const before = JSON.stringify(await lic(a));
+    const e = await errOf(() => asAdmin(`SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','customer wants Firm','the customer confirmed by email on 2026-10-13 that they want a second term') r`, [f2.recovery_case_id]));
+    const seats = (await admin.query("SELECT additional_seats FROM public.commercial_licences WHERE id=$1", [p1.licence_id])).rows[0].additional_seats;
+    return f1.status === "PLACEMENT_REVIEW_REQUIRED" && f2.status === "RECOVERY_REQUIRED" && /PLACEMENT_RULE_REFUSES: BLOCKED_SEATS/.test(e?.message ?? "")
+      && JSON.stringify(await lic(a)) === before && seats === 3 ? true : { f1, f2, e: e?.message, seats };
+  });
+  await check("PLACE_ADDITIONAL_TERM is refused under an open-ended agreement (placement rule), and for a payment already partly refunded", async () => {
     // An open-ended agreement first: the purchase is recorded and waits for placement review; a second charge is the case.
     const xa = await account("place-blocked");
     await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, effective_end) VALUES ($1,$2,'ACTIVE','MANUAL_ADMIN_GRANT',now() - interval '1 day',NULL)", [xa.bc, PLAN.SOLO]);
@@ -325,11 +366,11 @@ async function main() {
     const first = await commit(xi);
     const xr = await commit(xi, { tx: `order-extra-${xi.session}` });
     if (first.status !== "PLACEMENT_REVIEW_REQUIRED" || xr.status !== "RECOVERY_REQUIRED") return { first, xr };
-    const e1 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try') r", [xr.recovery_case_id]));
+    const e1 = await errOf(() => asAdmin(`SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try','the customer confirmed by email on 2026-10-13 that they want a second term') r`, [xr.recovery_case_id]));
     const y = await openCase("place-refunded");
     await one(SERVICE, "SELECT public.record_payment_reversal($1,'REFUND','POLAR',$2,100,'USD',$3,$4) r", [y.eventId, `re-${uuid()}`, `rk-${uuid()}`, "r".repeat(64)]);
-    const e2 = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try') r", [y.caseId]));
-    return /PLACEMENT_BLOCKED_OPEN_ENDED_AGREEMENT/.test(e1?.message ?? "") && /PAYMENT_PARTLY_OR_FULLY_REFUNDED/.test(e2?.message ?? "") ? true : { e1: e1?.message, e2: e2?.message };
+    const e2 = await errOf(() => asAdmin(`SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try','the customer confirmed by email on 2026-10-13 that they want a second term') r`, [y.caseId]));
+    return /PLACEMENT_RULE_REFUSES: BLOCKED_OPEN_ENDED/.test(e1?.message ?? "") && /PAYMENT_PARTLY_OR_FULLY_REFUNDED/.test(e2?.message ?? "") ? true : { e1: e1?.message, e2: e2?.message };
   });
   await check("REFUNDED only once refunds recorded against that payment cover it in full; the licence of the original purchase is untouched", async () => {
     const { a, caseId, eventId, i } = await openCase("refund");
@@ -340,9 +381,18 @@ async function main() {
     const r = await asAdmin("SELECT public.admin_resolve_payment_recovery($1,'REFUNDED','refunded at Polar in full') r", [caseId]);
     return /REFUND_NOT_RECORDED_IN_FULL/.test(partial?.message ?? "") && r.resolved === true && JSON.stringify(await lic(a)) === before ? true : { partial: partial?.message, r };
   });
+  await check("two distinct charges on one intent: a refund of the second binds to the second's payment only — the first's refunded total stays 0, its licence is untouched, and the case closes REFUNDED", async () => {
+    const { a, i, caseId, eventId } = await openCase("two-charges-refund");
+    const first = (await events(a)).find((e) => e.provider_transaction_id === `order-${i.session}`);
+    const before = JSON.stringify(await lic(a));
+    await one(SERVICE, "SELECT public.record_payment_reversal($1,'REFUND','POLAR',$2,$3,'USD',$4,$5) r", [eventId, `re-second-${uuid()}`, i.amount, `rk-${uuid()}`, "r".repeat(64)]);
+    const sums = async (id) => (await admin.query("SELECT COALESCE(sum(amount_minor),0)::bigint s FROM public.payment_events WHERE event_type IN ('REFUND','CHARGEBACK') AND metadata->>'original_event_id'=$1", [id])).rows[0].s;
+    const r = await asAdmin("SELECT public.admin_resolve_payment_recovery($1,'REFUNDED','second charge refunded at Polar') r", [caseId]);
+    return Number(await sums(first.id)) === 0 && Number(await sums(eventId)) === i.amount && r.resolved === true && JSON.stringify(await lic(a)) === before ? true : { r };
+  });
   await check("a sandbox recovery case closes only as TEST_PAYMENT_CLOSED; it can never be placed as a term", async () => {
     const { caseId } = await openCase("sandbox", { env: "sandbox" });
-    const e = await errOf(() => asAdmin("SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try') r", [caseId]));
+    const e = await errOf(() => asAdmin(`SELECT public.admin_resolve_payment_recovery($1,'PLACE_ADDITIONAL_TERM','try','the customer confirmed by email on 2026-10-13 that they want a second term') r`, [caseId]));
     const r = await asAdmin("SELECT public.admin_resolve_payment_recovery($1,'TEST_PAYMENT_CLOSED','sandbox test') r", [caseId]);
     return /NOT_A_PRODUCTION_PAYMENT/.test(e?.message ?? "") && r.resolved === true ? true : { e: e?.message, r };
   });

@@ -30,7 +30,11 @@ BEGIN
   IF has_function_privilege('anon', v_fn, 'EXECUTE') OR has_function_privilege('authenticated', v_fn, 'EXECUTE') OR NOT has_function_privilege('service_role', v_fn, 'EXECUTE') THEN
     RAISE EXCEPTION 'POSTCONDITION: % is not exactly scoped (service_role only)', v_fn;
   END IF;
-  FOREACH v_fn IN ARRAY ARRAY['public.admin_list_payment_recovery_cases()', 'public.admin_resolve_payment_recovery(uuid,text,text)'] LOOP
+  v_def := pg_get_functiondef('public.admin_resolve_payment_recovery(uuid,text,text,text)'::regprocedure);
+  IF position('CUSTOMER_AGREEMENT_REQUIRED' IN v_def) = 0 OR position('_commercial_licence_placement' IN v_def) = 0 OR position('REFUND_NOT_RECORDED_IN_FULL' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: a recovery case could be closed without a valid outcome';
+  END IF;
+  FOREACH v_fn IN ARRAY ARRAY['public.admin_list_payment_recovery_cases()', 'public.admin_resolve_payment_recovery(uuid,text,text,text)'] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') OR has_function_privilege('service_role', v_fn, 'EXECUTE') OR NOT has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
       RAISE EXCEPTION 'POSTCONDITION: % is not exactly scoped (authenticated commercial administrators only)', v_fn;
     END IF;

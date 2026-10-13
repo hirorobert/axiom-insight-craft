@@ -75,7 +75,7 @@ describe("self-checking wrappers: generated from the sources, registered exactly
     for (const n of REVERSAL_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${REVERSAL_SOURCE_COMMIT}:`);
   });
   it("wraps exactly the verified charge outcomes (commercial-p5), at the commit holding its reviewed bytes", () => {
-    expect(CHARGE_OUTCOMES_SOURCE_COMMIT).toBe("fea6f4751fd2dab6ed04767deaa77fd53497a2f6");
+    expect(CHARGE_OUTCOMES_SOURCE_COMMIT).toBe("82659bb045f16f166d26952c3ca7fc7a2fb36130");
     expect([...CHARGE_OUTCOMES_WRAPPED_SOURCES]).toEqual(["20261102100000_verified_charge_outcomes.sql"]);
     for (const n of CHARGE_OUTCOMES_WRAPPED_SOURCES) expect(wrapper(n).toString("utf8")).toContain(`exactly as committed at ${CHARGE_OUTCOMES_SOURCE_COMMIT}:`);
   });

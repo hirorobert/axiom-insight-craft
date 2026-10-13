@@ -74,7 +74,7 @@ export default function CommercialAdmin() {
     setIntents(d.intents ?? []); setReversals(d.reversals ?? []);
     // Verified charges that are not an order's own placed payment (20261102100000). Absent before that migration: hidden.
     const rc = await rpc("admin_list_payment_recovery_cases");
-    setRecoveries(rc.error ? [] : ((rc.data as RecoveryCase[] | null) ?? []).filter((c) => c.status === "OPEN"));
+    setRecoveries(!rc.error && Array.isArray(rc.data) ? (rc.data as RecoveryCase[]).filter((c) => c.status === "OPEN") : []);
   }, []);
 
   useEffect(() => { if (!loading && user) loadAttention(); }, [loading, user, loadAttention]);
@@ -128,7 +128,7 @@ export default function CommercialAdmin() {
           </section>
           <section aria-labelledby="attention-recoveries">
             <h2 id="attention-recoveries" className="text-lg font-medium">Charges needing a decision</h2>
-            <p className="text-sm text-muted-foreground">A verified payment on an order that was already paid, or on an older checkout paid after the customer started a new one. The money is recorded; no term was granted for it. Place it as an additional term, or refund it with the provider and then mark it refunded.</p>
+            <p className="text-sm text-muted-foreground">A verified payment on an order that was already paid, on an older checkout paid after the customer started a new one, or reported unsuccessful by the provider before. The money is recorded; no term was granted for it. Refund it with the provider and mark it refunded — or, only if the customer agrees to receive another term, place it as an additional term.</p>
             {recoveries.length === 0 && <p className="mt-2 text-sm text-muted-foreground" data-testid="no-recoveries">None waiting for a decision.</p>}
             <ul className="mt-3 space-y-3">
               {recoveries.map((c) => <RecoveryRow key={c.id} c={c} busy={busy} act={act} />)}
@@ -195,10 +195,12 @@ const RECOVERY_REASON: Record<string, string> = {
 
 function RecoveryRow({ c, busy, act }: { c: RecoveryCase; busy: string | null; act: Act }) {
   const [reason, setReason] = useState("");
+  const [agreement, setAgreement] = useState("");
   const exp = (c.currency_code ?? "").toUpperCase() === "TZS" ? 0 : 2;
   const sandbox = c.provider_environment === "sandbox";
   const refundedInFull = Number(c.refunded_minor) >= Number(c.amount_minor);
-  const resolve = (resolution: string, done: string) => act(`rec-${c.id}`, () => rpc("admin_resolve_payment_recovery", { p_case_id: c.id, p_resolution: resolution, p_reason: reason.trim() }), done);
+  const resolve = (resolution: string, done: string) => act(`rec-${c.id}`, () => rpc("admin_resolve_payment_recovery", {
+    p_case_id: c.id, p_resolution: resolution, p_reason: reason.trim(), ...(resolution === "PLACE_ADDITIONAL_TERM" ? { p_customer_agreement: agreement.trim() } : {}) }), done);
   return (
     <li className="border border-border p-4 text-sm" data-testid={`recovery-${c.id}`}>
       <div className="flex flex-wrap gap-x-4">
@@ -209,10 +211,11 @@ function RecoveryRow({ c, busy, act }: { c: RecoveryCase; busy: string | null; a
       <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{c.provider_transaction_id}{Number(c.refunded_minor) > 0 ? ` · refunds recorded ${formatMoney(Number(c.refunded_minor), (c.currency_code ?? "").toUpperCase(), exp)}` : ""}</p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Input className="h-8 w-56" placeholder="Reason (recorded)" value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for the decision" />
+        {!sandbox && <Input className="h-8 w-72" placeholder="Customer's agreement to another term (how, when)" value={agreement} onChange={(e) => setAgreement(e.target.value)} aria-label="The customer's recorded agreement to receive another term" />}
         {sandbox
           ? <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim()} onClick={() => resolve("TEST_PAYMENT_CLOSED", "Test payment closed.")}>Close test payment</Button>
           : <>
-              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || Number(c.refunded_minor) > 0} onClick={() => resolve("PLACE_ADDITIONAL_TERM", "Additional term placed.")}>Place as an additional term</Button>
+              <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || agreement.trim().length < 10 || Number(c.refunded_minor) > 0} onClick={() => resolve("PLACE_ADDITIONAL_TERM", "Additional term placed.")} title="Only with the customer's agreement to receive another term; otherwise refund it">Place as an additional term</Button>
               <Button size="sm" variant="outline" disabled={busy !== null || !reason.trim() || !refundedInFull} onClick={() => resolve("REFUNDED", "Marked refunded.")} title={refundedInFull ? undefined : "Refund it with the provider first; the refund must be recorded in full"}>Mark refunded</Button>
             </>}
       </div>

@@ -87,7 +87,7 @@ export const REVERSAL_WRAPPED_SOURCES = Object.freeze([
   "20261101100000_payment_reversal_authority.sql",
 ]);
 /** Verified charge outcomes (commercial-p5): a verified charge is never dropped (DEFECT-VERIFIED-CHARGE-DROPPED-001). */
-export const CHARGE_OUTCOMES_SOURCE_COMMIT = "fea6f4751fd2dab6ed04767deaa77fd53497a2f6";
+export const CHARGE_OUTCOMES_SOURCE_COMMIT = "82659bb045f16f166d26952c3ca7fc7a2fb36130";
 export const CHARGE_OUTCOMES_WRAPPED_SOURCES = Object.freeze([
   "20261102100000_verified_charge_outcomes.sql",
 ]);

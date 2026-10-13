@@ -24,6 +24,19 @@ SELECT ci.id, ci.saff_reference, ci.provider, ci.provider_environment, ci.status
    AND NOT EXISTS (SELECT 1 FROM public.payment_events e WHERE e.checkout_intent_id = ci.id)
  ORDER BY ci.created_at;
 
+-- 1b. HISTORICAL DROPPED CHARGES — DISCOVERY ONLY. A webhook delivery the old commit answered as "already resolved/paid" was
+--     recorded as processing_result DUPLICATE with the provider transaction id, but no payment event exists for that
+--     transaction. Each row is a charge the provider verified that CFOClose never recorded. This migration does NOT record
+--     them: the in-app verification (claim_verification_attempt) accepts only open orders, so each needs an explicit,
+--     separately approved decision. Charges whose webhook never reached CFOClose appear only in the provider's own records
+--     (Polar orders, Snippe payments) and must be found by comparing those with payment_events.
+SELECT pe.provider, pe.provider_transaction_id, pe.saff_reference, min(pe.created_at) AS first_seen, count(*) AS deliveries
+  FROM public.payment_webhook_processing_events pe
+ WHERE pe.processing_result = 'DUPLICATE' AND pe.provider_transaction_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM public.payment_events e WHERE e.provider = pe.provider AND e.provider_transaction_id = pe.provider_transaction_id)
+ GROUP BY pe.provider, pe.provider_transaction_id, pe.saff_reference
+ ORDER BY first_seen;
+
 -- 2. Record before applying (the postcondition repeats these; all must be identical — the migration writes no row):
 SELECT count(*) AS payment_events, coalesce(md5(string_agg(to_jsonb(e)::text, '' ORDER BY e.id)), '') AS payment_events_md5 FROM public.payment_events e;
 SELECT count(*) AS intents, coalesce(md5(string_agg(to_jsonb(i)::text, '' ORDER BY i.id)), '') AS intents_md5 FROM public.payment_checkout_intents i;

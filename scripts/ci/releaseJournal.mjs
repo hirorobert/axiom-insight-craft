@@ -519,11 +519,11 @@ export const SUBMISSION_FORMS = Object.freeze({
   }),
   // Verified charge outcomes (batch commercial-p5): a verified charge is never dropped (DEFECT-VERIFIED-CHARGE-DROPPED-001).
   "20261102100000_verified_charge_outcomes.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 44057, sha256: "86d69edb07aea264a0b974acf3895842bd4706573ac517b0b5794e5743364901" }),
-    finalLfRemoved: Object.freeze({ bytes: 44056, sha256: "82e951e5897a0d65d4c5b02d1ad219d50cbb580493119c3747e4dcb27934cc6e" }),
+    identical: Object.freeze({ bytes: 45711, sha256: "b20bf253961a14c3a1c9e66b3602295831a81b614b2da8eae19295dc40e31ae4" }),
+    finalLfRemoved: Object.freeze({ bytes: 45710, sha256: "302bdd5c4759ee90ea3a45caefc5e7578e9e0bf9451cb6faabeeef7ba6670570" }),
     // Self-checking wrapper release/wrappers/20261102100000_verified_charge_outcomes.wrapper.sql:
-    wrapper: Object.freeze({ bytes: 45627, sha256: "4fdcdf0611cba55278cf12a0d6554d76a2b33eadf60144420f15b5e665d3ab53" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 45626, sha256: "7ac3571dabd2387fa9c351d242deddf97d48f942cefadbbe9ff5b8321bb42ac9" }),
+    wrapper: Object.freeze({ bytes: 47281, sha256: "a215cc20994f91c57fe0774401decd21a8129013a6fecb1e70ae3cf1567b57ea" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 47280, sha256: "bf5cd81f20e2a6f7500398259491a3e634a9ec9d6b855775b98657fe9d74d15d" }),
   }),
 });
 
