@@ -2,6 +2,7 @@
 
 - **Written:** 13 October 2026.
 - **Corrected the same day** with the owner's report that onboarding, price approval and the tester designation are complete (§1a). The remaining work is the p5 deployment, the historical-charge reconciliation, controlled live acceptance and the final launch authorisation (§7).
+- **Updated after p5 was applied** (hosted journal 56, registered by PR #120) with the facts Lovable reported (§1a).
 - **Replaces** every earlier payment handoff as the description of what remains. It does not replace the step-by-step checklist (`COMMERCIAL_LAUNCH_LOVABLE_CHECKLIST.md`): it says where the launch stands, and in which order the remaining checklist stages run.
 - **Nothing in this handoff was done on the hosted project by Claude.** No migration was applied, no function deployed, nothing published, no secret set, no price approved, no charge or refund made, and no provider enabled. Payments stay `PAYMENTS_DISABLED` until the owner opens them stage by stage.
 
@@ -27,7 +28,16 @@
 | No production payment or refund completed | The owner, 13 October 2026 | Owner's statement |
 | Earlier state: no `POLAR_*` secrets, merchant not approved, prices not approved, allow-list empty | The owner's hosted report for release `9ac3456`, 10 October 2026 | Hosted report. **Superseded** by the rows above. |
 
-**The later hosted reports were not available when this handoff was written.** They were named as attached, but none reached the repository or this session. Their file names, dates and verbatim results must be added here when they are provided.
+**Source of the later hosted facts.** Lovable's hosted reports were pasted into the owner's conversations, not committed to this repository. Their verbatim text is not reproduced here. Every fact taken from them is labelled **Lovable-reported**.
+
+**Lovable-reported (13 October 2026):**
+- commercial-p5 is applied: hosted journal **56**.
+- The historical-charge reconciliation was carried out against **one Polar production organization**: the one Lovable inspected.
+- TZS offers: Lovable's wording "no TZS offers exist" is **inaccurate, and corrected here**. What holds is that **no purchasable TZS/TZ offer exists**. Two historical TZS rows under the retired `PAID` plan are active and **not purchasable**, and are preserved unchanged: `95dc943c-9d5e-433f-906c-5528bd0302cd` (SANDBOX-TEST-PAID-TZ) and `68d35bb6-1663-4045-910e-97c983cee690` (SANDBOX-TEST-PAID-GLOBAL). These are records, not prices. No step deletes, deactivates or edits them.
+
+**Independently verified from this repository:** that p5 is applied as journal `0055_verified_charge_outcomes_wrapper` (hosted id 56), and that the committed journal file is byte-identical to the registered wrapper (47,281 B, `a215cc20…7b57ea`). This is registered by PR #120, and main CI is green on it.
+
+Everything else in this section is reported, not verified.
 
 **Independently verified** means the evidence can be read from the hosted project or the provider, not only from someone's statement. The read-only checks are:
 - P5-1 for the database state;
@@ -186,7 +196,7 @@ The site header's primary action is **Request activation** in every server state
 | 10 | Hosted journal before p5: 55, p4 applied | Hosted | Superseded by row 11 |
 | 11 | p5 applied and postcondition OK, with preservation | Hosted | **Applied** as 0055 (hosted 56), the registered wrapper byte for byte (verified from the committed journal file). Postcondition and preservation outputs: **not yet reported** (P5-4). |
 | 12 | Functions deployed; release published | Hosted | No evidence in this repository (P5-5, P5-6) |
-| 13 | Historical dropped charges reconciled with Polar's records | Hosted, provider | NOT RUN (§7, step 2) |
+| 13 | Historical dropped charges reconciled with Polar's records | Hosted, provider | **Lovable-reported, scoped to the one Polar production organization inspected.** Not independently verified. Not covered: the Polar sandbox organization, any other Polar organization, and the P5-2 section 1b rows unless the report lists them (§7, step 2). |
 | 14 | Polar merchant onboarding (approval, identity, payout account) | Provider | **Reported complete** by the owner, 13 Oct 2026 (§1a). Not independently verified; the Polar dashboard check is recorded at §7, step 3. |
 | 15 | Polar production configuration | Hosted | **Reported complete** (§1a). The `/commercial/admin` read is recorded at §7, step 3. |
 | 16 | USD prices approved on the hosted project | Hosted | **Reported complete** (§1a). The **Prices** read is recorded at §7, step 3. |
@@ -213,7 +223,7 @@ Onboarding, price approval and the tester designation are reported complete and 
 | Step | What | Who | Evidence required |
 |---|---|---|---|
 | 1 | **Deploy p5:** P5-1 to P5-7 (§3). **P5-3 is done** (applied as 0055, hosted 56, 13 October 2026); do not apply it again. Report the P5-2 and P5-4 outputs, then P5-5 to P5-7. | Lovable, with owner authorisation for P5-3, P5-5 and P5-6 | The P5-1 and P5-2 outputs; journal 56; `POSTCONDITION OK.` with equal digests; deployed file hashes against the manifest; the P5-7 checks |
-| 2 | **Reconcile historical dropped charges.** List every *succeeded* order in Polar's dashboard for the production organization, and the sandbox one for completeness. Match each to a `payment_events` row by provider transaction id. Include every row from P5-2 section 1b. | Owner and Lovable, read-only | A list of unmatched charges, or "none". For each one, the owner chooses: refund it in Polar, then record it; or arrange an additional term **with the customer's written agreement**. Never re-run verification on a closed order. |
+| 2 | **Reconcile historical dropped charges.** *Lovable-reported as done for the Polar production organization it inspected (§1a).* Its conclusion holds **only for that organization**. Confirm that it is the organization whose id is set in `POLAR_ORGANIZATION_ID`. If it is not, or if charges could have been taken in any other organization, repeat this step there. The method: list every *succeeded* order in Polar's dashboard for the production organization, and the sandbox one for completeness. Match each to a `payment_events` row by provider transaction id. Include every row from P5-2 section 1b. | Owner and Lovable, read-only | A list of unmatched charges, or "none". For each one, the owner chooses: refund it in Polar, then record it; or arrange an additional term **with the customer's written agreement**. Never re-run verification on a closed order. |
 | 3 | **Controlled live acceptance (Stage E).** First, read-only and without repeating anything: `/commercial/admin` → **Online payment** lists the card route in **production**; **Prices** shows the three USD offers approved; the allow-list row for cfoclose@gmail.com's account is **active**; Polar's dashboard shows the account approved. Then set `LIVE_ACCEPTANCE`, confirm a non-listed account is refused, and make **one** real Solo purchase as cfoclose@gmail.com through `/billing/checkout?plan=SOLO`. | Owner authorisation **for this specific charge**, given after the disclosure below | The four read-only results; the refusal for the other account; the buyer's status page, order and licence; Polar's order id and the **actual** total charged |
 | 4 | **Refund and access resolution.** Refund that charge in Polar. Confirm the refund is listed against **that exact transaction**. End the licence and record **licence ended**. Deactivate the allow-list entry. Set `PAYMENTS_DISABLED`. | Owner authorisation **for this specific refund**; administrator | The refund recorded against the transaction; access ended and audited; the platform disabled; the **actual** fees Polar retained |
 | 5 | **Final launch authorisation (Stage F):** the owner's decision in §9, then `CUSTOMER_PAYMENTS_ENABLED` | **Owner decision** | The recorded decision; the landing and `/plans` show the prices with **Choose <plan>**; a daily watch of **Payments needing attention** |
@@ -258,7 +268,7 @@ Onboarding, price approval and the tester designation are reported complete and 
 - settlement account, schedule and fees;
 - customer terms covering TZS mobile money (legal review);
 - the seller's own obligations: TRA, VAT registration, EFD/EFDMS receipting, invoicing and any withholding. **Polar's merchant of record does not cover Snippe sales.**
-- owner-approved explicit TZS prices. **None is approved. None is converted from USD.**
+- owner-approved explicit TZS prices. **None is approved. None is converted from USD.** No purchasable TZS/TZ offer exists. The two historical TZS rows under the retired `PAID` plan stay active and not purchasable (§1a).
 
 **Questions for Snippe** (one list, to send by the owner):
 1. Is CFOClose's Tanzanian entity, selling a software subscription, eligible? Which KYC documents are needed, and what is our per-transaction maximum?
@@ -283,7 +293,7 @@ Onboarding, price approval and the tester designation are reported complete and 
 
 Open public card checkout only when **all** of these are true for release `d83542f`, or a later release that supersedes it:
 1. commercial-p5 is applied with `POSTCONDITION OK.`, and the functions and frontend are deployed (§7, step 1).
-2. The historical reconciliation shows no unresolved charge (step 2).
+2. The historical reconciliation shows no unresolved charge (step 2). That conclusion covers only the Polar production organization inspected, which must be the one `POLAR_ORGANIZATION_ID` names.
 3. The step 3 read-only checks confirm what was reported complete: the production card route, the approved USD prices, the active tester and Polar's approval.
 4. Controlled live acceptance passed, including the refund and the access resolution (steps 3 and 4), with the actual total and retained fees recorded.
 5. The owner has confirmed the status of the items §1a lists as not covered (sandbox verification, legal review, custom SMTP), and accepts any that remain open.
