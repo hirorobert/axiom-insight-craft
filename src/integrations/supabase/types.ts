@@ -6036,6 +6036,112 @@ export type Database = {
           },
         ]
       }
+      payment_recovery_cases: {
+        Row: {
+          amount_minor: number
+          billing_customer_id: string
+          checkout_intent_id: string
+          created_at: string
+          currency_code: string
+          id: string
+          licence_id: string | null
+          newer_attempt_id: string | null
+          payment_event_id: string
+          plan_id: string
+          provider: string
+          provider_environment: string
+          provider_transaction_id: string
+          reason: string
+          resolution_reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+        }
+        Insert: {
+          amount_minor: number
+          billing_customer_id: string
+          checkout_intent_id: string
+          created_at?: string
+          currency_code: string
+          id?: string
+          licence_id?: string | null
+          newer_attempt_id?: string | null
+          payment_event_id: string
+          plan_id: string
+          provider: string
+          provider_environment: string
+          provider_transaction_id: string
+          reason: string
+          resolution_reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Update: {
+          amount_minor?: number
+          billing_customer_id?: string
+          checkout_intent_id?: string
+          created_at?: string
+          currency_code?: string
+          id?: string
+          licence_id?: string | null
+          newer_attempt_id?: string | null
+          payment_event_id?: string
+          plan_id?: string
+          provider?: string
+          provider_environment?: string
+          provider_transaction_id?: string
+          reason?: string
+          resolution_reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_recovery_cases_billing_customer_id_fkey"
+            columns: ["billing_customer_id"]
+            isOneToOne: false
+            referencedRelation: "billing_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_recovery_cases_checkout_intent_id_fkey"
+            columns: ["checkout_intent_id"]
+            isOneToOne: false
+            referencedRelation: "payment_checkout_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_recovery_cases_licence_id_fkey"
+            columns: ["licence_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_licences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_recovery_cases_newer_attempt_id_fkey"
+            columns: ["newer_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "payment_checkout_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_recovery_cases_payment_event_id_fkey"
+            columns: ["payment_event_id"]
+            isOneToOne: true
+            referencedRelation: "payment_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_recovery_cases_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_webhook_processing_events: {
         Row: {
           correlation_id: string | null
@@ -9621,6 +9727,7 @@ export type Database = {
       }
       admin_list_licence_provenance_review: { Args: never; Returns: Json }
       admin_list_payment_attention: { Args: never; Returns: Json }
+      admin_list_payment_recovery_cases: { Args: never; Returns: Json }
       admin_list_reversal_discrepancies: { Args: never; Returns: Json }
       admin_place_paid_licence: {
         Args: {
@@ -9681,6 +9788,15 @@ export type Database = {
       admin_resolve_manual_review_intent: {
         Args: {
           p_checkout_intent_id: string
+          p_reason: string
+          p_resolution: string
+        }
+        Returns: Json
+      }
+      admin_resolve_payment_recovery: {
+        Args: {
+          p_case_id: string
+          p_customer_agreement?: string
           p_reason: string
           p_resolution: string
         }
