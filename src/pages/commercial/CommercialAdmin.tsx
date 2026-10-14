@@ -27,7 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { callCommercialRpc, requestPaymentVerificationRecovery } from "@/lib/commercial/commercialRpc";
-import { getCheckoutOptions } from "@/lib/commercial/checkoutClient";
+import { getCheckoutOptions, getProviderDiagnostics, type CheckoutOptions } from "@/lib/commercial/checkoutClient";
+import { accountEligibility, isCheckoutOptions, parseProviderDiagnostics, platformLabel, providerLine, type ProviderDiagnostic } from "@/lib/commercial/onlinePaymentStatus";
 import { formatMoney } from "@/lib/commercial/planOffers";
 
 type Rpc = (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
