@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
-const REPAIR = path.join(REPO, "supabase/migrations/20261103100000_signoff_authorization_hardening.sql");
+const REPAIR = path.join(REPO, "docs/fin-integrity/candidate-migration/20261103100000_signoff_authorization_hardening.sql");
 const WITHOUT_REPAIR = process.env.SIGNOFF_PROOF_WITHOUT_REPAIR === "1";
 const require = createRequire(process.env.DB_PROOF_MODULES_DIR
   ? path.join(path.resolve(process.env.DB_PROOF_MODULES_DIR), "noop.js") : import.meta.url);
