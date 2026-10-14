@@ -188,7 +188,14 @@ END $$;
 --
 --   REVOKE INSERT, UPDATE ON public.statement_sign_offs FROM authenticated;
 --
--- RECOVERY RULE: never GRANT these back without the enforcing RPC in place.
--- Recovery must leave the gate at least as strict; existing sign-off rows and
--- hesabu_validations are never deleted or back-dated.
+-- RECOVERY RULE (tested — see scripts/db-proof/signoff_fixture_proof.mjs
+-- "CONTAINMENT" assertions): if this repair must be rolled back, the recovery is
+-- the CONTAINMENT above (REVOKE the direct writes), NOT `DROP TRIGGER
+-- enforce_signoff_authorization` — dropping the trigger while the old grants/RLS
+-- stand would REOPEN unauthorized signing (defects A-E). The proof verifies that
+-- after the REVOKE, an authenticated signing write is refused and every historical
+-- sign-off row is preserved. Never GRANT the writes back without an enforcing RPC
+-- (mirroring fs_set_publication_state) in place; recovery must leave the gate at
+-- least as strict, and existing sign-offs / hesabu_validations are never deleted
+-- or back-dated. Forward-repair (a new migration) is preferred to any rollback.
 -- ============================================================================

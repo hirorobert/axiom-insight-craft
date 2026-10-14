@@ -5,6 +5,24 @@
 
 **CI run:** `signoff-authorization-proof` #38530479479 — **success** (1m04s). Re-runnable via `workflow_dispatch` or any push to the branch.
 
+## Production-observed vs fixture-reproduced (distinguished per the directive)
+- **Observed on the deployed database (Lovable read-back, 2026-10-14, PostgreSQL 17):** the live `statement_sign_offs` RLS policies, the four triggers (incl. the INSERT-only HESABU gate and the un-gated UPDATE that sets `preparer_signed_at`), and the over-broad `authenticated` grants (DELETE/TRUNCATE/REFERENCES/TRIGGER/MAINTAIN). These are **production definitions observed**, not run by us.
+- **Reproduced in an isolated fixture (CI, PostgreSQL 17):** using those exact definitions, each defect is exercised and the candidate repair verified. These are **fixture vulnerabilities reproduced**, not a statement about live exploitation (the live cert-entitlement wall currently confines reachability to certification-entitled companies).
+
+## Enhanced executed results (latest, run 38551924395 — green)
+**BEFORE (no repair): 11/11** · **AFTER (repair): 17/17** on PostgreSQL 17.11. Beyond A–E + tenant/priv/history/positive, the proof now also verifies:
+- **DRAFT-EDIT (permitted):** a draft row + draft-field edit are allowed (no signature ⇒ no gate) — distinct from signing.
+- **CONCURRENCY / idempotent-replay:** a second sign-off for the same `(company_id, period_year)` is refused by UNIQUE — no duplicate version, deterministic, no partial state.
+- **INPUT-CHANGE after approval:** the bound content of a locked sign-off cannot be changed post-lock.
+- **CONTAINMENT (recovery):** after `REVOKE INSERT, UPDATE … FROM authenticated`, an authenticated signing write is refused **and every historical row is preserved** — recovery never reopens signing.
+
+## Candidate SQL — byte-identical to what was tested
+The proof applies the candidate file directly (`docs/fin-integrity/candidate-migration/20261103100000_signoff_authorization_hardening.sql`); what ran IS that file. **sha256 `9c706f5e4a1252e0ec174e63c6d160970b431a9c855dd723435001a5deb4c279`** — identical in the branch, the proof, and the release ZIP (`candidate-migration/SHA256SUMS.txt`).
+
+## Migration replay
+- **Full chain:** the CI **Disposable-DB Contract Tests** job replays every `supabase/migrations/*` from zero (green on the RC). The candidate is deliberately **not** in that dir (unapplied), so it is excluded there.
+- **Relevant objects + candidate on PG17:** the fixture proof stands up the real sign-off objects (verbatim from the migrations) and applies the candidate — proving the candidate replays and behaves on PostgreSQL 17. The candidate references only objects present after the full chain (`statement_sign_offs`, `firm_members`, `hesabu_validations`, `workspace_capability_allowed`, `auth.uid`), so it is compatible on top of the chain.
+
 ## Proof tiers (distinguished per the directive)
 - **Focused fixture proof (EXECUTED):** `scripts/db-proof/signoff_fixture_proof.mjs` — stands up the REAL `statement_sign_offs` table, the REAL trigger function bodies (`hesabu_block_signoff`, `enforce_sso_distinct_signers`, `cascade_period_lock`, `statement_sign_off_certification_wall`), the REAL final capability-split RLS policies (as read back from production 2026-10-14), and capability/entitlement-backed stubs; drives each defect as a simulated PostgREST `authenticated` caller (`SET ROLE` + `request.jwt.claim.*`). Runs BEFORE (no repair) then AFTER (applies the actual candidate migration file).
 - **Full migration replay + application integration (NOT YET RUN):** `scripts/db-proof/signoff_authorization_proof.mjs` replays the entire migration chain; it needs the capability/entitlement seed completed against the real schema. Deferred — the focused fixture already proves the trigger/RLS/privilege layer end-to-end on PG17.
