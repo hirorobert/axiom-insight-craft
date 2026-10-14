@@ -251,7 +251,7 @@ export default function FieldMappingModal({
           <Button
             onClick={handleSaveAndIngest}
             disabled={saving || missingRequired.length > 0}
-            className="bg-[#0E6B55] hover:bg-[#0E6B55]/90"
+            className="bg-primary hover:bg-primary/90"
           >
             {saving ? "Saving & ingesting…" : "Save mapping & continue"}
           </Button>
