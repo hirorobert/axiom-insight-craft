@@ -7,8 +7,10 @@
 //
 //   operator    the first commercial administrator (operator bootstrap row), then everything else through /commercial/admin:
 //               online payment opened in SANDBOX_ONLY, the USD price approved, a TZS price added and approved
-//   public      in SANDBOX_ONLY an approved price is shown with Request activation (never a checkout); in CUSTOMER_PAYMENTS_ENABLED it shows
-//               "by card" and "Choose <plan>" — and a sandbox route is then not offered (the platform matrix)
+//   public      self-service purchase is the only purchase path. In SANDBOX_ONLY an approved price is shown as unavailable
+//               online, with Contact support (never a checkout link or manual activation); in CUSTOMER_PAYMENTS_ENABLED it
+//               shows "by card" and "Choose <plan>", and a sandbox route is then not offered (the platform matrix). While
+//               payment is closed the server itself refuses: no route, the attempt refused, no intent, no licence
 //   card        sign in → /billing/checkout → card → the mock hosted page → Pay → signed order.paid → status page: payment
 //               "Test payment received", no plan activated, references; in sandbox the licence is SANDBOX (it never grants
 //               access: DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001) and the account has no plan
@@ -154,6 +156,26 @@ const licencesOf = async (u) => {
   if (!bc) return [];
   return (await admin.from("commercial_licences").select("id, status, source, effective_start, effective_end, plan_id").eq("billing_customer_id", bc.id)).data ?? [];
 };
+/**
+ * The server's own answer while online payment is closed for `u`. The real commercial-create-checkout offers no available
+ * route (GET), refuses a card attempt (POST), and writes no checkout intent and no licence. A page that only hides the
+ * button is not enough; this proves the refusal is enforced by the server.
+ */
+const serverRefusesCheckout = async (u, plan) => {
+  const api = await apiAs(u);
+  const { data: { session } } = await api.auth.getSession();
+  const headers = { Authorization: `Bearer ${session.access_token}`, apikey: anonKey };
+  const [intentsBefore, licencesBefore] = [(await intentsOf(u)).length, (await licencesOf(u)).length];
+  const get = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout?planCode=${plan}`, { headers });
+  const options = (await get.json().catch(() => null))?.options ?? null;
+  const post = await fetch(`${apiUrl}/functions/v1/commercial-create-checkout`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute: "CARD" }) });
+  const postBody = await post.json().catch(() => null);
+  const [intentsAfter, licencesAfter] = [(await intentsOf(u)).length, (await licencesOf(u)).length];
+  const ok = get.ok && Array.isArray(options) && options.length > 0 && options.every((o) => o.available === false)
+    && post.status >= 400 && !postBody?.checkoutUrl && intentsAfter === intentsBefore && licencesAfter === licencesBefore;
+  return ok ? true : { get: get.status, options, post: post.status, postBody, intentsBefore, intentsAfter, licencesBefore, licencesAfter };
+};
 
 // ── Wait until the served functions answer with the payment configuration loaded ─────────────────────────────────────
 async function waitForFunctions() {
@@ -274,11 +296,21 @@ async function main() {
   await go("/dashboard", "Choose a plan to begin");
   await page.click('[data-testid="next-action-primary"]');
   await page.waitFor(() => location.pathname === "/plans", [], { label: "plans from the next step" });
-  await check("plans (online payment closed, no approved price): 'Proposed' and Request activation — no checkout action, no TZS, no mobile money", async () => {
+  await check("plans (online payment closed, no approved price): 'Proposed', payment shown as unavailable with Contact support — no checkout link, no manual activation, no TZS, no mobile money", async () => {
     await page.waitForText("Choose your plan");
+    await page.waitForText("Online payment is temporarily unavailable");
     const t = await page.bodyText();
-    return t.includes("Proposed: USD 490 per year") && t.includes("Request activation") && !/Choose Solo|TZS|mobile money/i.test(t) ? true : t.slice(0, 800);
+    // Self-service purchase is the only purchase path for Solo, Practice and Firm (owner direction, 19aaa75): while it is
+    // closed nothing on the page starts a checkout or a manual activation request for them. Enterprise is never sold online
+    // and keeps its enquiry ("Discuss Enterprise"). The server's refusal is proven separately below.
+    const links = await page.evaluate(() => [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")));
+    const selfServeActivation = links.filter((h) => /service=plan_activation/.test(h) && !/[?&]plan=ENTERPRISE(&|$)/.test(h));
+    const noCheckout = !links.some((h) => h.includes("/billing/checkout")) && selfServeActivation.length === 0;
+    const enterpriseEnquiry = links.some((h) => /service=plan_activation/.test(h) && /[?&]plan=ENTERPRISE(&|$)/.test(h));
+    return t.includes("Proposed: USD 490 per year") && t.includes("Contact support") && noCheckout && enterpriseEnquiry
+      && !/Choose Solo|Request activation|TZS|mobile money/i.test(t) ? true : { noCheckout, enterpriseEnquiry, links: links.filter((h) => /checkout|contact/.test(h)), text: t.slice(0, 800) };
   });
+  await check("payments closed: the server itself refuses the purchase (no route offered, the attempt refused, no intent, no licence)", () => serverRefusesCheckout(U.fresh, "SOLO"));
   await check("back navigation and refresh return to the same home and the same next step", async () => {
     await page.evaluate(() => history.back());
     await page.waitFor(() => location.pathname === "/dashboard", [], { label: "back to home" });
@@ -296,7 +328,7 @@ async function main() {
     await page.waitForText("Choose a plan to begin");
     return failedKind === "retry" ? true : { failedKind };
   });
-  await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame, with the manual route", async () => {
+  await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame; payment unavailable, Try again and Contact support", async () => {
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
     await go("/billing/checkout?plan=PRACTICE", "Sign in");
     await page.click('[data-testid="checkout-sign-in"]');
@@ -305,10 +337,13 @@ async function main() {
     await page.fill("#password", U.fresh.password);
     await page.press("Enter");
     await page.waitFor(() => location.pathname === "/billing/checkout" && location.search.includes("PRACTICE"), [], { label: "returned to the chosen plan", timeout: 30000 });
-    await page.waitForText("Online payment is not open for this plan yet.");
+    await page.waitForText("Online payment is temporarily unavailable for this plan.");
     const shell = await page.evaluate(() => !!document.querySelector('[data-testid="account-shell"]'));
+    const actions = await page.evaluate(() => ({ retry: !!document.querySelector('[data-testid="checkout-retry"]'),
+      support: !!document.querySelector('[data-testid="checkout-contact-support"]'), pay: !!document.querySelector('[data-testid="checkout-continue"]') }));
     const t = await page.bodyText();
-    return shell && t.includes("Request activation") && !/Continue to Polar|mobile money/i.test(t) ? true : { shell, text: t.slice(0, 600) };
+    return shell && actions.retry && actions.support && !actions.pay && t.includes("Practice plan")
+      && !/Continue to Polar|Request activation|mobile money/i.test(t) ? true : { shell, actions, text: t.slice(0, 600) };
   });
   await check("changing the interface grants nothing: create_entity without a plan, another account's company and the administrator screen are all refused by the server", async () => {
     const api = await apiAs(U.fresh);
@@ -382,14 +417,23 @@ async function main() {
   await check("administrator pages at 1280 and 375 px", async () => { await adminTab("Payments needing attention"); return widths("20-admin-payments"); });
 
   startGroup("Public plans follow the server");
-  await check("in SANDBOX_ONLY sandbox payments are never advertised: the approved Solo price is shown with Request activation, no checkout action", async () => {
+  await check("in SANDBOX_ONLY sandbox payments are never advertised: the approved Solo price is shown as unavailable online, with Contact support and no checkout link", async () => {
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
     await go("/", "Choose your capacity.");
-    await sleep(1500);
+    await page.waitForText("Online payment is temporarily unavailable", { timeout: 30000 });
     const t = await page.bodyText();
-    // Approved but checkout closed to customers: the server's amount (no "Proposed"), the manual route, no checkout button.
+    // The landing's capacity table (CapacityPlans): one row per plan, keyed by the plan's name.
+    const plans = await page.evaluate(() => {
+      const row = document.querySelector('[data-testid="plan-Solo"]');
+      const action = document.querySelector('[data-testid="plan-action-Solo"]');
+      return { mode: row?.getAttribute("data-mode"), checkoutLinks: [...document.querySelectorAll("a[href]")].filter((a) => a.getAttribute("href").includes("/billing/checkout")).length,
+        support: action?.textContent?.trim() === "Contact support", note: !!document.querySelector('[data-testid="plans-unavailable-note"]') };
+    });
+    // Approved but checkout closed to customers: the server's amount (no "Proposed"), shown as unavailable online, and no
+    // checkout link or manual-activation route anywhere on the page.
     const solo = t.includes("USD 490 per year") && !t.includes("Proposed: USD 490 per year");
-    return solo && t.includes("Request activation") && !t.includes("Choose Solo") && !/by card|TZS|mobile money/.test(t) ? true : t.slice(0, 1200);
+    return solo && plans.mode === "unavailable" && plans.checkoutLinks === 0 && plans.support && plans.note
+      && !/Choose Solo|Request activation|by card|TZS|mobile money/.test(t) ? true : { plans, text: t.slice(0, 1200) };
   });
 
   startGroup("Card payment (Polar, mock hosted page)");
@@ -705,12 +749,14 @@ async function main() {
     // Polar card payments only: the approved TZS price is never shown (mobile money is not launched).
     return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 990 per year") ? true : t.slice(0, 1200);
   });
-  await check("…and a sandbox route is then not offered at checkout (the platform matrix): online payment is not open", async () => {
+  await check("…and a sandbox route is then not offered at checkout (the platform matrix): the page shows payment unavailable, and the server refuses the attempt", async () => {
     await signInAs(U.mobile);
-    await go("/billing/checkout?plan=SOLO", "Online payment is not open for this plan yet.");
+    await go("/billing/checkout?plan=SOLO", "Online payment is temporarily unavailable for this plan.");
+    const pay = await page.evaluate(() => !!document.querySelector('[data-testid="checkout-continue"]'));
+    const server = await serverRefusesCheckout(U.mobile, "SOLO");
     const ops = await apiAs(U.admin);
     { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "PAYMENTS_DISABLED", p_reason: "payment journey: closed again" }); if (error) return error.message; }
-    return true;
+    return !pay && server === true ? true : { pay, server };
   });
 
   const failed = results.filter((r) => !r.ok);
