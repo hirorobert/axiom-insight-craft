@@ -530,8 +530,11 @@ describe("Ω3-BRAND · public favicon identity (real source)", () => {
     expect(html).not.toMatch(/lovable|r2\.dev/i);
   });
 
-  it("61 · the theme colour is the approved navy", () => {
-    expect(html).toMatch(/<meta name="theme-color" content="#0D1D3B" \/>/);
+  it("61 · the theme colour is the approved CFOClose slate", () => {
+    // Rebrand (redesign/presentation-20261014): the approved CFOClose brand (brand rules
+    // in docs/redesign/brand/) replaces the earlier navy with slate #2E2F3A as the dark
+    // surface — consistent with the wordmark panel background and the dark-surface token.
+    expect(html).toMatch(/<meta name="theme-color" content="#2E2F3A" \/>/);
   });
 
   it("62 · public metadata remains fully CFOClose-branded alongside the favicon change (no regression)", () => {

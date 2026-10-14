@@ -7,72 +7,107 @@
 @layer base {
   :root {
     /* ═══════════════════════════════════════════════════════════════
-       NAVY TRUST — Enterprise Financial Infrastructure Palette
-       ───────────────────────────────────────────────────────────────
-       Navy owns the shell, nav, hierarchy, and CTAs.
-       Green = verified / completed states only.
-       Gold  = certifications, approvals, premium trust indicators only.
-       No color is decorative. Every hue carries workflow meaning.
+       CFOClose brand palette — derived from the approved logo.
+       Slate owns text/structure. Finance green = action + success on
+       light. Mint is a DARK-surface accent only (too faint on white).
+       Every hue carries workflow meaning; none is decorative.
+       Contrast ratios (vs the brief) are measured, not assumed.
        ═══════════════════════════════════════════════════════════════ */
 
-    /* Surfaces — document-grade white on cool navy-tinted neutrals */
-    --background: 0 0% 100%;
-    --foreground: 224 60% 10%;                 /* #0f1b3d ink */
+    /* Surfaces — paper white; slate ink (#2E2F3A, 13.3:1 on white) */
+    --background: 0 0% 100%;                    /* paper #FFFFFF */
+    --foreground: 235 12% 20%;                  /* slate-900 #2E2F3A */
 
     --card: 0 0% 100%;
-    --card-foreground: 224 60% 10%;
+    --card-foreground: 235 12% 20%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 224 60% 10%;
+    --popover-foreground: 235 12% 20%;
 
-    /* Primary — deep navy (#0f1b3d). Owns shell, nav, primary CTAs. */
-    --primary: 224 60% 15%;
-    --primary-foreground: 214 27% 96%;         /* #e8edf3 */
+    /* Primary — finance green (#247D52, 5.1:1 on white). Actions + links. */
+    --primary: 151 55% 32%;                     /* green-700 #247D52 */
+    --primary-foreground: 0 0% 100%;            /* paper on green */
 
-    /* Secondary surface — navy-tinted stone (#e8edf3) */
-    --secondary: 214 27% 93%;
-    --secondary-foreground: 224 60% 15%;
+    /* Secondary surface — faint slate tint */
+    --secondary: 235 12% 95%;
+    --secondary-foreground: 235 12% 20%;
 
-    /* Muted — quieter navy-tinted neutral for meta / labels */
-    --muted: 214 27% 96%;
-    --muted-foreground: 216 20% 38%;
+    /* Muted — meta / labels (#5C5E6B, 6.4:1 on white) */
+    --muted: 235 12% 96%;
+    --muted-foreground: 232 8% 39%;             /* muted-on-light #5C5E6B */
 
-    /* Accent — mid navy (#1e3a5f) for hover states and structural depth.
-       NOT green. Green is semantic (see --success below). */
-    --accent: 213 52% 25%;
-    --accent-foreground: 214 27% 96%;
+    /* Accent — slate surface for hover/structural depth (not green). */
+    --accent: 235 12% 90%;
+    --accent-foreground: 235 12% 20%;
 
-    /* Info — link navy (#3b6fa0), used for informational links */
-    --info: 210 46% 43%;
+    /* Info — links use the finance green on light. */
+    --info: 151 55% 32%;
     --info-foreground: 0 0% 100%;
 
-    /* Destructive — muted institutional red, not alarmist */
-    --destructive: 0 55% 38%;
-    --destructive-foreground: 0 0% 98%;
+    /* Destructive — danger #B42318 (6.6:1 on white). Errors / blocking. */
+    --destructive: 4 76% 40%;
+    --destructive-foreground: 0 0% 100%;
 
-    /* Success — Emerald (#0d7a5f). RESERVED for verified / completed /
-       passed / signed / reconciled states. Never used for decoration,
-       branding, or general accent. */
-    --success: 162 80% 26%;
+    /* Success — finance green. Verified / passed / signed / reconciled.
+       Always reinforced by a label or symbol. */
+    --success: 151 55% 32%;
     --success-foreground: 0 0% 100%;
 
-    /* Gold — (#c9a84c). RESERVED for certifications, sign-off,
-       approvals, premium trust marks. Never a background field, never
-       decorative. */
-    --gold: 43 55% 54%;
-    --gold-foreground: 224 60% 10%;
+    /* Warning — ochre #9A6700 (4.9:1 on white). Exceptions awaiting a
+       decision. (Replaces the former decorative gold; `--gold` is kept as
+       an alias so existing components keep resolving.) */
+    --warning: 40 100% 30%;
+    --warning-foreground: 0 0% 100%;
+    --gold: 40 100% 30%;
+    --gold-foreground: 0 0% 100%;
 
-    --border: 214 25% 88%;
-    --input: 214 25% 88%;
-    --ring: 224 60% 15%;
+    --border: 235 12% 88%;                      /* hairline slate */
+    --input: 235 12% 88%;
+    --ring: 151 55% 32%;                        /* focus ring = green-700 */
 
-    /* Zero radius — institutional geometry, no consumer softness */
-    --radius: 0rem;
+    /* 2px radius + hairline borders (brief §4). */
+    --radius: 0.125rem;
   }
 
+  /* Real dark-surface palette (the previous .dark block rendered white). */
   .dark {
-    --background: 0 0% 100%;
-    --foreground: 220 30% 6%;
+    --background: 236 12% 16%;                  /* deep slate #24252E */
+    --foreground: 0 0% 96%;                     /* ink-on-dark #F5F5F5 */
+
+    --card: 235 12% 20%;                        /* slate-900 #2E2F3A */
+    --card-foreground: 0 0% 96%;
+    --popover: 235 12% 20%;
+    --popover-foreground: 0 0% 96%;
+
+    /* Primary/accent on dark = mint (#7FE0A0, 8.3:1 on slate). */
+    --primary: 140 61% 69%;
+    --primary-foreground: 236 12% 16%;          /* slate text on mint */
+
+    --secondary: 235 12% 24%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 235 12% 24%;
+    --muted-foreground: 232 9% 69%;             /* muted-on-dark #A9ABB8 */
+
+    --accent: 235 12% 26%;
+    --accent-foreground: 0 0% 96%;
+
+    --info: 140 61% 69%;
+    --info-foreground: 236 12% 16%;
+
+    --destructive: 4 70% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 140 61% 69%;
+    --success-foreground: 236 12% 16%;
+
+    --warning: 42 90% 62%;
+    --warning-foreground: 236 12% 16%;
+    --gold: 42 90% 62%;
+    --gold-foreground: 236 12% 16%;
+
+    --border: 235 12% 30%;
+    --input: 235 12% 30%;
+    --ring: 140 61% 69%;
   }
 }
 
@@ -89,6 +124,7 @@
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
+    font-optical-sizing: auto;      /* Inter Display behaviour at ≥32px headings */
     -webkit-font-smoothing: antialiased;
   }
 }

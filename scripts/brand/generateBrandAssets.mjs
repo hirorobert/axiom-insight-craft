@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Generates CFOClose's browser icons, web-app icons and social preview from the APPROVED logo
-// (brand/source/CFOClose_logo.png, supplied by the owner: white "CFOCLOSE" over two gold rules on navy). Nothing is
-// redrawn or invented:
+// (brand/source/CFOClose_logo.png — the approved CFOClose brand: light "CFOCLOSE" over two mint rules on slate,
+// docs/redesign/brand/). Nothing is redrawn or invented:
 //   - small icons (favicon 16/32/48, apple-touch 180, web-app 192/512, maskable 512) use the logo's own first "C",
-//     cropped from the source pixels, above the logo's own double gold rule, on the logo's navy — a full wordmark is
+//     cropped from the source pixels, above the logo's own double mint rule, on the logo's slate — a full wordmark is
 //     unreadable at 16–48 px;
-//   - the social preview (1200×630) places the full approved lockup on the logo's navy.
+//   - the social preview (1200×630) places the full approved lockup on the logo's slate.
 // The colours are sampled from the source, not typed. Rendering runs in headless Chrome (canvas), as the browser
 // acceptance scripts do. Output goes to public/ and is committed; re-run only when the approved logo changes.
 //
@@ -37,8 +37,8 @@ const rendered = await page.evaluate(async (dataUrl) => {
   const navy = at(5, 5);
   const isNavy = (c) => Math.abs(c[0] - navy[0]) + Math.abs(c[1] - navy[1]) + Math.abs(c[2] - navy[2]) < 60;
   const isLight = (c) => c[0] > 200 && c[1] > 200 && c[2] > 200;
-  const isGold = (c) => c[0] > 150 && c[1] > 120 && c[2] < 120 && c[0] > c[2] + 60;
-  // Bounds of the letters (light pixels) and of the gold rules, measured from the source.
+  const isGold = (c) => c[1] > 170 && c[1] > c[0] + 40 && c[1] > c[2] + 20 && c[0] > 80 && c[0] < 190;
+  // Bounds of the letters (light pixels) and of the mint rules, measured from the source.
   let lx0 = W, lx1 = 0, ly0 = H, ly1 = 0, gy0 = H, gy1 = 0, gx0 = W, gx1 = 0;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const c = at(x, y);

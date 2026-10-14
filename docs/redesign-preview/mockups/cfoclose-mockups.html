@@ -1,0 +1,326 @@
+<style>
+/* ── CFOClose mockup board — tokens mirror src/index.css (brand rules) ───────
+   Illustrative/synthetic data only. Not a live product. */
+:root{
+  --paper:#ffffff; --ink:#2E2F3A; --slate-900:#2E2F3A; --slate-950:#24252E;
+  --muted:#5C5E6B; --hair:#E3E3E7; --surface:#F7F7F8;
+  --green:#247D52; --green-ink:#ffffff; --mint:#7FE0A0;
+  --danger:#B42318; --warning:#9A6700; --ok:#247D52;
+  --bg:var(--paper); --fg:var(--ink); --card:#fff; --line:var(--hair);
+  --subtle:var(--surface); --accent:var(--green); --on-accent:#fff;
+  --radius:2px;
+  --sans:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular","Cascadia Code",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:var(--slate-950); --fg:#F5F5F5; --card:var(--slate-900); --line:#3a3b45;
+  --subtle:#2a2b34; --muted:#A9ABB8; --accent:var(--mint); --on-accent:var(--slate-950); --ok:var(--mint);
+}}
+:root[data-theme="dark"]{--bg:var(--slate-950);--fg:#F5F5F5;--card:var(--slate-900);--line:#3a3b45;--subtle:#2a2b34;--muted:#A9ABB8;--accent:var(--mint);--on-accent:var(--slate-950);--ok:var(--mint);}
+:root[data-theme="light"]{--bg:var(--paper);--fg:var(--ink);--card:#fff;--line:var(--hair);--subtle:var(--surface);--muted:#5C5E6B;--accent:var(--green);--on-accent:#fff;--ok:var(--green);}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.5;
+  font-variant-numeric:tabular-nums;font-optical-sizing:auto;-webkit-font-smoothing:antialiased;}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 20px 80px}
+h1,h2,h3,h4{text-wrap:balance;margin:0;letter-spacing:-0.02em;font-weight:650}
+.lead{color:var(--muted);max-width:60ch}
+.eyebrow{font:600 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+.amt{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+a{color:var(--accent)}
+hr.sep{border:0;border-top:1px solid var(--line);margin:0}
+
+/* board scaffolding */
+.boardhead{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:8px}
+.wordmark{display:inline-flex;flex-direction:column;align-items:flex-start;line-height:1}
+.wordmark b{font:800 22px/1 var(--sans);letter-spacing:.02em}
+.wordmark .rule{height:2px;width:100%;background:var(--accent);margin-top:3px}
+.wordmark .rule+.rule{margin-top:2px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:18px 0 28px}
+.legend .tier{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+.frame{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);overflow:hidden;margin:26px 0}
+.framebar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+  padding:10px 14px;background:var(--subtle);border-bottom:1px solid var(--line)}
+.framebar .name{font-weight:650;font-size:13px}
+.framebar .name span{color:var(--muted);font-weight:400}
+.states{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:600 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  border:1px solid var(--line);border-radius:var(--radius);padding:4px 7px;background:var(--card)}
+.canvas{padding:0}
+
+/* generic UI bits */
+.pill{display:inline-flex;align-items:center;gap:6px;font:600 11px/1 var(--sans);padding:4px 8px;border-radius:var(--radius);border:1px solid transparent}
+.pill.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent);background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.pill.warn{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 35%,transparent);background:color-mix(in srgb,var(--warning) 12%,transparent)}
+.pill.bad{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent);background:color-mix(in srgb,var(--danger) 10%,transparent)}
+.pill.neutral{color:var(--muted);border-color:var(--line);background:var(--subtle)}
+.btn{display:inline-flex;align-items:center;gap:7px;font:600 13px/1 var(--sans);padding:9px 14px;border-radius:var(--radius);
+  border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:default}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.ghost{background:transparent}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.src{font:500 11px/1.3 var(--mono);color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font:600 10.5px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.tablewrap{overflow-x:auto}
+
+/* workspace shell */
+.ws{display:grid;grid-template-columns:200px 1fr;min-height:420px}
+.rail{border-right:1px solid var(--line);background:var(--subtle);padding:14px 10px;font-size:13px}
+.rail .mark{display:flex;align-items:center;gap:8px;padding:2px 6px 14px}
+.rail .mark b{font:800 14px/1 var(--sans);letter-spacing:.02em}
+.rail nav{display:flex;flex-direction:column;gap:2px}
+.rail a{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:var(--radius);color:var(--fg);text-decoration:none}
+.rail a.active{background:var(--card);border:1px solid var(--line);font-weight:600}
+.rail a.off{color:var(--muted)}
+.rail .lock{font:600 9px/1 var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.main{padding:20px 22px}
+.crumb{color:var(--muted);font-size:12px;margin-bottom:4px}
+.steps{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px;margin:2px 0 16px}
+.steps b{color:var(--fg)}
+.cardrow{display:grid;gap:14px}
+.ucard{border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.k{font-size:12px;color:var(--muted)}
+.v{font-weight:600}
+.primaryband{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+  border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));background:color-mix(in srgb,var(--accent) 7%,transparent);
+  border-radius:var(--radius);padding:12px 14px;margin-bottom:16px}
+.drop{border:1.5px dashed var(--line);border-radius:var(--radius);padding:28px;text-align:center;color:var(--muted);background:var(--subtle)}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.check{display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;border-radius:50%;font-size:11px;font-weight:700}
+.check.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.check.bad{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
+.toggle{display:inline-flex;gap:5px;align-items:center;font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:var(--radius);padding:3px 7px}
+.note{font-size:12px;color:var(--muted)}
+.focusbox{border:1px solid color-mix(in srgb,var(--warning) 40%,var(--line));background:color-mix(in srgb,var(--warning) 8%,transparent);border-radius:var(--radius);padding:12px 14px}
+.sidebyside{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.ws{grid-template-columns:1fr}.rail{display:none}.choice,.sidebyside{grid-template-columns:1fr}}
+
+.footplate{color:var(--muted);font-size:12px;margin-top:40px;border-top:1px solid var(--line);padding-top:16px}
+.toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);padding:8px 12px;display:flex;gap:10px;justify-content:flex-end;font-size:12px;margin:-40px -20px 24px}
+.tbtn{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);color:var(--fg);padding:5px 10px;cursor:pointer;font:inherit}
+</style>
+
+<div class="toolbar">
+  <span style="margin-right:auto;color:var(--muted)">CFOClose · redesign mockups · <b style="color:var(--fg)">illustrative / synthetic data</b></span>
+  <button class="tbtn" onclick="document.documentElement.setAttribute('data-theme','light')">Light</button>
+  <button class="tbtn" onclick="document.documentElement.setAttribute('data-theme','dark')">Dark</button>
+  <button class="tbtn" onclick="document.documentElement.removeAttribute('data-theme')">System</button>
+</div>
+
+<div class="wrap">
+  <div class="boardhead">
+    <div>
+      <div class="wordmark"><b>CFOCLOSE</b><span class="rule"></span><span class="rule"></span></div>
+      <h1 style="font-size:30px;margin-top:16px">Redesign mockups — the close journey</h1>
+      <p class="lead">Six screens in the CFOClose brand system (slate · finance green · mint). Figures are a synthetic demonstration entity, <b>Mto Holdings Ltd · FY2026</b>. Flow: import → validate → resolve mapping → review → authorised sign-off → export. Each frame lists the states its design covers.</p>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="eyebrow" style="width:100%">Trust tiers — explicit on every dataset</span>
+    <span class="tier"><span class="dot" style="background:var(--green)"></span><b style="color:var(--fg)">Primary</b>&nbsp;current-period, validated for this entity</span>
+    <span class="tier"><span class="dot" style="background:var(--warning)"></span><b style="color:var(--fg)">Comparative</b>&nbsp;prior period, provenance shown, may be lower assurance</span>
+    <span class="tier"><span class="dot" style="background:var(--muted)"></span><b style="color:var(--fg)">Reference</b>&nbsp;benchmark; never flows into statements</span>
+  </div>
+
+  <!-- 1 · LANDING -->
+  <div class="frame">
+    <div class="framebar"><div class="name">1 · Landing <span>— public marketing</span></div>
+      <div class="states"><span class="chip">hero</span><span class="chip">one primary action</span></div></div>
+    <div class="canvas" style="background:var(--slate-900);color:#F5F5F5;padding:34px 28px">
+      <div class="eyebrow" style="color:var(--mint)">Trial balance workspace</div>
+      <h2 style="font-size:34px;max-width:16ch;margin-top:10px;color:#F5F5F5">From trial balance to review-ready accounts.</h2>
+      <p style="max-width:56ch;color:#C9CBD4;margin-top:12px">Import a trial balance, check it, and map every account to its statement category — each decision recorded. CFOClose performs the checks and records the decisions; professional judgement stays with you.</p>
+      <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+        <span class="btn" style="background:var(--mint);color:var(--slate-950);border-color:var(--mint)">Explore plans ↓</span>
+        <span class="btn" style="background:transparent;color:#F5F5F5;border-color:#55606c">Request activation →</span>
+      </div>
+      <div class="src" style="color:#9aa0ab;margin-top:16px">One brand moment. Evidence and sign-off — not "AI over your numbers."</div>
+    </div>
+  </div>
+
+  <!-- 2 · PRICING -->
+  <div class="frame">
+    <div class="framebar"><div class="name">2 · Pricing <span>— current approved catalogue, no free plan / no trial</span></div>
+      <div class="states"><span class="chip">proposed state</span><span class="chip">enterprise = contact</span></div></div>
+    <div class="canvas" style="padding:22px">
+      <div class="eyebrow">12-month term · no automatic renewal</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px" class="pricegrid">
+        <div class="ucard"><h3 style="font-size:16px">Solo</h3><p class="note">For one entity.</p>
+          <p style="font-weight:700;font-size:17px;margin:12px 0 2px">Proposed: USD 490<span class="note" style="font-weight:400">/yr</span></p>
+          <p class="note">1 active entity · 1 named user</p><div class="btn" style="width:100%;justify-content:center;margin-top:14px">Request activation</div></div>
+        <div class="ucard" style="border-color:color-mix(in srgb,var(--accent) 45%,var(--line))"><h3 style="font-size:16px">Practice</h3><p class="note">A small portfolio.</p>
+          <p style="font-weight:700;font-size:17px;margin:12px 0 2px">Proposed: USD 990<span class="note" style="font-weight:400">/yr</span></p>
+          <p class="note">Up to 5 entities · +users USD 200/yr</p><div class="btn primary" style="width:100%;justify-content:center;margin-top:14px">Request activation</div></div>
+        <div class="ucard"><h3 style="font-size:16px">Firm</h3><p class="note">Firm-wide portfolio.</p>
+          <p style="font-weight:700;font-size:17px;margin:12px 0 2px">Proposed: USD 2,990<span class="note" style="font-weight:400">/yr</span></p>
+          <p class="note">Up to 25 entities · +users USD 200/yr</p><div class="btn" style="width:100%;justify-content:center;margin-top:14px">Request activation</div></div>
+        <div class="ucard"><h3 style="font-size:16px">Enterprise</h3><p class="note">Contractual requirements.</p>
+          <p style="font-weight:700;font-size:17px;margin:12px 0 2px">Terms agreed with our team</p>
+          <p class="note">Negotiated entities & users</p><div class="btn" style="width:100%;justify-content:center;margin-top:14px">Discuss Enterprise</div></div>
+      </div>
+      <p class="note" style="margin-top:14px">A price marked <b>Proposed</b> is confirmed with you before our team activates the plan. Online payment is not yet open.</p>
+    </div>
+  </div>
+
+  <!-- 3 · FIRST-RUN + INGESTION -->
+  <div class="frame">
+    <div class="framebar"><div class="name">3 · First-run workspace & file ingestion</div>
+      <div class="states"><span class="chip">empty</span><span class="chip">data choice</span><span class="chip">drop / browse</span></div></div>
+    <div class="ws">
+      <aside class="rail">
+        <div class="mark"><span class="wordmark"><b style="font-size:14px">CFOCLOSE</b></span></div>
+        <nav>
+          <a class="active" href="#">Overview</a>
+          <a href="#">Trial balance</a>
+          <a href="#">&nbsp;&nbsp;Intake</a>
+          <a href="#">&nbsp;&nbsp;Account review</a>
+          <a href="#">Reconcile</a>
+          <a class="off" href="#">Statements <span class="lock">pilot</span></a>
+          <a class="off" href="#">Sign-off <span class="lock">pilot</span></a>
+        </nav>
+      </aside>
+      <section class="main">
+        <div class="crumb">Mto Holdings Ltd · FY2026</div>
+        <h3 style="font-size:20px">What would you like to complete?</h3>
+        <p class="note" style="margin:4px 0 16px">Choose one or more. You can add or change services later.</p>
+        <div class="choice">
+          <div class="ucard" style="border-color:color-mix(in srgb,var(--accent) 45%,var(--line))">
+            <div class="pill ok">Available now</div>
+            <h4 style="font-size:15px;margin-top:10px">Review a trial balance</h4>
+            <p class="note">Import, structure, balance-check and resolve account-classification exceptions.</p>
+            <div class="btn primary" style="margin-top:12px">Continue</div>
+          </div>
+          <div class="ucard">
+            <div class="pill neutral">Pilot · by invitation</div>
+            <h4 style="font-size:15px;margin-top:10px">Prepare financial statements</h4>
+            <p class="note">Framework-aware statement set from a reviewed trial balance. Not generally available.</p>
+            <div class="btn" style="margin-top:12px">Request access</div>
+          </div>
+        </div>
+        <hr class="sep" style="margin:18px 0">
+        <h4 style="font-size:14px">Add financial data</h4>
+        <p class="note" style="margin:3px 0 10px">Upload a CSV or XLSX trial balance now, or open the workspace and add it later.</p>
+        <div class="drop">Drop a <b>CSV / XLSX</b> trial balance here, or <a href="#">browse</a><br><span class="note">Your accounting system's trial-balance export. No TIN or jurisdiction needed.</span></div>
+        <div style="display:flex;gap:10px;margin-top:12px"><span class="btn primary">Import trial balance</span><span class="btn">Start without data</span></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- 4 · TB VALIDATION + RESOLUTION -->
+  <div class="frame">
+    <div class="framebar"><div class="name">4 · Trial-balance validation & issue resolution</div>
+      <div class="states"><span class="chip">loading</span><span class="chip">blocked</span><span class="chip">error</span><span class="chip">success</span></div></div>
+    <div class="ws">
+      <aside class="rail">
+        <div class="mark"><span class="wordmark"><b style="font-size:14px">CFOCLOSE</b></span></div>
+        <nav><a href="#">Overview</a><a class="active" href="#">Trial balance</a><a href="#">&nbsp;&nbsp;Account review</a><a href="#">Reconcile</a><a class="off" href="#">Statements <span class="lock">pilot</span></a></nav>
+      </aside>
+      <section class="main">
+        <div class="crumb">Trial balance · FY2026</div>
+        <div class="steps">Step <b>2</b> of 3 · <b>Resolve classification exceptions</b></div>
+        <div class="primaryband">
+          <div><b>3 accounts need your decision</b><div class="note">Resolve them to produce a reviewed trial balance.</div></div>
+          <span class="btn primary">Review classifications →</span>
+        </div>
+        <div class="ucard" style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><div class="k">Current trial balance</div><div class="v">mto-holdings-tb-fy2026.csv</div>
+              <div class="src">sha-256 9f2a…c41d · uploaded 12 Oct 2026 · <span class="pill ok" style="padding:2px 6px">balanced</span></div></div>
+            <div class="pill warn">needs review</div>
+          </div>
+        </div>
+        <h4 style="font-size:13px;margin-bottom:6px">Trial balance checks <span class="note" style="font-weight:400">· 3 of 4 passed</span></h4>
+        <div class="tablewrap"><table>
+          <tr><th>Check</th><th>Result</th><th class="amt">Figure</th></tr>
+          <tr><td><span class="check ok">✓</span> File read</td><td class="note">Every row read and columns mapped</td><td class="amt">—</td></tr>
+          <tr><td><span class="check ok">✓</span> Debits = credits</td><td class="note">Balanced to zero</td><td class="amt num">64,400,000</td></tr>
+          <tr><td><span class="check ok">✓</span> Amounts valid</td><td class="note">No malformed values</td><td class="amt">—</td></tr>
+          <tr><td><span class="check bad">✕</span> All accounts classified</td><td><span class="pill bad">blocked</span> 3 of 142 accounts unresolved</td><td class="amt num">3</td></tr>
+        </table></div>
+        <p class="src" style="margin-top:10px">Every figure traces to <b>mto-holdings-tb-fy2026.csv</b> · Primary tier · amounts in the workspace functional currency (no hardcoded currency label).</p>
+      </section>
+    </div>
+  </div>
+
+  <!-- 5 · MAPPING / REVIEW -->
+  <div class="frame">
+    <div class="framebar"><div class="name">5 · Account mapping & review <span>— exceptions held for decision</span></div>
+      <div class="states"><span class="chip">focus mode</span><span class="chip">conflicting evidence</span><span class="chip">no suggestion</span></div></div>
+    <div class="canvas" style="padding:20px 22px">
+      <div class="focusbox" style="margin-bottom:14px">
+        <b>Unresolved — 3 of 142.</b> CFOClose holds every exception until you decide. It records who decided, when, and why — it never decides authoritative flags for you.
+      </div>
+      <div class="tablewrap"><table>
+        <tr><th>Account</th><th>CFOClose suggestion</th><th>Evidence</th><th>Authoritative flags</th><th>Decision</th></tr>
+        <tr><td><b>6050</b> Skills Dev. Levy<br><span class="note">payroll-adjacent</span></td>
+          <td>Personnel costs <span class="pill ok" style="padding:2px 6px">high</span></td>
+          <td class="note">Keyword + prior-period mapping agree</td>
+          <td><span class="toggle">cash</span> <span class="toggle">payroll ✓</span></td>
+          <td><span class="btn primary" style="padding:6px 10px">Accept</span></td></tr>
+        <tr><td><b>1900</b> Suspense<br><span class="note">unmapped</span></td>
+          <td><span class="pill warn">Conflicting evidence — review required</span></td>
+          <td class="note">Competing signals; CFOClose will not choose</td>
+          <td><span class="toggle">cash</span> <span class="toggle">retained earnings</span></td>
+          <td><span class="btn" style="padding:6px 10px">Classify…</span></td></tr>
+        <tr><td><b>4820</b> Other income<br><span class="note">low confidence</span></td>
+          <td><span class="pill neutral">No reliable suggestion</span></td>
+          <td class="note">CFOClose did not find enough reliable evidence</td>
+          <td><span class="toggle">cash</span></td>
+          <td><span class="btn" style="padding:6px 10px">Classify…</span> <span class="btn ghost" style="padding:6px 10px">Exclude…</span></td></tr>
+      </table></div>
+      <p class="src" style="margin-top:10px">Each decision is attributed (member · time · reason) and appended to an immutable review ledger. Changing an input creates a new reviewed version.</p>
+    </div>
+  </div>
+
+  <!-- 6 · STATEMENTS REVIEW + SIGN-OFF (FUTURE/PILOT) -->
+  <div class="frame">
+    <div class="framebar"><div class="name">6 · Statements review & authorised sign-off
+      <span>— FUTURE / PILOT concept, by invitation; not generally available</span></div>
+      <div class="states"><span class="chip">draft</span><span class="chip">reviewed</span><span class="chip">final · sealed</span><span class="chip">blocked</span></div></div>
+    <div class="canvas" style="padding:0">
+      <div style="padding:8px 14px;background:color-mix(in srgb,var(--warning) 10%,transparent);border-bottom:1px solid var(--line);font-size:12px;color:var(--warning)">
+        <b>Pilot concept.</b> Statements/notes generation and sign-off are gated to invited pilot companies. Shown for direction only — not a shippable route today.
+      </div>
+      <div class="sidebyside" style="padding:18px 22px">
+        <div>
+          <h4 style="font-size:14px">Statement of financial position <span class="note" style="font-weight:400">· IFRS for SMEs</span></h4>
+          <div class="tablewrap"><table>
+            <tr><th>Line</th><th class="amt">FY2026 <span class="dot" style="background:var(--green)"></span></th><th class="amt">FY2025 <span class="dot" style="background:var(--warning)"></span></th></tr>
+            <tr><td>Total assets</td><td class="amt num">41,250,000</td><td class="amt num">37,980,000</td></tr>
+            <tr><td>Total liabilities</td><td class="amt num">18,600,000</td><td class="amt num">17,240,000</td></tr>
+            <tr><td><b>Net assets</b></td><td class="amt num"><b>22,650,000</b></td><td class="amt num"><b>20,740,000</b></td></tr>
+          </table></div>
+          <p class="src" style="margin-top:8px">Assets = Liabilities + Equity ✓ · open any line to its mapped accounts and source import.</p>
+        </div>
+        <div>
+          <h4 style="font-size:14px">Sign-off</h4>
+          <div class="ucard" style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between"><span>Preparer</span><span class="pill ok">signed · A. Mushi</span></div>
+            <div style="display:flex;justify-content:space-between;margin-top:8px"><span>Reviewer</span><span class="pill warn">awaiting</span></div>
+            <div style="display:flex;justify-content:space-between;margin-top:8px"><span>Approver</span><span class="pill neutral">locked until reviewed</span></div>
+          </div>
+          <div class="ucard">
+            <div class="k">Readiness</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span class="pill bad">1 blocker</span> <span class="note">Reviewer sign-off required before approval</span></div>
+            <div class="btn" style="margin-top:12px;opacity:.6">Approve as final</div>
+            <p class="src" style="margin-top:8px">Approval binds to the exact input digest. Any upstream change invalidates it and requires a new version. Final is sealed and immutable; corrections create a new linked version.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="footplate">
+    CFOClose redesign mockups · brand: slate #2E2F3A · finance green #247D52 · mint #7FE0A0 (dark). Inter, tabular figures, 2px radius, hairline borders. All names, companies and figures are illustrative synthetic data — not a live product, not an audit, no real sign-off. Screens 1–2 also exist as a working re-skinned preview; screens 3–6 are design mockups of gated/authenticated flows.
+  </p>
+</div>
+<script>
+/* sync toggle with viewer theme; respect reduced motion (no animations used). */
+</script>

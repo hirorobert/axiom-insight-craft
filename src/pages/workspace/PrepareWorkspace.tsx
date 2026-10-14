@@ -749,6 +749,7 @@ export default function PrepareWorkspace() {
                       isValid={upload.is_valid}
                       status={upload.status}
                       fileName={upload.file_name}
+                      currencyCode={company?.currency ?? undefined}
                       onProcessAsAuditedAccounts={canReprocessUpload(upload) ? handleProcessAsAuditedAccounts : undefined}
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
