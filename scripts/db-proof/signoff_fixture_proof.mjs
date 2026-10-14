@@ -253,7 +253,36 @@ async function main() {
     await setValidations('pass');
     await allowed("POSITIVE · valid preparer sign-off (self id + latest pass) still succeeds", U.prep,
       (c)=>insP(c,2032,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.prep}',now(),'${fmPrep}','preparer_signed'`));
+
+    // DRAFT-EDIT (permitted): a draft row (no signature) and a draft-field edit are allowed — the gate applies to
+    // signing, not to preparing a draft. Distinguishes permitted draft edits from a sign-off.
+    await setValidations('pass');
+    await allowed("DRAFT-EDIT · a draft row and a draft-field edit are permitted (no signature => no gate)", U.prep, async (c)=>{
+      await insP(c,2034,"preparer_firm_member_id,status,preparer_note", `'${fmPrep}','draft','v1'`);
+      await c.query(`UPDATE statement_sign_offs SET preparer_note='v2' WHERE company_id='${CO_A}' AND period_year=2034`);
+    });
+
+    // CONCURRENCY / IDEMPOTENT-REPLAY: whichever of two racing requests commits first, a second sign-off for the same
+    // (company,period) is refused by UNIQUE(company_id,period_year) — no duplicate version, deterministic, no partial state.
+    await refused("CONCURRENCY · a 2nd sign-off for the same (company,period) is refused (no duplicate version)", U.prep, async (c)=>{
+      await admin.query(`INSERT INTO statement_sign_offs(company_id,period_year,upload_id,preparer_id,preparer_signed_at,preparer_firm_member_id,status) VALUES ('${CO_A}',2035,'${UP_A}','${U.prep}',now(),'${fmPrep}','preparer_signed')`);
+      await insP(c,2035,"preparer_id,preparer_signed_at,preparer_firm_member_id", `'${U.prep}',now(),'${fmPrep}'`);
+    });
+
+    // INPUT-CHANGE after approval: the bound upload/content of a locked sign-off cannot be changed post-lock.
+    await refused("INPUT-CHANGE · the bound upload/content of a locked sign-off cannot be changed post-lock", U.appr,
+      (c)=>c.query(`UPDATE statement_sign_offs SET statements_hash='${hex64('tamper')}' WHERE id='${cLockedId}'`));
   }
+
+  // CONTAINMENT (recovery, both modes): the authorized containment is to REVOKE the direct writes — NOT to drop the
+  // enforcing trigger. After REVOKE, an authenticated signing write is refused and every historical row is preserved;
+  // recovery never reopens unauthorized signing.
+  { await admin.query(`REVOKE INSERT, UPDATE ON public.statement_sign_offs FROM authenticated`);
+    const histN = (await admin.query(`SELECT count(*) c FROM statement_sign_offs`)).rows[0].c;
+    let blocked=false; try { await asUser(U.prep,(c)=>insP(c,2036,"preparer_firm_member_id,status", `'${fmPrep}','draft'`)); } catch { blocked=true; }
+    const histN2 = (await admin.query(`SELECT count(*) c FROM statement_sign_offs`)).rows[0].c;
+    rec("CONTAINMENT · after REVOKE, authenticated signing writes are refused (recovery never reopens signing)", blocked);
+    rec("CONTAINMENT · all historical sign-off rows preserved through containment", String(histN)===String(histN2), `before=${histN} after=${histN2}`); }
 
   await pool.end(); await admin.end();
   const failed = results.filter(r=>!r.ok);
