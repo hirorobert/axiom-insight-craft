@@ -43,6 +43,12 @@ From the approved masters (`docs/redesign/brand/`): regenerated favicon/icons/og
 ## Financial verification — COMPLETE (PG17, executed)
 BEFORE 11/11 → AFTER 17/17 on PostgreSQL 17, now including concurrency/idempotent-replay, permitted-draft-edit, input-change-after-approval, and containment-recovery. Candidate SQL byte-identical to tested (**sha256 `9c706f5e…`**). Recovery = containment (REVOKE direct writes), NOT drop-trigger — tested.
 
+## Release status (final pass) — REPO-READY, MERGE/DEPLOY blocked on external gates
+- **Full CI matrix GREEN on exact head `a2e726b`** (PR #127): Golden Fixtures, Release Gate (full suite), Lint/Build/Typecheck, **Real-app E2E (local Supabase)**, Disposable-DB Contract, Migration Audit, Edge ×2, Merge Conflict, and the sign-off **proof** (fixture 11/11→17/17 **and** full-chain integration 174/174 replay + candidate + real policies/triggers/capability fns, 17/17). Staging RLS is intentionally manual (skipped).
+- **#124 / #125 marked superseded** by the combined #127.
+- **Merge BLOCKED:** `gh pr merge #127` was denied by the harness permission classifier — a shared-repo write that needs explicit owner approval (a Bash permission rule, or the owner merges #127 manually). I did not bypass it.
+- **Deployment BLOCKED (external platform):** production deploy is via **Lovable Publish** (owner action; merging does NOT auto-deploy — cfoclose.com still serves the old navy brand, bundle `index-CCThLW1-.js`), and the candidate financial migration must be **registered + applied through the authoritative (Drizzle journal) mechanism on the hosted DB**, which needs hosted access this session does not have. Fresh read-only hosted preflight (expected schema/journal, applicability, permissions, recovery readiness, active transactions) must come from the production-owning session before the migration is applied. Staging rehearsal likewise needs the `STAGING_*` secrets.
+
 ## Verdict: RC CI GREEN
 All required checks pass on the exact head `2b8c4f0` (Disposable-DB Contract finishing; deterministic, passed before). The release candidate is ready for human review/merge. Candidate financial migration remains **UNAPPLIED** (apply on isolated PG17 after review, per the rollout/recovery below).
 
