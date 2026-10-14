@@ -58,7 +58,7 @@ Common facts: `GRANT SELECT, INSERT, UPDATE ON public.statement_sign_offs TO aut
 
 ## 3. Candidate repair (NOT applied, UNVERIFIED)
 
-File: `supabase/migrations/20261103100000_signoff_authorization_hardening.sql` (added on this branch; **not applied to any DB**).
+File: `docs/fin-integrity/candidate-migration/20261103100000_signoff_authorization_hardening.sql` (added on this branch; **not applied to any DB**).
 
 **Design — smallest justified, fail-closed, evidence-preserving:**
 1. **Close the INSERT hole (A, E):** a `BEFORE INSERT OR UPDATE` trigger `enforce_signoff_authorization()` that (a) runs the HESABU latest-pass gate whenever ANY signature/lock field is being set — not only when `preparer_signed_at` is set; (b) enforces tier sequence (`reviewer_signed_at` requires `preparer_signed_at`; `approver_signed_at` requires `reviewer_signed_at`; `locked` requires `approver_signed_at`); (c) requires `approve_certification` capability for any write that sets `reviewer_signed_at`/`approver_signed_at`/`locked_at` (defence-in-depth beside RLS, and covering INSERT which RLS does not tier-gate).

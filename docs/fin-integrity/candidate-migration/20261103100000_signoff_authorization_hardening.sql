@@ -166,8 +166,15 @@ CREATE TRIGGER enforce_signoff_authorization
 --    fails closed); TRUNCATE is not row-level and would let any grantee wipe all
 --    sign-off history across tenants, so it must not be held by `authenticated`.
 --    service_role (edge functions) retains ALL. ──
-REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
+REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER
   ON public.statement_sign_offs FROM authenticated;
+-- MAINTAIN is a PostgreSQL 17+ privilege keyword; guard so the migration still
+-- replays on the postgres:16 contract/E2E containers. Production is PG17.
+DO $$ BEGIN
+  IF current_setting('server_version_num')::int >= 170000 THEN
+    EXECUTE 'REVOKE MAINTAIN ON public.statement_sign_offs FROM authenticated';
+  END IF;
+END $$;
 
 -- ============================================================================
 -- PREFERRED HARD-DISABLE ALTERNATIVE (commented — enable instead of/alongside
