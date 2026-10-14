@@ -130,12 +130,12 @@ BEGIN
   LIMIT 1;
 
   IF v_latest.id IS NULL THEN
-    RAISE EXCEPTION 'HESABU GATE: upload % has no validation run; validate before signing'
-      USING ERRCODE = 'restrict_violation', NEW.upload_id;
+    RAISE EXCEPTION 'HESABU GATE: upload % has no validation run; validate before signing', NEW.upload_id
+      USING ERRCODE = 'restrict_violation';
   END IF;
   IF v_latest.gate_satisfied IS NOT TRUE THEN
-    RAISE EXCEPTION 'HESABU GATE: latest validation run (%) did not pass; resolve and re-validate before signing'
-      USING ERRCODE = 'restrict_violation', v_latest.id;
+    RAISE EXCEPTION 'HESABU GATE: latest validation run (%) did not pass; resolve and re-validate before signing', v_latest.id
+      USING ERRCODE = 'restrict_violation';
   END IF;
 
   -- ── D. Non-repudiation: statements_hash must be present at lock. ──
