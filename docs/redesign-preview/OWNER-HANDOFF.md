@@ -31,7 +31,7 @@ Verify this exact digest at every step (branch, staging apply, hosted apply, jou
 - **Merge it yourself** on GitHub (PR #127 → "Merge"), **or**
 - **Run the exact command** (this is the precise approval being surfaced):
   ```
-  gh pr merge 127 --repo <owner>/<repo> --squash --delete-branch=false
+  gh pr merge 127 --repo hirorobert/axiom-insight-craft --squash --delete-branch=false
   ```
 - or add a Claude Code permission rule allowing `gh pr merge` on this repo, then tell me to proceed.
 
