@@ -41,6 +41,11 @@
 // a "Contact" column listing support@, billing@ and contact@cfoclose.com as mailto links (src/lib/contact/contactChannels.ts),
 // which are not part of the enquiry experience and so appear whatever the gate says; the column spans change to fit it.
 // Nothing else changed: the gated /contact link is still absent while the gate is OFF.
+// RE-CAPTURED again (2026-10-14, CFOClose brand) through the same withGate(false) path after the approved CFOClose rebrand
+// (redesign/presentation-20261014): the brand mark (CFOCloseWordmark, rendered in Header and Footer) now uses the approved
+// slate #2E2F3A / finance-green #247D52 / mint lockup instead of the former navy #0D1D3B / gold #CBA64E. The ONLY difference
+// is those colour values on the wordmark line — the header/footer navigation, link set and structure are byte-identical and
+// the gate-OFF guarantee is unchanged: no Contact entry point of any kind (still asserted directly beneath each comparison).
 import fs from "node:fs";
 import path from "node:path";
 import { createElement, type ComponentType, type ReactElement } from "react";
