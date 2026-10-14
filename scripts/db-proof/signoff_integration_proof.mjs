@@ -57,6 +57,10 @@ async function replayAll() {
   // because it calls SECURITY DEFINER RPCs, not direct table writes). Grant it so writes reach RLS/triggers rather than a
   // schema-permission error. This does NOT weaken the sign-off controls (those are RLS policies + triggers, not grants).
   await admin.query("GRANT USAGE ON SCHEMA public, auth TO authenticated, anon, service_role");
+  // The RLS policies read reference tables (firm_members, …) as the CALLER; the role needs base SELECT (Supabase grants
+  // this at the platform layer). RLS still enforces row visibility, so this does NOT weaken any sign-off control — it only
+  // lets a legitimate write's WITH CHECK subquery run instead of hitting a bare table-permission error.
+  await admin.query("GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated");
   return { applied: n, total: files.length };
 }
 
