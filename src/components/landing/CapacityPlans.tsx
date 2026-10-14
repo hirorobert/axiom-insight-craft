@@ -3,7 +3,7 @@
  * (PROPOSED_PLANS / PRICING_CATALOGUE). What a row says about price and payment comes from planPurchaseView() over the
  * server's public prices, passed in by the page (this component reads nothing itself):
  *   - an approved price with online payment open → that price and "Choose <plan>" (the signed-in checkout);
- *   - otherwise → the catalogue figure marked "Proposed" and "Request activation" (the enquiry preselected with the plan).
+ *   - otherwise → the price (or the catalogue figure marked "Proposed") and "Contact support"; never manual activation.
  * Enterprise is always "Discuss Enterprise". The applicable notes are stated once, under the table.
  *
  * One structure for every width: an ARIA table that lays out as rows on wide screens and as stacked cards on phones.
@@ -79,6 +79,7 @@ export function CapacityPlans({ prices = null }: { prices?: PublicPrices | null 
         </div>
         <div className="mt-4 space-y-1 text-[12px] leading-5 text-muted-foreground" data-testid="plans-notes">
           {anyProposed && <p data-testid="plans-activation-note">{LANDING_PLANS_COPY.activationNote}</p>}
+          {prices !== null && rows.some((r) => r.view.mode === "unavailable") && <p data-testid="plans-unavailable-note">{LANDING_PLANS_COPY.unavailableNote}</p>}
           {anyOnline && <p data-testid="plans-online-note">{LANDING_PLANS_COPY.onlineNote}</p>}
         </div>
       </div>

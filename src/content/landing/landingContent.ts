@@ -132,7 +132,9 @@ export const LANDING_PLANS_COPY = {
   intro: "Plans differ in how many entities and named users they cover. Every plan is a 12-month term and does not renew automatically.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Price per year", action: "Action" },
   /** Stated once, under the table, when a plan is shown with a proposed price. */
-  activationNote: "A price marked Proposed is confirmed with you before our team activates the plan.",
+  activationNote: "A price marked Proposed is not yet open for online purchase.",
+  /** Stated once, under the table, when the server reports online payment is closed. */
+  unavailableNote: "Online payment is temporarily unavailable. Please try again later, or contact support if you need help.",
   /** Stated once, under the table, when a plan can be paid online. */
   onlineNote: "Paid plans start once the payment is verified. Card payments are processed by our merchant of record, which may add sales tax; the total is shown before you pay.",
   enterpriseAction: "Discuss Enterprise",
@@ -208,7 +210,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "activation",
     question: "How is a subscription activated?",
     answer:
-      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
+      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. If online payment is not open at that moment, the plan page says so; try again later or contact support. Nothing is activated without a verified payment.",
   },
   {
     id: "pricing-status",
