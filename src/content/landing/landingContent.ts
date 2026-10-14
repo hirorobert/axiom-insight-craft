@@ -45,7 +45,7 @@ export const LANDING_HERO = {
   supporting:
     "Import a trial balance, check it, and map every account to its statement category, with each decision recorded. CFOCLOSE performs the checks and records the decisions; professional judgement stays with you.",
   primaryCta: { label: "Explore plans", href: "#plans" },
-  secondaryCta: { label: "Request activation" },
+  secondaryCta: { label: "View plans" },
   /** A genuine screenshot of the product (local real-application run), with a fictitious demonstration company. */
   screenshot: {
     src: "/landing/trial-balance-review.png",

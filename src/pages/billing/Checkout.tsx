@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { planByCode, type PlanCode } from "@/lib/commercial/pricingCatalogue";
-import { activationHref } from "@/lib/commercial/offerings";
+import { supportHref, SUPPORT_LABEL, PAYMENT_UNAVAILABLE_NOTE } from "@/lib/commercial/offerings";
 import { formatMoney, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { getCheckoutOptions, rememberCheckoutPlan, startCheckout, type CheckoutOptions, type PaymentRoute, type RouteOption } from "@/lib/commercial/checkoutClient";
@@ -54,6 +54,8 @@ export default function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ text: string; ref: string | null; kind: string } | null>(null);
 
+  const [reload, setReload] = useState(0);
+  const retry = () => { setOptions(null); setLoadError(null); setReload((n) => n + 1); };
   useEffect(() => {
     if (!plan || authLoading || !user) return;
     let live = true;
@@ -65,7 +67,7 @@ export default function Checkout() {
       setRoute(open.length === 1 ? open[0].paymentRoute : null);
     });
     return () => { live = false; };
-  }, [plan, user, authLoading]);
+  }, [plan, user, authLoading, reload]);
 
   const open = useMemo(() => (options?.options ?? []).filter((o) => o.available), [options]);
   const chosen: RouteOption | undefined = open.find((o) => o.paymentRoute === route);
@@ -136,17 +138,20 @@ export default function Checkout() {
 
       {sandbox && <p className="mt-4 border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note" data-testid="checkout-test-mode">Test mode: payments here use the provider's sandbox, and no real money is charged.</p>}
 
-      {loadError && <p className="mt-6 flex items-start gap-2 text-sm text-destructive" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />The payment options could not be loaded. Refresh the page to try again.</p>}
+      {loadError && <p className="mt-6 flex items-start gap-2 text-sm text-destructive" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />The payment options could not be loaded. <button type="button" className="font-medium underline" onClick={retry} data-testid="checkout-retry-load">Retry</button></p>}
       {!options && !loadError && <p className="mt-6 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading the payment options…</p>}
 
       {options && (blocked || open.length === 0) && (
         <div className="mt-6 border border-border p-4" data-testid="checkout-unavailable">
-          <p className="text-sm font-medium">{!blocked ? "Online payment is not open for this plan yet."
+          <p className="text-sm font-medium">{!blocked ? "Online payment is temporarily unavailable for this plan."
             : options.placement.kind === "BLOCKED_SEATS"
               ? `Your current plan includes ${options.placement.additional_seats ?? "additional"} additional named user${options.placement.additional_seats === 1 ? "" : "s"}. An upgrade would end them, so it is arranged with our team instead.`
               : "This change to your plan needs to be arranged with our team."}</p>
-          <p className="mt-1 text-sm text-muted-foreground">Send an activation request naming the plan. We reply by email to agree terms, then activate it on your account; nothing is charged by sending a request.</p>
-          <Button asChild className="mt-4"><Link to={activationHref(plan as PlanCode, "plan_wall")} data-testid="checkout-request-activation">Request activation</Link></Button>
+          <p className="mt-1 text-sm text-muted-foreground">{!blocked ? PAYMENT_UNAVAILABLE_NOTE : "Contact support and we will help you with this change. Nothing has been charged."}</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {!blocked && <Button onClick={retry} data-testid="checkout-retry">Try again</Button>}
+            <Button asChild variant="outline"><Link to={supportHref("plan_wall")} data-testid="checkout-contact-support">{SUPPORT_LABEL}</Link></Button>
+          </div>
         </div>
       )}
 
@@ -199,7 +204,7 @@ export default function Checkout() {
               <p>{error.text}</p>
               {error.ref && <Link className="mt-2 inline-block font-medium underline" to={`/billing/payment/return?ref=${encodeURIComponent(error.ref)}`}>Open this order</Link>}
               {!error.ref && (error.kind === "uncertain" ? <Link className="mt-2 inline-block font-medium underline" to="/billing/orders">See your orders</Link>
-                : <Link className="mt-2 inline-block font-medium underline" to={activationHref(plan as PlanCode, "plan_wall")}>Request activation instead</Link>)}
+                : <Link className="mt-2 inline-block font-medium underline" to={supportHref("plan_wall")}>{SUPPORT_LABEL}</Link>)}
             </div>
           )}
 

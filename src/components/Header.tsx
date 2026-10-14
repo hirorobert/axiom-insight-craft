@@ -176,7 +176,7 @@ export function Header() {
               </Button>
               <Button variant="hero" size="sm" asChild className="px-5">
                 {SERVICE_ENQUIRY_SURFACES.contactRoute
-                  ? <Link to={activationRequestHref("landing_plans")} data-testid="header-request-activation">{CTA.primary}</Link>
+                  ? <Link to="/plans" data-testid="header-view-plans">{CTA.primary}</Link>
                   : <Link to={CTA.fallbackHref}>{CTA.fallback}</Link>}
               </Button>
             </div>

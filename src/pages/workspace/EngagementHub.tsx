@@ -417,7 +417,7 @@ function NextActionCard({ next, busy, onRetry, onResume, onStartReview, onStartS
   pendingLabel: string | null;
 }) {
   const activation = SERVICE_ENQUIRY_SURFACES.contactRoute
-    ? <Link to={activationRequestHref("plan_wall")} className="text-[13px] underline underline-offset-4" data-testid="next-action-activation">{REQUEST_ACTIVATION_LABEL}</Link>
+    ? <Link to="/plans" className="text-[13px] underline underline-offset-4" data-testid="next-action-view-plans">View plans</Link>
     : null;
   const arrow = <ArrowRight className="w-3.5 h-3.5 ml-1.5" aria-hidden="true" />;
   let primary: ReactNode = null;

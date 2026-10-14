@@ -35,7 +35,7 @@ export const BRAND = {
 export const CTA = {
   // Subscriptions are sold by agreement and activated manually: the header's primary action is the activation request
   // (/contact?service=plan_activation). Without the enquiry surface, the account-creation fallback below is shown.
-  primary:          "Request activation",
+  primary:          "View plans",
   fallback:         "Create account",
   fallbackHref:     "/auth?mode=signup",
 } as const;
