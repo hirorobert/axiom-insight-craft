@@ -11,7 +11,7 @@
  *   Plans          capacity, from the reviewed catalogue. What each plan card says about price and payment is decided by
  *                  the server at runtime (src/lib/commercial/planOffers.ts): a price the team has approved and online
  *                  payment that is open → the price and "Choose <plan>"; otherwise the catalogue figure marked "Proposed"
- *                  and "Request activation". Every sentence below is therefore true in BOTH states.
+ *                  and "Contact support". Every sentence below is therefore true in BOTH states.
  *   Specialist     forecasting, budgeting, financial analysis, accounting policies and close support: enquiries for work
  *                  delivered by people and quoted separately — never presented as automated features.
  *
@@ -45,7 +45,7 @@ export const LANDING_HERO = {
   supporting:
     "Import a trial balance, check it, and map every account to its statement category, with each decision recorded. CFOCLOSE performs the checks and records the decisions; professional judgement stays with you.",
   primaryCta: { label: "Explore plans", href: "#plans" },
-  secondaryCta: { label: "Request activation" },
+  secondaryCta: { label: "View plans" },
   /** A genuine screenshot of the product (local real-application run), with a fictitious demonstration company. */
   screenshot: {
     src: "/landing/trial-balance-review.png",
@@ -132,13 +132,15 @@ export const LANDING_PLANS_COPY = {
   intro: "Plans differ in how many entities and named users they cover. Every plan is a 12-month term and does not renew automatically.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Named users", price: "Price per year", action: "Action" },
   /** Stated once, under the table, when a plan is shown with a proposed price. */
-  activationNote: "A price marked Proposed is confirmed with you before our team activates the plan.",
+  activationNote: "A price marked Proposed is not yet open for online purchase.",
+  /** Stated once, under the table, when the server reports online payment is closed. */
+  unavailableNote: "Online payment is temporarily unavailable. Please try again later, or contact support if you need help.",
   /** Stated once, under the table, when a plan can be paid online. */
   onlineNote: "Paid plans start once the payment is verified. Card payments are processed by our merchant of record, which may add sales tax; the total is shown before you pay.",
   enterpriseAction: "Discuss Enterprise",
   /** Shown instead when the enquiry surface is off: no link, no activation implied. */
   enterpriseUnavailable: "Terms are agreed directly with our team.",
-  requestUnavailable: "Plans are activated by our team.",
+  requestUnavailable: "Online payment is temporarily unavailable.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -208,7 +210,7 @@ export const LANDING_FAQ: readonly LandingFaqEntry[] = [
     id: "activation",
     question: "How is a subscription activated?",
     answer:
-      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. Otherwise send an activation request naming the plan: we reply by email to agree terms, then activate it on your CFOCLOSE account; nothing is activated by sending a request.",
+      "Choose a plan. Where online payment is open for it, pay by card on the secure page of our merchant of record; the plan starts when the payment is verified, not when you return from the payment page. If online payment is not open at that moment, the plan page says so; try again later or contact support. Nothing is activated without a verified payment.",
   },
   {
     id: "pricing-status",

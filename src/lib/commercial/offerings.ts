@@ -39,6 +39,11 @@ export const MANUAL_ACTIVATION_NOTE = "Plans requested here are activated by our
 
 export const REQUEST_ACTIVATION_LABEL = "Request activation";
 
+/** Customer-facing: online payment is the only purchase path; when it is not open, say so truthfully and offer support. */
+export const PAYMENT_UNAVAILABLE_NOTE = "Online payment is temporarily unavailable. Please try again later, or contact support if you need help.";
+export const SUPPORT_LABEL = "Contact support";
+export const supportHref = (from: CommercialSource): string => `${CONTACT_ROUTE}?from=${from}`;
+
 const isPlan = (v: string | null): v is ActivationPlanCode => v !== null && (ACTIVATION_PLAN_CODES as readonly string[]).includes(v);
 const isSpecialist = (v: string | null): v is SpecialistServiceCode => v !== null && (SPECIALIST_SERVICE_CODES as readonly string[]).includes(v);
 const isSource = (v: string | null): v is CommercialSource => v === "landing_plans" || v === "landing_services" || v === "plan_wall";

@@ -2,18 +2,18 @@
 //
 // The server decides (get_public_plan_prices, 20261029100000). Three states per plan:
 //   approved price + online payment open → the price and "Choose <plan>";
-//   approved price, online payment closed → the price (no "Proposed") and "Request activation";
-//   no approved price → the catalogue figure marked "Proposed" and "Request activation".
+//   approved price, online payment closed → the price, "online payment temporarily unavailable" and "Contact support";
+//   no approved price → the catalogue figure marked "Proposed" and "Contact support".
 // Where:
 //   - a price is APPROVED only when a commercial administrator has made that plan's annual offer purchasable;
 //   - customers can pay online only while commercial_platform_state is CUSTOMER_PAYMENTS_ENABLED.
-// A plan is offered for online purchase only when BOTH hold for it; otherwise its action is "Request activation" (the
-// enquiry preselected with the plan), so manual activation stays the path whenever online payment is not open. Only a
+// A plan is offered for online purchase only when BOTH hold for it; otherwise the card says online payment is
+// unavailable and offers support. Customers are never offered manual activation (administrators still can service accounts). Only a
 // launched route's market is ever shown (LAUNCHED_MARKETS). Enterprise is always agreed with the team.
 // No price is ever invented here: an approved price is the server's own amount; a proposed one is the catalogue's.
 
 import { PRICING_CATALOGUE, type CataloguePlan, type PlanCode } from "./pricingCatalogue";
-import { activationHref, type CommercialSource } from "./offerings";
+import { activationHref, supportHref, SUPPORT_LABEL, type CommercialSource } from "./offerings";
 
 export interface PublicOffer {
   readonly planCode: string;
@@ -52,7 +52,7 @@ export function formatMoney(amountMinor: number, currencyCode: string, exponent:
 
 export type PlanPurchaseView =
   | { readonly mode: "online"; readonly priceLines: readonly string[]; readonly actionLabel: string; readonly href: string }
-  | { readonly mode: "activation"; readonly priceLines: readonly string[]; readonly actionLabel: string; readonly href: string }
+  | { readonly mode: "unavailable"; readonly priceLines: readonly string[]; readonly actionLabel: string; readonly href: string }
   | { readonly mode: "enterprise"; readonly priceLines: readonly string[]; readonly actionLabel: string; readonly href: string };
 
 const ROUTE_NAME: Readonly<Record<string, string>> = { GLOBAL: "card", TZ: "mobile money" };
@@ -77,10 +77,10 @@ export function planPurchaseView(plan: CataloguePlan, prices: PublicPrices | nul
   if (offers.length > 0) {
     // An approved price while online payment is closed: the server's amount, without "Proposed", and the activation request.
     const priceLines = offers.map((o) => `${formatMoney(o.amountMinor, o.currencyCode, o.currencyExponent)} per year`);
-    return { mode: "activation", priceLines, actionLabel: "Request activation", href: activationHref(plan.code, source) };
+    return { mode: "unavailable", priceLines, actionLabel: SUPPORT_LABEL, href: supportHref(source) };
   }
   const proposed = plan.annualMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${(plan.annualMinor / 100).toLocaleString("en-US")} per year`;
-  return { mode: "activation", priceLines: [proposed], actionLabel: "Request activation", href: activationHref(plan.code, source) };
+  return { mode: "unavailable", priceLines: [proposed], actionLabel: SUPPORT_LABEL, href: supportHref(source) };
 }
 
 /** "Additional named users: proposed USD 200 per year each, arranged with our team" — or null when the plan has none. */

@@ -125,12 +125,12 @@ describe("page structure", () => {
     for (const m of PAGE.matchAll(/href="#([a-z-]+)"/g)) expect(PAGE, `#${m[1]}`).toContain(`id="${m[1]}"`);
   });
 
-  it("the hero: 'Explore plans' first, an activation request second, one genuine labelled screenshot; the brand only in the header; no repeated disclaimer", () => {
+  it("the hero: 'Explore plans' first, View plans second, one genuine labelled screenshot; the brand only in the header; no repeated disclaimer", () => {
     const hero = section(PAGE, "hero-title");
     expect(hrefOf(hero, "hero-explore-plans")).toBe("#plans");
-    expect(hero.indexOf('data-testid="hero-explore-plans"')).toBeLessThan(hero.indexOf('data-testid="hero-request-activation"'));
-    expect(visibleText(hero)).toMatch(/^.*Explore plans.*Request activation/);
-    expect(hrefOf(hero, "hero-request-activation")).toBe("/contact?service=plan_activation&from=landing_plans");
+    expect(hero.indexOf('data-testid="hero-explore-plans"')).toBeLessThan(hero.indexOf('data-testid="hero-view-plans"'));
+    expect(visibleText(hero)).not.toContain("Request activation");
+    expect(hrefOf(hero, "hero-view-plans")).toBe("/plans");
     expect(hero).not.toMatch(/Choose a service|hero-service-|grid-cols-4/);
     expect(visibleText(hero)).not.toContain(MANUAL_ACTIVATION_NOTE);
     // The brand mark is in the header (and footer), not repeated in the hero.
@@ -193,12 +193,13 @@ describe("plans", () => {
     expect(plans).toMatch(/12-month term and does not renew automatically/);
   });
 
-  it("every plan action requests activation of that plan; the activation note is stated once, under the table", () => {
+  it("no plan offers manual activation; the activation note is stated once, under the table", () => {
     for (const p of PROPOSED_PLANS) {
-      expect(hrefOf(PAGE, `plan-action-${p.name}`)).toBe(`/contact?service=plan_activation&plan=${p.code}&from=landing_plans`);
+      expect(hrefOf(PAGE, `plan-action-${p.name}`)).toBe(p.contactSales ? `/contact?service=plan_activation&plan=${p.code}&from=landing_plans` : "/contact?from=landing_plans");
     }
     const plans = visibleText(section(PAGE, "plans"));
-    expect(plans.split("Request activation").length - 1).toBe(PROPOSED_PLANS.filter((p) => !p.contactSales).length);
+    expect(plans).not.toContain("Request activation");
+    expect(plans.split("Contact support").length - 1).toBe(PROPOSED_PLANS.filter((p) => !p.contactSales).length);
     expect(plans.split(LANDING_PLANS_COPY.activationNote).length - 1).toBe(1);
     expect(plans).not.toContain(LANDING_PLANS_COPY.onlineNote);
     expect(plans).toContain("Discuss Enterprise");
@@ -217,7 +218,7 @@ describe("plans", () => {
     expect(text).toContain("USD 990 per year by card");
     // Polar card payments only (owner decision): a TZS (mobile money) offer is never shown, even if one were approved.
     expect(text).not.toMatch(/TZS|mobile money/);
-    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?service=plan_activation&plan=SOLO&from=landing_plans");
+    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?from=landing_plans");
     expect(text).toContain("Proposed: USD 490 per year");
     expect(text).toContain(LANDING_PLANS_COPY.onlineNote);
     expect(text).toContain(LANDING_PLANS_COPY.activationNote);
@@ -228,9 +229,10 @@ describe("plans", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(CapacityPlans, { prices: { onlinePayment: false, offers: [{ planCode: "SOLO", marketCode: "GLOBAL", currencyCode: "USD", currencyExponent: 2, amountMinor: 49000 }] } })));
     expect(html).not.toContain("/billing/checkout");
     expect(visibleText(html)).not.toMatch(/Choose (Solo|Practice|Firm)/);
-    expect(visibleText(html)).toContain("USD 490 per year Request activation");
+    expect(visibleText(html)).toContain("USD 490 per year Contact support");
     expect(visibleText(html)).not.toContain("Proposed: USD 490");
-    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?service=plan_activation&plan=SOLO&from=landing_plans");
+    expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?from=landing_plans");
+    expect(visibleText(html)).toContain(LANDING_PLANS_COPY.unavailableNote);
   });
 });
 
@@ -291,7 +293,7 @@ describe("FAQ", () => {
   it("renders every question, collapsed, from the one source, including how activation works and what specialist services are", () => {
     for (const f of LANDING_FAQ) expect(PAGE_TEXT).toContain(f.question);
     expect(LANDING_FAQ.map((f) => f.id)).toEqual(expect.arrayContaining(["activation", "specialist-services", "pricing-status"]));
-    expect(LANDING_FAQ.find((f) => f.id === "activation")!.answer).toMatch(/nothing is activated by sending a request/);
+    expect(LANDING_FAQ.find((f) => f.id === "activation")!.answer).toMatch(/Nothing is activated without a verified payment/);
   });
 });
 

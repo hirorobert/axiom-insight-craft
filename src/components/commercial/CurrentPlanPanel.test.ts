@@ -48,11 +48,11 @@ describe("plan presentation is read-only", () => {
     }
     expect(html).not.toMatch(/per month|\/ month|monthly|instalment/i);   // no monthly pricing until the server represents instalments
     // Every action requests activation (manual, by agreement), stated beside each; nothing is chosen, saved or bought here.
-    expect(html.split(">Request activation<").length - 1).toBe(3);
+    // No customer manual activation: until the server answers, plans show proposed figures and a support link only.
+    expect(html).not.toContain("Request activation");
+    expect(html.split(">Contact support<").length - 1).toBe(3);
     expect(html).toContain("Discuss Enterprise");
-    expect(html).toContain('href="/contact?service=plan_activation&amp;plan=SOLO&amp;from=landing_plans"');
-    // Without the server's public prices (or with online payment closed) every plan is the proposed, activation form.
-    expect(html.split("Plans requested here are activated by our team after we agree terms with you.").length - 1).toBe(4);
+    expect(html).not.toContain("temporarily unavailable");
     expect(html).not.toMatch(/Choose (Solo|Practice|Firm)/);
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
     expect(html).toContain("12-month term · no automatic renewal");
@@ -72,9 +72,10 @@ describe("plan presentation is read-only", () => {
     expect(src).toMatch(/contactAvailable = SERVICE_ENQUIRY_SURFACES\.contactRoute/);
     const off = render(createElement(PlanCatalogue, { contactAvailable: false }));
     expect(off).not.toMatch(/\/contact|Request activation|Discuss Enterprise/);
-    expect(off).toContain("Plans are activated by the CFOClose team.");
+    expect(off).toContain("Online payment is temporarily unavailable. Please try again later.");
     expect(off).toContain("Enterprise terms are agreed directly with our team.");
     const wall = render(createElement(PlanCatalogue, { source: "plan_wall" }));
-    expect(wall).toContain('href="/contact?service=plan_activation&amp;plan=FIRM&amp;from=plan_wall"');
+    expect(wall).toContain('href="/contact?from=plan_wall"');
+    expect(wall).toContain('href="/contact?service=plan_activation&amp;plan=ENTERPRISE&amp;from=plan_wall"');
   });
 });

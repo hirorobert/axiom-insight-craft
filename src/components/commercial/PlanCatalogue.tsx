@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { Button } from "@/components/ui/button";
 import { PRICING_CATALOGUE, planIncludes } from "@/lib/commercial/pricingCatalogue";
-import { MANUAL_ACTIVATION_NOTE, type CommercialSource } from "@/lib/commercial/offerings";
+import { PAYMENT_UNAVAILABLE_NOTE, type CommercialSource } from "@/lib/commercial/offerings";
 import { additionalUserLine, planPurchaseView, type PublicPrices } from "@/lib/commercial/planOffers";
 import { CUSTOMER_SERVICE_INTENT_IDS, SERVICE_INTENTS } from "@/lib/commercial/serviceIntent";
 import { WITHHELD_SERVICE_SURFACES_VISIBLE } from "@/lib/workspace/moduleAvailability";
@@ -42,9 +42,9 @@ export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.cont
             {WITHHELD_SERVICE_SURFACES_VISIBLE && planIncludes(plan.code, "MULTI_ENTITY_REPORTING") && <li className="flex gap-2 text-xs text-muted-foreground"><Check className="h-4 w-4 shrink-0" aria-hidden="true" />Multi-entity reporting</li>}
           </ul>
           {actionable
-            ? <Button asChild variant={plan.code === "PRACTICE" ? "default" : "outline"} className="w-full"><Link to={view.href} data-testid={view.mode === "online" ? `choose-plan-${plan.code}` : `request-activation-${plan.code}`}>{view.actionLabel}</Link></Button>
-            : <p className="text-sm text-muted-foreground" data-testid="plan-activation-route">{plan.salesMode === "contact_sales" ? "Enterprise terms are agreed directly with our team." : "Plans are activated by the CFOClose team."}</p>}
-          {view.mode !== "online" && <p className="mt-2 text-[11px] leading-4 text-muted-foreground" data-testid={`activation-note-${plan.code}`}>{MANUAL_ACTIVATION_NOTE}</p>}
+            ? <Button asChild variant={plan.code === "PRACTICE" ? "default" : "outline"} className="w-full"><Link to={view.href} data-testid={view.mode === "online" ? `choose-plan-${plan.code}` : `contact-support-${plan.code}`}>{view.actionLabel}</Link></Button>
+            : <p className="text-sm text-muted-foreground" data-testid="plan-activation-route">{plan.salesMode === "contact_sales" ? "Enterprise terms are agreed directly with our team." : "Online payment is temporarily unavailable. Please try again later."}</p>}
+          {view.mode === "unavailable" && prices !== null && <p className="mt-2 text-[11px] leading-4 text-muted-foreground" data-testid={`payment-unavailable-${plan.code}`}>{PAYMENT_UNAVAILABLE_NOTE}</p>}
         </li>;
       })}
     </ul>

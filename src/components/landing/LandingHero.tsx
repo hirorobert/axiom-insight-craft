@@ -8,7 +8,6 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { BRAND_GOLD, BRAND_NAVY } from "@/components/CFOCloseWordmark";
 import { LANDING_HERO } from "@/content/landing/landingContent";
-import { activationRequestHref } from "@/lib/commercial/offerings";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 export function LandingHero() {
@@ -32,7 +31,7 @@ export function LandingHero() {
             </Button>
             {SERVICE_ENQUIRY_SURFACES.contactRoute && (
               <Button size="lg" variant="outline" asChild className="w-full rounded-none border-white/50 bg-transparent text-white hover:bg-white/10 hover:text-white sm:w-auto">
-                <Link to={activationRequestHref("landing_plans")} data-testid="hero-request-activation">
+                <Link to="/plans" data-testid="hero-view-plans">
                   {LANDING_HERO.secondaryCta.label}
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>

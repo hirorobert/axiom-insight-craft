@@ -15,7 +15,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { NAV, CTA } from "@/constants/copy";
-import { activationRequestHref } from "@/lib/commercial/offerings";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
@@ -176,7 +175,7 @@ export function Header() {
               </Button>
               <Button variant="hero" size="sm" asChild className="px-5">
                 {SERVICE_ENQUIRY_SURFACES.contactRoute
-                  ? <Link to={activationRequestHref("landing_plans")} data-testid="header-request-activation">{CTA.primary}</Link>
+                  ? <Link to="/plans" data-testid="header-view-plans">{CTA.primary}</Link>
                   : <Link to={CTA.fallbackHref}>{CTA.fallback}</Link>}
               </Button>
             </div>
@@ -258,8 +257,8 @@ export function Header() {
                   <Link to="/auth" onClick={() => setMobileOpen(false)}>Sign in</Link>
                 </Button>
                 <Button variant="hero" size="lg" className="w-full" asChild>
-                  <Link to={SERVICE_ENQUIRY_SURFACES.contactRoute ? activationRequestHref("landing_plans") : CTA.fallbackHref} onClick={() => setMobileOpen(false)}>
-                    {SERVICE_ENQUIRY_SURFACES.contactRoute ? CTA.primary : CTA.fallback}
+                  <Link to="/plans" onClick={() => setMobileOpen(false)}>
+                    {CTA.primary}
                   </Link>
                 </Button>
               </>

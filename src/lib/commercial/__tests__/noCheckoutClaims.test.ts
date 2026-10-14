@@ -27,7 +27,7 @@ import Plans from "@/pages/Plans";
 
 const ROOT = path.join(__dirname, "../../../..");
 // Wording that claims or invites a payment step on its own (static copy may never use it).
-const TRANSACTIONAL = /\b(Buy( now)?|Subscribe|Start free|Start (a |your )?(free )?trial|Free trial|Pay now|Checkout now|Upgrade Plan|Secure payment|Preparing checkout|temporarily unavailable)\b/i;
+const TRANSACTIONAL = /\b(Buy( now)?|Subscribe|Start free|Start (a |your )?(free )?trial|Free trial|Pay now|Checkout now|Upgrade Plan|Secure payment|Preparing checkout)\b/i;
 const text = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/g, " ");
 const render = (el: ReturnType<typeof createElement>) => renderToStaticMarkup(createElement(MemoryRouter, null, el));
 
@@ -39,7 +39,8 @@ describe("static copy never claims online payment", () => {
     expect(all).not.toMatch(/there is no online (payment|checkout)|online payment is available|pay online now/i);
     // The primary public action is the plans; the activation request is always reachable.
     expect(LANDING.LANDING_HERO.primaryCta.label).toBe("Explore plans");
-    expect(LANDING.LANDING_HERO.secondaryCta.label).toBe("Request activation");
+    expect(LANDING.LANDING_HERO.secondaryCta.label).toBe("View plans");
+    expect(all).not.toMatch(/Request activation|activated by our team/);
     expect(LANDING.LANDING_FINAL_CTA.primaryCta.href).toBe("#plans");
   });
   it("no public copy invites self-serve workspace creation", () => {
@@ -64,6 +65,8 @@ describe("payment is offered only where the server says it is open", () => {
       expect(text(html)).not.toMatch(TRANSACTIONAL);
       expect(html).not.toContain("/billing/checkout");
       expect(text(html)).toContain("Proposed: USD 490 per year");
+      // Not yet read: nothing claims payment is open or closed, and no manual activation is offered.
+      expect(text(html)).not.toMatch(/temporarily unavailable|Request activation|activated by our team/);
       expect(html).not.toMatch(/<button[^>]*>[^<]*(Upgrade|Buy|Subscribe|Checkout)/i);
     }
   });
@@ -78,12 +81,16 @@ describe("payment is offered only where the server says it is open", () => {
     expect(text(closed)).toContain("USD 490 per year");
     expect(text(closed)).not.toContain("Proposed: USD 490");
     expect(text(closed)).toContain("Proposed: USD 990 per year");
+    // The server said closed: say so truthfully, offer support, never manual activation.
+    expect(text(closed)).toContain("Online payment is temporarily unavailable");
+    expect(closed).toContain("Contact support");
+    expect(closed).not.toMatch(/Request activation|plan_activation&amp;plan=SOLO/);
   });
   it("planPurchaseView never invents a price: an online price is the server's amount; otherwise the catalogue's, marked Proposed", () => {
     const solo = PRICING_CATALOGUE.find((p) => p.code === "SOLO")!;
     const odd = parsePublicPrices({ online_payment: true, offers: [{ plan_code: "SOLO", market_code: "GLOBAL", currency_code: "USD", currency_exponent: 2, amount_minor: 51234, billing_interval: "ANNUAL" }] });
     expect(planPurchaseView(solo, odd, "landing_plans").priceLines).toEqual(["USD 512.34 per year by card"]);
-    expect(planPurchaseView(solo, null, "landing_plans")).toMatchObject({ mode: "activation", priceLines: ["Proposed: USD 490 per year"] });
+    expect(planPurchaseView(solo, null, "landing_plans")).toMatchObject({ mode: "unavailable", priceLines: ["Proposed: USD 490 per year"] });
     expect(parsePublicPrices({ online_payment: true, offers: [{ plan_code: "SOLO", amount_minor: -1 }] })?.offers).toEqual([]);
     expect(parsePublicPrices("nonsense")).toBeNull();
   });
@@ -106,7 +113,7 @@ describe("Polar card payments only (owner decision, 2026-10-10)", () => {
     expect(LAUNCHED_MARKETS).toEqual(["GLOBAL"]);
     const solo = PRICING_CATALOGUE.find((p) => p.code === "SOLO")!;
     const tzOnly = parsePublicPrices({ online_payment: true, offers: [{ plan_code: "SOLO", market_code: "TZ", currency_code: "TZS", currency_exponent: 0, amount_minor: 1250000, billing_interval: "ANNUAL" }] });
-    expect(planPurchaseView(solo, tzOnly, "landing_plans")).toMatchObject({ mode: "activation", priceLines: ["Proposed: USD 490 per year"] });
+    expect(planPurchaseView(solo, tzOnly, "landing_plans")).toMatchObject({ mode: "unavailable", priceLines: ["Proposed: USD 490 per year"] });
   });
   it("no public copy offers mobile money or names the mobile-money provider", () => {
     expect(JSON.stringify({ COPY, LANDING })).not.toMatch(/mobile money|M-Pesa|Snippe/i);

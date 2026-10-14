@@ -147,8 +147,9 @@ describe("checkout", () => {
     client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, options: [{ paymentRoute: "CARD", available: false, reason: "NO_PURCHASABLE_OFFER" }, { paymentRoute: "MOBILE_MONEY", available: false, reason: "NO_PURCHASABLE_OFFER" }] }, error: null });
     m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
     await flush();
-    expect(textOf(m)).toContain("Online payment is not open for this plan yet.");
-    expect(byTestId(m, "checkout-request-activation")!.getAttribute("href")).toBe("/contact?service=plan_activation&plan=SOLO&from=plan_wall");
+    expect(textOf(m)).toContain("Online payment is temporarily unavailable for this plan.");
+    expect(byTestId(m, "checkout-retry")).toBeTruthy();
+    expect(byTestId(m, "checkout-contact-support")!.getAttribute("href")).toBe("/contact?from=plan_wall");
     expect(byTestId(m, "checkout-continue")).toBeNull();
     m.unmount();
     client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, placement: { kind: "BLOCKED_OPEN_ENDED" } }, error: null });
