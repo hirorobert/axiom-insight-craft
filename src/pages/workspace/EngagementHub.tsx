@@ -39,7 +39,6 @@ import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewAction
 import { companyCreation, deriveAccountNextAction, type AccountNextAction } from "@/lib/workspace/accountNextAction";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
-import { activationRequestHref, REQUEST_ACTIVATION_LABEL } from "@/lib/commercial/offerings";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";

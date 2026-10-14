@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
-import { activationRequestHref, REQUEST_ACTIVATION_LABEL } from "@/lib/commercial/offerings";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 /** Presentation only. The create_entity RPC remains the authority for every new entity. */

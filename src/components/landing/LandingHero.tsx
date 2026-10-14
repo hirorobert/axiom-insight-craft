@@ -8,7 +8,6 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { BRAND_GOLD, BRAND_NAVY } from "@/components/CFOCloseWordmark";
 import { LANDING_HERO } from "@/content/landing/landingContent";
-import { activationRequestHref } from "@/lib/commercial/offerings";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 export function LandingHero() {
