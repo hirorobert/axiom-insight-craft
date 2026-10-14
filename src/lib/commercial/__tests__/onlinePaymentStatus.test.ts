@@ -39,8 +39,8 @@ describe("edge function contract", () => {
   it("diagnostics are refused unless the caller is an active commercial administrator, and write nothing", () => {
     expect(diag).toMatch(/rpc\('is_commercial_admin'\)/);
     expect(src).not.toMatch(/is_commercial_admin/);
-    expect(diag).toMatch(/isAdmin !== true\) return jsonResponse\(\{ error: 'NOT_A_COMMERCIAL_ADMIN'/);
-    expect(diag).toMatch(/adminErr\) return jsonResponse\(\{ error: 'ADMIN_CHECK_FAILED'/);
+    expect(diag).toMatch(/isAdmin !== true\) return json\(\{ error: 'NOT_A_COMMERCIAL_ADMIN'/);
+    expect(diag).toMatch(/adminErr\) return json\(\{ error: 'ADMIN_CHECK_FAILED'/);
     expect(diag).not.toMatch(/\.insert\(|\.update\(|acquire_checkout_attempt|begin_provider_checkout_request/);
   });
   it("payments disabled keeps the resolver's reason; an RPC error is not 'no offer'", () => {
