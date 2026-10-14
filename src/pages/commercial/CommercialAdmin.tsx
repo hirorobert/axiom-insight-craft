@@ -51,7 +51,9 @@ interface Account { found: boolean; owner_user_id?: string; email?: string; bill
 
 const REASONS: Record<string, string> = {
   PAID_LICENCE_PLACEMENT_REQUIRED: "Paid — the term needs placing",
-  PENDING_AFTER_EXPIRY: "Checkout expired without a confirmed outcome",
+  // CFOClose's own payment window (expires_at) closed while the payment was still PENDING. This is NOT a provider
+  // session expiry: Polar cannot cancel a session, so it may still be paid — check with the provider before acting.
+  PENDING_AFTER_EXPIRY: "CFOClose payment window closed; provider outcome not confirmed (the provider session may still be payable)",
   PENDING_CHECKOUT_NOT_REUSABLE: "Superseded by a new attempt; outcome to confirm",
   PROVIDER_CREATE_THROWN_UNCERTAIN: "Provider did not answer when the payment was created",
   PROVIDER_RESULT_PERSISTENCE_UNCERTAIN: "Payment created but not recorded locally",
