@@ -62,3 +62,5 @@ Evidence kinds:
 `CUSTOMER_PAYMENTS_ENABLED` uses the audited platform transition. It is applied only after P1–P5 pass, and either:
 - S1–S5 pass, or
 - the owner removes Snippe from this launch in writing.
+
+**Owner decision, 2026-10-14:** Polar-only production launch. Snippe is **on hold** and does not block Polar. S1–S5 stay PENDING, and Snippe stays switched off in code (`SNIPPE_CUSTOMER_CHECKOUT_ENABLED = false`, `LAUNCHED_MARKETS = ["GLOBAL"]`). Launch therefore requires P1–P5 and X1–X6 (Polar side) to pass. P4 is a real USD 490 charge, which needs the owner's separate authorisation.
