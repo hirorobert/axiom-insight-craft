@@ -300,12 +300,15 @@ async function main() {
     await page.waitForText("Choose your plan");
     await page.waitForText("Online payment is temporarily unavailable");
     const t = await page.bodyText();
-    // Self-service purchase is the only purchase path (owner direction, 19aaa75): while it is closed nothing on the page
-    // starts a checkout or a manual activation request; the server's refusal is proven separately below.
+    // Self-service purchase is the only purchase path for Solo, Practice and Firm (owner direction, 19aaa75): while it is
+    // closed nothing on the page starts a checkout or a manual activation request for them. Enterprise is never sold online
+    // and keeps its enquiry ("Discuss Enterprise"). The server's refusal is proven separately below.
     const links = await page.evaluate(() => [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")));
-    const noCheckout = !links.some((h) => h.includes("/billing/checkout")) && !links.some((h) => h.includes("service=plan_activation"));
-    return t.includes("Proposed: USD 490 per year") && t.includes("Contact support") && noCheckout
-      && !/Choose Solo|Request activation|TZS|mobile money/i.test(t) ? true : { noCheckout, links: links.filter((h) => /checkout|contact/.test(h)), text: t.slice(0, 800) };
+    const selfServeActivation = links.filter((h) => /service=plan_activation/.test(h) && !/[?&]plan=ENTERPRISE(&|$)/.test(h));
+    const noCheckout = !links.some((h) => h.includes("/billing/checkout")) && selfServeActivation.length === 0;
+    const enterpriseEnquiry = links.some((h) => /service=plan_activation/.test(h) && /[?&]plan=ENTERPRISE(&|$)/.test(h));
+    return t.includes("Proposed: USD 490 per year") && t.includes("Contact support") && noCheckout && enterpriseEnquiry
+      && !/Choose Solo|Request activation|TZS|mobile money/i.test(t) ? true : { noCheckout, enterpriseEnquiry, links: links.filter((h) => /checkout|contact/.test(h)), text: t.slice(0, 800) };
   });
   await check("payments closed: the server itself refuses the purchase (no route offered, the attempt refused, no intent, no licence)", () => serverRefusesCheckout(U.fresh, "SOLO"));
   await check("back navigation and refresh return to the same home and the same next step", async () => {
