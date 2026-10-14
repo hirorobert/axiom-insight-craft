@@ -1,19 +1,43 @@
-# CFOClose payment launch: the definitive handoff (Polar card payments)
+# CFOClose payment launch: handoff and hosted evidence
+
+> **Read §0 first.** Everything after §0 is the dated record of the Polar card launch up to 13 October 2026. Where it states a scope or a "remaining step", that statement is **SUPERSEDED on 2026-10-14** by §0, and is kept as history.
 
 - **Written:** 13 October 2026.
 - **Corrected the same day** with the owner's report that onboarding, price approval and the tester designation are complete (§1a). The remaining work is the p5 deployment, the historical-charge reconciliation, controlled live acceptance and the final launch authorisation (§7).
-- **Updated after the p5 deployment.** It is Lovable-reported complete: applied once at hosted journal 56, postcondition passed, functions deployed, `ce41133` published. The repository verifies what it can (§1a). The one remaining operational task is a fresh controlled checkout, then the separately authorised payment, refund and access removal (§7).
+- **Updated after the p5 deployment.** It is Lovable-reported complete: applied once at hosted journal 56, postcondition passed, functions deployed, `ce41133` published. The repository verifies what it can (§1a). *SUPERSEDED 2026-10-14 (§0):* The one remaining operational task is a fresh controlled checkout, then the separately authorised payment, refund and access removal (§7).
 - **Replaces** every earlier payment handoff as the description of what remains. It does not replace the step-by-step checklist (`COMMERCIAL_LAUNCH_LOVABLE_CHECKLIST.md`): it says where the launch stands, and in which order the remaining checklist stages run.
 - **Nothing in this handoff was done on the hosted project by Claude.** No migration was applied, no function deployed, nothing published, no secret set, no price approved, no charge or refund made, and no provider enabled. Payments stay `PAYMENTS_DISABLED` until the owner opens them stage by stage.
+
+
+## 0. Current launch scope (14 October 2026)
+
+- **Scope:** **Polar card payments and Snippe mobile money.**
+  - This is the owner's decision of 14 October 2026, relayed by the payment-integration session (one integration owner for both routes).
+  - It replaces the earlier "Polar card only; Snippe stays disabled" scope.
+- **Public payments stay `PAYMENTS_DISABLED`** until either:
+  - **both** routes pass acceptance, or
+  - the owner removes Snippe from the launch **in writing**.
+- **The acceptance checklist is `docs/release/PAYMENT_ACCEPTANCE_MATRIX.md`** (draft PR #128).
+  - Every test there stays **PENDING** until evidence shows it passed.
+  - Nothing in this handoff marks any of those tests as passed.
+- **Earlier deployments are history. They do not prove current launch readiness.**
+  - The p5 application, the function deployment and the `ce41133` Publish (§1a) are dated records of what happened.
+  - The code on main has changed since then: payment diagnostics, checkout reason codes, the self-service purchase path, the admin link, and #126's admin wording.
+  - So what runs on the hosted project must be read again before any acceptance. **Do not assume current main matches production.**
+- **Superseded on 2026-10-14, kept below as history:**
+  - the "Polar card payments" scope;
+  - "Snippe does not block the Polar launch" (§8);
+  - "the one remaining operational task is a fresh controlled checkout" (header and §7);
+  - the §9 launch conditions written for card only.
 
 ## 1. Where things stand, by kind of evidence
 
 | Kind | What it is | State |
 |---|---|---|
-| **Repository** | The code and migrations on `main` | Complete for the Polar card launch. Release commit `d83542f77ec614fb5f801ac1e87ebe34a0aa1d5f` (§2). |
-| **Hosted** | What the live database and functions actually run | **The p5 deployment is complete** (Lovable-reported, §1a). p5 is applied once (hosted journal 56); the postcondition passed with all four preservation digests unchanged; the three payment functions are deployed with manifest parity; `ce41133` is published. The repository independently verifies the journal file, the published commit's application content and the function files (§1a). **Nothing in it is to be repeated.** |
+| **Repository** | The code and migrations on `main` | *(As of 13 October 2026; superseded scope, §0.)* Complete for the Polar card launch. Release commit `d83542f77ec614fb5f801ac1e87ebe34a0aa1d5f` (§2). |
+| **Hosted** | What the live database and functions actually run | *(Dated history, not current readiness: §0.)* **The p5 deployment is complete** (Lovable-reported, not independently verified, §1a). p5 is applied once (hosted journal 56); the postcondition passed with all four preservation digests unchanged; the three payment functions are deployed with manifest parity; `ce41133` is published. The repository independently verifies the journal file, the published commit's application content and the function files (§1a). **Nothing in it is to be repeated.** |
 | **Provider** | What Polar or Snippe actually did | **No production payment and no refund has been completed** (owner's statement, 13 October 2026). This repository's payment evidence uses mock providers only. |
-| **Owner** | Decisions and accounts only the owner can make | **Reported complete** (§1a): Polar merchant onboarding, production configuration, the USD price approval and the tester designation. **Open:** the controlled live charge and refund authorisations, and the final launch authorisation (§9). |
+| **Owner** | Decisions and accounts only the owner can make | **Owner-reported complete (not independently verified)** (§1a): Polar merchant onboarding, production configuration, the USD price approval and the tester designation. **Open:** the controlled live charge and refund authorisations, and the final launch authorisation (§9). |
 
 **Mock and local tests are not live acceptance.** They prove what this code and database do with documented provider behaviour, nothing about Polar's real behaviour or the hosted project.
 
@@ -21,26 +45,26 @@
 
 | Item | Source and date | Kind |
 |---|---|---|
-| Polar merchant onboarding (approval, identity verification, payout account) complete | The owner, in this session, **13 October 2026**, referring to later hosted reports | **Reported completion.** Not independently verified. |
-| Polar production configuration (`POLAR_*` secrets set by name) complete | The same | **Reported completion.** Not independently verified. |
-| Approved USD prices (Solo 490, Practice 990, Firm 2,990) recorded on the hosted project | The same | **Reported completion.** Not independently verified. |
-| Live-acceptance tester designated: **cfoclose@gmail.com** | The owner, 13 October 2026 | **Reported completion** (the designation). Whether the account is allow-listed and active is read at step 3 (§7) before the charge. |
+| Polar merchant onboarding (approval, identity verification, payout account) complete | The owner, in this session, **13 October 2026**, referring to later hosted reports | **Owner-reported (not independently verified).** |
+| Polar production configuration (`POLAR_*` secrets set by name) complete | The same | **Owner-reported (not independently verified).** |
+| Approved USD prices (Solo 490, Practice 990, Firm 2,990) recorded on the hosted project | The same | **Owner-reported (not independently verified).** |
+| Live-acceptance tester designated: **cfoclose@gmail.com** | The owner, 13 October 2026 | **Owner-reported (not independently verified)** (the designation). Whether the account is allow-listed and active is read at step 3 (§7) before the charge. |
 | No production payment or refund completed | The owner, 13 October 2026 | Owner's statement |
 | Earlier state: no `POLAR_*` secrets, merchant not approved, prices not approved, allow-list empty | The owner's hosted report for release `9ac3456`, 10 October 2026 | Hosted report. **Superseded** by the rows above. |
 
 **Source of the later hosted facts.** Lovable's hosted reports were pasted into the owner's conversations, not committed to this repository. Their verbatim text is not reproduced here. Every fact taken from them is labelled **Lovable-reported**.
 
-**Lovable-reported hosted results (13 October 2026), and what this repository verifies independently:**
+**Lovable-reported hosted results (13 October 2026), and what this repository verifies independently.** These are dated history (§0): they describe what happened, not current launch readiness.
 
 | Lovable-reported result | Independent repository verification |
 |---|---|
-| commercial-p5 applied **once**; hosted journal **56**; the saved wrapper is byte-identical | **Verified.** `drizzle/migrations/0055_verified_charge_outcomes_wrapper.sql` (committed in `ce41133`) equals the registered wrapper byte for byte: 47,281 B, `a215cc20…7b57ea`. Registered by PR #120 (main `dfd4098`; final-main CI run 38442658202 green). That it ran **once** is the hosted journal's record, reported, not read here. |
-| Postcondition passed; all four preservation digests unchanged | **Reported only.** The outputs are not in the repository. |
-| The three payment functions (`commercial-payment-status`, `commercial-webhook-polar`, `commercial-webhook-snippe`) deployed with manifest parity | **Partly verified.** All 31 files in the package's `FUNCTIONS_MANIFEST.json` match `ce41133` byte for byte, and `supabase/functions/` is identical between `d83542f` and `ce41133`. That those bytes are what runs on the hosted project is reported. |
-| Published commit `ce41133`; live bundle `index-DabXNRe4.js` | **Partly verified.** `ce41133` runs the same application as the release `d83542f`. Outside the documentation it adds only the p5 journal files, the regenerated `src/integrations/supabase/types.ts` (type declarations) and a proof script. That the live site serves `index-DabXNRe4.js` built from it is reported. A bundle name depends on the build environment, so it is not recomputed here. |
-| The old Polar checkout and its CFOClose intent have both **expired** | **Reported only.** |
-| The inspected Polar **production** organization has **zero orders**; CFOClose has **zero confirmed production payments** | **Reported only**, and scoped: it covers only the one Polar production organization inspected, which must be the one `POLAR_ORGANIZATION_ID` names. The Polar sandbox organization and any other organization are outside it. |
-| Sole active live-acceptance tester: **cfoclose@gmail.com** | **Reported only.** |
+| commercial-p5 applied **once**; hosted journal **56**; the saved wrapper is byte-identical | **Independently verified** (byte comparison, commit `ce41133`, PR #120, CI run 38442658202). `drizzle/migrations/0055_verified_charge_outcomes_wrapper.sql` (committed in `ce41133`) equals the registered wrapper byte for byte: 47,281 B, `a215cc20…7b57ea`. Registered by PR #120 (main `dfd4098`; final-main CI run 38442658202 green). That it ran **once** is **Lovable-reported (not independently verified).** |
+| Postcondition passed; all four preservation digests unchanged | **Lovable-reported (not independently verified).** The outputs are not in the repository. |
+| The three payment functions (`commercial-payment-status`, `commercial-webhook-polar`, `commercial-webhook-snippe`) deployed with manifest parity | **Independently verified** (byte comparison against commit `ce41133`): all 31 files in the package's `FUNCTIONS_MANIFEST.json` match `ce41133` byte for byte, and `supabase/functions/` is identical between `d83542f` and `ce41133`. That those bytes are what runs on the hosted project is **Lovable-reported (not independently verified).** |
+| Published commit `ce41133`; live bundle `index-DabXNRe4.js` | **Independently verified** (commit diff `d83542f`..`ce41133`): `ce41133` runs the same application as the release `d83542f`. Outside the documentation it adds only the p5 journal files, the regenerated `src/integrations/supabase/types.ts` (type declarations) and a proof script. That the live site serves `index-DabXNRe4.js` built from it is **Lovable-reported (not independently verified).** A bundle name depends on the build environment, so it is not recomputed here. |
+| The old Polar checkout and its CFOClose intent have both **expired** | **Lovable-reported (not independently verified).** |
+| The inspected Polar **production** organization has **zero orders**; CFOClose has **zero confirmed production payments** | **Lovable-reported (not independently verified)**, and scoped: it covers only the one Polar production organization inspected, which must be the one `POLAR_ORGANIZATION_ID` names. The Polar sandbox organization and any other organization are outside it. |
+| Sole active live-acceptance tester: **cfoclose@gmail.com** | **Lovable-reported (not independently verified).** |
 
 **TZS offers.** Lovable's wording "no TZS offers exist" is inaccurate. **No purchasable TZS/TZ offer exists.** Two historical TZS rows under the retired `PAID` plan are active, **not purchasable**, and preserved unchanged: `95dc943c-9d5e-433f-906c-5528bd0302cd` (SANDBOX-TEST-PAID-TZ) and `68d35bb6-1663-4045-910e-97c983cee690` (SANDBOX-TEST-PAID-GLOBAL). They are records, not prices. No step deletes, deactivates or edits them.
 
@@ -219,7 +243,9 @@ The site header's primary action is **Request activation** in every server state
 | 23 | Decision to open public checkout | Owner | OWNER ACTION REQUIRED (§9) |
 | 24 | Independent accounting validation of the reporting pilot | External | NOT RUN (unchanged; outside this launch) |
 
-## 7. The remaining Polar launch procedure
+## 7. The remaining Polar launch procedure (SUPERSEDED 2026-10-14; history)
+
+> **Superseded on 2026-10-14 by §0.** The scope is now Polar and Snippe. Acceptance follows `docs/release/PAYMENT_ACCEPTANCE_MATRIX.md`, with every test PENDING until evidence shows it passed. The card-only procedure below is kept as the record of the 13 October plan.
 
 **Done, Lovable-reported (§1a), not to be repeated:**
 - the p5 deployment (application, postcondition, functions, Publish);
@@ -255,7 +281,9 @@ The old checkout is expired and is not reused: a new checkout session is created
 >   - Payout fees (0.25% + USD 0.25, and 0.25–1% currency conversion) apply only if a payout is made.
 > - **Refund and access removal:** separate, concrete owner authorisations (steps 4 and 5).
 
-## 8. Snippe: honest readiness status
+## 8. Snippe: honest readiness status (as of 13 October 2026)
+
+> **Superseded on 2026-10-14 by §0:** Snippe mobile money is now **in** the launch scope. The status below is the 13 October record, from before that decision. Snippe's acceptance is tracked in `docs/release/PAYMENT_ACCEPTANCE_MATRIX.md`.
 
 | Layer | State |
 |---|---|
@@ -301,9 +329,11 @@ The old checkout is expired and is not reused: a new checkout session is created
 4. Run Snippe's confirmed test arrangement, then one authorised controlled live payment.
 5. Open the route through the checklist.
 
-**Snippe does not block the Polar launch.** Nothing in §7 depends on it.
+*SUPERSEDED 2026-10-14 (§0):* **Snippe does not block the Polar launch.** Nothing in §7 depends on it. *(Now: public payments stay disabled until both routes pass, or until the owner removes Snippe in writing.)*
 
-## 9. The decision needed to open public checkout
+## 9. The decision needed to open public checkout (card-only conditions SUPERSEDED 2026-10-14; history)
+
+> **Superseded on 2026-10-14 by §0.** Public payments open only when **both** Polar and Snippe pass acceptance (`docs/release/PAYMENT_ACCEPTANCE_MATRIX.md`), or when the owner removes Snippe in writing. The card-only conditions below are kept as history.
 
 Open public card checkout only when **all** of these are true for the published release (`ce41133`, equivalent to `d83542f`), or a later release that supersedes it:
 1. The p5 deployment is complete. **Lovable-reported** (§1a).
