@@ -154,7 +154,7 @@ async function main() {
   const admin = new Client({ connectionString: CONN }); await admin.connect();
   const v = (await admin.query("show server_version")).rows[0].server_version;
   console.log(`\n== PostgreSQL ${v} · mode=${WITHOUT_REPAIR?"WITHOUT repair (demonstrate defects)":"WITH candidate repair"}`);
-  await admin.query("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;");
+  await admin.query("DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS auth CASCADE; CREATE SCHEMA public;");
   await admin.query(SETUP);
   // seed
   await admin.query(`INSERT INTO auth.users(id) VALUES ($1),($2),($3),($4)`, [U.prep,U.rev,U.appr,U.outsider]);
