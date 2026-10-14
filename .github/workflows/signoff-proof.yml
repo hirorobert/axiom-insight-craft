@@ -1,7 +1,7 @@
 name: signoff-authorization-proof
 on:
   push:
-    branches: [fix/signoff-authorization-20261014]
+    branches: [fix/signoff-authorization-20261014, integration/release-candidate-20261014]
   workflow_dispatch: {}
 permissions:
   contents: read
