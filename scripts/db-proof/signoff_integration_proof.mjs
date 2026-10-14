@@ -169,14 +169,38 @@ async function main() {
   await refused("INPUT-CHANGE · the locked, approved record cannot be mutated post-lock", U.partner,
     (c)=>c.query(`UPDATE public.statement_sign_offs SET approver_note='tamper' WHERE company_id='${COMPANY_A}' AND period_year=2040`));
 
-  // STALE-APPROVAL race: preparer signs on a passing run; inputs then change (new failing run); the NEXT signer (reviewer,
-  // distinct) is refused — a stale approval can never remain valid.
-  await setValidation(UPLOAD_A, COMPANY_A, "pass");
-  await allowed("STALE-RACE · preparer signs on a passing validation", U.preparer,
-    (c)=>ins(c,COMPANY_A,2041,UPLOAD_A,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.preparer}',now(),'${fmPrep}','preparer_signed'`));
-  await setValidation(UPLOAD_A, COMPANY_A, "stale");   // inputs changed after the preparer signed
-  await refused("STALE-RACE · reviewer step refused once inputs changed (no stale approval remains valid)", U.partner2, (c)=>
-    c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner2}', reviewer_firm_member_id='${fmPart2}', reviewer_signed_at=now(), status='reviewer_signed' WHERE company_id='${COMPANY_A}' AND period_year=2041`));
+  // ── Signing-vs-input-change RACE: TWO connections, controlled synchronization, BOTH commit orders. ──
+  // conn S = the approver (a pool connection, held open across BEGIN…COMMIT so the order of its lock statement vs the input
+  // change is controlled). conn I = the validation engine (the `admin` connection) appending a newer, FAILING validation.
+  const raceReady = async (yr) => {   // bring a period to "preparer + reviewer signed, ready to lock" on a passing validation
+    await setValidation(UPLOAD_A, COMPANY_A, "pass");
+    await asUser(U.preparer, c=>ins(c,COMPANY_A,yr,UPLOAD_A,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.preparer}',now(),'${fmPrep}','preparer_signed'`));
+    await asUser(U.partner2, c=>c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner2}', reviewer_firm_member_id='${fmPart2}', reviewer_signed_at=now(), status='reviewer_signed' WHERE company_id='${COMPANY_A}' AND period_year=${yr}`));
+  };
+  const inputChange = () => admin.query(`INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status, validated_by, validated_at) VALUES ('${UPLOAD_A}','${COMPANY_A}',2026,'some_fail','${U.owner}', now() + interval '${++vseq} seconds')`);
+  const openApprover = async () => { const s = await pool.connect(); await s.query("BEGIN"); await s.query("SET LOCAL ROLE authenticated"); await s.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)",[U.partner]); return s; };
+  const lockStmt = (yr) => `UPDATE public.statement_sign_offs SET approver_id='${U.partner}', approver_firm_member_id='${fmPart}', approver_signed_at=now(), statements_hash='${hex64("lk"+yr)}', locked_at=now(), status='locked' WHERE company_id='${COMPANY_A}' AND period_year=${yr}`;
+
+  // Order A — the INPUT CHANGE commits FIRST; the approver's lock statement then executes → REFUSED (stale basis rejected).
+  { await raceReady(2050);
+    await inputChange();                                       // conn I commits the newer failing validation first
+    const s = await openApprover(); let ok=false;
+    try { await s.query(lockStmt(2050)); await s.query("COMMIT"); ok=true; } catch { try{await s.query("ROLLBACK")}catch{} } finally { s.release(); }
+    const locked = (await admin.query("SELECT locked_at IS NOT NULL v FROM public.statement_sign_offs WHERE company_id=$1 AND period_year=2050",[COMPANY_A])).rows[0].v;
+    rec("RACE(A) · input change commits first → approver lock REFUSED; no stale approval persisted", ok===false && locked===false); }
+
+  // Order B — the approver's lock commits FIRST (valid at that instant); the input changes AFTER. The persisted approval is
+  // sealed + locked (valid at commit); then, because inputs changed, it cannot be relied on: the record is immutable and the
+  // current validation no longer passes, so any further signing needs re-validation — a stale approval never remains usable.
+  { await raceReady(2051);
+    const s = await openApprover(); let ok=false;
+    try { await s.query(lockStmt(2051)); await s.query("COMMIT"); ok=true; } catch { try{await s.query("ROLLBACK")}catch{} } finally { s.release(); }
+    await inputChange();                                       // inputs change AFTER the valid lock committed
+    const r = (await admin.query("SELECT locked_at IS NOT NULL locked, length(statements_hash)=64 sealed FROM public.statement_sign_offs WHERE company_id=$1 AND period_year=2051",[COMPANY_A])).rows[0];
+    rec("RACE(B) · approver lock commits first → approval persisted, sealed & locked (valid at commit)", ok===true && r.locked===true && r.sealed===true);
+    let immutable=false; try { await asUser(U.partner, c=>c.query(`UPDATE public.statement_sign_offs SET approver_note='x' WHERE company_id='${COMPANY_A}' AND period_year=2051`)); } catch { immutable=true; }
+    const latest = (await admin.query("SELECT gate_satisfied FROM public.hesabu_validations WHERE upload_id=$1 ORDER BY validated_at DESC LIMIT 1",[UPLOAD_A])).rows[0];
+    rec("RACE(B) · stale approval not usable: record immutable AND current validation now fails (re-validation required)", immutable===true && latest.gate_satisfied===false); }
 
   // CONCURRENCY — two independent connections sign the same (company,period); controlled synchronization; no duplicate.
   await setValidation(UPLOAD_A, COMPANY_A, "pass");
@@ -193,6 +217,11 @@ async function main() {
   // refused (not silently reused). Distinct from a safe idempotent replay (which the fs_* publication path provides).
   await refused("REPLAY · a repeated identical sign-off is refused as a duplicate (not a silent idempotent reuse)", U.preparer,
     (c)=>ins(c,COMPANY_A,2042,UPLOAD_A,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.preparer}',now(),'${fmPrep}','preparer_signed'`));
+
+  // ── Task-4: the real-app E2E applies supabase/migrations only (not this docs/ candidate). Here the candidate IS applied on
+  // the full chain; confirm it binds ONLY to statement_sign_offs, so the app's reachable (fs_*) sign-off path is unaffected. ──
+  { const trg = (await admin.query("SELECT tgrelid::regclass::text tbl FROM pg_trigger WHERE tgname='enforce_signoff_authorization' AND NOT tgisinternal")).rows.map(x=>x.tbl);
+    rec("ISOLATION · candidate trigger binds ONLY to statement_sign_offs (reachable fs_* path untouched by the candidate)", trg.length===1 && trg[0]==='statement_sign_offs'); }
 
   await pool.end(); await admin.end();
   const failed = results.filter(r=>!r.ok);
