@@ -32,7 +32,7 @@ if (CONN.includes(PRODUCTION_REF)) { console.error("REFUSED: production project 
 
 const uuid = () => globalThis.crypto.randomUUID();
 const hex64 = (s) => { let h=""; for(let i=0;h.length<64;i++) h+=Buffer.from(`${s}:${i}`).toString("hex"); return h.slice(0,64); };
-const U = { owner: uuid(), partner: uuid(), preparer: uuid(), viewer: uuid(), ownerB: uuid(), preparerB: uuid() };
+const U = { owner: uuid(), partner: uuid(), partner2: uuid(), preparer: uuid(), viewer: uuid(), ownerB: uuid(), preparerB: uuid() };
 let COMPANY_A, COMPANY_B, UPLOAD_A, UPLOAD_B, MEMBER = {};
 
 let admin, pool;
@@ -77,7 +77,7 @@ async function seed() {
   await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1,id,'ACTIVE','ADMIN_GRANT', now()-interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bcB, prod]);
   COMPANY_A = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Company A') RETURNING id", [U.owner])).rows[0].id;
   COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Company B') RETURNING id", [U.ownerB])).rows[0].id;
-  for (const [k, role] of [["partner","partner"],["preparer","preparer"],["viewer","viewer"]])
+  for (const [k, role] of [["partner","partner"],["partner2","partner"],["preparer","preparer"],["viewer","viewer"]])
     await admin.query("INSERT INTO public.firm_members (company_id, user_id, role, accepted_at) VALUES ($1,$2,$3, now())", [COMPANY_A, U[k], role]);
   await admin.query("INSERT INTO public.firm_members (company_id, user_id, role, accepted_at) VALUES ($1,$2,'preparer', now())", [COMPANY_B, U.preparerB]);
   const rows = (await admin.query("SELECT user_id, id FROM public.firm_members WHERE accepted_at IS NOT NULL")).rows;
@@ -122,7 +122,7 @@ async function main() {
   const { applied, total } = await replayAll();
   rec(`REPLAY · entire migration chain (${applied}/${total}) + candidate applied on PostgreSQL 17`, applied === total && applied > 100);
   await seed();
-  const fmPrep = MEMBER[U.preparer], fmPart = MEMBER[U.partner];
+  const fmPrep = MEMBER[U.preparer], fmPart = MEMBER[U.partner], fmPart2 = MEMBER[U.partner2];
 
   console.log("\n== real-policy integration scenarios (secure = refused unless noted)");
   await setValidation(UPLOAD_A, COMPANY_A, "none");
@@ -157,21 +157,26 @@ async function main() {
   await setValidation(UPLOAD_A, COMPANY_A, "pass");
   await allowed("JOURNEY · preparer sign-off (self id + latest pass) succeeds", U.preparer,
     (c)=>ins(c,COMPANY_A,2040,UPLOAD_A,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.preparer}',now(),'${fmPrep}','preparer_signed'`));
-  await allowed("JOURNEY · reviewer+approver (partner) sign & lock succeeds", U.partner, (c)=>
-    c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner}', reviewer_firm_member_id='${fmPart}', reviewer_signed_at=now(), approver_id='${U.partner}', approver_firm_member_id='${fmPart}', approver_signed_at=now(), statements_hash='${hex64("final")}', locked_at=now(), status='locked' WHERE company_id='${COMPANY_A}' AND period_year=2040`));
+  // Segregation of duties: reviewer and approver must be DISTINCT people, each signing AS THEMSELVES (the repair binds
+  // every signature to auth.uid()). So a legitimate close is three separate writes by three different members.
+  await allowed("JOURNEY · reviewer (partner2, distinct) signs", U.partner2, (c)=>
+    c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner2}', reviewer_firm_member_id='${fmPart2}', reviewer_signed_at=now(), status='reviewer_signed' WHERE company_id='${COMPANY_A}' AND period_year=2040`));
+  await allowed("JOURNEY · approver (partner, distinct) signs & locks", U.partner, (c)=>
+    c.query(`UPDATE public.statement_sign_offs SET approver_id='${U.partner}', approver_firm_member_id='${fmPart}', approver_signed_at=now(), statements_hash='${hex64("final")}', locked_at=now(), status='locked' WHERE company_id='${COMPANY_A}' AND period_year=2040`));
   { const r = (await admin.query("SELECT locked_at IS NOT NULL locked, status FROM public.statement_sign_offs WHERE company_id=$1 AND period_year=2040",[COMPANY_A])).rows[0];
     rec("JOURNEY · the authorized sign-off is persisted and locked (record intact)", r && r.locked===true && r.status==='locked'); }
   // the locked record cannot then be mutated (input-change after approval)
   await refused("INPUT-CHANGE · the locked, approved record cannot be mutated post-lock", U.partner,
     (c)=>c.query(`UPDATE public.statement_sign_offs SET approver_note='tamper' WHERE company_id='${COMPANY_A}' AND period_year=2040`));
 
-  // STALE-APPROVAL race: preparer signs on a passing run; inputs then change (new failing run); the approver step is refused.
+  // STALE-APPROVAL race: preparer signs on a passing run; inputs then change (new failing run); the NEXT signer (reviewer,
+  // distinct) is refused — a stale approval can never remain valid.
   await setValidation(UPLOAD_A, COMPANY_A, "pass");
   await allowed("STALE-RACE · preparer signs on a passing validation", U.preparer,
     (c)=>ins(c,COMPANY_A,2041,UPLOAD_A,"preparer_id,preparer_signed_at,preparer_firm_member_id,status", `'${U.preparer}',now(),'${fmPrep}','preparer_signed'`));
   await setValidation(UPLOAD_A, COMPANY_A, "stale");   // inputs changed after the preparer signed
-  await refused("STALE-RACE · approver step refused once inputs changed (no stale approval remains valid)", U.partner, (c)=>
-    c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner}', reviewer_firm_member_id='${fmPart}', reviewer_signed_at=now(), approver_id='${U.partner}', approver_firm_member_id='${fmPart}', approver_signed_at=now(), statements_hash='${hex64("f2")}', locked_at=now(), status='locked' WHERE company_id='${COMPANY_A}' AND period_year=2041`));
+  await refused("STALE-RACE · reviewer step refused once inputs changed (no stale approval remains valid)", U.partner2, (c)=>
+    c.query(`UPDATE public.statement_sign_offs SET reviewer_id='${U.partner2}', reviewer_firm_member_id='${fmPart2}', reviewer_signed_at=now(), status='reviewer_signed' WHERE company_id='${COMPANY_A}' AND period_year=2041`));
 
   // CONCURRENCY — two independent connections sign the same (company,period); controlled synchronization; no duplicate.
   await setValidation(UPLOAD_A, COMPANY_A, "pass");
