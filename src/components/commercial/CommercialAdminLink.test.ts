@@ -25,7 +25,7 @@ describe("Settings → Commercial administration link", () => {
     expect(settings).not.toMatch(/@gmail\.com|cfoclose\.com/);
     const hook = fs.readFileSync(path.join(__dirname, "CommercialAdminLink.tsx"), "utf8");
     expect(hook).toContain('"is_commercial_admin"');
-    expect(hook).not.toMatch(/email|role/i.test("") ? /x/ : /\.email|firm_members|localStorage/);
+    expect(hook).not.toMatch(/\.email|firm_members|localStorage/);
     expect(fs.readFileSync(path.join(__dirname, "../../App.tsx"), "utf8")).toContain('<Route path="/commercial/admin" element={<CommercialAdmin />} />');
   });
 });
