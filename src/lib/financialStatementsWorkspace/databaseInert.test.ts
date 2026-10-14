@@ -304,6 +304,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/payments/providers/snippe.ts",
       "supabase/functions/commercial-webhook-polar/index.ts",
       "supabase/functions/commercial-webhook-snippe/index.ts",
+      // Provider settings diagnostics (Lovable f9a801f): administrator-only and read-only. It returns setting NAMES only
+      // (never a value) through the one validator in routing.ts. Writes nothing; no schema; no financial-statements surface.
+      "supabase/functions/commercial-provider-diagnostics/index.ts",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
