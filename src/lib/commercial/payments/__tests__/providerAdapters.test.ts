@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createHmac } from "node:crypto";
-import { createPolarAdapter } from "../../../../../supabase/functions/_shared/payments/providers/polar.ts";
+import { createPolarAdapter, redactProviderText, sanitizePolarError } from "../../../../../supabase/functions/_shared/payments/providers/polar.ts";
 import { createSnippeAdapter, normaliseTzMobile } from "../../../../../supabase/functions/_shared/payments/providers/snippe.ts";
 import { verifySnippeSignature, verifyStandardWebhook } from "../../../../../supabase/functions/_shared/payments/webhookSignature.ts";
 import { providersFromEnv, selectPaymentProvider, SNIPPE_CUSTOMER_CHECKOUT_ENABLED } from "../../../../../supabase/functions/_shared/payments/routing.ts";
@@ -91,6 +91,63 @@ describe("webhook signatures (Gate A)", () => {
     expect(await verifyStandardWebhook(body, v2, secret, now)).toMatchObject({ reason: "INVALID_SIGNATURE" });
     expect(await verifyStandardWebhook(body, stdHeaders(body, now), key.toString("base64"), now)).toMatchObject({ reason: "INVALID_SIGNATURE" });
     expect(await verifyStandardWebhook(body, stdHeaders(body, now - 600), secret, now)).toMatchObject({ reason: "STALE_TIMESTAMP" });
+  });
+});
+
+describe("Polar refusal is recorded sanitised (provider text is untrusted)", () => {
+  const CONFIGURED_TOKEN = "polar_oat_test";
+  const hostile = {
+    error: "NotPermitted",
+    detail: "Token polar_oat_AbCdEf1234567890abcdef12 for owner@example.test in organization 11111111-1111-4111-8111-111111111111 "
+      + "cannot create checkouts; see https://polar.sh/docs?token=abc. Card 4242424242424242 <script>x</script> {\"$where\":1}",
+  };
+  const noRequestEcho = (r: unknown) => {
+    const text = JSON.stringify(r);
+    // Nothing from the REQUEST side can appear: the configured token, the auth header, the customer's email and name.
+    for (const s of [CONFIGURED_TOKEN, "Bearer", "owner@example.test", "Asha Mushi"]) expect(text).not.toContain(s);
+  };
+
+  it("403: Polar's code joins the recorded reason; the logged detail keeps the meaning and drops token, email, UUID, URL, card digits and markup; no retry", async () => {
+    const f = mockFetch(() => ({ status: 403, body: hostile }));
+    const r = await polar(f).createCheckout(params());
+    expect(r).toMatchObject({ success: false, outcome: "DEFINITIVE_FAILURE", error: "POLAR_HTTP_403:NotPermitted" });
+    expect(f.calls).toHaveLength(1);
+    const detail = (r as { providerDiagnostic?: string }).providerDiagnostic ?? "";
+    expect(detail).toContain("cannot create checkouts");
+    expect(detail).toContain("[redacted]");
+    for (const leak of ["polar_oat", "AbCdEf", "@", "example.test", ORG, "https", "polar.sh", "4242", "<", ">", "{", "}", "$", "\""]) expect(detail).not.toContain(leak);
+    expect(detail.length).toBeLessThanOrEqual(200);
+    noRequestEcho(r);
+  });
+
+  it("a code is kept only when it is a plain identifier; free text, markup or an over-long value records the status alone", async () => {
+    for (const error of ["Not permitted; DROP TABLE x", "<b>NotPermitted</b>", "A".repeat(65), 42, null]) {
+      const r = await polar(mockFetch(() => ({ status: 403, body: { error } }))).createCheckout(params());
+      expect(r).toEqual({ success: false, outcome: "DEFINITIVE_FAILURE", error: "POLAR_HTTP_403" });
+    }
+  });
+
+  it("422: only each item's type and loc path are kept, never the provider's msg or input echo", async () => {
+    const body = { detail: [{ type: "value_error", loc: ["body", "prices", 0, "price_amount"], msg: "owner@example.test polar_oat_secret is invalid", input: "polar_oat_secret" }] };
+    const r = await polar(mockFetch(() => ({ status: 422, body }))).createCheckout(params());
+    expect(r).toEqual({ success: false, outcome: "DEFINITIVE_FAILURE", error: "POLAR_HTTP_422:value_error", providerDiagnostic: "value_error@body.prices.0.price_amount" });
+    expect(JSON.stringify(r)).not.toContain("polar_oat_secret");
+    noRequestEcho(r);
+    expect(sanitizePolarError({ detail: [{ type: "x y", loc: ["body", "a b", { k: 1 }] }] })).toEqual({ code: null, detail: "unknown@body.?.?" });
+  });
+
+  it("an empty, non-JSON or detail-less refusal records the status only, with no diagnostic", async () => {
+    for (const body of [undefined, {}, { detail: "" }, []]) {
+      expect(await polar(mockFetch(() => ({ status: 403, body }))).createCheckout(params())).toEqual({ success: false, outcome: "DEFINITIVE_FAILURE", error: "POLAR_HTTP_403" });
+    }
+  });
+
+  it("redaction: credential prefixes, long opaque strings, 4+ digit runs and unsafe characters; nothing left gives null", () => {
+    expect(redactProviderText("key whsec_abc snp_live_x sk_test_1 pk_9 ok")).toBe("key [redacted] [redacted] [redacted] [redacted] ok");
+    expect(redactProviderText("opaque eyJhbGciOiJIUzI1NiJ9abcdefgh and 12345 and 123")).toBe("opaque [redacted] and [redacted] and 123");
+    expect(redactProviderText("a\u0000b\nc`d|e")).toBe("ab cde");
+    expect(redactProviderText("<>{}$")).toBeNull();
+    expect(redactProviderText("x".repeat(5000))).toBe("[redacted]");
   });
 });
 
