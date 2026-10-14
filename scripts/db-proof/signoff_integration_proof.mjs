@@ -75,9 +75,10 @@ async function seed() {
   UPLOAD_B = (await admin.query("INSERT INTO public.trial_balance_uploads (user_id, company_id, period_year, file_name, file_path, file_size, status) VALUES ($1,$2,2026,'b.csv','p/b.csv',100,'complete') RETURNING id", [U.ownerB, COMPANY_B])).rows[0].id;
 }
 async function setValidation(upload, company, spec) {
+  // gate_satisfied is GENERATED ALWAYS AS (status = 'all_pass') — set status, never the generated column.
   await admin.query("DELETE FROM public.hesabu_validations WHERE upload_id=$1", [upload]);
-  if (spec === "pass") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, gate_satisfied, status) VALUES ($1,$2,2026,true,'passed')", [upload, company]);
-  if (spec === "stale") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, gate_satisfied, status, validated_at) VALUES ($1,$2,2026,true,'passed', now()-interval '2h'),($1,$2,2026,false,'failed', now()-interval '1h')", [upload, company]);
+  if (spec === "pass") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status) VALUES ($1,$2,2026,'all_pass')", [upload, company]);
+  if (spec === "stale") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status, validated_at) VALUES ($1,$2,2026,'all_pass', now()-interval '2h'),($1,$2,2026,'some_fail', now()-interval '1h')", [upload, company]);
 }
 
 async function asUser(uid, fn) {
