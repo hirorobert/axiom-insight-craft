@@ -349,7 +349,8 @@ async function main() {
   await check("a commercial administrator opens /commercial/admin (genuine signed-in session)", async () => { await go("/commercial/admin", "Commercial administration"); return true; });
   await check("Online payment: PAYMENTS_DISABLED → SANDBOX_ONLY, typed confirmation and a recorded reason", async () => {
     await adminTab("Online payment");
-    await page.waitForText("Online payment state: PAYMENTS_DISABLED");
+    // The state shows as its label with the raw state in brackets (f9a801f, provider diagnostics).
+    await page.waitForText("Payments disabled (PAYMENTS_DISABLED)");
     await setByLabel("New state", "SANDBOX_ONLY");
     await setByLabel("Type the state to confirm", "SANDBOX_ONLY");
     await setByLabel("Reason (recorded)", "Payment journey test (sandbox)");
