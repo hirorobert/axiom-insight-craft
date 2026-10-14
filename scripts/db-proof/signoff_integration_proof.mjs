@@ -52,6 +52,11 @@ async function replayAll() {
   }
   // the EXACT candidate migration, applied on top of the full chain
   await admin.query(fs.readFileSync(CANDIDATE, "utf8"));
+  // PostgREST's `authenticated` role reaches the Data API through schema USAGE + per-table grants (the migrations grant the
+  // table verbs; Supabase grants schema USAGE at the platform layer, which the proof shim does not — run.mjs never needs it
+  // because it calls SECURITY DEFINER RPCs, not direct table writes). Grant it so writes reach RLS/triggers rather than a
+  // schema-permission error. This does NOT weaken the sign-off controls (those are RLS policies + triggers, not grants).
+  await admin.query("GRANT USAGE ON SCHEMA public, auth TO authenticated, anon, service_role");
   return { applied: n, total: files.length };
 }
 
@@ -91,7 +96,13 @@ async function asUser(uid, fn) {
     const out = await fn(c); await c.query("COMMIT"); return out;
   } catch (e) { try { await c.query("ROLLBACK"); } catch {} throw e; } finally { c.release(); }
 }
-async function refused(name, uid, fn) { let ref=false,d=""; try { await asUser(uid, fn); } catch(e){ ref=true; d=String(e.message).split("\n")[0]; } rec(name, ref, ref?"":"write SUCCEEDED (defect not closed)"); }
+async function refused(name, uid, fn) {
+  let ref=false,d=""; try { await asUser(uid, fn); } catch(e){ ref=true; d=String(e.message).split("\n")[0]; }
+  // A schema/table *permission* error is an infra misconfiguration, NOT a valid authorization refusal — fail it so a
+  // genuine RLS/trigger refusal is never masked by one.
+  const infra = /permission denied for (schema|table|relation)/i.test(d);
+  rec(name, ref && !infra, ref ? (infra ? `INVALID refusal (infra): ${d}` : "") : "write SUCCEEDED (defect not closed)");
+}
 async function allowed(name, uid, fn) { let ok=true,d=""; try { await asUser(uid, fn); } catch(e){ ok=false; d=String(e.message).split("\n")[0]; } rec(name, ok, d); }
 const ins = (c, co, yr, up, cols, vals) => c.query(`INSERT INTO public.statement_sign_offs (company_id, period_year, upload_id, ${cols}) VALUES ('${co}',${yr},'${up}',${vals})`);
 
