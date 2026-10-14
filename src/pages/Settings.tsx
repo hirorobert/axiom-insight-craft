@@ -52,6 +52,7 @@ function SectionDivider({ title }: { title: string }) {
 }
 
 export default function Settings() {
+  const isCommercialAdmin = useIsCommercialAdmin(user?.id);
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState<SettingsSection>("profile");
