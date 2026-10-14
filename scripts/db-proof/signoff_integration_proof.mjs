@@ -77,8 +77,8 @@ async function seed() {
 async function setValidation(upload, company, spec) {
   // gate_satisfied is GENERATED ALWAYS AS (status = 'all_pass') — set status, never the generated column.
   await admin.query("DELETE FROM public.hesabu_validations WHERE upload_id=$1", [upload]);
-  if (spec === "pass") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status) VALUES ($1,$2,2026,'all_pass')", [upload, company]);
-  if (spec === "stale") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status, validated_at) VALUES ($1,$2,2026,'all_pass', now()-interval '2h'),($1,$2,2026,'some_fail', now()-interval '1h')", [upload, company]);
+  if (spec === "pass") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status, validated_by) VALUES ($1,$2,2026,'all_pass',$3)", [upload, company, U.owner]);
+  if (spec === "stale") await admin.query("INSERT INTO public.hesabu_validations (upload_id, company_id, period_year, status, validated_by, validated_at) VALUES ($1,$2,2026,'all_pass',$3, now()-interval '2h'),($1,$2,2026,'some_fail',$3, now()-interval '1h')", [upload, company, U.owner]);
 }
 
 async function asUser(uid, fn) {
