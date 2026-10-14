@@ -123,6 +123,8 @@ describe("commercial-create-checkout — a payment route never crosses into anot
     expect(checkoutSrc.slice(guard, guard + 200)).toMatch(/402\)/);
   });
   it("GET shows a route as available only with its own market's offer", () => {
-    expect(checkoutSrc).toMatch(/if \(offer\.resolution !== 'AVAILABLE' \|\| offer\.market_code !== ROUTE_MARKET\[route\]\) \{ options\.push\(\{ paymentRoute: route, available: false/);
+    // The resolver's refusal reason is kept separately (payments disabled ≠ no offer); a foreign-market fallback is still refused.
+    expect(checkoutSrc).toMatch(/if \(offer\.resolution !== 'AVAILABLE'\) \{\n\s+options\.push\(\{ paymentRoute: route, available: false/);
+    expect(checkoutSrc).toMatch(/if \(offer\.market_code !== ROUTE_MARKET\[route\]\) \{ options\.push\(\{ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER'/);
   });
 });

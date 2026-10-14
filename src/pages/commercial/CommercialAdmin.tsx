@@ -27,7 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { callCommercialRpc, requestPaymentVerificationRecovery } from "@/lib/commercial/commercialRpc";
-import { getCheckoutOptions } from "@/lib/commercial/checkoutClient";
+import { getCheckoutOptions, getProviderDiagnostics, type CheckoutOptions } from "@/lib/commercial/checkoutClient";
+import { accountEligibility, isCheckoutOptions, parseProviderDiagnostics, platformLabel, providerLine, type ProviderDiagnostic } from "@/lib/commercial/onlinePaymentStatus";
 import { formatMoney } from "@/lib/commercial/planOffers";
 
 type Rpc = (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
@@ -423,20 +424,46 @@ function Offers({ act, busy }: { act: Act; busy: string | null }) {
   );
 }
 
+type Read<T> = { kind: "loading" } | { kind: "error"; code: string } | { kind: "ok"; value: T };
+
 function Platform({ act, busy }: { act: Act; busy: string | null }) {
-  const [state, setState] = useState<{ platform: string | null; routes: string[] } | null>(null);
+  const [opts, setOpts] = useState<Read<CheckoutOptions>>({ kind: "loading" });
+  const [diag, setDiag] = useState<Read<ProviderDiagnostic[]>>({ kind: "loading" });
   const [target, setTarget] = useState("SANDBOX_ONLY");
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
   const load = useCallback(async () => {
-    const { data } = await getCheckoutOptions("SOLO");
-    setState(data ? { platform: data.platformState, routes: data.options.filter((o) => o.provider).map((o) => `${o.paymentRoute === "CARD" ? "Card" : "Mobile money"}: ${o.provider} (${o.environment}${o.available ? "" : `, ${o.reason}`})`) } : { platform: null, routes: [] });
+    setOpts({ kind: "loading" }); setDiag({ kind: "loading" });
+    const [o, d] = await Promise.all([getCheckoutOptions("SOLO"), getProviderDiagnostics()]);
+    setOpts(o.data && isCheckoutOptions(o.data) ? { kind: "ok", value: o.data } : { kind: "error", code: o.error ?? "MALFORMED_RESPONSE" });
+    const parsed = d.data ? parseProviderDiagnostics(d.data) : null;
+    setDiag(parsed ? { kind: "ok", value: parsed } : { kind: "error", code: d.error ?? "MALFORMED_RESPONSE" });
   }, []);
   useEffect(() => { void load(); }, [load]);
+  const failed = opts.kind === "error" || diag.kind === "error";
+  const elig = opts.kind === "ok" ? accountEligibility(opts.value) : null;
   return (
     <div className="space-y-4 text-sm">
-      <p>Online payment state: <strong data-testid="platform-state">{state?.platform ?? "unknown"}</strong></p>
-      <p className="text-muted-foreground">Configured payment routes (from the server): {state?.routes.length ? state.routes.join(" · ") : "none — no provider has its complete settings, or no purchasable price exists"}</p>
+      {failed && (
+        <div role="alert" data-testid="platform-read-error" className="flex flex-wrap items-center gap-3 border border-destructive p-3 text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          Error: could not read {[opts.kind === "error" && `payment state (${opts.code})`, diag.kind === "error" && `provider settings (${diag.code})`].filter(Boolean).join(" and ")}.
+          <Button size="sm" variant="outline" onClick={() => void load()} data-testid="platform-retry">Retry</Button>
+        </div>
+      )}
+      <section aria-label="Provider settings" className="space-y-1">
+        <h3 className="font-medium">Provider settings</h3>
+        {diag.kind === "loading" && <p className="text-muted-foreground">Reading…</p>}
+        {diag.kind === "ok" && <ul data-testid="provider-settings">{diag.value.map((d) => <li key={d.provider}>{providerLine(d)}</li>)}</ul>}
+      </section>
+      <section aria-label="Online payment state" className="space-y-1">
+        <h3 className="font-medium">Online payment state</h3>
+        <p><strong data-testid="platform-state">{opts.kind === "ok" ? platformLabel(opts.value.platformState) : opts.kind === "loading" ? "Reading…" : "Unknown"}</strong>{opts.kind === "ok" && opts.value.platformState ? <span className="text-muted-foreground"> ({opts.value.platformState})</span> : null}</p>
+      </section>
+      <section aria-label="This account" className="space-y-1">
+        <h3 className="font-medium">Your signed-in account (Solo plan)</h3>
+        {elig && <ul data-testid="account-eligibility">{elig.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
+      </section>
       <div className="flex items-start gap-2 border border-amber-500 p-3 text-amber-900"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Opening payments to customers is an owner decision. Follow the launch checklist: sandbox first, then live acceptance with allow-listed testers, then customers.</div>
       <div className="flex flex-wrap items-end gap-3">
         <label>New state<select className="mt-1 block h-9 border bg-background px-2" value={target} onChange={(e) => setTarget(e.target.value)}>{["PAYMENTS_DISABLED", "SANDBOX_ONLY", "LIVE_ACCEPTANCE", "CUSTOMER_PAYMENTS_ENABLED"].map((s) => <option key={s}>{s}</option>)}</select></label>

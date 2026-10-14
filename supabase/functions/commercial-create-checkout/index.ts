@@ -97,10 +97,17 @@ Deno.serve(async (req: Request) => {
     for (const route of ROUTES) {
       // Display only: the annual offer of the market each route maps to (the POST path below resolves again itself).
       const displayArgs = { p_plan_code: planCode, p_billing_interval: 'ANNUAL', p_market_code: ROUTE_MARKET[route] };
-      const { data } = await supabase.rpc('resolve_commercial_offer', displayArgs);
-      const offer = (data ?? { resolution: 'UNKNOWN' }) as Offer;
+      const { data, error: offerErr } = await supabase.rpc('resolve_commercial_offer', displayArgs);
+      // A failed read is reported as such — never as "no offer".
+      if (offerErr) { options.push({ paymentRoute: route, available: false, reason: 'OFFER_READ_FAILED' }); continue; }
+      const offer = (data ?? { resolution: 'UNKNOWN' }) as Offer & { reason?: string };
+      // The resolver's own refusal reason is kept: payments disabled is not "no purchasable offer".
+      if (offer.resolution !== 'AVAILABLE') {
+        options.push({ paymentRoute: route, available: false, reason: offer.reason === 'PLATFORM_PAYMENTS_DISABLED' ? 'PAYMENTS_DISABLED' : 'NO_PURCHASABLE_OFFER' });
+        continue;
+      }
       // The resolver falls back to GLOBAL when a market has no offer; a route shows only its OWN market's price.
-      if (offer.resolution !== 'AVAILABLE' || offer.market_code !== ROUTE_MARKET[route]) { options.push({ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER' }); continue; }
+      if (offer.market_code !== ROUTE_MARKET[route]) { options.push({ paymentRoute: route, available: false, reason: 'NO_PURCHASABLE_OFFER' }); continue; }
       const sel = selectPaymentProvider({ currencyCode: offer.currency_code!, marketCode: offer.market_code!, providerRestriction: offer.provider_restriction ?? null }, configured);
       if (bc && placement === null) {
         const { data: place } = await supabase.rpc('_commercial_licence_placement', { p_billing_customer_id: bc.id, p_plan_id: offer.plan_id, p_at: new Date().toISOString() });

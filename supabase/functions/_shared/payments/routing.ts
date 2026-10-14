@@ -111,6 +111,62 @@ export function returnUrlFrom(env: EnvReader): string | null {
 
 export interface ConfiguredProvider { capabilities: PaymentProviderCapabilities; adapter: ProviderAdapter }
 
+/**
+ * The ONE Polar settings validator: the names of every setting that is missing or invalid (empty = complete).
+ * Names only — never a value. providersFromEnv and the administrator diagnostics both use it.
+ */
+export function polarSettingIssues(env: EnvReader): string[] {
+  const issues: string[] = [];
+  if (!returnUrlFrom(env)) issues.push('SAFF_PAYMENT_REDIRECT_URL');
+  const pEnv = env('POLAR_ENVIRONMENT') ?? '';
+  if (!ENVIRONMENTS.has(pEnv)) issues.push('POLAR_ENVIRONMENT');
+  if (!env('POLAR_ACCESS_TOKEN')) issues.push('POLAR_ACCESS_TOKEN');
+  if (!env('POLAR_WEBHOOK_SECRET')?.startsWith('whsec_')) issues.push('POLAR_WEBHOOK_SECRET');
+  const pOrg = env('POLAR_ORGANIZATION_ID');
+  if (!pOrg || !UUID.test(pOrg)) issues.push('POLAR_ORGANIZATION_ID');
+  if (!polarProductsFrom(env)) issues.push('POLAR_PRODUCT_IDS');
+  if (ENVIRONMENTS.has(pEnv) && !apiBase(env('POLAR_API_BASE_URL'), POLAR_API_BASE[pEnv as 'sandbox' | 'production'] ?? '', pEnv)) issues.push('POLAR_API_BASE_URL');
+  return issues;
+}
+
+function polarProductsFrom(env: EnvReader): Record<string, string> | null {
+  try {
+    const parsed = JSON.parse(env('POLAR_PRODUCT_IDS') ?? 'null');
+    if (parsed && SELF_SERVE_PLANS.every((p) => typeof parsed[p] === 'string' && UUID.test(parsed[p]))) {
+      return Object.fromEntries(SELF_SERVE_PLANS.map((p) => [p, parsed[p] as string]));
+    }
+  } catch { /* invalid */ }
+  return null;
+}
+
+export type ProviderConfigStatus = 'CONFIGURED' | 'INCOMPLETE' | 'UNAVAILABLE';
+export interface ProviderConfigDiagnostic {
+  provider: 'POLAR' | 'SNIPPE';
+  route: PaymentRoute;
+  status: ProviderConfigStatus;
+  environment: 'sandbox' | 'production' | null;
+  /** Names of missing/invalid settings only. */
+  missingSettings: string[];
+  /** Why the provider is unavailable regardless of settings (e.g. not launched). */
+  unavailableReason?: string;
+}
+
+/**
+ * Administrator diagnostics: whether each provider's settings are complete. Says nothing about whether the provider
+ * accepts the credentials, whether the merchant is approved, or whether checkout is open. Never returns a value.
+ */
+export function providerConfigDiagnostics(env: EnvReader): ProviderConfigDiagnostic[] {
+  const pIssues = polarSettingIssues(env);
+  const pEnv = env('POLAR_ENVIRONMENT') ?? '';
+  return [
+    { provider: 'POLAR', route: 'CARD', status: pIssues.length === 0 ? 'CONFIGURED' : 'INCOMPLETE',
+      environment: ENVIRONMENTS.has(pEnv) ? pEnv as 'sandbox' | 'production' : null, missingSettings: pIssues },
+    SNIPPE_CUSTOMER_CHECKOUT_ENABLED
+      ? { provider: 'SNIPPE', route: 'MOBILE_MONEY', status: 'INCOMPLETE', environment: null, missingSettings: [] }
+      : { provider: 'SNIPPE', route: 'MOBILE_MONEY', status: 'UNAVAILABLE', environment: null, missingSettings: [], unavailableReason: 'NOT_LAUNCHED' },
+  ];
+}
+
 /** Every provider whose complete configuration is present in `env`. Pure: the env reader and fetch are injected. */
 export function providersFromEnv(env: EnvReader, fetchImpl?: (input: string, init?: RequestInit) => Promise<Response>): ConfiguredProvider[] {
   const out: ConfiguredProvider[] = [];
@@ -120,13 +176,7 @@ export function providersFromEnv(env: EnvReader, fetchImpl?: (input: string, ini
   const pToken = env('POLAR_ACCESS_TOKEN');
   const pSecret = env('POLAR_WEBHOOK_SECRET');
   const pOrg = env('POLAR_ORGANIZATION_ID');
-  let pProducts: Record<string, string> | null = null;
-  try {
-    const parsed = JSON.parse(env('POLAR_PRODUCT_IDS') ?? 'null');
-    if (parsed && SELF_SERVE_PLANS.every((p) => typeof parsed[p] === 'string' && UUID.test(parsed[p]))) {
-      pProducts = Object.fromEntries(SELF_SERVE_PLANS.map((p) => [p, parsed[p] as string]));
-    }
-  } catch { pProducts = null; }
+  const pProducts = polarProductsFrom(env);
   const pBase = apiBase(env('POLAR_API_BASE_URL'), POLAR_API_BASE[pEnv as 'sandbox' | 'production'] ?? '', pEnv);
   if (ENVIRONMENTS.has(pEnv) && pToken && pSecret?.startsWith('whsec_') && pOrg && UUID.test(pOrg) && pProducts && pBase) {
     const environment = pEnv as 'sandbox' | 'production';
