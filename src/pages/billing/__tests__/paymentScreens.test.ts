@@ -281,6 +281,17 @@ describe("administrator screen", () => {
     await flush();
     expect(supabaseRpc).toHaveBeenCalledWith("admin_place_paid_licence", expect.objectContaining({ p_checkout_intent_id: "i1", p_reason: "Placed after the open-ended agreement ended" }));
   });
+  it("a closed local payment window is never presented as a provider-side checkout expiry", async () => {
+    supabaseRpc.mockImplementation(async (fn: string) => fn === "admin_list_payment_attention"
+      ? { data: { intents: [{ intent_id: "i2", saff_reference: "SAFF-LEASE", status: "PENDING", provider: "POLAR", provider_environment: "production", plan_code: "SOLO", amount_minor: 49000, currency_code: "USD", currency_exponent: 2, created_at: "2026-10-10T08:00:00Z", expires_at: "2026-10-10T09:00:00Z", billing_customer_id: "b1", owner_email: "c@example.test", reason: "PENDING_AFTER_EXPIRY", payment_recorded: false }], reversals: [] }, error: null }
+      : { data: null, error: null });
+    m = mount(at("/commercial/admin", h(CommercialAdmin)));
+    await flush();
+    const text = byTestId(m, "attention-SAFF-LEASE")!.textContent!;
+    expect(text).toContain("CFOClose payment window closed");
+    expect(text).toContain("may still be payable");
+    expect(text).not.toMatch(/checkout expired/i);
+  });
 });
 
 describe("administrator screen · charges needing a decision (a failed read is never an empty list)", () => {
