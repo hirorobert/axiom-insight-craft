@@ -18,6 +18,24 @@ Evidence kinds:
 | Polar | A separate sandbox (`sandbox.polar.sh`, `sandbox-api.polar.sh`), test cards, and refunds from the sandbox dashboard | Purchase and refund are tested on staging with no real money |
 | Snippe | **None documented.** The [authentication](https://docs.snippe.sh/docs/2026-01-25/authentication) and [payments](https://docs.snippe.sh/docs/2026-01-25/payments) pages give no sandbox host, test key prefix, test phone numbers or test marker on a payment, and **no refund or reversal API**. The networks listed are M-Pesa, Airtel Money, Mixx by Yas and Halotel. | Every Snippe provider row is a **real charge** in production. Refund is **unconfirmed**: it is possible only if Snippe confirms a refund procedure in writing, and it is recorded with `admin_record_provider_refund`. |
 
+## Prices
+
+| Plan | Polar (GLOBAL, USD, exponent 2) | Snippe (TZ, TZS, exponent 0, whole shillings) |
+|---|---|---|
+| Solo | USD 490 (`49000`) | TZS 1,290,000 (`1290000`) |
+| Practice | USD 990 (`99000`) | TZS 2,590,000 (`2590000`) |
+| Firm | USD 2,990 (`299000`) | TZS 7,790,000 (`7790000`) |
+
+- **TZS prices:** the owner approved them on 2026-10-14. Each buys 12 months, with no automatic renewal. They are not derived from USD.
+- **Canonical recording:** `/commercial/admin` → Prices → *Add or correct an annual price*, with market `TZ`. The form sets TZS and exponent 0, and `admin_upsert_commercial_offer` records codes `CFOCLOSE_<PLAN>_TZ_TZS_ANNUAL` as **not purchasable**. Approving an offer (making it purchasable) is a separate, audited step.
+- **Unit check (code):** the Snippe adapter refuses anything other than TZS with exponent 0, or less than TZS 500. It sends the integer amount unchanged.
+- **Before any TZS offer is made purchasable, these conditions are still open:**
+  1. **Tax treatment:** is VAT (18%) included in these prices? What are the EFD/EFDMS receipting duties for each sale? CFOClose's own entity is the seller (`SNIPPE_TZ_READINESS.md` §4 #7).
+  2. **Provider fees:** Snippe's fee per network, and who bears it. The only figure documented is an example (TZS 9 on TZS 500).
+  3. **Transaction limits:** Snippe documents only "the maximum varies by account", and gives no per-network or wallet limit. **Whether TZS 7,790,000 (Firm), or even TZS 1,290,000, can be paid in one mobile-money transaction is unconfirmed.** It needs Snippe's written account maximum and each network's per-transaction wallet limit.
+  4. **Release gate:** `docs/release/commercial-p4/purchasing_gate.sql` refuses any purchasable TZS/TZ offer. A reviewed update to that gate is needed in the release that approves these offers.
+- **No-renewal check:** both routes sell a one-time 12-month term. There is no subscription or automatic charge (Polar one-time products; a single Snippe collection).
+
 ## Matrix
 
 | # | Case | Route | Environment | Expected result (verified in the database and on the customer pages) | Existing evidence | Acceptance |
