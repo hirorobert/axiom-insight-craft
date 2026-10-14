@@ -27,7 +27,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
-import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, providerConfigDiagnostics, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
+import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -74,15 +74,6 @@ Deno.serve(async (req: Request) => {
   }
   const user = { id: authResult.userId, email: authResult.email };
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
-
-  // ── GET ?diagnostics=1: administrator-only settings readiness. Read-only; writes nothing. Names only, never values.
-  if (req.method === 'GET' && new URL(req.url).searchParams.get('diagnostics') === '1') {
-    const asCaller = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader! } } });
-    const { data: isAdmin, error: adminErr } = await asCaller.rpc('is_commercial_admin');
-    if (adminErr) return jsonResponse({ error: 'ADMIN_CHECK_FAILED', correlationId }, 500);
-    if (isAdmin !== true) return jsonResponse({ error: 'NOT_A_COMMERCIAL_ADMIN', correlationId }, 403);
-    return jsonResponse({ providers: providerConfigDiagnostics((n) => Deno.env.get(n)), correlationId }, 200);
-  }
 
   // ── GET: what this plan costs on each route, which routes are available, and where the term would go. ──────────
   if (req.method === 'GET') {

@@ -178,7 +178,7 @@ export function providersFromEnv(env: EnvReader, fetchImpl?: (input: string, ini
   const pOrg = env('POLAR_ORGANIZATION_ID');
   const pProducts = polarProductsFrom(env);
   const pBase = apiBase(env('POLAR_API_BASE_URL'), POLAR_API_BASE[pEnv as 'sandbox' | 'production'] ?? '', pEnv);
-  if (polarSettingIssues(env).length === 0 && pToken && pSecret && pOrg && pProducts && pBase) {
+  if (ENVIRONMENTS.has(pEnv) && pToken && pSecret?.startsWith('whsec_') && pOrg && UUID.test(pOrg) && pProducts && pBase) {
     const environment = pEnv as 'sandbox' | 'production';
     out.push({
       capabilities: { provider: 'POLAR', supportedCurrencies: ['USD'], supportedMarkets: ['GLOBAL'], supportedMethods: ['card'], environment },
