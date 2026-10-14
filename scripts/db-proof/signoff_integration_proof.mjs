@@ -103,7 +103,7 @@ async function refused(name, uid, fn) {
   const infra = /permission denied for (schema|table|relation)/i.test(d);
   rec(name, ref && !infra, ref ? (infra ? `INVALID refusal (infra): ${d}` : "") : "write SUCCEEDED (defect not closed)");
 }
-async function allowed(name, uid, fn) { let ok=true,d=""; try { await asUser(uid, fn); } catch(e){ ok=false; d=String(e.message).split("\n")[0]; } rec(name, ok, d); }
+async function allowed(name, uid, fn) { let ok=true,d=""; try { await asUser(uid, fn); } catch(e){ ok=false; d=`${e.message} | WHERE=${e.where||""} | TABLE=${e.table||""}`.replace(/\n/g," "); } rec(name, ok, d); }
 const ins = (c, co, yr, up, cols, vals) => c.query(`INSERT INTO public.statement_sign_offs (company_id, period_year, upload_id, ${cols}) VALUES ('${co}',${yr},'${up}',${vals})`);
 
 async function main() {
