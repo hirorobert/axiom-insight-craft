@@ -34,3 +34,5 @@ jobs:
         run: bun scripts/db-proof/signoff_fixture_proof.mjs
       - name: AFTER — verify the candidate repair closes them
         run: bun scripts/db-proof/signoff_fixture_proof.mjs
+      - name: INTEGRATION — full migration-chain replay + candidate + real policies/triggers/capability fns
+        run: bun scripts/db-proof/signoff_integration_proof.mjs

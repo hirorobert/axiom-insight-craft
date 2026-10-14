@@ -414,7 +414,7 @@ describe("database inertness — schema and functions", () => {
     const allowed = new Set([
       // Sign-off authorization hardening (WS-A): the loopback-only disposable-database proof of the legacy
       // statement_sign_offs defects + repair, its PostgreSQL-17 CI workflow, and the full-replay variant. No deploy behaviour.
-      ".github/workflows/signoff-proof.yml", "scripts/db-proof/signoff_fixture_proof.mjs", "scripts/db-proof/signoff_authorization_proof.mjs",
+      ".github/workflows/signoff-proof.yml", "scripts/db-proof/signoff_fixture_proof.mjs", "scripts/db-proof/signoff_authorization_proof.mjs", "scripts/db-proof/signoff_integration_proof.mjs",
       ".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json",
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
       // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
