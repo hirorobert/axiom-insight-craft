@@ -16,6 +16,7 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
+import { CommercialAdminLink, useIsCommercialAdmin } from "@/components/commercial/CommercialAdminLink";
 // ─────────────────────────────────────────────────────────────
 // Settings — CFOClose Ω3-BRAND
 //
@@ -52,6 +53,7 @@ function SectionDivider({ title }: { title: string }) {
 
 export default function Settings() {
   const { user, loading: authLoading } = useAuth();
+  const isCommercialAdmin = useIsCommercialAdmin(user?.id);
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState<SettingsSection>("profile");
   const [loading, setLoading] = useState(true);
@@ -251,6 +253,7 @@ export default function Settings() {
               <div>
                 <SectionDivider title="Plan & Billing" />
                 <BillingHelpLine className="mb-4" subject="Plan and billing" />
+                <CommercialAdminLink visible={isCommercialAdmin} />
                 <CurrentPlanPanel billing={billing} capacity={capacity} loading={billingLoading || capacityLoading} error={!!billingError} onRetry={() => { retryBilling(); retryCapacity(); }} archiveOnly={!!billing && (billing.licenceStatus === "EXPIRED" || billing.licenceStatus === "CANCELLED" || !billing.licenceStatus) && (capacity?.used ?? 0) > 0} />
 
 
