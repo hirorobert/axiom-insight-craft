@@ -3,7 +3,7 @@
 **Worktree:** `D:\DevStorage\Temp\claude\cfoclose-fin-integrity-20261014` · **branch:** `fix/signoff-authorization-20261014` · **base:** `dfd4098` (origin/main, current).
 **Scope:** the sign-off authorization path. **Date:** 14 Oct 2026.
 
-> **RUNTIME-EVIDENCE DISCLAIMER (read first).** No isolated database could be stood up in this environment: there is no Docker and no system PostgreSQL, and the project's embedded-PostgreSQL harness **fails to boot on this Windows host** (`initdb` → `FATAL: could not access file "$libdir/utf8_and_win"` — the `@embedded-postgres/windows` binary is incomplete). Therefore every defect below is **statically substantiated from the migration/trigger/policy bodies at `dfd4098`, NOT runtime-reproduced.** The regression tests in `scripts/db-proof/signoff_authorization_proof.mjs` are **written but UNEXECUTED**; the candidate repair in `supabase/migrations/20261103100000_signoff_authorization_hardening.sql` is **NOT applied and UNVERIFIED.** No runtime proof is claimed. Run instructions for a machine with a loopback PG16 are at the end.
+> **STATUS (updated 2026-10-14).** The five defects are now **(a) CONFIRMED present on the deployed database** by Lovable's read-only production read-back (project `bvyivmmfjejbmqoydezk`, PostgreSQL 17, 2026-10-14 04:56:30 UTC), and **(b) reproduced and repaired in an EXECUTED before/after proof on PostgreSQL 17.11** (CI run `signoff-authorization-proof` #38530479479: BEFORE 9/9 defects demonstrated → AFTER 12/12 with the candidate repair applied). See `TEST-RESULTS.md`. Local embedded-PostgreSQL does not boot on this Windows host (`$libdir/utf8_and_win` missing), so the proof runs as a disposable **CI** Postgres-17 job (the directive's authorized route). The candidate repair migration remains **NOT applied to any hosted DB** — this batch is for release review, not deployment.
 
 ---
 
@@ -46,7 +46,13 @@ Common facts: `GRANT SELECT, INSERT, UPDATE ON public.statement_sign_offs TO aut
 ### Defect E — tier sequence not enforced in the DB *(MEDIUM; underlies A)*
 - **Gap:** nothing requires `preparer_signed_at` before `reviewer_signed_at` before `approver_signed_at`; the `status` CHECK (`20260707183617:275-276`) permits jumping straight to `'locked'`. Sequence is enforced only by UI button-gating in `KingaTaxPanel`.
 
-**Severity:** A (critical) > B, D (high) > C, E (medium). All are DB-layer gaps distinct from the UI.
+### Defect F — over-broad table grants to `authenticated` *(HIGH; from the production read-back)*
+- **Gap:** the deployed read-back shows `authenticated` holds **SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN** on `statement_sign_offs` (the repo at `20260707183617:319` granted only SELECT/INSERT/UPDATE — a later blanket grant widened it). DELETE has no RLS policy (fails closed), but **TRUNCATE is not row-level** and is not reachable via PostgREST — yet holding it is an unnecessary, dangerous over-grant (a grantee with any SQL path could wipe all sign-off history across every tenant). REFERENCES/TRIGGER/MAINTAIN are likewise unnecessary for a client role.
+- **Repair:** `REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON public.statement_sign_offs FROM authenticated;` (keeps SELECT/INSERT/UPDATE, themselves gated by RLS + the trigger; `service_role` retains ALL). Verified in the proof (AFTER: authenticated loses TRUNCATE+DELETE; service_role keeps TRUNCATE).
+
+**Severity:** A (critical) > B, D, F (high) > C, E (medium). All are DB-layer gaps distinct from the UI. **Production read-back explicitly corroborates A/D** (it calls the INSERT-only gate + un-gated signed UPDATE an "unresolved architectural nuance") and the capability-split RLS of B/C.
+
+> **Practical reachability (honest):** the certification entitlement wall (`trg_sso_statement_certification_wall`) requires the company to hold `STATEMENT_CERTIFICATION`. Today that entitlement + the financial-statements rollout are confined to the DEMO company / sole live-acceptance tester, and the legacy browser writer (`KingaTaxPanel`) is in the un-offered TZ pack — so broad customer reachability is currently low. Severity is HIGH because these become reachable the moment Close Certification is sold, and the exposure is via the direct PostgREST Data API (not just the UI).
 
 ---
 
