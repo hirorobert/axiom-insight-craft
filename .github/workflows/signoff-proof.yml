@@ -1,0 +1,36 @@
+name: signoff-authorization-proof
+on:
+  push:
+    branches: [fix/signoff-authorization-20261014]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signoff_proof
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/signoff_proof
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pg driver (disposable)
+        run: npm install --no-save pg@8
+      - name: BEFORE — demonstrate the defects (no repair)
+        env:
+          SIGNOFF_PROOF_WITHOUT_REPAIR: '1'
+        run: node scripts/db-proof/signoff_fixture_proof.mjs
+      - name: AFTER — verify the candidate repair closes them
+        run: node scripts/db-proof/signoff_fixture_proof.mjs

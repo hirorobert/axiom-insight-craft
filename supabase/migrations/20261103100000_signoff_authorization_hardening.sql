@@ -157,6 +157,18 @@ CREATE TRIGGER enforce_signoff_authorization
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_signoff_authorization();
 
+-- ── Over-broad grant containment (confirmed by the 2026-10-14 production
+--    read-back: `authenticated` held SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
+--    REFERENCES, TRIGGER, MAINTAIN on this table). Keep only the three verbs the
+--    client legitimately uses (SELECT/INSERT/UPDATE — themselves gated by RLS +
+--    the trigger above); remove the rest. This is NOT disabling a legitimate
+--    write path — SELECT/INSERT/UPDATE remain. DELETE has no RLS policy (already
+--    fails closed); TRUNCATE is not row-level and would let any grantee wipe all
+--    sign-off history across tenants, so it must not be held by `authenticated`.
+--    service_role (edge functions) retains ALL. ──
+REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
+  ON public.statement_sign_offs FROM authenticated;
+
 -- ============================================================================
 -- PREFERRED HARD-DISABLE ALTERNATIVE (commented — enable instead of/alongside
 -- the trigger if verification cannot complete before use; "disabling the
