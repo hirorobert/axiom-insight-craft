@@ -61,6 +61,9 @@ async function replayAll() {
   // this at the platform layer). RLS still enforces row visibility, so this does NOT weaken any sign-off control — it only
   // lets a legitimate write's WITH CHECK subquery run instead of hitting a bare table-permission error.
   await admin.query("GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated");
+  await admin.query("GRANT SELECT ON public.firm_members, public.companies, public.statement_sign_offs, public.hesabu_validations, public.trial_balance_uploads TO authenticated");
+  const diag = (await admin.query("SELECT has_table_privilege('authenticated','public.firm_members','SELECT') fm, has_schema_privilege('authenticated','public','USAGE') pub")).rows[0];
+  console.log(`  [diag] authenticated: firm_members SELECT=${diag.fm}, public USAGE=${diag.pub}`);
   return { applied: n, total: files.length };
 }
 
