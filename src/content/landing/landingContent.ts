@@ -11,7 +11,7 @@
  *   Plans          capacity, from the reviewed catalogue. What each plan card says about price and payment is decided by
  *                  the server at runtime (src/lib/commercial/planOffers.ts): a price the team has approved and online
  *                  payment that is open → the price and "Choose <plan>"; otherwise the catalogue figure marked "Proposed"
- *                  and "Request activation". Every sentence below is therefore true in BOTH states.
+ *                  and "Contact support". Every sentence below is therefore true in BOTH states.
  *   Specialist     forecasting, budgeting, financial analysis, accounting policies and close support: enquiries for work
  *                  delivered by people and quoted separately — never presented as automated features.
  *
@@ -140,7 +140,7 @@ export const LANDING_PLANS_COPY = {
   enterpriseAction: "Discuss Enterprise",
   /** Shown instead when the enquiry surface is off: no link, no activation implied. */
   enterpriseUnavailable: "Terms are agreed directly with our team.",
-  requestUnavailable: "Plans are activated by our team.",
+  requestUnavailable: "Online payment is temporarily unavailable.",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
