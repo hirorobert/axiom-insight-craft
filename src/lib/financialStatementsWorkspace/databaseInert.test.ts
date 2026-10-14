@@ -348,6 +348,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/commercial-payment-status/index.ts",
       "supabase/functions/_shared/payments/contracts.ts",
       "supabase/functions/_shared/payments/routing.ts",
+      // Sanitised Polar refusal (PR #129, diagnostic): on a 4xx at checkout creation the adapter keeps Polar's error code
+      // (plain identifier only) and a redacted detail for the log. Reads only the provider's response; no outcome, amount,
+      // binding or database change.
+      "supabase/functions/_shared/payments/providers/polar.ts",
       // Launch closure: a signed but stale webhook is reconciled through the provider; refunds record only the change in the
       // provider's cumulative refunded amount (serviceDbFrom adds that read). No financial-statements schema.
       "supabase/functions/_shared/payments/settle.ts",
