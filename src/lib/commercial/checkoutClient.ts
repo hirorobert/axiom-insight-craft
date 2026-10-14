@@ -53,6 +53,19 @@ export async function getCheckoutOptions(plan: PlanCode): Promise<{ data: Checko
   }
 }
 
+/** Administrator-only provider settings diagnostics (names only). Read-only on the server. */
+export async function getProviderDiagnostics(): Promise<{ data: unknown; error: string | null }> {
+  const { token } = await session();
+  if (!token) return { data: null, error: "NOT_SIGNED_IN" };
+  try {
+    const res = await fetch(`${fnUrl("commercial-create-checkout")}?diagnostics=1`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json().catch(() => null);
+    return res.ok && json ? { data: json, error: null } : { data: null, error: (json as { error?: string } | null)?.error ?? `HTTP_${res.status}` };
+  } catch {
+    return { data: null, error: "NETWORK" };
+  }
+}
+
 export type StartCheckoutResult =
   | { ok: true; saffReference: string; checkoutUrl: string; provider: string; paymentRoute: PaymentRoute; reused: boolean }
   | { ok: false; error: string; saffReference: string | null };
