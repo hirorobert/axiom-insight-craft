@@ -35,9 +35,10 @@ describe("provider settings diagnostics (one validator, names only)", () => {
 
 describe("edge function contract", () => {
   const src = readFileSync("supabase/functions/commercial-create-checkout/index.ts", "utf8");
-  const diag = src.slice(src.indexOf("diagnostics') === '1'"), src.indexOf("// ── GET: what this plan costs"));
+  const diag = readFileSync("supabase/functions/commercial-provider-diagnostics/index.ts", "utf8");
   it("diagnostics are refused unless the caller is an active commercial administrator, and write nothing", () => {
     expect(diag).toMatch(/rpc\('is_commercial_admin'\)/);
+    expect(src).not.toMatch(/is_commercial_admin/);
     expect(diag).toMatch(/isAdmin !== true\) return jsonResponse\(\{ error: 'NOT_A_COMMERCIAL_ADMIN'/);
     expect(diag).toMatch(/adminErr\) return jsonResponse\(\{ error: 'ADMIN_CHECK_FAILED'/);
     expect(diag).not.toMatch(/\.insert\(|\.update\(|acquire_checkout_attempt|begin_provider_checkout_request/);

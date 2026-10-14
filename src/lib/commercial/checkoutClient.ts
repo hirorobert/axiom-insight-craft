@@ -58,7 +58,7 @@ export async function getProviderDiagnostics(): Promise<{ data: unknown; error: 
   const { token } = await session();
   if (!token) return { data: null, error: "NOT_SIGNED_IN" };
   try {
-    const res = await fetch(`${fnUrl("commercial-create-checkout")}?diagnostics=1`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(fnUrl("commercial-provider-diagnostics"), { headers: { Authorization: `Bearer ${token}` } });
     const json = await res.json().catch(() => null);
     return res.ok && json ? { data: json, error: null } : { data: null, error: (json as { error?: string } | null)?.error ?? `HTTP_${res.status}` };
   } catch {
