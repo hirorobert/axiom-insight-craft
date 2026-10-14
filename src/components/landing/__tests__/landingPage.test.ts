@@ -232,6 +232,7 @@ describe("plans", () => {
     expect(visibleText(html)).toContain("USD 490 per year Contact support");
     expect(visibleText(html)).not.toContain("Proposed: USD 490");
     expect(hrefOf(html, "plan-action-Solo")).toBe("/contact?from=landing_plans");
+    expect(visibleText(html)).toContain(LANDING_PLANS_COPY.unavailableNote);
   });
 });
 
@@ -292,7 +293,7 @@ describe("FAQ", () => {
   it("renders every question, collapsed, from the one source, including how activation works and what specialist services are", () => {
     for (const f of LANDING_FAQ) expect(PAGE_TEXT).toContain(f.question);
     expect(LANDING_FAQ.map((f) => f.id)).toEqual(expect.arrayContaining(["activation", "specialist-services", "pricing-status"]));
-    expect(LANDING_FAQ.find((f) => f.id === "activation")!.answer).toMatch(/nothing is activated by sending a request/);
+    expect(LANDING_FAQ.find((f) => f.id === "activation")!.answer).toMatch(/Nothing is activated without a verified payment/);
   });
 });
 
