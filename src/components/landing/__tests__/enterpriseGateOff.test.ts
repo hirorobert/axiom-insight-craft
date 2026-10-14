@@ -20,7 +20,7 @@ describe("Plans, enquiry gate OFF", () => {
     expect(html).toContain("Terms are agreed directly with our team.");
     expect(html).not.toMatch(/\/contact|Discuss Enterprise|Request activation|plan=/);
     expect(html).toContain('data-testid="plan-unavailable-Solo"');
-    expect(html).toContain("Plans are activated by our team.");
+    expect(html).toContain("Online payment is temporarily unavailable.");
     // The proposed-price note is stated once, under the table (no per-row repetition).
     expect(html).toContain('data-testid="plans-activation-note"');
   });
