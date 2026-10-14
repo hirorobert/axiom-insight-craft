@@ -44,7 +44,7 @@ export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.cont
           {actionable
             ? <Button asChild variant={plan.code === "PRACTICE" ? "default" : "outline"} className="w-full"><Link to={view.href} data-testid={view.mode === "online" ? `choose-plan-${plan.code}` : `contact-support-${plan.code}`}>{view.actionLabel}</Link></Button>
             : <p className="text-sm text-muted-foreground" data-testid="plan-activation-route">{plan.salesMode === "contact_sales" ? "Enterprise terms are agreed directly with our team." : "Online payment is temporarily unavailable. Please try again later."}</p>}
-          {view.mode === "unavailable" && <p className="mt-2 text-[11px] leading-4 text-muted-foreground" data-testid={`payment-unavailable-${plan.code}`}>{PAYMENT_UNAVAILABLE_NOTE}</p>}
+          {view.mode === "unavailable" && prices !== null && <p className="mt-2 text-[11px] leading-4 text-muted-foreground" data-testid={`payment-unavailable-${plan.code}`}>{PAYMENT_UNAVAILABLE_NOTE}</p>}
         </li>;
       })}
     </ul>
