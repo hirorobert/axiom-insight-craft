@@ -400,6 +400,13 @@
       "when": 1792066142300,
       "tag": "0056_platform_owner_access_and_entity_allowance_wrapper",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1792074400607,
+      "tag": "0057_checkout_open_session_conflict",
+      "breakpoints": true
     }
   ]
 }
