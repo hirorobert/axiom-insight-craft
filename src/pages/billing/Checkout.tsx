@@ -121,6 +121,10 @@ export default function Checkout() {
       setError({ kind: "previous", ref: r.saffReference, text: `You already have an unpaid ${other} plan checkout open. To protect you from paying twice, only one plan checkout can be open at a time. Resume it, or wait until it expires to choose a different plan — the order page shows the exact expiry.` });
       return;
     }
+    if (r.error === "OPEN_CHECKOUT_UNFINISHED" && r.saffReference) {
+      setError({ kind: "previous", ref: r.saffReference, text: "Your earlier checkout for this plan was not completed. Open it to check its status with the payment provider and resume it — do not start another payment." });
+      return;
+    }
     if (r.error.startsWith("CHECKOUT_REQUIRES_SUPPORT")) {
       setError(r.saffReference
         ? { kind: "previous", ref: r.saffReference, text: "You have an earlier payment attempt that is still open, possibly for a different plan. Only one plan purchase can be open at a time, so that nobody is charged twice. Open it to see its status; a new payment can start once it is resolved or has expired." }
