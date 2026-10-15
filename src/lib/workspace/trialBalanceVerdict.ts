@@ -37,7 +37,7 @@
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
-import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold } from "./computeCertificationReadiness";
+import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold, constrainChecksByIngestion } from "./computeCertificationReadiness";
 
 /**
  * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
@@ -364,7 +364,7 @@ export interface TrialBalanceVerdictInput {
 const RUNNING = new Set(["pending", "processing", "queued", "validating"]);
 
 const CHECK_TEXT: Record<string, { label: string; passed: string }> = {
-  l1_structure: { label: "File read", passed: "Every row was read and totalled." },
+  l1_structure: { label: "File read", passed: "The file was read successfully." },
   l2_data_quality: { label: "Amounts are valid", passed: "Every amount is a valid number." },
   l3_arithmetic: { label: "Debits equal credits", passed: "Total debits equal total credits." },
   l4_classification: { label: "Every account classified", passed: "Every account has a classification." },
@@ -388,6 +388,7 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   else if (c.state === "passed" && text) detail = text.passed;
   else if (/NO_PRIOR/.test(c.detail)) detail = "No accepted prior-year trial balance to compare with.";
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail))) detail = "Not required for a reviewed trial balance.";
+  else if (c.state === "pending" && c.detail.startsWith("Not completed:")) return { id: c.id, label, state: "pending", notEvaluated: true, detail: c.detail };
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && label === LAYER3_LABEL.parity && totals && isOutOfBalance(totals)) {
     detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
@@ -416,7 +417,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const subjectMismatch = !!upload?.id && input.readinessSubject !== undefined
     && input.readinessSubject !== uploadSubjectKey({ id: upload.id, version: upload.version, source_file_hash: upload.source_file_hash });
   // A result read for another upload (or an earlier version of this one) is never shown as this upload's checks.
-  const layerChecks = subjectMismatch ? [] : input.readiness?.checks ?? [];
+  const layerChecks = subjectMismatch ? [] : constrainChecksByIngestion(input.readiness?.checks ?? [], upload?.processing_result);
   // What the stored result itself recorded about the statement equation (passed === false, or an unreadable value) holds
   // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
   // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
@@ -472,6 +473,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
           reason: failed.id === "l3_arithmetic" ? failed.detail : `${failed.label}: ${failed.detail}`,
           primaryAction: classificationOpen ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
         };
+      }
+      if (checks.some(c => c.state === "pending")) {
+        return { ...base, status: "checking", statusLabel: "Checks incomplete", tone: "warning", reason: "The processing record does not show that all required checks completed. Reprocess the file before continuing.", primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null };
       }
       return {
         ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
