@@ -52,6 +52,7 @@ export default function PaymentReturn() {
   const [checking, setChecking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const pollCountRef = useRef(0);
+  const retryAtRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const purchasedStartsInFuture = Boolean(
@@ -61,7 +62,12 @@ export default function PaymentReturn() {
   const confirmedEffectiveEnd = status?.purchasedEffectiveEnd ?? status?.effectiveEnd ?? null;
 
   const applyStatus = useCallback((data: CheckoutStatusResponse) => {
-    setStatus(data);
+    // A read-only GET never carries the provider's session state: keep the last provider-verified answer for the same
+    // unfinished order instead of erasing it every poll.
+    setStatus((prev) => ({
+      ...data,
+      providerCheckout: data.providerCheckout ?? (data.status === prev?.status ? prev?.providerCheckout ?? null : null),
+    }));
     if (data.found === false) {
       // Not this account's order (or no such order): the server reveals nothing more.
       clearInterval(timerRef.current!);
@@ -89,12 +95,14 @@ export default function PaymentReturn() {
 
       // Every Nth tick, ask the server for one bounded recovery-verification attempt (may independently re-verify with
       // the provider and commit if a webhook never arrived). A throttled response is "no new information yet".
-      if (count === 1 || count % RECOVERY_EVERY_N_POLLS === 0) {
+      if (count === 1 || count % RECOVERY_EVERY_N_POLLS === 0 || retryAtRef.current === count) {
         const recovery = await requestPaymentVerificationRecovery(saffRef);
         if (recovery.data) {
           applyStatus(recovery.data);
           return;
         }
+        // Throttled on first load (e.g. a refresh): ask once more right after the server's cooldown, not 60 s later.
+        if (recovery.throttled) retryAtRef.current = count + Math.ceil(((recovery.retryAfterSeconds ?? 60) * 1000) / POLL_INTERVAL_MS) + 1;
         if (recovery.error) return; // keep polling via GET below
       }
 

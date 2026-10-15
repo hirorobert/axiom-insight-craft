@@ -181,7 +181,11 @@ Deno.serve(async (req: Request) => {
       const s = intent as { saff_reference: string; provider_checkout_ref: string | null; billing_customer_id: string };
       const d = await adapter.describeCheckout({ saffReference: s.saff_reference, providerCheckoutRef: s.provider_checkout_ref, billingCustomerId: s.billing_customer_id }).catch(() => null);
       if (d === null) providerCheckout = { state: 'PROVIDER_UNAVAILABLE' };
-      else if (d.status === 'open') providerCheckout = { state: 'OPEN_UNPAID', expiresAt: d.expiresAt, resumeUrl: d.url };
+      else if (d.status === 'open') {
+        // Polar verified open + owned by this order; its URL, else the URL recorded when this same session was created.
+        const url = d.url ?? (intent as { provider_checkout_url?: string | null }).provider_checkout_url ?? null;
+        providerCheckout = { state: 'OPEN_UNPAID', expiresAt: d.expiresAt, resumeUrl: url };
+      }
       else providerCheckout = { state: 'PAYMENT_PROCESSING', expiresAt: d.expiresAt };
     } else if (outcome.result === 'ERROR') {
       providerCheckout = { state: 'PROVIDER_UNAVAILABLE' };
