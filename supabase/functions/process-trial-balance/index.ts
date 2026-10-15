@@ -1544,6 +1544,11 @@ serve(async (req) => {
     const totalDebits  = minorToNumber(ingestTotals.debitMinor, exponent);
     const totalCredits = minorToNumber(ingestTotals.creditMinor, exponent);
     const blockingIssues = ingest.issues.filter((i) => i.severity === "blocking");
+    // Review-only ingestion findings (for example, unrecognised text after the last account) are recorded on every
+    // certification as layer-2 warnings: visible for review, never blocking, never adjusting an amount.
+    const ingestionReviewExceptions = ingest.issues.filter((i) => i.severity === "review").map((i): SafishaExceptionRecord => ({
+      code: i.code, layer: 2, severity: "warning", accountCode: null, message: i.message,
+    } as SafishaExceptionRecord));
     if (blockingIssues.length > 0) {
       const imbalanced = blockingIssues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE");
       const result: Partial<ProcessingResult> = {
@@ -1568,6 +1573,7 @@ serve(async (req) => {
           ...blockingIssues.map((i): SafishaExceptionRecord => ({
             code: i.code, layer: i.code === "TRIAL_BALANCE_IMBALANCE" ? 3 : 2, severity: "error", accountCode: null, message: i.message,
           })),
+          ...ingestionReviewExceptions,
           ...(phase0Evidence?.layer5Exceptions ?? []),
           ...(phase0Evidence?.layer6Exceptions ?? []),
         ],
@@ -1972,6 +1978,7 @@ serve(async (req) => {
           ...needsReviewAccounts.map((r): SafishaExceptionRecord => ({
             code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
           } as SafishaExceptionRecord)),
+          ...ingestionReviewExceptions,
           ...(phase0Evidence?.layer5Exceptions ?? []),
           ...(phase0Evidence?.layer6Exceptions ?? []),
         ],
@@ -2096,6 +2103,7 @@ serve(async (req) => {
     const done = await finishAttempt(supabase as never, runId, {
       outcome: "certified", normalizedInputHash, isBlocking: false, requiresReview: false,
       exceptions: [
+        ...ingestionReviewExceptions,
         ...(phase0Evidence?.layer5Exceptions ?? []),
         ...(phase0Evidence?.layer6Exceptions ?? []),
       ],
