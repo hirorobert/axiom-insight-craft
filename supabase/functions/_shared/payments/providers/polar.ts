@@ -217,6 +217,17 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
     };
   }
 
+  async function describeCheckout(ref: CheckoutReference) {
+    if (!ref.providerCheckoutRef) return null;
+    const co = await call(`/v1/checkouts/${encodeURIComponent(ref.providerCheckoutRef)}`, { method: 'GET' }, 2);
+    if (!co.answered || co.status !== 200) return null;
+    const c = obj(co.body);
+    if (str(c.id) !== ref.providerCheckoutRef || str(obj(c.metadata).saff_reference) !== ref.saffReference) return null;
+    const status = str(c.status);
+    if (!status) return null;
+    return { status, expiresAt: str(c.expires_at), url: str(c.url) };
+  }
+
   async function checkoutRefForOrder(orderId: string): Promise<string | null> {
     const r = await call(`/v1/orders/${encodeURIComponent(orderId)}`, { method: 'GET' }, 2);
     return r.answered && r.status === 200 ? str(obj(r.body).checkout_id) : null;
@@ -230,5 +241,6 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
     verifyWebhookAuthenticity: (rawBody, h, now) => verifyStandardWebhook(rawBody, h, cfg.webhookSecret, now),
     parseWebhook,
     checkoutRefForOrder,
+    describeCheckout,
   };
 }

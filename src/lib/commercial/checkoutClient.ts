@@ -68,7 +68,7 @@ export async function getProviderDiagnostics(): Promise<{ data: unknown; error: 
 
 export type StartCheckoutResult =
   | { ok: true; saffReference: string; checkoutUrl: string; provider: string; paymentRoute: PaymentRoute; reused: boolean }
-  | { ok: false; error: string; saffReference: string | null };
+  | { ok: false; error: string; saffReference: string | null; previousPlanName?: string | null };
 
 export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null): Promise<StartCheckoutResult> {
   const { token } = await session();
@@ -80,7 +80,7 @@ export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, 
       body: JSON.stringify({ planCode: plan, billingInterval: "ANNUAL", paymentRoute, ...(paymentRoute === "MOBILE_MONEY" ? { phoneNumber } : {}) }),
     });
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) return { ok: false, error: String(json.error ?? "CHECKOUT_FAILED"), saffReference: (json.saffReference ?? json.previousSaffReference ?? null) as string | null };
+    if (!res.ok) return { ok: false, error: String(json.error ?? "CHECKOUT_FAILED"), saffReference: (json.saffReference ?? json.previousSaffReference ?? null) as string | null, previousPlanName: (json.previousPlanName ?? null) as string | null };
     return { ok: true, saffReference: String(json.saffReference), checkoutUrl: String(json.checkoutUrl), provider: String(json.provider),
       paymentRoute, reused: json.reused === true };
   } catch {

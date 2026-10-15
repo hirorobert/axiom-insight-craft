@@ -243,6 +243,24 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'CHECKOUT_REQUIRES_SUPPORT: this plan change needs to be arranged with us.', placement: placementKind, correlationId }, 409);
   }
 
+  // 7b. An unfinished checkout for ANOTHER plan of this product: answer with it instead of calling the acquisition,
+  // which would move that still-payable session into manual review. Nothing is written here; the customer can resume
+  // it, or start the new plan once the provider confirms it expired. (A race past this read still reaches the atomic
+  // acquisition, which keeps the existing one-attempt-per-product protection.)
+  {
+    const { data: openOthers } = await supabase.from('payment_checkout_intents')
+      .select('saff_reference, plan_id, status, commercial_offer_id')
+      .eq('billing_customer_id', billingCustomer.id).eq('product_id', plan.product_id)
+      .in('status', ['CREATING', 'PROVIDER_CREATING', 'PENDING', 'MANUAL_REVIEW'])
+      .neq('commercial_offer_id', offer.offer_id).limit(1);
+    const other = (openOthers ?? [])[0] as { saff_reference: string; plan_id: string } | undefined;
+    if (other) {
+      const { data: otherPlan } = await supabase.from('commercial_plans').select('code, name').eq('id', other.plan_id).maybeSingle();
+      return jsonResponse({ error: 'OPEN_CHECKOUT_OTHER_PLAN', previousSaffReference: other.saff_reference,
+        previousPlanCode: otherPlan?.code ?? null, previousPlanName: otherPlan?.name ?? null, correlationId }, 409);
+    }
+  }
+
   // 8. Generate the order reference (≤ 30 characters: it is also the provider idempotency key).
   const saffReference = `SAFF-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 

@@ -14,7 +14,7 @@ import { BillingHelpLine } from "@/components/contact/ContactChannels";
 
 const STATE: Record<string, string> = {
   SUCCEEDED: "Paid", PENDING: "Awaiting payment", CREATING: "Being prepared", PROVIDER_CREATING: "Being prepared",
-  MANUAL_REVIEW: "Being confirmed", FAILED: "Not paid", CANCELLED: "Cancelled", EXPIRED: "Expired",
+  MANUAL_REVIEW: "Not finished — open to resume or check", FAILED: "Not paid", CANCELLED: "Cancelled", EXPIRED: "Expired",
 };
 
 export default function Orders() {

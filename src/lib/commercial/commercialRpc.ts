@@ -172,6 +172,8 @@ export interface CheckoutStatusResponse {
   reviewReason: string | null;
   /** POST recovery only: what the provider check concluded (PROCESSED, NOT_FINAL, …). */
   recovery: string | null;
+  /** POST recovery only: the provider's own session state when the order is not finished. */
+  providerCheckout: { state: "OPEN_UNPAID" | "PAYMENT_PROCESSING" | "PROVIDER_UNAVAILABLE"; expiresAt?: string | null; resumeUrl?: string | null } | null;
   correlationId: string;
 }
 
@@ -346,6 +348,7 @@ function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): Checkout
     reversalType: json.reversal_type ?? null,
     reviewReason: json.review_reason ?? null,
     recovery: json.recovery ?? null,
+    providerCheckout: ((json as unknown as { providerCheckout?: CheckoutStatusResponse["providerCheckout"] }).providerCheckout) ?? null,
     correlationId: json.correlationId,
   };
 }
