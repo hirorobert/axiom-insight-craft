@@ -118,7 +118,7 @@ export default function Checkout() {
     }
     if (r.error.startsWith("CHECKOUT_REQUIRES_SUPPORT")) {
       setError(r.saffReference
-        ? { kind: "previous", ref: r.saffReference, text: "An earlier payment attempt for this plan is still being checked. Open it to see its status; a new payment can start once it is resolved." }
+        ? { kind: "previous", ref: r.saffReference, text: "You have an earlier payment attempt that is still open, possibly for a different plan. Only one plan purchase can be open at a time, so that nobody is charged twice. Open it to see its status; a new payment can start once it is resolved or has expired." }
         : { kind: "support", ref: null, text: "This change to your plan needs to be arranged with our team. Send us a request and we will set it up." });
       return;
     }
