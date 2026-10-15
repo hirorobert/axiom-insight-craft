@@ -68,7 +68,7 @@ export async function getProviderDiagnostics(): Promise<{ data: unknown; error: 
 
 export type StartCheckoutResult =
   | { ok: true; saffReference: string; checkoutUrl: string; provider: string; paymentRoute: PaymentRoute; reused: boolean }
-  | { ok: false; error: string; saffReference: string | null };
+  | { ok: false; error: string; saffReference: string | null; previousPlanName?: string | null };
 
 export async function startCheckout(plan: PlanCode, paymentRoute: PaymentRoute, phoneNumber: string | null): Promise<StartCheckoutResult> {
   const { token } = await session();
