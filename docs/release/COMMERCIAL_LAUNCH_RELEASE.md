@@ -139,3 +139,37 @@ See `REFUNDS_DISPUTES_AND_RECOVERY.md`:
 | 18 | Polar dispute notifications | Provider | `PAYMENT_PROVIDER_EVIDENCE.md` §3b | **Not supported by Polar's documentation.** Handled manually. |
 
 **No production readiness is claimed.** Mock and local evidence prove the implementation's handling of documented behaviour. Customer checkout stays closed until Stages C–E pass and the owner decides Stage F.
+
+## Billing recovery — abandoned checkout (2026-10-15)
+
+**Cause.** `acquire_checkout_attempt` moved a still-payable PENDING checkout into MANUAL_REVIEW
+(`PENDING_CHECKOUT_NOT_REUSABLE`) whenever a request could not reuse it: another plan of the same product, or the same
+plan after the local one-hour lease passed while Polar's ~24-hour session stayed open. Order SAFF-1792061924339-AEDAC029
+(Polar checkout 2bf4790f-…) was stranded this way. The status page also showed the provider's "open, unpaid" answer only
+in the REVIEW phase.
+
+**Fix.**
+- Migration `20261105100000_checkout_open_session_conflict.sql` (hosted Drizzle `0057`, hosted id 58): that branch now
+  returns `OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT` with no write. The advisory lock, the one-open-attempt-per-(customer,
+  product) index and every other branch are unchanged. Existing MANUAL_REVIEW rows are not rewritten. Provider-verified
+  EXPIRED/FAILED still closes the order (MANUAL_REVIEW included) through `commit_verified_commercial_payment`.
+- `commercial-create-checkout` (deployed, source SHA-256 `3cc4897f…6f`): answers 409 `OPEN_CHECKOUT_OTHER_PLAN` /
+  `OPEN_CHECKOUT_UNFINISHED` with the order reference.
+- Status page: a provider-verified OPEN_UNPAID shows "Checkout not completed" and Resume [Plan] for PENDING,
+  MANUAL_REVIEW and timeout, never when a payment is recorded. PROVIDER_UNAVAILABLE is shown as unknown, never as
+  failed or expired. Checkout's Continue is disabled while a known open checkout blocks a new one.
+
+**Provider limitation (official Polar API schema, read 2026-10-15).** There is no endpoint to cancel or expire a checkout.
+`expires_at` is a response-only field, and neither create nor update accepts it. `CheckoutUpdate` accepts `product_id` /
+`product_price_id` only within the checkout's own product list. A multi-product checkout would let the customer pick the
+plan on Polar's page. That would change the binding the server checks: one plan, amount and currency per order. It is
+not adopted here. So Change plan is available only after Polar reports the session expired.
+
+**Proof.** `scripts/db-proof/checkoutOpenSessionConflict.sh` runs on real PostgreSQL 5/5: same-plan reuse, a different
+plan is refused without a write, an expired local lease is refused without a write, 16 simultaneous acquisitions across
+three plans create one intent, and a new plan starts after a verified expiry. Vitest: billing/commercial/release suites
+pass. `inertBase.test.ts` cannot run in the sandbox (it needs git commit).
+
+**Live read-back (Polar, read-only, 2026-10-15 ~14:35 UTC).** Checkout 2bf4790f is `open`, created 10:58:44Z, expires
+2026-10-16T10:58:44Z, USD 490.00, metadata names this order, 0 orders. Local intent: MANUAL_REVIEW
+(`PENDING_CHECKOUT_NOT_REUSABLE`), 0 payment events. Not verified in a signed-in browser.

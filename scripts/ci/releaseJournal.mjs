@@ -308,6 +308,11 @@ export const RELEASE_JOURNAL = {
   "0055_verified_charge_outcomes_wrapper": { kind: "release_self_checking_wrapper", source: "20261102100000_verified_charge_outcomes.sql",
     bytes: 45711, digest: "b20bf253961a14c3a1c9e66b3602295831a81b614b2da8eae19295dc40e31ae4",
     form: "wrapper", submittedBytes: 47281, sha256: "a215cc20994f91c57fe0774401decd21a8129013a6fecb1e70ae3cf1567b57ea" },
+  // Platform-owner access (access-a1, PR #131), applied 2026-10-15 by Lovable's hosted migrator through its
+  // SELF-CHECKING WRAPPER, byte for byte (hosted id 57).
+  "0056_platform_owner_access_and_entity_allowance_wrapper": { kind: "release_self_checking_wrapper", source: "20261104100000_platform_owner_access_and_entity_allowance.sql",
+    bytes: 38630, digest: "1cf1dd3264fbc87ee850104028c760b24d1d0269b3addaefbae25ed505b2fb62",
+    form: "wrapper", submittedBytes: 40236, sha256: "b14ba1cc83320bc14e658edc6b3ff5d5ec6cc2f21b4ff057e3915d7e82565d7a" },
 };
 
 /**

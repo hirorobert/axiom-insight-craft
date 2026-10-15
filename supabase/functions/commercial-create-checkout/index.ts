@@ -290,11 +290,24 @@ Deno.serve(async (req: Request) => {
   }
 
   const acquisition = acquireData as {
-    action: 'REUSE_EXISTING' | 'NEW_ATTEMPT' | 'ALREADY_IN_PROGRESS' | 'CONFLICT_DIFFERENT_INTERVAL' | 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT';
+    action: 'REUSE_EXISTING' | 'NEW_ATTEMPT' | 'ALREADY_IN_PROGRESS' | 'CONFLICT_DIFFERENT_INTERVAL' | 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT' | 'OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT';
     intent_id?: string; saff_reference?: string; creation_token?: string;
     checkout_url?: string; expires_at?: string; provider?: string;
-    existing_billing_interval?: string;
+    existing_billing_interval?: string; existing_offer_id?: string; existing_plan_id?: string;
   };
+
+  if (acquisition.action === 'OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT') {
+    // 20261105100000: an unfinished checkout that may still be payable at the provider. Nothing was written; the
+    // customer is sent to that order's status page, which asks the provider and offers Resume while it is open.
+    const { data: otherPlan } = acquisition.existing_plan_id
+      ? await supabase.from('commercial_plans').select('code, name').eq('id', acquisition.existing_plan_id).maybeSingle()
+      : { data: null };
+    const samePlan = acquisition.existing_offer_id === offer.offer_id;
+    return jsonResponse({ error: samePlan ? 'OPEN_CHECKOUT_UNFINISHED' : 'OPEN_CHECKOUT_OTHER_PLAN',
+      previousSaffReference: acquisition.saff_reference ?? null,
+      previousPlanCode: otherPlan?.code ?? null, previousPlanName: otherPlan?.name ?? null, correlationId }, 409);
+  }
+
 
   if (acquisition.action === 'REUSE_EXISTING') {
     return jsonResponse({

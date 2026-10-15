@@ -139,8 +139,12 @@ export default function PaymentReturn() {
   const planName = status ? displayPlanName(status.planCode) : null;
   // Provider-verified (POST recovery) session state — never inferred from a redirect or a closed tab.
   const pc = status?.providerCheckout ?? null;
-  const openUnpaid = phase === "REVIEW" && !status?.paymentRecorded && pc?.state === "OPEN_UNPAID";
-  const processing = phase === "REVIEW" && !status?.paymentRecorded && pc?.state === "PAYMENT_PROCESSING";
+  // Applies to every unfinished local state (PENDING polling, MANUAL_REVIEW, timeout) — never to a recorded payment.
+  const unfinished = phase === "POLLING" || phase === "REVIEW" || phase === "TIMEOUT";
+  const openUnpaid = unfinished && !status?.paymentRecorded && pc?.state === "OPEN_UNPAID";
+  const processing = unfinished && !status?.paymentRecorded && pc?.state === "PAYMENT_PROCESSING";
+  const providerUnavailable = unfinished && !status?.paymentRecorded && pc?.state === "PROVIDER_UNAVAILABLE";
+  const view = openUnpaid ? "OPEN" : processing ? "PROCESSING" : phase;
   const resumeUrl = openUnpaid && pc?.resumeUrl && /^https:\/\//.test(pc.resumeUrl) ? pc.resumeUrl : null;
   const providerExpiry = pc?.expiresAt ? new Date(pc.expiresAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
   const amount = status?.expectedAmountMinor != null && status.currencyCode
@@ -152,7 +156,7 @@ export default function PaymentReturn() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <main id="main-content" className="w-full max-w-lg space-y-6 border bg-card p-6 shadow-sm sm:p-8" data-testid="payment-status" data-phase={phase}>
+      <main id="main-content" className="w-full max-w-lg space-y-6 border bg-card p-6 shadow-sm sm:p-8" data-testid="payment-status" data-phase={phase} data-view={view}>
 
         {phase === "NO_REF" && (
           <div className="space-y-4 text-center">
@@ -175,21 +179,25 @@ export default function PaymentReturn() {
         {saffRef && phase !== "NOT_FOUND" && (
           <>
             <header className="text-center" aria-live="polite">
-              {phase === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}
+              {view === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}
               {phase === "CONFIRMED" && <CheckCircle2 className="mx-auto h-12 w-12 text-green-700" aria-hidden="true" />}
               {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && <XCircle className="mx-auto h-12 w-12 text-destructive" aria-hidden="true" />}
-              {(phase === "REVIEW" || phase === "TIMEOUT") && <Clock className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />}
+              {(view === "REVIEW" || view === "TIMEOUT" || view === "OPEN" || view === "PROCESSING") && <Clock className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />}
               <h1 className="mt-3 text-xl font-semibold" data-testid="payment-heading">
-                {phase === "POLLING" && (mobileMoney ? "Approve the payment on your phone" : "Waiting for payment confirmation")}
+                {view === "OPEN" && "Checkout not completed"}
+                {view === "PROCESSING" && "Your payment is being processed"}
+                {view === "POLLING" && (mobileMoney ? "Approve the payment on your phone" : "Waiting for payment confirmation")}
                 {phase === "CONFIRMED" && (status?.reversalType ? "Payment refunded" : testPayment ? "Test payment received" : "Payment received")}
                 {phase === "FAILED" && "The payment did not go through"}
                 {phase === "CANCELLED" && "The payment was cancelled"}
                 {phase === "EXPIRED" && "The payment request expired"}
-                {phase === "REVIEW" && (status?.paymentRecorded ? "Payment received — setting up your plan" : openUnpaid ? `Your ${planName ?? ""} checkout is open and unpaid` : processing ? "Your payment is being processed" : "Confirming this payment")}
-                {phase === "TIMEOUT" && "Still waiting for confirmation"}
+                {view === "REVIEW" && (status?.paymentRecorded ? "Payment received — setting up your plan" : "Confirming this payment")}
+                {view === "TIMEOUT" && "Still waiting for confirmation"}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground" data-testid="payment-explanation">
-                {phase === "POLLING" && (mobileMoney
+                {view === "OPEN" && `Nothing has been paid for this ${planName ?? ""} checkout. You can resume it${providerExpiry ? ` until ${providerExpiry}` : ""}. To choose a different plan, wait until it expires: the payment provider does not let an open checkout be cancelled early, and we never open a second one while this one can still be paid.`}
+                {view === "PROCESSING" && "The payment was submitted and the provider is processing it. Do not pay again; this page updates by itself."}
+                {view === "POLLING" && (mobileMoney
                   ? "A prompt has been sent to your mobile money number. Enter your PIN to approve it. This page updates by itself."
                   : "We are confirming the payment with the provider. This usually takes a few seconds.")}
                 {phase === "CONFIRMED" && !status?.reversalType && (testPayment
@@ -197,14 +205,12 @@ export default function PaymentReturn() {
                   : "The provider confirmed the payment and it was verified by CFOCLOSE.")}
                 {phase === "CONFIRMED" && status?.reversalType && `This payment was ${status.reversalType === "CHARGEBACK" ? "disputed" : "refunded"}. Our team reviews the plan's access and will contact you.`}
                 {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && "The provider confirmed that no payment was taken. You can start a new payment."}
-                {phase === "REVIEW" && (status?.paymentRecorded
+                {view === "REVIEW" && (status?.paymentRecorded
                   ? "Your payment is recorded and will not be taken again. Our team is placing the 12-month term on your account and will email you."
-                  : openUnpaid
-                    ? `Nothing has been paid. You can resume this checkout${providerExpiry ? ` until ${providerExpiry}` : ""}. To choose a different plan, wait until it expires: the payment provider does not allow an open checkout to be cancelled early, and we never start a second one while this one can still be paid.`
-                    : processing
-                      ? "The payment was submitted and the provider is processing it. Do not pay again; this page updates by itself."
-                      : "We could not yet confirm whether this payment completed. Do not pay again: we check with the provider, and if it was not taken, you can start a new payment.")}
-                {phase === "TIMEOUT" && "The provider has not confirmed the payment yet. If you approved it, it is still being processed. Do not pay again."}
+                  : providerUnavailable
+                    ? "The payment provider could not be reached just now, so this order's status is unknown. It has not been marked as failed or expired. Do not pay again; check again shortly."
+                    : "We could not yet confirm whether this payment completed. Do not pay again: we check with the provider, and if it was not taken, you can start a new payment.")}
+                {view === "TIMEOUT" && "The provider has not confirmed the payment yet. If you approved it, it is still being processed. Do not pay again."}
               </p>
             </header>
 
