@@ -414,6 +414,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the self-checking wrapper proofs read committed source bytes (git cat-file) at each batch's SOURCE_COMMIT, including branch-only commits
 
       - name: Ensure postgresql-client is available
         run: |
