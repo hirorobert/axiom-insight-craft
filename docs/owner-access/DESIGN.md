@@ -21,8 +21,14 @@ parameterised bootstrap** that the owner/service-role runs with the verified UID
 | Audit ledgers | `billing_audit_events` (append-only, billing), `audit_logs` (useAuditLog, auth.uid, §4.2 exception), `engagement_setup_events` | |
 | Reauth / MFA | **none** (no `[auth]`/MFA in config.toml; no `supabase.auth.mfa/reauthenticate`) | Must be built. |
 
-## 2. Actual plan → entity allowance matrix (verified, not invented)
-Source: `commercial_plans.entity_capacity` + `_entity_capacity_for_account`.
+## 2. Existing (already-enforced) plan → entity allowance matrix — reported, NOT proposed
+**This table is the model already present and enforced in the code on `main`; it is NOT a pricing proposal and NOT a
+newly-approved charging model.** Entity-based pricing was reopened for a separate decision after the original directive, so
+**this task introduces and changes NO commercial entity limit, price, or customer-blocking behaviour.** The values below are
+reproduced only to (a) prove this task leaves customer enforcement byte-for-byte unchanged and (b) show that the platform
+owner's unlimited allowance is layered *above* whatever the pricing decision later sets, without touching it.
+Source: `commercial_plans.entity_capacity` + `_entity_capacity_for_account` (unchanged by this migration for any non-owner,
+non-override account).
 
 | Plan | entity_capacity | public | sales_mode |
 |---|---|---|---|

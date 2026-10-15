@@ -116,6 +116,12 @@ async function main() {
   rec("OWNER · withheld modules are NOT granted by complimentary access (unknown/not-entitled, gate intact)",
     withheld.status !== "ENTITLED");
 
+  // 1c · Customer entity enforcement/pricing is UNCHANGED by this task (no owner, no override → identical to before).
+  const soloBase = await entityCap(U.solo);
+  const soloCert = await resolve(U.solo, "STATEMENT_CERTIFICATION");
+  rec("CUSTOMER-UNCHANGED · a normal customer still resolves on its own plan (Solo capacity 1, NOT unlimited, via ACTIVE_LICENCE) — no change to customer limits/pricing/blocking",
+    soloBase.capacity === 1 && soloBase.unlimited === false && soloBase.source === "ACTIVE_LICENCE" && soloCert.source === "ACTIVE_LICENCE");
+
   // 2 · Ordinary account cannot obtain owner privileges (self-escalation refused, before any reauth).
   await mintNonce(U.ordinary, "NORD");
   await refused("ESCALATION · an ordinary account cannot grant itself platform-owner", U.ordinary,
@@ -203,6 +209,31 @@ async function main() {
   await mintNonce(U.owner, "N3");
   await refused("LAST-OWNER · the last active platform owner cannot be removed", U.owner,
     (c)=>c.query("SELECT public.revoke_platform_owner($1,'drop','N3')", [U.owner]), /LAST_PLATFORM_OWNER/);
+
+  // ── Review verifications (directive): reauthentication properties + no escalation via general endpoints ──
+  // Single-use: a fresh nonce works once, then cannot be reused.
+  await mintNonce(U.owner, "NREUSE");
+  await allowed("REAUTH · a fresh nonce is accepted exactly once", U.owner,
+    (c)=>c.query("SELECT public.owner_grant_complimentary_access($1,'REPORTING_PACK_EXPORT','once',NULL,'NREUSE')", [U.recipient]));
+  await refused("REAUTH · the same nonce cannot be reused (single-use)", U.owner,
+    (c)=>c.query("SELECT public.owner_grant_complimentary_access($1,'CLOSE_ASSURANCE','reuse',NULL,'NREUSE')", [U.recipient]), /REAUTH_REQUIRED/);
+  // Expiry: a past-expiry nonce is refused.
+  await admin.query("INSERT INTO public.privileged_reauth (user_id, nonce, expires_at) VALUES ($1,'NEXPIRED', now()-interval '1 minute')", [U.owner]);
+  await refused("REAUTH · an expired nonce is refused", U.owner,
+    (c)=>c.query("SELECT public.owner_grant_complimentary_access($1,'CLOSE_ASSURANCE','expired',NULL,'NEXPIRED')", [U.recipient]), /REAUTH_REQUIRED/);
+  // Bound to the authenticated user: a nonce minted for another user cannot be used by the owner.
+  await mintNonce(U.ordinary, "NBOUND");
+  await refused("REAUTH · a nonce minted for another user cannot be used (bound to auth.uid(), not forgeable/transferable)", U.owner,
+    (c)=>c.query("SELECT public.owner_grant_complimentary_access($1,'CLOSE_ASSURANCE','crossuser',NULL,'NBOUND')", [U.recipient]), /REAUTH_REQUIRED/);
+
+  // A COMMERCIAL admin (authority='commercial', the "ordinary administrator") cannot grant platform-owner authority.
+  await admin.query("INSERT INTO public.commercial_admins (user_id, granted_by, active, authority) VALUES ($1,$1,true,'commercial') ON CONFLICT (user_id) DO UPDATE SET active=true, authority='commercial'", [U.ordinary]);
+  await mintNonce(U.ordinary, "NCA");
+  await refused("ESCALATION · a commercial admin (NOT a platform owner) cannot grant platform-owner authority", U.ordinary,
+    (c)=>c.query("SELECT public.grant_platform_owner($1,'escalate','NCA')", [U.ordinary]), /NOT_A_PLATFORM_OWNER/);
+  // No general endpoint writes commercial_admins: authenticated has no UPDATE grant, so a direct escalation is refused.
+  { let direct=false,d=""; try { await asUser(U.ordinary, (c)=>c.query("UPDATE public.commercial_admins SET authority='platform_owner' WHERE user_id=$1",[U.ordinary])); } catch(e){ direct=true; d=String(e.message).split("\n")[0]; }
+    rec("ESCALATION · authenticated cannot directly write commercial_admins.authority (no UPDATE grant → permission denied)", direct && /permission denied/i.test(d)); }
 
   await pool.end(); await admin.end();
   const failed = results.filter(r=>!r.ok);
