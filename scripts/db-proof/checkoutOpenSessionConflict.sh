@@ -29,7 +29,7 @@ SQL
 Q -f "$MIG"
 C=11111111-1111-1111-1111-111111111111; P=22222222-2222-2222-2222-222222222222; U=33333333-3333-3333-3333-333333333333
 SOLO=aaaaaaaa-0000-0000-0000-000000000001; FIRM=aaaaaaaa-0000-0000-0000-000000000003; PRAC=aaaaaaaa-0000-0000-0000-000000000002
-acq() { Q -c "SELECT acquire_checkout_attempt('$1','$P','$2','$2','GLOBAL','USD',2,49000,'ANNUAL',1,'POLAR','production','$U','$3')->>'action'"; }
+acq() { Q -c "SELECT acquire_checkout_attempt('$1','$P','$2','$2','GLOBAL','USD',2::smallint,49000::bigint,'ANNUAL',1::smallint,'POLAR','production','$U','$3')->>'action'"; }
 fail() { echo "FAIL $*"; exit 1; }
 Q -c "INSERT INTO payment_checkout_intents (billing_customer_id,commercial_offer_id,plan_id,product_id,provider,provider_environment,saff_reference,status,expires_at,provider_checkout_url)
       VALUES ('$C','$SOLO','$SOLO','$P','POLAR','production','SAFF-SOLO','PENDING',now()+interval '1 hour','https://polar.example/s')"
