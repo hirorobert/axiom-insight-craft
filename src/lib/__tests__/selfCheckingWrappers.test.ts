@@ -242,7 +242,7 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // commercial-p5). Nothing is pending.
     // access-a1 (20261104100000) is registered (wrapper + both forms) but PENDING hosted application: its wrapper exists and
     // is proven on PG17, but no RELEASE_JOURNAL/drizzle entry exists yet (nothing is marked applied before execution).
-    const PENDING: string[] = ["20261104100000_platform_owner_access_and_entity_allowance.sql"];
+    const PENDING: string[] = [];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
