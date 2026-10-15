@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ...responseData, recovery: 'PROVIDER_UNAVAILABLE', correlationId }, 200);
     }
     const { data: intent, error: intentErr } = await serviceClient.from('payment_checkout_intents')
-      .select(SETTLEMENT_INTENT_COLUMNS).eq('id', responseData.intent_id).maybeSingle();
+      .select(`${SETTLEMENT_INTENT_COLUMNS}, provider_checkout_url`).eq('id', responseData.intent_id).maybeSingle();
     if (intentErr || !intent) return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
 
     const outcome = await settleIntent(serviceDbFrom(serviceClient), adapter, intent);
@@ -183,11 +183,7 @@ Deno.serve(async (req: Request) => {
       if (d === null) providerCheckout = { state: 'PROVIDER_UNAVAILABLE' };
       else if (d.status === 'open') {
         // Polar verified open + owned by this order; its URL, else the URL recorded when this same session was created.
-        let url = d.url;
-        if (!url) {
-          const { data: u } = await serviceClient.from('payment_checkout_intents').select('provider_checkout_url').eq('id', responseData.intent_id).maybeSingle();
-          url = (u as { provider_checkout_url?: string | null } | null)?.provider_checkout_url ?? null;
-        }
+        const url = d.url ?? (intent as { provider_checkout_url?: string | null }).provider_checkout_url ?? null;
         providerCheckout = { state: 'OPEN_UNPAID', expiresAt: d.expiresAt, resumeUrl: url };
       }
       else providerCheckout = { state: 'PAYMENT_PROCESSING', expiresAt: d.expiresAt };
