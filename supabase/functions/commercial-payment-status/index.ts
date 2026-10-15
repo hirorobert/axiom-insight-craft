@@ -173,7 +173,20 @@ Deno.serve(async (req: Request) => {
 
     const outcome = await settleIntent(serviceDbFrom(serviceClient), adapter, intent);
     const { data: refreshed } = await readClient.rpc('get_checkout_status', { p_saff_reference: saffReference });
-    return jsonResponse({ ...((refreshed ?? responseData) as Record<string, unknown>), recovery: outcome.result, correlationId }, 200);
+
+    // Not finished at the provider: describe the session truthfully (read-only). An OPEN, unpaid session is resumable
+    // with its own hosted URL — never a new session; a confirmed one is a payment being processed.
+    let providerCheckout: Record<string, unknown> | null = null;
+    if (outcome.result === 'NOT_FINAL' && adapter.describeCheckout) {
+      const s = intent as { saff_reference: string; provider_checkout_ref: string | null; billing_customer_id: string };
+      const d = await adapter.describeCheckout({ saffReference: s.saff_reference, providerCheckoutRef: s.provider_checkout_ref, billingCustomerId: s.billing_customer_id }).catch(() => null);
+      if (d === null) providerCheckout = { state: 'PROVIDER_UNAVAILABLE' };
+      else if (d.status === 'open') providerCheckout = { state: 'OPEN_UNPAID', expiresAt: d.expiresAt, resumeUrl: d.url };
+      else providerCheckout = { state: 'PAYMENT_PROCESSING', expiresAt: d.expiresAt };
+    } else if (outcome.result === 'ERROR') {
+      providerCheckout = { state: 'PROVIDER_UNAVAILABLE' };
+    }
+    return jsonResponse({ ...((refreshed ?? responseData) as Record<string, unknown>), recovery: outcome.result, providerCheckout, correlationId }, 200);
   } catch (fallbackErr) {
     console.error('POST recovery verification threw', { correlationId, error: String(fallbackErr) });
     return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);

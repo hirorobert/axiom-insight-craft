@@ -241,5 +241,6 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
     verifyWebhookAuthenticity: (rawBody, h, now) => verifyStandardWebhook(rawBody, h, cfg.webhookSecret, now),
     parseWebhook,
     checkoutRefForOrder,
+    describeCheckout,
   };
 }
