@@ -307,6 +307,12 @@ describe("database inertness — schema and functions", () => {
       // Provider settings diagnostics (Lovable f9a801f): administrator-only and read-only. It returns setting NAMES only
       // (never a value) through the one validator in routing.ts. Writes nothing; no schema; no financial-statements surface.
       "supabase/functions/commercial-provider-diagnostics/index.ts",
+      // Platform-owner access administration & entity allowances (20261104100000): a NEW forward-only migration extending
+      // the canonical commercial_admins/entitlement_overrides/_entity_capacity_for_account/_resolve_entitlement_for_owner
+      // (no financial-statements schema), and ONE new Edge Function, reauthenticate, which verifies the caller's password
+      // server-side and mints a single-use reauth nonce (record_privileged_reauth). Proven on PG17 by owner_access_proof.mjs.
+      "supabase/migrations/20261104100000_platform_owner_access_and_entity_allowance.sql",
+      "supabase/functions/reauthenticate/index.ts",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
@@ -419,6 +425,9 @@ describe("database inertness — schema and functions", () => {
       // Sign-off authorization hardening (WS-A): the loopback-only disposable-database proof of the legacy
       // statement_sign_offs defects + repair, its PostgreSQL-17 CI workflow, and the full-replay variant. No deploy behaviour.
       ".github/workflows/signoff-proof.yml", "scripts/db-proof/signoff_fixture_proof.mjs", "scripts/db-proof/signoff_authorization_proof.mjs", "scripts/db-proof/signoff_integration_proof.mjs",
+      // Platform-owner access administration & entity allowances: the loopback-only disposable-database §16 proof and its
+      // PostgreSQL-17 CI workflow. Replays the full chain + the 20261104100000 migration; no deploy behaviour.
+      ".github/workflows/owner-access-proof.yml", "scripts/db-proof/owner_access_proof.mjs",
       ".github/workflows/ci.yml", "scripts/ci/stagingGuard.mjs", "scripts/rls_regression.mjs", "scripts/db-proof/run.mjs", "scripts/db-proof/serviceEnquiries.mjs", "scripts/db-proof/serve.mjs", "scripts/release/build-manifest.mjs", "scripts/release/manifestLib.mjs", "scripts/release/scan-repo.mjs", "scripts/release/verify-release-sql.mjs", "scripts/hosted-staging/acceptance.mjs", "scripts/db-proof/setupAuthority.mjs", "scripts/ci/assertPackIsolation.mjs", "scripts/ci/assertSingleLockfile.mjs", "scripts/ci/packageManagerAuthority.mjs", "package.json",
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
       // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
