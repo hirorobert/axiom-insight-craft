@@ -1,7 +1,12 @@
 # Consolidated payment acceptance matrix: Polar card and Snippe mobile money
 
 - **Scope:** both intended launch routes. Public payments stay `PAYMENTS_DISABLED` until every row marked *launch-blocking* passes.
-- **Baseline:** main `7d28d12` (PR #126, tree identical to the tested head `b77587e`).
+- **Baseline (updated 2026-10-15):**
+  - **Payment release:** `945af25` (PR #127; CI run 38574920648 green). The staging acceptance below ran on it, and the payment functions on main are unchanged since.
+  - **Current main:** `2229997` (PR #130 plus Lovable's `/plans` change, `74db76d`).
+    - #130 adds migration `20261104100000` (**pending hosted application**) and the `reauthenticate` function.
+    - Its documented deploy order is the migration, then `reauthenticate`, then Publish. Because Lovable's Publish publishes the latest main, the production release now follows that order.
+  - **Production:** last published `ce41133` (Lovable-reported). Nothing from `945af25` or later is deployed to production yet.
 - **Integration owner:** the "POLAR AND SNIPPE" Claude Code session. Hosted configuration goes through Lovable; shared payment screens through the MEGA REDESIGN workstream.
 
 **Every test is PENDING** until its own evidence (environment, date, commit and records) is added to this table. CI coverage and earlier hosted deployments are supporting evidence, not acceptance. The dated history of earlier hosted deployments is in `PAYMENT_LAUNCH_HANDOFF.md`, and it does not prove current launch readiness.
