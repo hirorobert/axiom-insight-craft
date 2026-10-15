@@ -1,12 +1,3 @@
--- 20261105100000_checkout_open_session_conflict.sql — billing recovery (checkout abandonment).
--- acquire_checkout_attempt used to move a still-payable PENDING checkout into MANUAL_REVIEW
--- ('PENDING_CHECKOUT_NOT_REUSABLE') whenever a new request could not reuse it: a different plan of the same product,
--- or the same plan after the LOCAL one-hour lease passed while the provider session (Polar: ~24 h) was still open.
--- That stranded open, unpaid orders behind manual review. Now that case is answered WITHOUT any write:
--- 'OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT' with the existing order's reference; the one-attempt-per-(customer, product)
--- lock, the advisory lock and every other branch are unchanged. The existing order is closed only by a
--- provider-verified final outcome through commit_verified_commercial_payment (never by the browser or a local clock).
--- Existing MANUAL_REVIEW rows are not rewritten.
 CREATE OR REPLACE FUNCTION public.acquire_checkout_attempt(
   p_billing_customer_id UUID, p_product_id UUID, p_plan_id UUID,
   p_commercial_offer_id UUID, p_market_code TEXT, p_currency_code TEXT,
