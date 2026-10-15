@@ -238,7 +238,8 @@ describe("migration directory integrity", () => {
     // 171 -> 172: 20261031110000_sandbox_licence_isolation.sql (a sandbox payment never grants production access, batch commercial-p3), a NEW forward-only migration pending hosted application. It replaces 20261031100000 (quarantined in supabase/migrations_historical after its one submission failed atomically), so the count is unchanged.
     // 172 -> 173: 20261101100000_payment_reversal_authority.sql (payment reversal authority, batch commercial-p4; DEFECT-PAYMENT-REVERSAL-UNBOUND-001), a NEW forward-only migration pending hosted application.
     // 173 -> 174: 20261102100000_verified_charge_outcomes.sql (verified charge outcomes, batch commercial-p5; DEFECT-VERIFIED-CHARGE-DROPPED-001), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(174);
+    // 174 -> 175: 20261104100000_platform_owner_access_and_entity_allowance.sql (platform-owner authority, complimentary access, explicit unlimited owner allowance; reviewed in docs/owner-access/REVIEW.md), a NEW forward-only migration pending hosted application. Changes no customer entity limit/price/blocking.
+    expect(files.length).toBe(175);
   });
 });
 

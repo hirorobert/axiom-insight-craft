@@ -58,12 +58,18 @@ interface ValidationReportProps {
   isValid: boolean | null;
   status: string;
   fileName?: string;
+  /** ISO code of the workspace's functional currency (USD/EUR/…). When omitted,
+   *  amounts render without a currency prefix rather than a hardcoded "TZS",
+   *  which previously mislabelled every non-Tanzanian workspace. */
+  currencyCode?: string;
   onProcessAsAuditedAccounts?: () => void;
   onUploadNew?: () => void;
 }
 
-const formatTZS = (value: number) =>
-  `TZS ${Math.round(Math.abs(value)).toLocaleString("en-US")}`;
+const formatAmount = (value: number, currencyCode?: string) => {
+  const n = Math.round(Math.abs(value)).toLocaleString("en-US");
+  return currencyCode ? `${currencyCode} ${n}` : n;
+};
 
 const CheckIcon = ({ passed }: { passed: boolean }) =>
   passed
@@ -92,9 +98,11 @@ export function ValidationReport({
   isValid,
   status,
   fileName,
+  currencyCode,
   onProcessAsAuditedAccounts,
   onUploadNew,
 }: ValidationReportProps) {
+  const fmt = (v: number) => formatAmount(v, currencyCode);
   if (!report && errors.length === 0) return null;
 
   // Valid uploads with no errors, cash reconciliation, or profit->equity
@@ -131,7 +139,7 @@ export function ValidationReport({
               The parser read two numeric columns (e.g. 2025 and 2024 figures) as Debit/Credit --
               producing a difference of{" "}
               <span className="font-medium text-foreground">
-                {formatTZS(report!.tb_balance_check.difference)}
+                {fmt(report!.tb_balance_check.difference)}
               </span>
               . A raw trial balance always nets to zero.
             </p>
@@ -145,13 +153,13 @@ export function ValidationReport({
             <div className="p-3 rounded-lg border border-border bg-card">
               <p className="text-foreground/60 text-xs mb-1">Column A total</p>
               <p className="font-semibold text-foreground">
-                {formatTZS(report!.tb_balance_check.total_debits)}
+                {fmt(report!.tb_balance_check.total_debits)}
               </p>
             </div>
             <div className="p-3 rounded-lg border border-border bg-card">
               <p className="text-foreground/60 text-xs mb-1">Column B total</p>
               <p className="font-semibold text-foreground">
-                {formatTZS(report!.tb_balance_check.total_credits)}
+                {fmt(report!.tb_balance_check.total_credits)}
               </p>
             </div>
           </div>

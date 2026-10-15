@@ -1,0 +1,38 @@
+name: signoff-authorization-proof
+on:
+  push:
+    branches: [fix/signoff-authorization-20261014, integration/release-candidate-20261014]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signoff_proof
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/signoff_proof
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: BEFORE — demonstrate the defects (no repair)
+        env:
+          SIGNOFF_PROOF_WITHOUT_REPAIR: '1'
+        run: bun scripts/db-proof/signoff_fixture_proof.mjs
+      - name: AFTER — verify the candidate repair closes them
+        run: bun scripts/db-proof/signoff_fixture_proof.mjs
+      - name: INTEGRATION — full migration-chain replay + candidate + real policies/triggers/capability fns
+        run: bun scripts/db-proof/signoff_integration_proof.mjs

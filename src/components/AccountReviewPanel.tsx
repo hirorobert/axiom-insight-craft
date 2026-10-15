@@ -65,13 +65,13 @@ function AssessmentHelp() {
           <span className="block font-medium text-foreground normal-case tracking-normal">
             No reliable suggestion
           </span>
-          SAFF did not find enough reliable evidence to suggest a classification.
+          CFOClose did not find enough reliable evidence to suggest a classification.
         </p>
         <p>
           <span className="block font-medium text-foreground normal-case tracking-normal">
             Conflicting evidence — review required
           </span>
-          SAFF found competing signals and will not choose between them.
+          CFOClose found competing signals and will not choose between them.
         </p>
       </PopoverContent>
     </Popover>

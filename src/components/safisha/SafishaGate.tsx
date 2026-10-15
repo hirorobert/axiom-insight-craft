@@ -443,17 +443,17 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         <div key={s.key} className="flex items-center gap-1">
           <div className={`h-1.5 w-8 rounded-full transition-colors ${
             step === s.key || (s.key === "clean" && step === "blocked")
-              ? "bg-[#0E6B55]"
+              ? "bg-primary"
               : i < arr.findIndex(x => x.label === (
                   step === "clean" || step === "blocked" ? "Result"
                   : step === "review"          ? "Review"
                   : step === "running_match"   ? "Matching"
                   : "Evidence"
                 ))
-                ? "bg-[#0E6B55]/50"
+                ? "bg-primary/50"
                 : "bg-muted"
           }`} />
-          <span className={step === s.key ? "text-[#0E6B55] font-medium" : ""}>{s.label}</span>
+          <span className={step === s.key ? "text-primary font-medium" : ""}>{s.label}</span>
         </div>
       ))}
     </div>
@@ -465,9 +465,9 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-[#0E6B55]" />
+          <Shield className="h-5 w-5 text-primary" />
           <div>
-            <h3 className="text-sm font-semibold text-[#0E1D30]">Evidence Reconciliation · Trial Balance Verification</h3>
+            <h3 className="text-sm font-semibold text-foreground">Evidence Reconciliation · Trial Balance Verification</h3>
             <p className="text-xs text-muted-foreground">
               Upload evidence for <span className="font-mono">{fileName}</span> before moving to the next stage.
             </p>
@@ -486,7 +486,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         {/* Drop zone */}
         <div
           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
-            isDragging ? "border-[#0E6B55] bg-[#0E6B55]/5" : "border-muted hover:border-[#0E6B55]/50"
+            isDragging ? "border-primary bg-primary/5" : "border-muted hover:border-primary/50"
           }`}
           onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
@@ -494,7 +494,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
           onClick={() => document.getElementById("safisha-file-input")?.click()}
         >
           <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-          <p className="text-sm font-medium text-[#0E1D30]">Drop bank statements, MoMo exports, or subledgers here</p>
+          <p className="text-sm font-medium text-foreground">Drop bank statements, MoMo exports, or subledgers here</p>
           <p className="text-xs text-muted-foreground mt-1">CSV · Excel · PDF (digital text-layer) · Multiple files allowed</p>
           <input
             id="safisha-file-input"
@@ -511,7 +511,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
           <div className="space-y-1.5">
             {evidenceFiles.map((ev, i) => (
               <div key={i} className="flex items-center gap-2 p-2 rounded bg-muted/50 text-xs">
-                <FileCheck className="h-4 w-4 text-[#0E6B55] shrink-0" />
+                <FileCheck className="h-4 w-4 text-primary shrink-0" />
                 <span className="flex-1 font-mono truncate">{ev.file.name}</span>
                 {ev.isPdf && (
                   <Badge className="text-[10px] shrink-0 bg-violet-100 text-violet-700 border-violet-200">
@@ -542,7 +542,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
 
         <div className="flex gap-2 pt-1">
           <Button
-            className="flex-1 bg-[#0E6B55] hover:bg-[#0E6B55]/90"
+            className="flex-1 bg-primary hover:bg-primary/90"
             onClick={startIngest}
             disabled={evidenceFiles.length === 0}
           >
@@ -579,13 +579,13 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-[#0E6B55]" />
-          <h3 className="text-sm font-semibold text-[#0E1D30]">Evidence Reconciliation · Trial Balance Verification</h3>
+          <Shield className="h-5 w-5 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Evidence Reconciliation · Trial Balance Verification</h3>
         </div>
         {stepIndicator}
         <div className="py-8 flex flex-col items-center gap-3 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-[#0E6B55]" />
-          <p className="text-sm font-medium text-[#0E1D30]">Running matching engine…</p>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium text-foreground">Running matching engine…</p>
           <p className="text-xs text-muted-foreground">
             Comparing TB lines against evidence · This takes a few seconds
           </p>
@@ -602,7 +602,7 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5 text-amber-500" />
-            <h3 className="text-sm font-semibold text-[#0E1D30]">Evidence Reconciliation · Trial Balance Verification</h3>
+            <h3 className="text-sm font-semibold text-foreground">Evidence Reconciliation · Trial Balance Verification</h3>
           </div>
           <div className="w-36">
             <ConfidenceScoreBar score={matchResult.confidence_score ?? 0} size="sm" />
@@ -630,11 +630,11 @@ export default function SafishaGate({ uploadId, fileName, onCleared, onBlocked }
 
   if (step === "clean") {
     return (
-      <Card className="border-[#0E6B55]/40 bg-[#0E6B55]/5">
+      <Card className="border-primary/40 bg-primary/5">
         <CardContent className="py-8 text-center space-y-3">
-          <CheckCircle2 className="h-10 w-10 text-[#0E6B55] mx-auto" />
+          <CheckCircle2 className="h-10 w-10 text-primary mx-auto" />
           <div>
-            <p className="font-semibold text-[#0E6B55]">TB verified — gate cleared</p>
+            <p className="font-semibold text-primary">TB verified — gate cleared</p>
             <p className="text-xs text-muted-foreground mt-1">
               {matchResult?.matched_count ?? "All"} TB lines reconciled to evidence.
               Later stages are now unlocked for <span className="font-mono">{fileName}</span>.

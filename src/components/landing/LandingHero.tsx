@@ -6,24 +6,24 @@
 import { ArrowDown, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { BRAND_GOLD, BRAND_NAVY } from "@/components/CFOCloseWordmark";
+import { BRAND_MINT, BRAND_SLATE } from "@/components/CFOCloseWordmark";
 import { LANDING_HERO } from "@/content/landing/landingContent";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 export function LandingHero() {
   const shot = LANDING_HERO.screenshot;
   return (
-    <section aria-labelledby="hero-title" className="border-b border-border text-white" style={{ backgroundColor: BRAND_NAVY }}>
+    <section aria-labelledby="hero-title" className="border-b border-border text-white" style={{ backgroundColor: BRAND_SLATE }}>
       <div className="mx-auto grid max-w-7xl gap-10 px-4 pb-14 pt-24 sm:px-6 lg:grid-cols-12 lg:items-center lg:px-10 lg:pb-16 lg:pt-28">
         <div className="lg:col-span-5">
-          <p className="text-[11px] font-mono uppercase tracking-[0.22em]" style={{ color: BRAND_GOLD }}>{LANDING_HERO.eyebrow}</p>
+          <p className="text-[11px] font-mono uppercase tracking-[0.22em]" style={{ color: BRAND_MINT }}>{LANDING_HERO.eyebrow}</p>
           <h1 id="hero-title" className="mt-4 text-[2.1rem] font-semibold leading-[1.08] tracking-[-0.035em] text-white sm:text-[2.75rem] lg:text-[2.9rem]">
             {LANDING_HERO.headline}
           </h1>
           <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/85 sm:text-base">{LANDING_HERO.supporting}</p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Button size="lg" asChild className="w-full rounded-none text-[#0D1D3B] hover:opacity-90 sm:w-auto sm:min-w-[200px]" style={{ backgroundColor: BRAND_GOLD }}>
+            <Button size="lg" asChild className="w-full rounded-sm text-[#2E2F3A] hover:opacity-90 sm:w-auto sm:min-w-[200px]" style={{ backgroundColor: BRAND_MINT }}>
               <a href={LANDING_HERO.primaryCta.href} data-testid="hero-explore-plans">
                 {LANDING_HERO.primaryCta.label}
                 <ArrowDown className="h-4 w-4" aria-hidden="true" />

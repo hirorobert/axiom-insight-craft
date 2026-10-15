@@ -20,14 +20,14 @@ export default function ConfidenceScoreBar({ score, showLabel = true, size = "md
   const clamped = Math.max(0, Math.min(100, Math.round(score)));
 
   const barColor =
-    clamped >= 90 ? "bg-[#0E6B55]"
-    : clamped >= 70 ? "bg-[#0E6B55]/70"
+    clamped >= 90 ? "bg-primary"
+    : clamped >= 70 ? "bg-primary/70"
     : clamped >= 50 ? "bg-amber-500"
     : "bg-red-500";
 
   const labelColor =
-    clamped >= 90 ? "text-[#0E6B55]"
-    : clamped >= 70 ? "text-[#0E6B55]/80"
+    clamped >= 90 ? "text-primary"
+    : clamped >= 70 ? "text-primary/80"
     : clamped >= 50 ? "text-amber-600"
     : "text-red-600";
 

@@ -164,10 +164,10 @@ export default function ExceptionQueue({
 
   if (exceptions.length === 0) {
     return (
-      <Card className="border-[#0E6B55]/30">
+      <Card className="border-primary/30">
         <CardContent className="py-12 text-center">
-          <CheckCircle2 className="h-10 w-10 text-[#0E6B55] mx-auto mb-3" />
-          <p className="font-medium text-[#0E1D30]">No exceptions found</p>
+          <CheckCircle2 className="h-10 w-10 text-primary mx-auto mb-3" />
+          <p className="font-medium text-foreground">No exceptions found</p>
           <p className="text-sm text-muted-foreground mt-1">
             All TB lines matched to evidence. Trial balance is clean.
           </p>
@@ -181,7 +181,7 @@ export default function ExceptionQueue({
       {/* Header + confidence score */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-[#0E1D30]">
+          <h3 className="text-base font-semibold text-foreground">
             Exception Queue
             {pendingCount > 0 && (
               <Badge variant="destructive" className="ml-2 text-xs">{pendingCount} pending</Badge>
@@ -280,7 +280,7 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
     : /* timing */                          "text-blue-700 border-blue-200 bg-blue-50";
 
   const statusBadge =
-    exc.reviewer_action === "approved"  ? <Badge className="bg-[#0E6B55] text-white text-xs">Approved</Badge>
+    exc.reviewer_action === "approved"  ? <Badge className="bg-primary text-white text-xs">Approved</Badge>
     : exc.reviewer_action === "rejected"  ? <Badge variant="destructive" className="text-xs">Rejected</Badge>
     : exc.reviewer_action === "escalated" ? <Badge className="bg-amber-500 text-white text-xs">Escalated</Badge>
     : null;
@@ -359,7 +359,7 @@ function ExceptionCard({ exc, note, onNoteChange, onResolve, resolving, readOnly
               <div className="flex gap-2">
                 <Button
                   size="sm"
-                  className="flex-1 bg-[#0E6B55] hover:bg-[#0E6B55]/90 text-white h-7 text-xs"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white h-7 text-xs"
                   onClick={() => onResolve(exc.id, "approved")}
                   disabled={resolving}
                 >

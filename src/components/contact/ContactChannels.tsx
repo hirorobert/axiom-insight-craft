@@ -14,7 +14,7 @@ export function ContactChannelList({ className = "" }: { className?: string }) {
     <ul className={`space-y-2.5 ${className}`} data-testid="contact-channel-list">
       {CONTACT_CHANNELS.map((c) => (
         <li key={c.id} className="flex flex-col">
-          <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground/70">{c.label}</span>
+          <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">{c.label}</span>
           <a href={mailtoHref(c.id)} className="inline-block break-all py-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             aria-label={`${c.label}: email ${c.address}`} data-testid={`contact-${c.id}`}>
             {c.address}
