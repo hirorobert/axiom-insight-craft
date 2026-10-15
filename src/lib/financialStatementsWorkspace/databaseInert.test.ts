@@ -315,6 +315,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/reauthenticate/index.ts",
     ]);
     const modified = new Set([
+      // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
+      // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
+      // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
+      "supabase/migrations/20261104100000_platform_owner_access_and_entity_allowance.sql",
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
       // over every corpus case), and the function-path database double can answer for a table that does not exist yet.
       "supabase/functions/_shared/tbSource.ts",

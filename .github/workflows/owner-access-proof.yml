@@ -1,7 +1,7 @@
 name: owner-access-proof
 on:
   push:
-    branches: [feature/owner-access-entity-limits-20261015]
+    branches: [feature/owner-access-entity-limits-20261015, fix/migration-packaging-20261104-20261015]
   workflow_dispatch:
 
 jobs:
