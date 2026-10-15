@@ -1394,7 +1394,9 @@ serve(async (req) => {
     const sourceFileHash = await sha256HexBytes(fileBuffer);
 
     const fileBytes = new Uint8Array(fileBuffer);
-    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency };
+    // The workspace's entity name is compared only with an identifiable title-block entity name (§3.3): a difference is
+    // a confirmation for review, never a rename, a move or a block.
+    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency, workspaceEntityName: upload.company_name ?? null };
     let ingest: IngestResult;
     // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
     // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
@@ -2197,6 +2199,8 @@ function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record
     // Compact per-row lineage: [row number, disposition, account identity or reason].
     lineage: ingest.lineage.map((l) => [l.rowNumber, l.disposition, l.identity ?? l.reason ?? null]),
     issues: ingest.issues,
+    // What the file says about itself above the header (entity, period, currency labels), with locations: evidence only.
+    evidence: ingest.evidence,
     milestones: milestones.list(),
   };
 }

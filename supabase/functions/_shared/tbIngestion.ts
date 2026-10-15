@@ -63,6 +63,8 @@ export type IssueCode =
   | "TRIAL_BALANCE_IMBALANCE"
   // Review only (never blocking): text after the last account that no printed-footer rule recognises.
   | "UNRECOGNISED_TRAILING_TEXT"
+  // Review only (never blocking): the title block names an entity that differs from the workspace's entity.
+  | "ENTITY_NAME_DIFFERS"
   // A confirmed layout (layout-template/1, _shared/layoutProfile.ts) that does not fit the file. Never produced
   // without a layout.
   | "LAYOUT_SHEET_NOT_FOUND"
@@ -499,6 +501,76 @@ export function periodAndCurrencyIssues(rows: SourceRow[], map: ColumnMap, perio
   return issues;
 }
 
+// ── Title-block evidence (Phase 1 §3.3, §3.4) ────────────────────────────────────────────────────────────────────────
+
+/** One cell of the source, as evidence: its trimmed text and where it is ("B3"-style column letter, 1-based row). */
+export interface EvidenceCell { text: string; row: number; column: string }
+
+/**
+ * What the file says about itself above the header: an identifiable entity name, the period text and the currency
+ * labels. Evidence only. Nothing here sets an entity, a period, a currency or a framework.
+ */
+export interface TitleBlockEvidence {
+  /** The title block's entity name, only when it is identifiable (it carries a legal or organisational form). */
+  entity: EvidenceCell | null;
+  /** Title-block text that states the period (not a print or run date). */
+  period: EvidenceCell[];
+  /** ISO 4217 codes the file labels its amounts with (header or label row). */
+  currencyLabels: (EvidenceCell & { code: string })[];
+}
+
+export const EMPTY_TITLE_BLOCK: TitleBlockEvidence = Object.freeze({ entity: null, period: [], currencyLabels: [] }) as TitleBlockEvidence;
+
+/** A word that marks text as an organisation's name. Arbitrary cell text without one is never compared. */
+const ENTITY_FORM = /\b(ltd|limited|plc|inc|incorporated|llc|llp|lp|corp|corporation|company|gmbh|ag|s\.?a\.?|sarl|b\.?v\.?|n\.?v\.?|pty|trust|council|authority|foundation|association|society|co-?operative|cooperative|group|holdings|partners|partnership|ministry|agency|commission|university|college|school|hospital|church|institute)\b|\bco\.?$/i;
+const REPORT_TITLE = /\b(trial\s+balance|report|statement|ledger|listing|balances)\b/i;
+
+export function columnLetter(index: number): string {
+  let s = "";
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+/** Reads the title block (the rows above the header) as evidence. */
+export function readTitleBlockEvidence(rows: SourceRow[], headerIndex: number): Omit<TitleBlockEvidence, "currencyLabels"> {
+  let entity: EvidenceCell | null = null;
+  const period: EvidenceCell[] = [];
+  for (const row of rows.slice(0, Math.max(0, headerIndex))) {
+    row.cells.forEach((c, col) => {
+      if (typeof c !== "string") return;
+      const text = c.replace(/ /g, " ").replace(/\s+/g, " ").trim();
+      if (!text || text.length > 160) return;
+      const cell = { text, row: row.rowNumber, column: columnLetter(col) };
+      if (describesPeriod(text) && yearsIn(text).length > 0) { period.push(cell); return; }
+      if (!entity && ENTITY_FORM.test(text) && !REPORT_TITLE.test(text)) entity = cell;
+    });
+  }
+  return { entity, period };
+}
+
+/** Canonical form for comparing entity names: case, punctuation, "the" and common legal-form spellings ignored. */
+export function normaliseEntityName(name: string): string {
+  return name.toLowerCase()
+    .replace(/&/g, " and ").replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\blimited\b/g, "ltd").replace(/\bincorporated\b/g, "inc").replace(/\bcompany\b/g, "co").replace(/\bcorporation\b/g, "corp")
+    .replace(/^\s*the\s+/, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The confirmation a differing title-block entity needs (review, never blocking). It names both, with the source text
+ * and its location. Confirming it never renames an entity, moves evidence or bypasses authorisation.
+ */
+export function entityConfirmation(evidence: TitleBlockEvidence, workspaceEntityName: string | null | undefined): IngestIssue | null {
+  const fileEntity = evidence.entity;
+  const workspace = (workspaceEntityName ?? "").trim();
+  if (!fileEntity || !workspace) return null;
+  if (normaliseEntityName(fileEntity.text) === normaliseEntityName(workspace)) return null;
+  return {
+    code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [fileEntity.row], field: "entity",
+    message: `This file names ${fileEntity.text}; this workspace is ${workspace}. Same entity? (From your file: “${fileEntity.text}”, cell ${fileEntity.column}${fileEntity.row}.)`,
+  };
+}
+
 // ── Rows → accounts ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type RowDisposition =
@@ -545,6 +617,8 @@ export interface IngestResult {
   /** Coded rows whose names read like totals — named in an imbalance message so a double count is easy to find. */
   suspectedTotalRows: number[];
   blocking: boolean;
+  /** What the file says about itself above the header (entity, period, currency labels): evidence only. */
+  evidence: TitleBlockEvidence;
 }
 
 const TOTAL_NAME_PATTERNS: RegExp[] = [
@@ -572,6 +646,8 @@ export interface IngestInput {
   periodYear: number | null;
   /** ISO 4217 code of the period's reporting currency — required. */
   currency: string | null;
+  /** The workspace's entity name, compared only with an identifiable title-block entity (§3.3). Optional. */
+  workspaceEntityName?: string | null;
   /**
    * A confirmed layout, resolved against these rows (layoutProfile.resolveLayout). Absent: the automatic path, exactly
    * as before — column detection and the default amount grammar.
@@ -610,6 +686,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       columns: partial.columns ?? {}, accounts: partial.accounts ?? [], lineage, lineageSummary: summary,
       totals: partial.totals ?? null, issues, suspectedTotalRows: partial.suspectedTotalRows ?? [],
       blocking: issues.some((i) => i.severity === "blocking"),
+      evidence: partial.evidence ?? EMPTY_TITLE_BLOCK,
     };
   };
 
@@ -633,6 +710,15 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   if (!detection.map || detection.issues.some((i) => i.severity === "blocking")) return result({ columns: detection.detected });
   const map = detection.map;
   issues.push(...periodAndCurrencyIssues(rows, map, periodYear as number, currency as string));
+  // Title-block evidence (§3.3, §3.4): the entity text, period text and currency labels, with their locations.
+  const titleBlock = readTitleBlockEvidence(rows, map.headerIndex);
+  const currencyLabels: TitleBlockEvidence["currencyLabels"] = [];
+  for (const col of [map.debit, map.credit, map.balance]) {
+    if (col === null) continue;
+    for (const m of (map.headers[col] ?? "").toUpperCase().matchAll(/\b([A-Z]{3})\b/g)) {
+      if (CURRENCY_EXPONENTS[m[1]] !== undefined) currencyLabels.push({ code: m[1], text: map.headers[col], row: map.headerRowNumber, column: columnLetter(col) });
+    }
+  }
   const exp = exponent as number;
 
   const lineage: RowLineage[] = [];
@@ -699,6 +785,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     // Standalone ISO currency labels under amount headers are metadata, never postings. Mixed rows are not skipped.
     const currencyCells = row.cells.map((c, index) => ({ text: cellString(c), index })).filter(c => c.text);
     if (currencyCells.length > 0 && currencyCells.every(c => amountColumns.includes(c.index) && /^[A-Z]{3}$/.test(c.text) && currencyExponent(c.text) !== null)) {
+      for (const c of currencyCells) currencyLabels.push({ code: c.text, text: c.text, row: row.rowNumber, column: columnLetter(c.index) });
       if (currencyCells.some(c => c.text !== currency)) issues.push({ code: "CURRENCY_MISMATCH", severity: "blocking", rows: [row.rowNumber], message: `The currency labels on row ${row.rowNumber} do not match the selected currency ${currency}. Confirm the trial balance currency before processing.` });
       lineage.push({ rowNumber: row.rowNumber, disposition: "heading", reason: "Amount currency labels" });
       continue;
@@ -866,7 +953,10 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     });
   }
 
-  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows });
+  const evidence: TitleBlockEvidence = { ...titleBlock, currencyLabels };
+  const entityIssue = entityConfirmation(evidence, input.workspaceEntityName);
+  if (entityIssue) issues.push(entityIssue);
+  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows, evidence });
 }
 
 // ── Classification review policy ─────────────────────────────────────────────────────────────────────────────────────
