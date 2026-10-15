@@ -134,3 +134,18 @@ be explicit, scoped, time-boxed and audited (future `support_access_grants`, out
    (idempotent; refuses if a platform owner already exists — thereafter use `grant_platform_owner`).
 3. Read back: `SELECT public.is_platform_owner('<uuid>')`, the owner's `get_access_overview()`, entity capacity (unlimited), and
    confirm no `commercial_licences` payment row was created.
+
+## 8. Access console UI (built; brand-consistent) — directive §§12–14
+Route **`/admin/access`** (`src/pages/admin/AccessConsole.tsx`), server-gated by an active `commercial_admins` row. Four
+DISTINCT sections (role permissions ≠ purchased entitlements ≠ usage allowances ≠ entity capacity):
+- **Roles → permissions** — the operational capability template (owner/partner/preparer/viewer × the five workspace capabilities).
+- **Accounts & allowances** — per account: platform-owner badge, entity capacity (number or **Unlimited**), capacity source, and complimentary/admin grants (each revocable).
+- **Grant history** — the append-only `access_grant_events` ledger.
+- **Delegate access** — scoped complimentary capability / entity allowance / unlimited, **reauth-gated**; states plainly that no payment/subscription/revenue is recorded. Platform-owner grant/revoke is deliberately absent here.
+
+Owner status also surfaces in **Settings → Plan & access** (`CurrentPlanPanel`): "Platform owner · Complimentary access" + "Unlimited active entities" — no fake paid subscription. The workspace top bar shows an **entity allowance indicator**
+("N of M active entities" / "Unlimited active entities" + a quiet "Manage entities" link; no gamification).
+
+Screenshots (real component, isolated runtime, synthetic data): `docs/owner-access/screens/` —
+`access-console-desktop.png` (roles matrix), `access-accounts-allowances.png` (owner status + unlimited),
+`access-delegate.png` (reauth-gated grant), `access-console-mobile.png`.

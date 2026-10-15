@@ -35,7 +35,7 @@ function entityCapacityLabel(a: AccessAccount): string {
   return "Unavailable";
 }
 
-export default function AccessConsole() {
+export default function AccessConsole({ defaultTab = "roles" }: { defaultTab?: string } = {}) {
   const { allowed, loading, matrix, accounts, history, error, reload } = useOwnerAccess();
   const { reauth, busy: reauthBusy } = useReauthenticate();
 
@@ -113,7 +113,7 @@ export default function AccessConsole() {
 
         {msg && <Alert className="mt-4"><AlertDescription>{msg}</AlertDescription></Alert>}
 
-        <Tabs defaultValue="roles" className="mt-6">
+        <Tabs defaultValue={defaultTab} className="mt-6">
           <TabsList>
             <TabsTrigger value="roles">Roles → permissions</TabsTrigger>
             <TabsTrigger value="accounts">Accounts &amp; allowances</TabsTrigger>
