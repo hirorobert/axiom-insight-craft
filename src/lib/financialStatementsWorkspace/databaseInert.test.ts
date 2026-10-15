@@ -307,6 +307,12 @@ describe("database inertness — schema and functions", () => {
       // Provider settings diagnostics (Lovable f9a801f): administrator-only and read-only. It returns setting NAMES only
       // (never a value) through the one validator in routing.ts. Writes nothing; no schema; no financial-statements surface.
       "supabase/functions/commercial-provider-diagnostics/index.ts",
+      // Platform-owner access administration & entity allowances (20261104100000): a NEW forward-only migration extending
+      // the canonical commercial_admins/entitlement_overrides/_entity_capacity_for_account/_resolve_entitlement_for_owner
+      // (no financial-statements schema), and ONE new Edge Function, reauthenticate, which verifies the caller's password
+      // server-side and mints a single-use reauth nonce (record_privileged_reauth). Proven on PG17 by owner_access_proof.mjs.
+      "supabase/migrations/20261104100000_platform_owner_access_and_entity_allowance.sql",
+      "supabase/functions/reauthenticate/index.ts",
     ]);
     const modified = new Set([
       // I1-A A2: the ingestion reader gains the confirmed-layout path (absent a layout, byte-identical — characterization
