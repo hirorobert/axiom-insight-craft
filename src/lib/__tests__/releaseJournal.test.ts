@@ -70,7 +70,7 @@ describe("the reviewed release journal", () => {
     // 39: 0053 (the sandbox isolation correction, commercial-p3; release_self_checking_wrapper; hosted 54).
     // 40: 0054 (payment reversal authority, commercial-p4; release_self_checking_wrapper; hosted 55).
     // 41: 0055 (verified charge outcomes, commercial-p5; release_self_checking_wrapper; hosted 56).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(41);
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(42);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
