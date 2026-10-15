@@ -129,6 +129,12 @@ export default function PaymentReturn() {
   };
 
   const planName = status ? displayPlanName(status.planCode) : null;
+  // Provider-verified (POST recovery) session state — never inferred from a redirect or a closed tab.
+  const pc = status?.providerCheckout ?? null;
+  const openUnpaid = phase === "REVIEW" && !status?.paymentRecorded && pc?.state === "OPEN_UNPAID";
+  const processing = phase === "REVIEW" && !status?.paymentRecorded && pc?.state === "PAYMENT_PROCESSING";
+  const resumeUrl = openUnpaid && pc?.resumeUrl && /^https:\/\//.test(pc.resumeUrl) ? pc.resumeUrl : null;
+  const providerExpiry = pc?.expiresAt ? new Date(pc.expiresAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
   const amount = status?.expectedAmountMinor != null && status.currencyCode
     ? formatMoney(status.expectedAmountMinor, status.currencyCode, status.currencyExponent ?? 0) : null;
   const retryHref = status?.purchasedPlanCode ? `/billing/checkout?plan=${status.purchasedPlanCode}` : "/plans";
@@ -171,7 +177,7 @@ export default function PaymentReturn() {
                 {phase === "FAILED" && "The payment did not go through"}
                 {phase === "CANCELLED" && "The payment was cancelled"}
                 {phase === "EXPIRED" && "The payment request expired"}
-                {phase === "REVIEW" && (status?.paymentRecorded ? "Payment received — setting up your plan" : "Confirming this payment")}
+                {phase === "REVIEW" && (status?.paymentRecorded ? "Payment received — setting up your plan" : openUnpaid ? `Your ${planName ?? ""} checkout is open and unpaid` : processing ? "Your payment is being processed" : "Confirming this payment")}
                 {phase === "TIMEOUT" && "Still waiting for confirmation"}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground" data-testid="payment-explanation">
@@ -185,7 +191,11 @@ export default function PaymentReturn() {
                 {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && "The provider confirmed that no payment was taken. You can start a new payment."}
                 {phase === "REVIEW" && (status?.paymentRecorded
                   ? "Your payment is recorded and will not be taken again. Our team is placing the 12-month term on your account and will email you."
-                  : "We could not yet confirm whether this payment completed. Do not pay again: we check with the provider, and if it was not taken, you can start a new payment.")}
+                  : openUnpaid
+                    ? `Nothing has been paid. You can resume this checkout${providerExpiry ? ` until ${providerExpiry}` : ""}. To choose a different plan, wait until it expires: the payment provider does not allow an open checkout to be cancelled early, and we never start a second one while this one can still be paid.`
+                    : processing
+                      ? "The payment was submitted and the provider is processing it. Do not pay again; this page updates by itself."
+                      : "We could not yet confirm whether this payment completed. Do not pay again: we check with the provider, and if it was not taken, you can start a new payment.")}
                 {phase === "TIMEOUT" && "The provider has not confirmed the payment yet. If you approved it, it is still being processed. Do not pay again."}
               </p>
             </header>
@@ -226,6 +236,16 @@ export default function PaymentReturn() {
             )}
 
             <div className="flex flex-col gap-2">
+              {resumeUrl && (
+                <Button className="w-full" onClick={() => window.location.assign(resumeUrl)} data-testid="next-resume-checkout">
+                  Resume {planName ?? ""} checkout
+                </Button>
+              )}
+              {openUnpaid && (
+                <p className="text-xs text-muted-foreground" data-testid="change-plan-note">
+                  Change plan: available once this checkout expires{providerExpiry ? ` (${providerExpiry})` : ""}. Use “Check again” after that time and the other plans open immediately.
+                </p>
+              )}
               {phase === "CONFIRMED" && !status?.reversalType && !testPayment && (
                 <Button asChild className="w-full" data-testid="next-start-review"><Link to="/dashboard">Start a trial balance review</Link></Button>
               )}
@@ -236,7 +256,7 @@ export default function PaymentReturn() {
                 <Button asChild className="w-full" data-testid="next-try-again"><Link to={retryHref}>Start a new payment</Link></Button>
               )}
               {(phase === "POLLING" || phase === "TIMEOUT" || (phase === "REVIEW" && !status?.paymentRecorded)) && (
-                <Button variant={phase === "POLLING" ? "outline" : "default"} className="w-full" onClick={checkAgain} disabled={checking} data-testid="next-check-again">
+                <Button variant={phase === "POLLING" || resumeUrl ? "outline" : "default"} className="w-full" onClick={checkAgain} disabled={checking} data-testid="next-check-again">
                   {checking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
                   Check again
                 </Button>

@@ -109,11 +109,16 @@ export default function Checkout() {
       navigate(`/billing/payment/return?ref=${encodeURIComponent(result.saffReference)}`);
       return;
     }
-    const r = result as { error: string; saffReference: string | null };
+    const r = result as { error: string; saffReference: string | null; previousPlanName?: string | null };
     setSubmitting(false);
     if (r.error.startsWith("PHONE_NUMBER_INVALID")) { setPhoneError("Enter a mobile money number on +255, for example 0712 345 678."); return; }
     if (r.error.startsWith("CHECKOUT_OUTCOME_UNCERTAIN") || r.error === "NETWORK") {
       setError({ kind: "uncertain", ref: r.saffReference, text: "We could not confirm whether the payment was started. Do not pay again: check this order first." });
+      return;
+    }
+    if (r.error === "OPEN_CHECKOUT_OTHER_PLAN" && r.saffReference) {
+      const other = r.previousPlanName ?? "another";
+      setError({ kind: "previous", ref: r.saffReference, text: `You already have an unpaid ${other} plan checkout open. To protect you from paying twice, only one plan checkout can be open at a time. Resume it, or wait until it expires to choose a different plan — the order page shows the exact expiry.` });
       return;
     }
     if (r.error.startsWith("CHECKOUT_REQUIRES_SUPPORT")) {
@@ -202,7 +207,7 @@ export default function Checkout() {
           {error && (
             <div className="mt-4 border border-destructive/50 p-3 text-sm" role="alert" data-testid="checkout-error">
               <p>{error.text}</p>
-              {error.ref && <Link className="mt-2 inline-block font-medium underline" to={`/billing/payment/return?ref=${encodeURIComponent(error.ref)}`}>Open this order</Link>}
+              {error.ref && <Link className="mt-2 inline-block font-medium underline" to={`/billing/payment/return?ref=${encodeURIComponent(error.ref)}`}>{error.kind === "previous" ? "Resume or check the open checkout" : "Open this order"}</Link>}
               {!error.ref && (error.kind === "uncertain" ? <Link className="mt-2 inline-block font-medium underline" to="/billing/orders">See your orders</Link>
                 : <Link className="mt-2 inline-block font-medium underline" to={supportHref("plan_wall")}>{SUPPORT_LABEL}</Link>)}
             </div>
