@@ -29,6 +29,7 @@ import WorkspaceUnavailable from "@/components/workspace/WorkspaceUnavailable";
 import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
+import { EntityAllowanceIndicator } from "@/components/EntityAllowanceIndicator";
 import { DraftPrintMark } from "@/components/commercial/DraftPrintMark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
@@ -325,8 +326,9 @@ export default function WorkspaceLayout() {
               )}
             </div>
 
-            {/* Right: refresh + user menu (sign out always visible in dropdown) */}
-            <div className="flex items-center gap-1 shrink-0">
+            {/* Right: entity allowance (md+) + refresh + user menu (sign out always visible in dropdown) */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="hidden md:flex"><EntityAllowanceIndicator manageTo="/settings" /></div>
               <Button
                 variant="ghost"
                 size="sm"

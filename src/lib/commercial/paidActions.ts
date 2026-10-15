@@ -116,11 +116,18 @@ export interface CapacityAnswer {
   readonly used: number | null;
   readonly planCode: string | null;
   readonly determined: boolean;
+  /** An EXPLICIT unlimited allowance (platform owner, or an explicit unlimited admin override) — never a sentinel number. */
+  readonly unlimited?: boolean;
+  /** Where the allowance came from (e.g. ACTIVE_LICENCE, ADMIN_OVERRIDE, PLATFORM_OWNER_COMPLIMENTARY). */
+  readonly source?: string | null;
 }
 
 /** Customer copy when a new entity cannot be created (structured outcome of create_entity). */
 export function capacityCopy(answer: CapacityAnswer): LockedCopy {
   const plan = displayCataloguePlanName(answer.planCode) ?? "current";
+  if (answer.unlimited) {
+    return { title: "No entity limit", unavailable: "This account has an unlimited active-entity allowance.", remains: "Every existing entity stays fully accessible.", history: "Nothing is deleted, hidden or moved." };
+  }
   if (!answer.determined || answer.capacity === null) {
     return {
       title: "Entity capacity needs confirming",
