@@ -9,8 +9,9 @@
 -- Non-waivers (unchanged by this migration): tenant isolation / company membership, the sign-off / distinct-signer /
 -- validation / immutable-history triggers, the withheld-module gate (public.capability_customer_available), and audit logging.
 -- No payment, subscription or revenue row is ever created by any grant here.
-
-BEGIN;
+-- Packaging: this migration contains NO transaction-control statement. Atomicity is provided by the authoritative hosted
+-- runner's self-checking wrapper (one DO statement; see release/wrappers/ + docs/release/access-a1) — the same reviewed
+-- pattern every migration since 20261011100000 uses. The runner wraps application and journal registration in one transaction.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1. Platform-owner tier on the one canonical cross-tenant admin table
@@ -535,5 +536,3 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_access_grant_history(UUID, INTEGER) TO authenticated;
-
-COMMIT;
