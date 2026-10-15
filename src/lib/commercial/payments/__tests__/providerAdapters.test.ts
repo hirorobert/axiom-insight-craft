@@ -526,3 +526,21 @@ describe("settlement (the one path from a provider answer to the database)", () 
     expect(calls[1].args).toMatchObject({ p_original_event_id: "evt-1", p_reversal_type: "REFUND", p_provider_event_id: `${ORDER}:refunded:49000`, p_amount_minor: "49000" });
   });
 });
+
+describe("polar describeCheckout (abandoned-checkout recovery, read-only)", () => {
+  const ref = { saffReference: REF, providerCheckoutRef: CHECKOUT, billingCustomerId: BC };
+  it("open session: status, provider expiry and hosted URL, with a single GET and no mutation", async () => {
+    const f = mockFetch(() => ({ status: 200, body: { id: CHECKOUT, status: "open", expires_at: "2026-10-16T10:58:00Z", url: "https://polar.sh/checkout/x", metadata: { saff_reference: REF } } }));
+    const d = await polar(f).describeCheckout!(ref);
+    expect(d).toEqual({ status: "open", expiresAt: "2026-10-16T10:58:00Z", url: "https://polar.sh/checkout/x" });
+    expect(f.calls.every((c) => (c.init.method ?? "GET") === "GET")).toBe(true);
+  });
+  it("a session naming another order is never described", async () => {
+    const f = mockFetch(() => ({ status: 200, body: { id: CHECKOUT, status: "open", url: "https://polar.sh/x", metadata: { saff_reference: "SAFF-OTHER" } } }));
+    expect(await polar(f).describeCheckout!(ref)).toBeNull();
+  });
+  it("provider outage: null (shown as unavailable), never a guessed state", async () => {
+    const f = mockFetch(() => "network");
+    expect(await polar(f).describeCheckout!(ref)).toBeNull();
+  });
+});
