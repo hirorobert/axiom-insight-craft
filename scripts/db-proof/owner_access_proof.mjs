@@ -64,8 +64,9 @@ async function seed() {
   PRODUCT = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
   await giveLicence(U.practice, "PRACTICE");            // capacity 5
   await giveLicence(U.solo, "SOLO");                    // capacity 1
+  await giveLicence(U.tenantB, "SOLO");                 // a real plan (there is no free tier → an account with no plan cannot create even its first entity)
   for (let i = 0; i < 4; i++) await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,$2)", [U.practice, `P${i}`]);  // 4 of 5 used
-  COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Tenant B Co') RETURNING id", [U.tenantB])).rows[0].id;  // auto FREE licence
+  COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Tenant B Co') RETURNING id", [U.tenantB])).rows[0].id;
 }
 
 async function asUser(uid, fn) {
@@ -142,9 +143,11 @@ async function main() {
 
   // 4 · Cross-tenant isolation — the owner's complimentary access does NOT leak to another account, and the owner has no
   //     workspace capability in a tenant they are not a member of.
-  const bLeak = await resolve(U.tenantB, "CLOSE_INSIGHTS");
-  rec("CROSS-TENANT · the owner's complimentary access does NOT leak to another account (tenant B resolves on its own plan)",
-    bLeak.status !== "ENTITLED" || bLeak.source !== "PLATFORM_OWNER_COMPLIMENTARY");
+  // MULTI_ENTITY_REPORTING is released but NOT in the SOLO plan — the platform owner gets it (complimentary), tenant B (SOLO) does not.
+  const ownerMER = await resolve(U.owner, "MULTI_ENTITY_REPORTING");
+  const bLeak = await resolve(U.tenantB, "MULTI_ENTITY_REPORTING");
+  rec("CROSS-TENANT · owner gets a released capability complimentary while tenant B (SOLO) does NOT — no leak across accounts",
+    ownerMER.status === "ENTITLED" && ownerMER.source === "PLATFORM_OWNER_COMPLIMENTARY" && bLeak.status === "NOT_ENTITLED");
   const bCap = (await admin.query("SELECT public.has_workspace_capability($1,$2,'prepare_close') v", [COMPANY_B, U.owner])).rows[0].v;
   rec("OWNER · platform-owner status grants NO workspace capability without membership (cannot bypass financial controls)", bCap === false);
 
