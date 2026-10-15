@@ -9,8 +9,23 @@
 -- Non-waivers (unchanged by this migration): tenant isolation / company membership, the sign-off / distinct-signer /
 -- validation / immutable-history triggers, the withheld-module gate (public.capability_customer_available), and audit logging.
 -- No payment, subscription or revenue row is ever created by any grant here.
+-- Packaging: this migration contains NO transaction-control statement. Atomicity is provided by the authoritative hosted
+-- runner's self-checking wrapper (one DO statement; see release/wrappers/ + docs/release/access-a1) — the same reviewed
+-- pattern every migration since 20261011100000 uses. The runner wraps application and journal registration in one transaction.
 
-BEGIN;
+-- Preflight: this migration is applied exactly once. If its objects already exist, refuse — nothing is changed. (A re-run
+-- after a successful application is rejected here, not silently re-applied.)
+DO $preflight$
+BEGIN
+  IF to_regprocedure('public.is_platform_owner(uuid)') IS NOT NULL
+     OR to_regclass('public.access_grant_events') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'commercial_admins' AND column_name = 'authority') THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: platform owner / access administration / entity allowances (20261104100000) is already applied; nothing was changed'
+      USING ERRCODE = 'P0001';
+  END IF;
+END
+$preflight$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1. Platform-owner tier on the one canonical cross-tenant admin table
@@ -535,5 +550,3 @@ BEGIN
 END;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_access_grant_history(UUID, INTEGER) TO authenticated;
-
-COMMIT;

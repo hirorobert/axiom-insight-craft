@@ -531,6 +531,17 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 47281, sha256: "a215cc20994f91c57fe0774401decd21a8129013a6fecb1e70ae3cf1567b57ea" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 47280, sha256: "bf5cd81f20e2a6f7500398259491a3e634a9ec9d6b855775b98657fe9d74d15d" }),
   }),
+  // Platform owner, access administration & entity allowances (batch access-a1): the packaging repair of PR #130's merged
+  // migration (its embedded BEGIN/COMMIT removed; atomicity via the wrapper). Both source forms and both wrapper forms
+  // registered BEFORE application, from the repaired source bytes at 1bd7b34. Authored, PENDING hosted application.
+  "20261104100000_platform_owner_access_and_entity_allowance.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 38630, sha256: "1cf1dd3264fbc87ee850104028c760b24d1d0269b3addaefbae25ed505b2fb62" }),
+    finalLfRemoved: Object.freeze({ bytes: 38629, sha256: "7c8b37c1cd73c4b0189d4ed8f3b613eba200729a136241f4d89af7c5cfc4e8f5" }),
+    // Self-checking wrapper release/wrappers/20261104100000_platform_owner_access_and_entity_allowance.wrapper.sql:
+    // render() of the identical form; it re-verifies those 38630 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 40236, sha256: "b14ba1cc83320bc14e658edc6b3ff5d5ec6cc2f21b4ff057e3915d7e82565d7a" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 40235, sha256: "163a61cabf1fcf11c5d07f4e4f7e9581ac3e2fb8d7db4da54c59cd20d18a246a" }),
+  }),
 });
 
 /**

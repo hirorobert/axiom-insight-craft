@@ -414,6 +414,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the self-checking wrapper proofs read committed source bytes (git cat-file) at each batch's SOURCE_COMMIT, including branch-only commits
 
       - name: Ensure postgresql-client is available
         run: |
@@ -728,6 +730,15 @@ jobs:
           RELEASE_BATCH: commercial-p5
         run: |
           createdb charge_outcomes_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Access administration wrapper proof (the same reviewed apply-and-register proof for the access-a1 wrapper, 20261104100000 platform owner / access administration / entity allowances — the packaging repair of merged PR #130; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/access_wrappers_proof
+          RELEASE_BATCH: access-a1
+        run: |
+          createdb access_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)
