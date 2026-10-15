@@ -30,8 +30,8 @@ describe("ingestion characterization (no layout)", () => {
       const r = readTrialBalanceSource(c.bytes, { fileName: c.fileName, periodYear: c.periodYear, currency: c.currency }, XLSX as unknown as XlsxLike);
       // Keep every pinned behavioural digest. Only the intentionally bumped parser version is normalised.
       // The title-block evidence (tb-ingest-3.2.0, §3.3/§3.4) is a new, additive output with its own tests
-      // (titleBlockEvidence.test.ts); every pre-existing field stays pinned.
-      const { evidence: _evidence, ...pinned } = r;
+      // (titleBlockEvidence.test.ts, reviewRules.test.ts), as are the review-only rules (§3.6); every pre-existing field stays pinned.
+      const { evidence: _evidence, reviewChecks: _reviewChecks, ...pinned } = r;
       const digest = createHash("sha256").update(resultText({ ...pinned, version: "tb-ingest-3.0.0" })).digest("hex");
       if (digest !== golden.digests[c.name]) differ.push(c.name);
     }

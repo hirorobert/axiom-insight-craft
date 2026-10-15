@@ -65,6 +65,8 @@ export type IssueCode =
   | "UNRECOGNISED_TRAILING_TEXT"
   // Review only (never blocking): the title block names an entity that differs from the workspace's entity.
   | "ENTITY_NAME_DIFFERS"
+  // Review only (never blocking): a clearing, suspense or in-transit account carries a balance.
+  | "CLEARING_ACCOUNT_BALANCE"
   // A confirmed layout (layout-template/1, _shared/layoutProfile.ts) that does not fit the file. Never produced
   // without a layout.
   | "LAYOUT_SHEET_NOT_FOUND"
@@ -619,7 +621,22 @@ export interface IngestResult {
   blocking: boolean;
   /** What the file says about itself above the header (entity, period, currency labels): evidence only. */
   evidence: TitleBlockEvidence;
+  /** The review-only rules (§3.6): each says whether it applied and what it found. None blocks or adjusts by itself. */
+  reviewChecks: ReviewCheck[];
 }
+
+/** One review-only rule's applicability and outcome (Phase 1 §3.6). */
+export interface ReviewCheck {
+  id: "duplicate_identities" | "residual_balances" | "unexpected_side_balances" | "clearing_account_balances" | "opening_and_movement_columns";
+  label: string;
+  /** "not_run" always carries the reason it could not run (for example, no configured policy). */
+  outcome: "passed" | "review" | "notice" | "blocked" | "not_run";
+  reason: string;
+  rows?: number[];
+}
+
+/** Account names that hold amounts only until they are cleared: a balance on them needs reconciliation evidence. */
+const CLEARING_ACCOUNT_NAME = /\b(clearing|suspense|in\s+transit|transit|holding\s+account|unallocated|unidentified\s+(receipts?|deposits?)|control\s+clearing)\b/i;
 
 const TOTAL_NAME_PATTERNS: RegExp[] = [
   /^(grand\s+)?totals?\b/i, /^sub[-\s]?totals?\b/i, /\btotals?\s*:?$/i,
@@ -687,6 +704,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       totals: partial.totals ?? null, issues, suspectedTotalRows: partial.suspectedTotalRows ?? [],
       blocking: issues.some((i) => i.severity === "blocking"),
       evidence: partial.evidence ?? EMPTY_TITLE_BLOCK,
+      reviewChecks: partial.reviewChecks ?? [],
     };
   };
 
@@ -956,7 +974,41 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   const evidence: TitleBlockEvidence = { ...titleBlock, currencyLabels };
   const entityIssue = entityConfirmation(evidence, input.workspaceEntityName);
   if (entityIssue) issues.push(entityIssue);
-  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows, evidence });
+
+  // ── Review-only rules (§3.6): each reports applicability and outcome; none blocks or adjusts by itself ──────────────
+  const reviewChecks: ReviewCheck[] = [];
+  const duplicateRows = issues.filter((i) => i.code === "DUPLICATE_ACCOUNT_CODE" || i.code === "DUPLICATE_ACCOUNT_NAME").flatMap((i) => i.rows ?? []);
+  reviewChecks.push({
+    id: "duplicate_identities", label: "Duplicate accounts",
+    outcome: duplicateRows.length ? "blocked" : "passed",
+    reason: duplicateRows.length
+      ? "The same account identity (code and every dimension) appears more than once."
+      : "Each account identity (code and every dimension) appears once. The same description under different codes is not a duplicate.",
+    ...(duplicateRows.length ? { rows: duplicateRows } : {}),
+  });
+  reviewChecks.push({ id: "residual_balances", label: "Residual balances", outcome: "not_run", reason: "No residual-balance policy is configured, so residual balances are not assessed." });
+  reviewChecks.push({ id: "unexpected_side_balances", label: "Balances on an unexpected side", outcome: "not_run", reason: "Needs an approved classification or a verified chart rule, which this check does not have yet." });
+  const clearing = accounts.filter((a) => CLEARING_ACCOUNT_NAME.test(a.accountName) && a.debitMinor !== a.creditMinor);
+  if (clearing.length > 0) {
+    const rowsC = clearing.map((a) => a.sourceRowNumber);
+    issues.push({ code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: rowsC, message: `Clearing, suspense or in-transit account${rowsC.length === 1 ? "" : "s"} on row${rowsC.length === 1 ? "" : "s"} ${listRows(rowsC)} ${rowsC.length === 1 ? "has" : "have"} a balance. ${rowsC.length === 1 ? "It needs" : "They need"} reconciliation evidence.` });
+  }
+  reviewChecks.push({
+    id: "clearing_account_balances", label: "Clearing, suspense and in-transit balances",
+    outcome: clearing.length ? "review" : "passed",
+    reason: clearing.length ? "Needs reconciliation evidence." : "No clearing, suspense or in-transit account carries a balance.",
+    ...(clearing.length ? { rows: clearing.map((a) => a.sourceRowNumber) } : {}),
+  });
+  const openingHeaders = map.headers.map((h, col) => ({ h, col })).filter(({ h }) => /\b(opening|b\/?f|brought\s+forward)\b/i.test(h));
+  const movementHeaders = map.headers.map((h, col) => ({ h, col })).filter(({ h }) => /\b(movement|movements|activity|period|closing|c\/?f|carried\s+forward)\b/i.test(h) && !/\bopening\b/i.test(h));
+  if (openingHeaders.length > 0 && movementHeaders.length > 0) {
+    const cols = [...openingHeaders, ...movementHeaders].map(({ h, col }) => `“${h}” (column ${columnLetter(col)})`).join(", ");
+    reviewChecks.push({ id: "opening_and_movement_columns", label: "Opening and movement content", outcome: "notice", rows: [map.headerRowNumber], reason: `The header has opening-balance and movement or closing columns: ${cols}. They are not combined, and no closing balance is derived from them.` });
+  } else {
+    reviewChecks.push({ id: "opening_and_movement_columns", label: "Opening and movement content", outcome: "passed", reason: "The file does not combine opening balances with movements." });
+  }
+
+  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows, evidence, reviewChecks });
 }
 
 // ── Classification review policy ─────────────────────────────────────────────────────────────────────────────────────

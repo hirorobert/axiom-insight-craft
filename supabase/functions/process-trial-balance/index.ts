@@ -2201,6 +2201,8 @@ function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record
     issues: ingest.issues,
     // What the file says about itself above the header (entity, period, currency labels), with locations: evidence only.
     evidence: ingest.evidence,
+    // The review-only rules (§3.6): applicability and outcome; none blocks or adjusts by itself.
+    review_checks: ingest.reviewChecks,
     milestones: milestones.list(),
   };
 }
