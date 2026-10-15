@@ -111,4 +111,16 @@ export interface ProviderAdapter {
   parseWebhook(rawBody: string): WebhookClaim;
   /** Polar refund events: the checkout an order belongs to (null when it cannot be read). */
   checkoutRefForOrder?(orderId: string): Promise<string | null>;
+  /**
+   * Read-only description of this exact checkout session (status, provider expiry, hosted URL), returned only when the
+   * session's own metadata names this order. Never changes anything at the provider. null = could not be read.
+   */
+  describeCheckout?(ref: CheckoutReference): Promise<ProviderCheckoutDescription | null>;
+}
+
+export interface ProviderCheckoutDescription {
+  /** The provider's own session status, verbatim (Polar: open | confirmed | succeeded | expired | failed). */
+  status: string;
+  expiresAt: string | null;
+  url: string | null;
 }
