@@ -50,6 +50,54 @@ export type Database = {
         }
         Relationships: []
       }
+      access_grant_events: {
+        Row: {
+          actor_user_id: string
+          allowance: Json
+          billing_customer_id: string | null
+          capability: string | null
+          company_id: string | null
+          created_at: string
+          effective_end: string | null
+          effective_start: string
+          grant_kind: string
+          id: string
+          reason: string
+          recipient_user_id: string
+          source: string
+        }
+        Insert: {
+          actor_user_id: string
+          allowance?: Json
+          billing_customer_id?: string | null
+          capability?: string | null
+          company_id?: string | null
+          created_at?: string
+          effective_end?: string | null
+          effective_start?: string
+          grant_kind: string
+          id?: string
+          reason: string
+          recipient_user_id: string
+          source: string
+        }
+        Update: {
+          actor_user_id?: string
+          allowance?: Json
+          billing_customer_id?: string | null
+          capability?: string | null
+          company_id?: string | null
+          created_at?: string
+          effective_end?: string | null
+          effective_start?: string
+          grant_kind?: string
+          id?: string
+          reason?: string
+          recipient_user_id?: string
+          source?: string
+        }
+        Relationships: []
+      }
       account_corrections: {
         Row: {
           account_code: string
@@ -1885,6 +1933,7 @@ export type Database = {
       commercial_admins: {
         Row: {
           active: boolean
+          authority: string
           created_at: string
           granted_by: string | null
           id: string
@@ -1892,6 +1941,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          authority?: string
           created_at?: string
           granted_by?: string | null
           id?: string
@@ -1899,6 +1949,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          authority?: string
           created_at?: string
           granted_by?: string | null
           id?: string
@@ -3068,6 +3119,7 @@ export type Database = {
           reason: string
           revoked_at: string | null
           revoked_by: string | null
+          unlimited: boolean
         }
         Insert: {
           billing_customer_id: string
@@ -3081,6 +3133,7 @@ export type Database = {
           reason: string
           revoked_at?: string | null
           revoked_by?: string | null
+          unlimited?: boolean
         }
         Update: {
           billing_customer_id?: string
@@ -3094,6 +3147,7 @@ export type Database = {
           reason?: string
           revoked_at?: string | null
           revoked_by?: string | null
+          unlimited?: boolean
         }
         Relationships: [
           {
@@ -6418,6 +6472,33 @@ export type Database = {
         }
         Relationships: []
       }
+      privileged_reauth: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          nonce: string
+          user_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          nonce: string
+          user_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          nonce?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       processing_release_control: {
         Row: {
           canary_company_ids: string[]
@@ -9347,6 +9428,10 @@ export type Database = {
         Args: { p_by: string }
         Returns: boolean
       }
+      _consume_privileged_reauth: {
+        Args: { p_nonce: string; p_user: string }
+        Returns: boolean
+      }
       _cr_adjustment_applies_to: {
         Args: { p_adjustment_id: string; p_certification_id: string }
         Returns: boolean
@@ -9593,6 +9678,10 @@ export type Database = {
       _reporting_pack_seal_refusal: {
         Args: { p_issuance_id: string; p_user: string }
         Returns: Record<string, unknown>
+      }
+      _require_platform_owner_reauth: {
+        Args: { p_reauth_nonce: string }
+        Returns: string
       }
       _require_workspace_capability: {
         Args: { p_capability: string; p_company_id: string }
@@ -9971,6 +10060,10 @@ export type Database = {
       }
       begin_provider_checkout_request: {
         Args: { p_checkout_intent_id: string; p_creation_token: string }
+        Returns: Json
+      }
+      bootstrap_first_platform_owner: {
+        Args: { p_reason: string; p_user_id: string }
         Returns: Json
       }
       can_access_workspace: { Args: { p_company_id: string }; Returns: boolean }
@@ -10778,6 +10871,12 @@ export type Database = {
         Returns: number
       }
       generate_service_enquiry_reference: { Args: never; Returns: string }
+      get_access_grant_history: {
+        Args: { p_limit?: number; p_recipient_user_id?: string }
+        Returns: Json
+      }
+      get_access_matrix: { Args: never; Returns: Json }
+      get_access_overview: { Args: never; Returns: Json }
       get_authoritative_certification: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: {
@@ -10895,6 +10994,10 @@ export type Database = {
         }
         Returns: Json
       }
+      grant_platform_owner: {
+        Args: { p_reason: string; p_reauth_nonce: string; p_user_id: string }
+        Returns: Json
+      }
       grant_workspace_capability: {
         Args: {
           p_capability: string
@@ -10975,6 +11078,7 @@ export type Database = {
       invitation_reservation_ttl: { Args: never; Returns: string }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
+      is_platform_owner: { Args: { p_user: string }; Returns: boolean }
       issue_official_reporting_pack: {
         Args: {
           p_company_id: string
@@ -11128,6 +11232,27 @@ export type Database = {
         }
         Returns: Json
       }
+      owner_grant_complimentary_access: {
+        Args: {
+          p_capability: string
+          p_effective_end: string
+          p_reason: string
+          p_reauth_nonce: string
+          p_recipient_user_id: string
+        }
+        Returns: Json
+      }
+      owner_grant_entity_allowance: {
+        Args: {
+          p_capacity: number
+          p_effective_end: string
+          p_reason: string
+          p_reauth_nonce: string
+          p_recipient_user_id: string
+          p_unlimited: boolean
+        }
+        Returns: Json
+      }
       persist_checkout_provider_result: {
         Args: {
           p_checkout_intent_id: string
@@ -11194,6 +11319,10 @@ export type Database = {
           p_reversal_type: string
         }
         Returns: Json
+      }
+      record_privileged_reauth: {
+        Args: { p_nonce: string; p_ttl_seconds?: number; p_user: string }
+        Returns: undefined
       }
       register_trial_balance_upload: {
         Args: {
@@ -11315,6 +11444,14 @@ export type Database = {
           retired_upload_id: string
         }[]
       }
+      revoke_access_grant: {
+        Args: {
+          p_override_id: string
+          p_reason: string
+          p_reauth_nonce: string
+        }
+        Returns: Json
+      }
       revoke_engagement_authority: {
         Args: {
           p_authority_type: string
@@ -11338,6 +11475,10 @@ export type Database = {
           p_reason: string
           p_user: string
         }
+        Returns: Json
+      }
+      revoke_platform_owner: {
+        Args: { p_reason: string; p_reauth_nonce: string; p_user_id: string }
         Returns: Json
       }
       revoke_workspace_capability: {
