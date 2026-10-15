@@ -94,7 +94,7 @@ export const CHARGE_OUTCOMES_WRAPPED_SOURCES = Object.freeze([
 /** Platform owner, access administration & entity allowances (access-a1): packaging repair of PR #130's merged migration
  * (its embedded BEGIN/COMMIT, rejected by the hosted runner, removed; atomicity moves to this wrapper). Commit holding the
  * repaired, convention-compliant source bytes. Authored, PENDING hosted application. */
-export const ACCESS_SOURCE_COMMIT = "1bd7b34362bfa2b0524070c90829425e701d1e52";
+export const ACCESS_SOURCE_COMMIT = "8a5c0e13caabfd4499301cc85cff09eb21261cb2";
 export const ACCESS_WRAPPED_SOURCES = Object.freeze([
   "20261104100000_platform_owner_access_and_entity_allowance.sql",
 ]);

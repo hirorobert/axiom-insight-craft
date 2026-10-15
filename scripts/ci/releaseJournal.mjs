@@ -535,12 +535,12 @@ export const SUBMISSION_FORMS = Object.freeze({
   // migration (its embedded BEGIN/COMMIT removed; atomicity via the wrapper). Both source forms and both wrapper forms
   // registered BEFORE application, from the repaired source bytes at 1bd7b34. Authored, PENDING hosted application.
   "20261104100000_platform_owner_access_and_entity_allowance.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 37884, sha256: "0fcc9f5a981235e69e2c1049611dda450875836a1807e048d7ebe0af19792be5" }),
-    finalLfRemoved: Object.freeze({ bytes: 37883, sha256: "661fb71d58522c7789d09550805e2d6cdc2d5b15f7dda5e2ecea6ed9eb24d86e" }),
+    identical: Object.freeze({ bytes: 38630, sha256: "1cf1dd3264fbc87ee850104028c760b24d1d0269b3addaefbae25ed505b2fb62" }),
+    finalLfRemoved: Object.freeze({ bytes: 38629, sha256: "7c8b37c1cd73c4b0189d4ed8f3b613eba200729a136241f4d89af7c5cfc4e8f5" }),
     // Self-checking wrapper release/wrappers/20261104100000_platform_owner_access_and_entity_allowance.wrapper.sql:
-    // render() of the identical form; it re-verifies those 37884 bytes and their SHA-256 in PostgreSQL first.
-    wrapper: Object.freeze({ bytes: 39490, sha256: "ea2ac6732cb6610607db3407a2e9cdbf9d0a985d3f8678b6771602cd05c23830" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 39489, sha256: "0e1c12964bbd797239d7897bdc3e234a657e742f417737b75e45615b62841328" }),
+    // render() of the identical form; it re-verifies those 38630 bytes and their SHA-256 in PostgreSQL first.
+    wrapper: Object.freeze({ bytes: 40236, sha256: "b14ba1cc83320bc14e658edc6b3ff5d5ec6cc2f21b4ff057e3915d7e82565d7a" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 40235, sha256: "163a61cabf1fcf11c5d07f4e4f7e9581ac3e2fb8d7db4da54c59cd20d18a246a" }),
   }),
 });
 

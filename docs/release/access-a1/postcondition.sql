@@ -71,5 +71,5 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: company_entity_capacity_wall lost its unlimited bypass or its advisory lock';
   END IF;
 
-  RAISE NOTICE 'POSTCONDITION access-a1: all expectations met.';
+  RAISE NOTICE 'POSTCONDITION OK.';
 END $$;
