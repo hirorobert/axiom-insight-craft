@@ -23,7 +23,8 @@ export function useMyEntityCapacity(enabled = true) {
         setError(true);
       } else {
         setCapacity({ determined: value.determined, capacity: value.capacity as number | null,
-          used: value.used as number | null, planCode: typeof value.plan_code === "string" ? value.plan_code : null });
+          used: value.used as number | null, planCode: typeof value.plan_code === "string" ? value.plan_code : null,
+          unlimited: value.unlimited === true, source: typeof value.source === "string" ? value.source : null });
       }
       setLoading(false);
     });

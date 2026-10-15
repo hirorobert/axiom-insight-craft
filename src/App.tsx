@@ -52,6 +52,7 @@ const queryClient = new QueryClient();
 
 import PaymentReturn from "@/pages/billing/PaymentReturn";
 import CommercialAdmin from "@/pages/commercial/CommercialAdmin";
+import AccessConsole from "@/pages/admin/AccessConsole";
 import Pricing from "@/pages/Pricing";
 import Plans from "@/pages/Plans";
 import { serviceEnquiryRoutes } from "@/lib/serviceEnquiry/serviceEnquiryRoutes";
@@ -182,6 +183,7 @@ const App = () => (
                 <Route path="/billing/orders" element={<Suspense fallback={null}><Orders /></Suspense>} />
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
+                <Route path="/admin/access" element={<AccessConsole />} />
                 <Route path="/privacy" element={<Privacy />} />
                 {/* /internal/acceptance/classification-states exists only in a dev build (import.meta.env.DEV). */}
                 {ClassificationStatesAcceptance && (
