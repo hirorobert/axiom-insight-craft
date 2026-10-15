@@ -217,7 +217,7 @@ export default function Checkout() {
             </div>
           )}
 
-          <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting} onClick={submit} data-testid="checkout-continue">
+          <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous"} onClick={submit} data-testid="checkout-continue">
             {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
             {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to Polar"}
           </Button>
