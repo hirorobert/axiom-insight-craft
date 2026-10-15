@@ -179,10 +179,10 @@ export default function PaymentReturn() {
         {saffRef && phase !== "NOT_FOUND" && (
           <>
             <header className="text-center" aria-live="polite">
-              {phase === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}
+              {view === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}
               {phase === "CONFIRMED" && <CheckCircle2 className="mx-auto h-12 w-12 text-green-700" aria-hidden="true" />}
               {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && <XCircle className="mx-auto h-12 w-12 text-destructive" aria-hidden="true" />}
-              {(phase === "REVIEW" || phase === "TIMEOUT") && <Clock className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />}
+              {(view === "REVIEW" || view === "TIMEOUT" || view === "OPEN" || view === "PROCESSING") && <Clock className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />}
               <h1 className="mt-3 text-xl font-semibold" data-testid="payment-heading">
                 {view === "OPEN" && "Checkout not completed"}
                 {view === "PROCESSING" && "Your payment is being processed"}
