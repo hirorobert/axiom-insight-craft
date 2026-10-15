@@ -60,6 +60,8 @@ export interface WorkspaceState {
   statementEquationExact?: true;
   /** Present (true) when the current upload's result predates the processing milestones (resultVersion.ts, §3.2). */
   checkedByEarlierVersion?: true;
+  /** The most important open non-blocking finding on the current result (resultStatus.ts, §3.5); absent when none. */
+  openFinding?: "needs_confirmation" | "review";
 }
 
 /**
@@ -95,6 +97,8 @@ export interface UploadSnapshot {
   recordedEquation?: import("./computeCertificationReadiness").RecordedEquation;
   /** The stored result records the processing milestones (resultVersion.hasMilestoneRecord); undefined = not read. */
   hasMilestoneRecord?: boolean;
+  /** The most important open non-blocking finding in the stored result (resultStatus.openFindingKind); null = none. */
+  openFinding?: "needs_confirmation" | "review" | null;
   /** Recorded debit/credit totals in integer cents (validation_report.tb_balance_check); null = not computed. */
   trialBalanceTotals?: import("./trialBalanceVerdict").TrialBalanceTotals | null;
 }

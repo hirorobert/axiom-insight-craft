@@ -65,6 +65,7 @@ import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
+import { prepareStatusWord } from "@/lib/workspace/resultStatus";
 
 /**
  * Tab word in professional sentence case, derived from the canonical metadata
@@ -103,8 +104,12 @@ const STATUS_TITLES: Record<MissionStatus, string> = {
   not_applicable:  "Not applicable",
 };
 
-function StatusDot({ status }: { status: MissionStatus }) {
-  const title = STATUS_TITLES[status];
+function StatusDot({ status, stage, openFinding }: { status: MissionStatus; stage?: WorkspaceMission; openFinding?: "needs_confirmation" | "review" }) {
+  // An open confirmation or review finding on a reviewed trial balance is named, never shown as a plain pass.
+  const flagged = stage === "prepare" && (status === "passed" || status === "signed") && !!openFinding;
+  // The Prepare stage speaks the trial-balance vocabulary (resultStatus.ts, §3.5): the same words as the page and Overview.
+  const title = (stage === "prepare" ? prepareStatusWord(status, openFinding) : null) ?? STATUS_TITLES[status];
+  if (flagged) return <span title={title} aria-label={title} className="inline-flex shrink-0"><XCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" /></span>;
   // Lucide SVGs don't accept a `title` prop — wrap in a span so browser shows tooltip
   const inner = (() => {
     switch (status) {
@@ -406,7 +411,7 @@ export default function WorkspaceLayout() {
                     <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
                     {item.disabled && <span id={lockedReasonId} className="sr-only">{item.reason} {item.action}</span>}
-                    {!loading && <StatusDot status={mission.status} />}
+                    {!loading && <StatusDot status={mission.status} stage={slug} openFinding={workspaceState.openFinding} />}
                   </Link>
                 );
                 // A locked tab keeps its href (tapping opens the stage's own lock explanation); the tooltip adds the

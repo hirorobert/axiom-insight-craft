@@ -125,6 +125,8 @@ export function deriveWorkspaceState(
     ...(upload.recordedEquation === "exact" ? { statementEquationExact: true as const } : {}),
     // §3.2: a result from before the processing milestones is labelled as an earlier version on every surface.
     ...(upload.hasMilestoneRecord === false ? { checkedByEarlierVersion: true as const } : {}),
+    // §3.5: an open confirmation or review finding is named on every surface; it never changes a mission's status.
+    ...(upload.openFinding ? { openFinding: upload.openFinding } : {}),
   };
 
   // ── PATH 2: Processing ────────────────────────────────────────────────────
