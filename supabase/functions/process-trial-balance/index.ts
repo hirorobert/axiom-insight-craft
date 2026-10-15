@@ -1394,7 +1394,9 @@ serve(async (req) => {
     const sourceFileHash = await sha256HexBytes(fileBuffer);
 
     const fileBytes = new Uint8Array(fileBuffer);
-    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency };
+    // The workspace's entity name is compared only with an identifiable title-block entity name (§3.3): a difference is
+    // a confirmation for review, never a rename, a move or a block.
+    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency, workspaceEntityName: upload.company_name ?? null };
     let ingest: IngestResult;
     // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
     // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
@@ -1544,6 +1546,11 @@ serve(async (req) => {
     const totalDebits  = minorToNumber(ingestTotals.debitMinor, exponent);
     const totalCredits = minorToNumber(ingestTotals.creditMinor, exponent);
     const blockingIssues = ingest.issues.filter((i) => i.severity === "blocking");
+    // Review-only ingestion findings (for example, unrecognised text after the last account) are recorded on every
+    // certification as layer-2 warnings: visible for review, never blocking, never adjusting an amount.
+    const ingestionReviewExceptions = ingest.issues.filter((i) => i.severity === "review").map((i): SafishaExceptionRecord => ({
+      code: i.code, layer: 2, severity: "warning", accountCode: null, message: i.message,
+    } as SafishaExceptionRecord));
     if (blockingIssues.length > 0) {
       const imbalanced = blockingIssues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE");
       const result: Partial<ProcessingResult> = {
@@ -1568,6 +1575,7 @@ serve(async (req) => {
           ...blockingIssues.map((i): SafishaExceptionRecord => ({
             code: i.code, layer: i.code === "TRIAL_BALANCE_IMBALANCE" ? 3 : 2, severity: "error", accountCode: null, message: i.message,
           })),
+          ...ingestionReviewExceptions,
           ...(phase0Evidence?.layer5Exceptions ?? []),
           ...(phase0Evidence?.layer6Exceptions ?? []),
         ],
@@ -1972,6 +1980,7 @@ serve(async (req) => {
           ...needsReviewAccounts.map((r): SafishaExceptionRecord => ({
             code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason,
           } as SafishaExceptionRecord)),
+          ...ingestionReviewExceptions,
           ...(phase0Evidence?.layer5Exceptions ?? []),
           ...(phase0Evidence?.layer6Exceptions ?? []),
         ],
@@ -2096,6 +2105,7 @@ serve(async (req) => {
     const done = await finishAttempt(supabase as never, runId, {
       outcome: "certified", normalizedInputHash, isBlocking: false, requiresReview: false,
       exceptions: [
+        ...ingestionReviewExceptions,
         ...(phase0Evidence?.layer5Exceptions ?? []),
         ...(phase0Evidence?.layer6Exceptions ?? []),
       ],
@@ -2189,6 +2199,10 @@ function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record
     // Compact per-row lineage: [row number, disposition, account identity or reason].
     lineage: ingest.lineage.map((l) => [l.rowNumber, l.disposition, l.identity ?? l.reason ?? null]),
     issues: ingest.issues,
+    // What the file says about itself above the header (entity, period, currency labels), with locations: evidence only.
+    evidence: ingest.evidence,
+    // The review-only rules (§3.6): applicability and outcome; none blocks or adjusts by itself.
+    review_checks: ingest.reviewChecks,
     milestones: milestones.list(),
   };
 }

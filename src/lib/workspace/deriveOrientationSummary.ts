@@ -20,6 +20,8 @@ import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
 import { reviewedScope } from "./trialBalanceVerdict";
+import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON } from "./resultVersion";
+import { openFindingWord } from "./resultStatus";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -57,6 +59,10 @@ export interface TrialBalanceReviewStep {
 export function trialBalanceReviewStep(state: WorkspaceState): TrialBalanceReviewStep | null {
   const prepare = state.missions.prepare.status;
   if (prepare !== "passed" && prepare !== "signed") return null;
+  // §3.2: the same words as the Prepare checks for a result from before the processing milestones.
+  if (state.checkedByEarlierVersion) return { ready: true, label: EARLIER_VERSION_LABEL, detail: EARLIER_VERSION_REASON };
+  // §3.5: an open confirmation or review finding is named first, in the same words as the Prepare page.
+  if (state.openFinding) return { ready: true, label: openFindingWord(state.openFinding), detail: "Open the trial balance to see what needs your attention. It does not change what the result unlocks." };
   return {
     ready: true,
     label: TRIAL_BALANCE_REVIEW.ready,

@@ -11,6 +11,8 @@
  * component state, owned by useWorkspaceData. A hub summary is a point-in-time read.
  */
 
+import { hasMilestoneRecord } from "./resultVersion";
+import { openFindingKind } from "./resultStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { deriveWorkspaceState } from "./deriveWorkspaceState";
 import { resolveActiveUpload } from "./resolveActiveUpload";
@@ -137,6 +139,8 @@ function toUploadSnapshot(
     certificationBlocker,
     trialBalanceTotals: readTrialBalanceTotals(upload.processing_result),
     recordedEquation: readRecordedEquation(upload.processing_result),
+    hasMilestoneRecord: hasMilestoneRecord(upload.processing_result),
+    openFinding: openFindingKind(upload.processing_result),
   };
 }
 

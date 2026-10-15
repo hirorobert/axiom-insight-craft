@@ -10,8 +10,12 @@ import { deriveTrialBalanceSteps } from "@/components/workspace/TrialBalanceProg
 import {
   deriveTrialBalanceVerdict, formatCents, lifecycleLabel, plainBlockReason, readTrialBalanceTotals, resultLabel, stripEngineCode,
 } from "./trialBalanceVerdict";
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
 
 const SAMPLE_RESULT = {
+  ingestion: CURRENT_INGESTION,
   summary: { total_accounts: 180, auto_classified: 0 },
   validation_report: {
     mapping_completeness: { total_accounts: 180, mapped_accounts: 180, needs_review: 0 },

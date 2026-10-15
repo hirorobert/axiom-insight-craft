@@ -71,11 +71,15 @@ export function selectTrialBalanceSheet(sheets: WorkbookSheet[], periodYear: num
   };
 }
 
-export interface ReadContext { fileName: string; periodYear: number | null; currency: string | null }
+export interface ReadContext {
+  fileName: string; periodYear: number | null; currency: string | null;
+  /** The workspace's entity name, compared only with an identifiable title-block entity (§3.3). Optional. */
+  workspaceEntityName?: string | null;
+}
 
 /** A result with no rows: the file could not be read at all. Lineage and totals are empty; the one issue says why. */
 function unreadable(ctx: ReadContext, sheetName: string | null, issue: IngestIssue): IngestResult {
-  const r = ingestTrialBalance({ rows: [], sheetName, periodYear: ctx.periodYear, currency: ctx.currency });
+  const r = ingestTrialBalance({ rows: [], sheetName, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
   // Replace the generic "file has no rows" with the actual reason, keeping any prerequisite issue (period/currency).
   const kept = r.issues.filter((i) => i.code !== "FILE_EMPTY");
   return { ...r, issues: [...kept, issue], blocking: true };
@@ -92,7 +96,7 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
     if (!decoded.ok) return unreadable(ctx, null, decoded.issue);
     const parsed = parseCsvText(decoded.text);
     if (!parsed.ok) return unreadable(ctx, null, parsed.issue);
-    return ingestTrialBalance({ rows: parsed.rows, sheetName: null, periodYear: ctx.periodYear, currency: ctx.currency });
+    return ingestTrialBalance({ rows: parsed.rows, sheetName: null, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
   }
   let wb: ReturnType<XlsxLike["read"]>;
   try {
@@ -102,7 +106,7 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   }
   const choice = selectTrialBalanceSheet(workbookSheets(xlsx, wb), ctx.periodYear);
   if (!choice.ok) return unreadable(ctx, null, choice.issue);
-  return ingestTrialBalance({ rows: choice.sheet.rows, sheetName: choice.sheet.name, periodYear: ctx.periodYear, currency: ctx.currency });
+  return ingestTrialBalance({ rows: choice.sheet.rows, sheetName: choice.sheet.name, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
 }
 
 // ── With a confirmed layout ──────────────────────────────────────────────────────────────────────────────────────────
@@ -146,5 +150,5 @@ export function readTrialBalanceSourceWithLayout(bytes: Uint8Array, ctx: ReadCon
     const wanted = profile.sheet.kind === "csv" ? "a CSV file" : `a sheet named “${profile.sheet.name}”`;
     return { result: unreadable(ctx, null, { code: "LAYOUT_SHEET_NOT_FOUND", severity: "blocking", message: `The confirmed layout is for ${wanted}, which this file does not have. Check the file, or confirm a new layout.` }), resolved: null };
   }
-  return ingestWithLayout({ rows: sheet.rows, sheetName: tables.kind === "csv" ? null : sheet.name, periodYear: ctx.periodYear, currency: ctx.currency }, profile, profileHash);
+  return ingestWithLayout({ rows: sheet.rows, sheetName: tables.kind === "csv" ? null : sheet.name, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName }, profile, profileHash);
 }
