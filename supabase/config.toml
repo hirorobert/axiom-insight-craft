@@ -23,3 +23,6 @@ project_id = "bvyivmmfjejbmqoydezk"
     verify_jwt = false
   [functions.commercial-webhook-snippe]
     verify_jwt = false
+  # Recent-reauthentication gate for privileged access-administration actions: the caller MUST be authenticated.
+  [functions.reauthenticate]
+    verify_jwt = true
