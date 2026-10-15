@@ -9,7 +9,18 @@
 - **Nothing in this handoff was done on the hosted project by Claude.** No migration was applied, no function deployed, nothing published, no secret set, no price approved, no charge or refund made, and no provider enabled. Payments stay `PAYMENTS_DISABLED` until the owner opens them stage by stage.
 
 
-## 0. Current launch scope (14 October 2026)
+## 0. Current launch scope (14 October 2026; status updated 15 October 2026)
+
+> **Status on 15 October 2026. This supersedes the scope bullets below where they differ.**
+> - **Scope:** the owner decided a **Polar-only** production launch on 14 October 2026. **Snippe is on hold** and does not block Polar. It stays switched off in code.
+> - **Completed on staging `hplriydtdelehepgttul`, 15 October 2026:** P1 sandbox purchase, P2 sandbox refund with an audited `LICENCE_KEPT` decision, P3 replayed `order.paid` (no duplicate), and X1 (the sandbox payment produced only a `SANDBOX` licence and no access). All of these **PASS**. Evidence is in `PAYMENT_ACCEPTANCE_MATRIX.md` (#128); this handoff does not repeat it.
+> - **Still open:**
+>   - production deployment, in #130's order: migration `20261104100000`, then the `reauthenticate` function and the five payment functions, then Publish of current main;
+>   - the deployed-source and production-configuration read-back;
+>   - **P4**, one real USD 490 purchase by the designated tester, **not authorised yet**;
+>   - P5 if a refund is chosen;
+>   - then the audited `CUSTOMER_PAYMENTS_ENABLED` transition.
+> - **Production payment state:** `PAYMENTS_DISABLED` (owner-confirmed, 15 October 2026).
 
 - **Scope:** **Polar card payments and Snippe mobile money.**
   - This is the owner's decision of 14 October 2026, relayed by the payment-integration session (one integration owner for both routes).
