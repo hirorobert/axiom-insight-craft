@@ -381,6 +381,7 @@ src/
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       twoPeriodIntake.ts      ← One file as current + prior year (I1-B): register_two_period_uploads client, adjacency rule; TWO_PERIOD_INTAKE_ENABLED (reviewed constant, false until hosted apply)
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
+      resultVersion.ts                ← Which check set a stored result came from: no processing milestones = "Checked by an earlier version" on every surface (history unchanged)
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client

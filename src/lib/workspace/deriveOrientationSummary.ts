@@ -20,6 +20,7 @@ import { customerCapabilityTitle } from "./mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "./moduleAvailability";
 import type { WorkspaceState } from "./types";
 import { reviewedScope } from "./trialBalanceVerdict";
+import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON } from "./resultVersion";
 
 export interface OrientationMilestone {
   stageLabel: string;
@@ -57,6 +58,8 @@ export interface TrialBalanceReviewStep {
 export function trialBalanceReviewStep(state: WorkspaceState): TrialBalanceReviewStep | null {
   const prepare = state.missions.prepare.status;
   if (prepare !== "passed" && prepare !== "signed") return null;
+  // §3.2: the same words as the Prepare checks for a result from before the processing milestones.
+  if (state.checkedByEarlierVersion) return { ready: true, label: EARLIER_VERSION_LABEL, detail: EARLIER_VERSION_REASON };
   return {
     ready: true,
     label: TRIAL_BALANCE_REVIEW.ready,

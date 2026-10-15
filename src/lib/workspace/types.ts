@@ -58,6 +58,8 @@ export interface WorkspaceState {
   nextAction: NextAction;
   /** Present (true) only when the current upload's stored exact amounts prove the statement equation (recordedEquation). */
   statementEquationExact?: true;
+  /** Present (true) when the current upload's result predates the processing milestones (resultVersion.ts, §3.2). */
+  checkedByEarlierVersion?: true;
 }
 
 /**
@@ -91,6 +93,8 @@ export interface UploadSnapshot {
   certificationBlocker?: string | null;
   /** What the stored result proves about the statement equation (readRecordedEquation); undefined = not read. */
   recordedEquation?: import("./computeCertificationReadiness").RecordedEquation;
+  /** The stored result records the processing milestones (resultVersion.hasMilestoneRecord); undefined = not read. */
+  hasMilestoneRecord?: boolean;
   /** Recorded debit/credit totals in integer cents (validation_report.tb_balance_check); null = not computed. */
   trialBalanceTotals?: import("./trialBalanceVerdict").TrialBalanceTotals | null;
 }

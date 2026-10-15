@@ -123,6 +123,8 @@ export function deriveWorkspaceState(
     currentUploadId: upload.id,
     lastUpdatedAt: upload.processedAt ?? upload.uploadedAt,
     ...(upload.recordedEquation === "exact" ? { statementEquationExact: true as const } : {}),
+    // §3.2: a result from before the processing milestones is labelled as an earlier version on every surface.
+    ...(upload.hasMilestoneRecord === false ? { checkedByEarlierVersion: true as const } : {}),
   };
 
   // ── PATH 2: Processing ────────────────────────────────────────────────────

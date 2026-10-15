@@ -38,6 +38,7 @@
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
 import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold, constrainChecksByIngestion } from "./computeCertificationReadiness";
+import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
 
 /**
  * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
@@ -54,7 +55,9 @@ export const reviewedScope = (equationExact: boolean): string => (equationExact 
 /** Presentation-only row (not a stored check): the statement equation for a result that records no equation failure. */
 export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
 /** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
-export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this legacy result.";
+export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this result. Reprocess to apply current checks.";
+
+export { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
 /** The statement equation proven by the stored result's exact amounts (tb-amounts/1, recomputed on read). */
 export const EQUATION_HOLDS_EXACTLY = "Holds exactly: assets equal liabilities + equity + income − expenses, to the minor unit.";
 
@@ -476,6 +479,16 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       }
       if (checks.some(c => c.state === "pending")) {
         return { ...base, status: "checking", statusLabel: "Checks incomplete", tone: "warning", reason: "The processing record does not show that all required checks completed. Reprocess the file before continuing.", primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null };
+      }
+      if (!hasMilestoneRecord(upload.processing_result)) {
+        // An earlier version's accepted result: its record and approvals stand, but it does not show today's checks as
+        // passed. Reprocessing creates a new version through the existing authority; nothing here rewrites history.
+        return {
+          ...base, status: "accepted", statusLabel: EARLIER_VERSION_LABEL, tone: "neutral", reason: EARLIER_VERSION_REASON,
+          checks: checks.map((c) => (c.state === "passed" ? { ...c, neutral: true, detail: EARLIER_VERSION_REASON } : c)),
+          informational: informational.filter((c) => c.id !== STATEMENT_EQUATION_NOTE_ID),
+          balanceStatement: null, primaryAction: null,
+        };
       }
       return {
         ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",

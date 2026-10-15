@@ -27,8 +27,11 @@ const layers = (l3: PreflightCheck["state"]): PreflightCheck[] => [
   { id: "l5_supporting_evidence", label: "", state: "pending", detail: "NOT_EVALUATED: x" },
 ];
 const pr = { validation_report: { tb_balance_check: { total_debits: 10, total_credits: 8, difference: 2 } } };
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
 const blocked = deriveTrialBalanceVerdict({ upload: { status: "blocked", processing_result: pr }, readiness: { verdict: "blocked", blocker: "x", checks: layers("failed") }, canRetry: true });
-const accepted = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { validation_report: { tb_balance_check: { total_debits: 10, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
+const accepted = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: { total_debits: 10, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
 const card = (verdict: typeof blocked) => render(createElement(CurrentTrialBalanceCard, { fileName: "TB.xlsx", uploadedAt: "2026-09-30T10:40:00Z", fileSize: 21_000, verdict, onPrimary: () => {} }));
 
 describe("Current Trial Balance card", () => {
@@ -56,7 +59,7 @@ describe("Current Trial Balance card", () => {
   });
   it("the difference reads 'Balanced' at exact zero and 'Accepted — within the TZS 1.00 tolerance' for 1–100 cents; never on a block", () => {
     expect(card(accepted)).toMatch(/data-testid="trial-balance-balance-statement">Balanced</);
-    const within = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { validation_report: { tb_balance_check: { total_debits: 10.6, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
+    const within = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: { total_debits: 10.6, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
     const html = card(within);
     expect(html).toContain("0.60");
     expect(html).toMatch(/data-testid="trial-balance-balance-statement">Accepted — within the TZS 1.00 tolerance</);

@@ -39,7 +39,10 @@ const cert = (exceptions: unknown[], review = false, blocking = false): TbCertif
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 const render = (node: ReturnType<typeof createElement>) => renderToStaticMarkup(createElement(MemoryRouter, null, node));
 const EQ_FAIL = { code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null, message: "Assets (10000.00) != Liabilities + Closing Equity (8000.00). Difference: 2000.00" };
-const BALANCED_EXACT = { validation_report: { tb_balance_check: { passed: true, total_debits: 60500, total_credits: 60500, difference: 0, exact: { currency: "TZS", currency_exponent: 2, total_debits: "60500.00", total_credits: "60500.00", difference: "0.00" } } } };
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const BALANCED_EXACT = { ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: { passed: true, total_debits: 60500, total_credits: 60500, difference: 0, exact: { currency: "TZS", currency_exponent: 2, total_debits: "60500.00", total_credits: "60500.00", difference: "0.00" } } } };
 const BLAMING_WORDS = /every check passed|checks passed|checks have passed|Balanced|VALID\b/;
 
 const authoritative = (row: TbCertificationRow) => computeCertificationReadiness({ uploadExists: true, currentUploadId: U, authoritative: row, latestForUpload: row });
@@ -129,7 +132,7 @@ describe("legacy equation success: 'Not exactly verified', never 'Balanced', nev
     expect(v.reason).not.toMatch(/every check passed|checks passed/i);
     expect(v.checks.find((c) => c.id === "l3_arithmetic")).toMatchObject({ label: "Debits equal credits", state: "passed" });
     // One neutral explanation, no state word (was "Not checked yet · Not exactly verified…", a contradiction).
-    expect(v.informational[0]).toEqual({ id: STATEMENT_EQUATION_NOTE_ID, label: "Statement equation", state: "pending", detail: "Exact equation verification unavailable for this legacy result.", neutral: true });
+    expect(v.informational[0]).toEqual({ id: STATEMENT_EQUATION_NOTE_ID, label: "Statement equation", state: "pending", detail: "Exact equation verification unavailable for this result. Reprocess to apply current checks.", neutral: true });
     expect(v.checks.map((c) => c.id)).toEqual(["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"]); // stored ids unchanged
   });
 
@@ -149,7 +152,7 @@ describe("legacy equation success: 'Not exactly verified', never 'Balanced', nev
     expect(card(v)).toMatch(/REVIEWED|Reviewed/);
     expect(card(v)).not.toMatch(/every check passed/i);
     const list = checksList(v);
-    expect(list).toMatch(/Statement equation Exact equation verification unavailable for this legacy result\./);
+    expect(list).toMatch(/Statement equation Exact equation verification unavailable for this result\. Reprocess to apply current checks\./);
     expect(list).not.toMatch(/Not checked yet Not exactly verified|Statement equation Not checked yet/);
     expect(list).not.toMatch(/every check passed/i);
     const task = currentTrialBalanceTask(v);
@@ -259,7 +262,12 @@ describe("layer-3 codes: known, legacy and unknown", () => {
     expect(noArray.verdict).toBe("unknown");
     // A result with no processing_result and no equation record shows no card and no stored-failure override.
     expect(renderToStaticMarkup(createElement(BalanceSheetEquationCard, { upload: { processing_result: null } } as never))).toBe("");
-    expect(verdictFor(authoritative(cert([])), "complete", null).statusLabel).toBe("Reviewed");
+    // ...and (§3.2) a result with no stored processing record predates the processing milestones: it is labelled as an
+    // earlier version, never presented as passing the current check set.
+    const earlier = verdictFor(authoritative(cert([])), "complete", null);
+    expect([earlier.status, earlier.statusLabel, earlier.reason]).toEqual(["accepted", "Checked by an earlier version", "Checked by an earlier version. Reprocess to apply current checks."]);
+    expect(earlier.checks.filter((c) => c.state === "passed").every((c) => c.neutral === true)).toBe(true);
+    expect(earlier.balanceStatement).toBeNull();
     // A cash reconciliation missing its fields is still only "Not checked".
     const html = renderToStaticMarkup(createElement(ValidationReport as never, { report: { tb_balance_check: { passed: true, total_debits: 1, total_credits: 1, difference: 0 }, mapping_completeness: { passed: true }, balance_sheet_equation: null, profit_equity_linkage: null, cash_reconciliation: {} }, errors: [], isValid: null, status: "complete" }));
     expect(text(html)).toMatch(/Cash reconciliation: Not checked/);
