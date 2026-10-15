@@ -62,6 +62,8 @@ export type CreateCheckoutResult =
       success: false;
       outcome: 'DEFINITIVE_FAILURE' | 'UNCERTAIN';
       error: string;
+      /** The provider's own refusal message, already sanitised by the adapter. For the function log only; never persisted. */
+      providerDiagnostic?: string;
     };
 
 /** What the server knows about an intent when it asks the provider for the truth. */

@@ -38,6 +38,54 @@ const obj = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
 const int = (v: unknown): bigint | null => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? BigInt(v) : null);
 
+/**
+ * Polar's answer to a refused request, reduced to what is safe to record. Provider text is untrusted, and only the
+ * provider's RESPONSE body is read here (never the request body, headers, token or customer):
+ *   code   — Polar's `error` name (or a 422 item's `type`), kept only when it is a plain identifier: letters, digits,
+ *            `_` and `.`, at most 64 characters. Never free text, so it may be persisted with the failure reason.
+ *   detail — for the function LOG only: Polar's `detail` message with URLs, emails, UUIDs, credential-like tokens, long
+ *            opaque strings and runs of 4+ digits replaced by [redacted], every character outside a plain-text set
+ *            dropped, capped at 200 characters. For a 422, only each item's `type` and `loc` path (at most 5 items).
+ */
+const ERROR_CODE = /^[A-Za-z][A-Za-z0-9_.]{0,63}$/;
+const LOC_PART = /^[A-Za-z0-9_]{1,40}$/;
+
+export function redactProviderText(raw: string): string | null {
+  const s = raw.slice(0, 1000)
+    .replace(/https?:\/\/\S+/gi, '[redacted]')
+    .replace(/[^\s@]+@[^\s@]+/g, '[redacted]')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[redacted]')
+    .replace(/\b(?:polar|whsec|snp|sk|pk)_[A-Za-z0-9_\-+/=]+/gi, '[redacted]')
+    .replace(/[A-Za-z0-9_\-+/=]{24,}/g, '[redacted]')
+    .replace(/\d{4,}/g, '[redacted]')
+    .replace(/\s+/g, ' ')
+    .replace(/[^A-Za-z0-9 .,:;'()_\-[\]]/g, '')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return s.length > 0 ? s : null;
+}
+
+export function sanitizePolarError(body: unknown): { code: string | null; detail: string | null } {
+  const b = obj(body);
+  if (Array.isArray(b.detail)) {
+    const items = (b.detail as unknown[]).slice(0, 5).map((item) => {
+      const o = obj(item);
+      const type = typeof o.type === 'string' && ERROR_CODE.test(o.type) ? o.type : 'unknown';
+      const loc = Array.isArray(o.loc)
+        ? (o.loc as unknown[]).slice(0, 6).map((p) => (typeof p === 'number' && Number.isSafeInteger(p) ? String(p) : typeof p === 'string' && LOC_PART.test(p) ? p : '?')).join('.')
+        : '?';
+      return `${type}@${loc}`;
+    });
+    const first = obj((b.detail as unknown[])[0]).type;
+    return { code: typeof first === 'string' && ERROR_CODE.test(first) ? first : null, detail: items.length > 0 ? items.join('; ') : null };
+  }
+  return {
+    code: typeof b.error === 'string' && ERROR_CODE.test(b.error) ? b.error : null,
+    detail: typeof b.detail === 'string' ? redactProviderText(b.detail) : null,
+  };
+}
+
 export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetch): ProviderAdapter {
   const headers = { Authorization: `Bearer ${cfg.accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' };
   const call = (path: string, init: RequestInit, attempts = 2) =>
@@ -67,7 +115,11 @@ export function createPolarAdapter(cfg: PolarConfig, fetchImpl: FetchLike = fetc
       }),
     });
     if (!r.answered) return { success: false, outcome: 'UNCERTAIN', error: `POLAR_${r.error}` };
-    if (r.status >= 400 && r.status < 500) return { success: false, outcome: 'DEFINITIVE_FAILURE', error: `POLAR_HTTP_${r.status}` };
+    if (r.status >= 400 && r.status < 500) {
+      // Polar's refusal, sanitised: its error code joins the recorded reason; its redacted message goes to the log only.
+      const { code, detail } = sanitizePolarError(r.body);
+      return { success: false, outcome: 'DEFINITIVE_FAILURE', error: code ? `POLAR_HTTP_${r.status}:${code}` : `POLAR_HTTP_${r.status}`, ...(detail ? { providerDiagnostic: detail } : {}) };
+    }
     if (r.status >= 500) return { success: false, outcome: 'UNCERTAIN', error: `POLAR_HTTP_${r.status}` };
     const b = obj(r.body);
     const id = str(b.id), url = str(b.url);

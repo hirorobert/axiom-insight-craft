@@ -360,7 +360,8 @@ Deno.serve(async (req: Request) => {
     const transitionRpc = checkoutResult.outcome === 'DEFINITIVE_FAILURE'
       ? 'mark_checkout_attempt_failed'
       : 'mark_checkout_attempt_uncertain';
-    console.error('Provider checkout did not succeed', { correlationId, provider, outcome: checkoutResult.outcome, error: checkoutResult.error });
+    console.error('Provider checkout did not succeed', { correlationId, saffReference, provider, outcome: checkoutResult.outcome, error: checkoutResult.error,
+      providerDiagnostic: checkoutResult.providerDiagnostic ?? null });
     const { data: transitionData, error: transitionErr } = await supabase.rpc(transitionRpc, {
       p_checkout_intent_id: intentId, p_creation_token: creationToken,
       p_reason: checkoutResult.error,
