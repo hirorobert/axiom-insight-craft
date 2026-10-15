@@ -43,7 +43,7 @@ export function Footer() {
 
           {/* Product links */}
           <div className="sm:col-span-4 lg:col-span-2">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
               Product
             </p>
             <ul className="mt-4 space-y-2.5">
@@ -62,7 +62,7 @@ export function Footer() {
 
           {/* Account links */}
           <div className="sm:col-span-3 lg:col-span-2">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
               Account
             </p>
             <ul className="mt-4 space-y-2.5">
@@ -81,7 +81,7 @@ export function Footer() {
 
           {/* Contact: the published mailboxes (src/lib/contact/contactChannels.ts) */}
           <div className="sm:col-span-5 lg:col-span-3">
-            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground/55">
+            <p className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
               Contact
             </p>
             <ContactChannelList className="mt-4" />
