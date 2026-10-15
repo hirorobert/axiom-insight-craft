@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ...responseData, recovery: 'PROVIDER_UNAVAILABLE', correlationId }, 200);
     }
     const { data: intent, error: intentErr } = await serviceClient.from('payment_checkout_intents')
-      .select(`${SETTLEMENT_INTENT_COLUMNS}, provider_checkout_url`).eq('id', responseData.intent_id).maybeSingle();
+      .select(SETTLEMENT_INTENT_COLUMNS).eq('id', responseData.intent_id).maybeSingle();
     if (intentErr || !intent) return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
 
     const outcome = await settleIntent(serviceDbFrom(serviceClient), adapter, intent);

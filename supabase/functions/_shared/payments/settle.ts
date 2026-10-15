@@ -28,6 +28,7 @@ export interface SettlementIntent {
   provider: string;
   provider_environment: string | null;
   provider_checkout_ref: string | null;
+  provider_checkout_url?: string | null;
   billing_customer_id: string;
   expected_amount_minor: number | string;
   currency_code: string;
@@ -72,7 +73,7 @@ export function serviceDbFrom(client: unknown): ServiceDb {
 }
 
 export const SETTLEMENT_INTENT_COLUMNS =
-  'id, saff_reference, provider, provider_environment, provider_checkout_ref, billing_customer_id, expected_amount_minor, currency_code, status';
+  'id, saff_reference, provider, provider_environment, provider_checkout_ref, provider_checkout_url, billing_customer_id, expected_amount_minor, currency_code, status';
 
 /** The canonical idempotency identity of one provider transaction on one intent. */
 export const commitKey = (tx: NormalizedTransaction, intentId: string) => sha256Hex(`${tx.provider}:${tx.providerTransactionId}:${intentId}`);
