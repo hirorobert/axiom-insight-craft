@@ -393,6 +393,13 @@
       "when": 1791911338723,
       "tag": "0055_verified_charge_outcomes_wrapper",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792066142300,
+      "tag": "0056_platform_owner_access_and_entity_allowance_wrapper",
+      "breakpoints": true
     }
   ]
 }
