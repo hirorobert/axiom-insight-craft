@@ -57,10 +57,11 @@ export interface UseEngagementMandateReturn {
   canAmend: boolean;
   loading: boolean;
   refresh: () => void;
+  /** Opens (or reuses) the engagement with this scope; resolves to its id. */
   createEngagement: (
     capabilities: EngagementCapability[],
     engagementType?: string,
-  ) => Promise<void>;
+  ) => Promise<string>;
   grantCapability: (cap: EngagementCapability, reason?: string) => Promise<void>;
   revokeCapability: (cap: EngagementCapability, reason?: string) => Promise<void>;
 }
@@ -178,8 +179,9 @@ export function useEngagementMandate(
     async (capabilities: EngagementCapability[], engagementType = "composite") => {
       if (!user) throw new Error("Sign in to choose services.");
       // Idempotent and convergent: repeated clicks, retries and concurrent requests end on ONE engagement.
-      await openEngagementWithScope(supabase as unknown as RpcClient, { companyId, year: periodYear, capabilities, engagementType });
+      const opened = await openEngagementWithScope(supabase as unknown as RpcClient, { companyId, year: periodYear, capabilities, engagementType });
       await load();
+      return opened.engagementId;
     },
     [companyId, periodYear, user, load],
   );

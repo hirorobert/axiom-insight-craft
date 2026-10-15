@@ -6,6 +6,9 @@
  * words every surface shows, from the same stored record, so no surface says "Reviewed" while another asks for review.
  */
 
+import type { WorkspaceState } from "./types";
+import { EARLIER_VERSION_LABEL } from "./resultVersion";
+
 export type FindingKind = "blocking" | "needs_confirmation" | "review";
 
 export const FINDING_ORDER: readonly FindingKind[] = ["blocking", "needs_confirmation", "review"];
@@ -57,4 +60,15 @@ export function prepareStatusWord(status: string, openFinding?: "needs_confirmat
   if ((status === "passed" || status === "signed") && openFinding) return openFindingWord(openFinding);
   const words: Record<string, string> = { passed: STATUS_WORDS.reviewed, review_required: STATUS_WORDS.needsReview, blocked: STATUS_WORDS.blocked, in_progress: STATUS_WORDS.processing };
   return words[status] ?? null;
+}
+
+/**
+ * The header's status word (Phase 2 §5.1: entity · period · status): the same trial-balance vocabulary as the sidebar,
+ * the Overview and the page.
+ */
+export function headerStatusWord(state: Pick<WorkspaceState, "missions" | "openFinding" | "checkedByEarlierVersion" | "currentUploadId">): string {
+  const prepare = state.missions.prepare?.status ?? "not_started";
+  if (!state.currentUploadId) return STATUS_WORDS.none;
+  if ((prepare === "passed" || prepare === "signed") && state.checkedByEarlierVersion) return EARLIER_VERSION_LABEL;
+  return prepareStatusWord(prepare, state.openFinding) ?? (prepare === "signed" ? "Signed off" : STATUS_WORDS.processing);
 }

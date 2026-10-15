@@ -70,4 +70,16 @@ export const LAUNCH_COPY = {
   emptyStateCta: "Import data",
   frameworkMissing: "Framework not selected",
   scopeEditor: "Manage services",
+  /** Phase 2 §5.1: the one entry when only one service exists — the upload page is the way in. */
+  entryHeading: "Check your trial balance",
+  entryDetail: "Upload your trial balance to start. You confirm the entity, period and currency on the same page.",
+  entryAction: "Upload a trial balance",
 } as const;
+
+/**
+ * The service implied by the choice of the only one there is (Phase 2 §5.1): "What would you like to complete?" and
+ * "Add financial data" are asked only while more than one customer service exists. null when there is a real choice.
+ */
+export function impliedService(visible: readonly EngagementCapability[]): EngagementCapability | null {
+  return visible.length === 1 ? visible[0] : null;
+}

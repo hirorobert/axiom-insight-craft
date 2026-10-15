@@ -223,7 +223,7 @@ async function journeys(browser) {
   let C = null
   let Y = null
   await check('1-2. owner signs in and creates a workspace through the first-run form', async () => {
-    await op.waitForText('Set up your reporting workspace')
+    await op.waitForText('Add the entity you are reporting on')
     await op.fill('#fr-org', `Browser Acceptance ${TS}`)
     await op.click('#fr-currency')
     await op.click({ text: 'TZS — Tanzanian Shilling' })
@@ -236,11 +236,9 @@ async function journeys(browser) {
   if (!C) return
   const base = `${ORIGIN}/workspace/${C}/${Y}`
   let firstUpload = null
-  await check('3. owner chooses a service, imports, and uploads a valid trial balance', async () => {
-    await op.click('[data-testid="service-FINANCIAL_STATEMENTS"]')
-    await op.click('[data-testid="primary-cta"]')
-    await op.waitForSelector('[data-testid="data-choice-heading"]')
-    await op.click('[data-testid="primary-cta"]')
+  await check('3. owner starts from "Check your trial balance" (the one service is implied) and uploads a valid trial balance', async () => {
+    await op.waitForSelector('[data-testid="trial-balance-entry"]')
+    await op.click('[data-testid="entry-upload"]')
     await op.waitForUrl(/\/prepare/)
     await op.setFiles('input[type=file][multiple]', [fixture('valid')])
     await op.click({ text: 'Process 1 File' })
@@ -521,7 +519,7 @@ async function journeys(browser) {
   currentPage = xp
   await check('an unrelated signed-in user cannot discover the workspace', async () => {
     await xp.goto(`${ORIGIN}/dashboard`)
-    await xp.waitForText('Set up your reporting workspace')
+    await xp.waitForText('Add the entity you are reporting on')
     const text = await xp.bodyText()
     return !text.includes(`Browser Acceptance ${TS}`) && !(await hasTestId(xp, 'shared-workspaces-list'))
   })
@@ -549,7 +547,7 @@ async function journeys(browser) {
     await kp.goto(`${ORIGIN}/workspace/${C}/${Y}/prepare`)
     await kp.waitForSelector('[data-testid="workspace-access-denied"]')
     await kp.goto(`${ORIGIN}/dashboard`)
-    await kp.waitForText('Set up your reporting workspace')
+    await kp.waitForText('Add the entity you are reporting on')
     return r.outcome === 'revoked' && !(await hasTestId(kp, 'shared-workspaces-list'))
   })
 }

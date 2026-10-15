@@ -29,7 +29,6 @@ import WorkspaceUnavailable from "@/components/workspace/WorkspaceUnavailable";
 import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
-import { EntityAllowanceIndicator } from "@/components/EntityAllowanceIndicator";
 import { DraftPrintMark } from "@/components/commercial/DraftPrintMark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
@@ -65,7 +64,7 @@ import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
-import { prepareStatusWord } from "@/lib/workspace/resultStatus";
+import { headerStatusWord, prepareStatusWord } from "@/lib/workspace/resultStatus";
 
 /**
  * Tab word in professional sentence case, derived from the canonical metadata
@@ -309,7 +308,14 @@ export default function WorkspaceLayout() {
                     <span data-testid="workspace-period" className="shrink-0 font-mono text-[11px] tabular-nums sm:text-xs">
                       {periodLabel}
                     </span>
-                    {frameworkLabel && (
+                    {/* Phase 2 §5.1: entity · period · status, in the trial-balance vocabulary every surface uses. */}
+                    <span aria-hidden="true" className="shrink-0">·</span>
+                    <span data-testid="workspace-status" className="shrink-0 text-[11px] sm:text-xs">
+                      <span className="sr-only">Trial balance status: </span>
+                      {headerStatusWord(workspaceState)}
+                    </span>
+                    {/* The framework is shown only once it is confirmed (Phase 2 §5.1). */}
+                    {frameworkLabel && frameworkConfirmed && (
                       <div
                         data-testid="workspace-framework"
                         data-confirmed={frameworkConfirmed}
@@ -321,7 +327,6 @@ export default function WorkspaceLayout() {
                           <span className="sr-only">Reporting framework: </span>
                           {frameworkLabel}
                         </span>
-                        {!frameworkConfirmed && <span className="shrink-0 text-[10px] sm:text-xs">(unconfirmed)</span>}
                       </div>
                     )}
                   </div>
@@ -331,9 +336,8 @@ export default function WorkspaceLayout() {
               )}
             </div>
 
-            {/* Right: entity allowance (md+) + refresh + user menu (sign out always visible in dropdown) */}
+            {/* Right: refresh + user menu (sign out always visible in dropdown). The entity allowance lives in Settings. */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden md:flex"><EntityAllowanceIndicator manageTo="/settings" /></div>
               <Button
                 variant="ghost"
                 size="sm"

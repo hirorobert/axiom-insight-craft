@@ -4,7 +4,8 @@
 // bridge: the production build of the app is served on loopback and driven in headless Chrome by real signed-in users.
 //
 //   routing     an unauthenticated deep link lands on sign-in; a wrong password is refused; sign-in by keyboard
-//   new user    first run creates the company (FY ending 30 June) through the real form; the launchpad and data choice
+//   new user    first run creates the company (FY ending 30 June) through the real form; with one service the entry card
+//               ("Check your trial balance") replaces the launchpad and the data choice (Phase 2 §5.1); previously the launchpad and data choice
 //   periods     explicit non-calendar periods (1 Jul – 30 Jun) with the prior period, through Trial Balance › Intake
 //   trial bal.  both years uploaded through the real uploader and checked by the real edge function; classifications
 //               recorded by the owner (the account-review RPC the panel calls) and re-checked; "Reviewed trial balance"
@@ -210,30 +211,26 @@ async function main() {
 
   startGroup("New user: first run");
   await check("first run creates the company through the real form (FY ending 30 June, TZS, IFRS for SMEs) and opens its workspace", async () => {
-    await go("/dashboard", "Organization name");
+    await go("/dashboard", "Entity name");
     await widths("02-first-run");
     await page.fill("#fr-org", "Mto Holdings Limited");
     await pickRadix("#fr-year", "2026");
     await pickRadix("#fr-fye", "30 June");
     await pickRadix("#fr-currency", "TZS — Tanzanian Shilling");
     await pickRadix("#fr-framework", "IFRS for SMEs");
-    await page.click('form[aria-label="Create reporting workspace"] button[type=submit]');
+    await page.click('form[aria-label="Add an entity"] button[type=submit]');
     const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026/, { timeout: 45000 });
     A = url.match(/\/workspace\/([0-9a-f-]{36})\//)[1];
     base = `/workspace/${A}/2026`;
     return true;
   });
-  await check("the launchpad offers the service; choosing it and importing data leads to the trial balance", async () => {
-    await page.waitForSelector('[data-testid="launchpad-heading"], [data-testid="data-choice-heading"]', { timeout: 30000 });
-    await shot("03-launchpad");
-    if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) {
-      await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]');
-      await page.click('[data-testid="primary-cta"]');
-      await page.waitForSelector('[data-testid="data-choice-heading"]', { timeout: 30000 });
-    }
-    await page.click('[data-testid="primary-cta"]');
+  await check("one service: the service is implied — 'Check your trial balance' leads to the upload page; neither removed question appears", async () => {
+    await page.waitForSelector('[data-testid="trial-balance-entry"]', { timeout: 30000 });
+    await shot("03-entry");
+    const removed = await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"], [data-testid="data-choice-heading"]'));
+    await page.click('[data-testid="entry-upload"]');
     await page.waitForUrl(/trial-balance|prepare/, { timeout: 30000 });
-    return true;
+    return removed ? { removedScreenShown: true } : true;
   });
 
   startGroup("Explicit non-calendar periods");
@@ -266,13 +263,16 @@ async function main() {
     for (let i = 0; i < 3; i++) {
       const where = await page.waitFor(() => (document.querySelector('[data-testid="trial-balance-file-input"]') ? "uploader"
         : document.querySelector('[data-testid="upload-needs-engagement"]') ? "not-open"
-        : document.querySelector('[data-testid="launchpad-heading"]') ? "launchpad" : document.querySelector('[data-testid="data-choice-heading"]') ? "choice" : null), [], { label: "uploader or launchpad", timeout: 45000 });
+        : document.querySelector('[data-testid="trial-balance-entry"]') ? "entry"
+        : document.querySelector('[data-testid="launchpad-heading"]') ? "launchpad" : document.querySelector('[data-testid="data-choice-heading"]') ? "choice" : null), [], { label: "uploader or entry", timeout: 45000 });
       if (where === "uploader") return;
+      if (where === "entry") { await page.click('[data-testid="entry-upload"]'); await sleep(1500); await go(`/workspace/${A}/${year}/trial-balance/review`, ""); continue; }
       if (where === "not-open") {
         // The period is not open: the page says so and links to its Overview, where the service is chosen.
         await page.click({ text: `Open FY${year}` });
-        await page.waitForSelector('[data-testid="launchpad-heading"], [data-testid="data-choice-heading"]', { timeout: 30000 });
-        if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
+        await page.waitForSelector('[data-testid="trial-balance-entry"], [data-testid="launchpad-heading"], [data-testid="data-choice-heading"]', { timeout: 30000 });
+        if (await page.evaluate(() => !!document.querySelector('[data-testid="trial-balance-entry"]'))) await page.click('[data-testid="entry-upload"]');
+        else if (await page.evaluate(() => !!document.querySelector('[data-testid="launchpad-heading"]'))) { await page.click('[data-testid="service-FINANCIAL_STATEMENTS"]'); await page.click('[data-testid="primary-cta"]'); }
         else await page.click('[data-testid="primary-cta"]');
         // The Overview then leads to Prepare Data (with or without a separate data choice); the loop returns to the uploader.
         await sleep(2000);
