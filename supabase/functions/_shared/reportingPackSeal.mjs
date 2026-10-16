@@ -71,7 +71,9 @@ export async function issueOfficialPack(deps, input) {
       if (!(await unsealed())) return refuse("already_sealed");
       await deps.remove(path);
       stored = await deps.put(path, bytes, OFFICIAL_CONTENT_TYPE);
-      if (stored.error || !(await matches())) {
+      if (!(await matches())) {
+        // Bytes that are not the canonical document are never kept. Exactly-canonical bytes (also a concurrent
+        // request's, which can make this put fail) are never removed: another request may be sealing them.
         if (await unsealed()) await deps.remove(path);
         return refuse("seal_failed");
       }
@@ -85,8 +87,12 @@ export async function issueOfficialPack(deps, input) {
   const s = sealed.error ? null : obj(sealed.data);
   const outcome = typeof s?.outcome === "string" ? s.outcome : "seal_failed";
   if (outcome !== "sealed") {
-    // Nothing unsealed stays behind; an object a concurrent request sealed is left in place.
-    if (await unsealed()) await deps.remove(path);
+    // A concurrent request sealed this issuance meanwhile: the same, valid outcome.
+    if (!(await unsealed())) return refuse("already_sealed");
+    // The canonical object is NEVER removed here: a concurrent request may already have checked it inside its own seal
+    // and be about to commit (removing it then left a sealed issuance without its object). Unsealed canonical bytes are
+    // a listed orphan (reporting_pack_storage_orphans), never official, and are reused exactly by a retry.
+    if (!(await matches()) && (await unsealed())) await deps.remove(path);
     return refuse(outcome);
   }
   // The database hashed its own regeneration; it must be the document that was stored (the source is immutable).

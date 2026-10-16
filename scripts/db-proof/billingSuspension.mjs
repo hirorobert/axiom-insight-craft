@@ -512,6 +512,7 @@ async function main() {
   const { createHash } = await import("node:crypto");
   const sha = (b) => createHash("sha256").update(b).digest("hex");
   const bucket = new Map();
+  const storing = new Map(); // path → the in-flight upload (Storage serialises uploads of one path)
   const serviceRpc = async (fn, args) => {
     const keys = Object.keys(args);
     try {
@@ -528,8 +529,20 @@ async function main() {
   const dropObject = async (p) => { bucket.delete(p); await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]); };
   const deps = {
     rpc: serviceRpc,
-    // No overwrite: check-and-reserve in one tick, then record the object.
-    put: async (p, b) => { if (bucket.has(p)) return { error: { message: "exists" } }; bucket.set(p, b); await storeObject(p, b); return { error: null }; },
+    // No overwrite, as Supabase Storage (upsert: false): a second upload of the same path waits for the first to finish
+    // and is then refused; the object (bytes AND its storage.objects row) becomes visible only once complete. (Before,
+    // this model exposed the bytes before the row existed — a window real Storage does not have — which is how CI saw
+    // one 'object_missing' among 12 concurrent generations.)
+    put: async (p, b) => {
+      if (storing.has(p)) { await storing.get(p); return { error: { message: "exists" } }; }
+      if (bucket.has(p)) return { error: { message: "exists" } };
+      let done; storing.set(p, new Promise((r) => { done = r; }));
+      try { await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]);
+            await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [p, JSON.stringify({ size: b.byteLength, mimetype: "application/json" })]);
+            bucket.set(p, b); }
+      finally { storing.delete(p); done(); }
+      return { error: null };
+    },
     remove: async (p) => dropObject(p),
     get: async (p) => bucket.get(p) ?? null,
     sha256Hex: async (b) => sha(b),
@@ -791,6 +804,46 @@ async function main() {
     const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => official(pk.uid, i.issuance_id).then((r) => r.body.outcome)));
     return out.filter((o) => o === "sealed").length === 1 && out.filter((o) => o === "already_sealed").length === CONCURRENCY - 1 && (await sealsOf(i.issuance_id)) === 1
       ? true : JSON.stringify(out);
+  });
+  await check("a request whose seal fails while another request's seal is committing never removes the object: one seal, its object intact", async () => {
+    // Deterministic interleaving (repair C). W seals inside a transaction held open after its in-database object check;
+    // meanwhile L, for the same issuance, finds the canonical object, and its own seal call fails (a timeout). Before
+    // the repair, L then removed the object (the issuance was still unsealed from where L stood) and W committed a seal
+    // whose stored object was gone.
+    const i = await issueO(pk.uid, pk.co, R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    let release; const gate = new Promise((r) => { release = r; });
+    let inside; const checked = new Promise((r) => { inside = r; });
+    const held = await pool.connect();
+    const wDeps = { ...deps, rpc: async (fn, args) => {
+      if (fn !== "seal_reporting_pack_server") return deps.rpc(fn, args);
+      try {
+        await held.query("BEGIN"); await held.query("SET LOCAL ROLE service_role");
+        const r = await held.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [args.p_user, args.p_issuance_id, args.p_storage_path]);
+        inside(); await gate; await held.query("COMMIT");
+        return { data: r.rows[0].r, error: null };
+      } catch (e) { await held.query("ROLLBACK").catch(() => {}); inside(); return { data: null, error: e }; }
+    } };
+    const lDeps = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    const w = issueOfficialPack(wDeps, { userId: pk.uid, issuanceId: i.issuance_id });
+    await checked;
+    const l = await issueOfficialPack(lDeps, { userId: pk.uid, issuanceId: i.issuance_id });
+    release();
+    const wr = await w; held.release();
+    const v = await verifyStoredPack(deps, i.issuance_id);
+    return wr.body.outcome === "sealed" && l.body.outcome === "seal_failed" && (await sealsOf(i.issuance_id)) === 1 && bucket.has(p) && v.outcome === "intact"
+      ? true : JSON.stringify({ w: wr.body.outcome, l: l.body.outcome, stored: bucket.has(p), v: v.outcome });
+  });
+  await check("a seal refused after the canonical object was stored keeps it as a listed orphan (never official); a retry seals it", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    const failing = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    const first = (await issueOfficialPack(failing, { userId: pk.uid, issuanceId: i.issuance_id })).body.outcome;
+    const listed = (await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
+    const notOfficial = (await edgeVerify(pk.uid, i.issuance_id)).official === false;
+    const retry = (await official(pk.uid, i.issuance_id)).body.outcome;
+    return first === "seal_failed" && listed && notOfficial && retry === "sealed" && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact"
+      ? true : JSON.stringify({ first, listed, notOfficial, retry });
   });
   await check("verification: official for the workspace's members only (also after the plan ends); unknown bytes never are", async () => {
     const v = await account("PRACTICE", 1);
