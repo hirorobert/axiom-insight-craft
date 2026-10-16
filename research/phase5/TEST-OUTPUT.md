@@ -165,7 +165,7 @@ _Manual multi-account treatment path: no inferred-equivalence grouping, visual-b
 == Reuse is MORE than a file-hash match (entity + currency + dimensions + ruleset context)
   PASS  same entity + same currency → reused (not re-reviewed) across a new period
   PASS  a changed currency reopens reuse as CONTEXT_INCOMPATIBLE (file hash alone is insufficient)
-  PASS  an unknown currency is reused on entity+key but DISCLOSED as unverified (never assumed equal)
+  PASS  an unverifiable currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse
 
 == Exact money preserved on the manual path (BigInt; nothing netted)
   PASS  selected account balances remain exact BigInt minor units (no float, no netting)
@@ -241,8 +241,10 @@ _Parses the REAL resolve_account_review_batch SQL; asserts field+semantics compa
   PASS  manual decisions use decision_action USER_MANUAL_CLASSIFICATION (in the real accepted set)
   PASS  manual decisions use proposal_type NONE (not AUTO_MAPPED_RULE) and a supported statement/class pair
   PASS  manual decisions carry no field the real function does not consume (account_key is the local identity, not sent)
+  FINDING  same-name/different-code — constraint uq_acct_map_company_norm_name present: true; fixture (4000/4100 Sales) collides on normalized name: true
+  PASS  FINDING (production limitation, preserved): the real schema forbids two same-normalized-name accounts per company, and the fixture reproduces it — a RAW constraint error, not a structured refusal (Phase 6 treatment in HANDOFF)
 
-17/17 static real-contract checks passed.
+18/18 static real-contract checks passed.
 NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in
 research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL 17; NOT executed on this host.
 ```

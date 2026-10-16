@@ -133,10 +133,10 @@ group("Reuse is MORE than a file-hash match (entity + currency + dimensions + ru
   const u3 = { id: "u3", company_id: "co-A", source_digest: TB.source_digest, currency: "USD", period_year: 2026 };
   const s3 = buildReviewSummary({ upload: u3, headers: TB.headers, dataRows: TB.dataRows, store });
   check("a changed currency reopens reuse as CONTEXT_INCOMPATIBLE (file hash alone is insufficient)", s3.reuse.context_incompatible.includes("9000") && !s3.reuse.reusable.includes("9000"), s3.reuse);
-  // Unknown currency is DISCLOSED as unverified, never assumed equal (UNKNOWN != EQUAL).
-  const u4 = { id: "u4", company_id: "co-A", source_digest: TB.source_digest, period_year: 2026 }; // no currency
+  // Unknown/unverifiable currency → REOPEN for explicit confirmation (never silently reused on entity+key alone).
+  const u4 = { id: "u4", company_id: "co-A", source_digest: TB.source_digest, period_year: 2026 }; // no currency (prior had TZS)
   const s4 = buildReviewSummary({ upload: u4, headers: TB.headers, dataRows: TB.dataRows, store });
-  check("an unknown currency is reused on entity+key but DISCLOSED as unverified (never assumed equal)", s4.reuse.reusable.includes("9000") && s4.reuseDisclosure.unverified_context_fields.includes("currency"), s4.reuseDisclosure);
+  check("an unverifiable currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse", s4.reuse.context_unverified.includes("9000") && !s4.reuse.reusable.includes("9000") && s4.reuseDisclosure.reopen_context_fields.includes("currency"), s4.reuse);
 }
 
 group("Exact money preserved on the manual path (BigInt; nothing netted)");

@@ -38,28 +38,35 @@ export function reuseContextOf(upload) {
 }
 
 /**
- * Compare a prior decision's recorded context with the current upload's context.
- * Returns { compatible, blocking[], unverified[] }:
- *   - blocking: a KNOWN, material difference that makes reuse unsafe (entity/currency/dimensions/ruleset changed).
- *   - unverified: a field that could not be compared because the live schema does not track it (null on either side).
- * `compatible` is true only when there is NO blocking difference; unverified fields are disclosed, not treated as a mismatch.
+ * Compare a prior decision's recorded context with the current upload's context, implementing the Phase 6 first-slice
+ * REUSE RULE as three explicit states (never a silent inherit from company_id + account_key alone):
+ *   - COMPATIBLE: every applicable field is verified equal ⇒ reuse may be PROPOSED.
+ *   - UNVERIFIED: an applicable field is missing on one side or otherwise cannot be confirmed ⇒ REOPEN for explicit
+ *     confirmation. (A field absent on BOTH sides is consistent absence — "not applicable" — not an unverifiable context.)
+ *   - INCOMPATIBLE: an applicable field is present on both sides and DIFFERS (a known change) ⇒ REOPEN.
+ * Returns { state, blocking[], reopen[], notApplicable[], period }. `period` is advisory (mappings reuse across periods by
+ * design) — recorded, never a reuse blocker.
  */
 export function contextCompatible(priorCtx, nowCtx) {
-  const blocking = [], unverified = [];
+  const blocking = [], reopen = [], notApplicable = [];
   // Entity is natively enforced by the RPC (UPLOAD_COMPANY_MISMATCH + company-scoped account_mappings); a mismatch is fatal.
-  if (priorCtx.entity == null || nowCtx.entity == null) unverified.push("entity");
+  if (priorCtx.entity == null || nowCtx.entity == null) reopen.push("entity");
   else if (priorCtx.entity !== nowCtx.entity) blocking.push("ENTITY_CHANGED");
 
-  const pair = (field, priorV, nowV, code) => {
-    if (priorV == null || nowV == null) unverified.push(field);
-    else if (priorV !== nowV) blocking.push(code);
+  // An applicable field: absent-on-both = not applicable (consistent); present-both-equal = ok; present-both-differ =
+  // a KNOWN change (blocking/reopen); present-on-one-side-only = cannot confirm ⇒ reopen for explicit confirmation.
+  const field = (name, priorV, nowV, changeCode) => {
+    const pHas = priorV != null, nHas = nowV != null;
+    if (!pHas && !nHas) { notApplicable.push(name); return; }
+    if (pHas && nHas) { if (priorV !== nowV) blocking.push(changeCode); return; }
+    reopen.push(name);                                  // present on one side only — context cannot be confirmed
   };
-  pair("currency", priorCtx.currency, nowCtx.currency, "CURRENCY_CHANGED");
-  pair("dimensions", priorCtx.dimensions, nowCtx.dimensions, "DIMENSION_AXES_CHANGED");
-  pair("rulesetVersion", priorCtx.rulesetVersion, nowCtx.rulesetVersion, "MAPPING_RULESET_VERSION_CHANGED");
-  // Period is CONFIRMED and recorded but is intentionally NOT a reuse blocker: a mapping is reused across periods by design
-  // (that is the point of a reusable chart treatment). It is surfaced for confirmation, never silently ignored.
-  if (priorCtx.period == null || nowCtx.period == null) unverified.push("period");
+  field("currency", priorCtx.currency, nowCtx.currency, "CURRENCY_CHANGED");
+  field("dimensions", priorCtx.dimensions, nowCtx.dimensions, "DIMENSION_AXES_CHANGED");
+  field("rulesetVersion", priorCtx.rulesetVersion, nowCtx.rulesetVersion, "MAPPING_RULESET_VERSION_CHANGED");
+  // Period is advisory only: recorded for confirmation, never a reuse blocker (a reusable chart treatment spans periods).
+  const period = { prior: priorCtx.period ?? null, now: nowCtx.period ?? null };
 
-  return { compatible: blocking.length === 0, blocking, unverified };
+  const state = blocking.length > 0 ? "INCOMPATIBLE" : reopen.length > 0 ? "UNVERIFIED" : "COMPATIBLE";
+  return { state, compatible: state === "COMPATIBLE", blocking, reopen, notApplicable, period };
 }

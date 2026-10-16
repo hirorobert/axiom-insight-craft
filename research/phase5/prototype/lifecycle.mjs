@@ -49,15 +49,17 @@ export function classifyAgainstPrior(store, company_id, account, { meaningChange
       ? { status: "STALE_IDENTITY", key, prior, reason: "PRIOR_DECISION_STALE_IDENTITY_CHANGED" }
       : { status: "STALE_MEANING", key, prior, reason: "RELEVANT_MEANING_OR_CONTEXT_CHANGED" };
   }
-  // Reuse is MORE than a file-hash / account_key match: the accounting CONTEXT must be compatible. A KNOWN material
-  // difference (currency/dimensions/ruleset changed) reopens the decision; fields the live schema cannot track are
-  // disclosed as `unverified`, never assumed equal and never fabricated as a mismatch (UNKNOWN != EQUAL != MISMATCH).
+  // Reuse is MORE than a file-hash / account_key match: the accounting CONTEXT must be compatible (Phase 6 first-slice
+  // REUSE RULE). Verified-compatible ⇒ reuse may be proposed (REUSABLE). A KNOWN change ⇒ reopen (CONTEXT_INCOMPATIBLE).
+  // Missing / unverifiable context ⇒ reopen for explicit confirmation (CONTEXT_UNVERIFIED) — NEVER a silent inherit.
   if (nowCtx && prior.context) {
     const ctx = contextCompatible(prior.context, nowCtx);
-    if (!ctx.compatible) return { status: "CONTEXT_INCOMPATIBLE", key, prior, reason: ctx.blocking.join(","), blocking: ctx.blocking };
-    return { status: "REUSABLE", key, prior, unverified: ctx.unverified };
+    if (ctx.state === "INCOMPATIBLE") return { status: "CONTEXT_INCOMPATIBLE", key, prior, reason: ctx.blocking.join(","), blocking: ctx.blocking };
+    if (ctx.state === "UNVERIFIED") return { status: "CONTEXT_UNVERIFIED", key, prior, reason: `UNVERIFIABLE_CONTEXT:${ctx.reopen.join(",")}`, reopen: ctx.reopen };
+    return { status: "REUSABLE", key, prior, notApplicable: ctx.notApplicable };
   }
-  return { status: "REUSABLE", key, prior, unverified: ["currency", "dimensions", "rulesetVersion", "period"] };
+  // No recorded prior context at all ⇒ cannot verify ⇒ reopen for explicit confirmation (never inherit on key alone).
+  return { status: "CONTEXT_UNVERIFIED", key, prior, reason: "UNVERIFIABLE_CONTEXT:no_recorded_context", reopen: ["context"] };
 }
 
 /**
@@ -76,11 +78,12 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
   const reuse = read.accounts.map((a) => classifyAgainstPrior(store, upload.company_id, a, { meaningChanged: changedSet.has(accountKey(a)), nowCtx }));
   const byStatus = (s) => reuse.filter((r) => r.status === s).map((r) => r.key);
 
-  // Accounts still needing a reviewer this time = NEW + reopened (STALE_* / CONTEXT_INCOMPATIBLE) + individual.
-  const reopened = reuse.filter((r) => r.status === "STALE_IDENTITY" || r.status === "STALE_MEANING" || r.status === "CONTEXT_INCOMPATIBLE");
+  // Accounts still needing a reviewer this time = NEW + reopened (STALE_* / CONTEXT_INCOMPATIBLE / CONTEXT_UNVERIFIED) +
+  // individual. CONTEXT_UNVERIFIED reopens for EXPLICIT confirmation — the first-slice rule forbids a silent inherit.
+  const reopened = reuse.filter((r) => ["STALE_IDENTITY", "STALE_MEANING", "CONTEXT_INCOMPATIBLE", "CONTEXT_UNVERIFIED"].includes(r.status));
   const needsReviewKeys = new Set([...byStatus("NEW"), ...reopened.map((r) => r.key), ...individual.map((i) => i.account_key)]);
-  // Disclose which context fields reuse could NOT independently verify (the live schema does not track them). Never hidden.
-  const reusedUnverified = [...new Set(reuse.filter((r) => r.status === "REUSABLE").flatMap((r) => r.unverified || []))].sort();
+  // Which context fields forced a reopen-for-confirmation (missing/unverifiable), disclosed per the rule — never hidden.
+  const reopenContextFields = [...new Set(reuse.filter((r) => r.status === "CONTEXT_UNVERIFIED").flatMap((r) => r.reopen || []))].sort();
 
   // Coverage over accounts that need a mapping (every account): unmapped = needs review & not groupable-approved yet.
   const total = read.accounts.length;
@@ -96,8 +99,8 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
     groups: groupsNeedingReview,
     individual: individual.filter((i) => needsReviewKeys.has(i.account_key)),
     relationships,
-    reuse: { reusable: byStatus("REUSABLE"), new: byStatus("NEW"), stale_identity: byStatus("STALE_IDENTITY"), stale_meaning: byStatus("STALE_MEANING"), context_incompatible: byStatus("CONTEXT_INCOMPATIBLE") },
-    reuseDisclosure: { unverified_context_fields: reusedUnverified, note: "Reused decisions are bound to entity + account_key (what the live schema enforces). Listed fields were not independently verified because account_mappings carries no such axis — a documented Phase 6 gap, never silently assumed equal." },
+    reuse: { reusable: byStatus("REUSABLE"), new: byStatus("NEW"), stale_identity: byStatus("STALE_IDENTITY"), stale_meaning: byStatus("STALE_MEANING"), context_incompatible: byStatus("CONTEXT_INCOMPATIBLE"), context_unverified: byStatus("CONTEXT_UNVERIFIED") },
+    reuseDisclosure: { reopen_context_fields: reopenContextFields, note: "First-slice reuse rule: a decision is REUSABLE only when the applicable accounting context (entity + currency + dimensions, from fiscal_periods etc.) is verified compatible. Missing/unverifiable context reopens for explicit confirmation (CONTEXT_UNVERIFIED); a known change reopens (CONTEXT_INCOMPATIBLE). A treatment is never inherited silently from company_id + account_key alone." },
     context: nowCtx,
     mappingCoverage: { total, unmapped, ambiguous },
     accountsRead: read.accounts,

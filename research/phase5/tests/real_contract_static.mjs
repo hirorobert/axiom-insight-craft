@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildReviewSummary, expandGroupToDecisions } from "../prototype/lifecycle.mjs";
 import { buildManualDecisions } from "../prototype/manual.mjs";
+import { normalizeAccountName } from "../prototype/layer2_identity.mjs";
 import { FLAT } from "../fixtures/synthetic.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -87,6 +88,19 @@ check("manual decisions use decision_action USER_MANUAL_CLASSIFICATION (in the r
 check("manual decisions use proposal_type NONE (not AUTO_MAPPED_RULE) and a supported statement/class pair", manual.every((d) => d.proposal_type === "NONE" && pairOk(d)));
 const manualUnknown = [...new Set(manual.flatMap((d) => Object.keys(d)))].filter((k) => !ALLOWED.has(k) && k !== "account_key");
 check("manual decisions carry no field the real function does not consume (account_key is the local identity, not sent)", manualUnknown.length === 0, { manualUnknown });
+
+// 10. GENUINE FINDING (NORMAL #140), surfaced statically: the live account_mappings has a partial UNIQUE index
+//     uq_acct_map_company_norm_name on (company_id, normalized_account_name). Two accounts with the SAME normalized name and
+//     DIFFERENT codes (FLAT's 4000 Sales + 4100 Sales) therefore cannot BOTH persist in one company — the real RPC raises a
+//     RAW constraint error, not a structured refusal. We assert the limitation is REAL (constraint exists AND the fixture
+//     collides); it is preserved, not smoothed, and carried into the HANDOFF Phase 6 treatment.
+const CONSTRAINT_SQL = fs.readFileSync(path.join(REPO, "supabase/migrations/20260703100000_account_mappings_v2_and_keyword_dict.sql"), "utf8");
+const constraintExists = /CREATE UNIQUE INDEX[^;]*uq_acct_map_company_norm_name[^;]*\(company_id,\s*normalized_account_name\)/s.test(CONSTRAINT_SQL);
+const revAccounts = FLAT.dataRows.filter((r) => /sales/i.test(r[1]));
+const normNames = revAccounts.map((r) => normalizeAccountName(r[1]));
+const fixtureCollides = revAccounts.length >= 2 && new Set(revAccounts.map((r) => r[0])).size >= 2 && new Set(normNames).size < revAccounts.length;
+console.log(`  FINDING  same-name/different-code — constraint uq_acct_map_company_norm_name present: ${constraintExists}; fixture (4000/4100 Sales) collides on normalized name: ${fixtureCollides}`);
+check("FINDING (production limitation, preserved): the real schema forbids two same-normalized-name accounts per company, and the fixture reproduces it — a RAW constraint error, not a structured refusal (Phase 6 treatment in HANDOFF)", constraintExists && fixtureCollides, { constraintExists, fixtureCollides, normNames });
 
 console.log(`\n${pass}/${pass + fail} static real-contract checks passed.`);
 console.log("NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in");
