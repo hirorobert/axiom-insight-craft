@@ -1,0 +1,441 @@
+{
+  "source": {
+    "commit": "b9c2f4530e909c67049659d2efe61744a45963a6",
+    "uncommittedChanges": ""
+  },
+  "command": "node scripts/browser-acceptance/landingSample.mjs ..\\landing-review-20261016\\research\\landing-review\\evidence\\implementation-b9c2f45",
+  "environment": {
+    "node": "v24.15.0",
+    "platform": "win32 10.0.26200",
+    "browser": "Chrome/155.0.8059.39",
+    "backend": "placeholder (http://127.0.0.1:59999, unreachable)",
+    "url": "http://127.0.0.1:4318/"
+  },
+  "checks": [
+    {
+      "group": "layout 320",
+      "name": "hero: sample review first, plans second, no screenshot",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "production navigation kept (incl. Sign in)",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "no layout problems on load",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "sample text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "no layout problems with disclosures open",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "no layout problems with the try region open",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "no layout problems in the completed example",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "completed-example text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 320",
+      "name": "no console errors",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "hero: sample review first, plans second, no screenshot",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "production navigation kept (incl. Sign in)",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "no layout problems on load",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "sample text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "no layout problems with disclosures open",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "no layout problems with the try region open",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "no layout problems in the completed example",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "completed-example text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 390",
+      "name": "no console errors",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "hero: sample review first, plans second, no screenshot",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "production navigation kept (incl. Sign in)",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "no layout problems on load",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "sample text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "no layout problems with disclosures open",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "no layout problems with the try region open",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "no layout problems in the completed example",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "completed-example text is at least 12 px",
+      "ok": true
+    },
+    {
+      "group": "layout 1280",
+      "name": "no console errors",
+      "ok": true
+    },
+    {
+      "group": "keyboard",
+      "name": "every tab stop shows a visible focus indicator",
+      "ok": true
+    },
+    {
+      "group": "keyboard",
+      "name": "order: header, then See a sample review, View plans, View completed example, Try, Checks, All accounts",
+      "ok": true
+    },
+    {
+      "group": "keyboard",
+      "name": "Enter opens a disclosure; its summary shows focus",
+      "ok": true
+    },
+    {
+      "group": "keyboard",
+      "name": "try toggle: aria-expanded true, aria-controls set, focus moves to the region heading",
+      "ok": true
+    },
+    {
+      "group": "keyboard",
+      "name": "radio focus is visible",
+      "ok": true
+    },
+    {
+      "group": "announcements",
+      "name": "lead and outcomes are polite live regions; the status is role=status",
+      "ok": true
+    },
+    {
+      "group": "announcements",
+      "name": "recording a decision changes the announced status and outcome",
+      "ok": true
+    },
+    {
+      "group": "labels",
+      "name": "guided-example label inside both sets of choices",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S0 nothing decided: no ready state, equation pending",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S1 one supported recorded, one unresolved",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S1b both selected but not recorded",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S2 both recorded, both unsupported",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S3 one supported, one unsupported",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S4 both supported: ready state shown, 3 ordered entries",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S5 reverted to unsupported after the ready state",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S6 reset clears status, equation and log",
+      "ok": true
+    },
+    {
+      "group": "scenario",
+      "name": "S6 reset clears the radios",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C1 opens by keyboard, replaces the sample, focus on its heading",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C1 no recording control inside",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C1 two supplied decisions, each with the invented reviewer and time",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C1 four limitations; the visitor is never named",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C2 viewing it recorded nothing for the visitor",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C3 a visitor's decision never appears in the supplied example",
+      "ok": true
+    },
+    {
+      "group": "completed",
+      "name": "C3 the visitor's decision survives the round trip",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N1 direct /#sample: the sample shows, in view, the completed example hidden",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N2 direct /#completed-example: the completed example shows, in view, with focus on its heading; the sample hidden",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N3 View completed → Back → Forward → 'Back to the sample' → Back shows completed, sample, completed, sample, completed",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N3 every step shows exactly one view (never both, never neither)",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N5 from the completed example, #plans returns to the sample view and lands on the plans (not the sample)",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N4 unsupported #does-not-exist: the sample shows with its status line; nothing blank or misleading",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N4 unsupported #completed-examplex: the sample shows with its status line; nothing blank or misleading",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N4 unsupported #try-region: the sample shows with its status line; nothing blank or misleading",
+      "ok": true
+    },
+    {
+      "group": "navigation",
+      "name": "N4 unsupported #completed-title: the sample shows with its status line; nothing blank or misleading",
+      "ok": true
+    }
+  ],
+  "tabOrder": [
+    {
+      "el": "a",
+      "label": "Skip to main content",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "CFOCLOSE",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Product",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Plans",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Questions",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Expert help",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Contact",
+      "visible": true
+    },
+    {
+      "el": "a",
+      "label": "Sign in",
+      "visible": true
+    },
+    {
+      "el": "a[header-view-plans]",
+      "label": "View plans",
+      "visible": true
+    },
+    {
+      "el": "a[hero-sample]",
+      "label": "See a sample review",
+      "visible": true
+    },
+    {
+      "el": "a[hero-view-plans]",
+      "label": "View plans",
+      "visible": true
+    },
+    {
+      "el": "a[view-completed]",
+      "label": "View completed example",
+      "visible": true
+    },
+    {
+      "el": "button[try-toggle]",
+      "label": "Try the two decisions",
+      "visible": true
+    },
+    {
+      "el": "summary",
+      "label": "Checks 3 passed · 1 pending Show",
+      "visible": true
+    },
+    {
+      "el": "summary",
+      "label": "All 16 accounts 14 mapped · 2 held Show",
+      "visible": true
+    },
+    {
+      "el": "a[plan-action-Solo]",
+      "label": "Contact support",
+      "visible": true
+    }
+  ],
+  "backForward": [
+    {
+      "step": "View completed example",
+      "hash": "#completed-example",
+      "shown": "completed",
+      "focus": "completed-title"
+    },
+    {
+      "step": "Back",
+      "hash": "",
+      "shown": "sample",
+      "focus": null
+    },
+    {
+      "step": "Forward",
+      "hash": "#completed-example",
+      "shown": "completed",
+      "focus": "completed-title"
+    },
+    {
+      "step": "Back to the sample (link)",
+      "hash": "#sample",
+      "shown": "sample",
+      "focus": "sample"
+    },
+    {
+      "step": "Back",
+      "hash": "#completed-example",
+      "shown": "completed",
+      "focus": "completed-title"
+    }
+  ],
+  "noJavaScript": {
+    "title": "CFOClose — Trial balance review software",
+    "rootChildren": 0,
+    "bodyTextChars": 0,
+    "noscript": false,
+    "note": "The landing page is a client-rendered React app: without JavaScript it renders no visible content. Search engines receive the head metadata and the static JSON-LD in index.html."
+  },
+  "summary": {
+    "passed": 60,
+    "failed": 0
+  }
+}
