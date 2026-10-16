@@ -425,7 +425,10 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       await page.waitFor(() => /Trial balance checks|Blocked|Needs review|Reviewed/i.test(document.body.innerText), [], { label: "trial-balance page", timeout: 30000 }).catch(() => {});
       await sleep(1500);
       const text = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
-      const replaceOffered = await page.evaluate(() => { const b = document.querySelector('[data-testid="replace-trial-balance"]'); return !!b && !b.disabled && b.getBoundingClientRect().width > 0; }).catch(() => false);
+      // Replace is offered either as the card's primary action (a blocked result: "Replace with corrected Trial Balance",
+      // CurrentTrialBalanceCard trial-balance-primary-action) or, otherwise, in Manage Trial Balance (replace-trial-balance).
+      const replaceOffered = await page.evaluate(() => [...document.querySelectorAll('[data-testid="trial-balance-primary-action"], [data-testid="replace-trial-balance"]')]
+        .some((b) => /replace/i.test(b.textContent) && !b.disabled && b.getBoundingClientRect().width > 0)).catch(() => false);
       if (shotName) await shot(page, shotName);
       return { text, replaceOffered, url: await page.url().catch(() => null) };
     },
