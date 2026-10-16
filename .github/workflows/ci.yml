@@ -403,7 +403,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
           BUILT=$(git rev-parse HEAD)
           CHANGED=$(git diff --name-only "$LAUNCH_QA_CANDIDATE_SHA" HEAD 2>/dev/null || echo "__candidate_unavailable__")
-          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|scripts/e2e/launchQaHooks\.mjs$|scripts/e2e/launchQaGate\.mjs$|scripts/e2e/launchQaPayments\.mjs$|scripts/e2e/launchQaDrafts\.mjs$|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
+          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
           DIRTY=$(git diff --name-only HEAD)
           VERIFIED=false; [ -z "$OUTSIDE" ] && [ -z "$DIRTY" ] && VERIFIED=true
           APPTREE=$(git rev-parse "$LAUNCH_QA_CANDIDATE_SHA^{tree}" 2>/dev/null || echo unknown)
@@ -419,7 +419,7 @@ jobs:
         if: always()
         env:
           LAUNCH_QA_CANDIDATE_SHA: f57b9441d46ae382c43b9e9da3fa1cdff8758805
-          LAUNCH_QA_HOOKS: scripts/e2e/launchQaHooks.mjs
+          LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
           LAUNCH_QA_PAYMENTS: "1"
         run: |
           DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
@@ -440,7 +440,7 @@ jobs:
 
       - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
         if: always()
-        run: node scripts/e2e/launchQaGate.mjs real-app-evidence/launch-qa
+        run: node research/launch-qa/ci/launchQaGate.mjs real-app-evidence/launch-qa
 
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()

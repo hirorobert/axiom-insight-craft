@@ -16,9 +16,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { startMockProviders } from "./mockPaymentProviders.mjs";
+import { startMockProviders } from "../../../scripts/e2e/mockPaymentProviders.mjs";
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function startPaymentsFacility({ apiUrl, anonKey, admin, appOrigin, outDir, mockPort = 9912 }) {

@@ -179,7 +179,7 @@ async function scenarioE(env) {
 
   // STALE action: a deterministic stale replacement is NOT producible from the browser — FirstUpload.replace() re-reads the
   // current version at click time — so it is checked at the server CONTRACT, kept as SEPARATE evidence from the browser
-  // replacement above. [NORMAL, coordinated on #144] env.drafts.staleReplace (scripts/e2e/launchQaDrafts.mjs) is the
+  // replacement above. [NORMAL, coordinated on #144] env.drafts.staleReplace (research/launch-qa/ci/launchQaDrafts.mjs) is the
   // draftJourney.mjs contract as this user, on this entity/period: a draft commit naming the CURRENT active upload with an
   // expected version one behind must be refused 409 replace_conflict, commit nothing, and leave that upload active at its
   // version. Absent or not executed ⇒ BLOCKED (never PASS).
@@ -318,8 +318,10 @@ async function scenarioI(env) {
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
   // FIRST-VISIT clarity on the real first-upload home: what happened (heading), one clear next action (first-upload-choose/
   // start), and whether anything is saved (draft note / nothing-yet). One primary action; no codenames/claims.
-  await env.go(page, "/dashboard");
-  await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 }).catch(() => {});
+  // The home is reached the real way (env.openHome: /dashboard, then the workspace logo when it auto-resumes) — otherwise
+  // the clarity check would be measuring the resumed workspace, not the upload home.
+  const reached = await env.openHome(page).then(() => true, (e) => String(e?.message ?? e));
+  if (reached !== true) return result("FAIL", [`could not reach the first-upload home the way a user does: ${reached}`]);
   const home = await env.captureClarityState(page, "first-upload-home");
   if (!home) return result("FAIL", ["could not observe the first-upload home to assess clarity"]);
   problems.push(...clarityStateProblems(home));

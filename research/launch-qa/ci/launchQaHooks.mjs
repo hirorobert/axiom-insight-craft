@@ -18,7 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The runner runs under Node, which cannot import the TypeScript policy module: its values are read from its source.
-const POLICY_SRC = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../supabase/functions/_shared/uploadPolicy.ts"), "utf8");
+const POLICY_SRC = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../supabase/functions/_shared/uploadPolicy.ts"), "utf8");
 const num = (key) => { const m = new RegExp(`\\b${key}:\\s*([0-9_]+)`).exec(POLICY_SRC); if (!m) throw new Error(`upload policy ${key} not found`); return Number(m[1].replace(/_/g, "")); };
 const TB_UPLOAD_POLICY = { maxAccounts: num("maxAccounts"), version: /version:\s*"([^"]+)"/.exec(POLICY_SRC)?.[1] ?? "unknown" };
 

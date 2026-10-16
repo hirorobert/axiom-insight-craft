@@ -106,7 +106,7 @@ async function boot() {
   const browser = await Browser.launch({ executablePath: process.env.CHROME_PATH });
   const env = buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey });
   // [NORMAL seam, evidence #144 — coordinated] hooks supplied by the existing isolated facilities, from a NORMAL-owned module
-  // (scripts/e2e/launchQaHooks.mjs). Absent ⇒ unchanged behaviour (the dependent scenarios report BLOCKED).
+  // (research/launch-qa/ci/launchQaHooks.mjs). Absent ⇒ unchanged behaviour (the dependent scenarios report BLOCKED).
   if (process.env.LAUNCH_QA_HOOKS) Object.assign(env, await (await import(pathToFileURL(path.resolve(REPO, process.env.LAUNCH_QA_HOOKS)).href)).default(Object.assign(env, { apiUrl, anonKey, outDir: OUT })));
   const cleanup = async () => { try { await browser.close(); } catch {} try { await preview.close?.(); } catch {} };
   return { env, meta: { env: "local-supabase", apiOrigin, app: APP }, cleanup };
@@ -142,6 +142,18 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     },
     async openPage() { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); env.lastPage = p; return p; },
     async go(page, route, text, timeout = 45000) { await page.goto(`${APP}${route}`); if (text) await page.waitForText(text, { timeout }); await sleep(300); },
+    // The REAL way home (NORMAL, product contract at f57b944): /dashboard auto-resumes a user with exactly one open
+    // engagement into that workspace (resolveReturningUserRoute "resume"); the workspace logo ("CFOClose home") is the
+    // explicit way back to the hub (state forceHub), where the uploader lives. Follow that path, never a test-only route.
+    async openHome(page) {
+      await env.go(page, "/dashboard");
+      await page.waitFor(() => !!document.querySelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]') || /^\/workspace\//.test(location.pathname), [], { label: "home or resumed workspace", timeout: 30000 });
+      if (await page.evaluate(() => /^\/workspace\//.test(location.pathname))) {
+        await page.waitForSelector('header a[aria-label="CFOClose home"]', { timeout: 30000 });
+        await page.click('header a[aria-label="CFOClose home"]');
+      }
+      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
+    },
     async signIn(page, u) {
       await env.go(page, "/auth", "Sign in to your CFOClose account");
       await page.fill("#email", u.email); await page.fill("#password", u.password); await page.press("Enter");
@@ -170,8 +182,7 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     // for a user who already has an entity shows the compact uploader (P2-4), so we wait for the dropzone/input, not the
     // heading. Returns { companyId, periodYear, uploadId, sourceHash, failure, selectedFileOk }.
     async firstUploadInto(page, { mode = "new", entityName, existingEntityName, endsOn = "2026-06-30", currency = "TZS", year, file }) {
-      await env.go(page, "/dashboard");
-      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
+      await env.openHome(page);
       const since = new Date(Date.now() - 5000).toISOString();
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -310,8 +321,7 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     // Drive FirstUpload to the "active trial balance exists → Replace" state for an EXISTING entity; returns whether the
     // explicit Replace affordance is offered (replacement is never automatic). Grounded in FirstUpload.tsx testids.
     async beginReplace(page, { existingEntityName, endsOn = "2026-06-30", currency = "TZS", file }) {
-      await env.go(page, "/dashboard"); // an entity-owner's home shows the COMPACT uploader (P2-4), not the "Check your trial balance" heading
-      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
+      await env.openHome(page); // an entity-owner's home shows the COMPACT uploader (P2-4), not the "Check your trial balance" heading
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
       await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});

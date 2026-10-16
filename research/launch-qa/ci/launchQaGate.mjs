@@ -4,7 +4,7 @@
 //   problem other than a "NOTE:" (a PASS that records a blocked sub-check is not a pass); and the application identity was
 //   verified against the built tree (identity.json from the CI step). Anything else — FAIL, BLOCKED, NOT_RUN, ERROR, a
 //   missing scenario, a missing report — is NOT PASS. Writes <dir>/gate.json.
-//   node scripts/e2e/launchQaGate.mjs <evidence-dir>
+//   node research/launch-qa/ci/launchQaGate.mjs <evidence-dir>
 import fs from "node:fs";
 import path from "node:path";
 
