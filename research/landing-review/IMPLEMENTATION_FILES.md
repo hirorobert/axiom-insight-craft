@@ -29,6 +29,7 @@ These three requirements are binding on any implementation. The `bd82ab2` mockup
   **"Guided example—not automated evidence checking."**
 - **Keep the invented-data label** "Illustrative example — invented data" unchanged and always visible.
 - **Separate a recorded decision from a validated accounting treatment.** The outcome text reads "Recorded: <category>." followed by the guided-example comparison. Nothing in the section may call a recorded decision "validated", "verified", "correct" or "approved", or imply that the product assesses a treatment against evidence. The existing disclosure ("CFOClose itself records decisions; it does not check them against evidence.") stays.
+- **Wording correction (owner instruction, after `dbba12f`):** the director-account explanation must read "The credit balance suggests the company owes the director. The supporting terms help determine its classification." It replaces the absolute "The repayment terms decide the category.", which the `dbba12f` mockup and its screenshots still show.
 - **Test:** `illustrativeReview.test.ts` asserts the label is present beside both held accounts, and that none of those words appears in any outcome or status text.
 
 ## Tests to update

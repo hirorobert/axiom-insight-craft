@@ -108,8 +108,8 @@
     },
     {
       "id": "sample.director.why",
-      "words": 15,
-      "inMockup": true,
+      "words": 16,
+      "inMockup": null,
       "hits": [],
       "status": "PASS"
     },

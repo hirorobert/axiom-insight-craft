@@ -16,7 +16,7 @@
     { "id": "sample.equation.evaluated", "inMockup": false, "note": "rendered by script after the recalculated figures", "text": "It holds whenever the totals balance and every account has a category; it does not show that the categories are right." },
     { "id": "sample.fingerprint", "inMockup": true, "allowNegated": ["signature", "certification"], "text": "It identifies the exact file that was imported. It is not a signature and not a security certification." },
     { "id": "sample.try.intro", "inMockup": true, "text": "Choosing an option records nothing. Only \"Record decision\" records it, under the name \"Sample reviewer\". CFOClose records decisions; it does not check them against evidence." },
-    { "id": "sample.director.why", "inMockup": true, "text": "The credit balance suggests the company owes the director. The repayment terms decide the category." },
+    { "id": "sample.director.why", "inMockup": false, "note": "owner wording correction after dbba12f; the mockup still shows the superseded sentence", "text": "The credit balance suggests the company owes the director. The supporting terms help determine its classification." },
     { "id": "sample.director.evidence", "inMockup": true, "text": "Loan note: 3,000.00 lent by the director, interest-free, repayable on demand." },
     { "id": "sample.sundry.why", "inMockup": true, "text": "The name does not say what the balance is." },
     { "id": "sample.sundry.evidence", "inMockup": true, "text": "Ledger detail: three customer overpayments (400.00, 350.00, 250.00), not yet refunded." },
