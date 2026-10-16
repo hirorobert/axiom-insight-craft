@@ -33,6 +33,9 @@ function natureOf(name) {
   // Contra-asset FIRST: "accumulated depreciation" keyword-collides with "depreciation" (expense) but is a balance-sheet
   // contra-asset. We return "asset" so it is not mis-booked to the income statement; its sign is flagged (see uncertainty).
   if (CONTRA_ASSET.test(n)) return "asset";
+  // A bare "income"/"revenue" is revenue (handles "rent income", "other income") — but NOT deferred income (liability),
+  // income tax (taxes/expense) or OCI. This resolves the "rent"→expense keyword collision for income-suffixed accounts.
+  if (/\b(income|revenue)\b/.test(n) && !/\b(deferred|comprehensive)\b/.test(n) && !/income tax|tax/.test(n)) return "revenue";
   for (const [nature, kws] of Object.entries(KW)) if (kws.some((k) => n.includes(normalizeAccountName(k)))) return nature;
   return "unknown";
 }
@@ -73,6 +76,15 @@ export function interpretMeaning(accounts) {
     if (nature === "liability" && /payable|creditor|supplier/.test(normalizeAccountName(a.account_name))) {
       level = level === "high" ? "high" : "medium";
       reasons.push("Supplier/payable: the statement debit/credit perspective can differ from the entity's — confirm the sign (scoped MUSE knowledge).");
+    }
+    // Abnormal-sign check (mirrors the production A01 finding): a recognised account whose balance sits on the opposite
+    // side to its nature's normal side is consequential — surfaced for individual review, never silently grouped.
+    const expectedSide = { revenue: "credit", expense: "debit", asset: "debit", liability: "credit", equity: "credit" }[nature];
+    const d = Number(a.debitMinor || 0), c = Number(a.creditMinor || 0);
+    const actualSide = c > d ? "credit" : d > c ? "debit" : null;
+    if (expectedSide && actualSide && expectedSide !== actualSide) {
+      level = "high";
+      reasons.push(`Abnormal balance: a ${nature} account normally sits on the ${expectedSide} side, but this balance is on the ${actualSide} side — confirm the classification before accepting (mirrors the A01 abnormal-sign finding). Gross rows are preserved; nothing is netted.`);
     }
     if (fam) reasons.push(`Part of a '${fam.stem}' lifecycle (${fam.role}); related to opening/addition/transfer/depreciation accounts — presented, never netted automatically.`);
     return { account_key: accountKey(a), account_name: a.account_name, account_code: a.account_code, nature, temporal, family: fam, uncertainty: { level, reasons }, proposal_type: nature === "unknown" ? "NONE" : "MACHINE_SUGGESTION" };

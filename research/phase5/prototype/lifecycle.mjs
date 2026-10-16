@@ -95,6 +95,33 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
  * NO "Accept all": one group per call. Refuses cross-tenant, stale source, and idempotency-reuse-with-different-payload.
  * Returns { batch_id, decisions_logged, reused: false } or the prior replay result.
  */
+/**
+ * Expand a treatment group into the EXACT per-account decision payloads that resolve_account_review_batch consumes
+ * (ReviewDecisionPayload). Pure — no store write. This is the array passed as p_decisions to the real RPC.
+ * Fields match the real function's parsing: account_code, account_name, proposal_type, decision_action, statement,
+ * classification, line_item, normal_balance, (is_cash_account|is_retained_earnings|is_payroll_account), reason.
+ * Flags stay TRI-STATE: only the group's confirmed flag_candidate is emitted; others are OMITTED (never sent as false).
+ */
+export function expandGroupToDecisions(group, reason) {
+  return group.members.map((m) => {
+    const d = {
+      account_code: m.account_code ?? null,
+      account_name: m.account_name,
+      proposal_type: "MACHINE_SUGGESTION",
+      decision_action: "USER_ACCEPTED_SUGGESTION",
+      statement: group.treatment.statement,
+      classification: group.treatment.classification,
+      line_item: m.account_name, // server defaults line_item to the account name; we send it explicitly
+      normal_balance: group.treatment.normal_balance,
+      reason,
+    };
+    if (group.treatment.flag_candidate === "cash") d.is_cash_account = true;
+    else if (group.treatment.flag_candidate === "retained") d.is_retained_earnings = true;
+    else if (group.treatment.flag_candidate === "payroll") d.is_payroll_account = true;
+    return d;
+  });
+}
+
 export function acceptGroup(store, { upload, summary, group, actor, reason, client_request_id }) {
   if (actor.company_id !== upload.company_id) throw new Refusal("UPLOAD_COMPANY_MISMATCH", { actor: actor.company_id, upload: upload.company_id });
   if (summary.source_digest !== upload.source_digest) throw new Refusal("SOURCE_CHANGED", { was: summary.source_digest, now: upload.source_digest });
