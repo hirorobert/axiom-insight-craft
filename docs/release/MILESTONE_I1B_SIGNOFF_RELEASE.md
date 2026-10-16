@@ -220,3 +220,10 @@ financial-statements rollout.
 - [ ] Step 8: preservation counts compared; demo upload/discard/restore/cleanup observed.
 - [ ] Step 7: close-out PR with the reviewed `RELEASE_JOURNAL` entries opened.
 - [ ] Frontend published only on separate authorization; every gate still off.
+
+## Unreleased ingestion compatibility update (2026-10-15)
+
+The historical release identities above remain unchanged. The current source dependency closure of
+`layout-assist` is now `81e6dc1d792c3b01f114be76593aa6dfd0b5be1a23c31236cf4663aa0b97f66c` because the shared deterministic ingestion core recognises
+printed-workbook metadata and control totals (tb-ingest-3.1.0). This is a source identity, not evidence
+of hosted deployment. The layout-assist customer gate remains unchanged.
