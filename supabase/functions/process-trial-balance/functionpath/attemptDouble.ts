@@ -50,9 +50,6 @@ export function installAttemptDoubles(w: World): void {
 
   // 20261107100000: the complete-findings store is present.
   w.rpc.tb_certification_findings_supported = () => ok(true);
-  // 20261107100000: processing admission slots (always one free in the function-path world).
-  w.rpc.tb_acquire_processing_slot = () => ok(1);
-  w.rpc.tb_release_processing_slot = () => ok(true);
 
   w.rpc.tb_finalize_attempt = (a) => {
     const r = a.p_result as {

@@ -436,13 +436,12 @@ await check(`one account over the account limit (${ACCOUNTS + 1}): refused by na
   const r = await commitAndProcess(csvOf(balancedRows(ACCOUNTS + 1)), "accounts-over.csv");
   return refusedCleanly(r, "TOO_MANY_ACCOUNTS") && (!r.cert || r.cert.blocking === true) ? true : r;
 });
-// Concurrency at the account limit. Measured on the local Edge Runtime (CI, PR #141, before admission): 4 simultaneous
-// 2,000-account requests exceeded the worker's resource limit (HTTP 546 WORKER_LIMIT) and left attempts leased. Since
-// then process-trial-balance admits at most two checks at once per worker (_shared/admission.ts); the others wait in
-// order (≤ 25 s) or are refused BEFORE anything begins (503 PROCESSING_BUSY) and retry the same request.
+// Concurrency at the account limit. The Edge Runtime limits CPU time per isolate (runtime log, CI run 38892294850): one
+// isolate running two 2,000-account checks reached its soft limit and the requests queued in it hit the hard limit (546).
+// process-trial-balance therefore runs ONE check per isolate and queues nothing: a request arriving meanwhile is refused
+// at once (503 PROCESSING_BUSY, nothing begun) and is retried as the SAME request, as the browser does.
 const attemptsOf = async (uploadId) => (await admin.from("engine_runs").select("id, status, attempt_no").eq("source_record_id", uploadId)).data ?? [];
 const certsOf = async (uploadId) => (await admin.from("tb_certifications").select("id").eq("upload_id", uploadId)).data ?? [];
-/** commitAndProcess, keeping the upload id and the request id so a busy answer can be retried as the SAME request. */
 const commitOnly = async (bytes, name) => {
   const p = await openYear();
   const d = await reserve(owner, bytes, key(), name);
@@ -454,31 +453,40 @@ const processOnce = async (uploadId, requestId) => {
   const t0 = Date.now();
   const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId, clientRequestId: requestId }) });
   const body = await res.json().catch(() => null);
-  return { http: res.status, code: body?.code ?? null, ms: Date.now() - t0 };
+  return { http: res.status, code: body?.code ?? null, ms: Date.now() - t0, retryAfter: res.headers.get("retry-after") };
 };
 for (const n of [4, 8]) {
-  await check(`${n} simultaneous requests at the account limit: every one processed in full exactly once (one attempt, one certification), or refused as busy with NOTHING begun and then processed by a retry of the same request; no worker exhaustion, nothing stranded`, async () => {
+  await check(`${n} simultaneous requests at the account limit: none exhausts the runtime; each is processed in full exactly once (one attempt, one certification, complete findings) — at once, or after being refused as busy at once with NOTHING begun and retried as the same request; nothing stranded`, async () => {
     const files = await Promise.all(Array.from({ length: n }, () => xlsxOf(balancedRows(ACCOUNTS))));
     const ids = [];
     for (let k = 0; k < n; k++) ids.push(await commitOnly(files[k], `concurrent${n}-${k}.xlsx`));
     const reqIds = ids.map(() => crypto.randomUUID());
     const first = await Promise.all(ids.map((id, k) => processOnce(id, reqIds[k])));
-    const busy = [];
-    for (let k = 0; k < n; k++) if (first[k].http === 503 && first[k].code === "PROCESSING_BUSY") busy.push({ k, attemptsBefore: (await attemptsOf(ids[k])).length });
-    const retried = [];
-    for (const b of busy) retried.push(await processOnce(ids[b.k], reqIds[b.k]));
+    const busy = first.map((f, k) => ({ ...f, k })).filter((f) => f.http === 503 && f.code === "PROCESSING_BUSY");
+    const busyClean = [];
+    for (const b of busy) busyClean.push((await attemptsOf(ids[b.k])).length === 0);
+    // Retries as the browser does them: the same request, after the server's Retry-After, until processed (bounded).
+    const retries = [];
+    for (const b of busy) {
+      let r = null;
+      for (let t = 0; t < 10; t++) {
+        await new Promise((res) => setTimeout(res, 1000 * Number(b.retryAfter ?? 3)));
+        r = await processOnce(ids[b.k], reqIds[b.k]);
+        if (r.http !== 503 || r.code !== "PROCESSING_BUSY") break;
+      }
+      retries.push(r.http);
+    }
     const final = [];
     for (let k = 0; k < n; k++) {
       const row = (await admin.from("trial_balance_uploads").select("status").eq("id", ids[k]).single()).data;
       const cert = await certificationOf(ids[k]);
-      final.push({ k, first: first[k].http, ms: first[k].ms, status: row?.status, attempts: (await attemptsOf(ids[k])).length, certs: (await certsOf(ids[k])).length, stored: cert?.stored ?? null, findings: cert?.findingsCount ?? null });
+      final.push({ k, status: row?.status, attempts: (await attemptsOf(ids[k])).length, certs: (await certsOf(ids[k])).length, stored: cert?.stored ?? null, findings: cert?.findingsCount ?? null });
     }
-    log(`        [policy] ${n}-way at ${ACCOUNTS} accounts: first answers ${first.map((f) => f.http).join("/")} (${first.map((f) => f.ms).join("/")} ms); busy ${busy.length}, retried ${retried.map((r) => r.http).join("/") || "-"}`);
+    log(`        [policy] ${n}-way at ${ACCOUNTS} accounts: first answers ${first.map((f) => f.http).join("/")} (${first.map((f) => f.ms).join("/")} ms); busy ${busy.length} (refused in ≤ ${Math.max(0, ...busy.map((b) => b.ms))} ms), retried ${retries.join("/") || "-"}`);
     const ok = first.every((f) => f.http === 200 || (f.http === 503 && f.code === "PROCESSING_BUSY"))
-      && busy.every((b) => b.attemptsBefore === 0)
-      && retried.every((r) => r.http === 200)
+      && busyClean.every(Boolean) && retries.every((h) => h === 200)
       && final.every((f) => f.status === "needs_review" && f.attempts === 1 && f.certs === 1 && f.stored === f.findings && f.findings >= ACCOUNTS);
-    return ok ? true : { first, busy, retried, final };
+    return ok ? true : { first, busy: busy.length, busyClean, retries, final };
   });
 }
 await check("a workbook one row over the limit: refused by name (TOO_MANY_ROWS); no account accepted, no totals, HTTP 200", async () => {
