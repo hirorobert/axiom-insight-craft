@@ -75,6 +75,7 @@ import {
 import { ChevronDown } from "lucide-react";
 import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
+import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 
@@ -163,9 +164,8 @@ export default function PrepareWorkspace() {
   const processReplacement = async (uploadId: string, fileName: string) => {
     try {
       await ensureFreshSession();
-      const { error } = await supabase.functions.invoke("process-trial-balance", {
-        body: { uploadId, clientRequestId: crypto.randomUUID() },
-      });
+      // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
+      const { error } = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId, clientRequestId: crypto.randomUUID() });
       if (error) throw error;
       toast.success(`Processing ${fileName}. The result appears on this page.`);
     } catch (err) {

@@ -455,6 +455,22 @@ const processOnce = async (uploadId, requestId) => {
   const body = await res.json().catch(() => null);
   return { http: res.status, code: body?.code ?? null, ms: Date.now() - t0, retryAfter: res.headers.get("retry-after") };
 };
+// Sequential checks at the account limit, one after another (each retried as the same request while busy, as the browser
+// does). The runtime's per-worker CPU accounting is read from its own log (CI step "Processing resource evidence"): each
+// admitted check logs its worker, its number in that worker and its CPU time, and the runtime logs soft-limit retirement.
+await check(`6 sequential checks at the account limit: every one processed in full with its own complete findings; any worker retirement between them is transparent (no 546, nothing stranded)`, async () => {
+  const out = [];
+  for (let k = 0; k < 6; k++) {
+    const id = await commitOnly(await xlsxOf(balancedRows(ACCOUNTS)), `sequential-${k}.xlsx`);
+    const rid = crypto.randomUUID();
+    let r = await processOnce(id, rid), busy = 0;
+    while (r.http === 503 && r.code === "PROCESSING_BUSY" && busy < 10) { busy++; await new Promise((res) => setTimeout(res, 1000 * Number(r.retryAfter ?? 3))); r = await processOnce(id, rid); }
+    const cert = await certificationOf(id);
+    out.push({ k, http: r.http, ms: r.ms, busy, attempts: (await attemptsOf(id)).length, findings: cert?.findingsCount ?? null, stored: cert?.stored ?? null });
+  }
+  log(`        [policy] sequential at ${ACCOUNTS} accounts: ${out.map((o) => `${o.http}${o.busy ? `(+${o.busy} busy)` : ""} ${o.ms} ms`).join(", ")}`);
+  return out.every((o) => o.http === 200 && o.attempts === 1 && o.stored === o.findings && o.findings >= ACCOUNTS) ? true : out;
+});
 for (const n of [4, 8]) {
   await check(`${n} simultaneous requests at the account limit: none exhausts the runtime; each is processed in full exactly once (one attempt, one certification, complete findings) — at once, or after being refused as busy at once with NOTHING begun and retried as the same request; nothing stranded`, async () => {
     const files = await Promise.all(Array.from({ length: n }, () => xlsxOf(balancedRows(ACCOUNTS))));

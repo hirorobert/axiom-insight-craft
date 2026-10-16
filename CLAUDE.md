@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      processingInvoke.ts     ← ONLY browser path to process-trial-balance (bounded, jittered retry of PROCESSING_BUSY as the same request)
       engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)
       uploadAuthority.ts      ← Reads tb_upload_authority / tb_upload_attempts (S2): Needs re-check, Processing stopped, Retry now, history (F2)
       requestReprocess.ts     ← ONLY browser path to a new check: tbu_request_reprocess, then processing with the same operation id
