@@ -357,14 +357,23 @@ const commitAndProcess = async (bytes, name) => {
   const t0 = Date.now();
   const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: c.body.upload_id, clientRequestId: crypto.randomUUID() }) });
   const ms = Date.now() - t0;
-  const row = (await admin.from("trial_balance_uploads").select("status, processing_result").eq("id", c.body.upload_id).single()).data;
+  const bodyText = res.status === 200 ? "" : (await res.text().catch(() => "")).slice(0, 400);
+  const row = (await admin.from("trial_balance_uploads").select("status, processing_result, accounting_errors").eq("id", c.body.upload_id).single()).data;
   const ing = row?.processing_result?.ingestion ?? null;
   const r = { httpStatus: res.status, ms, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null };
-  log(`        [policy] ${name}: HTTP ${r.httpStatus} in ${ms} ms, status ${r.status}, accounts ${r.accounts}, issues ${r.codes.join(",") || "none"}`);
+  log(`        [policy] ${name}: HTTP ${r.httpStatus} in ${ms} ms, status ${r.status}, accounts ${r.accounts}, issues ${r.codes.join(",") || "none"}${bodyText ? `, body ${bodyText}` : ""}${r.status === "error" ? `, errors ${JSON.stringify(row?.accounting_errors ?? null).slice(0, 300)}` : ""}`);
   return r;
 };
 const refusedCleanly = (r, code) => r.httpStatus === 200 && r.codes?.includes(code) && (r.accounts === 0 || r.accounts === null) && !r.totals && !["complete", "valid"].includes(r.status);
 const processedFully = (r, accounts) => r.httpStatus === 200 && r.accounts === accounts && !r.codes.some((c) => /TOO_|LARGE|UNSUPPORTED|CURRENCY/.test(c));
+// Where does the real function's capacity end? Balanced files of increasing size, each processed in full or not.
+for (const n of [1_000, 2_500, 5_000]) {
+  await check(`capacity: a ${n}-line workbook and CSV are processed in full by the real function (HTTP 200, every account read)`, async () => {
+    const x = await commitAndProcess(await xlsxOf(balancedRows(n - 1)), `cap-${n}.xlsx`);
+    const c = await commitAndProcess(csvOf(balancedRows(n - 1)), `cap-${n}.csv`);
+    return processedFully(x, n - 1) && processedFully(c, n - 1) ? true : { xlsx: x, csv: c };
+  });
+}
 await check(`a WORKBOOK exactly at the row limit (${MAX} lines) is processed in full by the real function: HTTP 200, every account read (the worker is not exhausted)`, async () => {
   const r = await commitAndProcess(await xlsxOf(balancedRows(MAX - 1)), "at-limit.xlsx");
   return processedFully(r, MAX - 1) ? true : r;
