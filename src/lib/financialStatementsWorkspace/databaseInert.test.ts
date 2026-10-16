@@ -315,8 +315,17 @@ describe("database inertness — schema and functions", () => {
       // server-side and mints a single-use reauth nonce (record_privileged_reauth). Proven on PG17 by owner_access_proof.mjs.
       "supabase/migrations/20261104100000_platform_owner_access_and_entity_allowance.sql",
       "supabase/functions/reauthenticate/index.ts",
+      // Trial balance drafts (Phase 2 P2-2, 20261106100000): a NEW forward-only migration with two new owner-scoped tables
+      // (no existing table, constraint, policy or grant altered; no financial-statements schema), and ONE new Edge
+      // Function, trial-balance-draft (sign / commit / cancel), whose recovery protocol is the pure _shared/draftUpload.ts.
+      // Proven on PostgreSQL by trialBalanceDrafts.mjs and on the local stack by scripts/e2e/draftJourney.mjs.
+      "supabase/migrations/20261106100000_trial_balance_drafts.sql",
+      "supabase/functions/_shared/draftUpload.ts",
+      "supabase/functions/trial-balance-draft/index.ts",
     ]);
     const modified = new Set([
+      // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
+      "supabase/functions/_shared/sourceSweeper.ts",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
@@ -583,6 +592,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
+      // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
+      "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).
       "scripts/payments/providerSandboxSmoke.ts",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.

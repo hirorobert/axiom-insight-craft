@@ -68,7 +68,8 @@ describe("migration authority parity", () => {
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
-    expect(r.pending).toEqual([]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
+    // 20261106100000 (trial balance drafts, Phase 2 P2-2) is authored and PENDING hosted application: listed, never an error.
+    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql"]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

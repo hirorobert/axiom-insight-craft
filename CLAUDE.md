@@ -383,6 +383,7 @@ src/
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
       resultVersion.ts                ← Which check set a stored result came from: no processing milestones = "Checked by an earlier version" on every surface (history unchanged)
       resultStatus.ts                 ← The one trial-balance status vocabulary and finding order (blocking → needs confirmation → review) for sidebar, Overview and page
+      trialBalanceDraft.ts            ← ONLY browser path for a trial balance draft (reserve bound to file identity, signed upload, commit with a bound key; drafts_unavailable on an old backend)
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
@@ -517,6 +518,7 @@ supabase/
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
     trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
+    trial-balance-draft/           ← Draft sign / commit / cancel (Phase 2 P2-2, 20261106100000); recovery protocol in _shared/draftUpload.ts
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)
