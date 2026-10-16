@@ -5,8 +5,10 @@
 //   * the browser (src/lib/workspace/trialBalanceDraft.ts and the first-visit copy).
 //
 // PROVISIONAL limits (owner decision pending), set from MEASUREMENT: the Deno/V8 probe under a hard 150 MB heap cap
-// (scripts/bench/tbUploadPolicyDenoProbe.ts, CI) terminated a 100,000-row workbook (16.3 MB expanded) and fitted 25,000
-// rows in a 54 MB heap. Raw upload/storage size is a separate, larger number than the safe-parse limits. They bound
+// (scripts/bench/tbUploadPolicyDenoProbe.ts, CI) terminated a 100,000-row workbook (16.3 MB expanded); and in the REAL
+// process-trial-balance on the local Edge Runtime a 25,000-row workbook exhausted the worker (HTTP 546 after 2.3 s) while
+// the bare parser handled it — so the limits follow the real function, proven at the limit by scripts/e2e/draftJourney.mjs
+// (rows count the header; 10,000 lines is about twice a large trial balance). Raw upload/storage size is a separate, larger number than the safe-parse limits. They bound
 // resource use; they are not accounting rules. A refusal names the limit and the next step; nothing is truncated.
 //
 // Workbook expansion is checked from the ZIP central directory alone (declared uncompressed sizes; nothing is inflated),
@@ -18,13 +20,13 @@ export const TB_UPLOAD_POLICY = Object.freeze({
   /** Bytes of the file as uploaded and stored (raw upload/storage limit). */
   maxFileBytes: 10_485_760,
   /** .xlsx/.xlsm: the ACTUAL inflated size of every entry together (declared sizes are only a first filter). */
-  maxExpandedBytes: 6_291_456,
+  maxExpandedBytes: 2_097_152,
   /** .xlsx: entries in the package. */
   maxZipEntries: 2_000,
   /** Rows across every sheet (or the CSV table); also the bound DURING the parse (limit + 1 rows are read at most). */
-  maxRows: 25_000,
+  maxRows: 10_000,
   /** Cells across every sheet after reading. */
-  maxCells: 300_000,
+  maxCells: 120_000,
 });
 
 export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "UNSUPPORTED_FORMAT";

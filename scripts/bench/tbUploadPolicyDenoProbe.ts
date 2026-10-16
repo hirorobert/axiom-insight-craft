@@ -35,12 +35,13 @@ if (Deno.args[0] === "--child") { await child(Deno.args[1], Deno.args[2]); Deno.
 
 const heapMb = Number(Deno.args[0] ?? 150);
 const dir = await Deno.makeTempDir({ prefix: "tb-policy-probe-" });
-// Around the enforced limits (tb-upload-policy-2: 25,000 rows): within the limit, one step over it (refused explicitly by
-// the bounded parse), and far over it (still refused, never parsed in full — no termination).
+// Around the enforced limits (rows count the header; invented(n) writes n + 1 lines): AT the limit (maxRows - 1 accounts),
+// one step over it (refused explicitly by the bounded parse), and far over it (still refused, never parsed in full).
+const AT = TB_UPLOAD_POLICY.maxRows - 1;
 const cases: { kind: "csv" | "xlsx" | "xlsx-deflate" | "lying-zip"; rows: number }[] = [
-  ...[10_000, 25_000, 30_000, 150_000].map((rows) => ({ kind: "csv" as const, rows })),
-  ...[5_000, 10_000, 25_000, 30_000, 100_000].map((rows) => ({ kind: "xlsx" as const, rows })),
-  ...[10_000, 25_000, 100_000].map((rows) => ({ kind: "xlsx-deflate" as const, rows })),
+  ...[5_000, AT, AT + 1, 150_000].map((rows) => ({ kind: "csv" as const, rows })),
+  ...[5_000, AT, AT + 1, 100_000].map((rows) => ({ kind: "xlsx" as const, rows })),
+  ...[AT, 100_000].map((rows) => ({ kind: "xlsx-deflate" as const, rows })),
   { kind: "lying-zip", rows: 0 },
 ];
 /** A package whose directory DECLARES 10 bytes while its one entry really inflates to 512 MB of zeros. */

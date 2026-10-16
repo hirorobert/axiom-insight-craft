@@ -108,14 +108,18 @@ a first filter); (3) during the parse, at most limit + 1 rows per sheet (`sheetR
 (4) rows and cells after reading. Every refusal is a named, blocking issue with no rows accepted and no totals — never a
 truncation or a partial acceptance.
 
-**Values (provisional, owner approval pending), set from measurement:**
+**Values (provisional, owner approval pending), set from measurement — on the REAL function, not only the parser.** A first
+setting of 25,000 rows passed the bare Deno probe (45 MB heap, 0.45 s) but, in the real `process-trial-balance` on the local
+Edge Runtime, a 25,000-line workbook exhausted the worker (HTTP 546 after 2.3 s; the upload left "processing" until the
+attempt lease frees it). The values were therefore lowered, and the drafts journey now processes a workbook and a CSV EXACTLY
+at the limit through the real function (must answer 200 with every account read) and one row over (must be refused by name):
 
 | Limit | Value | Why |
 |---|---|---|
 | Raw upload / storage (draft and file) | 10 MB | separate from parse limits; a raw byte cap, not a memory guard |
-| Workbook ACTUAL expansion | 6 MB | 25,000-row workbook ≈ 4 MB expanded |
-| Rows | 25,000 | 25,000 rows measured at a 54 MB V8 heap; typical trial balances < 5,000 rows |
-| Cells | 300,000 | 25,000 rows × 12 columns |
+| Workbook ACTUAL expansion | 2 MB | a 10,000-row workbook ≈ 1.6 MB expanded |
+| Rows (lines, header included) | 10,000 | about twice a large trial balance (typical < 5,000) |
+| Cells | 120,000 | 10,000 lines × 12 columns |
 | Workbook parts | 2,000 | unchanged |
 
 **Measurement (Deno 2.9.6 / V8 15.0, the Edge Runtime's engine, HARD 150 MB heap cap, one process per invented case, CI
