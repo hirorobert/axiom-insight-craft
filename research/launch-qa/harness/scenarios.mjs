@@ -217,7 +217,16 @@ async function scenarioF(env) {
   // upload — blocked, the named issue, no account accepted, no totals, never certified — and the page says so. (An
   // assertion that nothing at all is created would contradict the designed flow.) Bound EXACTLY: user → draft → commit → upload.
   const over = await env.firstUploadInto(page, { mode: "new", entityName: "Finvalid Over Limit Ltd", file: env.overLimitFixture.path });
-  const shown = `${over.failure ?? ""} | ${over.shownProblems ?? ""}`;
+  // The card says the check stopped and offers "See the result": a user follows it, so the refusal is read there too.
+  let resultText = "";
+  // (firstUploadInto already follows "See the result" when the card offers it; read wherever the user now is.)
+  if (await page.evaluate(() => /\/workspace\//.test(location.pathname)).catch(() => false)) {
+    await page.waitFor(() => /more than [d,]+ accounts|Trial balance checks/i.test(document.body.innerText), [], { label: "result content", timeout: 30000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 1500));
+    resultText = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
+    await env.shot?.(page, "F-over-limit-result");
+  }
+  const shown = `${over.failure ?? ""} | ${over.shownProblems ?? ""} | ${resultText}`;
   const refusedOnPage = new RegExp(expected, "i").test(shown) || /more than [\d,]+ accounts|too many accounts|account limit/i.test(shown);
   const u = over.committedUpload;
   if (!u) problems.push(`the over-limit file's own upload could not be bound exactly: ${(over.bindProblems ?? []).join("; ")}`);
@@ -323,6 +332,7 @@ async function scenarioI(env) {
   const reached = await env.openHome(page).then(() => true, (e) => String(e?.message ?? e));
   if (reached !== true) return result("FAIL", [`could not reach the first-upload home the way a user does: ${reached}`]);
   const home = await env.captureClarityState(page, "first-upload-home");
+  const hubKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind") ?? null).catch(() => null);
   if (!home) return result("FAIL", ["could not observe the first-upload home to assess clarity"]);
   problems.push(...clarityStateProblems(home));
   problems.push(...primaryActionProblems(home.ctas));
@@ -334,7 +344,7 @@ async function scenarioI(env) {
     const res = await env.captureClarityState(page, "result");
     if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
   }
-  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved } });
+  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved, hubNextActionKind: hubKind, ctas: home.ctas } });
 }
 
 export const SCENARIOS = [

@@ -119,6 +119,7 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
   const writeFile = (name, content) => { const f = path.join(OUT, "files", name); fs.writeFileSync(f, content); return f; };
   const store = {};
   const env = {
+    shot,
     APP, admin, users, sleep, lastWorkspace: null,
     // NORMAL-owned hooks (undefined ⇒ the dependent scenario returns BLOCKED with a precise reason):
     mockPurchase: undefined, overLimitFixture: undefined, sameNameRepairApplied: false, axe: undefined,
@@ -357,8 +358,12 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     },
     // Click the explicit Replace and wait for the outcome. A stale captured version is refused (the current TB is kept).
     async clickReplace(page) {
-      await page.click('[data-testid="first-upload-replace"]').catch(() => {});
-      await page.waitFor(() => !!document.querySelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"]'), [], { label: "replace outcome", timeout: 120000 }).catch(() => {});
+      await page.click('[data-testid="first-upload-replace"]');
+      // The FIRST attempt's refusal is still on screen when Replace is clicked: wait until the card has left that state
+      // (the Replace control is gone — the replacement attempt is running), so its OWN outcome is read, never the old one.
+      const left = await page.waitFor(() => !document.querySelector('[data-testid="first-upload-replace"]'), [], { label: "replace started", timeout: 30000 }).then(() => true, () => false);
+      if (!left) return { checked: false, failure: "the Replace control did not start a replacement (the card stayed on the refusal)" };
+      await page.waitFor(() => !!document.querySelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"], [data-testid="first-upload-replace"]'), [], { label: "replace outcome", timeout: 120000 });
       return page.evaluate(() => ({ checked: !!document.querySelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"]'), failure: document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null })).catch(() => ({ checked: false, failure: null }));
     },
     async activeUpload(companyId, year) {
