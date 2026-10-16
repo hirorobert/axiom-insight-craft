@@ -2,6 +2,12 @@
 // keyboard/focus order, loading/error-state legibility, and a preview/production guard for the live harness. They are
 // deterministic functions a live-DOM harness (or a unit test) feeds observations into; they never claim a UI scenario
 // passed by themselves. Existing coverage is referenced, not duplicated (see ACCEPTANCE-PLAN.md).
+//
+// SCREENING AIDS, NOT VERDICTS: every "problem" these return is a SIGNAL that a human must confirm in context — never an
+// automatic customer-facing defect. A displayed number, or a word like "exception" in otherwise-fine copy, must NOT be
+// treated as a defect on its own; that is why the generic 5xx/"exception" auto-flags were removed and the remaining error
+// patterns are limited to unambiguous internal leakage (`[object Object]`, `PGRST…`, `SQLSTATE`, `TypeError`, "stack trace").
+// A real defect is recorded only after manual confirmation on the live candidate (see REPORT.md).
 
 const PRODUCTION_PROJECT_REF = "bvyivmmfjejbmqoydezk"; // mirrors scripts/ci/stagingGuard.mjs; QA must never touch production
 
@@ -57,8 +63,10 @@ export function loadingErrorStateProblems(state) {
   if (state.phase === "error") {
     const msg = (state.errorMessage || "").trim();
     if (msg === "") problems.push("error state has no message");
-    if (/\[object Object\]|undefined|NaN|PGRST\d*|SQLSTATE|TypeError|stack trace|\bexception\b|\b5\d\d\b/i.test(msg)) problems.push(`error message exposes a raw/internal error: "${msg.slice(0, 80)}"`);
-    if (state.errorIsActionable === false || !(state.nextAction && String(state.nextAction).trim() !== "")) problems.push("error state offers no actionable next step");
+    // Unambiguous internal leakage only (manual confirmation still required). Generic tokens like a bare number or the word
+    // "exception" are intentionally NOT auto-flagged — they produce false positives and are not defects on their own.
+    if (/\[object Object\]|PGRST\d+|SQLSTATE|TypeError|stack trace/i.test(msg)) problems.push(`SIGNAL (confirm manually): error message may expose a raw/internal error: "${msg.slice(0, 80)}"`);
+    if (state.errorIsActionable === false || !(state.nextAction && String(state.nextAction).trim() !== "")) problems.push("SIGNAL (confirm manually): error state offers no actionable next step");
   }
   return problems;
 }

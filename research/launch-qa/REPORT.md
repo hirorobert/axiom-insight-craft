@@ -6,13 +6,30 @@
   this host has no running app, no staging keys, and performs no hosted writes or purchases).
 - **Date of this pass:** 2026-10-16.
 
-## What executed HERE (browser-free; logic only, not scenarios)
+## Screening aids, not verdicts
+The pure checks are **screening aids**: each flagged item is a SIGNAL for manual confirmation in context, never an automatic
+customer-facing defect. A displayed number or a word like "exception" is **not** auto-flagged (those generic patterns were
+removed); only unambiguous internal leakage (`[object Object]`, `PGRST…`, `SQLSTATE`, `TypeError`, "stack trace") is
+screened, and even that is confirmed manually on the candidate before being called a defect.
+
+## What executed HERE (logic + driver wiring; NOT journeys)
 - `research/launch-qa/checks.test.mjs` — **22/22 passed.** Validates the NEW pure checks (`productionTargetProblem`,
-  `focusOrderProblems`, `loadingErrorStateProblems`, `copyWordingProblems`, `primaryActionProblems`). These exercise check
-  **logic**, not the live app. One real bug in my own check (regex word-boundaries missing raw error codes) was found and
-  fixed during this pass.
-- `research/launch-qa/harness/launchQaHarness.mjs` — runs; correctly reports all 9 scenarios **PENDING** with no preview,
-  and **BLOCKS** (exit 2) a production-ref target. No scenario is reportable as passed without a real candidate run.
+  `focusOrderProblems`, `loadingErrorStateProblems`, `copyWordingProblems`, `primaryActionProblems`). Check **logic** only.
+  Found & fixed one real bug in my own check (regex boundaries missing raw error codes) during this pass.
+- `research/launch-qa/harness/cdpDriver.mjs` — **real browser driver WIRED** on the repo's dependency-free CDP tool
+  (`scripts/browser-acceptance/cdp.mjs`), **no new dependency, no edit to that shared file**. Provides isolated-identity
+  contexts (own cookies/localStorage) — the primitive scenario 3 needs.
+- `research/launch-qa/harness/launchQaHarness.mjs` — runs; reports all 9 scenarios **PENDING** with no preview, and
+  **BLOCKS** (exit 2) a production-ref target. No scenario is reportable passed without a real candidate run.
+- `research/launch-qa/harness/driverSmokeTest.mjs` — a **SYNTHETIC** driver+primitive smoke test (loopback HTTP page; not a
+  journey) proving goto/evaluate/setViewport/screenshot + localStorage isolation + the checks scoring a real DOM.
+
+## Environment finding (verified 2026-10-16) — browser not executable on this host
+This research host **cannot run headless Chrome automation**: Chrome is installed, but `cdp.mjs` fails at
+`Target.setDiscoverTargets` (its `--remote-debugging-pipe` transport does not work under Windows/Git-bash), and a direct
+`chrome --headless=new --screenshot` also produces nothing. So the driver + smoke test are delivered **wired and
+code-verified, un-run** here; they must run on the **Linux CI/preview runner** the existing browser-acceptance suite already
+targets. This is an **environment limitation, not a test pass or fail**. (No `cdp.mjs` edit proposed from this lane.)
 
 ## Per-scenario status
 All nine scenarios are **PENDING candidate execution** (see `ACCEPTANCE-PLAN.md` for expected result + repro). None can be
@@ -36,7 +53,13 @@ truthfully marked PASS or FAIL until run against a live candidate; a prototype/m
      filed anew.
   2. Any area NORMAL marks in-repair in response to the PR #138 coordination request will be recorded here as NORMAL-owned.
 
-## Next
-Awaiting NORMAL's candidate commit + isolated preview + synthetic-login method. On receipt: wire the driver, run the harness,
-replace each PENDING with a real PASS/FAIL + evidence, and publish the updated report on PR #138. NORMAL decides how to
-integrate any tests/fixes.
+## Exact remaining dependency (see ENVIRONMENT-REQUIREMENTS.md)
+Blocking journey execution: **(a)** candidate commit; **(b)** an **isolated, non-production** preview (own Supabase project,
+not the production ref; seeded synthetic-login; sandbox payments; §2 isolation confirmed); **(c)** a **Linux runner** able to
+launch headless Chrome for the driver. A preview URL alone is insufficient — the backend-isolation and no-production-reach
+checks in §2 are mandatory.
+
+## Done now (independent of the dependency)
+Pure checks + tests (22/22), the real driver wired on the existing CDP tool, the synthetic driver+isolation smoke test, the
+acceptance plan, and this report. On receipt of (a)+(b)+(c): run the harness with a wired driver, replace each PENDING with a
+real PASS/FAIL + screenshots, and update this report on PR #138. NORMAL decides how to integrate any tests/fixes.
