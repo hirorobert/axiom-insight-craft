@@ -17,26 +17,31 @@ import { BALANCED, IMBALANCED, SAME_NAME, UNSUPPORTED } from "../fixtures/synthe
 
 const result = (status, problems = [], evidence = {}) => ({ status, problems, evidence });
 
-// A: First upload — sign in (entitled synthetic user) → create workspace → confirm entity/period/currency → upload a
-// supported invented TB through the real screen → start processing → inspect the real result + persisted bindings.
+// A: First upload — sign in (entitled synthetic user) → the Phase-2 "Check your trial balance" home → drop a supported
+// invented TB → confirm entity/period/currency on the SAME page → "Start trial balance check" → inspect the real result and
+// the SERVER-PERSISTED bindings. No guessed context, no duplicate entity, no false "passed".
 async function scenarioA(env) {
   const problems = [];
   const page = await env.openPage();
   await env.signIn(page, env.users.owner);
-  const { companyId, periodYear } = await env.createWorkspace(page, { org: "Mto Holdings Limited", year: "2026", fye: "30 June", currency: "TZS — Tanzanian Shilling", framework: "IFRS for SMEs" });
-  if (!companyId) return result("FAIL", ["workspace was not created / did not open at /workspace/:id/:year"]);
-  // Confirmed context is SOURCED, not guessed: the created company carries exactly what the form confirmed.
-  const co = await env.admin.from("companies").select("id, name, fiscal_year_end, reporting_framework").eq("id", companyId).maybeSingle();
-  if (!co.data) problems.push("created company not found via server truth");
-  else { if (!/IFRS/i.test(co.data.reporting_framework ?? "")) problems.push(`framework not confirmed as selected (got ${co.data.reporting_framework})`); }
-  await env.establishPeriod(page, companyId, periodYear);
-  const uploadId = await env.uploadTb(page, companyId, periodYear, env.writeFile("A-balanced.csv", BALANCED.csv));
-  if (!uploadId) return result("FAIL", [...problems, "no upload row persisted for the uploaded file"]);
-  // Truthful result: the server's own status settled; a certified/reviewed state is not claimed before the engine wrote it.
+  const file = env.writeFile("A-balanced.csv", BALANCED.csv);
+  const ws = await env.createWorkspace(page, { entityName: "Mto Holdings Limited", endsOn: "2026-06-30", currency: "TZS", file });
+  if (ws.failure) return result("FAIL", [`first-upload check failed: ${String(ws.failure).slice(0, 200)}`]);
+  if (!ws.companyId) return result("FAIL", ["the entity was not created / the result page did not open at /workspace/:id/:year"]);
+  const { companyId, periodYear } = ws;
+  // Confirmed context is SOURCED, not guessed (server truth): one entity; the dated period + currency as confirmed; the
+  // upload bound to that entity+period.
+  const co = (await env.admin.from("companies").select("id, name").eq("user_id", env.users.owner.id)).data ?? [];
+  if (co.length !== 1) problems.push(`expected exactly one entity for the owner, found ${co.length} (no duplicate entity)`);
+  const per = (await env.admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("company_id", companyId)).data ?? [];
+  if (!(per.length === 1 && per[0].reporting_end === "2026-06-30" && per[0].reporting_currency === "TZS")) problems.push(`period/currency not persisted as confirmed: ${JSON.stringify(per)}`);
+  const ups = (await env.admin.from("trial_balance_uploads").select("id, period_year, period_id, file_path").eq("company_id", companyId)).data ?? [];
+  if (!(ups.length === 1 && ups[0].period_year === periodYear && !!ups[0].period_id && String(ups[0].file_path).startsWith(`workspaces/${companyId}/`))) problems.push(`upload not bound to the intended entity/period: ${JSON.stringify(ups)}`);
+  // Truthful result: the server's own status settled; nothing is claimed certified/reviewed before the engine wrote it.
   const up = await env.settle(companyId, periodYear);
-  if (!up) problems.push("processing never settled (truthful result could not be observed)");
-  env.record("A.uploadId", uploadId);
-  return result(problems.length ? "FAIL" : "PASS", problems, { companyId, periodYear, uploadId });
+  if (!up) problems.push("processing never settled (a truthful result could not be observed)");
+  env.record("A.uploadId", ups[0]?.id ?? null);
+  return result(problems.length ? "FAIL" : "PASS", problems, { companyId, periodYear, uploadId: ups[0]?.id ?? null, period: per[0] });
 }
 
 // B: Existing entity — from an existing entity, show sourced context, confirm, and attach the upload to the INTENDED
@@ -82,56 +87,87 @@ async function scenarioC(env) {
 // D: Purchase-required path — entitlements unchanged; the requirement is explained; the draft is preserved; the existing
 // isolated purchase SIMULATION returns the user to the intended work. No implied free preview / unauthorised paid access.
 async function scenarioD(env) {
-  if (typeof env.mockPurchase !== "function" || typeof env.entitlementSnapshot !== "function") {
-    return result("BLOCKED", ["purchase simulation not supplied (env.mockPurchase / env.entitlementSnapshot) — do not create a real payable checkout"]);
+  if (typeof env.mockPurchase !== "function" || typeof env.entitlementSnapshot !== "function" || !env.payments?.activateByAgreement) {
+    return result("BLOCKED", ["purchase facility not supplied (env.mockPurchase / env.entitlementSnapshot / env.payments.activateByAgreement) — do not create a real payable checkout"]);
   }
   const problems = [];
-  const page = await env.openPage(); await env.signIn(page, env.users.preparer); // a user WITHOUT the required entitlement
+  const u = env.users.preparer;                         // a fresh account with NO plan in this stack
+  const page = await env.openPage(); await env.signIn(page, u);
   const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-  // NO BYPASS (grounded, server truth): a SANDBOX purchase authorises NOTHING. If entitlement changes from a mere sandbox
-  // payment, that is a real product defect (a paid-access bypass) → FAIL.
-  const before = await env.entitlementSnapshot(env.users.preparer);
-  await env.mockPurchase(page, env.users.preparer); // sandbox card purchase ONLY — never a real charge
-  const afterPurchase = await env.entitlementSnapshot(env.users.preparer);
-  if (!eq(before, afterPurchase) || env.purchaseAuthorised) problems.push(`entitlement changed after a sandbox purchase (no authorised grant) — a paid-access bypass: before=${JSON.stringify(before)} after=${JSON.stringify(afterPurchase)}`);
+  // Reach the purchase-required state UP FRONT: the Phase-2 home states the plan requirement before any upload.
+  await env.go(page, "/dashboard", "Check your trial balance");
+  const needsPlan = await page.waitForSelector('[data-testid="first-upload-needs-plan"]', { timeout: 30000 }).then(() => true).catch(() => false);
+  if (!needsPlan) problems.push("purchase requirement not surfaced up front (first-upload-needs-plan absent)");
+  // The file is still stored as a DRAFT (reserved), so nothing is lost.
+  await page.setFiles('[data-testid="first-upload-input"]', [env.writeFile("D-balanced.csv", BALANCED.csv)]);
+  await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 }).catch(() => {});
+  const draftReserved = ((await env.admin.from("trial_balance_drafts").select("state").eq("owner_ref", u.id)).data ?? [])[0]?.state === "reserved";
+  if (!draftReserved) problems.push("the file was not retained as a reserved draft for a no-plan user");
+  // 'Start' explains a plan is needed and offers 'Choose a plan'; NOTHING is created or processed (server truth = no bypass).
+  await env.setByLabel(page, "Entity name", "Pwani Invented Supplies Ltd");
+  await page.click('[data-testid="confirm-period-year"]').catch(() => {}); await env.sleep(200);
+  await env.setByLabel(page, "Ends on", "2026-06-30"); await env.setByLabel(page, "Trial balance currency", "TZS"); await env.sleep(300);
+  await page.click('[data-testid="first-upload-start"]').catch(() => {});
+  await page.waitForSelector('[data-testid="first-upload-failure"]', { timeout: 60000 }).catch(() => {});
+  const failText = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? "").catch(() => "");
+  const choosePlan = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-choose-plan"]')).catch(() => false);
+  if (!/needs a plan/i.test(failText) || !choosePlan) problems.push(`plan requirement not clearly explained with a 'Choose a plan' action (text="${failText.slice(0, 120)}", choosePlan=${choosePlan})`);
+  const companies0 = ((await env.admin.from("companies").select("id").eq("user_id", u.id)).data ?? []).length === 0;
+  const uploads0 = ((await env.admin.from("trial_balance_uploads").select("id").eq("user_id", u.id)).data ?? []).length === 0;
+  if (!companies0 || !uploads0) problems.push("something was created/processed without a plan (no entity/upload may exist) — bypass");
 
-  // AUTHORISED grant (grounded): the manual-activation path IS distinct and DOES grant — proving the grant is gated on
-  // authorisation, not on a mere payment.
-  let grantEvidence = "activateByAgreement not supplied";
-  if (env.payments && typeof env.payments.activateByAgreement === "function") {
-    await env.payments.activateByAgreement(env.users.preparer);
-    const afterGrant = await env.entitlementSnapshot(env.users.preparer);
-    if (eq(afterGrant, before)) problems.push("the authorised activation path did not grant access (expected the server's access to change)");
-    grantEvidence = `granted=${!eq(afterGrant, before)}`;
-  }
-  if (problems.length) return result("FAIL", problems, { before, afterPurchase, grantEvidence });
+  // SEPARATE ASSERTION 1 — sandbox purchase authorises NOTHING (no paid-access bypass).
+  const before = await env.entitlementSnapshot(u);
+  await env.mockPurchase(page, u);                      // sandbox card purchase through the real /billing/checkout — never a real charge
+  const afterPurchase = await env.entitlementSnapshot(u);
+  if (!eq(before, afterPurchase) || env.purchaseAuthorised) problems.push(`a sandbox purchase changed access (paid-access bypass): before=${JSON.stringify(before)} after=${JSON.stringify(afterPurchase)}`);
 
-  // The UI sub-checks — reaching the purchase-required screen with a clear explanation, and the DRAFT being preserved across
-  // the return — are not grounded in this harness (no reach/draft probe and no verified paywall selectors). Per the strict
-  // rule they are BLOCKED, never a NOTE/PASS. The no-bypass + authorised-grant evidence above is recorded.
-  return result("BLOCKED", [
-    "purchase-required UI sub-checks not grounded: 'reach the requirement with a clear explanation' and 'draft preserved across the return' need the paywall/draft selectors (NORMAL to confirm, or supply reachPurchaseRequired/draftStillPresent). No-bypass + authorised-grant executed and clean.",
-  ], { before, afterPurchase, grantEvidence });
+  // SEPARATE ASSERTION 2 — the AUTHORISED activation path (and only it) grants access.
+  await env.payments.activateByAgreement(u, "SOLO");
+  const afterGrant = await env.entitlementSnapshot(u);
+  if (eq(afterGrant, before)) problems.push("the authorised activation path did not grant access");
+
+  // Draft PRESERVED + supported return: after a plan exists, the home offers 'Continue with' the SAME draft.
+  await env.go(page, "/dashboard", "Check your trial balance");
+  const resume = await page.waitForSelector('[data-testid="first-upload-resume"]', { timeout: 30000 }).then(() => true).catch(() => false);
+  if (!resume) problems.push("the retained draft was not offered ('Continue with' / first-upload-resume) after the plan was activated");
+  return result(problems.length ? "FAIL" : "PASS", problems, { before, afterPurchase, afterGrant, needsPlan, draftReserved, resume });
 }
 
 // E: Replacement — explicit replacement decision; prior upload + history preserved; a STALE replacement refuses safely and
 // leaves the current upload intact; retry after success returns the same outcome.
 async function scenarioE(env) {
   const problems = [];
+  const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires the existing entity + active trial balance from scenario A (run A first)"]);
+  const entity = "Mto Holdings Limited";
+  const cur = await env.activeUpload(ws.companyId, ws.periodYear);
+  if (!cur) return result("BLOCKED", ["no active trial balance to replace (A did not leave one)"]);
+
+  // EXPLICIT decision (browser): uploading again to an entity with an active TB offers 'Replace' — never automatic.
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
-  const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing reviewed upload (run A first)"]);
-  // Both probes are required. A MISSING probe is BLOCKED (never a silent skip that lets E pass).
-  if (typeof env.replaceUpload !== "function" || typeof env.staleReplace !== "function") return result("BLOCKED", ["replacement controls not supplied (env.replaceUpload / env.staleReplace) — UI-driven replacement not in this harness; NORMAL-owned"]);
-  const r = await env.replaceUpload(page, ws.companyId, ws.periodYear, env.writeFile("E-replacement.csv", BALANCED.csv));
-  if (r == null) return result("BLOCKED", ["replacement affordance not located — the real replacement control is not driveable yet (NORMAL-owned)"]);
-  if (!r.explicit) problems.push("replacement happened without an explicit decision");
-  if (!r.historyPreserved) problems.push("prior upload/history was not preserved by the replacement");
-  const stale = await env.staleReplace(page, ws.companyId, ws.periodYear);
-  if (stale == null) return result("BLOCKED", ["stale-replacement probe unavailable — cannot verify a safe stale refusal (NORMAL-owned); not skipped, not PASS"]);
-  if (stale.accepted) problems.push("a STALE replacement was accepted instead of safely refused");
-  if (!stale.currentIntact) problems.push("a refused stale replacement did not leave the current upload intact");
-  return result(problems.length ? "FAIL" : "PASS", problems);
+  const offered = await env.beginReplace(page, { existingEntityName: entity, file: env.writeFile("E-replacement.csv", BALANCED.csv) });
+  if (!offered) return result("FAIL", ["no explicit 'Replace' was offered for an existing active trial balance (replacement must be an explicit decision)"]);
+  const r = await env.clickReplace(page);
+  if (!r.checked) problems.push(`the explicit replacement did not complete${r.failure ? ` (failure: ${String(r.failure).slice(0, 120)})` : ""}`);
+  // History preserved (server truth): the prior upload is kept as superseded history; a new active upload replaces it.
+  const afterOld = await env.uploadRow(cur.id);
+  const afterActive = await env.activeUpload(ws.companyId, ws.periodYear);
+  if (!(afterOld && afterOld.lifecycle_state === "superseded" && afterOld.superseded_by_upload_id && afterActive && afterActive.id !== cur.id)) {
+    problems.push(`history not preserved on replacement: old=${JSON.stringify(afterOld)} active=${JSON.stringify(afterActive)} (expected old superseded → new active)`);
+  }
+  if (problems.length) return result("FAIL", problems, { original: cur, afterOld, afterActive });
+
+  // STALE action: a deterministic stale replacement is NOT producible from the browser — FirstUpload.replace() re-reads the
+  // current version at click time (FirstUpload.tsx L205-207), so holding an old card and clicking later commits at the
+  // CURRENT version, never stale. The authentic test is the draft-commit CONTRACT with a crafted expected_version (exactly
+  // scripts/e2e/draftJourney.mjs proves: replaces_upload_id + expected_version-1 ⇒ 409 replace_conflict, current kept).
+  // Wiring that into this harness needs two values I will not guess: the private drafts STORAGE BUCKET name and the exact
+  // `confirmation` shape the commit validates for THIS entity/period. GENUINE dependency for NORMAL (or allow driving
+  // commitDraft with replaces.expectedVersion directly). The explicit replacement above executed and preserved history.
+  return result("BLOCKED", [
+    "stale-action sub-check: a deterministic stale replacement cannot be produced via the browser (replace() re-reads the version); the contract test needs the drafts storage-bucket name + the commit confirmation shape for this entity/period (draftJourney has the exact calls). Explicit replacement + history-preservation executed and PASS.",
+  ], { original: cur, afterOld, afterActive, explicitReplacement: "pass" });
 }
 
 // F: Invalid / unsupported / over-limit files — actionable refusal, no silent truncation, no accepted partial result,
@@ -184,13 +220,21 @@ async function scenarioG(env) {
   }));
   const reviewed = await env.reviewAccounts(env.users.owner, ws.companyId, uploadId, decisions);
   if (reviewed.error) return result("FAIL", [`reviewing both same-name accounts was refused: ${reviewed.error}`], { uploadId });
-  const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name").eq("company_id", ws.companyId).ilike("account_name", "Sales");
+  const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name, statement, classification").eq("company_id", ws.companyId).ilike("account_name", "Sales");
   const rows = mapped.data ?? [];
   const codes = new Set(rows.map((m) => m.account_code));
   const keys = new Set(rows.map((m) => m.account_key));
   if (rows.length < 2) problems.push(`both same-name 'Sales' accounts were not persisted as mappings (rows=${rows.length})`);
   if (codes.size < 2 || keys.size < 2) problems.push(`the two 'Sales' accounts are not DISTINCT identities (codes=${[...codes].join(",")}; keys=${[...keys].join(",")}) — a coded account must not inherit another's treatment by name`);
-  return result(problems.length ? "FAIL" : "PASS", problems, { uploadId, codes: [...codes], keys: [...keys] });
+  // Each persisted mapping must match the decision SUBMITTED for its own code, keyed by its own distinct source identity.
+  for (const d of decisions) {
+    const forCode = rows.filter((m) => m.account_code === d.account_code);
+    if (forCode.length !== 1) { problems.push(`code ${d.account_code} did not persist exactly one mapping (got ${forCode.length})`); continue; }
+    const m = forCode[0];
+    if (m.statement !== d.statement || m.classification !== d.classification) problems.push(`mapping for code ${d.account_code} does not match its submitted decision (got ${m.statement}/${m.classification}, submitted ${d.statement}/${d.classification})`);
+    if (m.account_key !== d.account_code) problems.push(`mapping for code ${d.account_code} is not keyed by its own code (account_key=${m.account_key})`);
+  }
+  return result(problems.length ? "FAIL" : "PASS", problems, { uploadId, codes: [...codes], keys: [...keys], mappings: rows });
 }
 
 // H: Accessibility + responsive — keyboard access, logical/visible focus, accessible labels, error association, processing
@@ -209,14 +253,18 @@ async function scenarioH(env) {
   problems.push(...ariaAssociationProblems(fields));
   const ann = await env.observeProcessingAnnouncement(page);
   problems.push(...announcementProblems(ann));
-  // A manual problem is a FAIL. If the manual checks are clean, full a11y acceptance still requires the AUTOMATED sub-check;
-  // when axe is not wired that sub-check is a MISSING PREREQUISITE ⇒ BLOCKED (never a NOTE that passes). A zero automated
-  // count alone would not be full proof either — the two are complementary.
+  // Agreed accessibility scope (ACCEPTANCE-PLAN H): the REQUIRED checks — keyboard/focus, visible focus, accessible labels,
+  // error association, processing announcement, responsive 320/390/desktop — MUST execute (above). axe is OPTIONAL ("where
+  // available"): it is NOT a new mandatory dependency. A required problem ⇒ FAIL. If axe is wired, run it and FAIL on
+  // violations. If it is not wired, its absence is reported SEPARATELY as evidence (not a gate-blocking problem) — a
+  // zero-violation count alone would not be full proof anyway; the manual checks are the acceptance.
   if (problems.length) return result("FAIL", problems);
-  if (typeof env.axe !== "function") return result("BLOCKED", ["manual keyboard/focus/aria/announcement/responsive checks passed, but the automated accessibility sub-check (axe) is not wired — a11y is not fully verified; BLOCKED, not a NOTE/PASS"]);
-  const violations = await env.axe(page);
-  if (violations?.length) return result("FAIL", violations.map((v) => `axe: ${v.id} (${v.nodes} nodes)`));
-  return result("PASS", []);
+  if (typeof env.axe === "function") {
+    const violations = await env.axe(page);
+    if (violations?.length) return result("FAIL", violations.map((v) => `axe: ${v.id} (${v.nodes} nodes)`));
+    return result("PASS", [], { axe: "wired: 0 violations; plus manual keyboard/focus/aria/announcement/responsive" });
+  }
+  return result("PASS", [], { axe: "not wired (optional per plan); required manual keyboard/focus/aria/announcement/responsive checks executed and clean — automated scan absence reported separately, not a blocker" });
 }
 
 // I: Professional clarity — first-visit/confirmation/processing/result/blocked/retry each say what happened, what to do

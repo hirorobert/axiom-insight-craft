@@ -77,7 +77,10 @@ async function main() {
     check("no horizontal overflow at 320px (layoutWidth <= innerWidth)", clean.layoutWidth <= clean.innerWidth + 1, { layoutWidth: clean.layoutWidth, innerWidth: clean.innerWidth });
 
     // (2 negative) broken page: the SAME checks, via the real driver, catch real DOM issues.
-    const broken = await page.evaluate((html) => { document.open(); document.write(html); document.close(); return null; }, PAGE(true)) ?? await page.evaluate(EXTRACT);
+    // Load the deliberately-broken synthetic variant, then extract. (Was a confusing `?? EXTRACT` on a null return that
+    // left `broken` unused and the write's success unchecked.)
+    const wrote = await page.evaluate((html) => { document.open(); document.write(html); document.close(); return document.querySelectorAll("button,a,input").length; }, PAGE(true));
+    check("the broken synthetic variant rendered (driver document.write round-trips)", typeof wrote === "number" && wrote >= 3, { wrote });
     const b = await page.evaluate(EXTRACT);
     check("broken synthetic page: focus signal raised (hidden/unlabelled control)", focusOrderProblems(b.sequence).length > 0);
     check("broken synthetic page: error-leakage signal raised ([object Object]/PGRST)", loadingErrorStateProblems(b.viewState).length > 0, b.viewState);

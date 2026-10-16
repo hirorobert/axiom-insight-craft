@@ -137,20 +137,31 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return true;
     }, label, value),
     async pickRadix(page, trigger, optionText) { await page.click(trigger); await page.waitForSelector("[role=option]"); await page.click({ text: optionText, within: "[role=listbox]" }); await sleep(250); },
-    async createWorkspace(page, { org, year, fye, currency, framework }) {
-      await env.go(page, "/dashboard", "Organization name");
-      await page.fill("#fr-org", org);
-      await env.pickRadix(page, "#fr-year", year); await env.pickRadix(page, "#fr-fye", fye);
-      await env.pickRadix(page, "#fr-currency", currency); await env.pickRadix(page, "#fr-framework", framework);
-      await page.click('form[aria-label="Create reporting workspace"] button[type=submit]');
+    // Phase-2 FIRST-UPLOAD create (candidate f57b944): the home is "Check your trial balance"; the entity, period and
+    // currency are confirmed on the same page and "Start trial balance check" creates the entity + dated period + bound
+    // upload in one action. Grounded in scripts/e2e/localStackJourney.mjs (first upload) + FirstUpload.tsx testids.
+    async createWorkspace(page, { entityName, endsOn = "2026-06-30", currency = "TZS", file }) {
+      await env.go(page, "/dashboard", "Check your trial balance");
+      await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+      await page.setFiles('[data-testid="first-upload-input"]', [file]);
+      await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+      await env.setByLabel(page, "Entity name", entityName);            // a NEW entity (confirm-entity-new is the default)
+      await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
+      await env.setByLabel(page, "Ends on", endsOn);
+      await env.setByLabel(page, "Trial balance currency", currency);
+      await sleep(300);
+      await page.click('[data-testid="first-upload-start"]');
+      await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+      const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
+      if (failure) return { failure };
+      await page.click('[data-testid="first-upload-open-result"]');
       const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/\d{4}/, { timeout: 45000 });
       const companyId = url.match(/\/workspace\/([0-9a-f-]{36})\//)[1];
       const periodYear = Number(url.match(/\/(\d{4})/)[1]);
       env.lastWorkspace = { companyId, periodYear };
       return { companyId, periodYear };
     },
-    async establishPeriod() { /* period intake is exercised by scenario A implicitly via the launchpad; explicit intake is
-      the same setByLabel flow as scripts/e2e/localStackJourney.mjs if a scenario needs it. */ return true; },
+    async establishPeriod() { return true; }, // the first-upload confirmation card sets the period; no separate intake needed
     async openUploader(page, companyId, year) {
       for (let i = 0; i < 3; i++) {
         await env.go(page, `/workspace/${companyId}/${year}/trial-balance/review`);
@@ -204,6 +215,33 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       const { data, error } = await c.rpc("resolve_account_review_batch", { p_company_id: companyId, p_upload_id: uploadId, p_client_request_id: uuid(), p_decisions: decisions });
       return error ? { error: error.message } : { data };
     },
+    // Drive FirstUpload to the "active trial balance exists → Replace" state for an EXISTING entity; returns whether the
+    // explicit Replace affordance is offered (replacement is never automatic). Grounded in FirstUpload.tsx testids.
+    async beginReplace(page, { existingEntityName, endsOn = "2026-06-30", currency = "TZS", file }) {
+      await env.go(page, "/dashboard", "Check your trial balance");
+      await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+      await page.setFiles('[data-testid="first-upload-input"]', [file]);
+      await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+      await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});
+      await env.pickRadix(page, '[data-testid="confirm-entity-select"]', existingEntityName).catch(() => {});
+      await page.click('[data-testid="confirm-period-year"]').catch(() => {}); await sleep(200);
+      await env.setByLabel(page, "Ends on", endsOn); await env.setByLabel(page, "Trial balance currency", currency); await sleep(300);
+      await page.click('[data-testid="first-upload-start"]').catch(() => {});
+      await page.waitForSelector('[data-testid="first-upload-replace"], [data-testid="first-upload-failure"]', { timeout: 60000 }).catch(() => {});
+      return page.evaluate(() => !!document.querySelector('[data-testid="first-upload-replace"]')).catch(() => false);
+    },
+    // Click the explicit Replace and wait for the outcome. A stale captured version is refused (the current TB is kept).
+    async clickReplace(page) {
+      await page.click('[data-testid="first-upload-replace"]').catch(() => {});
+      await page.waitFor(() => !!document.querySelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"]'), [], { label: "replace outcome", timeout: 120000 }).catch(() => {});
+      return page.evaluate(() => ({ checked: !!document.querySelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"]'), failure: document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null })).catch(() => ({ checked: false, failure: null }));
+    },
+    async activeUpload(companyId, year) {
+      const { data } = await admin.from("trial_balance_uploads").select("id, version, lifecycle_state, superseded_by_upload_id")
+        .eq("company_id", companyId).eq("period_year", year).in("lifecycle_state", ["active_unprocessed", "active_processing", "active_processed", "blocked"]);
+      return (data ?? [])[0] ?? null;
+    },
+    async uploadRow(id) { const { data } = await admin.from("trial_balance_uploads").select("id, lifecycle_state, superseded_by_upload_id, version").eq("id", id).maybeSingle(); return data ?? null; },
     // Server truth: is there an authoritative certification for this period? (as the owner, like the repository journey).
     async isCertified(companyId, periodYear, u = users.owner) {
       const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
