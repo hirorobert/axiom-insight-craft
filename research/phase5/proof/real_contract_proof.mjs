@@ -38,6 +38,11 @@ const rec = (n, ok, d = "") => { results.push({ n, ok }); console.log(`  ${ok ? 
 
 async function replayAll() {
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
+  // EVIDENCE-BRANCH CORRECTION: hosted Supabase provides pgcrypto's digest() in the `extensions` schema, which the real
+  // account-review RPC calls; mirror it exactly as the repository's other PostgreSQL proofs do.
+  await admin.query(`CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
+    CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';
+    CREATE OR REPLACE FUNCTION extensions.digest(bytea, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
   const dir = path.join(REPO, "supabase/migrations");
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
   for (const f of files) {
@@ -51,12 +56,16 @@ async function replayAll() {
 }
 async function giveLicence(user, plan) {
   const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) ON CONFLICT (owner_user_id) DO UPDATE SET product_id=EXCLUDED.product_id RETURNING id", [user, PRODUCT])).rows[0].id;
-  await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start) SELECT $1,id,'ACTIVE','ADMIN_GRANT', now()-interval '1 day' FROM public.commercial_plans WHERE product_id=$2 AND code=$3", [bc, PRODUCT, plan]);
+  // EVIDENCE-BRANCH CORRECTION (core-journey owner, for the #138 owner to adopt): the plan grants named-user seats for the
+  // partner and viewer this fixture adds (without them the authoritative chain refuses the members: SEAT_LIMIT_REACHED).
+  await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1,id,'ACTIVE','ADMIN_GRANT', now()-interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code=$3", [bc, PRODUCT, plan]);
 }
-async function mkUpload(company, owner, hash) {
+// EVIDENCE-BRANCH CORRECTION: a period has ONE active upload (uq_one_active_upload_per_period), so the repeat upload is
+// the returning customer's NEXT period (2027), the reuse case this proof is about.
+async function mkUpload(company, owner, hash, year = 2026) {
   return (await admin.query(
-    "INSERT INTO public.trial_balance_uploads (user_id, company_id, period_year, file_name, file_path, file_size, status, source_file_hash) VALUES ($1,$2,2026,$3,$4,100,'needs_review',$5) RETURNING id",
-    [owner, company, `${hash}.csv`, `workspaces/${company}/${hash}.csv`, hash])).rows[0].id;
+    "INSERT INTO public.trial_balance_uploads (user_id, company_id, period_year, file_name, file_path, file_size, status, source_file_hash) VALUES ($1,$2,$6,$3,$4,100,'needs_review',$5) RETURNING id",
+    [owner, company, `${hash}.csv`, `workspaces/${company}/${hash}.csv`, hash, year])).rows[0].id;
 }
 async function asUser(uid, fn) {
   const c = await pool.connect();
@@ -76,7 +85,9 @@ async function main() {
   admin = new Client({ connectionString: CONN }); await admin.connect();
   pool = new Pool({ connectionString: CONN, max: 6 });
   const total = await replayAll();
-  rec(`REPLAY · entire authoritative migration chain (${total} files) applied on PostgreSQL 17`, true);
+  // EVIDENCE-BRANCH CORRECTION: report the server's ACTUAL version (never a hard-coded one).
+  const serverVersion = (await admin.query("SHOW server_version")).rows[0].server_version;
+  rec(`REPLAY · entire authoritative migration chain (${total} files) applied on PostgreSQL ${serverVersion}`, true);
 
   // ── Seed: product, licences (prepare_close needs a current plan), companies (auto owner firm_member), a partner + viewer, an upload bound to company A. ──
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id, email, email_confirmed_at) VALUES ($1,$2, now())", [id, `${k}@example.test`]);
@@ -127,7 +138,7 @@ async function main() {
   rec("LIFECYCLE · nothing from the aborted batch persisted (atomic)", before === after, { before, after });
 
   // ── REUSE (native, company-scoped) + the INVALIDATION GAP (documented, not claimed as existing) ──
-  UPLOAD_A2 = await mkUpload(COMPANY_A, U.owner, "b".repeat(64));
+  UPLOAD_A2 = await mkUpload(COMPANY_A, U.owner, "b".repeat(64), 2027);
   const mappedKeys = new Set((await admin.query("SELECT account_key FROM public.account_mappings WHERE company_id=$1", [COMPANY_A])).rows.map((x) => x.account_key));
   rec("REUSE · a repeat upload sees the company's already-accepted account_mappings (native company-scoped reuse — no re-approval)", mappedKeys.size > 0);
   rec("GAP · the real RPC has NO 'reopen on classification meaning change' — only MARK_NON_REPORTING identity-drift exists; a Phase 6 reuse/reopen authority is the documented minimum change (see INTERFACE-PROPOSAL §5/§8).", true);
