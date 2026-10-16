@@ -630,18 +630,28 @@ async function main() {
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   let oldIntent = null, replacement = null;
-  await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt sends it to review, and the administrator resolves it as uncharged", async () => {
+  await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt is refused (409 OPEN_CHECKOUT_UNFINISHED, 20261105100000) and writes nothing: the old intent stays PENDING with its session", async () => {
     const first = await createCheckout();
     [oldIntent] = await intentsOf(U.late);
     // Time travel for the test only: CFOClose's own one-hour expiry passes while the provider session stays open.
     await admin.from("payment_checkout_intents").update({ expires_at: new Date(Date.now() - 60_000).toISOString() }).eq("id", oldIntent.id);
     const blocked = await createCheckout();
-    const reviewed = (await intentsOf(U.late))[0].status;
+    const after = await intentsOf(U.late);
+    return first.status === 200 && oldIntent?.provider === "POLAR" && !!mock.checkouts.get(oldIntent.provider_checkout_ref)
+      && blocked.status === 409 && blocked.body?.error === "OPEN_CHECKOUT_UNFINISHED" && blocked.body?.previousSaffReference === oldIntent.saff_reference
+      && after.length === 1 && after[0].status === "PENDING" && after[0].provider_checkout_ref === oldIntent.provider_checkout_ref
+      ? true : { first, blocked, after: after.map((i) => i.status) };
+  });
+  await check("the one remaining way such an intent closes while its session stays payable: the provider result is recorded as uncertain (MANUAL_REVIEW), then the administrator resolves it as uncharged", async () => {
+    // Test setup: the mock cannot drop its own response, so record the outcome the real path writes when Polar created the
+    // session but CFOClose could not record the result (mark_checkout_attempt_uncertain: status MANUAL_REVIEW + reason).
+    const meta = (await admin.from("payment_checkout_intents").select("metadata").eq("id", oldIntent.id).single()).data?.metadata ?? {};
+    await admin.from("payment_checkout_intents").update({ status: "MANUAL_REVIEW",
+      metadata: { ...meta, uncertain_reason: "PROVIDER_RESULT_PERSISTENCE_UNCERTAIN", uncertain_at: new Date().toISOString() } }).eq("id", oldIntent.id);
     const ops = await apiAs(U.admin);
     const { error } = await ops.rpc("admin_resolve_manual_review_intent", { p_checkout_intent_id: oldIntent.id, p_resolution: "CONFIRMED_UNCHARGED_CANCEL", p_reason: "no payment seen when reviewed" });
     const closed = (await intentsOf(U.late))[0].status;
-    return first.status === 200 && oldIntent?.provider === "POLAR" && !!mock.checkouts.get(oldIntent.provider_checkout_ref) && blocked.status >= 400 && reviewed === "MANUAL_REVIEW" && !error && closed === "CANCELLED"
-      ? true : { first, blocked, reviewed, error: error?.message, closed };
+    return !error && closed === "CANCELLED" && !!mock.checkouts.get(oldIntent.provider_checkout_ref) ? true : { error: error?.message, closed };
   });
   await check("a replacement checkout then starts; the old session is still payable at the provider", async () => {
     const r = await createCheckout();
