@@ -4,12 +4,14 @@ Branch `research/launch-qa-20261016` (off `main` @ `00a2653`), own worktree. Own
 production edits, migrations, registries, workflows, lockfiles, or NORMAL's worktrees; **no** merge/deploy/hosted
 writes/real purchases/customer data/paid model calls. Synthetic users/files only; the real authenticated app where available.
 
-**Execution model.** The 9 scenarios are end-to-end UX acceptance — they require a **live candidate + isolated preview from
-NORMAL** (requested on PR #138). Until that exists, each is **PENDING**; nothing is marked passed from a mockup or prototype.
-The replayable harness is `harness/launchQaHarness.mjs` (`LAUNCH_QA_BASE_URL=<non-production preview>`; refuses the
-production ref; needs a wired CDP/Playwright driver). Pure, browser-free checks live in `checks.mjs` and run today
-(`checks.test.mjs`, 22/22) — they add the **keyboard/focus + loading/error-state + wording** coverage the existing suites
-lack; they validate check *logic*, not scenarios.
+**Execution model (implemented).** The nine scenarios are implemented as real functions in `harness/scenarios.mjs` and run
+via `harness/launchAcceptance.mjs`, which bootstraps the repository's **disposable local Supabase stack** (the same pattern
+as `scripts/e2e/localStackJourney.mjs`) and drives the real app in headless Chrome as synthetic users. It is **machine-
+readable** (exit 0 all-passed / 1 any-FAIL / 4 nothing-executed) and **fails closed** (no stack ⇒ all BLOCKED, never PASS).
+Pure screening checks (`checks.test.mjs`, 34/34) and exact-money fixtures (`fixtures/syntheticTb.test.mjs`, 4/4) run today.
+**This host cannot execute the journeys** (no Docker/`supabase start`, no headless Chrome) — they run on the Linux CI runner;
+see `REPORT.md` (run contract + scenario↔existing-coverage map) and `ENVIRONMENT-REQUIREMENTS.md`. Nothing is marked passed
+without a real run; existing unit/contract coverage is not journey execution.
 
 **Payment scenarios** use the existing **sandbox / mock-provider** path only (`scripts/e2e/mockPaymentProviders.mjs`,
 `paymentJourney.mjs`) — never a real charge.

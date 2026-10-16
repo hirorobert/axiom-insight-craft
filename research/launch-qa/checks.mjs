@@ -99,3 +99,43 @@ export function primaryActionProblems(ctas) {
   if (primaries.length > 1) return [`screen has ${primaries.length} competing primary actions: ${primaries.map((c) => c.label).join(", ")}`];
   return [];
 }
+
+/** Horizontal-clip screening at a given viewport (scenario H: 320 & 390). A table may scroll in its own container; the PAGE
+ *  must not exceed the viewport. layoutWidth is the document's scrollWidth; a small 1px tolerance mirrors the existing suite. */
+export function responsiveProblems(viewportWidth, layoutWidth, { label = "page" } = {}) {
+  if (typeof layoutWidth !== "number" || typeof viewportWidth !== "number") return [`${label}: missing width observation`];
+  return layoutWidth > viewportWidth + 1 ? [`SIGNAL (confirm manually): ${label} overflows horizontally at ${viewportWidth}px (document ${layoutWidth}px)`] : [];
+}
+
+/** Error association + labelling (scenario H). fields: [{ label, hasAccessibleName, errorShown, errorAssociated }].
+ *  An interactive field must have an accessible name; a shown validation error must be programmatically associated
+ *  (aria-describedby / aria-errormessage) with its field so a screen reader announces it. */
+export function ariaAssociationProblems(fields) {
+  const problems = [];
+  for (const f of fields || []) {
+    const where = f.label || "a field";
+    if (f.hasAccessibleName === false) problems.push(`field with no accessible name: "${where}"`);
+    if (f.errorShown && f.errorAssociated === false) problems.push(`validation error not associated with its field: "${where}" (missing aria-describedby/aria-errormessage)`);
+  }
+  return problems;
+}
+
+/** Processing announcement (scenario H). state: { processing, hasAriaLive, hasStatusRole }. A processing/busy change must be
+ *  announced via an aria-live region or role=status so a screen-reader user knows work is underway. */
+export function announcementProblems(state) {
+  if (!state || !state.processing) return [];
+  return (state.hasAriaLive || state.hasStatusRole) ? [] : ["processing state is not announced (no aria-live region / role=status)"];
+}
+
+/** Professional-clarity per state (scenario I). state: { name, whatHappened, whatNext, saved } where saved ∈
+ *  {"saved","committed","nothing","unknown"}. Each customer state must say what happened, what to do next, and whether
+ *  anything was saved/committed. These are SIGNALS for manual confirmation, not automatic verdicts. */
+export function clarityStateProblems(state) {
+  const problems = [];
+  if (!state || !state.name) return ["no state captured"];
+  const has = (v) => typeof v === "string" && v.trim() !== "";
+  if (!has(state.whatHappened)) problems.push(`[${state.name}] does not say what happened`);
+  if (!has(state.whatNext)) problems.push(`[${state.name}] does not say what to do next`);
+  if (!["saved", "committed", "nothing"].includes(state.saved)) problems.push(`[${state.name}] does not make clear whether anything was saved/committed (saved="${state.saved ?? "unknown"}")`);
+  return problems;
+}

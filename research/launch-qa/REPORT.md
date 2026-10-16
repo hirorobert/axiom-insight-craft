@@ -1,65 +1,75 @@
-# Launch-acceptance QA — report (preparation pass)
+# Launch-acceptance QA — report
 
-- **QA branch / head:** `research/launch-qa-20261016` @ `00a2653` base (own worktree; owns only `research/launch-qa/**`).
-- **Tested candidate commit:** _none yet_ — **candidate execution PENDING** (requested from NORMAL on PR #138).
-- **Environment:** _no live preview available to this lane_ (no non-production preview URL / synthetic-login method yet;
-  this host has no running app, no staging keys, and performs no hosted writes or purchases).
-- **Date of this pass:** 2026-10-16.
+- **QA branch / head:** `research/launch-qa-20261016` (own worktree; owns only `research/launch-qa/**`).
+- **Tested candidate commit:** _none executed_ — see Blockers. The runner records `LAUNCH_QA_CANDIDATE_SHA` into every report.
+- **Environment:** no local Supabase stack and **no headless-Chrome capability on this host** (verified) — so BLACK has
+  **implemented** the nine journeys but **executed none** of them here. They run on the Linux CI runner (`supabase start`).
+- **Date:** 2026-10-16.
 
-## Screening aids, not verdicts
-The pure checks are **screening aids**: each flagged item is a SIGNAL for manual confirmation in context, never an automatic
-customer-facing defect. A displayed number or a word like "exception" is **not** auto-flagged (those generic patterns were
-removed); only unambiguous internal leakage (`[object Object]`, `PGRST…`, `SQLSTATE`, `TypeError`, "stack trace") is
-screened, and even that is confirmed manually on the candidate before being called a defect.
+## Status legend
+PASS (executed assertions, no mismatch) · FAIL (observed mismatch) · BLOCKED (named missing prerequisite) · NOT RUN · N/A.
+Existing unit/contract coverage does **not** substitute for a journey run. Regex/DOM checks are **screening aids** confirmed
+in context, never automatic verdicts.
 
-## What executed HERE (logic + driver wiring; NOT journeys)
-- `research/launch-qa/checks.test.mjs` — **22/22 passed.** Validates the NEW pure checks (`productionTargetProblem`,
-  `focusOrderProblems`, `loadingErrorStateProblems`, `copyWordingProblems`, `primaryActionProblems`). Check **logic** only.
-  Found & fixed one real bug in my own check (regex boundaries missing raw error codes) during this pass.
-- `research/launch-qa/harness/cdpDriver.mjs` — **real browser driver WIRED** on the repo's dependency-free CDP tool
-  (`scripts/browser-acceptance/cdp.mjs`), **no new dependency, no edit to that shared file**. Provides isolated-identity
-  contexts (own cookies/localStorage) — the primitive scenario 3 needs.
-- `research/launch-qa/harness/launchQaHarness.mjs` — runs; reports all 9 scenarios **PENDING** with no preview, and
-  **BLOCKS** (exit 2) a production-ref target. No scenario is reportable passed without a real candidate run.
-- `research/launch-qa/harness/driverSmokeTest.mjs` — a **SYNTHETIC** driver+primitive smoke test (loopback HTTP page; not a
-  journey) proving goto/evaluate/setViewport/screenshot + localStorage isolation + the checks scoring a real DOM.
+## What BLACK built (and what executed here)
+- **Nine real scenario functions** — `harness/scenarios.mjs`, grounded in the repository's actual selectors/conventions
+  (from `scripts/e2e/localStackJourney.mjs`, read-only): sign-in `#email`/`#password`; first-run `#fr-*`; launchpad/
+  data-choice testids; uploader `trial-balance-file-input`/`trial-balance-upload-primary`; review `account-review-workbench`;
+  server-truth via the service-role client. **Not placeholders**; **runtime-unverified** until the runner executes them.
+- **Executable runner** — `harness/launchAcceptance.mjs`: bootstraps the disposable local Supabase stack
+  (`supabase status` → build the app pointed ONLY at local, `assertLocalStack` + `verifyLocalBundle` isolation guards →
+  loopback preview → real Chrome), seeds synthetic users, runs the nine, writes machine-readable
+  `acceptance-evidence/launch-acceptance.json` + screenshots. **Fails closed**: no stack ⇒ all BLOCKED, overall NOT PASS,
+  exit 4 (verified here).
+- **Pure screening checks** — `checks.test.mjs` **34/34** (keyboard/focus, loading/error legibility, wording, single-CTA,
+  320/390 responsive, aria-association, processing announcement, clarity-state). Logic only.
+- **Invented exact-money fixtures** — `fixtures/syntheticTb.test.mjs` **4/4** (balanced 101,500,000=101,500,000; a genuine
+  −30,000,000 imbalance kept visible; same-name/different-code codes preserved distinct).
+- **Synthetic driver smoke test** — `harness/driverSmokeTest.mjs` (loopback page); could not run on this host (no headless
+  Chrome). Environment limitation, not a pass/fail.
 
-## Environment finding (verified 2026-10-16) — browser not executable on this host
-This research host **cannot run headless Chrome automation**: Chrome is installed, but `cdp.mjs` fails at
-`Target.setDiscoverTargets` (its `--remote-debugging-pipe` transport does not work under Windows/Git-bash), and a direct
-`chrome --headless=new --screenshot` also produces nothing. So the driver + smoke test are delivered **wired and
-code-verified, un-run** here; they must run on the **Linux CI/preview runner** the existing browser-acceptance suite already
-targets. This is an **environment limitation, not a test pass or fail**. (No `cdp.mjs` edit proposed from this lane.)
+## Scenario ↔ existing coverage map, and BLACK status
+The repository's **`scripts/e2e/localStackJourney.mjs` already exercises most of these on the local stack in CI** (NORMAL-owned).
+BLACK adds the independent acceptance lens and the gaps. BLACK executed none here (no stack/Chrome).
 
-## Per-scenario status
-All nine scenarios are **PENDING candidate execution** (see `ACCEPTANCE-PLAN.md` for expected result + repro). None can be
-truthfully marked PASS or FAIL until run against a live candidate; a prototype/mockup is explicitly not accepted as evidence.
+| # | BLACK scenario | Existing real-journey coverage (NORMAL) | BLACK adds | BLACK status (this host) |
+|---|---|---|---|---|
+| A | First upload → context → truthful result | first-run + upload + check + review | truthful-result + persisted-binding assertions, wording | NOT RUN (runner BLOCKED: no stack) |
+| B | Existing entity, correct attachment | periods/intake + upload | "no unintended entity / no cross-period" via server truth | NOT RUN |
+| C | Recovery + identity isolation | isolation (2nd account sees nothing) | refresh/back/retry recovery + API-read leakage | NOT RUN |
+| D | Purchase-required, no bypass | — (paymentJourney covers checkout) | gated-copy + draft-kept + no-entitlement-change | **BLOCKED**: needs NORMAL's mock-purchase hook in `env.mockPurchase` |
+| E | Replacement, stale refused | stale (changed layout → out of date) | explicit-decision + history-preserved + stale-intact | **BLOCKED**: confirm the real replacement control with NORMAL |
+| F | Invalid/unsupported/over-limit | — | unsupported-refusal + recovery; **over-limit needs NORMAL's final policy/fixture** | NOT RUN (unsupported) / **BLOCKED** (over-limit) |
+| G | Same-name/different-code identities | — | distinct-identity assertion | **BLOCKED**: gated on NORMAL's `uq_acct_map_company_norm_name` repair |
+| H | Accessibility + responsive 320/390 | widths 1280/375 | 320/390 + keyboard/focus/aria/announcement; axe optional | NOT RUN |
+| I | Professional clarity across states | next-action | what-happened/next/saved + one-primary + wording | NOT RUN |
 
-## Findings — distinguished per the charter
-- **Reproduced defects:** **NONE.** Nothing has been executed against a candidate, so there are zero reproduced defects.
-  (This section will list only defects reproduced on the live candidate with exact repro steps + screenshots.)
-- **Untested concerns (hypotheses to verify on the candidate, NOT defects):**
-  1. **Keyboard/focus** has **no existing automated coverage** — focus order, visible focus, and focus traps are unverified
-     until the harness runs (scenario 8). _Highest-value gap._
-  2. **Error-state wording** — whether any surface leaks a raw provider/DB error vs an actionable message (scenario 6/8) is
-     unverified live; `loadingErrorStateProblems` is ready to score it.
-  3. **Cross-user draft isolation end-to-end** (scenario 3) is covered in units at the gate/contract level but not yet as a
-     live two-user flow.
-  4. **Premature Phase-6 wording** (scenario 7) — that the review UI never implies statements/filing already work — needs a
-     live copy capture; `copyWordingProblems` is ready.
-- **Known NORMAL-owned repairs (do NOT file as new defects):**
-  1. **Same-name / different-code accounts** — `uq_acct_map_company_norm_name` raises a raw constraint error; the coordinated
-     constraint-and-lookup repair is NORMAL-owned (PR #138 handoff). If scenario 7 surfaces it, it is attributed here, not
-     filed anew.
-  2. Any area NORMAL marks in-repair in response to the PR #138 coordination request will be recorded here as NORMAL-owned.
+## Findings
+- **Reproduced defects: NONE** — no journey executed against a candidate. (Do not infer production impact from this; equally,
+  no-production-impact is not claimed merely because hosted access is unavailable.)
+- **Screening-aid signals** are not defects until confirmed on the candidate.
 
-## Exact remaining dependency (see ENVIRONMENT-REQUIREMENTS.md)
-Blocking journey execution: **(a)** candidate commit; **(b)** an **isolated, non-production** preview (own Supabase project,
-not the production ref; seeded synthetic-login; sandbox payments; §2 isolation confirmed); **(c)** a **Linux runner** able to
-launch headless Chrome for the driver. A preview URL alone is insufficient — the backend-isolation and no-production-reach
-checks in §2 are mandatory.
+## Blockers (precise)
+1. **No execution environment on this host** — needs the **Linux CI runner** (`supabase start` + Docker + Chrome). This host
+   has neither Docker nor working headless Chrome (verified).
+2. **Candidate SHA** — set `LAUNCH_QA_CANDIDATE_SHA`; do not let a moving branch name substitute for a tested commit.
+3. **NORMAL-owned hooks** for D (mock-purchase), E (replacement control), F (final over-limit policy/fixture), G (same-name
+   repair). Each dependent scenario returns BLOCKED with this exact reason until provided.
 
-## Done now (independent of the dependency)
-Pure checks + tests (22/22), the real driver wired on the existing CDP tool, the synthetic driver+isolation smoke test, the
-acceptance plan, and this report. On receipt of (a)+(b)+(c): run the harness with a wired driver, replace each PENDING with a
-real PASS/FAIL + screenshots, and update this report on PR #138. NORMAL decides how to integrate any tests/fixes.
+## Run contract (machine-readable)
+- **Command:** `node research/launch-qa/harness/launchAcceptance.mjs [outDir]` (after `supabase start`).
+- **Env var NAMES:** `CHROME_PATH` (optional), `LAUNCH_QA_CANDIDATE_SHA` (recorded). Supabase keys are read via
+  `supabase status -o json` — never passed in a file; **service-role stays server-side, never in browser code/logs/report**.
+- **Prerequisites:** local Supabase stack running; Chrome/Chromium; `@supabase/supabase-js` + `vite` installed (devDeps).
+- **Exit codes:** `0` = all executed scenarios passed; `1` = ≥1 FAIL; `4` = nothing executed (all BLOCKED) — never a PASS.
+  (`2`/`3` are reserved for the synthetic smoke/driver.)
+- **Artifacts:** `research/launch-qa/acceptance-evidence/launch-acceptance.json` + `*.png` screenshots.
+- **Smallest CI integration (NORMAL-owned; BLACK does not edit workflows):** add one step after the existing `supabase start`
+  that runs the command above; **or** import `{ SCENARIOS }` from `harness/scenarios.mjs` into `localStackJourney.mjs` and
+  call them with its already-built helpers (it has sign-in/upload/widths/admin). Known failures stay visible and attributed;
+  never silently skipped.
+
+## Next
+On a Linux runner with the candidate: run the command, attach `launch-acceptance.json` + screenshots, replace NOT RUN with
+PASS/FAIL, and send NORMAL one consolidated findings comment. Retest repaired failures against NORMAL's new candidate without
+rerunning unrelated scenarios.

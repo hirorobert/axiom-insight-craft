@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Launch-acceptance QA — runnable tests for the PURE checks. These execute HERE (no browser/network). They validate the
 // check logic itself; they do NOT assert any of the 9 end-to-end scenarios passed — that needs a live candidate (see REPORT).
-import { productionTargetProblem, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems } from "./checks.mjs";
+import { productionTargetProblem, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
 
 let pass = 0, fail = 0;
 const check = (n, c, d) => { if (c) { pass++; console.log(`  PASS  ${n}`); } else { fail++; console.log(`  FAIL  ${n}${d !== undefined ? `  — ${JSON.stringify(d)}` : ""}`); } };
@@ -44,6 +44,26 @@ group("primaryActionProblems — exactly one dominant next action");
 check("one primary CTA is clean", primaryActionProblems([{ label: "Upload trial balance", primary: true }, { label: "Learn more", primary: false }]).length === 0);
 check("two primary CTAs are flagged", primaryActionProblems([{ label: "Upload", primary: true }, { label: "Buy now", primary: true }]).some((p) => /competing primary/.test(p)));
 check("no primary CTA is flagged", primaryActionProblems([{ label: "Cancel", primary: false }]).some((p) => /no primary/.test(p)));
+
+group("responsiveProblems — 320/390 horizontal clip (page, not in-container tables)");
+check("no overflow when document fits the viewport", responsiveProblems(320, 320).length === 0);
+check("overflow flagged when the document is wider than the viewport", responsiveProblems(320, 461, { label: "workspace" }).some((p) => /overflows horizontally at 320px/.test(p)));
+check("390px clean", responsiveProblems(390, 388).length === 0);
+
+group("ariaAssociationProblems — accessible names + error association");
+check("named field with an associated error is clean", ariaAssociationProblems([{ label: "Email", hasAccessibleName: true, errorShown: true, errorAssociated: true }]).length === 0);
+check("field with no accessible name is flagged", ariaAssociationProblems([{ label: "Password", hasAccessibleName: false }]).some((p) => /no accessible name/.test(p)));
+check("a shown-but-unassociated error is flagged", ariaAssociationProblems([{ label: "Email", hasAccessibleName: true, errorShown: true, errorAssociated: false }]).some((p) => /not associated/.test(p)));
+
+group("announcementProblems — processing must be announced");
+check("processing with aria-live is clean", announcementProblems({ processing: true, hasAriaLive: true }).length === 0);
+check("processing with no live region/status is flagged", announcementProblems({ processing: true }).some((p) => /not announced/.test(p)));
+check("not processing → nothing to announce", announcementProblems({ processing: false }).length === 0);
+
+group("clarityStateProblems — what happened / what next / what saved");
+check("a complete state is clean", clarityStateProblems({ name: "result", whatHappened: "Your trial balance was checked.", whatNext: "Review the flagged accounts.", saved: "saved" }).length === 0);
+check("missing 'what next' is flagged", clarityStateProblems({ name: "blocked", whatHappened: "x", saved: "nothing" }).some((p) => /what to do next/.test(p)));
+check("unknown saved/committed status is flagged", clarityStateProblems({ name: "processing", whatHappened: "x", whatNext: "y" }).some((p) => /saved\/committed/.test(p)));
 
 console.log(`\n${pass}/${pass + fail} launch-qa check-logic tests passed.`);
 console.log("NOTE: these validate the CHECK LOGIC only. No end-to-end launch scenario is executed here — that requires a live");
