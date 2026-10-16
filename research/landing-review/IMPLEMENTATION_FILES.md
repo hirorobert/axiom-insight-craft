@@ -23,6 +23,14 @@ checkout, migrations and Edge Functions.
 | `src/content/landing/illustrativeReview.ts` (NEW) | The invented accounts, categories, the two held accounts with their invented evidence and evidence-supported treatment, as typed constants. Totals are asserted by a test. |
 | `src/components/landing/__tests__/illustrativeReview.test.ts` (NEW) | Port regression scenarios S0–S6 (`REVIEW.md` §6): an unresolved, unrecorded or unsupported treatment never reaches the ready state; the equation is Pending until every account has a category; label, disclosure and outstanding note present; no network or upload. |
 
+## Required wording in the implemented section (owner instruction, 2026-10-16)
+These three requirements are binding on any implementation. The `bd82ab2` mockup predates the first one, so it is not yet in the mockup.
+- **Beside the guided choices**, on each held account next to its options, show this short label, always visible and outside any tooltip:
+  **"Guided example—not automated evidence checking."**
+- **Keep the invented-data label** "Illustrative example — invented data" unchanged and always visible.
+- **Separate a recorded decision from a validated accounting treatment.** The outcome text reads "Recorded: <category>." followed by the guided-example comparison. Nothing in the section may call a recorded decision "validated", "verified", "correct" or "approved", or imply that the product assesses a treatment against evidence. The existing disclosure ("CFOClose itself records decisions; it does not check them against evidence.") stays.
+- **Test:** `illustrativeReview.test.ts` asserts the label is present beside both held accounts, and that none of those words appears in any outcome or status text.
+
 ## Tests to update
 | File | Why |
 |---|---|

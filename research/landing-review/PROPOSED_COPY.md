@@ -3,7 +3,7 @@
 **Status:** proposal only. Nothing is implemented. **Baseline:** `origin/main` `00a2653b5736e89447334e1147aa25f5308b0393`,
 `src/content/landing/landingContent.ts`.
 Every NEW or CHANGED string below is also in `proposed-strings.json`. Each one is checked by `evidence/copy-rules-check.mjs` against
-the repository's current copy rules (`evidence/copy-rules-check.json`: **28/28 pass, 0 failures**; a deliberate violation was confirmed to fail).
+the repository's current copy rules (`evidence/copy-rules-check.json`: **29/29 pass, 0 failures**; a deliberate violation was confirmed to fail).
 
 Rules applied (from the baseline):
 - `src/components/landing/__tests__/landingPage.test.ts`: no "audit-ready" or "compliant statements"; no buy, subscribe or trial wording; no TZS or mobile money; the hero is at most 40 words.

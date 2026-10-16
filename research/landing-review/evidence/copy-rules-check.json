@@ -114,6 +114,13 @@
       "status": "PASS"
     },
     {
+      "id": "sample.guidedLabel",
+      "words": 5,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
       "id": "sample.outcome.unsupported",
       "words": 14,
       "inMockup": null,
