@@ -18,7 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SCENARIOS } from "./scenarios.mjs";
 import { evaluateOverall, MANDATORY_SCENARIO_IDS } from "./overall.mjs";
 
@@ -104,6 +104,9 @@ async function boot() {
 
   const browser = await Browser.launch({ executablePath: process.env.CHROME_PATH });
   const env = buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey });
+  // [NORMAL seam, evidence #144 — coordinated] hooks supplied by the existing isolated facilities, from a NORMAL-owned module
+  // (scripts/e2e/launchQaHooks.mjs). Absent ⇒ unchanged behaviour (the dependent scenarios report BLOCKED).
+  if (process.env.LAUNCH_QA_HOOKS) Object.assign(env, await (await import(pathToFileURL(path.resolve(REPO, process.env.LAUNCH_QA_HOOKS)).href)).default(env));
   const cleanup = async () => { try { await browser.close(); } catch {} try { await preview.close?.(); } catch {} };
   return { env, meta: { env: "local-supabase", apiOrigin, app: APP }, cleanup };
 }
