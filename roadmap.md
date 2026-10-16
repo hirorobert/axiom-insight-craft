@@ -32,7 +32,8 @@ entity list. The two removed screens never appear while only one service exists.
 | 2 | §5 the one-page journey (PR #136, draft) | IN PROGRESS — see batches below | 1 |
 | 3 | Source-to-result review report with check-coverage matrix | NOT STARTED (not to start until Phase 2 is accepted) | 2 |
 | 4 | Gated records-to-draft-TB assistance | NOT STARTED (same) | 2, 3 |
-| 5–6 | Not defined by the 15 October directive | — owner to define | — |
+| 5 | Accounting interpretation and controlled reuse — RESEARCH / PROOF ONLY (draft PR #138, separate session; `research/phase5/**`, 29 synthetic checks, no production code) | RESEARCH — not approved, not integrated, not deployed | — |
+| 6 | Deterministic grouped TB review + controlled reuse over the unchanged `resolve_account_review_batch` — PROPOSED IMPLEMENTATION (#138 HANDOFF.md) | PROPOSED — needs owner approval and the ownership agreement below before any production edit | 1, 2 (committed uploads), 5 |
 
 ## Phase 2 batches
 
@@ -79,6 +80,7 @@ Files: `supabase/migrations/20261106100000_trial_balance_drafts.sql`, `supabase/
 | Head | Run | Result |
 |---|---|---|
 | #136 `b65769b` (P2-2) | 38853987539 | Drafts PostgreSQL proof **ALL PASSED** (CI container); local-stack draft journey **25/25** (real Auth, PostgREST, RLS, Storage, function); Release Gate, lint/build/typecheck, golden, migration audit **green**. Failing: payment proofs (fixed by #133, known) and the new Deno check of `trial-balance-draft` (it used `npm:` imports that the Deno job cannot resolve → switched to the `esm.sh` pattern of the other checked functions in the next commit). |
+| #136 `d2e2bad` (P2-2 + Deno fixes) | 38856014011 | **All P2-2 evidence green on this exact head:** drafts PostgreSQL proof 71/71 (CI container); local-stack draft journey 25/25 (real Storage); the existing real-app journey (entity-first flow, i.e. old frontend path on the new backend) ALL PASSED; Deno check of `trial-balance-draft` green; Release Gate, lint/build/typecheck, golden, migration audit green; every other database proof green (upload lifecycle 207/207, shared source, wrappers, …). **Only failing steps:** the payment proofs #133 fixes (`paymentJourney` 49/54, verified-charge proof 19/26). So #136 is NOT green as a tree; it becomes mergeable only on a base that includes #133. |
 | #137 `f12ebcf` (#132 + #133 on main `00a2653`) | 38853015089 | **Every job green** (Staging RLS skipped, as on every PR). |
 
 Locally on PostgreSQL 16 (embedded): drafts proof 71/71; existing shared-source proof 44/44 and upload-lifecycle proof
@@ -90,6 +92,37 @@ orchestration deleting real objects. Simulated: a worker stopping between steps 
 then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
 service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
+## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
+
+Compatible, with these points to settle before Phase 6:
+1. **Input is a committed upload only.** Drafts are never review input; a draft becomes a `trial_balance_uploads` row only
+   through commit. `ReviewInputIdentity` (upload, `source_file_hash`, layout profile, period, currency) applies unchanged.
+2. **One content identity.** `source_file_hash` is SHA-256 of the exact raw bytes (process-trial-balance), which is what a
+   draft commit verifies its workspace copy against (`content_sha256`), so a committed draft and its processed upload carry
+   the same hash. Phase 6 should read this, not add a second file identity.
+3. **Parser version.** #138 cites `tb-ingest-3.0.0`; current is `tb-ingest-3.2.0` (#135). Read `TB_INGESTION_VERSION`, never a
+   literal.
+4. **Period and currency authority.** `ReviewInputIdentity.periodId` is required, but a commit's `period_id` may be null
+   (legacy year-only uploads), and the commit's `confirmation.currency` is a record of what the user saw, not the currency
+   authority (`fiscal_periods.reporting_currency`). P2-3 must persist the confirmed period and currency through the existing
+   period authority before commit; Phase 6 must treat a null period as a context gap, not assume one.
+5. **Replacement.** Draft commit registers initial uploads only; a period with an active trial balance answers
+   `active_upload_exists`. Replace-from-draft (via `retire_trial_balance_upload`) is not built; Phase 6 reuse
+   (`STALE_IDENTITY`/`STALE_MEANING` on a repeat upload) depends on it or on the existing replace path.
+6. **One status vocabulary.** Phase 6 readiness words must map onto `src/lib/workspace/resultStatus.ts` (Phase 1).
+7. **No competing mapping mechanism** is built by Phase 2; mapping authority stays `resolve_account_review_batch`.
+
+**Proposed file ownership (to agree before any shared production edit):**
+- Core journey/integration (this session): `supabase/migrations/20261106100000_*`, `supabase/functions/trial-balance-draft/`,
+  `_shared/draftUpload.ts`, `_shared/sourceSweeper.ts`, `_shared/tbIngestion.ts`, `_shared/printedReportMetadata.ts`,
+  `src/lib/workspace/**` (incl. `resultStatus.ts`, `trialBalanceDraft.ts`, `onboardingState.ts`), `src/pages/workspace/**`,
+  `src/components/workspace/**`, `roadmap.md`, the CLAUDE.md file map, `.github/workflows/ci.yml`, migration-order registries.
+- Phase 6 (proposed, separate session): new files under an agreed `src/lib/accounting/interpretation/**` (pure), one read-only
+  summary projection, its contract tests.
+- Shared, edit only by agreement per change: `AccountReviewPanel.tsx`, `buildReviewDecisions.ts`,
+  `resolve_account_review_batch`, `ci.yml`, CLAUDE.md, registries. UI wiring of Phase 6 into the review step goes through the
+  core journey owner.
+
 ## Outstanding owner decisions
 
 1. **#132/#133 integration**: recommended arrangement is the combined candidate draft #137 (current `main` + #132 + #133,
@@ -98,6 +131,7 @@ service role), and the pg_cron/pg_net ticket (the sweeper orchestration is calle
    before, so this is a new policy to confirm.
 3. **Hosted application** of `20261106100000` and deployment of `trial-balance-draft`: owner/Lovable only; not requested.
 4. **Payments** stay disabled until Polar and Snippe both pass (decided 14 October; restated 15 October).
+5. **Phase 6** scope and the file-ownership split above.
 
 ## Earlier notes (kept)
 
