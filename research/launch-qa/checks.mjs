@@ -210,3 +210,39 @@ export function chooserStateProblems(obs) {
   }
   return problems;
 }
+
+/**
+ * RULING I-2 (owner): the trial-balance page's action hierarchy while account review is open, judged from the page's own
+ * review state — never by counting CSS classes. obs: { state (account-review-submission data-state, or null when the
+ * review is not shown), card: { present, emphasis, filled, disabled }, save: { present, emphasis, filled, disabled, busy },
+ * alert }. `filled` is the COMPUTED fact that the control is visually emphasised (an opaque background different from
+ * what it sits on); `emphasis` is what the control declares. Both must agree with the state:
+ *   incomplete → the card's Resolve leads; Save secondary and disabled
+ *   ready      → Save & reprocess leads, enabled; Resolve secondary
+ *   failed     → Save & reprocess leads, enabled, with the reason shown (role=alert)
+ *   submitting → Save emphasised, disabled and busy (no duplicate submission)
+ *   nothing / review not shown → Save is never the lead; the card's action (if any) leads
+ */
+export function reviewHierarchyProblems(obs, expected) {
+  const problems = [];
+  const state = obs?.state ?? null;
+  if (expected !== undefined && state !== expected) problems.push(`[review] state is ${state}, expected ${expected}`);
+  const card = obs?.card ?? { present: false }, save = obs?.save ?? { present: false };
+  for (const [name, c] of [["card action", card], ["Save & reprocess", save]]) {
+    if (c.present && (c.emphasis === "primary") !== !!c.filled) problems.push(`[review] ${name} declares ${c.emphasis} but is ${c.filled ? "" : "not "}visually emphasised`);
+  }
+  const lead = (c) => c.present && c.emphasis === "primary";
+  const saveLeads = ["ready", "failed", "submitting"].includes(state);
+  if (saveLeads) {
+    if (!lead(save)) problems.push(`[review] ${state}: Save & reprocess must lead`);
+    if (lead(card)) problems.push(`[review] ${state}: the card action competes with Save & reprocess`);
+  } else {
+    if (lead(save)) problems.push(`[review] ${state ?? "no review"}: an unnecessary Save & reprocess is promoted`);
+    if (card.present && !lead(card)) problems.push(`[review] ${state ?? "no review"}: the card's next action does not lead`);
+  }
+  if (state === "incomplete" && save.present && !save.disabled) problems.push("[review] incomplete: Save & reprocess is enabled before every account has a decision");
+  if ((state === "ready" || state === "failed") && save.disabled) problems.push(`[review] ${state}: Save & reprocess is disabled`);
+  if (state === "submitting" && !(save.disabled && save.busy)) problems.push("[review] submitting: Save & reprocess is not disabled and busy (duplicate submission possible)");
+  if (state === "failed" && !obs?.alert) problems.push("[review] failed: the page does not say the decisions were not saved");
+  return problems;
+}

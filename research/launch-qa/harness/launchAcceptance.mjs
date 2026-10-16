@@ -372,6 +372,33 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       return (data ?? [])[0] ?? null;
     },
     async uploadRow(id) { const { data } = await admin.from("trial_balance_uploads").select("id, lifecycle_state, superseded_by_upload_id, version").eq("id", id).maybeSingle(); return data ?? null; },
+    // RULING I-2 observation: the review panel's own state, and for each of the two review actions what it DECLARES
+    // (data-action-emphasis) and whether it IS visually emphasised — its computed background stands out from what it sits
+    // on by a contrast ratio of at least 1.5 (an outline button on a card does not; a filled button does).
+    async observeReviewHierarchy(page) {
+      return page.evaluate(() => {
+        const rgb = (c) => { const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/.exec(c ?? ""); return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null; };
+        const lum = ({ r, g, b }) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+        const under = (el) => { for (let p = el.parentElement; p; p = p.parentElement) { const c = rgb(getComputedStyle(p).backgroundColor); if (c && c.a > 0.5) return c; } return { r: 255, g: 255, b: 255, a: 1 }; };
+        const read = (el) => {
+          if (!el) return { present: false };
+          const box = el.getBoundingClientRect(), bg = rgb(getComputedStyle(el).backgroundColor), base = under(el);
+          const l1 = bg && bg.a > 0.5 ? lum(bg) : lum(base), l2 = lum(base);
+          const contrast = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+          return { present: box.width > 0 && box.height > 0, emphasis: el.getAttribute("data-action-emphasis"), filled: contrast >= 1.5, contrast: Math.round(contrast * 100) / 100,
+                   disabled: !!el.disabled, busy: el.getAttribute("aria-busy") === "true", label: el.textContent.trim().slice(0, 60) };
+        };
+        const st = document.querySelector('[data-testid="account-review-submission"]');
+        return { state: st?.getAttribute("data-state") ?? null, statusText: st?.textContent?.trim() ?? null,
+                 card: read(document.querySelector('[data-testid="trial-balance-primary-action"]')), save: read(document.querySelector('[data-testid="account-review-save"]')),
+                 alert: !!document.querySelector('[data-testid="account-review-save-failed"]') };
+      }).catch(() => ({ state: null, card: { present: false }, save: { present: false }, alert: false }));
+    },
+    // How many decision batches were recorded for an upload (one per accepted submission).
+    async reviewBatches(uploadId) {
+      const rows = (await admin.from("account_review_decisions").select("batch_id").eq("upload_id", uploadId)).data ?? [];
+      return new Set(rows.map((r) => r.batch_id)).size;
+    },
     // RULING I-1 observation: the hub's "Choose an engagement" state — its heading, every peer Resume (accessible name,
     // visibility, whether styled as THE primary), any other primary on the screen, and the real Tab sequence.
     async observeChooser(page) {

@@ -61,3 +61,26 @@ dependency snapshot is taken. The upload stays active, so it can be retried (a n
 same request replays), protected from stale replacement (409 `replace_conflict`), and replaced through the page's own
 Replace (the refused upload is superseded and kept, and the corrected file is checked). Scenario F asserts all of this
 for both an account-limit refusal and an unreadable-file refusal.
+
+### Ruling I-2 — the trial-balance page's action hierarchy (owner, 2026-10-16)
+While account review is open, exactly one of the page's two review actions leads. Which one is chosen from the review
+panel's own state (`reviewActionHierarchy`, application `ebafa68`):
+
+| Review state | Leading action | Other control |
+|---|---|---|
+| incomplete (an account still needs a decision) | "Resolve account classifications" (moves focus to the review section) | Save & reprocess secondary, disabled |
+| ready (valid, unsaved decisions) | Save & reprocess | Resolve secondary |
+| failed (the save was refused; decisions kept) | Save & reprocess, with the reason shown inline (`role=alert`) | Resolve secondary |
+| submitting | Save & reprocess, disabled, `aria-busy`, live progress (no duplicate submission) | Resolve secondary |
+| nothing to save | the card's own next action; Save is never promoted | — |
+
+A Replace or Retry card action keeps the lead. Scenario I walks a fresh entity through every state in the real browser:
+- **incomplete:** an invented account the classifier cannot suggest;
+- **ready:** after deciding it;
+- **failed:** the save request blocked at the network layer, a test-only fault with no test endpoint;
+- **submitting:** with a second activation, which must not submit twice;
+- **after save:** nothing left to save.
+
+It checks keyboard focus and the 1280/390 presentation. Passing never depends on counting CSS classes
+(`reviewHierarchyProblems`). Each control's *declared* emphasis must match the state, and so must its *computed* visual
+emphasis (contrast ≥ 1.5 against what it sits on). Exactly one decision batch must be recorded.

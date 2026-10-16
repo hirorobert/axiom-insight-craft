@@ -12,7 +12,7 @@
 //   - FAIL lists observed mismatches with the independent expectation.
 //   - BLOCKED names a missing prerequisite (e.g. NORMAL's same-name repair, final invalid-file policy, mock-payment hook).
 // RUNTIME-UNVERIFIED until executed on a capable runner; do not read these as passed until the runner reports PASS.
-import { chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
+import { reviewHierarchyProblems, chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
 import { accessOf, accessUnchanged, hasSandboxRecord, requireCreatedUpload } from "./evidenceRules.mjs";
 import { BALANCED, IMBALANCED, SAME_NAME, UNSUPPORTED } from "../fixtures/syntheticTb.mjs";
 
@@ -385,6 +385,68 @@ async function scenarioH(env) {
   return result("PASS", [], { axe: "not wired (optional per plan); required manual keyboard/focus/aria/announcement/responsive checks executed and clean — automated scan absence reported separately, not a blocker" });
 }
 
+// RULING I-2 journey: the trial-balance page's action hierarchy walked through its REAL states on a fresh entity whose
+// invented trial balance has one account the classifier cannot suggest (incomplete) — then decided (ready), a save the
+// network refuses (failed; a test-only network fault, no test endpoint), the real save (submitting; a second activation
+// must not submit twice) and the result (nothing left to save). Keyboard focus and 1280/390 presentation are checked.
+async function reviewHierarchyJourney(env, page) {
+  const problems = [], steps = {};
+  const file = env.writeFile("I-review-hierarchy.csv", "Account code,Account name,Debit,Credit\n1000,Cash at bank,500.00,0.00\n7777,Qzvx placeholder ledger,0.00,500.00\n");
+  const r = await env.firstUploadInto(page, { mode: "new", entityName: "Iclarity Review Ltd", file });
+  if (!r.uploadId) return { problems: [`[review] the fixture upload was not bound exactly: ${(r.bindProblems ?? []).join("; ")}`], steps };
+  await env.settleUpload(r.uploadId);
+  const route = `/workspace/${r.companyId}/${r.periodYear}/trial-balance/review`;
+  const state = () => page.evaluate(() => document.querySelector('[data-testid="account-review-submission"]')?.getAttribute("data-state") ?? null).catch(() => null);
+  await env.go(page, route);
+  await page.waitForSelector('[data-testid="account-review-submission"]', { timeout: 30000 }).catch(() => {});
+
+  steps.incomplete = await env.observeReviewHierarchy(page);
+  problems.push(...reviewHierarchyProblems(steps.incomplete, "incomplete"));
+  // Keyboard: Enter on "Resolve account classifications" moves focus into the review section.
+  await page.evaluate(() => document.querySelector('[data-testid="trial-balance-primary-action"]')?.focus());
+  await page.press("Enter"); await env.sleep(900);
+  steps.focusAfterResolve = await page.evaluate(() => document.activeElement?.id || document.activeElement?.getAttribute("data-testid") || document.activeElement?.tagName).catch(() => null);
+  if (steps.focusAfterResolve !== "account-review") problems.push(`[review] Resolve account classifications did not move focus to the review section (focus: ${steps.focusAfterResolve})`);
+
+  await env.pickRadix(page, '#account-review [role="combobox"]', "Other Income").catch((e) => problems.push(`[review] could not choose a classification: ${e.message}`));
+  await env.sleep(500);
+  steps.ready = await env.observeReviewHierarchy(page);
+  problems.push(...reviewHierarchyProblems(steps.ready, "ready"));
+  for (const vw of [1280, 390]) {
+    await page.setViewport(vw, 900); await env.sleep(500); await env.shot(page, `I-review-ready-${vw}`);
+    problems.push(...responsiveProblems(vw, await page.evaluate(() => document.documentElement.scrollWidth), { label: `review@${vw}` }));
+    problems.push(...reviewHierarchyProblems(await env.observeReviewHierarchy(page), "ready").map((p) => `${p} (@${vw}px)`));
+  }
+  await page.setViewport(1280, 900);
+
+  await page.send("Network.setBlockedURLs", { urls: ["*resolve_account_review_batch*"] });
+  await page.click('[data-testid="account-review-save"]');
+  await page.waitFor(() => document.querySelector('[data-testid="account-review-submission"]')?.getAttribute("data-state") === "failed", [], { label: "save refused", timeout: 20000 }).catch(() => {});
+  steps.failed = await env.observeReviewHierarchy(page);
+  await env.shot(page, "I-review-failed");
+  await page.send("Network.setBlockedURLs", { urls: [] });
+  problems.push(...reviewHierarchyProblems(steps.failed, "failed"));
+  steps.batchesAfterRefusal = await env.reviewBatches(r.uploadId);
+  if (steps.batchesAfterRefusal !== 0) problems.push(`[review] a refused save still recorded ${steps.batchesAfterRefusal} decision batch(es)`);
+
+  await page.click('[data-testid="account-review-save"]');
+  await page.waitFor(() => document.querySelector('[data-testid="account-review-submission"]')?.getAttribute("data-state") === "submitting", [], { label: "submitting", timeout: 10000, interval: 50 }).catch(() => {});
+  steps.submitting = await env.observeReviewHierarchy(page);
+  await env.shot(page, "I-review-submitting");
+  await page.evaluate(() => document.querySelector('[data-testid="account-review-save"]')?.click()).catch(() => {}); // a second activation
+  problems.push(...reviewHierarchyProblems(steps.submitting, "submitting"));
+
+  for (let i = 0; i < 60 && (await state()) === "submitting"; i++) await env.sleep(2000);
+  await env.settleUpload(r.uploadId);
+  await env.go(page, route); await env.sleep(2500);
+  steps.unchanged = await env.observeReviewHierarchy(page);
+  await env.shot(page, "I-review-after-save");
+  problems.push(...reviewHierarchyProblems(steps.unchanged, steps.unchanged.state === null ? null : "nothing"));
+  steps.batches = await env.reviewBatches(r.uploadId);
+  if (steps.batches !== 1) problems.push(`[review] expected exactly one recorded decision batch, found ${steps.batches} (a duplicate or a lost submission)`);
+  return { problems, steps, uploadId: r.uploadId, companyId: r.companyId };
+}
+
 // I: Professional clarity — first-visit/confirmation/processing/result/blocked/retry each say what happened, what to do
 // next, and whether anything was saved/committed. Flag competing primaries, codenames, unsupported claims.
 async function scenarioI(env) {
@@ -417,10 +479,13 @@ async function scenarioI(env) {
   if (ws?.companyId) {
     await env.go(page, `/workspace/${ws.companyId}/${ws.periodYear}/trial-balance/review`);
     const res = await env.captureClarityState(page, "result");
-    // One actual next task on this page: the single-primary rule applies unchanged.
-    if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); problems.push(...primaryActionProblems(res.ctas).map((p) => `[result] ${p}`)); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
+    // One actual next task on this page (RULING I-2): the leading action follows the page's own review state.
+    if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); problems.push(...reviewHierarchyProblems(await env.observeReviewHierarchy(page)).map((p) => `[result] ${p}`)); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
   }
-  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved, hubNextActionKind: hubKind, ctas: home.ctas }, chooser });
+  // RULING I-2: the result page's action hierarchy through incomplete, ready, failed, submitting and unchanged.
+  const reviewJourney = await reviewHierarchyJourney(env, page);
+  problems.push(...reviewJourney.problems);
+  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved, hubNextActionKind: hubKind, ctas: home.ctas }, chooser, reviewJourney });
 }
 
 export const SCENARIOS = [

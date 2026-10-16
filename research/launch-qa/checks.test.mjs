@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Launch-acceptance QA — runnable tests for the PURE checks. These execute HERE (no browser/network). They validate the
 // check logic itself; they do NOT assert any of the 9 end-to-end scenarios passed — that needs a live candidate (see REPORT).
-import { productionTargetProblem, chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
+import { productionTargetProblem, reviewHierarchyProblems, chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
 
 let pass = 0, fail = 0;
 const check = (n, c, d) => { if (c) { pass++; console.log(`  PASS  ${n}`); } else { fail++; console.log(`  FAIL  ${n}${d !== undefined ? `  — ${JSON.stringify(d)}` : ""}`); } };
@@ -95,6 +95,21 @@ check("a peer missing from the Tab sequence is flagged", chooserStateProblems(ch
 check("a confirmation screen after choosing is flagged", chooserStateProblems(chooser({ navigation: { name: "x", expectedPath: "/workspace/c1/2026", landedPath: "/workspace/c1/2026", dialog: true } })).some((p) => /confirmation/.test(p)));
 check("opening a different engagement is flagged", chooserStateProblems(chooser({ navigation: { name: "x", expectedPath: "/workspace/c1/2026", landedPath: "/workspace/c2/2026", dialog: false } })).some((p) => /did not open its engagement/.test(p)));
 check("a single peer is not a choice", chooserStateProblems(chooser({ peers: [{ name: "Resume Mto Holdings Limited FY2026", visible: true }] })).some((p) => /at least two/.test(p)));
+
+group("reviewHierarchyProblems — RULING I-2: one leading action from the review state (not class counting)");
+const btn = (emphasis, o = {}) => ({ present: true, emphasis, filled: emphasis === "primary", disabled: false, busy: false, ...o });
+check("incomplete: Resolve leads, Save secondary+disabled passes", reviewHierarchyProblems({ state: "incomplete", card: btn("primary"), save: btn("secondary", { disabled: true }) }, "incomplete").length === 0);
+check("ready: Save leads, Resolve secondary passes", reviewHierarchyProblems({ state: "ready", card: btn("secondary"), save: btn("primary") }, "ready").length === 0);
+check("ready with both leading is flagged", reviewHierarchyProblems({ state: "ready", card: btn("primary"), save: btn("primary") }).some((p) => /competes/.test(p)));
+check("a declared primary that is not visually emphasised is flagged", reviewHierarchyProblems({ state: "ready", card: btn("secondary"), save: btn("primary", { filled: false }) }).some((p) => /not visually emphasised/.test(p)));
+check("a secondary that is visually filled is flagged", reviewHierarchyProblems({ state: "ready", card: btn("secondary", { filled: true }), save: btn("primary") }).some((p) => /declares secondary/.test(p)));
+check("submitting without disabled+busy is flagged", reviewHierarchyProblems({ state: "submitting", card: btn("secondary"), save: btn("primary", { disabled: true }) }).some((p) => /duplicate/.test(p)));
+check("failed without the inline reason is flagged", reviewHierarchyProblems({ state: "failed", card: btn("secondary"), save: btn("primary") }).some((p) => /not saved/.test(p)));
+check("failed with the reason and Save leading passes", reviewHierarchyProblems({ state: "failed", card: btn("secondary"), save: btn("primary"), alert: true }).length === 0);
+check("nothing to save: a promoted Save is flagged", reviewHierarchyProblems({ state: "nothing", card: btn("primary"), save: btn("primary") }).some((p) => /unnecessary/.test(p)));
+check("review not shown: the card's action leading passes", reviewHierarchyProblems({ state: null, card: btn("primary"), save: { present: false } }).length === 0);
+check("incomplete with Save enabled is flagged", reviewHierarchyProblems({ state: "incomplete", card: btn("primary"), save: btn("secondary") }).some((p) => /enabled before/.test(p)));
+check("an unexpected state is flagged", reviewHierarchyProblems({ state: "ready", card: btn("secondary"), save: btn("primary") }, "incomplete").some((p) => /expected incomplete/.test(p)));
 
 console.log(`\n${pass}/${pass + fail} launch-qa check-logic tests passed.`);
 console.log("NOTE: these validate the CHECK LOGIC only. No end-to-end launch scenario is executed here — that requires a live");
