@@ -61,8 +61,15 @@ BLACK adds the independent acceptance lens and the gaps. BLACK executed none her
 - **Env var NAMES:** `CHROME_PATH` (optional), `LAUNCH_QA_CANDIDATE_SHA` (recorded). Supabase keys are read via
   `supabase status -o json` — never passed in a file; **service-role stays server-side, never in browser code/logs/report**.
 - **Prerequisites:** local Supabase stack running; Chrome/Chromium; `@supabase/supabase-js` + `vite` installed (devDeps).
-- **Exit codes:** `0` = all executed scenarios passed; `1` = ≥1 FAIL; `4` = nothing executed (all BLOCKED) — never a PASS.
-  (`2`/`3` are reserved for the synthetic smoke/driver.)
+- **Overall PASS rule (corrected `overall.mjs`):** overall PASS requires **all nine mandatory scenario ids (A–I) present
+  exactly once, each executed and PASS**. Any missing, duplicate, unexpected, FAIL, BLOCKED or NOT_RUN scenario ⇒ NOT PASS
+  and a non-zero exit. (The earlier `executed.length>0 && failed.length===0` was insufficient — it could PASS with mandatory
+  scenarios BLOCKED, e.g. 1 PASS + 8 BLOCKED; fixed + regression-tested in `harness/overall.test.mjs`, 7/7.)
+- **Exit codes:** `0` = overall PASS (all nine executed and PASS); `1` = a real FAIL; `4` = not executed / missing /
+  duplicate / unexpected id. (`2`/`3` reserved for the synthetic smoke/driver.)
+- **Identity recorded separately:** `applicationSha` (the declared candidate), `harnessSha` (this QA commit, `git HEAD`), and
+  `applicationSourceOnlyQaChanges` (verified true = the only diff from the candidate is under `research/launch-qa/**`, so the
+  app under test IS the candidate).
 - **Artifacts:** `research/launch-qa/acceptance-evidence/launch-acceptance.json` + `*.png` screenshots.
 - **Smallest CI integration (NORMAL-owned; BLACK does not edit workflows):** add one step after the existing `supabase start`
   that runs the command above; **or** import `{ SCENARIOS }` from `harness/scenarios.mjs` into `localStackJourney.mjs` and

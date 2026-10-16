@@ -20,6 +20,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { SCENARIOS } from "./scenarios.mjs";
+import { evaluateOverall, MANDATORY_SCENARIO_IDS } from "./overall.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "research/launch-qa/acceptance-evidence"));
@@ -28,22 +29,35 @@ const CANDIDATE_SHA = process.env.LAUNCH_QA_CANDIDATE_SHA ?? "UNIDENTIFIED";
 let HARNESS_SHA = "unknown";
 try { HARNESS_SHA = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim(); } catch { /* not a git checkout */ }
 const PREVIEW_PORT = Number(process.env.LAUNCH_QA_PREVIEW_PORT ?? 4174); // 4174, not the drafts journey's 4173
+// Actual application-source identity: the app is BUILT from this checkout (HARNESS_SHA). We record the declared candidate
+// (CANDIDATE_SHA) AND prove the harness added nothing to the application source — the only diff from the candidate is under
+// research/launch-qa/** — so "the app under test is the candidate" is verified, not asserted.
+let APP_SOURCE_ONLY_QA = null;
+try {
+  if (CANDIDATE_SHA !== "UNIDENTIFIED") {
+    const diff = execFileSync("git", ["diff", "--name-only", `${CANDIDATE_SHA}..HEAD`], { cwd: REPO, encoding: "utf8" }).split("\n").filter(Boolean);
+    APP_SOURCE_ONLY_QA = diff.every((f) => f.startsWith("research/launch-qa/"));
+  }
+} catch { /* not comparable */ }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const uuid = () => crypto.randomUUID();
 fs.mkdirSync(OUT, { recursive: true });
 fs.mkdirSync(path.join(OUT, "files"), { recursive: true });
 
 function finish(results, meta, note) {
-  const executed = results.filter((r) => r.status === "PASS" || r.status === "FAIL");
-  const failed = results.filter((r) => r.status === "FAIL");
-  const report = { applicationSha: CANDIDATE_SHA, harnessSha: HARNESS_SHA, ...meta, note, results, summary: { total: results.length, pass: results.filter((r) => r.status === "PASS").length, fail: failed.length, blocked: results.filter((r) => r.status === "BLOCKED").length, notRun: results.filter((r) => r.status === "NOT_RUN").length } };
+  const o = evaluateOverall(results, MANDATORY_SCENARIO_IDS);
+  const report = {
+    applicationSha: CANDIDATE_SHA, harnessSha: HARNESS_SHA, applicationSourceOnlyQaChanges: APP_SOURCE_ONLY_QA,
+    ...meta, note, results,
+    overall: { pass: o.overallPass, exitCode: o.exitCode, reasons: o.reasons },
+    summary: { total: results.length, pass: results.filter((r) => r.status === "PASS").length, fail: o.failed.length, blocked: o.blocked.length, notRun: o.notRun.length, missing: o.missing, duplicates: o.duplicates, extra: o.extra },
+  };
   fs.writeFileSync(path.join(OUT, "launch-acceptance.json"), JSON.stringify(report, null, 2));
   for (const r of results) console.log(`  [${r.status}] ${r.id} ${r.name}${r.problems?.length ? `\n        - ${r.problems.join("\n        - ")}` : ""}`);
-  console.log(`\n${report.summary.pass}/${results.length} PASS · ${report.summary.fail} FAIL · ${report.summary.blocked} BLOCKED · ${report.summary.notRun} NOT_RUN  (application ${CANDIDATE_SHA} · harness ${HARNESS_SHA.slice(0, 12)})`);
-  // Mandatory-execution rule: an overall PASS requires executed scenarios and zero failures. No execution ⇒ never PASS.
-  const overallPass = executed.length > 0 && failed.length === 0;
-  console.log(overallPass ? "OVERALL: PASS (executed, no failures)" : `OVERALL: NOT PASS (${failed.length} fail, ${results.length - executed.length} not executed)`);
-  process.exit(failed.length > 0 ? 1 : (executed.length === 0 ? 4 : 0)); // 1=failure, 4=nothing executed, 0=all executed passed
+  console.log(`\napplication ${CANDIDATE_SHA} (source-only-qa=${APP_SOURCE_ONLY_QA}) · harness ${HARNESS_SHA.slice(0, 12)}`);
+  // Overall PASS requires all nine mandatory ids present exactly once, each executed and PASS (overall.mjs).
+  console.log(o.overallPass ? "OVERALL: PASS (all nine mandatory scenarios executed and PASS)" : `OVERALL: NOT PASS — ${o.reasons.join("; ")}`);
+  process.exit(o.exitCode); // 0=overall PASS · 1=a FAIL · 4=not executed / missing / duplicate / extra
 }
 
 // ── Bootstrap the disposable local stack (fails CLOSED to BLOCKED if a prerequisite is missing — never a false run). ──
