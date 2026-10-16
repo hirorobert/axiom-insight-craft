@@ -389,6 +389,45 @@ jobs:
           docker logs "$EDGE" > real-app-evidence/drafts/edge-runtime-always.log 2>&1 || true
           grep -E "Using supabase-edge-runtime|\[PTB\] worker=|\[PTB\] Ingested|CPU time (soft|hard) limit|early termination|WorkerRequestCancelled|Detected file" real-app-evidence/drafts/edge-runtime-always.log | grep -v "Detected file: mto-" || true
 
+      - name: Launch-acceptance identity (evidence branch only; proves the tree actually checked out and built equals candidate f57b944 apart from the QA files, and records the harness commit separately)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: f57b9441d46ae382c43b9e9da3fa1cdff8758805
+        run: |
+          set -u
+          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
+          git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
+          BUILT=$(git rev-parse HEAD)
+          CHANGED=$(git diff --name-only "$LAUNCH_QA_CANDIDATE_SHA" HEAD 2>/dev/null || echo "__candidate_unavailable__")
+          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|scripts/e2e/launchQaHooks\.mjs$|scripts/e2e/launchQaGate\.mjs$|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
+          DIRTY=$(git diff --name-only HEAD)
+          VERIFIED=false; [ -z "$OUTSIDE" ] && [ -z "$DIRTY" ] && VERIFIED=true
+          APPTREE=$(git rev-parse "$LAUNCH_QA_CANDIDATE_SHA^{tree}" 2>/dev/null || echo unknown)
+          node -e 'const [o,c,b,t,v,ch,out,d]=process.argv.slice(1); require("fs").writeFileSync(o+"/identity.json", JSON.stringify({applicationSha:c, applicationTree:t, builtCommit:b, verified:v==="true", filesDifferingFromCandidate:ch.split("\n").filter(Boolean), outsideAllowedQaFiles:out.split("\n").filter(Boolean), trackedModificationsBeforeBuild:d.split("\n").filter(Boolean)}, null, 2))' "$OUT" "$LAUNCH_QA_CANDIDATE_SHA" "$BUILT" "$APPTREE" "$VERIFIED" "$CHANGED" "$OUTSIDE" "$DIRTY"
+          cat "$OUT/identity.json"
+          [ "$VERIFIED" = true ]
+
+      - name: Launch-acceptance browser smoke (BLACK, evidence; synthetic driver and primitive check only, establishes no journey)
+        if: always()
+        run: node research/launch-qa/harness/driverSmokeTest.mjs
+
+      - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: f57b9441d46ae382c43b9e9da3fa1cdff8758805
+          LAUNCH_QA_HOOKS: scripts/e2e/launchQaHooks.mjs
+        run: |
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          NEW=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_codeless_name'" 2>/dev/null || echo 0)
+          OLD=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_norm_name'" 2>/dev/null || echo 1)
+          echo "repair B in the database under test: codeless-name index=$NEW, all-names index=$OLD"
+          if [ "$NEW" = "1" ] && [ "$OLD" = "0" ]; then export LAUNCH_QA_SAME_NAME_REPAIR=verified; fi
+          node research/launch-qa/qa/realAppJourney.mjs real-app-evidence/launch-qa
+
+      - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
+        if: always()
+        run: node scripts/e2e/launchQaGate.mjs real-app-evidence/launch-qa
+
       - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
