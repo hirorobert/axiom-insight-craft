@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Launch-acceptance QA — runnable tests for the PURE checks. These execute HERE (no browser/network). They validate the
 // check logic itself; they do NOT assert any of the 9 end-to-end scenarios passed — that needs a live candidate (see REPORT).
-import { productionTargetProblem, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
+import { productionTargetProblem, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
 
 let pass = 0, fail = 0;
 const check = (n, c, d) => { if (c) { pass++; console.log(`  PASS  ${n}`); } else { fail++; console.log(`  FAIL  ${n}${d !== undefined ? `  — ${JSON.stringify(d)}` : ""}`); } };
@@ -64,6 +64,21 @@ group("clarityStateProblems — what happened / what next / what saved");
 check("a complete state is clean", clarityStateProblems({ name: "result", whatHappened: "Your trial balance was checked.", whatNext: "Review the flagged accounts.", saved: "saved" }).length === 0);
 check("missing 'what next' is flagged", clarityStateProblems({ name: "blocked", whatHappened: "x", saved: "nothing" }).some((p) => /what to do next/.test(p)));
 check("unknown saved/committed status is flagged", clarityStateProblems({ name: "processing", whatHappened: "x", whatNext: "y" }).some((p) => /saved\/committed/.test(p)));
+
+group("tabWalkProblems — the REAL Tab sequence (NORMAL)");
+check("a visible, named, in-order walk is clean", tabWalkProblems([{ label: "Skip", role: "a", visible: true, domIndex: 1 }, { label: "Upload", role: "button", visible: true, domIndex: 9 }]).length === 0);
+check("no stops at all is flagged", tabWalkProblems([]).some((p) => /no element/.test(p)));
+check("focus landing on an unseen element is flagged", tabWalkProblems([{ label: "x", visible: false, domIndex: 1 }]).some((p) => /not visible/.test(p)));
+check("an unnamed stop is flagged", tabWalkProblems([{ label: "", role: "button", visible: true, domIndex: 1 }]).some((p) => /no accessible name/.test(p)));
+check("positive tabindex is flagged", tabWalkProblems([{ label: "x", visible: true, tabindex: 2, domIndex: 1 }]).some((p) => /positive tabindex/.test(p)));
+check("a backwards jump is flagged", tabWalkProblems([{ label: "a", visible: true, domIndex: 9 }, { label: "b", visible: true, domIndex: 2 }]).some((p) => /backwards/.test(p)));
+
+group("programmaticFocusProblems — tabindex<0 is ASSESSED, never skipped (NORMAL)");
+check("a visible button removed from the Tab order is flagged", programmaticFocusProblems([{ label: "Delete", role: "button", interactive: true, visible: true }]).some((p) => /removed from the keyboard order/.test(p)));
+check("a roving-tabindex item inside a composite widget is accepted", programmaticFocusProblems([{ label: "Option 2", role: "option", interactive: true, visible: true, compositeItem: true }]).length === 0);
+check("a named hidden notifications region is accepted", programmaticFocusProblems([{ label: "Notifications", role: "region", interactive: false, visible: false, named: true }]).length === 0);
+check("a hidden live region is accepted", programmaticFocusProblems([{ label: "", role: "ol", interactive: false, visible: false, liveRegion: true }]).length === 0);
+check("an unnamed hidden non-live target is flagged", programmaticFocusProblems([{ label: "", role: "div", interactive: false, visible: false }]).some((p) => /no name and no live-region/.test(p)));
 
 console.log(`\n${pass}/${pass + fail} launch-qa check-logic tests passed.`);
 console.log("NOTE: these validate the CHECK LOGIC only. No end-to-end launch scenario is executed here — that requires a live");

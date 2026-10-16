@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regressions for the FALSE POSITIVES NORMAL found on run 38919978092 (B passed without uploading; F/G read A's latest
 // upload; D compared the whole snapshot). Pure, runs here.
-import { accessOf, accessUnchanged, hasSandboxRecord, boundUploadId, requireCreatedUpload } from "./evidenceRules.mjs";
+import { accessOf, accessUnchanged, hasSandboxRecord, boundUploadId, bindCommittedUpload, requireCreatedUpload } from "./evidenceRules.mjs";
 
 let pass = 0, fail = 0;
 const check = (n, c, d) => { if (c) { pass++; console.log(`  PASS  ${n}`); } else { fail++; console.log(`  FAIL  ${n}${d !== undefined ? `  — ${JSON.stringify(d)}` : ""}`); } };
@@ -29,5 +29,22 @@ group("B false positive: no upload created where required ⇒ FAIL, never a vacu
 check("a null uploadId yields a FAIL reason", typeof requireCreatedUpload(null, "B's file") === "string");
 check("a real uploadId yields no problem", requireCreatedUpload("B-upl", "B's file") === null);
 
+group("EXACT binding (NORMAL): user → draft → committed commit → upload; identical contents never bind on their own");
+{
+  const H = "a".repeat(64);
+  const drafts = [{ id: "d1", content_sha256: H }];
+  const commits = [{ id: "c1", draft_id: "d1", state: "committed", upload_id: "u1", company_id: "co1", period_year: 2026, period_id: "p1" }];
+  const upload = { id: "u1", company_id: "co1", period_year: 2026, period_id: "p1", source_file_hash: H };
+  check("the exact chain binds its own upload", bindCommittedUpload({ drafts, commits, upload }, { sourceHash: H, companyId: "co1", periodYear: 2026 }).uploadId === "u1");
+  check("two drafts of identical contents bind nothing", bindCommittedUpload({ drafts: [...drafts, { id: "d2", content_sha256: H }], commits, upload }, { sourceHash: H }).uploadId === null);
+  check("a period-id mismatch binds nothing", bindCommittedUpload({ drafts, commits, upload: { ...upload, period_id: "p2" } }, { sourceHash: H }).uploadId === null);
+  check("a period-year mismatch with the intent binds nothing", bindCommittedUpload({ drafts, commits, upload }, { sourceHash: H, periodYear: 2027 }).uploadId === null);
+  check("an unintended entity binds nothing", bindCommittedUpload({ drafts, commits, upload }, { sourceHash: H, companyId: "co2" }).uploadId === null);
+  check("an uncommitted draft binds nothing", bindCommittedUpload({ drafts, commits: [{ ...commits[0], state: "open", upload_id: null }], upload }, { sourceHash: H }).uploadId === null);
+  check("another file's recorded hash binds nothing", bindCommittedUpload({ drafts, commits, upload: { ...upload, source_file_hash: "b".repeat(64) } }, { sourceHash: H }).uploadId === null);
+  check("an upload id other than the commit's binds nothing", bindCommittedUpload({ drafts, commits, upload: { ...upload, id: "u9" } }, { sourceHash: H }).uploadId === null);
+}
+
 console.log(`\n${pass}/${pass + fail} evidence-rule regression checks passed.`);
 process.exit(fail ? 1 : 0);
+

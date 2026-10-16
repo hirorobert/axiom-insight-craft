@@ -139,3 +139,42 @@ export function clarityStateProblems(state) {
   if (!["saved", "committed", "nothing"].includes(state.saved)) problems.push(`[${state.name}] does not make clear whether anything was saved/committed (saved="${state.saved ?? "unknown"}")`);
   return problems;
 }
+
+/**
+ * The REAL keyboard sequence (NORMAL): `stops` are the elements that actually received focus on successive Tab presses
+ * ({ label, role, visible, tabindex, domIndex }). Every stop must be visible (focus never lands on something unseen), have
+ * an accessible name, carry no positive tabindex, and the sequence must follow document order.
+ */
+export function tabWalkProblems(stops) {
+  const problems = [];
+  if (!Array.isArray(stops) || stops.length === 0) return ["Tab reached no element (no keyboard access)"];
+  stops.forEach((s, i) => {
+    const where = s.label || s.role || `stop ${i + 1}`;
+    if (!s.visible) problems.push(`Tab focus landed on an element that is not visible: "${where}"`);
+    if (!s.label || String(s.label).trim() === "") problems.push(`Tab focus landed on an element with no accessible name: "${s.role || `stop ${i + 1}`}"`);
+    if (typeof s.tabindex === "number" && s.tabindex > 0) problems.push(`positive tabindex (${s.tabindex}) on "${where}" — breaks natural order`);
+  });
+  for (let i = 1; i < stops.length; i++) {
+    if (typeof stops[i].domIndex === "number" && typeof stops[i - 1].domIndex === "number" && stops[i].domIndex < stops[i - 1].domIndex) {
+      problems.push(`Tab order jumps backwards in the document at "${stops[i].label || i}"`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * Elements removed from the Tab order (tabindex < 0) are ASSESSED, not ignored: `targets` are
+ * { label, role, interactive, visible, compositeItem, liveRegion, named }. A VISIBLE interactive control removed from the Tab
+ * order is a keyboard defect unless it is an item of a composite widget (listbox/menu/tablist/radiogroup/grid/tree/toolbar)
+ * managing its own arrow-key focus. A hidden programmatic-focus target (e.g. a notifications region reached by its own
+ * shortcut) is acceptable only when it is named or a live region; an unnamed hidden one is reported.
+ */
+export function programmaticFocusProblems(targets) {
+  const problems = [];
+  for (const t of targets ?? []) {
+    const where = t.label || t.role || "element";
+    if (t.visible && t.interactive && !t.compositeItem) problems.push(`visible control removed from the keyboard order (tabindex<0): "${where}"`);
+    if (!t.visible && !t.named && !t.liveRegion) problems.push(`hidden programmatic-focus target with no name and no live-region role: "${where}"`);
+  }
+  return problems;
+}

@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { SCENARIOS } from "./scenarios.mjs";
 import { evaluateOverall, MANDATORY_SCENARIO_IDS } from "./overall.mjs";
-import { boundUploadId } from "./evidenceRules.mjs";
+import { boundUploadId, bindCommittedUpload } from "./evidenceRules.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "research/launch-qa/acceptance-evidence"));
@@ -146,6 +146,16 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       await env.go(page, "/auth", "Sign in to your CFOClose account");
       await page.fill("#email", u.email); await page.fill("#password", u.password); await page.press("Enter");
       await page.waitFor(() => !location.pathname.startsWith("/auth"), [], { label: "signed in", timeout: 30000 });
+      env.currentUser = u;
+    },
+    // EXACT binding (NORMAL): user → draft of this file created since `since` → its committed commit → that commit's upload.
+    async bindUpload(u, since, sourceHash, expect = {}) {
+      const drafts = (await admin.from("trial_balance_drafts").select("id, content_sha256, created_at").eq("owner_ref", u.id).gte("created_at", since)).data ?? [];
+      const ids = drafts.map((d) => d.id);
+      const commits = ids.length ? ((await admin.from("trial_balance_draft_commits").select("id, draft_id, state, upload_id, company_id, period_year, period_id").in("draft_id", ids)).data ?? []) : [];
+      const named = commits.filter((c) => c.state === "committed" && c.upload_id).map((c) => c.upload_id);
+      const upload = named.length === 1 ? (await admin.from("trial_balance_uploads").select("id, company_id, period_year, period_id, status, lifecycle_state, file_path, source_file_hash, processing_result").eq("id", named[0]).maybeSingle()).data : null;
+      return { ...bindCommittedUpload({ drafts, commits, upload }, { sourceHash, ...expect }), upload };
     },
     setByLabel: (page, label, value) => page.evaluate((lab, val) => {
       const l = [...document.querySelectorAll("label")].find((x) => x.textContent.trim().toLowerCase().startsWith(lab.toLowerCase()));
@@ -162,6 +172,7 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     async firstUploadInto(page, { mode = "new", entityName, existingEntityName, endsOn = "2026-06-30", currency = "TZS", year, file }) {
       await env.go(page, "/dashboard");
       await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
+      const since = new Date(Date.now() - 5000).toISOString();
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
       // The browser actually SELECTED this file: the file card names it.
@@ -183,6 +194,8 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       await page.click('[data-testid="first-upload-start"]');
       await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"]', { timeout: 180000 });
       const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
+      // What the page itself states after the check (a blocked check is shown as problems on the checked result).
+      const shownProblems = await page.evaluate(() => [...document.querySelectorAll('[data-testid="first-upload-problems"], [data-testid="first-upload-checked"], [data-testid="first-upload-failure"]')].map((e) => e.textContent).join(" | ")).catch(() => "");
       const sourceHash = env.sha256File(file);
       let companyId = null, periodYear = year ?? null;
       const opened = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-open-result"]')).catch(() => false);
@@ -194,15 +207,18 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       }
       // Fall back to resolving the company from server truth for the existing mode / when the result page wasn't opened.
       if (!companyId && mode === "existing") companyId = (await env.ownerCompanyByName(existingEntityName))?.id ?? null;
-      const bound = companyId ? await env.uploadByHash(companyId, sourceHash) : null;
-      return { companyId, periodYear: bound?.period_year ?? periodYear, uploadId: bound?.id ?? null, sourceHash, failure, selectedFileOk, bound };
+      // EXACT binding through the user's own draft → commit → upload (never by contents alone, never "latest").
+      const bind = await env.bindUpload(env.currentUser, since, sourceHash, { companyId: mode === "existing" ? companyId : null, periodYear: year ?? null });
+      const bound = bind.uploadId ? bind.upload : null;
+      if (bind.companyId && companyId && bind.companyId !== companyId) bind.problems.push(`the result page opened entity ${companyId}, but the commit bound entity ${bind.companyId}`);
+      return { companyId: bind.companyId ?? companyId, periodYear: bound?.period_year ?? bind.periodYear ?? periodYear, uploadId: bind.problems.length ? null : bind.uploadId, bindProblems: bind.problems, binding: { draftId: bind.draftId ?? null, commitId: bind.commitId ?? null, periodId: bind.periodId ?? null }, sourceHash, failure, shownProblems, selectedFileOk, bound, committedUpload: bind.upload ?? null };
     },
     async createWorkspace(page, args) {
       const r = await env.firstUploadInto(page, { mode: "new", ...args });
       if (r.companyId) env.lastWorkspace = { companyId: r.companyId, periodYear: r.periodYear, entityName: args.entityName };
       return r;
     },
-    async ownerCompanyByName(name) { const { data } = await admin.from("companies").select("id, name").eq("name", name).maybeSingle(); return data ?? null; },
+    async ownerCompanyByName(name) { const { data } = await admin.from("companies").select("id, name").eq("name", name).eq("user_id", env.currentUser?.id ?? "").maybeSingle(); return data ?? null; },
     async establishPeriod() { return true; }, // the first-upload confirmation card sets the period; no separate intake needed
     async openUploader(page, companyId, year) {
       for (let i = 0; i < 3; i++) {
@@ -336,6 +352,41 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
           .filter((el) => vis(el) || el.tagName === "A" || el.tagName === "BUTTON" || el.tagName === "INPUT")
           .map((el, i) => ({ label: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 40) || el.getAttribute("title") || el.id, role: el.tagName.toLowerCase(), visible: vis(el), tabindex: el.hasAttribute("tabindex") ? Number(el.getAttribute("tabindex")) : undefined, interactive: true, domOrder: i }));
       }).catch(() => []);
+    },
+    // The REAL keyboard sequence (NORMAL): press Tab and record what actually received focus, until it cycles or 80 stops.
+    async observeTabWalk(page, max = 80) {
+      await page.evaluate(() => { document.activeElement?.blur?.(); window.scrollTo(0, 0); });
+      const stops = [];
+      for (let i = 0; i < max; i++) {
+        await page.press("Tab");
+        const s = await page.evaluate(() => {
+          const el = document.activeElement; if (!el || el === document.body) return null;
+          const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+          const by = el.getAttribute("aria-labelledby");
+          const name = el.getAttribute("aria-label") || (by ? by.split(/\s+/).map((id) => document.getElementById(id)?.textContent?.trim() ?? "").join(" ").trim() : "")
+            || (el.labels && el.labels[0]?.textContent?.trim()) || el.getAttribute("title") || el.getAttribute("alt") || el.textContent.trim().slice(0, 60) || (el.getAttribute("placeholder") ?? "");
+          if (!el.dataset.laqIdx) el.dataset.laqIdx = String([...document.querySelectorAll("*")].indexOf(el));
+          return { key: el.dataset.laqIdx, label: name, role: el.getAttribute("role") || el.tagName.toLowerCase(), visible: cs.visibility !== "hidden" && cs.display !== "none" && r.width > 0 && r.height > 0 && Number(cs.opacity) > 0,
+                   tabindex: el.hasAttribute("tabindex") ? Number(el.getAttribute("tabindex")) : undefined, domIndex: Number(el.dataset.laqIdx) };
+        }).catch(() => null);
+        if (!s) break;
+        if (stops.length && stops[0].key === s.key) break; // cycled
+        stops.push(s);
+      }
+      return stops;
+    },
+    // Elements taken out of the Tab order (tabindex<0), with what decides whether that is acceptable.
+    async observeProgrammaticFocusTargets(page) {
+      return page.evaluate(() => [...document.querySelectorAll('[tabindex]')].filter((el) => Number(el.getAttribute("tabindex")) < 0).map((el) => {
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        const role = el.getAttribute("role") || el.tagName.toLowerCase();
+        const interactive = /^(a|button|input|select|textarea)$/i.test(el.tagName) || /^(button|link|menuitem|tab|option|radio|checkbox|switch|textbox|combobox)$/.test(el.getAttribute("role") ?? "");
+        const region = el.closest("[aria-live], [role=status], [role=log], [role=alert], [role=region], section[aria-label]");
+        const name = el.getAttribute("aria-label") || region?.getAttribute("aria-label") || "";
+        return { label: name || el.textContent.trim().slice(0, 40), role, interactive, visible: cs.visibility !== "hidden" && cs.display !== "none" && r.width > 0 && r.height > 0,
+                 compositeItem: !!el.closest("[role=listbox], [role=menu], [role=menubar], [role=tablist], [role=radiogroup], [role=grid], [role=tree], [role=toolbar]"),
+                 liveRegion: !!(el.closest("[aria-live]") || el.matches("[aria-live]")), named: name.trim() !== "" };
+      })).catch(() => []);
     },
     async observeFields(page) {
       return page.evaluate(() => [...document.querySelectorAll("input,select,textarea")].map((el) => {

@@ -12,7 +12,7 @@
 //   - FAIL lists observed mismatches with the independent expectation.
 //   - BLOCKED names a missing prerequisite (e.g. NORMAL's same-name repair, final invalid-file policy, mock-payment hook).
 // RUNTIME-UNVERIFIED until executed on a capable runner; do not read these as passed until the runner reports PASS.
-import { focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
+import { tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
 import { accessOf, accessUnchanged, hasSandboxRecord, requireCreatedUpload } from "./evidenceRules.mjs";
 import { BALANCED, IMBALANCED, SAME_NAME, UNSUPPORTED } from "../fixtures/syntheticTb.mjs";
 
@@ -32,7 +32,7 @@ async function scenarioA(env) {
   if (!ws.selectedFileOk) problems.push("the browser did not select the intended file (first-upload-file-card did not name it)");
   const { companyId, periodYear } = ws;
   // The upload under test is bound to A's OWN file by source_file_hash — not "latest".
-  if (!ws.uploadId) problems.push(`no upload was created for A's file (source_file_hash ${ws.sourceHash.slice(0, 12)}) — a first upload must create one`);
+  if (!ws.uploadId) problems.push(`no upload was bound EXACTLY for A's file (user → draft → commit → upload): ${(ws.bindProblems ?? []).join("; ") || "nothing committed"}`);
   // Confirmed context is SOURCED, not guessed (server truth): one entity; the dated period + currency as confirmed.
   const co = (await env.admin.from("companies").select("id, name").eq("user_id", env.users.owner.id)).data ?? [];
   if (co.length !== 1) problems.push(`expected exactly one entity for the owner, found ${co.length} (no duplicate entity)`);
@@ -63,7 +63,7 @@ async function scenarioB(env) {
   if (!r.selectedFileOk) problems.push("the browser did not select B's own file");
   // A NEW upload must actually have been created and bound to B's file — no vacuous pass.
   const mustUpload = requireCreatedUpload(r.uploadId, `B's file (source_file_hash ${r.sourceHash.slice(0, 12)})`);
-  if (mustUpload) return result("FAIL", [...problems, mustUpload]);
+  if (mustUpload) return result("FAIL", [...problems, mustUpload, ...(r.bindProblems ?? [])]);
   const afterN = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
   if (afterN !== beforeN) problems.push(`an unintended new entity was created (${beforeN} → ${afterN}) — upload to an existing entity must not create one`);
   if (r.companyId !== existing.companyId) problems.push(`B's upload attached to a different entity (${r.companyId} ≠ ${existing.companyId})`);
@@ -212,18 +212,26 @@ async function scenarioF(env) {
   if (unsup.error) problems.push(...loadingErrorStateProblems({ phase: "error", errorMessage: unsup.error, nextAction: "choose another file" }).filter((p) => /raw\/internal/.test(p)));
   if (unsup.uploadsForFile > 0) problems.push("the unsupported file produced an upload (must accept nothing)");
 
-  // OVER-LIMIT (NORMAL's fixture, its OWN identifiable file): it is structurally valid so it reaches the card, then
-  // "Start" is refused by name (TOO_MANY_ACCOUNTS). NOTHING is created: no entity, no upload bound to this file's hash.
-  const overHash = env.sha256File(env.overLimitFixture.path);
-  const entitiesBefore = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
+  // OVER-LIMIT (NORMAL's fixture, its OWN identifiable file). The product contract (P2-3, uploadPolicy): "Start" saves the
+  // entity, the dated period and the file, then the server's check runs; an over-limit file is REFUSED BY NAME on that
+  // upload — blocked, the named issue, no account accepted, no totals, never certified — and the page says so. (An
+  // assertion that nothing at all is created would contradict the designed flow.) Bound EXACTLY: user → draft → commit → upload.
   const over = await env.firstUploadInto(page, { mode: "new", entityName: "Finvalid Over Limit Ltd", file: env.overLimitFixture.path });
-  const overErr = String(over.failure ?? "");
-  const refusedByName = new RegExp(expected, "i").test(overErr) || /too many accounts|account limit|exceed/i.test(overErr);
-  const overUpload = ((await env.admin.from("trial_balance_uploads").select("id").eq("source_file_hash", overHash)).data ?? []).length;
-  const entitiesAfter = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
-  if (!refusedByName) problems.push(`over-limit upload was not refused by name (${expected}); failure="${overErr.slice(0, 200)}"`);
-  if (over.uploadId || overUpload > 0) problems.push(`over-limit produced an accepted/partial upload (uploadId=${over.uploadId}, rowsForFile=${overUpload}) — must accept nothing`);
-  if (entitiesAfter !== entitiesBefore) problems.push(`over-limit created an entity (${entitiesBefore} → ${entitiesAfter}) — nothing should be created`);
+  const shown = `${over.failure ?? ""} | ${over.shownProblems ?? ""}`;
+  const refusedOnPage = new RegExp(expected, "i").test(shown) || /more than [\d,]+ accounts|too many accounts|account limit/i.test(shown);
+  const u = over.committedUpload;
+  if (!u) problems.push(`the over-limit file's own upload could not be bound exactly: ${(over.bindProblems ?? []).join("; ")}`);
+  else {
+    const settled = await env.settleUpload(u.id);
+    const ing = settled?.processing_result?.ingestion ?? u.processing_result?.ingestion ?? null;
+    const codes = (ing?.issues ?? []).map((i) => i.code);
+    const accounts = ing?.lineage_summary?.account ?? null;
+    if (!codes.includes(expected)) problems.push(`the over-limit upload was not refused by name (${expected}); issues=${JSON.stringify(codes)}`);
+    if (!(accounts === 0 || accounts === null) || ing?.totals) problems.push(`the over-limit upload accepted accounts or totals (accounts=${accounts}, totals=${JSON.stringify(ing?.totals ?? null)}) — must accept nothing`);
+    if (["complete", "valid"].includes(settled?.status)) problems.push(`the over-limit upload reached an accepted status (${settled?.status})`);
+    if (await env.isCertified(u.company_id, u.period_year)) problems.push("the over-limit upload was certified as accepted");
+  }
+  if (!refusedOnPage) problems.push(`the page did not state the refusal by name (shown: "${shown.slice(0, 240)}")`);
 
   // RECOVERY: a normal file into a fresh entity succeeds (its own file, bound by hash).
   const rec = await env.firstUploadInto(page, { mode: "new", entityName: "Frecovery Normal Ltd", file: env.taggedCsv("F", "F-recovery.csv") });
@@ -241,7 +249,7 @@ async function scenarioG(env) {
   const file = env.writeFile("G-same-name.csv", SAME_NAME.csv);
   const r = await env.firstUploadInto(page, { mode: "new", entityName: "Gemini Same Name Ltd", file });
   if (r.failure) return result("FAIL", [`G's same-name upload failed: ${String(r.failure).slice(0, 300)}`]);
-  if (!r.uploadId || !r.companyId) return result("FAIL", [`G's same-name trial balance did not create a bound upload (companyId=${r.companyId}, uploadId=${r.uploadId})`]);
+  if (!r.uploadId || !r.companyId) return result("FAIL", [`G's same-name trial balance did not create an exactly bound upload (companyId=${r.companyId}, uploadId=${r.uploadId}): ${(r.bindProblems ?? []).join("; ")}`]);
   const companyId = r.companyId, uploadId = r.uploadId;
   await env.settleUpload(uploadId);
   // Mappings exist ONLY after review decisions (resolve_account_review_batch). REVIEW BOTH "Sales" accounts first, as the
@@ -249,7 +257,7 @@ async function scenarioG(env) {
   const decisions = SAME_NAME.rows.filter((r) => /sales/i.test(r.name)).map((r) => ({
     account_code: r.code, account_name: r.name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
     statement: "income_statement", classification: "revenue", line_item: r.name, normal_balance: "credit",
-  }));
+  })).map((d, i) => (i === 1 ? { ...d, classification: "other_income" } : d)); // different treatments: a merge cannot pass
   const reviewed = await env.reviewAccounts(env.users.owner, companyId, uploadId, decisions);
   if (reviewed.error) return result("FAIL", [`reviewing both same-name accounts was refused: ${reviewed.error}`], { uploadId });
   const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name, statement, classification").eq("company_id", companyId).ilike("account_name", "Sales");
@@ -279,8 +287,12 @@ async function scenarioH(env) {
     const obs = await env.observeViewport(page, `/workspace/${ws.companyId}/${ws.periodYear}`, vw);
     problems.push(...responsiveProblems(vw, obs.layoutWidth, { label: `workspace@${vw}` }));
   }
-  const focusables = await env.observeFocusSequence(page);
-  problems.push(...focusOrderProblems(focusables));
+  // Keyboard (NORMAL): the REAL Tab sequence, and every element taken out of the Tab order ASSESSED — visibility,
+  // semantics and the keyboard interaction that applies — never skipped because of tabindex=-1 alone.
+  const stops = await env.observeTabWalk(page);
+  problems.push(...tabWalkProblems(stops));
+  const outOfOrder = await env.observeProgrammaticFocusTargets(page);
+  problems.push(...programmaticFocusProblems(outOfOrder));
   const fields = await env.observeFields(page);
   problems.push(...ariaAssociationProblems(fields));
   const ann = await env.observeProcessingAnnouncement(page);

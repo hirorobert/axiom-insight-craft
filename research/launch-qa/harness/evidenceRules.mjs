@@ -18,3 +18,29 @@ export function boundUploadId(rows, sourceHash) {
 export function requireCreatedUpload(uploadId, label) {
   return uploadId ? null : `no new upload was created for ${label} — nothing was uploaded (must FAIL, never a vacuous pass)`;
 }
+
+// EXACT binding (NORMAL, owner direction): identical file contents do not identify an upload. The upload a scenario
+// assesses is the one its OWN draft produced: the signed-in user's draft of this file (content_sha256) created during the
+// scenario → that draft's COMMITTED commit (which names the entity, the period year and period id) → the commit's upload_id
+// → that upload row, whose company, period year and period id must equal the commit's and whose source_file_hash (when the
+// server has recorded it) must equal the file's. Any ambiguity or mismatch binds nothing and says why.
+export function bindCommittedUpload({ drafts, commits, upload }, { sourceHash, companyId = null, periodYear = null } = {}) {
+  const ownDrafts = (drafts ?? []).filter((d) => d && d.content_sha256 === sourceHash);
+  if (ownDrafts.length !== 1) return { uploadId: null, problems: [`expected exactly one draft of this file by this user in this scenario, found ${ownDrafts.length}`] };
+  const d = ownDrafts[0];
+  const done = (commits ?? []).filter((c) => c && c.draft_id === d.id && c.state === "committed");
+  if (done.length !== 1) return { uploadId: null, draftId: d.id, problems: [`expected exactly one committed commit for the draft, found ${done.length}`] };
+  const c = done[0];
+  const problems = [];
+  if (!c.upload_id) problems.push("the committed commit names no upload");
+  else if (!upload || upload.id !== c.upload_id) problems.push(`the upload the commit names (${c.upload_id}) was not found`);
+  else {
+    if (upload.company_id !== c.company_id) problems.push(`upload entity ${upload.company_id} ≠ commit entity ${c.company_id}`);
+    if (companyId && upload.company_id !== companyId) problems.push(`upload entity ${upload.company_id} ≠ the entity the scenario intended ${companyId}`);
+    if (upload.period_year !== c.period_year) problems.push(`upload period year ${upload.period_year} ≠ commit period year ${c.period_year}`);
+    if (periodYear != null && upload.period_year !== periodYear) problems.push(`upload period year ${upload.period_year} ≠ the period the scenario intended ${periodYear}`);
+    if ((c.period_id ?? null) !== (upload.period_id ?? null)) problems.push(`upload period ${upload.period_id} ≠ commit period ${c.period_id}`);
+    if (upload.source_file_hash != null && upload.source_file_hash !== sourceHash) problems.push("the upload's recorded source hash is not this file's");
+  }
+  return { uploadId: problems.length ? null : upload.id, draftId: d.id, commitId: c.id, companyId: c.company_id ?? null, periodYear: c.period_year ?? null, periodId: c.period_id ?? null, problems };
+}
