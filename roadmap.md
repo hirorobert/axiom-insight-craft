@@ -94,7 +94,7 @@ orchestration deleting real objects. Simulated: a worker stopping between steps 
 then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
 service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
-## Upload policy (tb-upload-policy-2) — PROVISIONAL values, ENFORCED in code, NOT deployed
+## Upload policy (tb-upload-policy-3) — PROVISIONAL values, ENFORCED in code, NOT deployed
 
 One module, `supabase/functions/_shared/uploadPolicy.ts`, mirrored for the browser (`src/lib/workspace/uploadPolicy.ts`) and
 equal to the drafts migration's size CHECK (held equal by `uploadPolicy.test.ts`). Before this work the trial-balance path
@@ -121,6 +121,9 @@ at the limit through the real function (must answer 200 with every account read)
 | Rows (lines, header included) | 10,000 | about twice a large trial balance (typical < 5,000) |
 | Cells | 120,000 | 10,000 lines × 12 columns |
 | Workbook parts | 2,000 | unchanged |
+| **Accounts** (after reading; repair A) | **2,000** | one certification holds every certified account: `rows_snapshot` CHECK 1 MiB holds about 2,600 realistic accounts (≈400 bytes each, measured); four dependency keys per account fit the 20,000-key cap. Refused whole before any check (`TOO_MANY_ACCOUNTS`) |
+| Certified-rows payload | 900,000 bytes (JSON) | under the 1,048,576-byte stored CHECK with margin; over it the attempt fails explicitly (`CERTIFIED_ROWS_TOO_LARGE`) |
+| Simultaneous checks per worker (repair A) | 2 running; others wait ≤ 25 s, then 503 `PROCESSING_BUSY` before anything begins | measured on the local Edge Runtime: 2 at the account limit complete, 4 exhausted the worker (HTTP 546) before admission |
 
 **Measurement (Deno 2.9.6 / V8 15.0, the Edge Runtime's engine, HARD 150 MB heap cap, one process per invented case, CI
 run on `ba36380`):** CSV 10k/25k/50k/100k/150k rows fitted (heap 18/39/66/100/134 MB, 0.07–0.76 s); XLSX 5k/10k/25k/50k/75k
@@ -134,29 +137,69 @@ brackets the new limits (within, one over, far over, and a package declaring 10 
 a CSV one row over and a workbook one row over are each refused by name by `process-trial-balance`, with no accounts and no
 totals recorded; an ordinary file processed afterwards succeeds.
 
-**RELEASE BLOCKER found at the limit (pre-existing; not introduced by this work; not fixed):** processing ceilings in the
-certification layer, far below the upload policy. Evidence: the real function on the local stack (run 38878031417, Edge
-Runtime log kept) and a direct PostgreSQL measurement.
-1. `tb_certifications.exceptions` is bounded by `pg_column_size(exceptions) <= 65536`
-   (`20260902130000_safisha_certification_foundation.sql`). On a first upload every account without a reviewed mapping adds
-   one NEEDS_REVIEW exception (≈190 bytes with realistic names), so **a trial balance with more than ≈340 accounts needing
-   review cannot be processed at all**: `tb_finalize_attempt` is refused (23514) and the customer sees "could not be processed
-   right now". Measured: 300 accounts 57,085 bytes (fits); 400 accounts 76,175 bytes (refused). Reproduced: 1,000-, 2,500- and
-   5,000-line files all failed this way; a 3-account file succeeds.
-2. `tb_snapshot_dependencies` accepts at most 20,000 dependency keys and processing sends four per coded account (code and
-   name, company and global scope), so **more than ≈4,999 coded accounts can never be processed** (INVALID_DEPENDENCIES,
-   reproduced at 10,000 lines).
-Until resolved, the effective first-upload capacity is ≈340 accounts, and above it the failure is NOT explicit. Smallest
-compatible resolution (needs owner approval: it changes the certification record and its CHECK): record one bounded
-aggregate NEEDS_REVIEW exception (count and the first accounts) in the certification while the per-account review detail
-stays where the review UI already reads it (the processing result), size the remaining bounds from the upload policy, and
-until then map a finalize refusal for size to an explicit, named refusal instead of "processing unavailable".
+**Certification-layer capacity — REPAIRED in code (repair A, draft #141); VERIFIED END TO END on the local stack inside the
+combined candidate #139; not integrated, not deployed.** The pre-existing defect: `tb_certifications.exceptions` CHECK
+`pg_column_size <= 65536` (uncompressed) refused a first upload of roughly 340+ unclassified accounts (23514; 300 realistic
+findings = 56,787 bytes, 400 = 75,706 — not a fixed threshold, it depends on names), and one 2,000-account run took 4,000
+advisory locks in one transaction (20,000 exhaust the shared lock table, 53200). Repaired: every finding in
+`tb_certification_findings` (append-only, under the attempt fence, traceable to upload / attempt / engine version); a bounded,
+database-checked summary on the row; a database-computed SHA-256 of the complete findings; output_hash binding certified rows
+and complete findings; every dependency key recorded, per-account locks only up to 1,000 keys; the account bound; controlled
+admission. On the real function: 1,000 and 2,000 accounts as XLSX, CSV and XLS, multi-sheet, sparse (10,000 lines) and wide
+(105,070 cells) processed in full with every finding stored; every over-limit file refused by name, nothing recorded.
 
 **Remaining runtime limitations (stated, not solved):** (a) the hosted Edge Runtime's own memory/CPU limits have not been
 measured on the hosted project (needs an authorised deployment); the 150 MB cap is a stand-in; (b) JavaScript cannot
 preempt a synchronous parse, so time is bounded by the size limits, not by a timer — the runtime's wall-clock kill and the
 processing attempt lease are the backstop; (c) `.xls` (BIFF) has no expansion step; it is bounded by raw size and the row
 bound during the parse; (d) the draft commit reads the stored file whole to hash it (bounded by the 10 MB raw limit).
+
+## Processing-integrity repairs (authorised 16 October: code, migrations, isolated tests only)
+
+| Repair | PR (draft) | Status | Evidence |
+|---|---|---|---|
+| A — certification capacity: complete findings, bounded summary, account bound, bounded locks, controlled admission; migration `20261107100000` | #141, stacked on #136 | VERIFIED END TO END (local stack, in #139) | `certificationCapacity.mjs` 45/45 (reproduction first; concurrent mapping changes during finalisation; a decision through the real review RPC); real handler 36/36; drafts journey at every limit and 4-/8-way concurrency |
+| B — same-name/different-code identity: codeless-only name uniqueness, candidate-counting name match (generation 6); migration `20261108100000` | #142, stacked on #141 | VERIFIED IN ISOLATION; #138's real-contract proof with B: 27/27 on PostgreSQL 17.11 (run 38888832644, evidence branch #140) | `accountIdentity.mjs` 22/22 through the real review RPC (reproduction first; history byte-identical; tenants; 12-way; impact queries read-only and finding a seeded reuse); matcher 8/8 |
+| C — concurrent sealing: a failed seal never removes the canonical object; defined orphan retention and cleanup | #143, on `main` | VERIFIED IN ISOLATION | `billingSuspension.mjs` 61/61; deterministic interleaving fails without the repair (52/54) |
+| Combined | #139 head `b24843e` = `main` `00a2653` + #137 + #142 + #143 | see the PR's final-head run | the integration vehicle (merge and release remain separate decisions) |
+
+**Dependency invalidation outside the summary (A):** every key is recorded, so the summary's examples play no part in
+invalidation. Proven: a change to an account not among the examples, before finalisation → DEPENDENCY_CHANGED; after it →
+authority lost at once; a mapping transaction open across finalisation and committed after it → authority lost; 12 rounds of
+finalisation racing a mapping write → never an authoritative result on a changed dependency; a review decision → same.
+
+**Concurrency (A):** at most two checks run at once per worker; the rest wait in arrival order (≤ 25 s) or are refused
+BEFORE anything begins (503 `PROCESSING_BUSY`: no attempt, no lease, nothing recorded or consumed) and the browser's
+existing retry path repeats the same request. Journey: 4- and 8-way at the account limit, each processed exactly once (one
+attempt, one certification, complete findings) or refused as busy and then completed by a retry; nothing stranded.
+Supported: 2 simultaneous 2,000-account checks per worker (local Edge Runtime); hosted limits unmeasured. A worker killed
+for another reason still leaves its attempt leased for 600 s (retries answer "in progress"; the lease then frees it).
+
+**C classification and orphan design:** CI's `object_missing` came from a fixture defect (the proof's storage double exposed
+bytes before the `storage.objects` row); under it was a product race (a failed seal removed the object a concurrent seal
+was committing). Unsealed canonical objects are now kept: the bucket is private with no client storage policy; they are
+never official; a retry re-checks authority (a downgraded account cannot seal its orphan); `reportingPackOrphans.mjs` is the
+only deletion rule — after the issuance's expiry plus one hour (an expired issuance can never be sealed), never a sealed
+artefact, re-decided right before each deletion; failed deletions are retried by the next run. Not scheduled yet.
+Contract change for the owner: a last-moment refusal no longer removes the canonical object (see #143).
+
+**Impact detection (read-only, owner):** `scripts/db-preflight/processingIntegrityImpact.sql` — possible past wrong-code reuse
+(accounts certified by name after a decision existed only under another code), attempts that never finished, uploads never
+certified, certifications near the bound, same-name review conflicts, sealed packs without their object. Log absence alone
+does not establish no impact; findings are resolved by new reviews and new linked versions, never by editing history.
+
+**Rollout (owner; nothing here is applied or deployed):** 1. apply `20261106100000`, `20261107100000`, `20261108100000` in
+order (each has a preflight; all additive); 2. deploy `process-trial-balance` (generation 6), `trial-balance-draft` and
+`seal-reporting-pack`; 3. read back: a small and a 2,000-account synthetic upload (findings count = findings stored;
+`findings_sha256` recomputed), a same-name pair reviewed, a sealed pack verifies intact; 4. run the impact queries;
+5. raise `min_engine_generation` to 6. **Recovery:** generation 6 on a database without `20261107100000` refuses large
+certifications explicitly (FINDINGS_STORE_UNAVAILABLE); lowering the floor and redeploying the previous function is safe
+before any generation-5+ certification exists; `20261108100000` reverses only while no two coded accounts of a company share
+a name (never merged to make it fit).
+
+**Remaining blockers:** hosted runtime limits unmeasured (needs an authorised deployment); orphan cleanup not scheduled;
+#136, #141 and #142 alone carry the payment baselines that #133 (in #137) fixes, and #136 alone is red at the limits — the
+combined candidate is the vehicle, not any single PR.
 
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
