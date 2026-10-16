@@ -9,9 +9,37 @@
   `WRONGLY_MAPPED_NORMAL_SIGN`, executed real-layout contract proof, `run_all.mjs` recorder) and
   `dc07f35` (manual multi-account treatment path, reuse-context > file-hash, atomicity mirrored from the real RPC,
   reason relaxed to the server's actual requirement, `manual.test.mjs`, extended static + replayable proofs) and
-  **`b56f504`** (SEAT_LIMIT fix in the replayable proof via a supported `NAMED_USER_SEATS` override, runtime DB-version
-  reporting, and the `accounting_boundaries.test.mjs` regression harness).
+  `b56f504` (SEAT_LIMIT fix in the replayable proof via a supported seat grant, runtime DB-version reporting, and the
+  `accounting_boundaries.test.mjs` regression harness) and
+  **`9c135b0`** (reconciled the RPC proof to ONE identified version with NORMAL #140's four corrections, preserved the
+  same-name/different-code finding, and tightened the first-slice reuse rule to three explicit states).
   (This HANDOFF is a separate, later commit — no commit embeds its own hash.)
+
+## Reconciliation with NORMAL #140 — one identified proof version
+NORMAL ran #138's proof on their isolated chain and contributed four **justified setup corrections**, now adopted verbatim
+into `research/phase5/proof/real_contract_proof.mjs` so **both sessions use one identified version** (this branch tip):
+(1) grant the licence `additional_seats` so the partner + viewer are admitted (the seat wall refuses them otherwise —
+`included_seats = 1` on every paid plan → `SEAT_LIMIT_REACHED`); (2) report the **actual** `server_version` (no hard-coded
+PG); (3) shim `extensions.digest()`, which the real RPC calls; (4) a period has **one active upload**
+(`uq_one_active_upload_per_period`) so the repeat upload is the **next** period. This version also keeps #138's manual /
+atomic / conflict coverage. Fixtures were **not** changed to get green.
+
+## GENUINE FINDING (from NORMAL #140), preserved — same-name / different-code accounts
+Two accounts with the **same normalized name** and **different codes** (synthetic `4000 Sales`, `4100 Sales`) **cannot both
+be mapped** in one company: `account_mappings` carries a partial unique index `uq_acct_map_company_norm_name` on
+`(company_id, normalized_account_name)` (`20260703100000`). The real RPC raises a **RAW constraint violation, not a
+structured refusal**. This is a real production limitation, **preserved not smoothed**: the proof's success path uses a
+collision-free group and a dedicated `fnd()` finding asserts the raw-constraint behaviour; it is also surfaced at the static
+tier (`real_contract_static` 18/18). The interpretation layer is still correct to treat the two as **distinct** accounts
+(distinct `account_key`); the conflict is at **persistence**.
+- **Proposed Phase 6 treatment (for owner decision — not implemented):** (a) **preparer disambiguation** — the reviewer gives
+  the two accounts distinct line-item names (the usual chart reality: "Sales — Product A/B"), the minimal no-schema-change
+  path; or (b) a **structured pre-flight refusal** so the UI surfaces `SAME_NORMALIZED_NAME_DIFFERENT_CODE` *before* submit
+  instead of a raw DB error (additive validation, no schema change); or (c) **relax the uniqueness** to `(company_id,
+  account_key)` only — a **schema change** with migration + review, only if genuinely distinct same-name accounts must
+  coexist. (a)/(b) are additive; (c) is a production-authority decision.
+- **Production dependency:** the partial unique index `uq_acct_map_company_norm_name` (`20260703100000`, reinforced by the
+  full key work in `20260703120000`). Any treatment must reconcile with it; it is not bypassable from research.
 
 ## Runtime-vs-inspection honesty (reinforced)
 SQL inspection (Tier 2 static) tells us the real function's **shape and rules**; it does **not** prove runtime behaviour.
@@ -45,7 +73,7 @@ never a misleading blanket success. Same-account concurrency is serialized by `p
 | `tests/coverage.test.mjs` | vendor-style patterns + edge cases; "unexpected balance" vs "incorrect mapping" separated; disclosed LIMITs | **EXECUTED 21/21** |
 | `tests/manual.test.mjs` | manual multi-account path: no inferred-equivalence grouping, visual-by-issue, preview, atomic mixed-batch, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context | **EXECUTED 24/24** |
 | `tests/accounting_boundaries.test.mjs` | prepayment three-component bridge, two-TB net movement, source-imbalance-survives-balanced-adjustment, signed-prior vs comparative, corrected-version immutability, MUSE candidate-rule scope | **EXECUTED 17/17** |
-| `tests/real_contract_static.mjs` | grouped **and manual** expansions are field+semantics compatible with the **real** `resolve_account_review_batch` (parsed from the migration SQL) | **EXECUTED 17/17** (static — necessary, not sufficient) |
+| `tests/real_contract_static.mjs` | grouped **and manual** expansions compatible with the **real** `resolve_account_review_batch`; surfaces the same-name/different-code finding | **EXECUTED 18/18** (static — necessary, not sufficient) |
 | `proof/real_layout_contract.mjs` | the SunSystems "T/B Code" manual-layout fallback **executes through the real, unmodified** `layoutProfile.ts` (`validateProfile`+`resolveLayout` recover every code) | **EXECUTED 8/8** (Node type-stripping; imports the real module) |
 | `run_all.mjs` → `TEST-OUTPUT.md` | recorded full output + exit status, categorised prototype / real-contract / deferred | **EXECUTED** (4 executed suites pass, 1 deferred) |
 | `proof/real_contract_proof.mjs` | **execution** against the real RPC on disposable PG17: success + refusals + lifecycle | **REPLAYABLE, NOT executed on this host** (no Docker/local PG; scope forbids a CI workflow here) |
@@ -85,7 +113,8 @@ CI service or local Docker — runs it; loopback-only; refuses the production re
 | Deliberate multi-select → shown preview → atomic submit | manual.test, proof (manual) | prototype PASS; execution REPLAYABLE |
 | Batch atomicity (all-or-nothing; no partial/blanket success) | manual.test (mixed), proof (manual mixed) | prototype PASS; execution REPLAYABLE |
 | Conflicting concurrent decisions (serialized; last-writer-wins) | manual.test, proof (conflict) | prototype PASS; execution REPLAYABLE |
-| Reuse > file-hash (entity/currency/dimensions/ruleset; UNKNOWN disclosed) | manual.test (reuse-context) | PASS (+ documented schema gap) |
+| Reuse > file-hash; three-state rule (compatible/unverified-reopen/incompatible); no silent inherit | manual.test (reuse-context) | PASS |
+| Same-name/different-code accounts (uq_acct_map_company_norm_name; raw error) | real_contract_static (finding), proof (fnd) | FINDING preserved; treatment proposed in HANDOFF |
 | Advisory sign WARNING vs blocking mapping ERROR | manual.test | PASS (distinct) |
 | Prepayment three-component bridge (arithmetic ≠ net authority) | accounting_boundaries | PASS |
 | Two TBs → net movement only (no additions/splits) | accounting_boundaries | PASS |
@@ -159,6 +188,16 @@ both atomic through the unchanged RPC) → **versioned per-account decisions** (
 `sequence_no` latest-wins) → **traceable TB review summary** (read-only projection) → **repeat upload** demonstrating
 compatible reuse and changed-account reopen (identity drift today; context/meaning reopen per gaps #2/#4). **Ends at the
 review summary + repeat upload** — no financial-statement engine, no withheld-module activation.
+
+**First-slice REUSE RULE (clarified, three explicit states — never a silent inherit):**
+- **Verified compatible accepting context** (entity + currency + any dimensions, confirmed equal — currency/period read from
+  `fiscal_periods`): reuse **may be proposed** (still a proposal the reviewer sees, not an auto-apply).
+- **Missing, changed, or unverifiable context:** **reopen for explicit confirmation** — `CONTEXT_UNVERIFIED` when a field
+  cannot be confirmed (present on one side only / no recorded context), `CONTEXT_INCOMPATIBLE` when a field is present on
+  both sides and differs (e.g. a changed currency).
+- **Never silently inherit a treatment solely from `company_id + account_key`.** A field absent on *both* sides is
+  "not applicable" (consistent absence), not a false reopen. Implemented in `reuseContext.contextCompatible` +
+  `classifyAgainstPrior`; proven in `manual.test` (reuse-context).
 
 ## Scope cleanliness
 `git diff origin/main` is **entirely under `research/phase5/`** (verified). No production component, migration, registry,

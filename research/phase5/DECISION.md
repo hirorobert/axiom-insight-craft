@@ -134,11 +134,17 @@ The prototype detects an **unexpected balance** (a sign anomaly for the proposed
   reviewer may **deliberately** select several and assign one common treatment — each validated through the same server
   authority, preserving identity, previous + proposed treatment, actor, operation identity (`client_request_id`) and any
   reason.
-- **Reuse is more than a file hash.** Compatibility requires entity + currency + dimensions + ruleset; a known change
-  reopens (`CONTEXT_INCOMPATIBLE`), an untrackable field is **disclosed as unverified** (never assumed equal). Honest schema
-  reality (corrected): **currency + period are authoritative on `fiscal_periods`** (reached via
-  `trial_balance_uploads.period_id`) — not a gap; the genuine remaining work is **binding the accepting context onto the
-  decision ledger** plus **dimension** and **ruleset-version** axes (gap #4). Additive, not in the first slice.
+- **Reuse is more than a file hash — three explicit states, never a silent inherit.** (i) **Verified compatible** accepting
+  context (entity + currency + any dimensions; currency/period from `fiscal_periods`) ⇒ reuse **may be proposed**;
+  (ii) **missing/unverifiable** context ⇒ **reopen for explicit confirmation** (`CONTEXT_UNVERIFIED`); (iii) a **known
+  change** ⇒ reopen (`CONTEXT_INCOMPATIBLE`). A treatment is **never inherited solely from `company_id + account_key`**; a
+  field absent on both sides is "not applicable", not a false reopen. Honest schema reality: currency + period are
+  authoritative on `fiscal_periods`; the remaining work is **binding the accepting context onto the decision ledger** plus
+  **dimension** and **ruleset-version** axes (gap #4). Additive, not in the first slice.
+- **Same-name / different-code accounts (finding from NORMAL #140, preserved).** `uq_acct_map_company_norm_name` forbids two
+  accounts with the same normalized name per company, so the real RPC raises a **raw constraint error** when both are mapped
+  (e.g. `4000`/`4100 Sales`). The interpretation layer is right to treat them as distinct; the conflict is at persistence.
+  Proposed Phase 6 treatment and the production dependency are in HANDOFF — the fixture is unchanged, the case preserved.
 
 ## Limitations surfaced by the extended coverage (reported, not optimised away)
 - **Header recognition is partial.** QuickBooks- and Odoo-style headers are recognised; **SunSystems' "T/B Code" is not**, so

@@ -90,13 +90,23 @@ assignCommonTreatment(store, {upload, summary, selectedKeys, treatment, actor, r
 the offending account — never a silent skip or blanket success. Same-account concurrency is serialized by
 `pg_advisory_xact_lock(company, account_key)` (last-writer-wins; append-only ledger keeps both).
 
-### 3d. Reuse is more than a file hash
-A prior accepted decision is reusable for a later upload only when the accounting **context** is compatible — entity +
-currency + dimensions + ruleset — not merely the same bytes or `account_key`. A KNOWN change (e.g. currency) reopens the
-decision (`CONTEXT_INCOMPATIBLE`); a field the live schema cannot track (`account_mappings` keys only
-`(company_id, account_key)`) is **disclosed as unverified**, never assumed equal (UNKNOWN ≠ EQUAL ≠ MISMATCH). Closing this
-needs context on the decision ledger — see §9 gap #4. Period is confirmed but intentionally not a reuse blocker (mappings
-reuse across periods by design).
+### 3d. Reuse is more than a file hash — the first-slice reuse rule (three states, no silent inherit)
+A prior accepted decision is reusable for a later upload only when the accounting **context** is compatible — not merely the
+same bytes or `account_key`. `classifyAgainstPrior` returns one of three states:
+- **`REUSABLE`** — every applicable context field (entity + currency + any dimensions; currency/period read from
+  `fiscal_periods`) is **verified equal** ⇒ reuse **may be proposed** (still a reviewer-visible proposal, never auto-applied).
+- **`CONTEXT_UNVERIFIED`** — a field is **missing/unverifiable** (present on one side only, or no recorded context) ⇒
+  **reopen for explicit confirmation**. A field absent on *both* sides is "not applicable" (consistent absence), not a reopen.
+- **`CONTEXT_INCOMPATIBLE`** — a field is present on both sides and **differs** (a known change, e.g. currency) ⇒ reopen.
+
+A treatment is **never inherited silently from `company_id + account_key` alone** (UNKNOWN ≠ EQUAL ≠ MISMATCH). Binding the
+accepting context onto the decision ledger is the Phase 6 change — see §9 gap #4. Period is confirmed but not a reuse blocker
+(mappings reuse across periods by design).
+
+**Finding (NORMAL #140), persistence-level:** two accounts with the same normalized name and different codes cannot both be
+mapped per company (`uq_acct_map_company_norm_name`); the real RPC raises a raw constraint error, not a structured refusal.
+Interpretation still treats them as distinct; the Phase 6 treatment + production dependency are in HANDOFF. Preserved, not
+smoothed.
 Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group;
 `HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never groupable and must be classified individually.
 ```ts
