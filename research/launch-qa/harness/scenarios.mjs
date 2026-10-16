@@ -13,6 +13,7 @@
 //   - BLOCKED names a missing prerequisite (e.g. NORMAL's same-name repair, final invalid-file policy, mock-payment hook).
 // RUNTIME-UNVERIFIED until executed on a capable runner; do not read these as passed until the runner reports PASS.
 import { focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
+import { accessOf, accessUnchanged, hasSandboxRecord, requireCreatedUpload } from "./evidenceRules.mjs";
 import { BALANCED, IMBALANCED, SAME_NAME, UNSUPPORTED } from "../fixtures/syntheticTb.mjs";
 
 const result = (status, problems = [], evidence = {}) => ({ status, problems, evidence });
@@ -24,24 +25,25 @@ async function scenarioA(env) {
   const problems = [];
   const page = await env.openPage();
   await env.signIn(page, env.users.owner);
-  const file = env.writeFile("A-balanced.csv", BALANCED.csv);
+  const file = env.taggedCsv("A", "A-first-upload.csv");       // A's OWN identifiable file
   const ws = await env.createWorkspace(page, { entityName: "Mto Holdings Limited", endsOn: "2026-06-30", currency: "TZS", file });
-  if (ws.failure) return result("FAIL", [`first-upload check failed: ${String(ws.failure).slice(0, 200)}`]);
+  if (ws.failure) return result("FAIL", [`first-upload check failed: ${String(ws.failure).slice(0, 400)}`]);
   if (!ws.companyId) return result("FAIL", ["the entity was not created / the result page did not open at /workspace/:id/:year"]);
+  if (!ws.selectedFileOk) problems.push("the browser did not select the intended file (first-upload-file-card did not name it)");
   const { companyId, periodYear } = ws;
-  // Confirmed context is SOURCED, not guessed (server truth): one entity; the dated period + currency as confirmed; the
-  // upload bound to that entity+period.
+  // The upload under test is bound to A's OWN file by source_file_hash — not "latest".
+  if (!ws.uploadId) problems.push(`no upload was created for A's file (source_file_hash ${ws.sourceHash.slice(0, 12)}) — a first upload must create one`);
+  // Confirmed context is SOURCED, not guessed (server truth): one entity; the dated period + currency as confirmed.
   const co = (await env.admin.from("companies").select("id, name").eq("user_id", env.users.owner.id)).data ?? [];
   if (co.length !== 1) problems.push(`expected exactly one entity for the owner, found ${co.length} (no duplicate entity)`);
   const per = (await env.admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("company_id", companyId)).data ?? [];
   if (!(per.length === 1 && per[0].reporting_end === "2026-06-30" && per[0].reporting_currency === "TZS")) problems.push(`period/currency not persisted as confirmed: ${JSON.stringify(per)}`);
-  const ups = (await env.admin.from("trial_balance_uploads").select("id, period_year, period_id, file_path").eq("company_id", companyId)).data ?? [];
-  if (!(ups.length === 1 && ups[0].period_year === periodYear && !!ups[0].period_id && String(ups[0].file_path).startsWith(`workspaces/${companyId}/`))) problems.push(`upload not bound to the intended entity/period: ${JSON.stringify(ups)}`);
-  // Truthful result: the server's own status settled; nothing is claimed certified/reviewed before the engine wrote it.
-  const up = await env.settle(companyId, periodYear);
-  if (!up) problems.push("processing never settled (a truthful result could not be observed)");
-  env.record("A.uploadId", ups[0]?.id ?? null);
-  return result(problems.length ? "FAIL" : "PASS", problems, { companyId, periodYear, uploadId: ups[0]?.id ?? null, period: per[0] });
+  if (ws.bound && !(ws.bound.period_year === periodYear && !!ws.bound.period_id && String(ws.bound.file_path).startsWith(`workspaces/${companyId}/`))) problems.push(`the bound upload is not attached to the intended entity/period: ${JSON.stringify(ws.bound)}`);
+  // Truthful result: the server's own status settled for THIS upload; nothing is claimed certified before the engine wrote it.
+  const up = ws.uploadId ? await env.settleUpload(ws.uploadId) : null;
+  if (!up) problems.push("processing never settled for A's upload (a truthful result could not be observed)");
+  env.record("A.uploadId", ws.uploadId);
+  return result(problems.length ? "FAIL" : "PASS", problems, { companyId, periodYear, uploadId: ws.uploadId, sourceHash: ws.sourceHash, period: per[0] });
 }
 
 // B: Existing entity — from an existing entity, show sourced context, confirm, and attach the upload to the INTENDED
@@ -50,38 +52,51 @@ async function scenarioB(env) {
   const problems = [];
   const page = await env.openPage();
   await env.signIn(page, env.users.owner);
-  const before = await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id);
-  const beforeN = (before.data ?? []).length;
-  const existing = env.lastWorkspace; // the entity A created in scenario A
+  const existing = env.lastWorkspace; // the entity A created
   if (!existing?.companyId) return result("BLOCKED", ["requires scenario A's existing entity (run A first)"]);
-  const uploadId = await env.uploadTb(page, existing.companyId, existing.periodYear, env.writeFile("B-balanced.csv", BALANCED.csv));
-  const after = await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id);
-  if ((after.data ?? []).length !== beforeN) problems.push("an unintended new entity was created when uploading to an existing one");
-  const up = uploadId && await env.admin.from("trial_balance_uploads").select("company_id, period_year").eq("id", uploadId).maybeSingle();
-  if (up?.data && (up.data.company_id !== existing.companyId || up.data.period_year !== existing.periodYear)) problems.push(`upload attached to the wrong entity/period: ${JSON.stringify(up.data)}`);
-  return result(problems.length ? "FAIL" : "PASS", problems, { companyId: existing.companyId });
+  const beforeN = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
+  // Upload B's OWN file to the EXISTING entity but a NEW period (the following year) through the first-upload card.
+  const newYear = existing.periodYear + 1;
+  const file = env.taggedCsv("B", "B-existing-entity.csv");
+  const r = await env.firstUploadInto(page, { mode: "existing", existingEntityName: existing.entityName, year: newYear, endsOn: `${newYear}-06-30`, file });
+  if (r.failure) return result("FAIL", [`B's upload to the existing entity failed: ${String(r.failure).slice(0, 300)}`]);
+  if (!r.selectedFileOk) problems.push("the browser did not select B's own file");
+  // A NEW upload must actually have been created and bound to B's file — no vacuous pass.
+  const mustUpload = requireCreatedUpload(r.uploadId, `B's file (source_file_hash ${r.sourceHash.slice(0, 12)})`);
+  if (mustUpload) return result("FAIL", [...problems, mustUpload]);
+  const afterN = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
+  if (afterN !== beforeN) problems.push(`an unintended new entity was created (${beforeN} → ${afterN}) — upload to an existing entity must not create one`);
+  if (r.companyId !== existing.companyId) problems.push(`B's upload attached to a different entity (${r.companyId} ≠ ${existing.companyId})`);
+  if (r.bound && r.bound.period_year !== newYear) problems.push(`silent cross-period attachment: upload bound to ${r.bound.period_year}, expected the new period ${newYear}`);
+  const up = r.uploadId ? await env.settleUpload(r.uploadId) : null;
+  if (!up) problems.push("B's upload never settled");
+  return result(problems.length ? "FAIL" : "PASS", problems, { companyId: existing.companyId, newYear, uploadId: r.uploadId, sourceHash: r.sourceHash });
 }
 
 // C: Recovery + identity isolation — refresh/back/interrupt/retry draft recovery for the SAME user; a second user never
 // sees the first's draft/file/result; retries do not duplicate outcomes or consumption.
 async function scenarioC(env) {
   const problems = [];
-  const a = await env.openPage(); await env.signIn(a, env.users.owner);
   const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
-  await env.go(a, `/workspace/${ws.companyId}/${ws.periodYear}/trial-balance/review`);
-  await a.goto(await a.url()); // refresh
-  await a.evaluate(() => history.back()); await env.sleep(500);
-  const recovered = await env.isWorkspaceVisible(a, ws.companyId);
-  if (!recovered) problems.push("the owner's own workspace/draft did not recover after refresh/back");
-  // Isolation: a DIFFERENT user (fresh identity) must NOT see the first user's workspace — the URL is refused and its API
-  // reads return nothing. Mirrors the repository journey's isolation control.
+  const route = `/workspace/${ws.companyId}/${ws.periodYear}/trial-balance/review`;
+  const a = await env.openPage(); await env.signIn(a, env.users.owner);
+  await env.go(a, route);
+  // OBSERVABLE recovery: after a refresh and a back-navigation the owner is still on their own workspace route, NOT bounced
+  // to sign-in, and the page renders workspace content (not an access refusal). (Grounded on the real page, not next-action.)
+  await a.goto(`${env.APP}${route}`); await env.sleep(600);                 // refresh
+  const afterRefresh = await env.observeWorkspacePage(a, ws.companyId);
+  if (!afterRefresh.onWorkspace) problems.push(`own workspace did not recover after refresh (url=${afterRefresh.url})`);
+  await a.evaluate(() => history.back()); await env.sleep(600);             // back
+  const afterBack = await env.observeWorkspacePage(a, ws.companyId);
+  if (afterBack.onAuth) problems.push(`back-navigation bounced the owner to sign-in (url=${afterBack.url})`);
+  // Isolation: a DIFFERENT user must NOT see the first user's workspace. UI: the page does not render owner's workspace;
+  // server truth: ownerB's own reads return nothing.
   const b = await env.openPage(); await env.signIn(b, env.users.ownerB);
-  await b.goto(`${env.APP}/workspace/${ws.companyId}/${ws.periodYear}`);
-  const leaked = await env.isWorkspaceVisible(b, ws.companyId);
-  if (leaked) problems.push("CROSS-USER LEAKAGE: a second user can see the first user's workspace");
-  const bApiLeak = await env.readsAsOtherUser(env.users.ownerB, ws.companyId); // service-truth: ownerB's own reads see nothing
-  if (bApiLeak) problems.push("CROSS-USER LEAKAGE: a second user's API reads return the first user's data");
-  return result(problems.length ? "FAIL" : "PASS", problems);
+  await b.goto(`${env.APP}/workspace/${ws.companyId}/${ws.periodYear}`); await env.sleep(600);
+  const bView = await env.observeWorkspacePage(b, ws.companyId);
+  if (bView.onWorkspace && bView.rendersCompany) problems.push(`CROSS-USER LEAKAGE: a second user sees the first user's workspace (url=${bView.url})`);
+  if (await env.readsAsOtherUser(env.users.ownerB, ws.companyId)) problems.push("CROSS-USER LEAKAGE: a second user's API reads return the first user's data");
+  return result(problems.length ? "FAIL" : "PASS", problems, { afterRefresh, afterBack });
 }
 
 // D: Purchase-required path — entitlements unchanged; the requirement is explained; the draft is preserved; the existing
@@ -117,22 +132,26 @@ async function scenarioD(env) {
   const uploads0 = ((await env.admin.from("trial_balance_uploads").select("id").eq("user_id", u.id)).data ?? []).length === 0;
   if (!companies0 || !uploads0) problems.push("something was created/processed without a plan (no entity/upload may exist) — bypass");
 
-  // SEPARATE ASSERTION 1 — sandbox purchase authorises NOTHING (no paid-access bypass).
+  // Effective ACCESS only (licenceStatus + plan) — NOT the whole snapshot (evidenceRules): a sandbox order/audit record may
+  // change without granting access, and comparing the whole object would false-FAIL on that.
+
+  // SEPARATE ASSERTION 1 — a sandbox purchase grants NO paid access (access unchanged), though it IS recorded.
   const before = await env.entitlementSnapshot(u);
   await env.mockPurchase(page, u);                      // sandbox card purchase through the real /billing/checkout — never a real charge
   const afterPurchase = await env.entitlementSnapshot(u);
-  if (!eq(before, afterPurchase) || env.purchaseAuthorised) problems.push(`a sandbox purchase changed access (paid-access bypass): before=${JSON.stringify(before)} after=${JSON.stringify(afterPurchase)}`);
+  if (!accessUnchanged(before, afterPurchase) || env.purchaseAuthorised) problems.push(`a sandbox purchase changed effective access (paid-access bypass): before=${JSON.stringify(accessOf(before))} after=${JSON.stringify(accessOf(afterPurchase))}`);
+  if (!hasSandboxRecord(afterPurchase)) problems.push("the sandbox payment was not recorded (expected a POLAR_VERIFIED_PAYMENT:SANDBOX licence record that grants no access)");
 
-  // SEPARATE ASSERTION 2 — the AUTHORISED activation path (and only it) grants access.
+  // SEPARATE ASSERTION 2 — only the AUTHORISED activation path grants access (effective access changes).
   await env.payments.activateByAgreement(u, "SOLO");
   const afterGrant = await env.entitlementSnapshot(u);
-  if (eq(afterGrant, before)) problems.push("the authorised activation path did not grant access");
+  if (accessUnchanged(afterGrant, before)) problems.push(`the authorised activation path did not grant access (access unchanged: ${JSON.stringify(accessOf(afterGrant))})`);
 
   // Draft PRESERVED + supported return: after a plan exists, the home offers 'Continue with' the SAME draft.
-  await env.go(page, "/dashboard", "Check your trial balance");
+  await env.go(page, "/dashboard");
   const resume = await page.waitForSelector('[data-testid="first-upload-resume"]', { timeout: 30000 }).then(() => true).catch(() => false);
   if (!resume) problems.push("the retained draft was not offered ('Continue with' / first-upload-resume) after the plan was activated");
-  return result(problems.length ? "FAIL" : "PASS", problems, { before, afterPurchase, afterGrant, needsPlan, draftReserved, resume });
+  return result(problems.length ? "FAIL" : "PASS", problems, { accessBefore: accessOf(before), accessAfterPurchase: accessOf(afterPurchase), accessAfterGrant: accessOf(afterGrant), sandboxRecorded: hasSandboxRecord(afterPurchase), needsPlan, draftReserved, resume });
 }
 
 // E: Replacement — explicit replacement decision; prior upload + history preserved; a STALE replacement refuses safely and
@@ -182,31 +201,34 @@ async function scenarioE(env) {
 async function scenarioF(env) {
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
-  const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
-  // The OVER-LIMIT sub-check is mandatory and needs NORMAL's policy fixture. Absent ⇒ BLOCKED (never PASS/NOTE).
   if (!env.overLimitFixture?.path) return result("BLOCKED", ["over-limit sub-check needs env.overLimitFixture (NORMAL's current upload-policy fixture); no invented limit"]);
-
-  // Unsupported file → actionable refusal (not a false success), via the real uploader + error state.
-  const unsup = await env.uploadRaw(page, ws.companyId, ws.periodYear, env.writeFile(UNSUPPORTED.name, UNSUPPORTED.content));
-  if (unsup?.accepted) problems.push("an unsupported file was accepted (false success)");
-  else { const err = await env.captureErrorState(page); problems.push(...loadingErrorStateProblems(err)); }
-
-  // Over-limit: ACTUALLY upload NORMAL's over-limit fixture and require the named refusal with NO partial accepted result.
   const expected = env.overLimitFixture.expectedCode || "TOO_MANY_ACCOUNTS";
-  const over = await env.uploadRaw(page, ws.companyId, ws.periodYear, env.overLimitFixture.path);
-  const errState = await env.captureErrorState(page);
-  const latest = await env.admin.from("trial_balance_uploads").select("id, status, processing_result").eq("company_id", ws.companyId).eq("period_year", ws.periodYear).order("uploaded_at", { ascending: false }).limit(1).maybeSingle();
-  const prText = JSON.stringify(latest.data?.processing_result ?? {});
-  const refusedByName = new RegExp(expected, "i").test(prText) || new RegExp(expected, "i").test(errState.errorMessage || "") || /too many accounts|account limit|exceed/i.test(errState.errorMessage || "");
-  const cert = await env.isCertified(ws.companyId, ws.periodYear); // server truth: must NOT certify an over-limit upload
-  const accepted = !!over?.accepted || cert || ["needs_review", "reviewed", "processed", "certified"].includes(latest.data?.status);
-  if (!refusedByName) problems.push(`over-limit upload was not refused by name (${expected}); status=${latest.data?.status}; pr=${prText.slice(0, 160)}; err=${(errState.errorMessage || "").slice(0, 120)}`);
-  if (accepted) problems.push(`over-limit upload produced an accepted/partial result (status=${latest.data?.status}, certified=${cert}) — must accept nothing`);
 
-  // Recovery: a normal file afterwards succeeds.
-  const ok = await env.uploadTb(page, ws.companyId, ws.periodYear, env.writeFile("F-recovery.csv", BALANCED.csv));
-  if (!ok) problems.push("could not recover with a normal file after a refusal");
-  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts });
+  // UNSUPPORTED file (its OWN file): the dropzone refuses it with an actionable error; NO draft/upload is created for it.
+  const unsupFile = env.writeFile(UNSUPPORTED.name, UNSUPPORTED.content);
+  const unsup = await env.firstUploadRefusal(page, unsupFile);
+  if (unsup.confirm) problems.push("an unsupported file was accepted onto the confirmation card (should be refused at the dropzone)");
+  if (!(unsup.error || unsup.limits)) problems.push("the unsupported file was not refused with an actionable error");
+  if (unsup.error) problems.push(...loadingErrorStateProblems({ phase: "error", errorMessage: unsup.error, nextAction: "choose another file" }).filter((p) => /raw\/internal/.test(p)));
+  if (unsup.uploadsForFile > 0) problems.push("the unsupported file produced an upload (must accept nothing)");
+
+  // OVER-LIMIT (NORMAL's fixture, its OWN identifiable file): it is structurally valid so it reaches the card, then
+  // "Start" is refused by name (TOO_MANY_ACCOUNTS). NOTHING is created: no entity, no upload bound to this file's hash.
+  const overHash = env.sha256File(env.overLimitFixture.path);
+  const entitiesBefore = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
+  const over = await env.firstUploadInto(page, { mode: "new", entityName: "Finvalid Over Limit Ltd", file: env.overLimitFixture.path });
+  const overErr = String(over.failure ?? "");
+  const refusedByName = new RegExp(expected, "i").test(overErr) || /too many accounts|account limit|exceed/i.test(overErr);
+  const overUpload = ((await env.admin.from("trial_balance_uploads").select("id").eq("source_file_hash", overHash)).data ?? []).length;
+  const entitiesAfter = ((await env.admin.from("companies").select("id").eq("user_id", env.users.owner.id)).data ?? []).length;
+  if (!refusedByName) problems.push(`over-limit upload was not refused by name (${expected}); failure="${overErr.slice(0, 200)}"`);
+  if (over.uploadId || overUpload > 0) problems.push(`over-limit produced an accepted/partial upload (uploadId=${over.uploadId}, rowsForFile=${overUpload}) — must accept nothing`);
+  if (entitiesAfter !== entitiesBefore) problems.push(`over-limit created an entity (${entitiesBefore} → ${entitiesAfter}) — nothing should be created`);
+
+  // RECOVERY: a normal file into a fresh entity succeeds (its own file, bound by hash).
+  const rec = await env.firstUploadInto(page, { mode: "new", entityName: "Frecovery Normal Ltd", file: env.taggedCsv("F", "F-recovery.csv") });
+  if (!rec.uploadId) problems.push(`could not recover with a normal file after the refusals (no upload bound; failure="${String(rec.failure ?? "").slice(0, 160)}")`);
+  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup, overFailure: overErr.slice(0, 200), recoveryUploadId: rec.uploadId });
 }
 
 // G: Review + identity — legitimate same-name/different-code accounts AFTER NORMAL's repair: separate identities &
@@ -215,19 +237,22 @@ async function scenarioG(env) {
   if (!env.sameNameRepairApplied) return result("BLOCKED", ["gated on NORMAL's same-name/different-code repair being present+verified in the DB under test (uq_acct_map_company_codeless_name, old all-names index gone). Until verified, mapping two same-name accounts raises a raw constraint error — a FINDING in the Phase-5 lane, not asserted here."]);
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
-  const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
-  const uploadId = await env.uploadTb(page, ws.companyId, ws.periodYear, env.writeFile("G-same-name.csv", SAME_NAME.csv));
-  if (!uploadId) return result("FAIL", ["the same-name trial balance did not upload"]);
-  await env.settle(ws.companyId, ws.periodYear);
+  // G's OWN entity + OWN file (never A's result): a fresh first-upload bound by source_file_hash.
+  const file = env.writeFile("G-same-name.csv", SAME_NAME.csv);
+  const r = await env.firstUploadInto(page, { mode: "new", entityName: "Gemini Same Name Ltd", file });
+  if (r.failure) return result("FAIL", [`G's same-name upload failed: ${String(r.failure).slice(0, 300)}`]);
+  if (!r.uploadId || !r.companyId) return result("FAIL", [`G's same-name trial balance did not create a bound upload (companyId=${r.companyId}, uploadId=${r.uploadId})`]);
+  const companyId = r.companyId, uploadId = r.uploadId;
+  await env.settleUpload(uploadId);
   // Mappings exist ONLY after review decisions (resolve_account_review_batch). REVIEW BOTH "Sales" accounts first, as the
   // owner (authenticated), each keyed by its own code — then check they persist as two DISTINCT mappings.
   const decisions = SAME_NAME.rows.filter((r) => /sales/i.test(r.name)).map((r) => ({
     account_code: r.code, account_name: r.name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
     statement: "income_statement", classification: "revenue", line_item: r.name, normal_balance: "credit",
   }));
-  const reviewed = await env.reviewAccounts(env.users.owner, ws.companyId, uploadId, decisions);
+  const reviewed = await env.reviewAccounts(env.users.owner, companyId, uploadId, decisions);
   if (reviewed.error) return result("FAIL", [`reviewing both same-name accounts was refused: ${reviewed.error}`], { uploadId });
-  const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name, statement, classification").eq("company_id", ws.companyId).ilike("account_name", "Sales");
+  const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name, statement, classification").eq("company_id", companyId).ilike("account_name", "Sales");
   const rows = mapped.data ?? [];
   const codes = new Set(rows.map((m) => m.account_code));
   const keys = new Set(rows.map((m) => m.account_key));
@@ -279,15 +304,23 @@ async function scenarioH(env) {
 async function scenarioI(env) {
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
-  const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
-  for (const stateName of ["first-visit", "confirmation", "processing", "result", "blocked", "retry"]) {
-    const s = await env.captureClarityState(page, ws, stateName); // { name, whatHappened, whatNext, saved, copy, ctas }
-    if (!s) continue;
-    problems.push(...clarityStateProblems(s));
-    problems.push(...primaryActionProblems(s.ctas));
-    problems.push(...copyWordingProblems(s.copy, { context: stateName }));
+  // FIRST-VISIT clarity on the real first-upload home: what happened (heading), one clear next action (first-upload-choose/
+  // start), and whether anything is saved (draft note / nothing-yet). One primary action; no codenames/claims.
+  await env.go(page, "/dashboard");
+  await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 }).catch(() => {});
+  const home = await env.captureClarityState(page, "first-upload-home");
+  if (!home) return result("FAIL", ["could not observe the first-upload home to assess clarity"]);
+  problems.push(...clarityStateProblems(home));
+  problems.push(...primaryActionProblems(home.ctas));
+  problems.push(...copyWordingProblems(home.copy, { context: "first-upload-home" }));
+  // RESULT state clarity: A's reviewed workspace page — actionable controls + no codenames/unsupported claims.
+  const ws = env.lastWorkspace;
+  if (ws?.companyId) {
+    await env.go(page, `/workspace/${ws.companyId}/${ws.periodYear}/trial-balance/review`);
+    const res = await env.captureClarityState(page, "result");
+    if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
   }
-  return result(problems.length ? "FAIL" : "PASS", problems);
+  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved } });
 }
 
 export const SCENARIOS = [

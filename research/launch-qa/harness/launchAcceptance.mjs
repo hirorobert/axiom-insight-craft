@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { SCENARIOS } from "./scenarios.mjs";
 import { evaluateOverall, MANDATORY_SCENARIO_IDS } from "./overall.mjs";
+import { boundUploadId } from "./evidenceRules.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "research/launch-qa/acceptance-evidence"));
@@ -122,7 +123,24 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     // NORMAL-owned hooks (undefined ⇒ the dependent scenario returns BLOCKED with a precise reason):
     mockPurchase: undefined, overLimitFixture: undefined, sameNameRepairApplied: false, axe: undefined,
     record: (k, v) => { store[k] = v; }, writeFile,
-    async openPage() { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); return p; },
+    // sha256 of a file's bytes = the upload's source_file_hash (as the client declares it). Used to BIND assertions to the
+    // EXACT upload a scenario created, never "latest".
+    sha256File: (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex"),
+    // Write a DISTINCT, identifiable balanced CSV per scenario (a unique tag account pair keeps Σdr=Σcr and the hash unique).
+    taggedCsv(tag, name) {
+      const rows = ["Account code,Account name,Debit,Credit",
+        "4000,Revenue — sales,,60000000", "5000,Cost of goods sold,32000000,", "1000,Cash at bank,28000000,",
+        `9000,Tag ${tag} debit,100,`, `9001,Tag ${tag} credit,,100`];
+      // debits 32,000,000+28,000,000+100 = 60,000,100 ; credits 60,000,000+100 = 60,000,100 (balanced)
+      return env.writeFile(name, rows.join("\n") + "\n");
+    },
+    async uploadByHash(companyId, sourceHash) {
+      // Bind to the scenario's OWN file (source_file_hash) — never "latest". boundUploadId requires exactly one match.
+      const { data } = await admin.from("trial_balance_uploads").select("id, period_year, period_id, status, file_path, source_file_hash, lifecycle_state").eq("company_id", companyId).eq("source_file_hash", sourceHash);
+      const id = boundUploadId(data ?? [], sourceHash);
+      return id ? (data ?? []).find((r) => r.id === id) : null;
+    },
+    async openPage() { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); env.lastPage = p; return p; },
     async go(page, route, text, timeout = 45000) { await page.goto(`${APP}${route}`); if (text) await page.waitForText(text, { timeout }); await sleep(300); },
     async signIn(page, u) {
       await env.go(page, "/auth", "Sign in to your CFOClose account");
@@ -137,30 +155,54 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return true;
     }, label, value),
     async pickRadix(page, trigger, optionText) { await page.click(trigger); await page.waitForSelector("[role=option]"); await page.click({ text: optionText, within: "[role=listbox]" }); await sleep(250); },
-    // Phase-2 FIRST-UPLOAD create (candidate f57b944): the home is "Check your trial balance"; the entity, period and
-    // currency are confirmed on the same page and "Start trial balance check" creates the entity + dated period + bound
-    // upload in one action. Grounded in scripts/e2e/localStackJourney.mjs (first upload) + FirstUpload.tsx testids.
-    async createWorkspace(page, { entityName, endsOn = "2026-06-30", currency = "TZS", file }) {
-      await env.go(page, "/dashboard", "Check your trial balance");
-      await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    // Phase-2 FIRST-UPLOAD into a NEW or EXISTING entity (candidate f57b944). Drops an IDENTIFIABLE file, confirms the card,
+    // "Start trial balance check", and BINDS the result to the exact upload (by source_file_hash) — never "latest". The home
+    // for a user who already has an entity shows the compact uploader (P2-4), so we wait for the dropzone/input, not the
+    // heading. Returns { companyId, periodYear, uploadId, sourceHash, failure, selectedFileOk }.
+    async firstUploadInto(page, { mode = "new", entityName, existingEntityName, endsOn = "2026-06-30", currency = "TZS", year, file }) {
+      await env.go(page, "/dashboard");
+      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
-      await env.setByLabel(page, "Entity name", entityName);            // a NEW entity (confirm-entity-new is the default)
-      await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
+      // The browser actually SELECTED this file: the file card names it.
+      const selectedName = await page.evaluate(() => document.querySelector('[data-testid="first-upload-file-card"]')?.textContent ?? "").catch(() => "");
+      const base = String(file).split(/[\\/]/).pop();
+      const selectedFileOk = selectedName.includes(base.replace(/\.csv$/, "")) || selectedName.includes(base);
+      if (mode === "existing") {
+        await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});
+        if (existingEntityName) await env.pickRadix(page, '[data-testid="confirm-entity-select"]', existingEntityName).catch(() => {});
+      } else {
+        await env.setByLabel(page, "Entity name", entityName);
+      }
+      if (year) await env.pickRadix(page, '[data-testid="confirm-period-year"]', String(year)).catch(() => { });
+      else await page.click('[data-testid="confirm-period-year"]').catch(() => {});
+      await sleep(200);
       await env.setByLabel(page, "Ends on", endsOn);
       await env.setByLabel(page, "Trial balance currency", currency);
       await sleep(300);
       await page.click('[data-testid="first-upload-start"]');
-      await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+      await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"]', { timeout: 180000 });
       const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
-      if (failure) return { failure };
-      await page.click('[data-testid="first-upload-open-result"]');
-      const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/\d{4}/, { timeout: 45000 });
-      const companyId = url.match(/\/workspace\/([0-9a-f-]{36})\//)[1];
-      const periodYear = Number(url.match(/\/(\d{4})/)[1]);
-      env.lastWorkspace = { companyId, periodYear };
-      return { companyId, periodYear };
+      const sourceHash = env.sha256File(file);
+      let companyId = null, periodYear = year ?? null;
+      const opened = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-open-result"]')).catch(() => false);
+      if (opened) {
+        await page.click('[data-testid="first-upload-open-result"]');
+        const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/\d{4}/, { timeout: 45000 }).catch(() => "");
+        const m = String(url).match(/\/workspace\/([0-9a-f-]{36})\/(\d{4})/);
+        if (m) { companyId = m[1]; periodYear = Number(m[2]); }
+      }
+      // Fall back to resolving the company from server truth for the existing mode / when the result page wasn't opened.
+      if (!companyId && mode === "existing") companyId = (await env.ownerCompanyByName(existingEntityName))?.id ?? null;
+      const bound = companyId ? await env.uploadByHash(companyId, sourceHash) : null;
+      return { companyId, periodYear: bound?.period_year ?? periodYear, uploadId: bound?.id ?? null, sourceHash, failure, selectedFileOk, bound };
     },
+    async createWorkspace(page, args) {
+      const r = await env.firstUploadInto(page, { mode: "new", ...args });
+      if (r.companyId) env.lastWorkspace = { companyId: r.companyId, periodYear: r.periodYear, entityName: args.entityName };
+      return r;
+    },
+    async ownerCompanyByName(name) { const { data } = await admin.from("companies").select("id, name").eq("name", name).maybeSingle(); return data ?? null; },
     async establishPeriod() { return true; }, // the first-upload confirmation card sets the period; no separate intake needed
     async openUploader(page, companyId, year) {
       for (let i = 0; i < 3; i++) {
@@ -199,7 +241,41 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       }
       return null;
     },
-    async isWorkspaceVisible(page, companyId) { return page.evaluate((id) => document.body.innerText.includes(id) || !!document.querySelector('[data-testid="next-action"], [data-testid="workspace-shell"]'), companyId).catch(() => false); },
+    // Settle the EXACT upload by its id (never "latest") — the only safe wait once binding is per-upload.
+    async settleUpload(uploadId) {
+      for (let i = 0; i < 60; i++) {
+        const { data } = await admin.from("trial_balance_uploads").select("id, status, processing_result").eq("id", uploadId).maybeSingle();
+        if (data && !["pending", "processing", "queued", "validating"].includes(data.status)) return data;
+        await sleep(2000);
+      }
+      return null;
+    },
+    // First-upload REFUSAL probe (F): drop a file on the home and observe the refusal WITHOUT a confirm card / entity. Returns
+    // the error/failure text and whether a confirm card appeared, plus whether any upload was created for this file's hash.
+    async firstUploadRefusal(page, file) {
+      await env.go(page, "/dashboard");
+      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 }).catch(() => {});
+      await page.setFiles('[data-testid="first-upload-input"]', [file]).catch(() => {});
+      await page.waitFor(() => !!document.querySelector('[data-testid="first-upload-error"], [data-testid="first-upload-confirm"], [data-testid="first-upload-limits"]'), [], { label: "upload error or confirm", timeout: 60000 }).catch(() => {});
+      const obs = await page.evaluate(() => ({
+        error: document.querySelector('[data-testid="first-upload-error"]')?.textContent ?? null,
+        limits: document.querySelector('[data-testid="first-upload-limits"]')?.textContent ?? null,
+        confirm: !!document.querySelector('[data-testid="first-upload-confirm"]'),
+      })).catch(() => ({ error: null, confirm: false, limits: null }));
+      const sourceHash = env.sha256File(file);
+      const anyUpload = ((await admin.from("trial_balance_uploads").select("id").eq("source_file_hash", sourceHash)).data ?? []).length;
+      return { ...obs, sourceHash, uploadsForFile: anyUpload };
+    },
+    // Observe the current page against the real routes: whether we are on this company's workspace route, on the sign-in
+    // page, and whether the company's own content is rendered. (Replaces the next-action/workspace-shell heuristic the
+    // review page does not use.)
+    async observeWorkspacePage(page, companyId) {
+      const url = await page.url().catch(() => "");
+      const onAuth = /\/auth(\b|\/|$)/.test(url) || await page.evaluate(() => !!document.querySelector('#email, [data-testid="auth-email"]')).catch(() => false);
+      const onWorkspace = new RegExp(`/workspace/${companyId}(/|$)`).test(url);
+      const rendersCompany = await page.evaluate((id) => document.body.innerText.includes(id), companyId).catch(() => false);
+      return { url, onAuth, onWorkspace, rendersCompany };
+    },
     async readsAsOtherUser(u, companyId) {
       const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
       await c.auth.signInWithPassword({ email: u.email, password: u.password });
@@ -218,8 +294,8 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     // Drive FirstUpload to the "active trial balance exists → Replace" state for an EXISTING entity; returns whether the
     // explicit Replace affordance is offered (replacement is never automatic). Grounded in FirstUpload.tsx testids.
     async beginReplace(page, { existingEntityName, endsOn = "2026-06-30", currency = "TZS", file }) {
-      await env.go(page, "/dashboard", "Check your trial balance");
-      await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+      await env.go(page, "/dashboard"); // an entity-owner's home shows the COMPACT uploader (P2-4), not the "Check your trial balance" heading
+      await page.waitForSelector('[data-testid="first-upload-input"], [data-testid="first-upload-dropzone"]', { timeout: 30000 });
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
       await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});
@@ -253,7 +329,12 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     async observeFocusSequence(page) {
       return page.evaluate(() => {
         const vis = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return s.visibility !== "hidden" && s.display !== "none" && r.width > 0 && r.height > 0; };
-        return [...document.querySelectorAll("a[href],button,input,select,textarea,[tabindex]")].map((el, i) => ({ label: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 40) || el.id, role: el.tagName.toLowerCase(), visible: vis(el), tabindex: el.hasAttribute("tabindex") ? Number(el.getAttribute("tabindex")) : undefined, interactive: true, domOrder: i }));
+        return [...document.querySelectorAll("a[href],button,input,select,textarea,[tabindex]")]
+          // Only KEYBOARD-REACHABLE elements belong in the Tab order. tabindex<0 (e.g. a hidden toast region's <ol>) is
+          // programmatically focusable but NOT tabbable — it is not a keyboard-reachability defect, so exclude it.
+          .filter((el) => { const ti = el.getAttribute("tabindex"); return ti === null || Number(ti) >= 0; })
+          .filter((el) => vis(el) || el.tagName === "A" || el.tagName === "BUTTON" || el.tagName === "INPUT")
+          .map((el, i) => ({ label: el.getAttribute("aria-label") || el.textContent.trim().slice(0, 40) || el.getAttribute("title") || el.id, role: el.tagName.toLowerCase(), visible: vis(el), tabindex: el.hasAttribute("tabindex") ? Number(el.getAttribute("tabindex")) : undefined, interactive: true, domOrder: i }));
       }).catch(() => []);
     },
     async observeFields(page) {
@@ -267,11 +348,18 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     async observeProcessingAnnouncement(page) { return page.evaluate(() => ({ processing: /process|checking|uploading/i.test(document.body.innerText), hasAriaLive: !!document.querySelector("[aria-live]"), hasStatusRole: !!document.querySelector('[role="status"]') })).catch(() => ({ processing: false })); },
     async captureCopy(page) { return page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 4000)).catch(() => ""); },
     async captureErrorState(page) { return page.evaluate(() => { const a = document.querySelector('[role="alert"], [data-sonner-toast]'); return a ? { phase: "error", errorMessage: a.textContent.trim(), nextAction: a.querySelector("a,button") ? "retry" : "" } : { phase: "ready" }; }).catch(() => ({ phase: "ready" })); },
-    async captureClarityState(page, ws, name) {
+    // Clarity of the CURRENT page, grounded in the real controls. On the first-upload home the actionable control is
+    // first-upload-choose/start (not a `next-action` test id); the saved state is the draft note (reserved/committed) or,
+    // on a fresh home, nothing-yet (a valid, clear state).
+    async captureClarityState(page, name = "page") {
       return page.evaluate((stateName) => {
-        const na = document.querySelector('[data-testid="next-action"]');
-        const ctas = [...document.querySelectorAll("button,a[role=button],a.btn")].slice(0, 12).map((el) => ({ label: el.textContent.trim().slice(0, 40), primary: /bg-primary|primary/.test(el.className) || el.getAttribute("data-primary") === "1" }));
-        return { name: stateName, whatHappened: document.querySelector("h1,h2")?.textContent?.trim() ?? "", whatNext: na?.innerText?.trim() ?? "", saved: /saved|draft kept|not been saved|committed/i.test(document.body.innerText) ? (/committed/i.test(document.body.innerText) ? "committed" : /not been saved/i.test(document.body.innerText) ? "nothing" : "saved") : "unknown", copy: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 2000), ctas };
+        const txt = (sel) => document.querySelector(sel)?.textContent?.trim() ?? "";
+        const na = document.querySelector('[data-testid="first-upload-start"], [data-testid="first-upload-choose"], [data-testid="first-upload-resume"], [data-testid="next-action"], [data-testid="first-upload-open-result"]');
+        const draftNote = txt('[data-testid="first-upload-draft-note"]');
+        const body = document.body.innerText;
+        const saved = draftNote ? "saved" : (/committed|final and sealed/i.test(body) ? "committed" : (/not been saved|no file yet|upload your trial balance/i.test(body) ? "nothing" : "nothing"));
+        const ctas = [...document.querySelectorAll("button,a[role=button],a.btn")].slice(0, 14).map((el) => ({ label: el.textContent.trim().slice(0, 40), primary: /bg-primary/.test(el.className) || el.getAttribute("data-primary") === "1" || el.getAttribute("data-testid") === "first-upload-start" }));
+        return { name: stateName, whatHappened: document.querySelector("h1,h2")?.textContent?.trim() ?? "", whatNext: (na?.innerText ?? na?.textContent ?? "").trim(), saved, draftNote, copy: body.replace(/\s+/g, " ").trim().slice(0, 2000), ctas };
       }, name).catch(() => null);
     },
     // Unimplemented-here journey affordances (NORMAL confirms the real controls): return null ⇒ scenario BLOCKED precisely.
@@ -289,9 +377,22 @@ try {
   const { env, meta, cleanup } = await boot();
   const results = [];
   for (const s of SCENARIOS) {
-    try { const r = await s.run(env); results.push({ id: s.id, name: s.name, ...r }); }
-    catch (e) { results.push({ id: s.id, name: s.name, status: "FAIL", problems: [`threw: ${String(e?.message ?? e).split("\n")[0]}`] }); }
-    try { if (env.lastPage) await env.lastPage.screenshot(path.join(OUT, `${s.id}-final.png`)); } catch {}
+    let r;
+    try { r = await s.run(env); }
+    catch (e) { r = { status: "FAIL", problems: [`threw: ${String(e?.stack ?? e?.message ?? e)}`], evidence: {} }; } // FULL error text, untruncated
+    results.push({ id: s.id, name: s.name, ...r });
+    // On any non-clean outcome capture first-failure evidence: screenshot + URL + full assertions + relevant ids. No creds.
+    if (r.status === "FAIL" || r.status === "ERROR") {
+      try {
+        const page = env.lastPage;
+        let url = null, domText = null;
+        if (page) { await page.screenshot(path.join(OUT, `${s.id}-FAIL.png`)).catch(() => {}); url = await page.url().catch(() => null); domText = await page.bodyText?.().catch(() => null) ?? await page.evaluate(() => document.body.innerText.slice(0, 4000)).catch(() => null); }
+        const ev = r.evidence || {};
+        const ids = { uploadId: ev.uploadId ?? null, companyId: ev.companyId ?? null, sourceHash: ev.sourceHash ?? null };
+        fs.writeFileSync(path.join(OUT, `${s.id}-FAIL.json`), JSON.stringify({ id: s.id, status: r.status, url, failedAssertions: r.problems, ids, evidence: ev }, null, 2));
+        if (domText) fs.writeFileSync(path.join(OUT, `${s.id}-FAIL.dom.txt`), String(domText));
+      } catch { /* evidence best-effort */ }
+    }
   }
   await cleanup();
   finish(results, meta);

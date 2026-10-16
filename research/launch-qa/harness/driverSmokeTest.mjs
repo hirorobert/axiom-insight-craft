@@ -28,7 +28,7 @@ ${broken ? ".wide{width:900px}.hid{position:absolute;left:-9999px}" : ""}</style
 <body><main>
 <h1>Confirm the company and period, then upload your trial balance.</h1>
 ${broken ? '<div class="wide">overflow</div>' : ""}
-<button id="primary" ${broken ? "" : 'data-primary="1"'}>Upload trial balance</button>
+<button id="primary" data-primary="1">Upload trial balance</button>
 ${broken ? '<button data-primary="1">Buy now</button>' : '<a href="#">Learn more</a>'}
 <input id="named" ${broken ? "" : 'aria-label="Company name"'} />
 <button class="${broken ? "hid" : ""}" ${broken ? "" : 'aria-label="Help"'}>${broken ? "" : "?"}</button>

@@ -1,5 +1,17 @@
 # Launch-acceptance QA — A–I readiness (candidate f57b944)
 
+## Corrections after run 38919978092 (false positives fixed)
+Every finding was a harness defect (no product defect). Fixed, grounded in NORMAL's evidence + `localStackJourney`/`FirstUpload.tsx`:
+- **Own-file + exact-id binding (central):** every upload scenario now uploads its **own identifiable file** via the first-upload card into its **own** entity/period and binds to the exact upload by **`source_file_hash`** (`evidenceRules.boundUploadId`) — never "latest", never A's result. **No new upload where required ⇒ FAIL** (`requireCreatedUpload`), killing B's vacuous pass.
+- **B** uploads to the existing entity in a **new period** (own file, own id); asserts no duplicate entity + no cross-period attachment. **F** uploads its own unsupported + the over-limit fixture via the first-upload card and asserts **nothing** was created (no entity/upload by hash) + the named refusal. **G** uploads its own same-name file into a fresh entity, binds the id, reviews both via the RPC, checks distinct mappings matching each submitted decision.
+- **D** compares **effective access** (`licenceStatus`/`plan`) only, not the whole snapshot; separately asserts the SANDBOX record exists (grants nothing) and that authorised activation grants.
+- **C** asserts observable route/page recovery (not the `next-action` id the review page lacks) + server-truth isolation. **I** reads the first-upload home's real controls (`first-upload-choose`/`start`/`draft-note`), not `next-action`.
+- **H** skips `tabindex<0` (the hidden toast `ol` is not a keyboard-reachability defect); axe stays optional.
+- **Smoke** broken-fixture fixed (two competing primaries now trigger the signal) → 12/12 expected.
+- **Per-failure evidence:** screenshot + URL + full untruncated assertions + relevant ids written as `<id>-FAIL.{png,json,dom.txt}`; `env.lastPage` is now set.
+- Regressions for all three false positives: `harness/evidenceRules.test.mjs` (9/9). NORMAL's E-stale helper, CI, logs and saved-state capture preserved.
+
+
 Harness grounded in NORMAL's published controls + the reference journeys (`localStackJourney.mjs` first-upload, `draftJourney.mjs`, `FirstUpload.tsx`). **I cannot execute here** (no Docker/`supabase start`/Chrome); the browser scenarios are **runtime-unverified** until NORMAL's CI run. Focused local suites pass: overall-rule 7/7, checks 34/34, fixtures 4/4; fail-closed verified (9 BLOCKED ⇒ NOT PASS, exit 4). Application `f57b944` and harness SHA are recorded separately in every report.
 
 | # | Scenario | Implementation | Expected on f57b944 | Genuine dependency (NORMAL) |
