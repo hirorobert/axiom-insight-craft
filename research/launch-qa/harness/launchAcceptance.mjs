@@ -106,7 +106,7 @@ async function boot() {
   const env = buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey });
   // [NORMAL seam, evidence #144 — coordinated] hooks supplied by the existing isolated facilities, from a NORMAL-owned module
   // (scripts/e2e/launchQaHooks.mjs). Absent ⇒ unchanged behaviour (the dependent scenarios report BLOCKED).
-  if (process.env.LAUNCH_QA_HOOKS) Object.assign(env, await (await import(pathToFileURL(path.resolve(REPO, process.env.LAUNCH_QA_HOOKS)).href)).default(env));
+  if (process.env.LAUNCH_QA_HOOKS) Object.assign(env, await (await import(pathToFileURL(path.resolve(REPO, process.env.LAUNCH_QA_HOOKS)).href)).default(Object.assign(env, { apiUrl, anonKey, outDir: OUT })));
   const cleanup = async () => { try { await browser.close(); } catch {} try { await preview.close?.(); } catch {} };
   return { env, meta: { env: "local-supabase", apiOrigin, app: APP }, cleanup };
 }
