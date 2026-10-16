@@ -400,6 +400,9 @@ export default function WorkspaceLayout() {
                 const mission = workspaceState.missions[slug];
                 const Icon = config.icon;
                 const lockedReasonId = `stage-locked-${slug}`;
+                // The one-line reason a locked stage shows: the state engine's own blocker for it when there is one (e.g.
+                // Reconcile waiting for a certified trial balance), else the workflow's generic reason. Never invented here.
+                const lockReason = mission.blocker ?? item.reason ?? "Complete earlier stages first.";
                 const tab = (
                   <Link
                     key={slug}
@@ -414,7 +417,7 @@ export default function WorkspaceLayout() {
                     <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
                     <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
-                    {item.disabled && <span id={lockedReasonId} className="sr-only">{item.reason} {item.action}</span>}
+                    {item.disabled && <span id={lockedReasonId} className="sr-only">{lockReason} {item.action}</span>}
                     {!loading && <StatusDot status={mission.status} stage={slug} openFinding={workspaceState.openFinding} />}
                   </Link>
                 );
@@ -423,7 +426,7 @@ export default function WorkspaceLayout() {
                 return item.disabled ? (
                   <Tooltip key={slug}>
                     <TooltipTrigger asChild>{tab}</TooltipTrigger>
-                    <TooltipContent>{config.label} — complete earlier stages first</TooltipContent>
+                    <TooltipContent>{config.label} — {lockReason}</TooltipContent>
                   </Tooltip>
                 ) : (
                   tab
