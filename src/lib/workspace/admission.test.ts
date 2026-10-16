@@ -2,6 +2,8 @@
  * admission.test.ts — controlled admission for process-trial-balance (supabase/functions/_shared/admission.ts).
  * The real function under 4-way load at the account limit is exercised by scripts/e2e/draftJourney.mjs (CI).
  */
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createAdmission, withAdmission } from "../../../supabase/functions/_shared/admission";
 
@@ -85,13 +87,25 @@ describe("withAdmission", () => {
   });
 });
 
-describe("edge functions boot in the Edge Runtime", () => {
-  it("no file under supabase/functions imports a node: module (importing node:process made process-trial-balance fail to boot: CI run 38904836096)", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const root = path.resolve(__dirname, "../../../supabase/functions");
-    const files = (fs.readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.(ts|mts|mjs)$/.test(f) && !/\.test\./.test(f) && !f.includes("functionpath"));
-    const offenders = files.filter((f) => /from\s+["']node:|import\(\s*["']node:/.test(fs.readFileSync(path.join(root, f), "utf8")));
+// Narrowed to what CI run 38904836096 DEMONSTRATED (a node: import is not banned as such):
+//   1. the Edge Runtime (supabase-edge-runtime-1.77.4) refused to boot process-trial-balance — "The requested module
+//      'node:process' does not provide an export named 'cpuUsage'" — so named imports from node:process are refused;
+//   2. CI's Deno check has no node_modules ("Could not find @types/node"), so a node: import anywhere in the import graph
+//      of a function CI type-checks fails that check — refused for exactly those graphs, read from ci.yml.
+describe("edge functions boot and type-check as CI and the Edge Runtime require", () => {
+  const REPO_ROOT = path.resolve(__dirname, "../../..");
+  it("no named import from node:process anywhere under supabase/functions (the demonstrated boot failure)", () => {
+    const root = path.join(REPO_ROOT, "supabase/functions");
+    const files = (fs.readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.(ts|mts|mjs)$/.test(f));
+    const offenders = files.filter((f) => /import\s*\{[^}]*\}\s*from\s*["']node:process["']/.test(fs.readFileSync(path.join(root, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+  it("no node: import in the import graph of any function CI type-checks with deno check (no @types/node there)", async () => {
+    const { closureOf } = await import("../../../scripts/release/functionClosure.mjs");
+    const ci = fs.readFileSync(path.join(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
+    const entries = [...new Set([...ci.matchAll(/deno check(?: --[^\s]+)* ([^\n]+)/g)].flatMap((m) => m[1].split(/\s+/)).filter((f) => /^supabase\/functions\/[^\s]+\/index\.ts$/.test(f)))];
+    expect(entries.length).toBeGreaterThan(5);
+    const offenders = entries.flatMap((e) => (closureOf(path.join(REPO_ROOT, e), REPO_ROOT).remote as string[]).filter((r) => r.startsWith("node:")).map((r) => `${e}: ${r}`));
     expect(offenders).toEqual([]);
   });
 });
