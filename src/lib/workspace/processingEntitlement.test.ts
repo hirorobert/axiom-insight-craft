@@ -45,6 +45,8 @@ describe("the refusal contract (the canonical paid-action mapping, no second pri
 
 describe("static order contract: the refusal precedes every Storage read, binding lookup and processing write", () => {
   const src = readFileSync(resolve(__dirname, "../../../supabase/functions/process-trial-balance/index.ts"), "utf8");
+  // The request handler's own body (it is wrapped by the admission gate, which only waits or refuses before it runs).
+  const HANDLER_START = 'async (req) => {\n  if (req.method === "OPTIONS")';
   const at = (needle: string, from = 0) => { const i = src.indexOf(needle, from); expect(i, needle).toBeGreaterThan(-1); return i; };
   const check = at("await processingEntitlementRefusal(");
   it("comes after authentication, the constant-shape row lookup and the caller's authorization", () => {
@@ -55,7 +57,7 @@ describe("static order contract: the refusal precedes every Storage read, bindin
   });
   it("comes before the lifecycle check, the binding lookup, every write, Storage, hashing, parsing, idempotency and engines", () => {
     // Within the request handler: nothing of these happens between the start of the handler and the refusal.
-    const handler = at("serve(async (req) => {");
+    const handler = at(HANDLER_START);
     const before = src.slice(handler, check);
     for (const step of ["processingRefusal(", 'rpc("tbu_upload_source_bound"', ".update(", ".insert(", ".upsert(", ".storage", ".download(",
       "createSignedUrl", "sha256HexBytes(", "parseCSV(", "parseXLSX(", "claimIdempotency(", "recordEngineRun", 'rpc("commit_tb_certification"']) {
@@ -74,7 +76,7 @@ describe("static order contract: the refusal precedes every Storage read, bindin
     // No write of any kind between the request and the attempt: the download, hashing and parsing are reads.
     const begin = at('rpc("tb_begin_attempt"');
     expect(at(".download(")).toBeLessThan(begin);
-    expect(src.slice(at("serve(async (req) => {"), begin)).not.toMatch(/\.update\(|\.insert\(|\.upsert\(|\.delete\(/);
+    expect(src.slice(at(HANDLER_START), begin)).not.toMatch(/\.update\(|\.insert\(|\.upsert\(|\.delete\(/);
     // Its refusals are mapped by one function: the database wall (PT402) → the same structured 402.
     const mapper = at("function attemptErrorResponse(");
     expect(src.slice(mapper, mapper + 600)).toMatch(/isEntitlementWallError\(error\)[\s\S]*ENTITLEMENT_REQUIRED[\s\S]*wall\.httpStatus/);

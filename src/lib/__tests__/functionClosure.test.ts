@@ -13,8 +13,8 @@ describe("deployment manifests cover the whole function closure", () => {
     const m = functionManifest("trial-balance-layout") as Manifest;
     expect(m.files.map((f) => f.path.replace("supabase/functions/", ""))).toEqual([
       "_shared/auth.ts", "_shared/currencyRegistry.ts", "_shared/hash.ts", "_shared/layoutConfirmationRead.ts", "_shared/layoutProfile.ts",
-      "_shared/namedUserAccess.ts", "_shared/paidAction.ts", "_shared/processingActor.ts", "_shared/tbIngestion.ts", "_shared/tbSource.ts",
-      "_shared/trialBalanceLayout.ts", "_shared/uploadLifecycle.ts", "trial-balance-layout/index.ts",
+      "_shared/namedUserAccess.ts", "_shared/paidAction.ts", "_shared/printedReportMetadata.ts", "_shared/processingActor.ts", "_shared/tbIngestion.ts", "_shared/tbSource.ts",
+      "_shared/trialBalanceLayout.ts", "_shared/uploadLifecycle.ts", "_shared/uploadPolicy.ts", "trial-balance-layout/index.ts",
     ]);
     expect(m.remote).toEqual(["https://deno.land/std@0.168.0/http/server.ts", "https://esm.sh/@supabase/supabase-js@2", "https://esm.sh/xlsx@0.18.5"]);
   });

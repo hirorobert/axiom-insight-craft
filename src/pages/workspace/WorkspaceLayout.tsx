@@ -29,7 +29,6 @@ import WorkspaceUnavailable from "@/components/workspace/WorkspaceUnavailable";
 import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
-import { EntityAllowanceIndicator } from "@/components/EntityAllowanceIndicator";
 import { DraftPrintMark } from "@/components/commercial/DraftPrintMark";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
@@ -65,6 +64,7 @@ import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import type { MissionStatus, WorkspaceMission } from "@/lib/workspace/types";
+import { headerStatusWord, prepareStatusWord } from "@/lib/workspace/resultStatus";
 
 /**
  * Tab word in professional sentence case, derived from the canonical metadata
@@ -103,8 +103,12 @@ const STATUS_TITLES: Record<MissionStatus, string> = {
   not_applicable:  "Not applicable",
 };
 
-function StatusDot({ status }: { status: MissionStatus }) {
-  const title = STATUS_TITLES[status];
+function StatusDot({ status, stage, openFinding }: { status: MissionStatus; stage?: WorkspaceMission; openFinding?: "needs_confirmation" | "review" }) {
+  // An open confirmation or review finding on a reviewed trial balance is named, never shown as a plain pass.
+  const flagged = stage === "prepare" && (status === "passed" || status === "signed") && !!openFinding;
+  // The Prepare stage speaks the trial-balance vocabulary (resultStatus.ts, §3.5): the same words as the page and Overview.
+  const title = (stage === "prepare" ? prepareStatusWord(status, openFinding) : null) ?? STATUS_TITLES[status];
+  if (flagged) return <span title={title} aria-label={title} className="inline-flex shrink-0"><XCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" /></span>;
   // Lucide SVGs don't accept a `title` prop — wrap in a span so browser shows tooltip
   const inner = (() => {
     switch (status) {
@@ -304,7 +308,14 @@ export default function WorkspaceLayout() {
                     <span data-testid="workspace-period" className="shrink-0 font-mono text-[11px] tabular-nums sm:text-xs">
                       {periodLabel}
                     </span>
-                    {frameworkLabel && (
+                    {/* Phase 2 §5.1: entity · period · status, in the trial-balance vocabulary every surface uses. */}
+                    <span aria-hidden="true" className="shrink-0">·</span>
+                    <span data-testid="workspace-status" className="shrink-0 text-[11px] sm:text-xs">
+                      <span className="sr-only">Trial balance status: </span>
+                      {headerStatusWord(workspaceState)}
+                    </span>
+                    {/* The framework is shown only once it is confirmed (Phase 2 §5.1). */}
+                    {frameworkLabel && frameworkConfirmed && (
                       <div
                         data-testid="workspace-framework"
                         data-confirmed={frameworkConfirmed}
@@ -316,7 +327,6 @@ export default function WorkspaceLayout() {
                           <span className="sr-only">Reporting framework: </span>
                           {frameworkLabel}
                         </span>
-                        {!frameworkConfirmed && <span className="shrink-0 text-[10px] sm:text-xs">(unconfirmed)</span>}
                       </div>
                     )}
                   </div>
@@ -326,9 +336,8 @@ export default function WorkspaceLayout() {
               )}
             </div>
 
-            {/* Right: entity allowance (md+) + refresh + user menu (sign out always visible in dropdown) */}
+            {/* Right: refresh + user menu (sign out always visible in dropdown). The entity allowance lives in Settings. */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="hidden md:flex"><EntityAllowanceIndicator manageTo="/settings" /></div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -391,6 +400,9 @@ export default function WorkspaceLayout() {
                 const mission = workspaceState.missions[slug];
                 const Icon = config.icon;
                 const lockedReasonId = `stage-locked-${slug}`;
+                // The one-line reason a locked stage shows: the state engine's own blocker for it when there is one (e.g.
+                // Reconcile waiting for a certified trial balance), else the workflow's generic reason. Never invented here.
+                const lockReason = mission.blocker ?? item.reason ?? "Complete earlier stages first.";
                 const tab = (
                   <Link
                     key={slug}
@@ -405,8 +417,8 @@ export default function WorkspaceLayout() {
                     <span className="hidden md:inline xl:hidden">{tabWord(config.tabLabel)}</span>
                     <span className="hidden xl:inline">{config.label}</span>
                     <span className="md:hidden sr-only">{config.label}</span>
-                    {item.disabled && <span id={lockedReasonId} className="sr-only">{item.reason} {item.action}</span>}
-                    {!loading && <StatusDot status={mission.status} />}
+                    {item.disabled && <span id={lockedReasonId} className="sr-only">{lockReason} {item.action}</span>}
+                    {!loading && <StatusDot status={mission.status} stage={slug} openFinding={workspaceState.openFinding} />}
                   </Link>
                 );
                 // A locked tab keeps its href (tapping opens the stage's own lock explanation); the tooltip adds the
@@ -414,7 +426,7 @@ export default function WorkspaceLayout() {
                 return item.disabled ? (
                   <Tooltip key={slug}>
                     <TooltipTrigger asChild>{tab}</TooltipTrigger>
-                    <TooltipContent>{config.label} — complete earlier stages first</TooltipContent>
+                    <TooltipContent>{config.label} — {lockReason}</TooltipContent>
                   </Tooltip>
                 ) : (
                   tab

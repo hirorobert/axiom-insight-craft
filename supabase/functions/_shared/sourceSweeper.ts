@@ -18,7 +18,7 @@ const TICKET = /^[0-9a-f]{64}$/;
 export const SWEEP_BATCH = 100;
 
 // stale_discard (F-04): a discard left pending is resolved (back to active, or retired as history) — never deleted.
-export type SweepKind = "discard" | "cancel_replacement" | "reservation" | "stale_discard";
+export type SweepKind = "discard" | "cancel_replacement" | "reservation" | "stale_discard" | "source_object" | "draft";
 
 export interface SweepCandidate {
   kind: SweepKind;

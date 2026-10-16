@@ -287,7 +287,7 @@ Deno.test("E1 exact amounts: tb-amounts/1 validates, equation exact, cash claime
   const rows = w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[];
   const sales = rows.find((r) => r.accountCode === "4000")!;
   assertEquals([sales.rowContract, sales.debitMinor, sales.creditMinor, sales.classSideMinor, sales.netBalance], ["tb-row/1", "0", "90025", "90025", 900.25]);
-  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v4", 4]]);
+  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v6", 6]]);
 });
 
 Deno.test("E1 contra asset: accumulated depreciation (credit normal) reduces assets; balanced and certified (R3c)", async () => {
@@ -536,7 +536,7 @@ Deno.test("A2 a confirmed European layout: read exactly as confirmed, certified,
   assertEquals(amounts.equation.status, "balanced");
   assertEquals(amounts.classes.assets_minor, "150025");
   const run = w.tables.engine_runs[0];
-  assertEquals([run.engine_version, run.engine_generation], ["safisha-tb-certification-v4", 4]);
+  assertEquals([run.engine_version, run.engine_generation], ["safisha-tb-certification-v6", 6]);
   assert(String(w.tables.tb_certifications[0].p_normalized_input_hash) === String(run.input_hash));
 });
 

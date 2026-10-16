@@ -206,9 +206,12 @@ async function main() {
     return before === (await fingerprint());
   });
   await check(`${S2_FILE} applies, and every later migration on top`, async () => { for (const f of files.slice(cut)) await apply(f); return true; });
-  await check("the legacy certification is unchanged, kept, and no longer authoritative", async () =>
-    JSON.stringify(await one("SELECT * FROM public.tb_certifications WHERE id=$1", [legacyCert])) === legacyCertRow
-    && (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, periods.get(legacyUp).year])) === undefined);
+  await check("the legacy certification is unchanged, kept, and no longer authoritative", async () => {
+    // Every column it had is byte-identical; the three columns 20261107100000 added (appended last) are NULL on it.
+    const { findings_count, findings_sha256, findings_summarized, ...row } = await one("SELECT * FROM public.tb_certifications WHERE id=$1", [legacyCert]);
+    return JSON.stringify(row) === legacyCertRow && [findings_count, findings_sha256, findings_summarized].every((v) => v === null || v === undefined)
+      && (await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, periods.get(legacyUp).year])) === undefined;
+  });
   await check("tb_upload_authority states why (legacy_certification), for a member", async () => {
     const r = (await asUser(U.viewer, "SELECT public.tb_upload_authority($1) r", [legacyUp]))[0].r;
     return r.authoritative === false && r.reason === "legacy_certification" && r.certification_id === legacyCert ? true : r;

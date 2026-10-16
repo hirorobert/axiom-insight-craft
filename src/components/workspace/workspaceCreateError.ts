@@ -115,7 +115,7 @@ export function classifyError(err: unknown): WorkspaceCreateErrorResult {
     if (code === "23505" || msgLower.includes("unique") || msgLower.includes("duplicate")) {
       return {
         message:
-          "A workspace for this organization and period already exists. " +
+          "Work for this entity and period already exists. " +
           "Check the dashboard, or choose a different reporting year.",
         canRetry: false,
       };
@@ -175,7 +175,7 @@ export function classifyError(err: unknown): WorkspaceCreateErrorResult {
     if (r.includes("unique") || r.includes("duplicate") || r.includes("already exists")) {
       return {
         message:
-          "A workspace for this organization and period already exists. " +
+          "Work for this entity and period already exists. " +
           "Check the dashboard, or choose a different reporting year.",
         canRetry: false,
       };

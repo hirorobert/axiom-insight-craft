@@ -1,6 +1,6 @@
 /**
  * AccountShell — the ONE navigation frame for a signed-in person outside a workspace: the account home (/dashboard),
- * /plans, /billing/checkout and /billing/orders. Signed out, the same pages keep the public Header and Footer (the
+ * /plans, /billing/checkout and Settings › Billing (/settings/billing; /billing/orders redirects there). Signed out, the same pages keep the public Header and Footer (the
  * public header never appears for a signed-in account page, and the public footer's "Sign in" is never shown to
  * someone already signed in) — see AccountOrPublicFrame. This file depends on no session or client, so it renders anywhere.
  *
@@ -19,7 +19,7 @@ import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 export const ACCOUNT_NAV: readonly { readonly to: string; readonly label: string; readonly wideOnly?: boolean }[] = [
   { to: "/dashboard", label: "Home", wideOnly: true },
   { to: "/plans", label: "Plans" },
-  { to: "/billing/orders", label: "Orders" },
+  { to: "/settings/billing", label: "Billing" },
   { to: "/settings", label: "Settings" },
 ];
 

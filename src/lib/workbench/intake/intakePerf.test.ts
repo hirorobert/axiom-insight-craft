@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Provisional performance measurements for Trial balance › Intake (recorded, not capacity claims). Dataset: the intake
- * limit — a 20,000-row, 40-column CSV of about 2 MB — read under a confirmed layout exactly as the server does
+ * Provisional performance measurements for Trial balance › Intake (recorded, not capacity claims). Dataset: the largest
+ * input the upload policy admits (uploadPolicy.ts: rows including the header, and cells, both exactly at the limit) — read
+ * under a confirmed layout exactly as the server does
  * (readTrialBalanceSourceWithLayout), and the resulting every-row report rendered in the workbench table. The budgets are
  * generous ceilings for CI hardware; the measured values are printed for the release record.
  */
@@ -12,18 +13,20 @@ import { DataTable } from "@/components/workbench/DataTable";
 import { mount, type Mounted } from "../testkit/dom";
 import { profileSha256, type LayoutProfile } from "../../../../supabase/functions/_shared/layoutProfile";
 import { readTrialBalanceSourceWithLayout, type XlsxLike } from "../../../../supabase/functions/_shared/tbSource";
+import { TB_UPLOAD_POLICY } from "../../../../supabase/functions/_shared/uploadPolicy";
 
-const ROWS = 20_000;
-const COLUMNS = 40;
+// At the policy's limits: ROWS data rows + the header = maxRows lines; ROWS + 1 lines × COLUMNS ≤ maxCells.
+const ROWS = TB_UPLOAD_POLICY.maxRows - 1;
+const COLUMNS = Math.floor(TB_UPLOAD_POLICY.maxCells / TB_UPLOAD_POLICY.maxRows);
 const BUDGET_MS = { serverRead: 10_000, firstPage: 2_000 };
 
-function bigCsv(): Uint8Array {
-  const header = ["Code", "Name", "Soll", "Haben", ...Array.from({ length: COLUMNS - 4 }, (_, i) => `Memo ${i + 1}`)].join(";");
+function bigCsv(rows = ROWS, columns = COLUMNS): Uint8Array {
+  const header = ["Code", "Name", "Soll", "Haben", ...Array.from({ length: columns - 4 }, (_, i) => `Memo ${i + 1}`)].join(";");
   const lines = [header];
-  for (let i = 0; i < ROWS; i++) {
+  for (let i = 0; i < rows; i++) {
     const amount = `${(i % 9) + 1}.${String(i % 1000).padStart(3, "0")},${String((i % 99) + 1).padStart(2, "0")}`; // e.g. 3.217,19 — never zero
     const debit = i % 2 === 0;
-    lines.push([`A${i}`, `Account ${i}`, debit ? amount : "", debit ? "" : amount, ...Array.from({ length: COLUMNS - 4 }, () => "x")].join(";"));
+    lines.push([`A${i}`, `Account ${i}`, debit ? amount : "", debit ? "" : amount, ...Array.from({ length: columns - 4 }, () => "x")].join(";"));
   }
   return new TextEncoder().encode(lines.join("\n") + "\n");
 }
@@ -34,8 +37,7 @@ afterEach(() => { m?.unmount(); m = null; document.body.innerHTML = ""; });
 describe("intake performance (provisional budgets)", () => {
   it(`reads ${ROWS.toLocaleString("en")} rows × ${COLUMNS} columns under a layout and renders the first page of the every-row report`, async () => {
     const bytes = bigCsv();
-    expect(bytes.length).toBeGreaterThan(1_500_000);
-    expect(bytes.length).toBeLessThanOrEqual(2_200_000);
+    expect(bytes.length).toBeLessThanOrEqual(TB_UPLOAD_POLICY.maxFileBytes);
     const layout: LayoutProfile = { format: "layout-template/1", sheet: { kind: "csv" }, headerRow: 1, numberFormat: "dot_comma", balanceSign: null,
       columns: { accountCode: "Code", accountName: "Name", debit: "Soll", credit: "Haben", balance: null, dimensions: [] } };
     const t0 = performance.now();
@@ -55,5 +57,14 @@ describe("intake performance (provisional budgets)", () => {
     console.log(`[intake perf] file ${(bytes.length / 1e6).toFixed(2)} MB; server read under layout ${serverRead.toFixed(0)} ms (budget ${BUDGET_MS.serverRead}); report first page ${firstPage.toFixed(0)} ms (budget ${BUDGET_MS.firstPage}); rendered rows ${m.container.querySelectorAll("tbody tr").length}`);
     expect(serverRead).toBeLessThan(BUDGET_MS.serverRead);
     expect(firstPage).toBeLessThan(BUDGET_MS.firstPage);
+  }, 60_000);
+
+  it("the former 20,000-row × 40-column dataset is now refused by name before any check (no rows accepted, nothing truncated)", async () => {
+    const layout: LayoutProfile = { format: "layout-template/1", sheet: { kind: "csv" }, headerRow: 1, numberFormat: "dot_comma", balanceSign: null,
+      columns: { accountCode: "Code", accountName: "Name", debit: "Soll", credit: "Haben", balance: null, dimensions: [] } };
+    const read = readTrialBalanceSourceWithLayout(bigCsv(20_000, 40), { fileName: "big.csv", periodYear: 2025, currency: "TZS" }, XLSX as unknown as XlsxLike, layout, await profileSha256(layout));
+    expect(read.result.issues.map((i) => i.code)).toContain("TOO_MANY_ROWS");
+    expect(read.result.accounts).toHaveLength(0);
+    expect(read.result.blocking).toBe(true);
   }, 60_000);
 });

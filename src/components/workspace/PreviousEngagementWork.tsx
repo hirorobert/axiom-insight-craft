@@ -40,10 +40,10 @@ export default function PreviousEngagementWork({
   if (retained.length === 0) return null;
 
   return (
-    <section className="mt-12" aria-label="Previous engagement work">
+    <section className="mt-12" aria-label="Earlier work for this entity">
       <SurfaceCard>
         <SurfaceCardHeader
-          label="Previous engagement work"
+          label="Earlier work for this entity"
           meta="Read-only record"
         />
         <ul className="divide-y divide-border">
