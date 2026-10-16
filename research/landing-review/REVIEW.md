@@ -101,7 +101,7 @@ The following were **not** treated as defects: the page being a React single-pag
 | # | Decision | Recommendation |
 |---|---|---|
 | D-1 | Add the illustrative (synthetic) review section | Yes. No entitlement, price or data-path change. |
-| D-2 | Secondary hero action: "Explore an illustrative review" | Yes, if D-1. One pinned test changes. |
+| D-2 | Secondary hero action: "See a sample review" | Yes, if D-1. One pinned test changes. |
 | D-3 | A real-file free preview | Not now. See `OWNER_DECISION_real_file_preview.md`. |
 | D-4 | Keep the screenshot at ≥1024 px only, or drop it | Keep on desktop as evidence it is the real product; the HTML example becomes the readable product example. |
 | D-5 | Correct the metadata (S-1) | Yes. It is a correctness fix, independent of D-1. |
@@ -111,25 +111,47 @@ The following were **not** treated as defects: the page being a React single-pag
 
 ## 6. The illustrative review mockup (proposal)
 
-`mockup/sample-review-mockup.html` is self-contained and makes no network request. It meets the brief:
-- labelled **"Illustrative example — invented data"**, with the heading **"Explore an illustrative trial balance review"**;
-- states that **this example has two outstanding decisions**, and that real readiness depends on all applicable checks passing and the required decisions being recorded by authorised users;
-- has no compliance badge, no certification claim and no file upload;
-- has a **static fallback**: without JavaScript all three steps, all 16 accounts and the explanation render as plain HTML, the tab bar is hidden and the selects are disabled;
-- has **keyboard-operable** controls: tabs with roving focus (Arrow keys, Home, End), a locked step 3 that is focusable and announces why (`aria-disabled` and `aria-describedby`), native selects, a `role="status"` live region, a skip link, and a visible 3 px focus ring on every control.
+`mockup/sample-review-mockup.html` is self-contained and makes no network request.
 
-Test results (`evidence/results.json`, `evidence/screenshots/`):
+**Behaviour**
+- The hero's secondary action is **"See a sample review"**. The section heading is "Explore an illustrative trial balance review", and the section is labelled **"Illustrative example — invented data"**.
+- **The checks are split into two kinds.**
+  - *Arithmetic checks* run on import and pass: file read, valid amounts, debits equal credits. The balance line says plainly that it "says nothing yet about how accounts are classified".
+  - The *statement equation* depends on classification. It shows **Pending**, with a plain reason, while any account has no category. Once every account has one it is **recalculated from the current categories**, with figures, and explained as holding whenever the totals balance and every account has a category: it does not show that the categories are right.
+- **Guided resolution with invented evidence.** Each of the two held accounts shows invented supporting evidence (a loan note; a ledger detail of customer overpayments) and three treatments.
+  - Selecting a treatment records nothing; only **Record decision** records one, so moving through options by keyboard is never logged.
+  - Each recorded decision is compared with the invented evidence. An unsupported one is recorded, labelled as not supported, and keeps the sample not reviewed.
+  - The page says plainly that this comparison belongs to the illustration: **CFOClose records decisions; it does not check them against evidence**. No validation capability is claimed for the product.
+- **The illustrated ready state** (step 3 and "Reviewed (illustrative)") requires all of these: the arithmetic checks passed, every account has a category, and both recorded decisions match the evidence. Changing a decision back to an unsupported one locks step 3 again.
+- **Reviewer notes** (the proposed changes, the new lines that need registry entries, the illustration-only comparison) sit in a separate, clearly marked area above the proposed page. The customer-facing view contains no annotations and no "NEW" markers.
+- **Accessibility:** native radio groups with legends; buttons; a locked step 3 that is focusable and announces why (`aria-disabled`, `aria-describedby`); `role="status"` and polite live regions; a skip link; and a visible 3 px focus ring.
+- **Static fallback:** without JavaScript all three steps, the 14 mapped accounts, both held accounts with their evidence and the explanation render as plain HTML. The radios are disabled, the equation shows Pending, and nothing is shown as reviewed.
+
+**Test results** (`evidence/results.json`, `evidence/screenshots/`; `run-checks.mjs` exits 1 if any regression scenario fails)
 | Check | Result |
 |---|---|
-| Reflow at 320, 390 and 1280 px | 0 overflow, 0 clipped actions, 0 unlabelled fields |
-| Smallest text | 11 px, only the reviewer-only "NEW" markers; all content is 12 px or larger |
+| Reflow at 320, 390 and 1280 px | 0 overflow, 0 clipped actions, 0 unlabelled fields; smallest text 12 px |
 | Console errors / network requests | 0 / 0 |
-| Tab order | skip → nav (2) → hero actions (2) → step tab → panel → Continue → end of document; every stop shows a visible focus indicator |
-| Arrow to locked step 3 | focus moves, panel stays closed, Enter does not open it, the reason is announced |
-| Keyboard-only decisions | ArrowDown on each select records a category; the status announces "1 account needs a decision", then "Both decisions made. Step 3 is now available." |
-| End key, then Home | step 3 opens with a decision log (2 decisions plus 14 confirmations); Home returns to step 1 |
-| Reset | restores two outstanding decisions, locks step 3 again, and focuses the first select |
-| No JavaScript, 320 and 1280 px | 3/3 panels visible, 16 rows, label and outstanding note present, selects disabled, no layout problems |
+| Tab order | skip → nav (2) → hero actions (2) → step tab → panel → Continue → end of document; every stop shows a visible focus indicator (radios included) |
+| Arrow key to locked step 3 | focus moves, the panel stays closed, the reason is announced |
+
+**Regression scenarios** (all decisions made by keyboard only: Space and ArrowDown on the radio group, Enter on Record decision)
+| # | Scenario | Ready state | Equation |
+|---|---|---|---|
+| S0 | Both held, nothing decided | not reached; End cannot open step 3 | Pending |
+| S1 | One supported decision recorded, one unresolved | not reached | Pending |
+| S1b | Both supported treatments selected but **not recorded** | not reached | Pending |
+| S2 | Both recorded, both unsupported by the evidence | not reached | Holds (recalculated) |
+| S3 | One supported, one unsupported | not reached | Holds |
+| S4 | Both supported (after one earlier unsupported decision) | **reached**; step 3 opens; the log shows all three decisions in order | Holds |
+| S5 | From S4, a supported decision is changed to an unsupported one | **lost**; step 3 locks again | Holds |
+| S6 | Reset | not reached; log cleared | Pending |
+
+**Mutation check** (run once by hand; the mockup was restored afterwards):
+- Removing the evidence comparison from the ready rule made S2, S3, S5 and S6 fail.
+- Removing the completeness guard from the equation made S0, S1, S1b and S6 fail.
+
+So the scenarios detect both defect classes. **No JavaScript (320 and 1280 px):** 3/3 panels visible, 14 mapped rows and 2 held cards, radios disabled, equation Pending, ready state not shown, reviewer notes outside `<main>`, no layout problems.
 
 ## 7. Authenticated screenshots: handoff inconsistencies (for NORMAL; not repaired here)
 

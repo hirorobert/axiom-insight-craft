@@ -7,7 +7,7 @@ checkout, migrations and Edge Functions.
 ## Change
 | File | Change | Decision |
 |---|---|---|
-| `src/content/landing/landingContent.ts` | `LANDING_HERO.secondaryCta` → "Explore an illustrative review" (href `#sample`); add `"sample"` to `LANDING_SECTION_IDS`; add `LANDING_ILLUSTRATIVE_REVIEW` copy; a plain line per `LANDING_TRUST` item; the plans-intro addition; `LANDING_FINAL_CTA.supporting`; one `LANDING_FAQ` entry | D-1, D-2 |
+| `src/content/landing/landingContent.ts` | `LANDING_HERO.secondaryCta` → "See a sample review" (href `#sample`); add `"sample"` to `LANDING_SECTION_IDS`; add `LANDING_ILLUSTRATIVE_REVIEW` copy; a plain line per `LANDING_TRUST` item; the plans-intro addition; `LANDING_FINAL_CTA.supporting`; one `LANDING_FAQ` entry | D-1, D-2 |
 | `src/components/landing/LandingHero.tsx` | secondary action to `#sample` (no longer `/plans`); show the screenshot `<figure>` only at `lg` and up | D-2, D-4 |
 | `src/pages/Index.tsx` | render the new section between `SoftwareSection` and `CapacityPlans` | D-1 |
 | `src/components/landing/TrustStrip.tsx` | render the plain line under each approved claim | D-1 |
@@ -19,9 +19,9 @@ checkout, migrations and Edge Functions.
 ## New
 | File | Purpose |
 |---|---|
-| `src/components/landing/IllustrativeReview.tsx` (NEW) | The section: static markup first (readable without interaction), enhanced with the tabs and the two local decisions. Port it from `research/landing-review/mockup/sample-review-mockup.html`, using the existing Tailwind tokens. |
-| `src/content/landing/illustrativeReview.ts` (NEW) | The invented accounts, categories and two held decisions, as typed constants. Totals are asserted by a test. |
-| `src/components/landing/__tests__/illustrativeReview.test.ts` (NEW) | Label and outstanding note present; totals balance; step 3 is locked until both decisions are made; no network or upload; keyboard tab behaviour. |
+| `src/components/landing/IllustrativeReview.tsx` (NEW) | The section: static markup first (readable without interaction), enhanced with the tabs, the guided evidence decisions (Record decision) and the recalculated statement equation. Port it from `research/landing-review/mockup/sample-review-mockup.html`, using the existing Tailwind tokens. |
+| `src/content/landing/illustrativeReview.ts` (NEW) | The invented accounts, categories, the two held accounts with their invented evidence and evidence-supported treatment, as typed constants. Totals are asserted by a test. |
+| `src/components/landing/__tests__/illustrativeReview.test.ts` (NEW) | Port regression scenarios S0–S6 (`REVIEW.md` §6): an unresolved, unrecorded or unsupported treatment never reaches the ready state; the equation is Pending until every account has a category; label, disclosure and outstanding note present; no network or upload. |
 
 ## Tests to update
 | File | Why |

@@ -25,7 +25,7 @@
     },
     {
       "id": "sample.intro",
-      "words": 27,
+      "words": 29,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
@@ -39,15 +39,36 @@
     },
     {
       "id": "sample.outstanding",
-      "words": 40,
+      "words": 39,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.step1",
-      "words": 26,
+      "id": "sample.step1.lead",
+      "words": 24,
       "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.step1.balanceNote",
+      "words": 16,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.equation.pending",
+      "words": 18,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.equation.evaluated",
+      "words": 22,
+      "inMockup": null,
       "hits": [],
       "status": "PASS"
     },
@@ -65,15 +86,50 @@
       "status": "PASS"
     },
     {
-      "id": "sample.step2",
-      "words": 27,
+      "id": "sample.step2.lead",
+      "words": 22,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.step3",
-      "words": 34,
+      "id": "sample.disclosure",
+      "words": 43,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.evidence.director",
+      "words": 18,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.evidence.sundry",
+      "words": 19,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.outcome.unsupported",
+      "words": 14,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.outcome.supported",
+      "words": 5,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.step3.lead",
+      "words": 33,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
@@ -142,7 +198,7 @@
     },
     {
       "id": "faq.preview.answer",
-      "words": 33,
+      "words": 31,
       "inMockup": null,
       "hits": [],
       "status": "PASS"
