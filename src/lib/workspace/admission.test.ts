@@ -84,3 +84,14 @@ describe("withAdmission", () => {
     expect(a.state()).toEqual({ active: 0, waiting: 0 });
   });
 });
+
+describe("edge functions boot in the Edge Runtime", () => {
+  it("no file under supabase/functions imports a node: module (importing node:process made process-trial-balance fail to boot: CI run 38904836096)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const root = path.resolve(__dirname, "../../../supabase/functions");
+    const files = (fs.readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.(ts|mts|mjs)$/.test(f) && !/\.test\./.test(f) && !f.includes("functionpath"));
+    const offenders = files.filter((f) => /from\s+["']node:|import\(\s*["']node:/.test(fs.readFileSync(path.join(root, f), "utf8")));
+    expect(offenders).toEqual([]);
+  });
+});
