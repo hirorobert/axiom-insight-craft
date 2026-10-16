@@ -123,7 +123,7 @@ at the limit through the real function (must answer 200 with every account read)
 | Workbook parts | 2,000 | unchanged |
 | **Accounts** (after reading; repair A) | **2,000** | one certification holds every certified account: `rows_snapshot` CHECK 1 MiB holds about 2,600 realistic accounts (≈400 bytes each, measured); four dependency keys per account fit the 20,000-key cap. Refused whole before any check (`TOO_MANY_ACCOUNTS`) |
 | Certified-rows payload | 900,000 bytes (JSON) | under the 1,048,576-byte stored CHECK with margin; over it the attempt fails explicitly (`CERTIFIED_ROWS_TOO_LARGE`) |
-| Simultaneous checks, across all workers (repair A) | 2 (two leased slots in `tb_processing_slots`); others wait ≤ 25 s, then 503 `PROCESSING_BUSY` before anything begins | measured on the local Edge Runtime: 2 at the account limit complete; 4 returned HTTP 546, also with a per-worker limit alone (requests are not all served by one worker) |
+| Simultaneous checks per isolate (repair A) | 1, never queued; a request arriving meanwhile gets 503 `PROCESSING_BUSY` at once (Retry-After 3) with nothing begun | the Edge Runtime limits CPU time per isolate (runtime log, CI run 38892294850): one isolate running two 2,000-account checks reached its soft limit and the requests queued in it hit the hard limit (HTTP 546). Database slots shared across workers were tried and reverted: they cannot protect a per-isolate budget |
 
 **Measurement (Deno 2.9.6 / V8 15.0, the Edge Runtime's engine, HARD 150 MB heap cap, one process per invented case, CI
 run on `ba36380`):** CSV 10k/25k/50k/100k/150k rows fitted (heap 18/39/66/100/134 MB, 0.07–0.76 s); XLSX 5k/10k/25k/50k/75k
@@ -168,16 +168,18 @@ invalidation. Proven: a change to an account not among the examples, before fina
 authority lost at once; a mapping transaction open across finalisation and committed after it → authority lost; 12 rounds of
 finalisation racing a mapping write → never an authoritative result on a changed dependency; a review decision → same.
 
-**Concurrency (A):** at most two checks run at once across every worker — each holds one of two leased database slots
-(`tb_processing_slots`, claimed with SKIP LOCKED before anything is read; a killed worker's slot frees when its 60 s lease
-expires) as well as a per-worker slot. A per-worker limit alone was measured insufficient (CI run 38889700399: 4-way still
-546 twice). The rest wait (≤ 25 s) or are refused
-BEFORE anything begins (503 `PROCESSING_BUSY`: no attempt, no lease, nothing recorded or consumed) and the browser's
-existing retry path repeats the same request. Journey: 4- and 8-way at the account limit, each processed exactly once (one
-attempt, one certification, complete findings) or refused as busy and then completed by a retry; nothing stranded.
-Supported: 2 simultaneous 2,000-account checks (local Edge Runtime); hosted limits unmeasured (the slot count is one
-table row per slot, adjustable by the owner after hosted measurement). A worker killed
-for another reason still leaves its attempt leased for 600 s (retries answer "in progress"; the lease then frees it).
+**Concurrency (A):** the limit is CPU time per isolate, summed over the requests that isolate serves (Edge Runtime log, CI
+run 38892294850: "CPU time soft limit reached", then "hard limit reached" in one isolate that had run two 2,000-account
+checks and then the requests queued behind them → HTTP 546). Neither a per-worker queue (run 38889700399) nor database
+slots shared across workers (run 38892294850, reverted) prevented it. Now each isolate runs ONE check and queues nothing:
+a request arriving meanwhile is refused at once (503 `PROCESSING_BUSY`, Retry-After 3) before anything begins — no
+attempt, no lease, nothing recorded or consumed — and is retried as the same request (the browser's existing message: check
+again; it will not be counted twice). An isolate past its soft limit is retired by the runtime when its in-flight check
+ends. Journey: 4- and 8-way at the account limit, each request processed exactly once, at once or after an immediate
+refusal and a retry; nothing stranded. Supported: one check per isolate; how many isolates serve at once is the runtime's
+(locally, simultaneous requests went to one isolate). Hosted CPU limits unmeasured — a single 2,000-account check's CPU
+time on the hosted runtime must be read back before release. A worker killed for another reason still leaves its attempt
+leased for 600 s.
 
 **C classification and orphan design:** CI's `object_missing` came from a fixture defect (the proof's storage double exposed
 bytes before the `storage.objects` row); under it was a product race (a failed seal removed the object a concurrent seal

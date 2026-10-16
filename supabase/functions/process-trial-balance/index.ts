@@ -43,7 +43,7 @@ import {
 import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
 import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
-import { combineAdmissions, createAdmission, createSlotAdmission, withAdmission } from "../_shared/admission.ts";
+import { createAdmission, withAdmission } from "../_shared/admission.ts";
 import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
@@ -1288,23 +1288,19 @@ async function finishAttempt(
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
-// Controlled admission (_shared/admission.ts): at most two checks run at once — in this worker AND across every worker,
-// through the database's leased processing slots (measured: two at the account limit complete; four exhausted the
-// runtime, also with a per-worker limit alone). The others wait up to 25 s; one still waiting is refused before anything
-// begins (no attempt, no lease, nothing recorded) and retries the same request later. A killed worker's slot frees in 60 s.
-let admissionClient: ReturnType<typeof createClient> | null = null;
-const slotRpc = async (fn: string, args: Record<string, unknown>) => {
-  admissionClient ??= createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data, error } = await admissionClient.rpc(fn, args as never);
-  return { data: data as unknown, error: error as unknown };
-};
-const ADMISSION = combineAdmissions(createAdmission(2, 25_000), createSlotAdmission(slotRpc, { maxWaitMs: 25_000, pollMs: 250, leaseSeconds: 60 }));
+// Controlled admission (_shared/admission.ts). The Edge Runtime limits CPU time PER ISOLATE, summed over every request
+// that isolate serves (CI run 38892294850, runtime log: one isolate running two 2,000-account checks reached its soft
+// limit, and the requests queued in it then hit the hard limit — HTTP 546). So an isolate runs ONE check at a time and
+// never queues another: a request arriving meanwhile is refused at once, before anything begins (no attempt, no lease,
+// nothing recorded or consumed), and its retry reaches a free isolate — or this one, after its check (an isolate past its
+// soft limit is retired by the runtime once its in-flight request ends).
+const ADMISSION = createAdmission(1, 0);
 const PROCESSING_BUSY = {
   status: "busy", code: "PROCESSING_BUSY",
-  message: "Several trial balances are being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
+  message: "Another trial balance is being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
 };
 
-serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "15" } }), async (req) => {
+serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3" } }), async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
