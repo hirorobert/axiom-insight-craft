@@ -315,6 +315,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/reauthenticate/index.ts",
     ]);
     const modified = new Set([
+      // Repair C (concurrent sealing): a failed seal never removes the canonical object (a concurrent seal may be
+      // committing); only non-canonical bytes are removed. Pure handler; no schema.
+      "supabase/functions/_shared/reportingPackSeal.mjs",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
