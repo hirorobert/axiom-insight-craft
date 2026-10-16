@@ -585,7 +585,11 @@ describe("database inertness — schema and functions", () => {
       "scripts/payments/providerSandboxSmoke.ts",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.
       "scripts/brand/generateBrandAssets.mjs", "scripts/ci/assertPublicMetadata.mjs", "scripts/ci/routeMetadataInBrowser.mjs",
-      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
+      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs",
+      // Landing sample review (PR #145): browser acceptance of the public landing page — a local build with a placeholder
+      // (unreachable loopback) backend, served by vite preview on 127.0.0.1, driven by cdp.mjs. No database, no secret,
+      // no network beyond loopback, no deploy behaviour; run by hand, not wired into CI.
+      "scripts/browser-acceptance/landingSample.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
