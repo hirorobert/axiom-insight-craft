@@ -139,7 +139,7 @@ describe("Account home (the CFOClose logo from inside a workspace)", () => {
     render(createElement(EngagementHub, { entries: [], companiesWithoutEngagement: [], onResume: () => {}, onStartService: () => {}, account: acc }));
   it("the one account frame: Home, Plans, Orders, Settings, Sign out; companies and the plan below the next step", () => {
     const html = hub(account({ capacity: 5, used: 2, determined: true }));
-    for (const href of ['href="/dashboard"', 'href="/plans"', 'href="/billing/orders"', 'href="/settings"']) expect(html).toContain(href);
+    for (const href of ['href="/dashboard"', 'href="/plans"', 'href="/settings/billing"', 'href="/settings"']) expect(html).toContain(href);
     expect(html).toContain("Sign out");
     expect(html).toContain('data-testid="account-shell"');
     expect(html).toContain('data-testid="account-next-action"');

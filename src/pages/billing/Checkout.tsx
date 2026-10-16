@@ -212,7 +212,7 @@ export default function Checkout() {
             <div className="mt-4 border border-destructive/50 p-3 text-sm" role="alert" data-testid="checkout-error">
               <p>{error.text}</p>
               {error.ref && <Link className="mt-2 inline-block font-medium underline" to={`/billing/payment/return?ref=${encodeURIComponent(error.ref)}`}>{error.kind === "previous" ? "Resume or check the open checkout" : "Open this order"}</Link>}
-              {!error.ref && (error.kind === "uncertain" ? <Link className="mt-2 inline-block font-medium underline" to="/billing/orders">See your orders</Link>
+              {!error.ref && (error.kind === "uncertain" ? <Link className="mt-2 inline-block font-medium underline" to="/settings/billing">See your orders</Link>
                 : <Link className="mt-2 inline-block font-medium underline" to={supportHref("plan_wall")}>{SUPPORT_LABEL}</Link>)}
             </div>
           )}

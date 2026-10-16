@@ -38,7 +38,8 @@ vi.mock("@/components/workspace/FirstRunEngagement", () => ({
   default: () => createElement("div", { "data-testid": "first-run-engagement" }, "first-run"),
 }));
 vi.mock("@/components/workspace/FirstUpload", () => ({
-  default: () => createElement("div", { "data-testid": "first-upload" }, "first-upload"),
+  default: (p: { needsPlan?: boolean; compact?: boolean }) =>
+    createElement("div", { "data-testid": "first-upload", "data-needs-plan": String(!!p.needsPlan), "data-compact": String(!!p.compact) }, "first-upload"),
 }));
 
 const supaMock = vi.hoisted(() => ({ update: vi.fn(() => ({ eq: () => ({ is: () => Promise.resolve({ error: null }) }) })) }));
@@ -174,14 +175,25 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).toContain('data-testid="add-company"');
   });
 
-  it("new no-plan user without entities: the account home says to choose a plan (no silent redirect, no setup, no dead button)", async () => {
+  it("returning user with entities: a compact upload sits above the one next action (P2-4); one filled primary remains", async () => {
+    // (One company alone routes straight into its workspace; the home shows from two.)
+    setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [company("c1", "Acme Ltd"), company("c2", "Beta Co")], fetchFailed: false });
+    const html = await renderDashboard();
+    expect(html).toContain('data-compact="true"');
+    expect(html).toContain('data-testid="account-next-action"');
+    // The compact upload's button is an outline (secondary): the next action keeps at most one filled primary.
+    expect((html.match(/data-testid="next-action-primary"/g) ?? []).length).toBeLessThanOrEqual(1);
+  });
+
+  it("new no-plan user without entities: the upload is offered with the plan stated up front (purchase-required path; no silent redirect, no setup, no dead button)", async () => {
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
     billingMock.value = { ...billingMock.value, summary: { ...billingMock.value.summary, licenceStatus: null, planCode: null } };
     capacityMock.value = { ...capacityMock.value, capacity: { capacity: 0, used: 0, determined: true, planCode: null } };
     const html = await renderDashboard();
     expect(html).not.toContain("first-run-engagement");
-    expect(html).toContain('data-kind="choose_plan"');
-    expect(html).toContain("Choose a plan to begin");
+    // The file can be kept privately as a draft; "Start" then leads to the plans (nothing is processed without a plan).
+    expect(html).toContain('data-testid="first-upload"');
+    expect(html).toContain('data-needs-plan="true"');
     expect(html).toContain('href="/plans"');
     expect(html).not.toMatch(/<button[^>]*disabled=""/);
     expect((html.match(/No active plan/g) ?? []).length).toBeLessThanOrEqual(1);
