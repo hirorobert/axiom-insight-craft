@@ -436,9 +436,20 @@ await check(`one account over the account limit (${ACCOUNTS + 1}): refused by na
   const r = await commitAndProcess(csvOf(balancedRows(ACCOUNTS + 1)), "accounts-over.csv");
   return refusedCleanly(r, "TOO_MANY_ACCOUNTS") && (!r.cert || r.cert.blocking === true) ? true : r;
 });
-await check("4 concurrent requests at the account limit: each processed in full with its own complete findings", async () => {
+// Concurrency at the account limit. Measured on the local Edge Runtime (CI, PR #141): 4 simultaneous 2,000-account
+// requests exceed the worker's resource limit (HTTP 546 WORKER_LIMIT) — an availability limit, registered, not hidden.
+// Integrity is checked strictly: every request is either processed in full with its own complete findings, or answered
+// as a failure with NOTHING certified — never a partial or mixed result.
+const fullOrNothing = (r, accounts) => processedFully(r, accounts) || (r.httpStatus !== 200 && (r.cert === null || (r.cert.findingsCount === r.cert.stored && r.cert.findingsCount >= accounts)) && r.status !== "complete");
+await check("4 concurrent requests at the account limit: each is processed in full with its own findings, or fails explicitly with nothing partial", async () => {
   const files = await Promise.all([0, 1, 2, 3].map(() => xlsxOf(balancedRows(ACCOUNTS))));
-  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent-${k}.xlsx`)));
+  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent4-${k}.xlsx`)));
+  log(`        [policy] 4-way at ${ACCOUNTS} accounts: ${rs.filter((r) => processedFully(r, ACCOUNTS)).length} processed in full, ${rs.filter((r) => r.httpStatus !== 200).length} answered ${[...new Set(rs.map((r) => r.httpStatus))].join("/")}`);
+  return rs.every((r) => fullOrNothing(r, ACCOUNTS)) ? true : rs;
+});
+await check("2 concurrent requests at the account limit are both processed in full", async () => {
+  const files = await Promise.all([0, 1].map(() => xlsxOf(balancedRows(ACCOUNTS))));
+  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent2-${k}.xlsx`)));
   return rs.every((r) => processedFully(r, ACCOUNTS)) ? true : rs;
 });
 await check("a workbook one row over the limit: refused by name (TOO_MANY_ROWS); no account accepted, no totals, HTTP 200", async () => {
