@@ -41,6 +41,17 @@ describe("createAdmission", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("with no wait (process-trial-balance: one check per isolate), a second request is refused at once and nothing is queued", async () => {
+    const a = createAdmission(1, 0);
+    const r1 = await a.acquire();
+    const t0 = Date.now();
+    expect(await a.acquire()).toBeNull();
+    expect(Date.now() - t0).toBeLessThan(20);
+    expect(a.state()).toEqual({ active: 1, waiting: 0 });
+    r1!();
+    expect(await a.acquire()).not.toBeNull();
+  });
+
   it("releasing twice frees one slot only", async () => {
     const a = createAdmission(1, 1_000);
     const r = await a.acquire();

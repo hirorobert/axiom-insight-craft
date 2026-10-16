@@ -1,14 +1,11 @@
 /**
- * admission — controlled admission for a memory-heavy Edge Function (repair A follow-up, 16 October 2026).
+ * admission — controlled admission for a CPU-heavy Edge Function (repair A follow-up, 16 October 2026).
  *
- * Concurrent requests served by one worker share its memory. Measured on the local Edge Runtime (CI, PR #141): two
- * simultaneous 2,000-account trial balances are processed in full; four exceed the worker's resource limit (HTTP 546
- * WORKER_LIMIT), and a request killed that way leaves its processing attempt leased (600 s) — a retry is answered
- * "in progress" until the lease frees it.
- *
- * So at most `limit` requests run at once per worker; the others wait in arrival order for at most `maxWaitMs`. A request
- * still waiting then is refused BEFORE it begins anything (no attempt, no lease, nothing recorded or consumed) and the
- * caller retries the same request later. Each worker counts only its own requests; separate workers have separate memory.
+ * The Edge Runtime limits CPU time per isolate, summed over the requests that isolate serves. Measured on the local runtime
+ * (CI run 38892294850, runtime log): an isolate running two 2,000-account checks at once reached its soft CPU limit, and
+ * requests queued in that isolate then ran there and hit the hard limit (HTTP 546 WORKER_LIMIT) — leaving their attempts
+ * leased. So process-trial-balance admits ONE check per isolate and queues nothing (`createAdmission(1, 0)`): a request
+ * arriving meanwhile is refused at once, before anything begins, and the caller retries the same request.
  */
 
 export interface Admission {
@@ -31,6 +28,7 @@ export function createAdmission(limit: number, maxWaitMs: number): Admission {
   return {
     acquire() {
       if (active < limit) { active++; return Promise.resolve(once()); }
+      if (maxWaitMs <= 0) return Promise.resolve(null); // never queue: refuse at once
       return new Promise((resolve) => {
         const entry = { grant: () => { clearTimeout(timer); resolve(once()); } };
         const timer = setTimeout(() => {

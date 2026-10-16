@@ -1285,16 +1285,19 @@ async function finishAttempt(
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
-// Controlled admission (_shared/admission.ts): at most two checks run at once in one worker (measured: two at the
-// account limit complete; four exhaust the worker). The others wait in arrival order up to 25 s; one still waiting is
-// refused before anything begins (no attempt, no lease, nothing recorded) and retries the same request later.
-const ADMISSION = createAdmission(2, 25_000);
+// Controlled admission (_shared/admission.ts). The Edge Runtime limits CPU time PER ISOLATE, summed over every request
+// that isolate serves (CI run 38892294850, runtime log: one isolate running two 2,000-account checks reached its soft
+// limit, and the requests queued in it then hit the hard limit — HTTP 546). So an isolate runs ONE check at a time and
+// never queues another: a request arriving meanwhile is refused at once, before anything begins (no attempt, no lease,
+// nothing recorded or consumed), and its retry reaches a free isolate — or this one, after its check (an isolate past its
+// soft limit is retired by the runtime once its in-flight request ends).
+const ADMISSION = createAdmission(1, 0);
 const PROCESSING_BUSY = {
   status: "busy", code: "PROCESSING_BUSY",
-  message: "Several trial balances are being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
+  message: "Another trial balance is being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
 };
 
-serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "15" } }), async (req) => {
+serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3" } }), async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
