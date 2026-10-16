@@ -48,6 +48,8 @@ export const hasCurrentPlan = (b: BillingSummary | null): boolean => b?.licenceS
 /** Whether the home may offer company creation. The server (create_entity) remains the authority either way. */
 export function companyCreation(i: Pick<AccountNextActionInput, "billing" | "capacity">): CompanyCreation {
   if (i.billing.loading || i.capacity.loading) return "checking";
+  // An explicit unlimited allowance (platform owner / unlimited override) needs no plan; the server stays the authority.
+  if (!i.capacity.error && i.capacity.answer?.determined && i.capacity.answer.unlimited === true) return "allowed";
   if (i.billing.error || !i.billing.summary) return "unknown";
   if (!hasCurrentPlan(i.billing.summary)) return "needs_plan";
   const c = i.capacity.answer;
