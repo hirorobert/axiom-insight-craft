@@ -209,6 +209,9 @@ describe("database inertness — schema and functions", () => {
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
+      // Repair C: the only rule by which an unsealed Reporting Pack object may be deleted (after its issuance expired +
+      // grace; never a sealed one). Pure orchestration; not scheduled; no schema.
+      "supabase/functions/_shared/reportingPackOrphans.mjs",
       "supabase/functions/seal-reporting-pack/index.ts",
       // Trial-balance ingestion integrity: the pure ingestion core process-trial-balance runs on an upload (exact
       // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
@@ -346,6 +349,9 @@ describe("database inertness — schema and functions", () => {
       // Certification capacity (repair A): the function-path double of tb_finalize_attempt keeps the complete findings and
       // answers the findings-store probe. Test double only.
       "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
+      // Repair C (concurrent sealing): a failed seal never removes the canonical object (a concurrent seal may be
+      // committing); only non-canonical bytes are removed. Pure handler; no schema.
+      "supabase/functions/_shared/reportingPackSeal.mjs",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
