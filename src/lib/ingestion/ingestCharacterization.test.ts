@@ -28,7 +28,8 @@ describe("ingestion characterization (no layout)", () => {
     const differ: string[] = [];
     for (const c of corpus) {
       const r = readTrialBalanceSource(c.bytes, { fileName: c.fileName, periodYear: c.periodYear, currency: c.currency }, XLSX as unknown as XlsxLike);
-      const digest = createHash("sha256").update(resultText(r)).digest("hex");
+      // Keep every pinned behavioural digest. Only the intentionally bumped parser version is normalised.
+      const digest = createHash("sha256").update(resultText({ ...r, version: "tb-ingest-3.0.0" })).digest("hex");
       if (digest !== golden.digests[c.name]) differ.push(c.name);
     }
     expect(differ).toEqual([]);

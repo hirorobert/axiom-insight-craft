@@ -171,3 +171,16 @@ describe("helpers", () => {
       .toEqual(["Checks passed", "Blocked", "Needs review", "Could not be processed", "Processing"]);
   });
 });
+
+it('cannot show Reviewed when stored milestones say balance and classification never ran', () => {
+  const processing_result = { ...SAMPLE_RESULT, ingestion: { milestones: [
+    { id: 'read', status: 'passed' }, { id: 'columns', status: 'failed' },
+    { id: 'rows', status: 'not_reached' }, { id: 'amounts', status: 'not_reached' },
+    { id: 'balance', status: 'not_reached' }, { id: 'classification', status: 'not_reached' },
+  ] } };
+  const v = deriveTrialBalanceVerdict({ upload: upload('completed', { processing_result }), readiness: { verdict: 'certified', checks: passedLayers }, canRetry: true });
+  expect(v.status).not.toBe('accepted');
+  expect(v.checks.find(c => c.id === 'l3_arithmetic')?.state).toBe('pending');
+  expect(v.checks.find(c => c.id === 'l4_classification')?.state).toBe('pending');
+  expect(v.balanceStatement).toBeNull();
+});
