@@ -845,6 +845,93 @@ async function main() {
     return first === "seal_failed" && listed && notOfficial && retry === "sealed" && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact"
       ? true : JSON.stringify({ first, listed, notOfficial, retry });
   });
+  // ── Unsealed canonical objects: private, never official, authority re-checked, cleaned up only when unsealable ──
+  const { sweepReportingPackOrphans, ORPHAN_GRACE_MS } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackOrphans.mjs")).href);
+  const failSeal = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+  const orphanFor = async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const outcome = (await issueOfficialPack(failSeal, { userId: pk.uid, issuanceId: i.issuance_id })).body.outcome;
+    if (outcome !== "seal_failed") throw new Error(`orphan setup: ${outcome}`);
+    return { id: i.issuance_id, path: `${pk.co}/${i.issuance_id}.json` };
+  };
+  const expire = async (id, hoursAgo) => {
+    await admin.query("SET session_replication_role = replica"); // test-only: age the issuance (bypasses its guard)
+    await admin.query(`UPDATE public.reporting_pack_issuances SET expires_at = now() - interval '${Number(hoursAgo)} hours' WHERE id=$1`, [id]);
+    await admin.query("SET session_replication_role = origin");
+  };
+  let removeFails = false;
+  const sweepDeps = {
+    listOrphans: async () => q(SERVICE, "SELECT storage_path, created_at FROM public.reporting_pack_storage_orphans()"),
+    issuance: async (id) => (await admin.query("SELECT expires_at, consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [id])).rows[0] ?? null,
+    remove: async (p) => { if (removeFails) return { error: { message: "storage unavailable" } }; await dropObject(p); return { error: null }; },
+  };
+  await check("an unsealed canonical object is private: the bucket is not public and no storage policy lets a client read it", async () => {
+    const pub = (await admin.query("SELECT public FROM storage.buckets WHERE id='reporting-packs'")).rows[0]?.public;
+    const policies = (await admin.query("SELECT policyname FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND (coalesce(qual,'') || coalesce(with_check,'')) LIKE '%reporting-packs%'")).rows.map((r) => r.policyname);
+    return pub === false && policies.length === 0 ? true : JSON.stringify({ pub, policies });
+  });
+  await check("it is never official, for anyone, and a retry RE-CHECKS authority: a downgraded account cannot seal its own orphan; restored, the retry seals it", async () => {
+    const a = await account("PRACTICE", 1);
+    const ar = await savedOutput(a.uid, a.co, 2031, DOC);
+    const i = await issueO(a.uid, a.co, ar);
+    const failA = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    await issueOfficialPack(failA, { userId: a.uid, issuanceId: i.issuance_id });
+    const p = `${a.co}/${i.issuance_id}.json`;
+    const kept = bucket.has(p), isOfficial = (await edgeVerify(a.uid, i.issuance_id)).official;
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [a.lic.id]);
+    const downgraded = (await official(a.uid, i.issuance_id)).body.outcome;
+    const sealedWhileDowngraded = await sealsOf(i.issuance_id);
+    await admin.query("UPDATE public.commercial_licences SET status='ACTIVE', effective_end=NULL WHERE id=$1", [a.lic.id]);
+    const restored = (await official(a.uid, i.issuance_id)).body.outcome;
+    return kept && isOfficial === false && downgraded === "entitlement_required" && sealedWhileDowngraded === 0 && restored === "sealed"
+      && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact" ? true : JSON.stringify({ kept, isOfficial, downgraded, sealedWhileDowngraded, restored });
+  });
+  await check("cleanup keeps an orphan whose issuance can still be sealed (unexpired, or expired within the grace period)", async () => {
+    const live = await orphanFor();
+    const recent = await orphanFor(); await expire(recent.id, 0.5);
+    const r = await sweepReportingPackOrphans(sweepDeps);
+    const reasons = Object.fromEntries([...r.kept, ...r.deleted].map((x) => [x.path, x.reason]));
+    return bucket.has(live.path) && bucket.has(recent.path) && reasons[live.path] === "may_still_be_sealed" && reasons[recent.path] === "may_still_be_sealed"
+      ? true : JSON.stringify(reasons);
+  });
+  await check("cleanup deletes an orphan only after its issuance expired + the grace period; the issuance can then never be sealed", async () => {
+    const o = await orphanFor(); await expire(o.id, 2);
+    const r = await sweepReportingPackOrphans(sweepDeps);
+    const retry = (await official(pk.uid, o.id)).body.outcome;
+    return r.deleted.some((x) => x.path === o.path && x.reason === "expired_unsealed") && !bucket.has(o.path) && retry === "expired" && (await sealsOf(o.id)) === 0
+      ? true : JSON.stringify({ r, retry });
+  });
+  await check("historical sealed artefacts are never deleted, even long after their issuance expired", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const sealed = (await official(pk.uid, i.issuance_id)).body.outcome;
+    await expire(i.issuance_id, 24 * 400);
+    await sweepReportingPackOrphans(sweepDeps);
+    return sealed === "sealed" && bucket.has(`${pk.co}/${i.issuance_id}.json`) && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact" ? true : sealed;
+  });
+  await check("cleanup running WHILE 12 fresh issuances are being sealed deletes none of their objects; every one ends sealed and intact", async () => {
+    const ids = [];
+    for (let k = 0; k < 12; k++) ids.push((await issueO(pk.uid, pk.co, R)).issuance_id);
+    const [outs] = await Promise.all([
+      Promise.all(ids.map((id) => official(pk.uid, id).then((r) => r.body.outcome))),
+      (async () => { for (let k = 0; k < 6; k++) await sweepReportingPackOrphans(sweepDeps); })(),
+    ]);
+    const intact = await Promise.all(ids.map(async (id) => (await verifyStoredPack(deps, id)).outcome));
+    return outs.every((o) => o === "sealed") && intact.every((v) => v === "intact") ? true : JSON.stringify({ outs, intact });
+  });
+  await check("a failed cleanup is reported, deletes nothing, and the next run completes it (idempotent); an object with no issuance follows the same grace", async () => {
+    const o = await orphanFor(); await expire(o.id, 2);
+    const stray = `${pk.co}/${uuid()}.json`;
+    await storeObject(stray, new Uint8Array(Buffer.from("stray")));
+    removeFails = true;
+    const failed = await sweepReportingPackOrphans(sweepDeps);
+    removeFails = false;
+    const stillThere = bucket.has(o.path);
+    const strayRecent = (await sweepReportingPackOrphans(sweepDeps)).kept.find((x) => x.path === stray)?.reason;
+    const later = await sweepReportingPackOrphans(sweepDeps, Date.now() + ORPHAN_GRACE_MS + 60_000);
+    return failed.failed.some((x) => x.path === o.path) && stillThere && !bucket.has(o.path) && strayRecent === "recent"
+      && later.deleted.some((x) => x.path === stray && x.reason === "no_issuance") && !bucket.has(stray)
+      ? true : JSON.stringify({ failed: failed.failed.length, stillThere, strayRecent, later: later.deleted.length });
+  });
   await check("verification: official for the workspace's members only (also after the plan ends); unknown bytes never are", async () => {
     const v = await account("PRACTICE", 1);
     const vr = await savedOutput(v.uid, v.co, 2031, DOC);

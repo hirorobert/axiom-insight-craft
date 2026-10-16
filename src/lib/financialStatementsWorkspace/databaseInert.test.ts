@@ -209,6 +209,9 @@ describe("database inertness — schema and functions", () => {
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
+      // Repair C: the only rule by which an unsealed Reporting Pack object may be deleted (after its issuance expired +
+      // grace; never a sealed one). Pure orchestration; not scheduled; no schema.
+      "supabase/functions/_shared/reportingPackOrphans.mjs",
       "supabase/functions/seal-reporting-pack/index.ts",
       // Trial-balance ingestion integrity: the pure ingestion core process-trial-balance runs on an upload (exact
       // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
