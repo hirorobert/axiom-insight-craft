@@ -29,9 +29,13 @@ export const START_STEPS: readonly { id: StartStep; label: string }[] = Object.f
 /** What the user confirmed on the card. */
 export interface ConfirmedStart {
   draftId: string;
-  entity: { kind: "new"; name: string };
+  /** A new entity (created through create_entity), or an existing one the user chose (its authority is re-checked by
+   *  open_engagement_with_period, the draft commit and the check — never by the card). */
+  entity: { kind: "new"; name: string } | { kind: "existing"; companyId: string; name: string };
   period: { start: string; end: string; year: number; name: string };
   currency: string;
+  /** Replace the period's active trial balance (chosen by the user after the server said one is active). */
+  replaces?: { uploadId: string; expectedVersion: number } | null;
 }
 
 /** Fixed once per confirmation, before the first attempt. */
@@ -44,13 +48,13 @@ export interface StartDeps {
   createEntity(a: { requestId: string; name: string; fiscalYearEnd: string; currency: string }): Promise<CreateEntityOutcome>;
   openPeriod(a: { companyId: string; start: string; end: string; currency: string }): Promise<PeriodOpenResult>;
   commit(a: { draftId: string; commitKey: string; companyId: string; periodYear: number; periodId: string; engagementId: string;
-    confirmation: { entity: string; period: string; currency: string } }): Promise<{ uploadId: string }>;
+    confirmation: { entity: string; period: string; currency: string }; replaces?: { uploadId: string; expectedVersion: number } | null }): Promise<{ uploadId: string }>;
   check(a: { uploadId: string; requestId: string }): Promise<CheckOutcome>;
 }
 
 export type StartResult =
   | { kind: "checked"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
-  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" };
+  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" | "replace"; commitId?: string };
 
 const msg = (e: unknown, fallback: string) => {
   const m = e instanceof Error ? e.message : null;
@@ -61,6 +65,7 @@ const retryableError = (e: unknown) => !(e && typeof e === "object" && "retryabl
 /** Runs (or resumes) the start. `onStep` names the step about to run, for the progress list. */
 export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKeys, from: StartProgress, onStep?: (s: StartStep) => void): Promise<StartResult> {
   const progress: StartProgress = { ...from };
+  if (c.entity.kind === "existing") progress.companyId ??= c.entity.companyId;
   const fail = (step: StartStep, message: string, retryable: boolean, next?: "choose_plan" | "upload_again"): StartResult =>
     ({ kind: "failed", step, message, retryable, progress: { ...progress }, next });
 
@@ -72,6 +77,10 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
       o = await deps.createEntity({ requestId: keys.entityRequestId, name: c.entity.name.trim(), fiscalYearEnd: c.period.end, currency: c.currency });
     } catch (e) {
       return fail("entity", msg(e, "The entity could not be saved. Try again."), retryableError(e));
+    }
+    if (o.kind === "capacity" && o.capacity.planCode === null) {
+      // No current plan (complimentary access counts as one: the server decides). Nothing is charged or started here.
+      return fail("entity", "Checking a trial balance needs a plan. Choose one; your file stays saved privately as a draft, and you can continue here afterwards.", false, "choose_plan");
     }
     if (o.kind === "capacity") return fail("entity", "Your plan's entity capacity is in use. Choose a larger plan to add this entity; your file stays saved as a draft.", false, "choose_plan");
     if (o.kind === "failed") return fail("entity", "The entity could not be saved. Try again.", true);
@@ -88,6 +97,8 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
       // NOT_AUTHORISED (42501): for an entity this user just created as its owner, the only missing prerequisite is an
       // active plan with named-user access (open_engagement_with_period requires prepare_close AND a current plan).
       if (e && typeof e === "object" && "kind" in e && (e as { kind: unknown }).kind === "NOT_AUTHORISED") {
+        // An existing entity: the refusal may be this user's permission on it, not a plan — say both, offer no plan as a fix.
+        if (c.entity.kind === "existing") return fail("period", "You can't set up a period for this entity: it needs permission to prepare its trial balance and an active plan. Ask the entity's owner, or choose another entity; your file stays saved as a draft.", false);
         return fail("period", "Setting up the period needs an active plan for this account. Choose a plan; your entity and file stay saved.", false, "choose_plan");
       }
       const invalid = e && typeof e === "object" && "kind" in e && (e as { kind: unknown }).kind === "INVALID";
@@ -105,11 +116,16 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
       const r = await deps.commit({
         draftId: c.draftId, commitKey: keys.commitKey, companyId: progress.companyId, periodYear: c.period.year,
         periodId: progress.periodId, engagementId: progress.engagementId,
-        confirmation: { entity: c.entity.name.trim(), period: c.period.name, currency: c.currency },
+        confirmation: { entity: c.entity.name.trim(), period: c.period.name, currency: c.currency }, replaces: c.replaces ?? null,
       });
       progress.uploadId = r.uploadId;
     } catch (e) {
       const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+      // The period already has an active trial balance: replacing it is a choice the user makes, never automatic.
+      if (code === "active_upload_exists" && !c.replaces) {
+        return { kind: "failed", step: "add", message: msg(e, "A trial balance is already active for this period."), retryable: false, progress: { ...progress }, next: "replace",
+          commitId: (e as { commitId?: string }).commitId };
+      }
       return fail("add", msg(e, "The file could not be added. Try again."), retryableError(e),
         code === "expired" || code === "content_mismatch" || code === "not_found" ? "upload_again" : undefined);
     }

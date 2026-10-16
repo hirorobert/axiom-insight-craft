@@ -94,7 +94,7 @@ const APP = "http://127.0.0.1:4173";
 // ── Accounts: four real users with generated test passwords; plans granted the way an operator records them ───────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb") };
+const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb"), noPlan: mk("noplan") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -611,6 +611,51 @@ async function main() {
     await page.click('[data-testid="first-upload-open-result"]');
     const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026\/prepare/, { timeout: 45000 });
     return url.includes(B) ? true : url;
+  });
+
+  startGroup("Purchase required: the draft is kept and the customer continues after choosing a plan (Phase 2 P2-4)");
+  // A new account with NO plan. Nothing here charges or grants anything through payments: the plan is recorded the way
+  // an operator records one (the same helper the journey uses for every account), standing in for a completed purchase.
+  await signOut(); await signIn(U.noPlan);
+  const noPlanApi = await asUser(U.noPlan);
+  await check("no plan: the upload is offered with the plan stated up front; the file is stored as a draft", async () => {
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload-needs-plan"]', { timeout: 30000 });
+    await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    await widths("20-no-plan-draft");
+    const d = (await admin.from("trial_balance_drafts").select("state").eq("owner_ref", U.noPlan.id)).data ?? [];
+    return d.length === 1 && d[0].state === "reserved" ? true : d;
+  });
+  await check("'Start' explains that a plan is needed and offers 'Choose a plan'; nothing is created, nothing is processed", async () => {
+    await setByLabel("Entity name", "Pwani Invented Supplies Ltd");
+    await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
+    await setByLabel("Ends on", "2026-06-30");
+    await setByLabel("Trial balance currency", "TZS");
+    await sleep(300);
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-failure"]', { timeout: 60000 });
+    const t = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]').textContent);
+    const plan = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-choose-plan"]'));
+    const companies = ((await noPlanApi.from("companies").select("id")).data ?? []).length;
+    const ups = ((await admin.from("trial_balance_uploads").select("id").eq("user_id", U.noPlan.id)).data ?? []).length;
+    return /needs a plan/.test(t) && plan && companies === 0 && ups === 0 ? true : { t, plan, companies, ups };
+  });
+  await check("after a plan exists, the home offers 'Continue with' the same draft, with the card as it was; the check completes", async () => {
+    await grantPlan(U.noPlan.id);
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload-resume"]', { timeout: 30000 });
+    await page.click('[data-testid="first-upload-resume"]');
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 30000 });
+    const kept = await page.evaluate(() => [document.querySelector('[data-testid="confirm-entity"]')?.value, document.querySelector('[data-testid="confirm-currency"]')?.value]);
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+    const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
+    const drafts = (await admin.from("trial_balance_drafts").select("state").eq("owner_ref", U.noPlan.id)).data ?? [];
+    const co = (await noPlanApi.from("companies").select("name")).data ?? [];
+    await widths("21-no-plan-continued");
+    return !failure && kept[0] === "Pwani Invented Supplies Ltd" && kept[1] === "TZS" && drafts.length === 1 && drafts[0].state === "committed"
+      && co.length === 1 && co[0].name === "Pwani Invented Supplies Ltd" ? true : { failure, kept, drafts, co };
   });
 
   startGroup("Every request stayed on loopback");

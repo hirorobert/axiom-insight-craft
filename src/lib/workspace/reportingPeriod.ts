@@ -107,3 +107,16 @@ export function periodYear(c: PeriodChoice): number | null {
   const p = derivePeriod(c);
   return p ? parse(p.end)!.y : null;
 }
+
+/**
+ * A suggestion only (never pre-selected): the year that follows a confirmed period, offered when that period was itself
+ * a year by the same arithmetic. Anything else (a quarter, a 15-month period) has no automatic successor.
+ */
+export function followingYear(prev: { start: string; end: string }): PeriodChoice | null {
+  const end = parse(prev.end);
+  if (!end) return null;
+  const asYear = derivePeriod({ preset: "year", end: prev.end, start: null });
+  if (!asYear || asYear.start !== prev.start) return null;
+  const next = isMonthEnd(end) ? { y: end.y + 1, m: end.m, d: daysIn(end.y + 1, end.m) } : addMonths(end, 12);
+  return { preset: "year", end: iso(next), start: null };
+}

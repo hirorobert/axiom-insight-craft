@@ -224,7 +224,8 @@ financial-statements rollout.
 ## Unreleased ingestion compatibility update (2026-10-15)
 
 The historical release identities above remain unchanged. The current source dependency closure of
-`layout-assist` is now `208a49387ec9df4860e2ff671079b6a62fc0205012fe844904dfd37e794e6416` because the shared deterministic ingestion core recognises
+`layout-assist` is now `9668e951d9dabb196316da2a1a8425fe4570413e5a9532b27afb9af5b5b75cf9` because the shared deterministic ingestion core recognises
 printed-workbook metadata and control totals (tb-ingest-3.1.0), and then printed-report footers by position and structure, title-block
-evidence and the review-only rules (tb-ingest-3.2.0). This is a source identity, not evidence
+evidence and the review-only rules (tb-ingest-3.2.0), and the shared reader enforces the one upload policy before any parse
+(`_shared/uploadPolicy.ts`, tb-upload-policy-1). This is a source identity, not evidence
 of hosted deployment. The layout-assist customer gate remains unchanged.

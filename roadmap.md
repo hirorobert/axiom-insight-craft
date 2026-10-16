@@ -41,8 +41,8 @@ entity list. The two removed screens never appear while only one service exists.
 |---|---|---|
 | P2-1 | One way in while one service exists (entry card); header status; entity wording | VERIFIED IN ISOLATION (PR #136 at `578ac97`: every job green except the payment proofs #133 fixes) |
 | P2-2 | Draft upload authority: owner-scoped drafts, commit to an entity, recovery protocol, 7-day retention | VERIFIED END TO END on the local stack (`d2e2bad`, run 38856014011); not integrated, not deployed |
-| **P2-3 (current)** | First-visit drop zone; confirmation card (new entity, period presets with derived start or custom dates, currency from the registry); one primary "Start trial balance check" through create_entity → open_engagement_with_period → draft commit → process-trial-balance (resumable, no duplicates); stages File read → Columns confirmed → Checks completed from the server's milestones; draft message | VERIFIED END TO END on the local stack (`8de0eec`, run 38860710080) for a new customer WITH a plan and entity capacity; existing-entity and purchase-required paths not built |
-| P2-4 | Returning Home list; Orders → Settings › Billing with redirects; payment notice; Reconcile locked with reason | NOT STARTED |
+| P2-3 | First-visit drop zone; confirmation card (new entity, period presets with derived start or custom dates, currency from the registry); one primary "Start trial balance check" through create_entity → open_engagement_with_period → draft commit → process-trial-balance (resumable, no duplicates); stages File read → Columns confirmed → Checks completed from the server's milestones; draft message | VERIFIED END TO END on the local stack (`8de0eec`, run 38860710080) for a new customer WITH a plan and entity capacity; existing-entity and purchase-required paths not built |
+| **P2-4 (current)** | DONE in code: returning Home compact upload (outline, above the one next action); upload to an existing entity with the currency pre-filled from its confirmed period (source shown) and the following year as a suggestion only; purchase-required path (no plan: draft kept, 'Choose a plan', 'Continue with' the same draft and card afterwards); Orders → Settings › Billing (`/settings/billing`, `/billing/orders` redirects with query). NOT YET: entity list redesign (entity · latest period · service · status), payment notice, Reconcile locked with reason, replace-from-draft, investigation access while finalisation is blocked | IMPLEMENTED — awaiting exact-head CI |
 | P2-5 | Integrity across entity creation → commit → job → usage; acceptance journeys 1–14; desktop/mobile screenshots | NOT STARTED |
 
 ### P2-2 — what exists and what it proves
@@ -93,6 +93,34 @@ orchestration deleting real objects. Simulated: a worker stopping between steps 
 then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
 service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
+## Upload policy (tb-upload-policy-1) — PROVISIONAL, enforced
+
+One module, `supabase/functions/_shared/uploadPolicy.ts`, enforced by the shared reader before any parse (so by
+`process-trial-balance`, `trial-balance-layout` and `layout-assist`), mirrored for the browser (`src/lib/workspace/uploadPolicy.ts`)
+and equal to the drafts migration's size CHECK (all held equal by `uploadPolicy.test.ts`). Current values: file 50 MB;
+`.xlsx` expanded (declared, from the ZIP central directory, nothing inflated) 200 MB and 2,000 parts; 200,000 rows;
+4,000,000 cells. Before this, the trial-balance path enforced **no** resource limit at all.
+
+**Measured** (`scripts/bench/tbUploadPolicyBench.mjs`, invented balanced TBs, real shared reader + ingestion, one fresh process
+per case; Bun 1.3.14 on Windows — NOT the hosted Deno Edge Runtime, so absolute numbers differ there; process baseline ≈130 MB):
+
+| Input | File | Expanded | Read + ingest | Peak RSS |
+|---|---|---|---|---|
+| CSV 10k rows | 0.4 MB | — | 0.14 s | 165 MB |
+| CSV 100k rows | 4.0 MB | — | 1.6 s | 290 MB |
+| XLSX 10k rows | 1.6 MB | 1.6 MB | 0.4 s | 205 MB |
+| XLSX 50k rows | 8.1 MB | 8.1 MB | 1.7 s | 347 MB |
+| XLSX 100k rows | 16.3 MB | 16.3 MB | 3.0 s | 570 MB |
+| XLSX (deflated) 100k rows | 6.1 MB | 16.3 MB | 5.7 s | 548 MB |
+| XLSX 200k rows (refused: rows) | 33.3 MB | 33.3 MB | 5.8 s | 790 MB |
+| 4 concurrent XLSX 100k (separate processes) | | | 7.8 s wall | ≈567 MB each |
+
+Findings: (1) workbook memory grows ≈27 bytes per expanded byte; (2) the row/cell limits apply only AFTER the spreadsheet
+library has parsed the workbook, so for `.xlsx` the expanded-size limit is the real memory guard; (3) at today's values a
+single accepted workbook can exceed any plausible single-invocation memory budget; (4) the declared-size check stops ordinary
+compression bombs but trusts the archive's own directory (a forged directory could understate sizes) — a streaming,
+capped inflate is the stronger guard and is not built; (5) not yet measured in the hosted Edge Runtime (needs a deployment).
+
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
 Compatible, with these points to settle before Phase 6:
@@ -113,6 +141,32 @@ Compatible, with these points to settle before Phase 6:
 6. **One status vocabulary.** Phase 6 readiness words must map onto `src/lib/workspace/resultStatus.ts` (Phase 1).
 7. **No competing mapping mechanism** is built by Phase 2; mapping authority stays `resolve_account_review_batch`.
 
+**Evidence check of #138 at `3349527` (16 October, run here on an isolated branch = combined candidate + #138's
+`research/phase5/**`; #138's branch itself untouched):**
+
+| Class | What | Result |
+|---|---|---|
+| Prototype | `tests/phase5.test.mjs`, `tests/coverage.test.mjs` | PASS |
+| Static (reads SQL/source text; no database) | `tests/real_contract_static.mjs`, `proof/real_layout_contract.mjs` | PASS |
+| Database (actual RPC on the replayed authoritative chain) | `proof/real_contract_proof.mjs` on embedded **PostgreSQL 16.14** (no 17 available locally; hosted is 17) | **FAILS before any RPC**: the chain replays (177 files), then the proof's own fixture stops with `SEAT_LIMIT_REACHED` — its licence (line 53) grants no additional seats and line 86 adds two members. Fix belongs to the #138 owner (grant seats as the other proofs do). |
+| Authenticated runtime (local stack / hosted) | — | NONE |
+
+Further findings for the #138 owner: (a) the proof's PASS line hard-codes "applied on PostgreSQL 17" whatever the server
+is — it should print `SHOW server_version`; (b) `prototype/layer4_treatment.mjs` contains a literal NUL byte (an intended
+`"\x00"` separator written as the raw byte at offset 3344), so Git treats the file as binary and review diffs are lost;
+(c) `TB_INGESTION_VERSION` is cited as `tb-ingest-3.0.0` (current 3.2.0). A PostgreSQL 17 run is to follow in CI (a
+`postgres:17` service) once the fixture is fixed — running it now would fail at the same step.
+
+**Contract points to agree before Phase 6 (beyond byte identity):** entity — mappings are company-scoped by `account_key`;
+period — Phase 2 binds period year + dated period, but legacy uploads may have no `period_id`; currency — the dated period's
+`reporting_currency` is the authority (the commit's confirmation is a record of what was confirmed); dimensions — #138
+proposes none (no cost-centre/segment axis), so reuse is per company + account key only; permissions —
+`resolve_account_review_batch`'s own capability check is the authority, and every group acceptance must expand to
+per-account decisions each validated and attributed to the reviewing firm member (no inferred common treatment for accounts
+that merely share an uncertainty flag); versions — reuse must be bound to the upload's `source_file_hash` and the parser
+version read from code; reviewer semantics — `USER_ACCEPTED_SUGGESTION` per account, latest `sequence_no` wins, history
+never rewritten.
+
 **Proposed file ownership (to agree before any shared production edit):**
 - Core journey/integration (this session): `supabase/migrations/20261106100000_*`, `supabase/functions/trial-balance-draft/`,
   `_shared/draftUpload.ts`, `_shared/sourceSweeper.ts`, `_shared/tbIngestion.ts`, `_shared/printedReportMetadata.ts`,
@@ -128,11 +182,11 @@ Compatible, with these points to settle before Phase 6:
 
 1. **#132/#133 integration**: recommended arrangement is the combined candidate draft #137 (current `main` + #132 + #133,
    no file overlap); merge only with every required check green on its final head. No merge permission is assumed.
-2. **Draft size cap**: 50 MB is a technical bound in the drafts migration. No trial balance upload size limit existed
-   before, so this is a new policy to confirm.
+2. **Draft size cap**: now part of the one upload policy — see decision 6.
 3. **Hosted application** of `20261106100000` and deployment of `trial-balance-draft`: owner/Lovable only; not requested.
 4. **Payments** stay disabled until Polar and Snippe both pass (decided 14 October; restated 15 October).
 5. **Phase 6** scope and the file-ownership split above.
+6. **Upload policy values.** Recommendation from the measurements: file 15 MB, `.xlsx` expanded 16 MB, 100,000 rows, 2,000,000 cells (typical trial balances are well under 5,000 rows), then confirm with one measured run in the hosted Edge Runtime before publishing the limits to customers.
 
 ## Earlier notes (kept)
 
