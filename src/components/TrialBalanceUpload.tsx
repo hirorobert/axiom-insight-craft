@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { registerWorkspaceUpload, uploadWorkspaceSource } from "@/lib/workspace/sourceUpload";
+import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
   TWO_PERIOD_INTAKE_ENABLED, adjacentPriorPeriod, registerTwoPeriodUpload, type PeriodRow, type TwoPeriodRpcClient,
 } from "@/lib/workspace/twoPeriodIntake";
@@ -52,19 +53,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-async function readFunctionAnswer(error: unknown): Promise<{ httpStatus: number | null; body: Record<string, unknown> | null }> {
-  const ctx = (error as { context?: { status?: number; json?: () => Promise<unknown> } } | null)?.context;
-  const httpStatus = typeof ctx?.status === "number" ? ctx.status : null;
-  let body: Record<string, unknown> | null = null;
-  try {
-    const parsed = await ctx?.json?.();
-    body = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    body = null;
-  }
-  return { httpStatus, body };
 }
 
 const STEP_ICON: Record<StepStatus, JSX.Element> = {
@@ -129,9 +117,9 @@ export const TrialBalanceUpload = ({
   // ── The steps ────────────────────────────────────────────────────────────────────────────────────────────────────
   const runCheck = useCallback(async (uploadId: string, clientRequestId: string) => {
     await ensureFreshSession();
-    const { error } = await supabase.functions.invoke("process-trial-balance", { body: { uploadId, clientRequestId } });
-    const answer = error ? await readFunctionAnswer(error) : { httpStatus: 200, body: null };
-    let outcome = classifyCheckAnswer(answer);
+    // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
+    const answer = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId, clientRequestId });
+    let outcome = classifyCheckAnswer({ httpStatus: answer.httpStatus, body: answer.body });
     // Another request is already checking this upload: wait for its recorded outcome (bounded), never run it twice.
     if (outcome.kind === "wait") {
       outcome = { kind: "failed", failure: { step: "check", retry: "same_request", fileSaved: true, message: "The check is taking longer than expected. Check again in a moment — it will not be counted twice." } };
@@ -166,7 +154,8 @@ export const TrialBalanceUpload = ({
         // The prior year is its own dataset with its own check; it is started here and finished on its own page.
         const label = priorPeriod.period_label;
         setPriorNote(`${label} was saved from the same file; its check is running separately.`);
-        void supabase.functions.invoke("process-trial-balance", { body: { uploadId: pair.priorUploadId, clientRequestId: crypto.randomUUID() } })
+        // Started alongside the current year's check, so it is often answered busy at first: retried, bounded.
+        void invokeProcessing(supabase as unknown as FunctionsClient, { uploadId: pair.priorUploadId, clientRequestId: crypto.randomUUID() })
           .then(({ error: priorErr }) => setPriorNote(priorErr
             ? `${label} was saved from the same file, but its check did not finish. Open ${label} to run it again.`
             : `${label} was saved from the same file and checked separately. Open ${label} to see its result.`));
