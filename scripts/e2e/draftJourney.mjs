@@ -436,22 +436,51 @@ await check(`one account over the account limit (${ACCOUNTS + 1}): refused by na
   const r = await commitAndProcess(csvOf(balancedRows(ACCOUNTS + 1)), "accounts-over.csv");
   return refusedCleanly(r, "TOO_MANY_ACCOUNTS") && (!r.cert || r.cert.blocking === true) ? true : r;
 });
-// Concurrency at the account limit. Measured on the local Edge Runtime (CI, PR #141): 4 simultaneous 2,000-account
-// requests exceed the worker's resource limit (HTTP 546 WORKER_LIMIT) — an availability limit, registered, not hidden.
-// Integrity is checked strictly: every request is either processed in full with its own complete findings, or answered
-// as a failure with NOTHING certified — never a partial or mixed result.
-const fullOrNothing = (r, accounts) => processedFully(r, accounts) || (r.httpStatus !== 200 && (r.cert === null || (r.cert.findingsCount === r.cert.stored && r.cert.findingsCount >= accounts)) && r.status !== "complete");
-await check("4 concurrent requests at the account limit: each is processed in full with its own findings, or fails explicitly with nothing partial", async () => {
-  const files = await Promise.all([0, 1, 2, 3].map(() => xlsxOf(balancedRows(ACCOUNTS))));
-  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent4-${k}.xlsx`)));
-  log(`        [policy] 4-way at ${ACCOUNTS} accounts: ${rs.filter((r) => processedFully(r, ACCOUNTS)).length} processed in full, ${rs.filter((r) => r.httpStatus !== 200).length} answered ${[...new Set(rs.map((r) => r.httpStatus))].join("/")}`);
-  return rs.every((r) => fullOrNothing(r, ACCOUNTS)) ? true : rs;
-});
-await check("2 concurrent requests at the account limit are both processed in full", async () => {
-  const files = await Promise.all([0, 1].map(() => xlsxOf(balancedRows(ACCOUNTS))));
-  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent2-${k}.xlsx`)));
-  return rs.every((r) => processedFully(r, ACCOUNTS)) ? true : rs;
-});
+// Concurrency at the account limit. Measured on the local Edge Runtime (CI, PR #141, before admission): 4 simultaneous
+// 2,000-account requests exceeded the worker's resource limit (HTTP 546 WORKER_LIMIT) and left attempts leased. Since
+// then process-trial-balance admits at most two checks at once per worker (_shared/admission.ts); the others wait in
+// order (≤ 25 s) or are refused BEFORE anything begins (503 PROCESSING_BUSY) and retry the same request.
+const attemptsOf = async (uploadId) => (await admin.from("engine_runs").select("id, status, attempt_no").eq("source_record_id", uploadId)).data ?? [];
+const certsOf = async (uploadId) => (await admin.from("tb_certifications").select("id").eq("upload_id", uploadId)).data ?? [];
+/** commitAndProcess, keeping the upload id and the request id so a busy answer can be retried as the SAME request. */
+const commitOnly = async (bytes, name) => {
+  const p = await openYear();
+  const d = await reserve(owner, bytes, key(), name);
+  await upload(owner, d, bytes);
+  const c = await fn(owner, commitBody({ ...d, bytes, year: p.year }, { period_id: p.periodId, engagement_id: p.engagementId }));
+  return c.body.upload_id;
+};
+const processOnce = async (uploadId, requestId) => {
+  const t0 = Date.now();
+  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId, clientRequestId: requestId }) });
+  const body = await res.json().catch(() => null);
+  return { http: res.status, code: body?.code ?? null, ms: Date.now() - t0 };
+};
+for (const n of [4, 8]) {
+  await check(`${n} simultaneous requests at the account limit: every one processed in full exactly once (one attempt, one certification), or refused as busy with NOTHING begun and then processed by a retry of the same request; no worker exhaustion, nothing stranded`, async () => {
+    const files = await Promise.all(Array.from({ length: n }, () => xlsxOf(balancedRows(ACCOUNTS))));
+    const ids = [];
+    for (let k = 0; k < n; k++) ids.push(await commitOnly(files[k], `concurrent${n}-${k}.xlsx`));
+    const reqIds = ids.map(() => crypto.randomUUID());
+    const first = await Promise.all(ids.map((id, k) => processOnce(id, reqIds[k])));
+    const busy = [];
+    for (let k = 0; k < n; k++) if (first[k].http === 503 && first[k].code === "PROCESSING_BUSY") busy.push({ k, attemptsBefore: (await attemptsOf(ids[k])).length });
+    const retried = [];
+    for (const b of busy) retried.push(await processOnce(ids[b.k], reqIds[b.k]));
+    const final = [];
+    for (let k = 0; k < n; k++) {
+      const row = (await admin.from("trial_balance_uploads").select("status").eq("id", ids[k]).single()).data;
+      const cert = await certificationOf(ids[k]);
+      final.push({ k, first: first[k].http, ms: first[k].ms, status: row?.status, attempts: (await attemptsOf(ids[k])).length, certs: (await certsOf(ids[k])).length, stored: cert?.stored ?? null, findings: cert?.findingsCount ?? null });
+    }
+    log(`        [policy] ${n}-way at ${ACCOUNTS} accounts: first answers ${first.map((f) => f.http).join("/")} (${first.map((f) => f.ms).join("/")} ms); busy ${busy.length}, retried ${retried.map((r) => r.http).join("/") || "-"}`);
+    const ok = first.every((f) => f.http === 200 || (f.http === 503 && f.code === "PROCESSING_BUSY"))
+      && busy.every((b) => b.attemptsBefore === 0)
+      && retried.every((r) => r.http === 200)
+      && final.every((f) => f.status === "needs_review" && f.attempts === 1 && f.certs === 1 && f.stored === f.findings && f.findings >= ACCOUNTS);
+    return ok ? true : { first, busy, retried, final };
+  });
+}
 await check("a workbook one row over the limit: refused by name (TOO_MANY_ROWS); no account accepted, no totals, HTTP 200", async () => {
   const r = await commitAndProcess(await xlsxOf(balancedRows(MAX)), "over.xlsx");
   return refusedCleanly(r, "TOO_MANY_ROWS") ? true : r;

@@ -331,6 +331,9 @@ describe("database inertness — schema and functions", () => {
       // The pure summary builder the processing function uses. Proven on PostgreSQL by certificationCapacity.mjs.
       "supabase/migrations/20261107100000_certification_findings_capacity.sql",
       "supabase/functions/_shared/certificationFindings.ts",
+      // Controlled admission for process-trial-balance (at most two checks at once per worker; the rest wait or are
+      // refused before anything begins). Pure; no schema.
+      "supabase/functions/_shared/admission.ts",
     ]);
     const modified = new Set([
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.

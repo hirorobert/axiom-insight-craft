@@ -349,6 +349,55 @@ async function main() {
     const after = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
     return r.outcome === "certified" && before === true && after === false ? true : { r, before, after };
   });
+
+  group("Dependencies — mapping changes CONCURRENT with processing and finalisation (2,000 accounts: no per-account locks)");
+  const accepted = (f) => ({ outcome: "certified", upload: { ...upload, status: "complete", is_valid: true },
+    certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, rows_snapshot: [], exceptions: summarizeFindings(f).exceptions, findings: f } });
+  const info = findingsFor(2000).map((x) => ({ ...x, severity: "info", layer: 5, code: "L5_NOTE" }));
+  const shownCodes = new Set(summarizeFindings(info).exceptions.map((e) => e.accountCode).filter(Boolean));
+  await check("a mapping transaction OPEN while finalisation runs (outside the summary), committed after it: the certification loses authority at once", async () => {
+    const t = await attempt();
+    await snapshot(t.run, depKeys(A, 2000));
+    const i = 1900;
+    if (shownCodes.has(accountCode(i))) return "account is in the summary";
+    const writer = await pool.connect();
+    try {
+      await writer.query("BEGIN");
+      await writer.query(`INSERT INTO public.account_mappings (user_id, company_id, account_code, account_name, statement, classification, line_item, normal_balance)
+        VALUES ($1,$2,$3,$4,'balance_sheet','current_assets','Invented','debit')`, [U.owner, A, accountCode(i), accountName(i)]);
+      const r = await finalize(t.run, accepted(info));           // runs while the mapping change is uncommitted
+      const during = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
+      await writer.query("COMMIT");
+      const after = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
+      return r.outcome === "certified" && during === true && after === false ? true : { r, during, after };
+    } finally { writer.release(); }
+  });
+  await check("12 rounds: finalisation and a mapping write (outside the summary) fired at the same moment — never an authoritative result resting on a changed dependency", async () => {
+    const out = [];
+    for (let round = 0; round < 12; round++) {
+      const t = await attempt();
+      await snapshot(t.run, depKeys(A, 2000));
+      const i = 1800 + round;
+      const [f] = await Promise.all([finalize(t.run, accepted(info)).catch((e) => ({ outcome: "error", code: e.code })), mapAccount(i)]);
+      const authoritative = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
+      out.push(`${f.outcome}${f.error_code ? `:${f.error_code}` : ""}:${authoritative}`);
+      if (authoritative !== false || !["certified", "failed"].includes(f.outcome) || (f.outcome === "failed" && f.error_code !== "DEPENDENCY_CHANGED")) return out;
+    }
+    console.log(`        outcomes: ${out.join(" ")}`);
+    return true;
+  });
+  await check("a review DECISION (not only a mapping) on an account outside the summary also invalidates a certified result", async () => {
+    const t = await attempt();
+    await snapshot(t.run, depKeys(A, 2000));
+    const r = await finalize(t.run, accepted(info));
+    const before = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
+    // The real review RPC, as the account's reviewer: its decision and mapping triggers bump the account's revisions.
+    await asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, t.up, crypto.randomUUID(), JSON.stringify([{ account_code: accountCode(1700), account_name: accountName(1700),
+      proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: "balance_sheet", classification: "current_assets", normal_balance: "debit" }])]);
+    const viaTrigger = (await count("SELECT count(*) n FROM public.account_review_decisions WHERE company_id=$1 AND review_account_key=$2", [A, accountCode(1700)])) === 1;
+    const after = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
+    return r.outcome === "certified" && before === true && after === false && viaTrigger ? true : { r, before, after, viaTrigger };
+  });
 }
 
 try { await main(); } catch (e) { record("unexpected", false, String(e?.stack ?? e)); }

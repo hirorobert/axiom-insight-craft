@@ -43,6 +43,7 @@ import {
 import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
 import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
+import { createAdmission, withAdmission } from "../_shared/admission.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -1284,7 +1285,16 @@ async function finishAttempt(
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
-serve(async (req) => {
+// Controlled admission (_shared/admission.ts): at most two checks run at once in one worker (measured: two at the
+// account limit complete; four exhaust the worker). The others wait in arrival order up to 25 s; one still waiting is
+// refused before anything begins (no attempt, no lease, nothing recorded) and retries the same request later.
+const ADMISSION = createAdmission(2, 25_000);
+const PROCESSING_BUSY = {
+  status: "busy", code: "PROCESSING_BUSY",
+  message: "Several trial balances are being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
+};
+
+serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "15" } }), async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
@@ -2196,7 +2206,7 @@ serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-});
+}));
 
 // ── Ingestion helpers (declared after the handler; hoisted) ─────────────────────────────────────────────────────────
 
