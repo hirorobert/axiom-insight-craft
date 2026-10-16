@@ -82,6 +82,7 @@ Files: `supabase/migrations/20261106100000_trial_balance_drafts.sql`, `supabase/
 | #136 `b65769b` (P2-2) | 38853987539 | Drafts PostgreSQL proof **ALL PASSED** (CI container); local-stack draft journey **25/25** (real Auth, PostgREST, RLS, Storage, function); Release Gate, lint/build/typecheck, golden, migration audit **green**. Failing: payment proofs (fixed by #133, known) and the new Deno check of `trial-balance-draft` (it used `npm:` imports that the Deno job cannot resolve → switched to the `esm.sh` pattern of the other checked functions in the next commit). |
 | #136 `d2e2bad` (P2-2 + Deno fixes) | 38856014011 | **All P2-2 evidence green on this exact head:** drafts PostgreSQL proof 71/71 (CI container); local-stack draft journey 25/25 (real Storage); the existing real-app journey (entity-first flow, i.e. old frontend path on the new backend) ALL PASSED; Deno check of `trial-balance-draft` green; Release Gate, lint/build/typecheck, golden, migration audit green; every other database proof green (upload lifecycle 207/207, shared source, wrappers, …). **Only failing steps:** the payment proofs #133 fixes (`paymentJourney` 49/54, verified-charge proof 19/26). So #136 is NOT green as a tree; it becomes mergeable only on a base that includes #133. |
 | #136 `8de0eec` (P2-3) | 38860710080 | Real-app journey **ALL PASSED** including the first upload through the real UI: draft stored (no entity yet), empty card refused with a problem list, card → entity "Kilima Invented Traders Ltd", period 1 Jul 2025 – 30 Jun 2026 TZS, upload bound to that period, draft committed to that exact upload, stages File read Done / Columns confirmed Done / Checks completed Needs review, result page opened; 1280/375 px layout checks on every new screen. Drafts journey 25/25; drafts proof 71/71; all other jobs green except the payment proofs #133 fixes (5 payment-journey checks, verified-charge proof). |
+| #139 `1eee1d9` (combined candidate: main `00a2653` + #137 + #136 at `a8aa55d`) | 38871104237 | **Every required job green** (Staging RLS skipped, as on every PR), including P2-4 and the safe replacement. Earlier green heads do not cover later commits. |
 | #137 `f12ebcf` (#132 + #133 on main `00a2653`) | 38853015089 | **Every job green** (Staging RLS skipped, as on every PR). |
 
 Locally on PostgreSQL 16 (embedded): drafts proof 71/71; existing shared-source proof 44/44 and upload-lifecycle proof
@@ -115,7 +116,14 @@ per case; Bun 1.3.14 on Windows — NOT the hosted Deno Edge Runtime, so absolut
 | XLSX 200k rows (refused: rows) | 33.3 MB | 33.3 MB | 5.8 s | 790 MB |
 | 4 concurrent XLSX 100k (separate processes) | | | 7.8 s wall | ≈567 MB each |
 
-Findings: (1) workbook memory grows ≈27 bytes per expanded byte; (2) the row/cell limits apply only AFTER the spreadsheet
+**Enforced since `c532eda` (actual, not declared):** at every entry point, before any reader, each `.xlsx`/`.xlsm` entry is
+inflated as a stream and its REAL output counted, cut off at the limit (a package that understates its sizes is caught); rows
+are bounded during the parse (`sheetRows` = limit + 1). Raw upload/storage size (the draft and the bucket) is a separate,
+larger number than the safe-parse limits. A Deno/V8 probe with a hard heap cap runs in CI (fits or terminated, measured);
+its numbers set the proposed values below. The hosted runtime itself terminates an invocation over its own limits; the
+processing attempt lease then frees the attempt.
+
+Findings (Bun, before the actual-bounds change): (1) workbook memory grows ≈27 bytes per expanded byte; (2) the row/cell limits apply only AFTER the spreadsheet
 library has parsed the workbook, so for `.xlsx` the expanded-size limit is the real memory guard; (3) at today's values a
 single accepted workbook can exceed any plausible single-invocation memory budget; (4) the declared-size check stops ordinary
 compression bombs but trusts the archive's own directory (a forged directory could understate sizes) — a streaming,
@@ -156,6 +164,21 @@ is — it should print `SHOW server_version`; (b) `prototype/layer4_treatment.mj
 `"\x00"` separator written as the raw byte at offset 3344), so Git treats the file as binary and review diffs are lost;
 (c) `TB_INGESTION_VERSION` is cited as `tb-ingest-3.0.0` (current 3.2.0). A PostgreSQL 17 run is to follow in CI (a
 `postgres:17` service) once the fixture is fixed — running it now would fail at the same step.
+
+**#138 actual-RPC proof with four labelled setup corrections (evidence branch, draft #140; owner asked to adopt them on
+#138):** PostgreSQL 16.14 locally **22/23** — every refusal, idempotent replay/changed-payload refusal, atomic abort,
+company-scoped reuse, the manual multi-account path and conflict serialisation pass. **One genuine contract finding:** two
+accounts with the same name and different codes (e.g. `4000 Sales` / `4100 Sales`) cannot both be mapped in one company
+(`uq_acct_map_company_norm_name`); the real RPC raises a constraint violation, not a structured refusal. PostgreSQL 17:
+CI on #140. Authenticated runtime: none yet.
+
+**Evidence principles (owner, 16 October) — binding on Phase 2 output and on Phase 6:** two trial balances establish NET
+movements per account, not their cash/non-cash composition (cash flow needs ledger evidence); a source imbalance stays
+visible after balanced adjustments (adjustments never restate the source result); signed prior statements are identified
+separately from later comparatives; amounts are exact minor units and display rounding is labelled as display (pinned:
+`trialBalanceExactTotals`, `phase1Acceptance`); corrections create linked source versions and never overwrite history
+(replacement: `replaces_upload_id`, old upload superseded and kept — proven); unexplained differences are described
+neutrally, with amounts and no cause (pinned in `phase1Acceptance`).
 
 **Contract points to agree before Phase 6 (beyond byte identity):** entity — mappings are company-scoped by `account_key`;
 period — Phase 2 binds period year + dated period, but legacy uploads may have no `period_id`; currency — the dated period's
