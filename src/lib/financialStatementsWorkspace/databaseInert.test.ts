@@ -334,6 +334,11 @@ describe("database inertness — schema and functions", () => {
       // Controlled admission for process-trial-balance (at most two checks at once per worker; the rest wait or are
       // refused before anything begins). Pure; no schema.
       "supabase/functions/_shared/admission.ts",
+      // Account identity (repair B, 20261108100000): a NEW forward-only migration replacing the all-names unique index on
+      // account_mappings by a codeless-only one (no row changed); the pure candidate-counting name matcher the processing
+      // function uses. Proven on PostgreSQL by accountIdentity.mjs.
+      "supabase/migrations/20261108100000_account_identity_codeless_name.sql",
+      "supabase/functions/_shared/accountNameMatch.ts",
     ]);
     const modified = new Set([
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
@@ -612,6 +617,9 @@ describe("database inertness — schema and functions", () => {
       // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
       // without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/certificationCapacity.mjs",
+      // Account identity (repair B): the loopback-only real-PostgreSQL proof (reproduces the raw unique violation on the
+      // chain without the repair, then proves it). No deploy behaviour.
+      "scripts/db-proof/accountIdentity.mjs",
       // The upload-policy measurement (invented data, local processes only; no network, no secret).
       "scripts/bench/tbUploadPolicyBench.mjs", "scripts/bench/tbUploadPolicyDenoProbe.ts",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).

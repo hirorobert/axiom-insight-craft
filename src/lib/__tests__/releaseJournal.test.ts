@@ -93,7 +93,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
+    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -479,7 +479,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
+    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
@@ -601,7 +601,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
+    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql"]); // 20261106100000 (trial balance drafts, Phase 2 P2-2): authored, PENDING hosted application (owner applies through the authorized journal process)
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
       "0039_i1b_w7_signoff_completion_requirements"];
