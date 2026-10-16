@@ -1067,11 +1067,17 @@ export class MilestoneLog {
 const AMOUNT_ISSUES = new Set<IssueCode>(["MALFORMED_NUMERIC_VALUE", "LAYOUT_NUMBER_FORMAT_MISMATCH", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "CURRENCY_MISMATCH"]);
 const ROW_ISSUES = new Set<IssueCode>(["MISSING_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_NAME", "TOTAL_ROW_MISMATCH", "TEMPLATE_EXAMPLE_UPLOADED", "NO_ACCOUNT_ROWS"]);
 const COLUMN_ISSUES = new Set<IssueCode>(["LAYOUT_SHEET_NOT_FOUND", "LAYOUT_HEADER_NOT_FOUND", "LAYOUT_COLUMN_NOT_FOUND", "LAYOUT_COLUMN_DUPLICATED", "MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]);
+// The file was refused as a whole before any check ran: an upload-policy limit (uploadPolicy.ts) or a file that cannot be
+// read as a trial balance. The record stops at "read" with the reason — never a later step (no totals is not an
+// arithmetic failure).
+const READ_REFUSALS = new Set<IssueCode>(["FILE_TOO_LARGE", "WORKBOOK_TOO_LARGE_EXPANDED", "WORKBOOK_TOO_MANY_PARTS", "TOO_MANY_ROWS", "TOO_MANY_CELLS", "TOO_MANY_ACCOUNTS", "UNSUPPORTED_FORMAT", "ENCODING_NOT_UTF8", "CSV_UNTERMINATED_QUOTE"]);
 
 /** Marks the ingestion milestones (read → balance) from an ingest result. */
 export function markIngestionMilestones(log: MilestoneLog, r: IngestResult): void {
   const codes = new Set(r.issues.filter((i) => i.severity === "blocking").map((i) => i.code));
   const has = (set: Set<IssueCode>) => [...codes].some((c) => set.has(c));
+  const refusal = r.issues.find((i) => i.severity === "blocking" && READ_REFUSALS.has(i.code));
+  if (refusal) { log.mark("read", "failed", refusal.message); return; }
   const prereq = codes.has("PERIOD_NOT_SELECTED") || codes.has("CURRENCY_UNRESOLVED") || codes.has("CURRENCY_UNSUPPORTED") || codes.has("FILE_EMPTY");
   if (prereq) { log.mark("read", "failed"); return; }
   log.mark("read", "passed", `${r.lineageSummary.rowsRead} rows${r.sheetName ? ` on sheet “${r.sheetName}”` : ""}`);

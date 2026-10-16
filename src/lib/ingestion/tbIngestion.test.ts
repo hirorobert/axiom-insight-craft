@@ -320,6 +320,23 @@ describe("classification review policy and milestones", () => {
     expect(noPeriod.list()[0].status).toBe("failed");
   });
 
+  it("a file refused as a whole (upload policy, unreadable format) stops at 'read' with its reason — never a failed balance", () => {
+    const base = readFixture("coded-fy2025.csv");
+    for (const [code, message] of [
+      ["TOO_MANY_ACCOUNTS", "The trial balance has more than 2,000 accounts, the most one check can certify today. Nothing from this file was recorded."],
+      ["FILE_TOO_LARGE", "The file is larger than the upload limit. Nothing from this file was recorded."],
+      ["UNSUPPORTED_FORMAT", "This file type cannot be read as a trial balance."],
+    ] as const) {
+      // What process-trial-balance's refusedRead records: no accounts, no totals, the one blocking issue.
+      const refused = { ...base, accounts: [], totals: null, lineage: [], issues: [{ code, severity: "blocking" as const, message }],
+        lineageSummary: { ...base.lineageSummary, rowsRead: 0, preamble: 0, header: 0, blank: 0, heading: 0, total: 0, zero_balance: 0, account: 0, rejected: 0 } };
+      const log = new MilestoneLog();
+      markIngestionMilestones(log, refused as unknown as Parameters<typeof markIngestionMilestones>[1]);
+      expect(log.list()[0]).toMatchObject({ id: "read", status: "failed", detail: message });
+      expect(log.list().slice(1).every((m) => m.status === "not_reached")).toBe(true);
+    }
+  });
+
   it("is deterministic: the same bytes give the same result", () => {
     const a = readFixture("coded-fy2025.csv");
     const b = readFixture("coded-fy2025.csv");
