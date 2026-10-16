@@ -187,14 +187,16 @@ authority is necessary" — so this is stated honestly.
    it used. **Minimum compatible change: a `close_review_events` row** (`subject_kind='upload'`, a new `event_type` such as
    `tb_review_summarised`, `detail` = the versions/decision set) — the existing append-only timeline, **no new table**. A
    completed summary is then immutable and bound; a later reopen produces a NEW summary, never mutating the old one.
-4. **Reuse context beyond entity + `account_key`.** Live `account_mappings` keys only `(company_id, account_key)` — **no
-   currency, period, dimension, or ruleset-version axis** — so the RPC cannot enforce the richer reuse compatibility the
-   prototype models (a currency/dimension/ruleset change ⇒ `CONTEXT_INCOMPATIBLE` ⇒ reopen). The prototype **discloses**
-   every field it could not verify rather than assuming equality (UNKNOWN ≠ EQUAL ≠ MISMATCH). **Minimum compatible change:**
-   record the accepting context on the **decision ledger** (`account_review_decisions` already carries `previous_value`/
-   `new_value` JSON — add context there, or an additive column) and compare it on reuse. **Additive; no change to the write
-   path's authority.** **Not in the first slice** (single-entity, single-currency); the honest next gap. Entity itself is
-   already enforced natively (`UPLOAD_COMPANY_MISMATCH` + company-scoped mappings).
+4. **Reuse context beyond entity + `account_key`.** Live `account_mappings` keys only `(company_id, account_key)`, and the
+   write RPC does not compare context — so reuse *through the RPC* is entity + account_key today. **Corrected, verified:**
+   currency and period are **not** a schema gap — they are authoritative on `fiscal_periods` (`reporting_currency` FK to
+   `currency_registry`, no TZS fallback; explicit dates), reached from an upload via `trial_balance_uploads.period_id`
+   (`20260630100000` / `20261009100000`), so a Phase 6 reuse check can **read** them. The genuine remaining gaps are
+   narrower: (a) **bind** the accepting context onto the **decision ledger** (`account_review_decisions` already carries
+   `previous_value`/`new_value` JSON — add context there, or an additive column) so reuse can compare it; (b) a **dimension**
+   axis; (c) a **ruleset-version** axis. The prototype **discloses** every field it could not verify rather than assuming
+   equality (UNKNOWN ≠ EQUAL ≠ MISMATCH). **Additive; no change to the write path's authority. Not in the first slice.**
+   Entity itself is already enforced natively (`UPLOAD_COMPANY_MISMATCH` + company-scoped mappings).
 
 ## 10. Prototype vs real-contract evidence (necessary vs sufficient)
 - **Executed now — static shape+semantics against the REAL function** (`tests/real_contract_static.mjs`, 14/14): the

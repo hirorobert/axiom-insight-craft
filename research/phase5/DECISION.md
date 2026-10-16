@@ -74,6 +74,28 @@ enabling meaning-suggestion AI needs its own consent wording + data-handling app
 which the `ai-sample/1` data-minimisation contract withholds). No paid model execution without existing provider/budget
 authority; no private customer data in fixtures, evaluation or training; `cfoclose_tb_fixtures.zip` is not used.
 
+## Accounting boundaries (reaffirmed; each regression-tested in `tests/accounting_boundaries.test.mjs`, 17/17)
+These encode disciplines as explicit refusals so the prototype never fabricates authority it lacks. Where production already
+owns the discipline, the real authority is named.
+- **MUSE observations are candidate rules, scoped.** Each is scoped to an **entity + chart/version + years**, carries
+  **evidence**, and holds a **proposed/reviewer-approved** status — never a global prefix rule, never auto-applied.
+- **Approval alone does not permit reuse.** Even an approved decision/rule is reusable only when the **context is
+  compatible**; **changed meaning or conflicting evidence reopens** review (see reuse-context + `STALE_MEANING`).
+- **Prepayments need the three-component bridge.** Opening + additions + release/amortisation, **each evidenced**, give the
+  closing balance; **a closing figure agreeing arithmetically does NOT authorise net presentation**.
+- **Two TBs establish net movements only** — never gross additions, credit movements, or a movement split; decomposition
+  needs transaction-level evidence. (Net movement is not automatically a cash flow.)
+- **Required evidence is output-specific; a sufficient reconciled alternative is acceptable.** Uploading a document alone
+  **never** establishes readiness — only validated/reconciled evidence does (trust tier `KNOWN`, not "a file exists").
+- **Source imbalance survives balanced adjustments.** An adjustment must itself balance (Σdebit = Σcredit, each line one
+  side) and is a **layer** over the immutable certification; it cannot cure an underlying source imbalance, and **no
+  balancing entry is ever invented** (production authority: `close_review_adjustments`, `20261015100000`).
+- **Preserve source precision; distinguish a signed prior figure from a comparative.** A signed value carried in the current
+  column is **not** the same as a separate comparative-period column; they are kept distinct, never summed or substituted.
+- **Corrected sources are linked immutable versions.** A correction is a **new version** linked to the original; affected
+  outputs are **re-evaluated** (requires-revalidation) **without changing historical signed artefacts** (mirrors the
+  `close_review_adjustments` revalidation model and `layout_confirmations` binding).
+
 ## Interpretation boundaries (reaffirmed, kept separate)
 1. **Export layout** (how the file is read) — never implies a treatment. 2. **Account identity & dimensions** —
 `account_key = COALESCE(code, normalized name)`; ingestion also carries dimensions, but `account_mappings` has no dimension
@@ -114,8 +136,9 @@ The prototype detects an **unexpected balance** (a sign anomaly for the proposed
   reason.
 - **Reuse is more than a file hash.** Compatibility requires entity + currency + dimensions + ruleset; a known change
   reopens (`CONTEXT_INCOMPATIBLE`), an untrackable field is **disclosed as unverified** (never assumed equal). Honest schema
-  reality: live `account_mappings` keys only `(company_id, account_key)` — richer binding is an additive Phase 6 change on
-  the decision ledger (gap #4), not in the first slice.
+  reality (corrected): **currency + period are authoritative on `fiscal_periods`** (reached via
+  `trial_balance_uploads.period_id`) — not a gap; the genuine remaining work is **binding the accepting context onto the
+  decision ledger** plus **dimension** and **ruleset-version** axes (gap #4). Additive, not in the first slice.
 
 ## Limitations surfaced by the extended coverage (reported, not optimised away)
 - **Header recognition is partial.** QuickBooks- and Odoo-style headers are recognised; **SunSystems' "T/B Code" is not**, so
