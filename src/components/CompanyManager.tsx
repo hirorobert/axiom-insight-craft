@@ -186,7 +186,7 @@ export const CompanyManager = () => {
   const [tinTouched, setTinTouched] = useState(false);
   const { user } = useAuth();
   const { capacity, loading: capacityLoading, error: capacityError, retry: retryCapacity } = useMyEntityCapacity(!!user);
-  const canAdd = !capacityLoading && !capacityError && !!capacity?.determined && capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity;
+  const canAdd = !capacityLoading && !capacityError && !!capacity?.determined && (capacity.unlimited === true || (capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity));
   const { logAction } = useAuditLog();
   const navigate = useNavigate();
 

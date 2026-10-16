@@ -10,6 +10,7 @@ export function EntityCapacityNotice({ capacity, loading, error, onRetry }: {
   error: boolean;
   onRetry?: () => void;
 }) {
+  if (!loading && !error && capacity?.determined && capacity.unlimited === true) return null;
   if (!loading && !error && capacity?.determined && capacity.capacity !== null && capacity.used !== null && capacity.used < capacity.capacity) return null;
   const message = loading ? "Checking entity capacity…" : error || !capacity || !capacity.determined || capacity.capacity === null || capacity.used === null
     ? "Entity capacity unavailable."
