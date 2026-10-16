@@ -23,6 +23,8 @@
 --     findings_summarized are recorded on the certification. NULL on every earlier certification: there the exceptions
 --     column is itself the complete list (it always was). Earlier certifications, their hashes and signed history are
 --     not touched (the table stays append-only; adding nullable columns rewrites no row).
+--   * tb_begin_attempt (section 5): a retry of the same request after its attempt's lease expired abandons that attempt
+--     and is answered as a run that did not finish (a killed worker no longer strands its own request).
 --   * tb_snapshot_dependencies keeps recording EVERY dependency key; it takes the per-account advisory locks only up to
 --     a bound (tb_dependency_lock_limit() = 1,000 accounts' keys). Those locks only make an in-flight review finish first
 --     (fewer "changed while it ran" retries); correctness never rested on them — tb_finalize_attempt and
@@ -362,8 +364,143 @@ $$;
 REVOKE ALL ON FUNCTION public.tb_snapshot_dependencies(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tb_snapshot_dependencies(uuid, jsonb) TO service_role;
 
+-- ── 5. tb_begin_attempt — the 20261010100000 definition with exactly the marked [20261107100000] block added ──────────
+-- Found by the killed-worker recovery proof (tbHandlerCharacterization REQ-KILLED-WORKER-RECOVERY): after a worker died
+-- mid-check, a retry of the SAME request (what the browser sends) was answered "in progress" even after the attempt's
+-- lease had expired, until some OTHER request happened to abandon it — nothing schedules tb_expire_attempts.
+CREATE OR REPLACE FUNCTION public.tb_begin_attempt(
+  p_upload_id uuid, p_client_request_id uuid, p_request_hash text, p_input_hash text, p_source_file_hash text,
+  p_engine_version text, p_engine_generation integer, p_actor_type text, p_firm_member_id uuid, p_actor_user_id uuid,
+  p_lease_seconds integer)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_row public.trial_balance_uploads%ROWTYPE;
+  v_key public.idempotency_keys%ROWTYPE;
+  v_cur public.engine_runs%ROWTYPE;
+  v_cert uuid;
+  v_run uuid;
+  v_started timestamptz;
+  v_key_id uuid;
+  v_attempt integer;
+  v_constraint text;
+BEGIN
+  IF p_upload_id IS NULL OR p_client_request_id IS NULL OR p_request_hash IS NULL OR p_engine_version IS NULL THEN
+    RAISE EXCEPTION 'INVALID_REQUEST' USING ERRCODE = '22023';
+  END IF;
+  IF p_source_file_hash IS NULL OR p_source_file_hash !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'INVALID_SOURCE_HASH' USING ERRCODE = '22023';
+  END IF;
+  IF p_lease_seconds IS NULL OR p_lease_seconds NOT BETWEEN 30 AND 3600 THEN
+    RAISE EXCEPTION 'INVALID_LEASE' USING ERRCODE = '22023';
+  END IF;
+
+  -- L1: one begin per upload at a time.
+  PERFORM pg_advisory_xact_lock(hashtext('tb_begin_attempt'), hashtext(p_upload_id::text));
+
+  SELECT * INTO v_row FROM public.trial_balance_uploads t WHERE t.id = p_upload_id;
+  IF v_row.id IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'UPLOAD_NOT_FOUND');
+  END IF;
+  IF v_row.company_id IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'COMPANY_REQUIRED');
+  END IF;
+  -- A2: an engine generation below 4 cannot read layout confirmations, so it never processes an upload that has one
+  -- (refused here, before anything is written).
+  IF coalesce(p_engine_generation, 0) < 4 AND EXISTS (SELECT 1 FROM public.layout_confirmations lc WHERE lc.upload_id = p_upload_id) THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'LAYOUT_REQUIRES_CURRENT_ENGINE');
+  END IF;
+
+  -- Idempotency: the same request replays its recorded outcome; reuse with other content is a conflict.
+  SELECT * INTO v_key FROM public.idempotency_keys k
+   WHERE k.company_id = v_row.company_id AND k.function_name = 'process-trial-balance'
+     AND k.client_request_id = p_client_request_id
+     AND k.firm_member_id IS NOT DISTINCT FROM p_firm_member_id AND k.actor_user_id IS NOT DISTINCT FROM p_actor_user_id;
+  IF v_key.id IS NOT NULL THEN
+    IF v_key.request_hash IS DISTINCT FROM p_request_hash THEN
+      RETURN jsonb_build_object('outcome', 'conflict', 'code', 'IDEMPOTENCY_KEY_REUSED');
+    END IF;
+    IF v_key.status = 'reserved' THEN
+      -- [20261107100000] A worker killed mid-check leaves its own request reserved. Once that attempt's lease has
+      -- expired, the same request abandons it (upload locked first, then the run: tb_expire_attempts' order) and is
+      -- answered as a run that did not finish — never "in progress" forever. A new request then checks the file.
+      IF EXISTS (SELECT 1 FROM public.engine_runs er WHERE er.id = v_key.engine_run_id AND er.status = 'running'
+                    AND er.lease_expires_at <= now()) THEN
+        PERFORM 1 FROM public.trial_balance_uploads t WHERE t.id = p_upload_id FOR UPDATE;
+        IF public._tb_abandon_run(v_key.engine_run_id, 'LEASE_EXPIRED') THEN
+          PERFORM public._tb_attempt_writer(false);
+          RETURN jsonb_build_object('outcome', 'replay', 'result', jsonb_build_object('status', 'failed', 'error_code', 'LEASE_EXPIRED'));
+        END IF;
+      END IF;
+      -- [/20261107100000]
+      RETURN jsonb_build_object('outcome', 'in_progress', 'engine_run_id', v_key.engine_run_id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'replay', 'result', coalesce(v_key.replay_result, jsonb_build_object('status', v_key.status)));
+  END IF;
+
+  -- L4: the upload.
+  SELECT * INTO v_row FROM public.trial_balance_uploads t WHERE t.id = p_upload_id FOR UPDATE;
+  IF v_row.lifecycle_state NOT IN ('active_unprocessed', 'active_processing', 'active_processed', 'blocked') THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'UPLOAD_NOT_ACTIVE');
+  END IF;
+  IF v_row.source_file_hash IS NOT NULL AND v_row.source_file_hash IS DISTINCT FROM p_source_file_hash THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'SOURCE_CHANGED');
+  END IF;
+  -- A new attempt never runs over a certification still in force: re-checks go through tbu_request_reprocess first.
+  SELECT c.id INTO v_cert FROM public.tb_certifications c WHERE c.upload_id = p_upload_id ORDER BY c.sequence_no DESC LIMIT 1;
+  IF v_cert IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.tb_certification_invalidations i WHERE i.certification_id = v_cert) THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'REPROCESS_REQUIRED');
+  END IF;
+  -- L7: the current attempt, if one is running.
+  IF v_row.current_engine_run_id IS NOT NULL THEN
+    SELECT * INTO v_cur FROM public.engine_runs er WHERE er.id = v_row.current_engine_run_id FOR UPDATE;
+    IF v_cur.status = 'running' THEN
+      IF v_cur.lease_expires_at > now() THEN
+        RETURN jsonb_build_object('outcome', 'refused', 'code', 'IN_PROGRESS', 'engine_run_id', v_cur.id);
+      END IF;
+      PERFORM public._tb_abandon_run(v_cur.id, 'LEASE_EXPIRED');
+    END IF;
+  END IF;
+
+  PERFORM public._tb_attempt_writer(true);
+  v_attempt := v_row.processing_attempt + 1;
+  -- The run, its key and the upload's pointer are one unit: the same request id claimed concurrently for ANOTHER upload
+  -- (the per-upload lock above does not serialize that) loses on uq_ik_claim and is a recorded conflict, with nothing left
+  -- behind — never a raw error.
+  BEGIN
+    INSERT INTO public.engine_runs (company_id, firm_member_id, actor_user_id, actor_type, function_name, engine_version,
+                                    engine_generation, input_hash, period_year, source_table, source_record_id, attempt_no,
+                                    lease_expires_at)
+    VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance', p_engine_version,
+            p_engine_generation, p_input_hash, v_row.period_year, 'trial_balance_uploads', p_upload_id, v_attempt,
+            now() + make_interval(secs => p_lease_seconds))
+    RETURNING id, started_at INTO v_run, v_started;
+    INSERT INTO public.idempotency_keys (company_id, firm_member_id, actor_user_id, actor_type, function_name,
+                                         client_request_id, request_hash, input_hash, engine_run_id)
+    VALUES (v_row.company_id, p_firm_member_id, p_actor_user_id, p_actor_type, 'process-trial-balance',
+            p_client_request_id, p_request_hash, p_input_hash, v_run)
+    RETURNING id INTO v_key_id;
+    UPDATE public.trial_balance_uploads t
+       SET current_engine_run_id = v_run, processing_attempt = v_attempt, status = 'validating',
+           source_file_hash = coalesce(t.source_file_hash, p_source_file_hash)
+     WHERE t.id = p_upload_id;
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IS DISTINCT FROM 'uq_ik_claim' THEN RAISE; END IF;
+    PERFORM public._tb_attempt_writer(false);
+    RETURN jsonb_build_object('outcome', 'conflict', 'code', 'IDEMPOTENCY_KEY_REUSED');
+  END;
+  PERFORM public._tb_attempt_writer(false);
+
+  RETURN jsonb_build_object('outcome', 'claimed', 'engine_run_id', v_run, 'key_id', v_key_id, 'started_at', v_started,
+                            'attempt_no', v_attempt, 'prior_status', v_row.status);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tb_begin_attempt(uuid, uuid, text, text, text, text, integer, text, uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tb_begin_attempt(uuid, uuid, text, text, text, text, integer, text, uuid, uuid, integer) TO service_role;
+
 -- ── Rollback (manual; only before any generation-5 certification exists) ─────────────────────────────────────────────
--- Re-run the 20261008100000 tb_finalize_attempt and the 20261010100000 tb_snapshot_dependencies definitions, then:
+-- Re-run the 20261008100000 tb_finalize_attempt and the 20261010100000 tb_snapshot_dependencies and tb_begin_attempt
+-- definitions, then:
 -- DROP FUNCTION IF EXISTS public.tb_certification_findings_supported(), public.tb_certification_findings_limit(),
 --   public.tb_dependency_lock_limit();
 -- DROP TABLE IF EXISTS public.tb_certification_findings;

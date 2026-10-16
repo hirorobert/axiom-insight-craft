@@ -27,6 +27,7 @@ import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 import { openEngagementWithPeriod, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { UPLOAD_LIMITS_TEXT, fileTooLarge } from "@/lib/workspace/uploadPolicy";
 import { DraftError, cancelDraftCommit, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft } from "@/lib/workspace/trialBalanceDraft";
+import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { EMPTY_PERIOD, derivePeriod, followingYear, periodName, periodProblem, periodRange, periodYear, type PeriodChoice, type PeriodPreset } from "@/lib/workspace/reportingPeriod";
 import { START_STEPS, STAGES, readMilestones, runStart, stagesFromMilestones, type ConfirmedStart, type StageStatus, type StartDeps, type StartKeys, type StartProgress, type StartResult, type StartStep } from "@/lib/workspace/firstUpload";
 
@@ -236,12 +237,9 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
       commit: (a) => commitDraft(a.draftId, a.commitKey, { companyId: a.companyId, periodYear: a.periodYear, periodId: a.periodId, engagementId: a.engagementId, confirmation: a.confirmation, replaces: a.replaces }),
       check: async (a) => {
         await ensureFreshSession();
-        const { error } = await supabase.functions.invoke("process-trial-balance", { body: { uploadId: a.uploadId, clientRequestId: a.requestId } });
-        if (!error) return classifyCheckAnswer({ httpStatus: 200, body: null });
-        const ctx = (error as { context?: { status?: number; json?: () => Promise<unknown> } }).context;
-        let body: Record<string, unknown> | null = null;
-        try { body = ((await ctx?.json?.()) ?? null) as Record<string, unknown> | null; } catch { body = null; }
-        return classifyCheckAnswer({ httpStatus: typeof ctx?.status === "number" ? ctx.status : null, body });
+        // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
+        const r = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId: a.uploadId, clientRequestId: a.requestId });
+        return classifyCheckAnswer({ httpStatus: r.httpStatus, body: r.body });
       },
     };
     setPhase({ kind: "starting", file, draft, step: progress.current.companyId || confirmed.entity.kind === "existing" ? "period" : "entity" });

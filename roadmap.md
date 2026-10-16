@@ -168,18 +168,32 @@ invalidation. Proven: a change to an account not among the examples, before fina
 authority lost at once; a mapping transaction open across finalisation and committed after it → authority lost; 12 rounds of
 finalisation racing a mapping write → never an authoritative result on a changed dependency; a review decision → same.
 
-**Concurrency (A):** the limit is CPU time per isolate, summed over the requests that isolate serves (Edge Runtime log, CI
-run 38892294850: "CPU time soft limit reached", then "hard limit reached" in one isolate that had run two 2,000-account
-checks and then the requests queued behind them → HTTP 546). Neither a per-worker queue (run 38889700399) nor database
-slots shared across workers (run 38892294850, reverted) prevented it. Now each isolate runs ONE check and queues nothing:
-a request arriving meanwhile is refused at once (503 `PROCESSING_BUSY`, Retry-After 3) before anything begins — no
-attempt, no lease, nothing recorded or consumed — and is retried as the same request (the browser's existing message: check
-again; it will not be counted twice). An isolate past its soft limit is retired by the runtime when its in-flight check
-ends. Journey: 4- and 8-way at the account limit, each request processed exactly once, at once or after an immediate
-refusal and a retry; nothing stranded. Supported: one check per isolate; how many isolates serve at once is the runtime's
-(locally, simultaneous requests went to one isolate). Hosted CPU limits unmeasured — a single 2,000-account check's CPU
-time on the hosted runtime must be read back before release. A worker killed for another reason still leaves its attempt
-leased for 600 s.
+**Concurrency (A).** Runtime and configuration: the local runner is `supabase-edge-runtime-1.77.4` under the Supabase CLI
+(`latest` in CI); `supabase/config.toml` sets no `[edge_runtime]`, so the CLI default policy `per_worker` applies (a worker
+serves many requests) with its user-worker limits `cpuTimeSoftLimitMs = 1000`, `cpuTimeHardLimitMs = 2000`,
+`memoryLimitMb = 256` (CLI `serve.main.ts`). Observed (runtime log, CI run 38892294850): one worker reached "CPU time soft
+limit" after three sequential checks (1,000 + 1,000 + 2,000 accounts) and was retired ("early termination"); one worker that
+ran two 2,000-account checks at once and then the requests queued in it hit "CPU time hard limit" → HTTP 546. Locally the
+budget is therefore consumed per worker across requests. **Hosted is not inferred from this:** the hosted documentation
+states "Maximum CPU Time: 2s … per request" and that a worker can serve multiple requests; a 2,000-account check's CPU time
+on the hosted runtime must be read back after an authorised deployment (the function now logs each check's worker, number
+in that worker and CPU time to make that read-back direct).
+
+Control: each worker runs ONE check and queues nothing; a request arriving meanwhile is refused at once (503
+`PROCESSING_BUSY`, Retry-After 3) before anything begins — no attempt, no lease, nothing recorded or consumed. A per-worker
+queue (run 38889700399) and database slots shared across workers (reverted) did not prevent 546. Candidate run 38895891672:
+4- and 8-way at 2,000 accounts → one processed at once, every other refused in ≤ 15 ms, every retry processed, no 546.
+Browser: `processingInvoke.ts` is the one browser path; it retries only `PROCESSING_BUSY`, as the same request, ≤ 4
+attempts with exponential backoff and equal jitter (worst ≈ 21 s), then the existing "check again; it will not be counted
+twice" message. The drafts journey adds six sequential 2,000-account checks; the CI step "Processing resource evidence"
+prints the runtime's limit and retirement lines with each check's worker and CPU time.
+
+Killed worker (after a check began): proven with the real handler (REQ-KILLED-WORKER-RECOVERY). While the attempt's
+600 s lease runs, retries are answered in progress and nothing new begins (the 600 s lease is a stated limitation). Found
+and repaired: after the lease expired, a retry of the SAME request was still answered in progress indefinitely (nothing
+schedules `tb_expire_attempts`); `tb_begin_attempt` (20261107100000 §5) now abandons that expired attempt for its own
+request and answers "did not finish", which the browser turns into a new request. Proven: attempt 2 completes with exactly
+one certification, attempt 1 is abandoned LEASE_EXPIRED, the frozen worker's late finish is refused.
 
 **C classification and orphan design:** CI's `object_missing` came from a fixture defect (the proof's storage double exposed
 bytes before the `storage.objects` row); under it was a product race (a failed seal removed the object a concurrent seal
@@ -203,9 +217,13 @@ certifications explicitly (FINDINGS_STORE_UNAVAILABLE); lowering the floor and r
 before any generation-5+ certification exists; `20261108100000` reverses only while no two coded accounts of a company share
 a name (never merged to make it fit).
 
-**Remaining blockers:** hosted runtime limits unmeasured (needs an authorised deployment); orphan cleanup not scheduled;
-#136, #141 and #142 alone carry the payment baselines that #133 (in #137) fixes, and #136 alone is red at the limits — the
-combined candidate is the vehicle, not any single PR.
+**Remaining blockers:** hosted CPU time per check and hosted worker reuse unmeasured (needs an authorised deployment and
+read-back; until then the 2,000-account bound is provisional — if hosted read-back shows a check near the 2 s CPU limit, the
+smallest remedy is lowering the account bound to the measured safe level, an owner decision); the 600 s attempt lease;
+Reporting Pack orphan cleanup is not operationally complete — its invocation, schedule and monitoring are not built (the
+smallest completion is a new kind in the existing scheduled `trial-balance-source-sweeper`, whose run report is the
+monitoring signal; that needs a migration and a function change, a scope decision); owner decisions: #143's contract change
+and the provisional limits. No single PR is the release vehicle: the combined candidate #139 is.
 
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
