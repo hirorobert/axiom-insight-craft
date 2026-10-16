@@ -164,8 +164,9 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     async bindUpload(u, since, sourceHash, expect = {}) {
       const drafts = (await admin.from("trial_balance_drafts").select("id, content_sha256, created_at").eq("owner_ref", u.id).gte("created_at", since)).data ?? [];
       const ids = drafts.map((d) => d.id);
-      const commits = ids.length ? ((await admin.from("trial_balance_draft_commits").select("id, draft_id, state, upload_id, company_id, period_year, period_id").in("draft_id", ids)).data ?? []) : [];
-      const named = commits.filter((c) => c.state === "committed" && c.upload_id).map((c) => c.upload_id);
+      const commits = ids.length ? ((await admin.from("trial_balance_draft_commits").select("id, draft_id, state, upload_id, company_id, target_company_ref, period_year, period_id").in("draft_id", ids)).data ?? []) : [];
+      const mine = new Set(drafts.filter((d) => d.content_sha256 === sourceHash).map((d) => d.id));
+      const named = commits.filter((c) => mine.has(c.draft_id) && c.state === "committed" && c.upload_id).map((c) => c.upload_id);
       const upload = named.length === 1 ? (await admin.from("trial_balance_uploads").select("id, company_id, period_year, period_id, status, lifecycle_state, file_path, source_file_hash, processing_result").eq("id", named[0]).maybeSingle()).data : null;
       return { ...bindCommittedUpload({ drafts, commits, upload }, { sourceHash, ...expect }), upload };
     },
@@ -176,6 +177,26 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value").set; setter.call(el, val);
       el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return true;
     }, label, value),
+    // FirstUpload's entity picker is a NATIVE <select> (FirstUpload.tsx, confirm-entity-select): choose the option whose
+    // text is the entity's name, the way a user's choice reaches React (value setter + change). Refuses loudly if absent.
+    async chooseOption(page, selector, optionText) {
+      const ok = await page.evaluate((sel, txt) => {
+        const el = document.querySelector(sel); if (!el || el.tagName !== "SELECT") return false;
+        const opt = [...el.options].find((o) => o.textContent.trim() === txt); if (!opt) return false;
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, opt.value);
+        el.dispatchEvent(new Event("change", { bubbles: true })); return el.value === opt.value;
+      }, selector, optionText);
+      if (!ok) throw new Error(`could not choose "${optionText}" in ${selector}`);
+      await sleep(250);
+    },
+    // What the confirm card itself says is still missing before the check can start (empty when ready).
+    async confirmBlockers(page) {
+      return page.evaluate(() => {
+        const card = document.querySelector('[data-testid="first-upload-confirm"]'); if (!card) return [];
+        const p = [...card.querySelectorAll("p")].find((x) => /before the check can start/i.test(x.textContent));
+        const list = p?.nextElementSibling; return list ? [...list.querySelectorAll("li")].map((li) => li.textContent.trim()).filter(Boolean) : (p ? [p.textContent.trim()] : []);
+      }).catch(() => []);
+    },
     async pickRadix(page, trigger, optionText) { await page.click(trigger); await page.waitForSelector("[role=option]"); await page.click({ text: optionText, within: "[role=listbox]" }); await sleep(250); },
     // Phase-2 FIRST-UPLOAD into a NEW or EXISTING entity (candidate f57b944). Drops an IDENTIFIABLE file, confirms the card,
     // "Start trial balance check", and BINDS the result to the exact upload (by source_file_hash) — never "latest". The home
@@ -183,7 +204,7 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
     // heading. Returns { companyId, periodYear, uploadId, sourceHash, failure, selectedFileOk }.
     async firstUploadInto(page, { mode = "new", entityName, existingEntityName, endsOn = "2026-06-30", currency = "TZS", year, file }) {
       await env.openHome(page);
-      const since = new Date(Date.now() - 5000).toISOString();
+      const since = new Date(Date.now() - 2000).toISOString();
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
       // The browser actually SELECTED this file: the file card names it.
@@ -192,16 +213,18 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       const selectedFileOk = selectedName.includes(base.replace(/\.csv$/, "")) || selectedName.includes(base);
       if (mode === "existing") {
         await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});
-        if (existingEntityName) await env.pickRadix(page, '[data-testid="confirm-entity-select"]', existingEntityName).catch(() => {});
+        if (existingEntityName) await env.chooseOption(page, '[data-testid="confirm-entity-select"]', existingEntityName);
       } else {
         await env.setByLabel(page, "Entity name", entityName);
       }
-      if (year) await env.pickRadix(page, '[data-testid="confirm-period-year"]', String(year)).catch(() => { });
-      else await page.click('[data-testid="confirm-period-year"]').catch(() => {});
+      // The period is the "Year" preset (a radio) and its "Ends on" date; the year comes from the date, not a picker.
+      await page.click('[data-testid="confirm-period-year"]');
       await sleep(200);
       await env.setByLabel(page, "Ends on", endsOn);
       await env.setByLabel(page, "Trial balance currency", currency);
       await sleep(300);
+      const blockers = await env.confirmBlockers(page);
+      if (blockers.length) throw new Error(`the confirm card is not ready to start: ${blockers.join("; ")}`);
       await page.click('[data-testid="first-upload-start"]');
       await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-open-result"], [data-testid="first-upload-failure"]', { timeout: 180000 });
       const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
@@ -325,8 +348,8 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       await page.setFiles('[data-testid="first-upload-input"]', [file]);
       await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
       await page.click('[data-testid="confirm-entity-existing"]').catch(() => {});
-      await env.pickRadix(page, '[data-testid="confirm-entity-select"]', existingEntityName).catch(() => {});
-      await page.click('[data-testid="confirm-period-year"]').catch(() => {}); await sleep(200);
+      await env.chooseOption(page, '[data-testid="confirm-entity-select"]', existingEntityName);
+      await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
       await env.setByLabel(page, "Ends on", endsOn); await env.setByLabel(page, "Trial balance currency", currency); await sleep(300);
       await page.click('[data-testid="first-upload-start"]').catch(() => {});
       await page.waitForSelector('[data-testid="first-upload-replace"], [data-testid="first-upload-failure"]', { timeout: 60000 }).catch(() => {});
@@ -419,8 +442,14 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
         const draftNote = txt('[data-testid="first-upload-draft-note"]');
         const body = document.body.innerText;
         const saved = draftNote ? "saved" : (/committed|final and sealed/i.test(body) ? "committed" : (/not been saved|no file yet|upload your trial balance/i.test(body) ? "nothing" : "nothing"));
-        const ctas = [...document.querySelectorAll("button,a[role=button],a.btn")].slice(0, 14).map((el) => ({ label: el.textContent.trim().slice(0, 40), primary: /bg-primary/.test(el.className) || el.getAttribute("data-primary") === "1" || el.getAttribute("data-testid") === "first-upload-start" }));
-        return { name: stateName, whatHappened: document.querySelector("h1,h2")?.textContent?.trim() ?? "", whatNext: (na?.innerText ?? na?.textContent ?? "").trim(), saved, draftNote, copy: body.replace(/\s+/g, " ").trim().slice(0, 2000), ctas };
+        // Every VISIBLE, enabled button or link on the page (not the first few — those are the header/nav), and which of
+        // them is styled as THE primary action (shadcn's default Button variant is bg-primary, whether a <button> or a
+        // <Button asChild><Link>) — background only, never text-primary/border-primary.
+        const visible = (el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; };
+        const ctas = [...document.querySelectorAll("button, a[href], [role=button]")].filter((el) => visible(el) && !el.disabled && !el.closest("header, nav"))
+          .map((el) => ({ label: el.textContent.trim().slice(0, 40), primary: /(^|\s)bg-primary(\s|$)/.test(el.className) || el.getAttribute("data-primary") === "1" || el.getAttribute("data-testid") === "first-upload-start" }));
+        const primaryLabel = ctas.find((c) => c.primary)?.label ?? "";
+        return { name: stateName, whatHappened: document.querySelector("h1,h2")?.textContent?.trim() ?? "", whatNext: ((na?.innerText ?? na?.textContent ?? "").trim() || primaryLabel), saved, draftNote, copy: body.replace(/\s+/g, " ").trim().slice(0, 2000), ctas };
       }, name).catch(() => null);
     },
     // Unimplemented-here journey affordances (NORMAL confirms the real controls): return null ⇒ scenario BLOCKED precisely.

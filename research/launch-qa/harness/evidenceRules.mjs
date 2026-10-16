@@ -31,16 +31,18 @@ export function bindCommittedUpload({ drafts, commits, upload }, { sourceHash, c
   const done = (commits ?? []).filter((c) => c && c.draft_id === d.id && c.state === "committed");
   if (done.length !== 1) return { uploadId: null, draftId: d.id, problems: [`expected exactly one committed commit for the draft, found ${done.length}`] };
   const c = done[0];
+  // The entity a commit binds is its target (tbd_finish_commit compares the upload's company_id to target_company_ref).
+  const commitCompany = c.target_company_ref ?? c.company_id ?? null;
   const problems = [];
   if (!c.upload_id) problems.push("the committed commit names no upload");
   else if (!upload || upload.id !== c.upload_id) problems.push(`the upload the commit names (${c.upload_id}) was not found`);
   else {
-    if (upload.company_id !== c.company_id) problems.push(`upload entity ${upload.company_id} ≠ commit entity ${c.company_id}`);
+    if (upload.company_id !== commitCompany) problems.push(`upload entity ${upload.company_id} ≠ commit entity ${commitCompany}`);
     if (companyId && upload.company_id !== companyId) problems.push(`upload entity ${upload.company_id} ≠ the entity the scenario intended ${companyId}`);
     if (upload.period_year !== c.period_year) problems.push(`upload period year ${upload.period_year} ≠ commit period year ${c.period_year}`);
     if (periodYear != null && upload.period_year !== periodYear) problems.push(`upload period year ${upload.period_year} ≠ the period the scenario intended ${periodYear}`);
     if ((c.period_id ?? null) !== (upload.period_id ?? null)) problems.push(`upload period ${upload.period_id} ≠ commit period ${c.period_id}`);
     if (upload.source_file_hash != null && upload.source_file_hash !== sourceHash) problems.push("the upload's recorded source hash is not this file's");
   }
-  return { uploadId: problems.length ? null : upload.id, draftId: d.id, commitId: c.id, companyId: c.company_id ?? null, periodYear: c.period_year ?? null, periodId: c.period_id ?? null, problems };
+  return { uploadId: problems.length ? null : upload.id, draftId: d.id, commitId: c.id, companyId: commitCompany, periodYear: c.period_year ?? null, periodId: c.period_id ?? null, problems };
 }

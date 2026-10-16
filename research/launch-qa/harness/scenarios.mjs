@@ -236,7 +236,7 @@ async function scenarioF(env) {
   // RECOVERY: a normal file into a fresh entity succeeds (its own file, bound by hash).
   const rec = await env.firstUploadInto(page, { mode: "new", entityName: "Frecovery Normal Ltd", file: env.taggedCsv("F", "F-recovery.csv") });
   if (!rec.uploadId) problems.push(`could not recover with a normal file after the refusals (no upload bound; failure="${String(rec.failure ?? "").slice(0, 160)}")`);
-  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup, overFailure: overErr.slice(0, 200), recoveryUploadId: rec.uploadId });
+  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup, overFailure: shown.slice(0, 240), overBinding: over.binding, overUploadId: over.committedUpload?.id ?? null, recoveryUploadId: rec.uploadId });
 }
 
 // G: Review + identity — legitimate same-name/different-code accounts AFTER NORMAL's repair: separate identities &
