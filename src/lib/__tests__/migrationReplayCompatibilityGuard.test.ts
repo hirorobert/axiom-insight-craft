@@ -240,7 +240,8 @@ describe("migration directory integrity", () => {
     // 173 -> 174: 20261102100000_verified_charge_outcomes.sql (verified charge outcomes, batch commercial-p5; DEFECT-VERIFIED-CHARGE-DROPPED-001), a NEW forward-only migration pending hosted application.
     // 174 -> 175: 20261104100000_platform_owner_access_and_entity_allowance.sql (platform-owner authority, complimentary access, explicit unlimited owner allowance; reviewed in docs/owner-access/REVIEW.md), a NEW forward-only migration pending hosted application. Changes no customer entity limit/price/blocking.
     // 175 -> 176: 20261105100000_checkout_open_session_conflict.sql (acquire_checkout_attempt no longer strands an open PENDING checkout into manual review).
-    expect(files.length).toBe(176);
+    // 176 -> 177: 20261106100000_trial_balance_drafts.sql (owner-scoped trial balance drafts and their 7-day retention, Phase 2 P2-2), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(177);
   });
 });
 

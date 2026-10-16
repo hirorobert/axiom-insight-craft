@@ -49,6 +49,9 @@ const U = "33333333-3333-4333-8333-333333333333";
 const company = { id: COMPANY, name: "Synthetic Co", code: null, tin: null, reporting_framework: "full_ifrs", fiscal_year_end: "2025-12-31", currency: "TZS", created_at: "2026-01-01T00:00:00Z", filing_jurisdiction: null };
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 const EXACT = { tb_balance_check: { passed: true, total_debits: 2000, total_credits: 2000, difference: 0, exact: { currency: "TZS", currency_exponent: 2, total_debits: "2000.00", total_credits: "2000.00", difference: "0.00" } } };
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
 const EQ_FAIL = { code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null, message: "Assets (2000.00) != Liabilities + Closing Equity (1900.00). Difference: 100.00" };
 const cert = (exceptions: unknown, over: Partial<TbCertificationRow> = {}): TbCertificationRow =>
   ({ id: "c1", sequence_no: 1, company_id: COMPANY, upload_id: U, period_year: 2025, is_blocking: false, requires_review: false, exceptions, certified_at: "2026-01-02T00:00:00Z", ...over }) as TbCertificationRow;
@@ -64,7 +67,7 @@ const EXACT_AMOUNTS = {
 const upload = (equation: unknown, amounts?: unknown) => ({
   id: U, file_name: "tb.csv", file_path: "x", file_size: 1, status: "complete", is_valid: true, company_id: COMPANY, company_name: "Synthetic Co",
   period_year: 2025, uploaded_at: "2026-01-01T00:00:00Z", processed_at: "2026-01-01T00:00:00Z", safisha_status: null, lifecycle_state: "active_processed",
-  processing_result: { ...(amounts === undefined ? {} : { amounts }), validation_report: { ...EXACT, ...(equation === undefined ? {} : { balance_sheet_equation: equation }) } },
+  processing_result: { ingestion: CURRENT_INGESTION, ...(amounts === undefined ? {} : { amounts }), validation_report: { ...EXACT, ...(equation === undefined ? {} : { balance_sheet_equation: equation }) } },
 });
 
 interface Outcome { reviewed: boolean; reason: string }
@@ -139,7 +142,7 @@ describe("identical outcomes across Prepare, Overview and hub", () => {
       expect(s.overview.reason).toContain(REVIEWED_SCOPE);
       expect(s.orientation).toBe("Reviewed trial balance");
       for (const t of [s.prepare.reason, s.overview.reason, s.prepareText, s.hubText]) expect(t).not.toMatch(/every check passed|checks have passed|checks passed/i);
-      expect(s.prepareText).toMatch(/Statement equation Exact equation verification unavailable for this legacy result\./);
+      expect(s.prepareText).toMatch(/Statement equation Exact equation verification unavailable for this result\. Reprocess to apply current checks\./);
       expect(s.prepareText).not.toMatch(/Not checked yet Not exactly verified/);
     }
   });

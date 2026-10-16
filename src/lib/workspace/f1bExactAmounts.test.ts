@@ -45,7 +45,10 @@ const MALFORMED = amounts({ equation: { lhs_minor: "150025", rhs_minor: "150025"
 const readiness = (processing_result: unknown) => computeCertificationReadiness({
   uploadExists: true, currentUploadId: U, authoritative: cleanCert, latestForUpload: cleanCert, recordedEquation: readRecordedEquation(processing_result),
 });
-const verdict = (processing_result: unknown) => deriveTrialBalanceVerdict({ upload: { id: U, status: "complete", processing_result }, readiness: readiness(processing_result), canRetry: false });
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const verdict = (processing_result: unknown) => deriveTrialBalanceVerdict({ upload: { id: U, status: "complete", processing_result: { ingestion: CURRENT_INGESTION, ...(processing_result as object) } }, readiness: readiness(processing_result), canRetry: false });
 const cardText = (processing_result: unknown) => text(renderToStaticMarkup(createElement(BalanceSheetEquationCard, { upload: { processing_result } as never })));
 const preflightEq = (processing_result: unknown) => computePreflight({ status: "complete", processedAt: "now", processingResult: processing_result as never, accountingErrors: [] })
   .checks.find((c) => c.id === "bs_equation");

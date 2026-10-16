@@ -572,7 +572,7 @@ export function DiscardUploadDialog({
           </AlertDialogTitle>
           <AlertDialogDescription className="text-[13px] leading-relaxed">
             {isCertified ? (
-              "This upload has validation history and cannot be deleted from the engagement record. Uploading a replacement retires it from the active workflow while preserving its evidence."
+              "This upload has validation history and cannot be deleted from this entity's record. Uploading a replacement retires it from the active workflow while preserving its evidence."
             ) : isReplacement ? (
               "This upload replaced an earlier trial balance and has not been processed. Cancelling it removes it and makes the earlier trial balance active again, with its validation history unchanged."
             ) : (

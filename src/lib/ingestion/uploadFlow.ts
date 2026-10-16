@@ -37,6 +37,8 @@ export interface FlowFailure {
   retry: RetryMode;
   /** True when the file is already saved in the workspace (only the check needs repeating). */
   fileSaved: boolean;
+  /** Set only for the server's payment-required answer (HTTP 402): the next action is choosing a plan. */
+  needsPlan?: boolean;
 }
 
 export interface FlowState {
@@ -222,7 +224,7 @@ export function classifyCheckAnswer(a: CheckAnswer): CheckOutcome {
     return { kind: "failed", failure: { step: "check", retry: "none", fileSaved: true, message: "The file is saved, but you don't have permission to check trial balances in this workspace. Ask the workspace owner for Prepare access." } };
   }
   if (a.httpStatus === 402) {
-    return { kind: "failed", failure: { step: "check", retry: "none", fileSaved: true, message: serverMessage ?? "The file is saved, but checking trial balances is not included in the current plan." } };
+    return { kind: "failed", failure: { step: "check", retry: "none", fileSaved: true, needsPlan: true, message: serverMessage ?? "The file is saved, but checking trial balances is not included in the current plan." } };
   }
   if (a.httpStatus === 409 && body.status === "in_progress") return { kind: "wait" };
   if (a.httpStatus === 409 && body.error === "Idempotency conflict") {

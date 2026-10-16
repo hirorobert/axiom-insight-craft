@@ -381,6 +381,11 @@ src/
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       twoPeriodIntake.ts      ← One file as current + prior year (I1-B): register_two_period_uploads client, adjacency rule; TWO_PERIOD_INTAKE_ENABLED (reviewed constant, false until hosted apply)
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
+      resultVersion.ts                ← Which check set a stored result came from: no processing milestones = "Checked by an earlier version" on every surface (history unchanged)
+      resultStatus.ts                 ← The one trial-balance status vocabulary and finding order (blocking → needs confirmation → review) for sidebar, Overview and page
+      trialBalanceDraft.ts            ← ONLY browser path for a trial balance draft (reserve bound to file identity, signed upload, commit with a bound key; drafts_unavailable on an old backend)
+      reportingPeriod.ts              ← Confirmation-card period arithmetic: Year/Quarter/Month presets (derived start) and custom dates; no defaults
+      firstUpload.ts                  ← First-visit start: create_entity → open_engagement_with_period → draft commit → check, resumable; stages from server milestones
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
@@ -472,6 +477,7 @@ src/
       StageScopeGate.tsx      ← Stage URL cannot bypass scope
       ManageTrialBalance.tsx  ← "Manage Trial Balance" (Replace / Remove) directly under the Prepare Data file header
       FirstRunEngagement.tsx  ← Zero-company first-run form
+      FirstUpload.tsx         ← First visit: drop zone → private draft → confirmation card → "Start trial balance check" (Phase 2 P2-3)
     safisha/
       SafishaGate.tsx         ← Evidence-matching gate. NOT mounted in Trial balance review (scope correction); tax stays locked until a reconciliation is complete.
 
@@ -515,6 +521,7 @@ supabase/
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
     trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
+    trial-balance-draft/           ← Draft sign / commit / cancel (Phase 2 P2-2, 20261106100000); recovery protocol in _shared/draftUpload.ts
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)

@@ -49,7 +49,10 @@ const snapshot = (safishaStatus: string | null, hesabuPassedAt: string | null = 
 });
 /** The tax stage once statements are validated — the one workspace consumer of a reconciliation. */
 const taxAfterStatements = (safishaStatus: string | null) => deriveWorkspaceState("c1", "Co", 2025, snapshot(safishaStatus, "2026-01-02T00:00:00Z")).missions.tax.status;
-const verdictFor = () => deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete" }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const verdictFor = () => deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete", processing_result: { ingestion: CURRENT_INGESTION } }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
 
 describe("a raw 'clean' over incomplete evidence unlocks nothing that depends on a reconciliation", () => {
   it("baseline: a COMPLETE reconciliation is complete and unlocks tax", () => {

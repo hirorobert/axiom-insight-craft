@@ -37,6 +37,9 @@ vi.mock("@/contexts/AuthContext", () => ({
 vi.mock("@/components/workspace/FirstRunEngagement", () => ({
   default: () => createElement("div", { "data-testid": "first-run-engagement" }, "first-run"),
 }));
+vi.mock("@/components/workspace/FirstUpload", () => ({
+  default: () => createElement("div", { "data-testid": "first-upload" }, "first-upload"),
+}));
 
 const supaMock = vi.hoisted(() => ({ update: vi.fn(() => ({ eq: () => ({ is: () => Promise.resolve({ error: null }) }) })) }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -158,14 +161,17 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).toContain("Start another service");
   });
 
-  it("zero companies at all: shows the first-run form, never a blank or crashing chooser", async () => {
+  it("zero companies at all: the first upload is the one primary action (Phase 2 P2-3), never a blank or crashing chooser", async () => {
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
     const html = await renderDashboard();
 
-    expect(html).toContain("first-run-engagement");
-    // Inside the one account frame, with "Add your first company" as the single next step.
+    // Inside the one account frame, the upload itself replaces the "Add your first company" card; the company form is
+    // not opened beside it, and stays available as the secondary "Add a company".
     expect(html).toContain('data-testid="account-shell"');
-    expect(html).toContain('data-kind="add_company"');
+    expect(html).toContain('data-testid="first-upload"');
+    expect(html).not.toContain('data-kind="add_company"');
+    expect(html).not.toContain("first-run-engagement");
+    expect(html).toContain('data-testid="add-company"');
   });
 
   it("new no-plan user without entities: the account home says to choose a plan (no silent redirect, no setup, no dead button)", async () => {
