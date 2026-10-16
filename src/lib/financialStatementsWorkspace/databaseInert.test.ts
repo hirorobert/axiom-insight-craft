@@ -335,6 +335,9 @@ describe("database inertness — schema and functions", () => {
     const modified = new Set([
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
       "supabase/functions/_shared/sourceSweeper.ts",
+      // Certification capacity (repair A): the function-path double of tb_finalize_attempt keeps the complete findings and
+      // answers the findings-store probe. Test double only.
+      "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
