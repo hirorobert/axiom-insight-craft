@@ -41,7 +41,8 @@ import {
   minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
 } from "../_shared/tbIngestion.ts";
 import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
-import { checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
+import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
+import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -61,12 +62,15 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // functions; the database refuses every other write to the upload's processing fields, runs and certifications.
 // A2 (v4): reads the upload's confirmed layout, binds its resolved hash into the input hash and records the
 // '#layout_confirmation:<upload>' dependency; refuses before any write when the layout authority is missing.
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v4";
+// v5: records the COMPLETE findings (tb_certification_findings, 20261107100000) with a bounded summary on the
+// certification; output_hash binds the certified rows AND the complete findings; the account bound is enforced.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v5";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
 // refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
 // 4 = reads layout confirmations; tb_begin_attempt refuses a lower generation for an upload that has one (20261010100000).
-const ENGINE_GENERATION = 4;
+// 5 = records complete findings (needs 20261107100000; a floor of 5 retires engines that cannot).
+const ENGINE_GENERATION = 5;
 
 // The attempt lease: longer than the hosted Edge wall-clock limit (400 s) plus a margin. A run still marked running after
 // it can be abandoned (LEASE_EXPIRED) by the next authorized request or the expiry pass; its worker is then fenced out.
@@ -1201,6 +1205,23 @@ function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccoun
   return [...keys.values()];
 }
 
+/** Records the attempt as failed with a named reason and answers it as a refusal (never as a success). */
+async function refuseCertification(
+  supabase: ReturnType<typeof createClient>,
+  engineRunId: string,
+  code: string,
+  message: string,
+): Promise<{ ok: false; response: Response }> {
+  const refusal = { code, message };
+  const done = await finishAttempt(supabase, engineRunId, {
+    outcome: "failed", errorCode: code,
+    upload: { status: "error", is_valid: false, accounting_errors: [refusal], validation_report: null,
+              processing_result: { status: "blocked", statements: null, errors: [refusal], validation_report: {} } },
+  });
+  if (!done.ok) return done;
+  return { ok: false, response: jsonResponse({ status: "blocked", ...refusal }, 422) };
+}
+
 async function finishAttempt(
   supabase: ReturnType<typeof createClient>,
   engineRunId: string,
@@ -1208,13 +1229,38 @@ async function finishAttempt(
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
   const result: Record<string, unknown> = { outcome: params.outcome, upload: params.upload };
   if (params.outcome === "certified") {
-    const outputHashSource: CanonicalValue = (params.rowsSnapshot.length > 0 ? params.rowsSnapshot : params.exceptions) as unknown as CanonicalValue;
+    // v5: params.exceptions are the COMPLETE findings. The certification row carries them verbatim when they fit, else a
+    // bounded summary (every kind of finding represented); the database stores every finding and refuses a summary that
+    // does not agree with them. The output hash binds the certified rows and the complete findings.
+    const findings = params.exceptions;
+    let summary: ReturnType<typeof summarizeFindings>;
+    try {
+      summary = summarizeFindings(findings);
+    } catch (e) {
+      if (!(e instanceof FindingsSummaryTooLarge)) throw e;
+      return await refuseCertification(supabase, engineRunId, "FINDINGS_SUMMARY_TOO_LARGE",
+        "This trial balance produced more kinds of findings than one check can summarise. Nothing was certified.");
+    }
+    if (new TextEncoder().encode(JSON.stringify(params.rowsSnapshot)).length > TB_UPLOAD_POLICY.maxCertifiedRowsBytes) {
+      return await refuseCertification(supabase, engineRunId, "CERTIFIED_ROWS_TOO_LARGE",
+        "The accounts of this trial balance are too large for one check to certify (for example, very long account names). Nothing was certified.");
+    }
+    if (summary.summarized) {
+      // A database without the complete-findings store would keep only the summary: refuse instead (rollout order).
+      const { error: probeError } = await supabase.rpc("tb_certification_findings_supported", {} as never);
+      if (probeError) {
+        console.error("[PTB] complete findings cannot be stored:", (probeError as { code?: string }).code ?? "unknown");
+        return await refuseCertification(supabase, engineRunId, "FINDINGS_STORE_UNAVAILABLE",
+          "This check found more items than can be recorded right now. Nothing was certified. Try again later.");
+      }
+    }
     result.certification = {
       normalized_input_hash: params.normalizedInputHash,
-      output_hash: await sha256Hex(canonicalJson(outputHashSource)),
+      output_hash: await sha256Hex(canonicalJson({ rows: params.rowsSnapshot, findings } as unknown as CanonicalValue)),
       is_blocking: params.isBlocking,
       requires_review: params.requiresReview,
-      exceptions: params.exceptions,
+      exceptions: summary.exceptions,
+      findings,
       rows_snapshot: params.rowsSnapshot,
     };
   } else {
@@ -1438,6 +1484,10 @@ serve(async (req) => {
         ingest = readTrialBalanceSource(fileBytes, readContext, XLSX as unknown as XlsxLike);
       }
     }
+    // The account bound (upload policy): one certification holds every account, so a larger trial balance is refused
+    // whole before any check runs — never certified in part.
+    const accountIssue = ingest.blocking ? null : checkAccountCount(ingest.accounts.length);
+    if (accountIssue) ingest = refusedRead(readContext, accountIssue);
     markIngestionMilestones(milestones, ingest);
     for (const issue of ingest.issues) allErrors.push(issueToValidationError(issue));
     const detectedCols = ingest.columns;

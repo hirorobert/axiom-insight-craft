@@ -334,19 +334,45 @@ const openYear = async () => {
   if (error || !data?.periodId) throw new Error(`period ${y}: ${error?.message ?? JSON.stringify(data)}`);
   return { year: y, periodId: data.periodId, engagementId: data.engagementId };
 };
-/** Balanced invented rows: n accounts with a debit, the last one crediting their total. */
+/** Balanced invented rows: n accounts with realistic, varied names and amounts; the last one credits their total. */
+const W1 = ["Trade", "Other", "Accrued", "Prepaid", "Deferred", "Staff", "Motor", "Office", "Bank", "Loan", "Interest", "Rental", "Consulting", "Insurance", "Freight"];
+const W2 = ["receivables", "payables", "expenses", "income", "charges", "deposits", "advances", "fees", "costs", "provisions", "allowances", "levies"];
+const W3 = ["Dar es Salaam", "Arusha", "Mwanza", "Dodoma", "head office", "branch 2", "project Kilima", "USD account", "petty", "suspense"];
 const balancedRows = (n) => {
   const rows = []; let total = 0;
-  for (let i = 0; i < n - 1; i++) { rows.push([String(100000 + i), `Invented ${i}`, "1.00", "0.00"]); total += 100; }
-  rows.push(["999999", "Invented equity", "0.00", (total / 100).toFixed(2)]);
+  for (let i = 0; i < n - 1; i++) {
+    const minor = 100 + ((i * 7919) % 9_999_900);
+    rows.push([String(100000 + i), `${W1[i % W1.length]} ${W2[(i * 7) % W2.length]} - ${W3[(i * 3) % W3.length]} ${1000 + ((i * 7919) % 9000)}`, (minor / 100).toFixed(2), "0.00"]);
+    total += minor;
+  }
+  rows.push(["999999", "Retained earnings and reserves", "0.00", (total / 100).toFixed(2)]);
   return rows;
 };
-const csvOf = (rows) => Buffer.from(["Account code,Account name,Debit,Credit", ...rows.map((r) => r.join(","))].join("\n") + "\n");
-const xlsxOf = async (rows) => {
+const HEADER = ["Account code", "Account name", "Debit", "Credit"];
+const csvOf = (rows, { blankEvery = 0, extra = 0 } = {}) => {
+  const head = [...HEADER, ...Array.from({ length: extra }, (_, k) => `Memo ${k + 1}`)].join(",");
+  const lines = [head];
+  rows.forEach((r, i) => {
+    lines.push([...r, ...Array.from({ length: extra }, () => "x")].join(","));
+    for (let b = 0; b < blankEvery && i < rows.length - 1; b++) lines.push(",,,");
+  });
+  return Buffer.from(lines.join("\n") + "\n");
+};
+const workbookOf = async (rows, { bookType = "xlsx", extra = 0, cover = false } = {}) => {
   const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Account code", "Account name", "Debit", "Credit"], ...rows.map((r) => [r[0], r[1], Number(r[2]), Number(r[3])])]), "TB");
-  return Buffer.from(XLSX.write(wb, { type: "array", bookType: "xlsx", compression: true }));
+  if (cover) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Invented Holdings Ltd"], ["Trial balance pack"], ["Prepared for review"]]), "Cover");
+  const head = [...HEADER, ...Array.from({ length: extra }, (_, k) => `Memo ${k + 1}`)];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows.map((r) => [r[0], r[1], Number(r[2]), Number(r[3]), ...Array.from({ length: extra }, () => "x")])]), "TB");
+  return Buffer.from(XLSX.write(wb, { type: "array", bookType, ...(bookType === "xlsx" ? { compression: true } : {}) }));
+};
+const xlsxOf = (rows, o = {}) => workbookOf(rows, { ...o, bookType: "xlsx" });
+/** The certification the real function recorded for an upload: its counts and how many findings are stored in full. */
+const certificationOf = async (uploadId) => {
+  const c = (await admin.from("tb_certifications").select("id, requires_review, is_blocking, findings_count, findings_summarized, exceptions").eq("upload_id", uploadId).order("sequence_no", { ascending: false }).limit(1)).data?.[0] ?? null;
+  if (!c) return null;
+  const { count } = await admin.from("tb_certification_findings").select("ordinal", { count: "exact", head: true }).eq("certification_id", c.id);
+  return { requiresReview: c.requires_review, blocking: c.is_blocking, findingsCount: c.findings_count, summarized: c.findings_summarized, stored: count, summaryEntries: c.exceptions?.length ?? null };
 };
 const commitAndProcess = async (bytes, name) => {
   const p = await openYear();
@@ -360,27 +386,60 @@ const commitAndProcess = async (bytes, name) => {
   const bodyText = res.status === 200 ? "" : (await res.text().catch(() => "")).slice(0, 400);
   const row = (await admin.from("trial_balance_uploads").select("status, processing_result, accounting_errors").eq("id", c.body.upload_id).single()).data;
   const ing = row?.processing_result?.ingestion ?? null;
-  const r = { httpStatus: res.status, ms, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null };
-  log(`        [policy] ${name}: HTTP ${r.httpStatus} in ${ms} ms, status ${r.status}, accounts ${r.accounts}, issues ${r.codes.join(",") || "none"}${bodyText ? `, body ${bodyText}` : ""}${r.status === "error" ? `, errors ${JSON.stringify(row?.accounting_errors ?? null).slice(0, 300)}` : ""}`);
+  const cert = await certificationOf(c.body.upload_id);
+  const r = { httpStatus: res.status, ms, bytes: bytes.length, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null, cert };
+  log(`        [policy] ${name}: ${(bytes.length / 1024).toFixed(0)} KB, HTTP ${r.httpStatus} in ${ms} ms, status ${r.status}, accounts ${r.accounts}, issues ${r.codes.join(",") || "none"}, certification ${cert ? `findings ${cert.findingsCount} (stored ${cert.stored}, summary ${cert.summaryEntries}${cert.summarized ? ", summarized" : ""})` : "none"}${bodyText ? `, body ${bodyText}` : ""}${r.status === "error" ? `, errors ${JSON.stringify(row?.accounting_errors ?? null).slice(0, 300)}` : ""}`);
   return r;
 };
 const refusedCleanly = (r, code) => r.httpStatus === 200 && r.codes?.includes(code) && (r.accounts === 0 || r.accounts === null) && !r.totals && !["complete", "valid"].includes(r.status);
-const processedFully = (r, accounts) => r.httpStatus === 200 && r.accounts === accounts && !r.codes.some((c) => /TOO_|LARGE|UNSUPPORTED|CURRENCY/.test(c));
+// Processed in full: every account read, and a certification whose COMPLETE findings are all stored (at least one finding
+// per unclassified account: nothing here is mapped), review still required.
+const processedFully = (r, accounts) => r.httpStatus === 200 && r.accounts === accounts && !r.codes.some((c) => /TOO_|LARGE|UNSUPPORTED|CURRENCY/.test(c))
+  && !!r.cert && r.cert.findingsCount !== null && r.cert.stored === r.cert.findingsCount && r.cert.findingsCount >= accounts && r.cert.requiresReview === true;
+const ACCOUNTS = policy.TB_UPLOAD_POLICY.maxAccounts;
 // Where does the real function's capacity end? Balanced files of increasing size, each processed in full or not.
-for (const n of [1_000, 2_500, 5_000]) {
-  await check(`capacity: a ${n}-line workbook and CSV are processed in full by the real function (HTTP 200, every account read)`, async () => {
-    const x = await commitAndProcess(await xlsxOf(balancedRows(n - 1)), `cap-${n}.xlsx`);
-    const c = await commitAndProcess(csvOf(balancedRows(n - 1)), `cap-${n}.csv`);
-    return processedFully(x, n - 1) && processedFully(c, n - 1) ? true : { xlsx: x, csv: c };
+for (const n of [1_000, ACCOUNTS]) {
+  await check(`capacity: ${n} accounts (realistic varied names) as a workbook and as CSV are processed in full, every finding stored (HTTP 200)`, async () => {
+    const x = await commitAndProcess(await xlsxOf(balancedRows(n)), `cap-${n}.xlsx`);
+    const c = await commitAndProcess(csvOf(balancedRows(n)), `cap-${n}.csv`);
+    return processedFully(x, n) && processedFully(c, n) ? true : { xlsx: x, csv: c };
   });
 }
-await check(`a WORKBOOK exactly at the row limit (${MAX} lines) is processed in full by the real function: HTTP 200, every account read (the worker is not exhausted)`, async () => {
-  const r = await commitAndProcess(await xlsxOf(balancedRows(MAX - 1)), "at-limit.xlsx");
-  return processedFully(r, MAX - 1) ? true : r;
+await check(`an .xls (BIFF8) workbook at the account limit (${ACCOUNTS}) is processed in full`, async () => {
+  const r = await commitAndProcess(await workbookOf(balancedRows(ACCOUNTS), { bookType: "biff8" }), "at-limit.xls");
+  return processedFully(r, ACCOUNTS) ? true : r;
 });
-await check(`a CSV exactly at the row limit (${MAX} lines) is processed in full: HTTP 200, every account read`, async () => {
-  const r = await commitAndProcess(csvOf(balancedRows(MAX - 1)), "at-limit.csv");
-  return processedFully(r, MAX - 1) ? true : r;
+await check("a multi-sheet workbook (a cover sheet, then the trial balance) at the account limit is processed in full", async () => {
+  const r = await commitAndProcess(await xlsxOf(balancedRows(ACCOUNTS), { cover: true }), "multi-sheet.xlsx");
+  return processedFully(r, ACCOUNTS) ? true : r;
+});
+await check(`a SPARSE CSV at the row limit (up to ${MAX} lines: ${ACCOUNTS} accounts separated by blank lines) is processed in full`, async () => {
+  const blankEvery = Math.floor((MAX - 1 - ACCOUNTS) / (ACCOUNTS - 1));
+  const bytes = csvOf(balancedRows(ACCOUNTS), { blankEvery });
+  const lines = bytes.toString().trimEnd().split("\n").length;
+  const r = await commitAndProcess(bytes, "sparse-at-limit.csv");
+  return lines <= MAX && lines > MAX - ACCOUNTS && processedFully(r, ACCOUNTS) ? true : { lines, r };
+});
+await check("a WIDE CSV within the cell limit (1,500 accounts × 70 columns = 105,070 cells) is processed in full", async () => {
+  const r = await commitAndProcess(csvOf(balancedRows(1_500), { extra: 66 }), "wide.csv");
+  return processedFully(r, 1_500) ? true : r;
+});
+await check("a WIDE CSV over the cell limit (2,000 accounts × 70 columns): refused by name (TOO_MANY_CELLS)", async () => {
+  const r = await commitAndProcess(csvOf(balancedRows(ACCOUNTS), { extra: 66 }), "wide-over.csv");
+  return refusedCleanly(r, "TOO_MANY_CELLS") ? true : r;
+});
+await check("the same wide sheet as a WORKBOOK expands past 2 MB first: refused by name (WORKBOOK_TOO_LARGE_EXPANDED) before any parse", async () => {
+  const r = await commitAndProcess(await xlsxOf(balancedRows(1_500), { extra: 66 }), "wide.xlsx");
+  return refusedCleanly(r, "WORKBOOK_TOO_LARGE_EXPANDED") ? true : r;
+});
+await check(`one account over the account limit (${ACCOUNTS + 1}): refused by name (TOO_MANY_ACCOUNTS); nothing certified in part`, async () => {
+  const r = await commitAndProcess(csvOf(balancedRows(ACCOUNTS + 1)), "accounts-over.csv");
+  return refusedCleanly(r, "TOO_MANY_ACCOUNTS") && (!r.cert || r.cert.blocking === true) ? true : r;
+});
+await check("4 concurrent requests at the account limit: each processed in full with its own complete findings", async () => {
+  const files = await Promise.all([0, 1, 2, 3].map(() => xlsxOf(balancedRows(ACCOUNTS))));
+  const rs = await Promise.all(files.map((b, k) => commitAndProcess(b, `concurrent-${k}.xlsx`)));
+  return rs.every((r) => processedFully(r, ACCOUNTS)) ? true : rs;
 });
 await check("a workbook one row over the limit: refused by name (TOO_MANY_ROWS); no account accepted, no totals, HTTP 200", async () => {
   const r = await commitAndProcess(await xlsxOf(balancedRows(MAX)), "over.xlsx");

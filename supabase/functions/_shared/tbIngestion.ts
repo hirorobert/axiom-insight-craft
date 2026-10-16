@@ -38,7 +38,7 @@ export interface SourceRow {
 
 export type IssueCode =
   // The upload policy (uploadPolicy.ts): resource limits checked before any check runs.
-  | "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS"
+  | "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "TOO_MANY_ACCOUNTS"
   | "FILE_EMPTY"
   | "UNSUPPORTED_FORMAT"
   | "ENCODING_NOT_UTF8"

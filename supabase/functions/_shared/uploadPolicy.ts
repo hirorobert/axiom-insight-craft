@@ -15,7 +15,7 @@
 // so a highly compressed .xlsx is refused before the spreadsheet library ever sees it.
 
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-2",
+  version: "tb-upload-policy-3",
   extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
   /** Bytes of the file as uploaded and stored (raw upload/storage limit). */
   maxFileBytes: 10_485_760,
@@ -27,9 +27,18 @@ export const TB_UPLOAD_POLICY = Object.freeze({
   maxRows: 10_000,
   /** Cells across every sheet after reading. */
   maxCells: 120_000,
+  /**
+   * Accounts in one trial balance (after reading). A SEPARATE bound from rows and cells: one certification holds every
+   * certified account (tb_certifications.rows_snapshot, CHECK 1 MiB stored; measured about 400 bytes per account with
+   * realistic names, so about 2,600 fit) and a run records four dependency keys per account (tb_snapshot_dependencies
+   * accepts 20,000). Over it the file is refused whole before any check runs.
+   */
+  maxAccounts: 2_000,
+  /** Bytes (JSON text) of the certified rows of one certification; the stored CHECK is 1,048,576 bytes of jsonb. */
+  maxCertifiedRowsBytes: 900_000,
 });
 
-export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "UNSUPPORTED_FORMAT";
+export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "TOO_MANY_ACCOUNTS" | "UNSUPPORTED_FORMAT";
 export interface PolicyIssue { code: PolicyIssueCode; severity: "blocking"; message: string }
 
 const mb = (n: number) => `${Math.round(n / 1_048_576)} MB`;
@@ -66,6 +75,13 @@ export function checkSourceTables(sheets: readonly { rows: readonly (readonly un
     if (cells > P.maxCells) return { code: "TOO_MANY_CELLS", severity: "blocking", message: `The file has more than ${thousands(P.maxCells)} cells. Export only the trial balance columns and upload it again.` };
   }
   return null;
+}
+
+/** The account bound, after reading and before any check runs. */
+export function checkAccountCount(accounts: number): PolicyIssue | null {
+  const P = TB_UPLOAD_POLICY;
+  if (accounts <= P.maxAccounts) return null;
+  return { code: "TOO_MANY_ACCOUNTS", severity: "blocking", message: `The trial balance has more than ${thousands(P.maxAccounts)} accounts, the most one check can certify today. Nothing from this file was recorded.` };
 }
 
 /**

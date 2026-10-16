@@ -7,7 +7,7 @@
  * PROVISIONAL limits (owner decision pending; set from the Deno/V8 heap-capped probe, see uploadPolicy.ts and roadmap.md).
  */
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-2",
+  version: "tb-upload-policy-3",
   extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
   maxFileBytes: 10_485_760,
 });

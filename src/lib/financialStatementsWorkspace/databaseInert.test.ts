@@ -325,6 +325,12 @@ describe("database inertness — schema and functions", () => {
       // The ONE trial balance upload policy (size, workbook expansion, rows, cells) the shared reader enforces before any
       // parse. Pure; no schema.
       "supabase/functions/_shared/uploadPolicy.ts",
+      // Certification capacity (repair A, 20261107100000): a NEW forward-only migration — one new append-only table
+      // (tb_certification_findings: every finding of a certification), three NULLable columns on tb_certifications (no
+      // existing row changes), and tb_finalize_attempt / tb_snapshot_dependencies redefined with only marked blocks added.
+      // The pure summary builder the processing function uses. Proven on PostgreSQL by certificationCapacity.mjs.
+      "supabase/migrations/20261107100000_certification_findings_capacity.sql",
+      "supabase/functions/_shared/certificationFindings.ts",
     ]);
     const modified = new Set([
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
@@ -597,6 +603,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
       "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
+      // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
+      // without the repair, then proves it). No deploy behaviour.
+      "scripts/db-proof/certificationCapacity.mjs",
       // The upload-policy measurement (invented data, local processes only; no network, no secret).
       "scripts/bench/tbUploadPolicyBench.mjs", "scripts/bench/tbUploadPolicyDenoProbe.ts",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).
