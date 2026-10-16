@@ -53,8 +53,20 @@ interface TreatmentGroupProposal {
   relationshipRefs?: string[];                                       // links to AccountRelationship (§3a)
 }
 interface AccountRelationship { kind: "asset_lifecycle"; stem: string; members: { account_key: string; role: "opening"|"addition"|"transfer"|"disposal"|"depreciation"|"cost" }[]; note: string }
-interface IndividualAccount { account_key: string; account_name: string; reason: "NO_RECOGNISED_MEANING"|"HIGH_UNCERTAINTY"; proposed_treatment: ProposedTreatment|null }
+interface IndividualAccount { account_key: string; account_name: string; reason: "NO_RECOGNISED_MEANING"|"HIGH_UNCERTAINTY";
+  signals?: "UNEXPECTED_BALANCE_FOR_PROPOSED_ROLE"[];               // a review TRIGGER, never a "wrong mapping" verdict (see §3b)
+  proposed_treatment: ProposedTreatment|null }
 ```
+Amounts (`debitMinor`/`creditMinor`) are **exact integer minor units** — `string` over the wire, `bigint` in the engine;
+no float is ever used for money or for a sign/relationship comparison.
+
+### 3b. What the interpretation layer does NOT claim — "unexpected balance" ≠ "incorrect mapping"
+The role-aware sign check emits `UNEXPECTED_BALANCE_FOR_PROPOSED_ROLE` (a signal) and raises uncertainty; it **never**
+returns a verdict that a mapping is wrong. The two are independent: the signal fires on some correct mappings (a legitimate
+bank overdraft) and is silent on some wrong ones (a mis-mapped account whose sign looks normal). "Role-aware" means the
+expected side is taken from the specific role — contra-assets are credit-normal, drawings are debit-normal — so neither is
+mis-flagged. Consumers must treat the signal as a prompt for individual review, not as proof. (Proven: `coverage.test.mjs`
+groups (A), (A≠B), (B, undetectable).)
 Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group;
 `HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never groupable and must be classified individually.
 ```ts

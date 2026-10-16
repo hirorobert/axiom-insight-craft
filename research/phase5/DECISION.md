@@ -51,7 +51,9 @@ every versioning/invalidation primitive that already exists, and keeps the revie
   `NEW` even if descriptions are unchanged — correct per the identity rule, but a known UX edge the product should consider.
 - **Refusals needing real Postgres/RLS** (true `auth.uid()` binding, server-computed `account_key`, DB-level append-only
   immutability) are asserted against the production RPCs, not re-proven in this pure prototype — the proof labels them so.
-- The prototype uses JS integers for minor units; production uses `bigint`/exact strings (no float ever reaches the DB).
+- The prototype now carries minor units as **exact `BigInt`** (never JS floats), mirroring production `bigint`/exact
+  strings; `toMinorUnits` refuses a non-integer money cell rather than silently rounding. Sign and relationship comparisons
+  are exact at any magnitude, not merely correct below 2^53.
 
 ## Output-specific evidence requirements (the honest "a TB may not be enough")
 | Output | Required evidence | Missing ⇒ |
@@ -81,13 +83,29 @@ Enforced throughout: **gross source rows are preserved**; different codes with s
 opening/addition/transfer relationships are **presented with evidence, never netted**; **net movement is not automatically cash
 flow**; **no automatic netting, balancing plugs or unsupported journals**.
 
+## Detection epistemics — "unexpected balance" ≠ "incorrect mapping" (tested separately, not conflated)
+The prototype detects an **unexpected balance** (a sign anomaly for the proposed role) — it raises
+`signals: ["UNEXPECTED_BALANCE_FOR_PROPOSED_ROLE"]` and high uncertainty, routing the account to individual review. It
+**never emits a "wrong mapping" verdict.** The two concepts are proven distinct by separate coverage tests:
+- **(A) is not sufficient for (B):** the signal fires on a **correctly-identified** account — a legitimately overdrawn
+  bank/cash account shows a credit balance (fixture `OVERDRAFT`). Detecting the anomaly does not establish a mis-mapping; it
+  is a review trigger, and the reviewer decides the presentation.
+- **(A) is not necessary for (B):** a **balanced, mis-mapped** account with **normal signs** is **undetectable** by the
+  prototype (fixture `WRONGLY_MAPPED_NORMAL_SIGN`: "Prepaid rent" — truly a current asset, recognised as an operating
+  expense; both roles are debit-normal, so no signal fires and it is silently grouped). Only a reviewer or corroborating
+  evidence (a lease schedule, a GL drill-down, a comparative) can catch this class — an inherent limit of deterministic
+  interpretation; AI could *propose*, separately governed, but never auto-accept.
+
 ## Limitations surfaced by the extended coverage (reported, not optimised away)
 - **Header recognition is partial.** QuickBooks- and Odoo-style headers are recognised; **SunSystems' "T/B Code" is not**, so
-  the automatic path loses codes and keys by description. **Resolution with an EXISTING contract:** the manual `LayoutProfile`
-  (header-text based) maps any header to its role — Phase 6 routes unrecognised headers through the confirmed-layout path; no
-  new mechanism.
-- **Keyword heuristics collide** (e.g. "rent income"). Mitigated by an income-precedence rule and an **abnormal-sign check**
-  (mirrors finding A01), which surfaces side mismatches for individual review — but it cannot catch every wrong mapping; the
-  reviewer is the authority (and AI could assist, separately governed).
+  the automatic path loses codes and keys by description. **Resolution — now VERIFIED through an EXISTING contract (not merely
+  proposed):** the manual `LayoutProfile` route executes through the **real, unmodified** `supabase/functions/_shared/layoutProfile.ts`
+  (`validateProfile` + `resolveLayout` map "T/B Code" → accountCode and recover every code). Proven by
+  `research/phase5/proof/real_layout_contract.mjs` (8/8, Node type-stripping). Phase 6 routes unrecognised headers through the
+  confirmed-layout path; no new mechanism.
+- **Keyword heuristics collide** (e.g. "rent income"). Mitigated by an income-precedence rule and a **role-aware,
+  exact-money unexpected-balance signal** (mirrors finding A01; role-aware = contra-assets are credit-normal and drawings are
+  debit-normal, so neither is mis-flagged). It surfaces side mismatches for individual review but, per the epistemics above,
+  **cannot catch every wrong mapping** — the reviewer is the authority (AI could assist, separately governed).
 - **Balance/imbalance checking** is owned by the production ingestion core (`TRIAL_BALANCE_IMBALANCE`); the prototype defers.
 - **`STALE_MEANING`** beyond identity/chart-code change has **no production mechanism** and is **not** in the first slice.

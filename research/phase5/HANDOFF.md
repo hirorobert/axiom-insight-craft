@@ -3,16 +3,20 @@
 ## Branch & commits
 - Branch: `research/phase5-accounting-interpretation-20261016` (off `origin/main` @ `00a2653`). Draft **PR #138**.
 - Worktree: `D:/DevStorage/Temp/claude/cfoclose-phase5-20261016`. Push: available (verified non-destructively).
-- **Implementation commits (preceding this handoff):** `4ec6cf1` (prototype + original proofs + INTERFACE/DECISION) and
-  **`b40097a`** (real-contract static check, replayable PG17 proof, extended coverage, abnormal-sign + income rules).
+- **Implementation commits (preceding this handoff):** `4ec6cf1` (prototype + original proofs + INTERFACE/DECISION),
+  `b40097a` (real-contract static check, replayable PG17 proof, extended coverage, income rules) and
+  **`cfa42e2`** (exact-money BigInt, role-aware unexpected-balance *signal* vs mapping-verdict separation, the `OVERDRAFT`
+  and `WRONGLY_MAPPED_NORMAL_SIGN` cases, the executed real-layout contract proof, and the `run_all.mjs` recorder).
   (This HANDOFF is a separate, later commit — no commit embeds its own hash.)
 
 ## Prototype vs real-contract evidence
 | Evidence | What it proves | Status |
 |---|---|---|
-| `tests/phase5.test.mjs` | deterministic 5-layer prototype + lifecycle (the 7 North-Star behaviours) | **EXECUTED 29/29** |
-| `tests/coverage.test.mjs` | vendor-style patterns + edge cases, with disclosed LIMITs | **EXECUTED 15/15** |
+| `tests/phase5.test.mjs` | deterministic 5-layer prototype + lifecycle (the 7 North-Star behaviours); exact BigInt minor units | **EXECUTED 29/29** |
+| `tests/coverage.test.mjs` | vendor-style patterns + edge cases; "unexpected balance" vs "incorrect mapping" separated; disclosed LIMITs | **EXECUTED 21/21** |
 | `tests/real_contract_static.mjs` | the grouped-acceptance expansion is field+semantics compatible with the **real** `resolve_account_review_batch` (parsed from the isolated runtime's migration SQL) | **EXECUTED 14/14** (static — necessary, not sufficient) |
+| `proof/real_layout_contract.mjs` | the SunSystems "T/B Code" manual-layout fallback **executes through the real, unmodified** `layoutProfile.ts` (`validateProfile`+`resolveLayout` recover every code) | **EXECUTED 8/8** (Node type-stripping; imports the real module) |
+| `run_all.mjs` → `TEST-OUTPUT.md` | recorded full output + exit status, categorised prototype / real-contract / deferred | **EXECUTED** (4 executed suites pass, 1 deferred) |
 | `proof/real_contract_proof.mjs` | **execution** against the real RPC on disposable PG17: success + refusals + lifecycle | **REPLAYABLE, NOT executed on this host** (no Docker/local PG; scope forbids a CI workflow here) |
 
 **Access limitation (reported once):** this Windows host has no Docker and no local PostgreSQL (embedded-pg is unavailable),
@@ -24,7 +28,12 @@ CI service or local Docker — runs it; loopback-only; refuses the production re
 ## Test-to-requirement matrix
 | North-Star / verification requirement | Test(s) | Result |
 |---|---|---|
-| Recognise supported structure | coverage (QB/Odoo/SunSystems), phase5 #1 | 15/15 (+ LIMIT: SunSystems code header → manual layout) |
+| Recognise supported structure | coverage (QB/Odoo/SunSystems), phase5 #1 | PASS |
+| SunSystems manual-layout fallback executes through the existing contract | `proof/real_layout_contract.mjs` | **EXECUTED 8/8 — VERIFIED route, not proposed** |
+| Exact money (BigInt minor units; no float; relationships/signs exact) | phase5 #3, coverage (Odoo), layer1 `toMinorUnits` | PASS |
+| Role-aware unexpected-balance signal (contra-asset/drawings normal sides) | coverage (A), layer3 | PASS |
+| "Unexpected balance" is a SIGNAL, not an "incorrect mapping" verdict | coverage (A), (A≠B) | PASS (separated tests; no overclaim) |
+| Balanced + mis-mapped + normal signs ⇒ **undetectable** (honest limit) | coverage (B, undetectable) | PASS (asserts non-detection) |
 | Establish essential accounting context | INTERFACE §2; readiness/evidence tests | design + 4/… evidence checks |
 | Propose GROUPED treatments (no Accept-all) | phase5 #1 | PASS |
 | Expose consequential uncertainty | phase5 #1 (suspense/contra), coverage (abnormal sign) | PASS |
@@ -34,7 +43,8 @@ CI service or local Docker — runs it; loopback-only; refuses the production re
 | Different codes / similar descriptions ≠ duplicate | phase5 #2 | PASS |
 | Opening/addition/transfer/depreciation relationships, never netted | phase5 #3; coverage (MUSE) | PASS |
 | Missing comparative/GL blocks OUTPUT not review | phase5 #4; coverage (conflicting) | PASS |
-| Balanced-but-wrongly-mapped | coverage | PASS (abnormal-sign surfaced individually) |
+| Balanced-but-wrongly-mapped (abnormal sign) | coverage (A) | PASS (unexpected-balance signal → individual review) |
+| Balanced-but-wrongly-mapped (normal sign) | coverage (B, undetectable) | PASS (documented as undetectable — not a false green) |
 | Genuine imbalance | coverage | PASS (deferred to production ingestion) |
 | Compatible repeat vs incompatible reuse | phase5 #5, coverage | PASS |
 | Cross-tenant / stale / concurrent / retry / partial-failure / duplicate | real_contract_static #8 (codes); proof (execution) | static PASS; execution REPLAYABLE |
