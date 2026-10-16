@@ -3,7 +3,7 @@
 **Status:** proposal only. Nothing is implemented. **Baseline:** `origin/main` `00a2653b5736e89447334e1147aa25f5308b0393`,
 `src/content/landing/landingContent.ts`.
 Every NEW or CHANGED string below is also in `proposed-strings.json`. Each one is checked by `evidence/copy-rules-check.mjs` against
-the repository's current copy rules (`evidence/copy-rules-check.json`: **29/29 pass, 0 failures**; a deliberate violation was confirmed to fail).
+the repository's current copy rules (`evidence/copy-rules-check.json`: **36/36 pass, 0 failures**; a deliberate violation was confirmed to fail).
 
 Rules applied (from the baseline):
 - `src/components/landing/__tests__/landingPage.test.ts`: no "audit-ready" or "compliant statements"; no buy, subscribe or trial wording; no TZS or mobile money; the hero is at most 40 words.
@@ -17,28 +17,33 @@ Rules applied (from the baseline):
 ## 1. Hero
 | Field | Current | Proposed | |
 |---|---|---|---|
-| eyebrow, headline, supporting | *(as at baseline)* | unchanged | KEEP (supporting text is 34 words) |
-| primary action | Explore plans → `#plans` | unchanged | KEEP |
-| secondary action | View plans → `/plans` | **See a sample review** → `#sample` | CHANGE (pinned test R-5) |
+| eyebrow, headline | *(as at baseline)* | unchanged | KEEP |
+| supporting | Import a trial balance, check it, and map every account… professional judgement stays with you. (34 words) | **Check your trial balance, review account classifications, and keep a traceable record of your decisions.** (15 words) | CHANGE. Pinned by `landingPage.test.ts`, which matches the current sentence. |
+| primary action | Explore plans → `#plans` | **See a sample review** → `#sample` | CHANGE (pinned test R-5) |
+| secondary action | View plans → `/plans` | **View plans** → `/plans` | KEEP |
 | screenshot | all widths | ≥1024 px only (decision D-4) | CHANGE (layout) |
 
+**Capability check for the supporting sentence:**
+- *Check your trial balance*: the import checks (R-3).
+- *Review account classifications*: account review, with accounts held for a decision.
+- *A traceable record of your decisions*: decisions are written to an append-only ledger (`account_review_decisions`, migration `20260816120000`) with a server-resolved authenticated account. This is the `attributable-review-decisions` claim.
+
+It avoids that claim's prohibited wordings ("every decision", "unbroken audit trail") and every other registry prohibition (`copy-rules-check.json`). The phrase "professional judgement stays with you" leaves the hero. The sample's disclosure ("CFOClose records decisions; it does not check them against evidence") carries the same limit.
+
 ## 2. Sample review section (NEW, `id="sample"`, between Product and Plans)
-All of this section's strings are listed verbatim in `proposed-strings.json` (ids `sample.*`). In summary:
+Every string is in `proposed-strings.json` (`sample.*` and `completed.*`). In summary:
 
-| Key | Text |
+| Element | Text or behaviour |
 |---|---|
-| eyebrow / heading | Sample review / Explore an illustrative trial balance review |
-| label (always visible) | Illustrative example — invented data |
-| outstanding note | This example has two outstanding decisions. Two accounts are held because their names do not show how to classify them. In a real workspace, readiness depends on all applicable checks and the required decisions being recorded by authorised users. |
-| step 1 | Arithmetic checks (run on import) are listed apart from the classification-dependent statement equation. The equation reads "Pending" until every account has a category; then it is recalculated, with figures, and explained as not showing that the categories are right. |
-| step 2 disclosure | What this sample shows: how a decision is recorded, with who made it and when. In this illustration the invented evidence points to one treatment for each account, and the sample compares your choice with it. CFOClose itself records decisions; it does not check them against evidence. |
-| held accounts | Invented evidence for each (a loan note; ledger detail of customer overpayments), three treatments, and **Record decision**. The outcome says whether the recorded treatment matches the invented evidence. |
-| step 3 | In this sample, the trial balance is marked reviewed only when the arithmetic checks have passed, every account has a category, and both held accounts have a decision that matches the invented evidence. |
-| limit (always visible) | What "reviewed" means: a reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved. |
+| lead (always visible) | **Balanced · 2 accounts need your review.** with the label **Illustrative example — invented data** |
+| actions | **View completed example** (read-only view, `#completed-example`); **Try the two decisions** (optional; expands in place) |
+| disclosure: Checks | Arithmetic checks run on import and pass. The balance note says it is not a classification check. The statement equation is **Pending** until every account has a category, then recalculated and explained. The fingerprint is explained. |
+| disclosure: All 16 accounts | 14 mapped and 2 held; a held row shows the visitor's recorded decision if one is made |
+| Try the two decisions | Choosing records nothing; only **Record decision** records, as "Sample reviewer". Next to each set of choices: **Guided example—not automated evidence checking.** Director account: "The credit balance suggests the company owes the director. The repayment terms decide the category." (invented evidence: a loan note repayable on demand). The outcome reads "Recorded: …" plus the guided-example comparison. |
+| completed example (read-only) | The two decisions supplied with the example: "Example reviewer (invented)", date and time, and invented basis. Then the recalculated equation and the remaining limitations (recorded is not validated; the comparison is guided-example only; reviewed is not reconciled, audited or approved; financial reporting is a pilot). "Viewing them records nothing for you." |
+| limit (always visible) | What "reviewed" means … not reconciled to evidence, audited or approved. In a real workspace, readiness depends on all applicable checks and the required decisions being recorded by authorised users. |
 
-Data rules: an invented company (Kilele Supplies Ltd), invented accounts, figures and evidence, balanced at USD 127,150.00 each side. Accumulated
-depreciation is suggested as Non-Current Assets. The SHA-256 value is shown as illustrative. The comparison with evidence belongs to the illustration only;
-no product validation capability is claimed.
+Data rules: an invented company, invented people, figures and evidence, balanced at USD 127,150.00 each side. No product validation capability is claimed.
 
 ## 3. Trust strip
 The approved claims stay verbatim. Each gets one plain line from its own `evidenceScope`. Each line **needs a registry entry** (for example an

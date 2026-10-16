@@ -1,5 +1,5 @@
 {
-  "runAt": "2026-10-16T13:51:44.009Z",
+  "runAt": "2026-10-16T14:49:32.012Z",
   "baseline": "origin/main 00a2653b5736e89447334e1147aa25f5308b0393",
   "mockup": {
     "reflow": {
@@ -7,10 +7,11 @@
         "layoutProblems": [],
         "smallestText": {
           "px": 12,
-          "text": "Proposed page starts below"
+          "text": "Sample review"
         },
         "cw": 320,
         "sw": 320,
+        "reviewerNotesOpen": false,
         "consoleErrors": [],
         "networkRequests": []
       },
@@ -18,23 +19,37 @@
         "layoutProblems": [],
         "smallestText": {
           "px": 12,
-          "text": "Proposed page starts below"
+          "text": "Sample review"
         },
         "cw": 390,
         "sw": 390,
+        "reviewerNotesOpen": false,
         "consoleErrors": [],
-        "networkRequests": []
+        "networkRequests": [],
+        "tryOpen": {
+          "layoutProblems": []
+        },
+        "completed": {
+          "layoutProblems": []
+        }
       },
       "1280": {
         "layoutProblems": [],
         "smallestText": {
           "px": 12,
-          "text": "Proposed page starts below"
+          "text": "Sample review"
         },
         "cw": 1280,
         "sw": 1280,
+        "reviewerNotesOpen": false,
         "consoleErrors": [],
-        "networkRequests": []
+        "networkRequests": [],
+        "tryOpen": {
+          "layoutProblems": []
+        },
+        "completed": {
+          "layoutProblems": []
+        }
       }
     },
     "keyboard": {
@@ -71,7 +86,7 @@
         },
         {
           "el": "a",
-          "label": "Explore plans ↓",
+          "label": "See a sample review ↓",
           "visible": true,
           "browserDefaultRing": false,
           "outline": "solid 3px",
@@ -81,7 +96,7 @@
         },
         {
           "el": "a",
-          "label": "See a sample review →",
+          "label": "View plans →",
           "visible": true,
           "browserDefaultRing": false,
           "outline": "solid 3px",
@@ -90,34 +105,54 @@
           "height": 48
         },
         {
-          "el": "button#tab-1[role=tab]",
-          "label": "STEP 1 Checks",
-          "visible": true,
-          "browserDefaultRing": false,
-          "outline": "solid 3px",
-          "boxShadow": "rgb(36, 125, 82) 0px -3px 0px 0px inset",
-          "inViewport": true,
-          "height": 61
-        },
-        {
-          "el": "div#panel-1[role=tabpanel]",
-          "label": "Some checks are arithmetic and run on import. Ot",
-          "visible": true,
-          "browserDefaultRing": false,
-          "outline": "solid 3px",
-          "boxShadow": null,
-          "inViewport": true,
-          "height": 705
-        },
-        {
-          "el": "button",
-          "label": "Continue to account mapping →",
+          "el": "a#view-completed",
+          "label": "View completed example",
           "visible": true,
           "browserDefaultRing": false,
           "outline": "solid 3px",
           "boxShadow": null,
           "inViewport": true,
           "height": 48
+        },
+        {
+          "el": "button#try-toggle",
+          "label": "Try the two decisions",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "summary",
+          "label": "Checks 3 passed · 1 pending",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 51
+        },
+        {
+          "el": "summary",
+          "label": "All 16 accounts 14 mapped · 2 held",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 51
+        },
+        {
+          "el": "summary",
+          "label": "Reviewer-only notes (not part of the proposed pa",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 46
         },
         {
           "el": "body",
@@ -155,19 +190,11 @@
         }
       ],
       "everyFocusVisible": true,
-      "arrowRight": {
-        "focus": "tab-2",
-        "selected": "tab-2"
-      },
-      "arrowToLocked": {
-        "focus": "tab-3",
-        "ariaDisabled": "true",
-        "describedBy": "Step 3 opens only when both held accounts have a decision that matches the invented evidence.",
-        "panel3Hidden": true
-      },
-      "status": {
-        "role": "status",
-        "live": "polite"
+      "checksDisclosureOpensByKeyboard": true,
+      "tryToggle": {
+        "expanded": "true",
+        "regionShown": true,
+        "focus": "try-title"
       },
       "radioFocus": {
         "el": "input",
@@ -178,7 +205,114 @@
         "boxShadow": null,
         "inViewport": true,
         "height": 18
+      },
+      "guidedLabelsAdjacent": [
+        true,
+        true
+      ],
+      "status": {
+        "role": "status",
+        "live": "polite"
       }
+    },
+    "completedRoute": {
+      "allPass": true,
+      "checks": [
+        {
+          "name": "C1 route opens read-only view by keyboard",
+          "pass": true,
+          "detail": {
+            "hash": "#completed-example",
+            "completedShown": true,
+            "sampleShown": false,
+            "focusOnHeading": true,
+            "controlsInside": 0,
+            "suppliedRows": [
+              "Director current account 2100 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:42 Loan note: repayable on demand",
+              "Sundry balances 4900 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:47 Customer overpayments not yet refunded"
+            ],
+            "limitations": 4,
+            "mentionsVisitor": false,
+            "label": "Illustrative example — invented data"
+          }
+        },
+        {
+          "name": "C1 no recording controls inside the completed view",
+          "pass": true,
+          "detail": 0
+        },
+        {
+          "name": "C1 two supplied decisions, each with who and when",
+          "pass": true,
+          "detail": [
+            "Director current account 2100 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:42 Loan note: repayable on demand",
+            "Sundry balances 4900 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:47 Customer overpayments not yet refunded"
+          ]
+        },
+        {
+          "name": "C1 remaining limitations and invented-data label",
+          "pass": true,
+          "detail": {
+            "limitations": 4,
+            "label": "Illustrative example — invented data"
+          }
+        },
+        {
+          "name": "C1 the completed view never names the visitor",
+          "pass": true,
+          "detail": false
+        },
+        {
+          "name": "C2 back returns to the sample",
+          "pass": true,
+          "detail": {
+            "sampleShown": true,
+            "completedShown": false
+          }
+        },
+        {
+          "name": "C2 viewing recorded no visitor decision",
+          "pass": true,
+          "detail": {
+            "ready": false,
+            "readyShown": false,
+            "equation": "Pending",
+            "lead": "Balanced · 2 accounts need your review.",
+            "status": "2 held accounts need a decision",
+            "outcomes": [
+              "No decision recorded.",
+              "No decision recorded."
+            ],
+            "visitorDecisions": 0,
+            "logEntries": 0
+          }
+        },
+        {
+          "name": "C3 supplied decisions unaffected by the visitor's decision",
+          "pass": true,
+          "detail": [
+            "Director current account 2100 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:42 Loan note: repayable on demand",
+            "Sundry balances 4900 Current Liabilities Example reviewer (invented) · 14 Oct 2026, 10:47 Customer overpayments not yet refunded"
+          ]
+        },
+        {
+          "name": "C3 the visitor's own decision is still theirs after returning",
+          "pass": true,
+          "detail": {
+            "ready": false,
+            "readyShown": false,
+            "equation": "Pending",
+            "lead": "Balanced · 1 account needs your review.",
+            "status": "1 held account needs a decision",
+            "outcomes": [
+              "Recorded: Equity. In this guided example, the invented evidence does not support it.",
+              "No decision recorded."
+            ],
+            "visitorDecisions": 1,
+            "logEntries": 1
+          }
+        }
+      ]
     },
     "regression": {
       "allPass": true,
@@ -189,19 +323,17 @@
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Pending",
-            "equationDetail": "Pending. It can be evaluated only when every account has a category, and 2 accounts are still held.",
+            "lead": "Balanced · 2 accounts need your review.",
             "status": "2 held accounts need a decision",
             "outcomes": [
-              "No decision recorded yet.",
-              "No decision recorded yet."
+              "No decision recorded.",
+              "No decision recorded."
             ],
-            "logEntries": 1
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 0,
+            "logEntries": 0
+          }
         },
         {
           "name": "S1 one supported decision, one unresolved",
@@ -209,39 +341,17 @@
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Pending",
-            "equationDetail": "Pending. It can be evaluated only when every account has a category, and 1 account is still held.",
+            "lead": "Balanced · 1 account needs your review.",
             "status": "1 held account needs a decision",
             "outcomes": [
-              "Recorded: Current Liabilities. This matches the invented evidence.",
-              "No decision recorded yet."
+              "Recorded: Current Liabilities. In this guided example, it matches the invented evidence.",
+              "No decision recorded."
             ],
-            "logEntries": 2
-          },
-          "endKeyOpenedReviewed": false
-        },
-        {
-          "name": "S2 both decided, both unsupported by the evidence",
-          "pass": true,
-          "failures": [],
-          "state": {
-            "ready": false,
-            "tab3Locked": true,
-            "readyShown": false,
-            "panel3Open": false,
-            "equation": "Holds",
-            "equationDetail": "Recalculated from the current categories: assets 49,650.00 = liabilities 10,050.00 + equity 27,500.00 + period result 12,100.00. It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.",
-            "status": "2 decisions do not match the invented evidence",
-            "outcomes": [
-              "Recorded: Equity. The invented evidence does not support this treatment, so the sample stays not reviewed.",
-              "Recorded: Other Income. The invented evidence does not support this treatment, so the sample stays not reviewed."
-            ],
-            "logEntries": 3
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 1,
+            "logEntries": 1
+          }
         },
         {
           "name": "S1b both supported treatments selected but not recorded",
@@ -249,19 +359,35 @@
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Pending",
-            "equationDetail": "Pending. It can be evaluated only when every account has a category, and 2 accounts are still held.",
+            "lead": "Balanced · 2 accounts need your review.",
             "status": "2 held accounts need a decision",
             "outcomes": [
               "Selected: Current Liabilities. Not recorded until you choose Record decision.",
               "Selected: Current Liabilities. Not recorded until you choose Record decision."
             ],
-            "logEntries": 1
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 0,
+            "logEntries": 0
+          }
+        },
+        {
+          "name": "S2 both recorded, both unsupported",
+          "pass": true,
+          "failures": [],
+          "state": {
+            "ready": false,
+            "readyShown": false,
+            "equation": "Holds",
+            "lead": "Balanced · 2 decisions not supported by the invented evidence.",
+            "status": "2 recorded decisions do not match the invented evidence",
+            "outcomes": [
+              "Recorded: Equity. In this guided example, the invented evidence does not support it.",
+              "Recorded: Other Income. In this guided example, the invented evidence does not support it."
+            ],
+            "visitorDecisions": 2,
+            "logEntries": 2
+          }
         },
         {
           "name": "S3 one supported, one unsupported",
@@ -269,78 +395,58 @@
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Holds",
-            "equationDetail": "Recalculated from the current categories: assets 49,650.00 = liabilities 13,050.00 + equity 24,500.00 + period result 12,100.00. It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.",
-            "status": "1 decision does not match the invented evidence",
+            "lead": "Balanced · 1 decision not supported by the invented evidence.",
+            "status": "1 recorded decision does not match the invented evidence",
             "outcomes": [
-              "Recorded: Current Liabilities. This matches the invented evidence.",
-              "Recorded: Revenue. The invented evidence does not support this treatment, so the sample stays not reviewed."
+              "Recorded: Current Liabilities. In this guided example, it matches the invented evidence.",
+              "Recorded: Revenue. In this guided example, the invented evidence does not support it."
             ],
-            "logEntries": 3
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 2,
+            "logEntries": 2
+          }
         },
         {
-          "name": "S4 both supported (after one earlier unsupported choice)",
+          "name": "S4 both supported (after one earlier unsupported decision)",
           "pass": true,
           "failures": [],
           "state": {
             "ready": true,
-            "tab3Locked": false,
             "readyShown": true,
-            "panel3Open": true,
             "equation": "Holds",
-            "equationDetail": "Recalculated from the current categories: assets 49,650.00 = liabilities 14,050.00 + equity 24,500.00 + period result 11,100.00. It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.",
-            "status": "Both decisions match the invented evidence. Step 3 is now available.",
+            "lead": "Balanced · reviewed in your sample (illustrative).",
+            "status": "Both recorded decisions match the invented evidence.",
             "outcomes": [
-              "Recorded: Current Liabilities. This matches the invented evidence.",
-              "Recorded: Current Liabilities. This matches the invented evidence."
+              "Recorded: Current Liabilities. In this guided example, it matches the invented evidence.",
+              "Recorded: Current Liabilities. In this guided example, it matches the invented evidence."
             ],
-            "logEntries": 4
+            "visitorDecisions": 2,
+            "logEntries": 3
           },
-          "endKeyOpenedReviewed": true,
           "keyboardPicked": [
             "Non-Current Liabilities",
             "Current Liabilities",
             "Current Liabilities"
-          ],
-          "stateBeforeOpening": {
-            "ready": true,
-            "tab3Locked": false,
-            "readyShown": true,
-            "panel3Open": false,
-            "equation": "Holds",
-            "equationDetail": "Recalculated from the current categories: assets 49,650.00 = liabilities 14,050.00 + equity 24,500.00 + period result 11,100.00. It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.",
-            "status": "Both decisions match the invented evidence. Step 3 is now available.",
-            "outcomes": [
-              "Recorded: Current Liabilities. This matches the invented evidence.",
-              "Recorded: Current Liabilities. This matches the invented evidence."
-            ],
-            "logEntries": 4
-          }
+          ]
         },
         {
-          "name": "S5 a supported decision changed to unsupported after reaching the reviewed state",
+          "name": "S5 a supported decision changed to unsupported after the ready state",
           "pass": true,
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Holds",
-            "equationDetail": "Recalculated from the current categories: assets 49,650.00 = liabilities 13,050.00 + equity 24,500.00 + period result 12,100.00. It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.",
-            "status": "1 decision does not match the invented evidence",
+            "lead": "Balanced · 1 decision not supported by the invented evidence.",
+            "status": "1 recorded decision does not match the invented evidence",
             "outcomes": [
-              "Recorded: Current Liabilities. This matches the invented evidence.",
-              "Recorded: Revenue. The invented evidence does not support this treatment, so the sample stays not reviewed."
+              "Recorded: Current Liabilities. In this guided example, it matches the invented evidence.",
+              "Recorded: Revenue. In this guided example, the invented evidence does not support it."
             ],
-            "logEntries": 5
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 2,
+            "logEntries": 4
+          }
         },
         {
           "name": "S6 reset returns to two held accounts",
@@ -348,64 +454,46 @@
           "failures": [],
           "state": {
             "ready": false,
-            "tab3Locked": true,
             "readyShown": false,
-            "panel3Open": false,
             "equation": "Pending",
-            "equationDetail": "Pending. It can be evaluated only when every account has a category, and 2 accounts are still held.",
+            "lead": "Balanced · 2 accounts need your review.",
             "status": "2 held accounts need a decision",
             "outcomes": [
-              "No decision recorded yet.",
-              "No decision recorded yet."
+              "No decision recorded.",
+              "No decision recorded."
             ],
-            "logEntries": 1
-          },
-          "endKeyOpenedReviewed": false
+            "visitorDecisions": 0,
+            "logEntries": 0
+          }
         }
       ]
     },
     "noJs320": {
       "jsClass": false,
-      "panelsVisible": [
-        true,
-        true,
-        true
-      ],
-      "tablistHidden": true,
-      "mappedRows": 14,
-      "heldCards": 2,
+      "lead": "Balanced · 2 accounts need your review.",
+      "disclosuresPresent": 3,
+      "tryRegionShown": true,
       "radiosDisabled": true,
-      "equation": "Pending",
+      "guidedLabels": 2,
+      "completedShown": true,
       "readyShown": false,
+      "equation": "Pending",
       "label": "Illustrative example — invented data",
-      "reviewerNotesSeparate": true,
-      "totals": [
-        "127,150.00",
-        "127,150.00",
-        "0.00"
-      ],
+      "reviewerNotesCollapsed": true,
       "layoutProblems": []
     },
     "noJs1280": {
       "jsClass": false,
-      "panelsVisible": [
-        true,
-        true,
-        true
-      ],
-      "tablistHidden": true,
-      "mappedRows": 14,
-      "heldCards": 2,
+      "lead": "Balanced · 2 accounts need your review.",
+      "disclosuresPresent": 3,
+      "tryRegionShown": true,
       "radiosDisabled": true,
-      "equation": "Pending",
+      "guidedLabels": 2,
+      "completedShown": true,
       "readyShown": false,
+      "equation": "Pending",
       "label": "Illustrative example — invented data",
-      "reviewerNotesSeparate": true,
-      "totals": [
-        "127,150.00",
-        "127,150.00",
-        "0.00"
-      ],
+      "reviewerNotesCollapsed": true,
       "layoutProblems": []
     }
   },
@@ -499,9 +587,9 @@
           "scale": 0.534
         },
         "planRows": [
-          "online | USD 490 per year by card",
-          "online | USD 990 per year by card",
-          "online | USD 2,990 per year by card",
+          "unavailable | Proposed: USD 490 per year",
+          "unavailable | Proposed: USD 990 per year",
+          "unavailable | Proposed: USD 2,990 per year",
           "enterprise | Terms agreed with our team"
         ]
       }

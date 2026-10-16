@@ -3,8 +3,22 @@
   "prohibitedWordingCount": 56,
   "results": [
     {
-      "id": "hero.secondaryCta",
+      "id": "hero.supporting",
+      "words": 15,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "hero.primaryCta",
       "words": 4,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "hero.secondaryCta",
+      "words": 2,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
@@ -24,13 +38,6 @@
       "status": "PASS"
     },
     {
-      "id": "sample.intro",
-      "words": 29,
-      "inMockup": true,
-      "hits": [],
-      "status": "PASS"
-    },
-    {
       "id": "sample.label",
       "words": 5,
       "inMockup": true,
@@ -38,36 +45,43 @@
       "status": "PASS"
     },
     {
-      "id": "sample.outstanding",
-      "words": 39,
+      "id": "sample.leadStatus",
+      "words": 7,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.step1.lead",
-      "words": 24,
+      "id": "sample.viewCompleted",
+      "words": 3,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.step1.balanceNote",
-      "words": 16,
+      "id": "sample.tryToggle",
+      "words": 4,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.checks.balanceNote",
+      "words": 11,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
       "id": "sample.equation.pending",
-      "words": 18,
+      "words": 12,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
       "id": "sample.equation.evaluated",
-      "words": 22,
+      "words": 21,
       "inMockup": null,
       "hits": [],
       "status": "PASS"
@@ -86,29 +100,36 @@
       "status": "PASS"
     },
     {
-      "id": "sample.step2.lead",
-      "words": 22,
+      "id": "sample.try.intro",
+      "words": 25,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.disclosure",
-      "words": 43,
+      "id": "sample.director.why",
+      "words": 15,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.evidence.director",
-      "words": 18,
+      "id": "sample.director.evidence",
+      "words": 11,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
-      "id": "sample.evidence.sundry",
-      "words": 19,
+      "id": "sample.sundry.why",
+      "words": 9,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.sundry.evidence",
+      "words": 11,
       "inMockup": true,
       "hits": [],
       "status": "PASS"
@@ -116,41 +137,69 @@
     {
       "id": "sample.guidedLabel",
       "words": 5,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.outcome.supported",
+      "words": 9,
       "inMockup": null,
       "hits": [],
       "status": "PASS"
     },
     {
       "id": "sample.outcome.unsupported",
-      "words": 14,
+      "words": 11,
       "inMockup": null,
-      "hits": [],
-      "status": "PASS"
-    },
-    {
-      "id": "sample.outcome.supported",
-      "words": 5,
-      "inMockup": null,
-      "hits": [],
-      "status": "PASS"
-    },
-    {
-      "id": "sample.step3.lead",
-      "words": 33,
-      "inMockup": true,
-      "hits": [],
-      "status": "PASS"
-    },
-    {
-      "id": "sample.close",
-      "words": 26,
-      "inMockup": true,
       "hits": [],
       "status": "PASS"
     },
     {
       "id": "sample.limit",
-      "words": 17,
+      "words": 36,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.heading",
+      "words": 9,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.intro",
+      "words": 13,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.equation",
+      "words": 21,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.limit.recorded",
+      "words": 8,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.limit.guided",
+      "words": 21,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "completed.limit.pilot",
+      "words": 12,
       "inMockup": true,
       "hits": [],
       "status": "PASS"

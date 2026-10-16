@@ -3,16 +3,17 @@
   CFOClose public sample review: ISOLATED MOCKUP (research proposal; baseline origin/main 00a2653b5736e89447334e1147aa25f5308b0393).
   Not production code, not wired to the application, not published. It makes no network request.
 
-  Behaviour (see ../PROPOSED_COPY.md §2 and ../REVIEW.md §6):
-  - Invented company, accounts, figures and evidence; labelled "Illustrative example — invented data". No file upload.
-  - Arithmetic checks (file read, valid amounts, debits = credits) are evaluated on import. The statement equation is
-    classification-dependent: it stays PENDING while any account has no category, and is recalculated from the categories
-    once every account has one. It is explained as a completeness check, never as proof that categories are right.
-  - The two held accounts carry invented supporting evidence. A decision is always RECORDED; the illustration compares it
-    with the invented evidence and reaches the reviewed state only when both decisions match it. This comparison belongs to
-    the illustration: the page says plainly that CFOClose records decisions and does not check them against evidence.
-  - Readable without JavaScript (static HTML; choices disabled; nothing shown as reviewed).
-  - Reviewer notes are in a separate region and are not part of the proposed page.
+  Structure (see ../PROPOSED_COPY.md §2 and ../REVIEW.md §6):
+  - The hero's primary action is "See a sample review"; "View plans" is secondary.
+  - The sample leads with one status line, "Balanced · 2 accounts need your review.", plus the invented-data label.
+    Checks, the account list and all explanations sit behind native disclosure controls (<details>/<summary>).
+  - "View completed example" (#completed-example) is a READ-ONLY view of decisions SUPPLIED with the example: who made them,
+    when and on what invented basis, and the remaining limitations. Viewing it never records anything for the visitor.
+  - "Try the two decisions" is optional. Selecting records nothing; only "Record decision" records. Each held account carries
+    the adjacent label "Guided example—not automated evidence checking." The statement equation stays Pending until every
+    account has a category. The illustrated ready state needs both recorded decisions to match the invented evidence.
+  - Readable without JavaScript: every region is static HTML (choices disabled; nothing shown as reviewed for the visitor).
+  - Reviewer-only notes are collapsed at the foot of the page and are not part of the proposed page.
 -->
 <html lang="en">
 <head>
@@ -59,13 +60,9 @@
   .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
   .eyebrow { font: 600 12px/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; margin: 0; }
   .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-
-  /* Reviewer notes: separate from the proposed page */
-  .reviewer-notes { background: var(--note-bg); color: var(--note-fg); border-bottom: 4px double var(--note-border); padding: 16px 0; font-size: 14px; }
-  .reviewer-notes h2 { font-size: 15px; margin: 0 0 6px; }
-  .reviewer-notes ul { margin: 0; padding-left: 20px; }
-  .reviewer-notes li { margin: 4px 0; }
-  .page-start { text-align: center; font: 600 12px/1 ui-monospace, Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-muted); padding: 10px 16px; margin: 0; border-bottom: 1px solid var(--border); }
+  .js-only { display: none; }
+  .js .js-only { display: revert; }
+  .js .nojs-only { display: none; }
 
   header.site { border-bottom: 1px solid var(--border); background: var(--bg); }
   header.site .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 60px; gap: 12px; }
@@ -77,146 +74,131 @@
   .hero .wrap { padding-top: 48px; padding-bottom: 48px; max-width: 820px; }
   .hero .eyebrow { color: var(--mint); }
   .hero h1 { font-size: clamp(28px, 7vw, 46px); line-height: 1.1; letter-spacing: -.03em; margin: 14px 0 0; }
-  .hero p { color: rgba(255,255,255,.88); max-width: 640px; margin: 18px 0 0; font-size: 16px; }
+  .hero p { color: rgba(255,255,255,.88); max-width: 600px; margin: 18px 0 0; font-size: 17px; }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 20px; text-align: center;
     font: 600 15px/1.25 inherit; font-family: inherit; text-decoration: none; cursor: pointer; border-radius: 2px; border: 1px solid transparent; }
   .btn-primary { background: var(--mint); color: var(--slate); }
   .btn-secondary { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); }
   .btn-secondary:hover { background: rgba(255,255,255,.1); }
+  .btn-dark { background: var(--slate); color: #fff; }
+  .btn-quiet { background: var(--bg); color: var(--fg); border-color: var(--fg-muted); }
   @media (max-width: 480px) { .actions .btn { width: 100%; } }
 
   section.sample { padding: 48px 0; border-bottom: 1px solid var(--border); background: var(--bg-muted); }
-  .sample h2 { font-size: clamp(23px, 5vw, 32px); letter-spacing: -.02em; line-height: 1.2; margin: 8px 0 0; }
-  .sample .intro { color: var(--fg-muted); max-width: 680px; margin: 10px 0 0; }
-  .frame { margin-top: 24px; background: var(--bg); border: 1px solid var(--border); }
+  .sample h2 { font-size: clamp(23px, 5vw, 30px); letter-spacing: -.02em; line-height: 1.2; margin: 8px 0 0; }
+  .frame { margin-top: 20px; background: var(--bg); border: 1px solid var(--border); }
   .frame-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
   .frame-head .co { font-weight: 700; }
   .frame-head .meta { color: var(--fg-muted); font-size: 13px; }
   .tag { display: inline-block; font: 700 12px/1.3 system-ui, sans-serif; padding: 6px 10px; border: 2px dashed var(--fg-muted); color: var(--fg); }
-  .outstanding { margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--warn-bg); color: var(--fg); font-size: 14px; }
-  .outstanding strong { color: var(--warn-fg); }
+  .lead-status { margin: 0; padding: 22px 16px 6px; font-size: clamp(20px, 4.5vw, 26px); font-weight: 700; letter-spacing: -.01em; }
+  .lead-status .dot { color: var(--fg-muted); font-weight: 400; }
+  .lead-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 16px 18px; }
+  @media (max-width: 480px) { .lead-actions .btn { width: 100%; } }
 
-  .steps { display: none; grid-template-columns: repeat(3, minmax(0,1fr)); border-bottom: 1px solid var(--border); }
-  .js .steps { display: grid; }
-  .steps button { appearance: none; background: none; border: 0; border-right: 1px solid var(--border); padding: 12px; text-align: left;
-    font: inherit; color: var(--fg-muted); cursor: pointer; min-height: 56px; }
-  .steps button:last-child { border-right: 0; }
-  .steps .n { display: block; font: 600 12px/1.3 ui-monospace, Consolas, monospace; letter-spacing: .08em; }
-  .steps .t { display: block; font-weight: 600; font-size: 14px; }
-  .steps button[aria-selected="true"] { color: var(--fg); box-shadow: inset 0 -3px 0 var(--green); }
-  .steps button[aria-disabled="true"] { cursor: not-allowed; }
-  .steps button[aria-disabled="true"] .t::after { content: " (locked)"; font-weight: 400; }
-  .panel { padding: 20px 16px; }
-  .panel + .panel { border-top: 1px solid var(--border); }
-  .js .panel + .panel { border-top: 0; }
-  .panel h3 { font-size: 17px; margin: 0 0 8px; }
-  .panel h4 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); margin: 18px 0 8px; }
-  .panel p.lead { margin: 0 0 16px; max-width: 720px; }
+  details.more { border-top: 1px solid var(--border); }
+  details.more > summary { cursor: pointer; padding: 14px 16px; min-height: 48px; font-weight: 600; font-size: 15px; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  details.more > summary::-webkit-details-marker { display: none; }
+  details.more > summary::after { content: "Show"; color: var(--fg-muted); font-weight: 400; font-size: 14px; margin-left: auto; }
+  details.more[open] > summary::after { content: "Hide"; }
+  details.more > summary .sub { color: var(--fg-muted); font-weight: 400; }
+  .more-body { padding: 0 16px 18px; }
+  .more-body h4 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); margin: 6px 0 8px; }
 
-  .totals { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); border: 1px solid var(--border); margin: 0 0 4px; }
-  .totals div { padding: 12px 14px; border-right: 1px solid var(--border); }
-  .totals div:last-child { border-right: 0; }
-  .totals dt { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); }
-  .totals dd { margin: 2px 0 0; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  @media (max-width: 560px) { .totals { grid-template-columns: 1fr; } .totals div { border-right: 0; border-bottom: 1px solid var(--border); } .totals div:last-child { border-bottom: 0; } }
-
-  ul.checks { list-style: none; padding: 0; margin: 0; border: 1px solid var(--border); }
-  ul.checks li { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  ul.checks { list-style: none; padding: 0; margin: 0 0 14px; border: 1px solid var(--border); }
+  ul.checks li { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); }
   ul.checks li:last-child { border-bottom: 0; }
-  ul.checks .what { font-weight: 600; flex: 1 1 260px; }
+  ul.checks .what { font-weight: 600; flex: 1 1 240px; }
   ul.checks .why { display: block; color: var(--fg-muted); font-size: 13px; font-weight: 400; }
   .state { font-weight: 600; font-size: 13px; white-space: nowrap; }
   .state.passed, .state.holds { color: var(--ok-fg); }
   .state.pending { color: var(--warn-fg); }
-  .fp { margin: 16px 0 0; font-size: 13px; color: var(--fg-muted); border-left: 3px solid var(--border); padding: 4px 0 4px 12px; }
+  .fp { margin: 0; font-size: 13px; color: var(--fg-muted); }
   .fp code { font-family: ui-monospace, Consolas, monospace; color: var(--fg); }
 
-  .status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .pill { font-size: 14px; font-weight: 600; padding: 6px 10px; border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-fg); margin: 0; }
-  .pill.ok { border-color: var(--ok-fg); background: var(--ok-bg); color: var(--ok-fg); }
-  .plainbtn { background: var(--bg); border: 1px solid var(--fg-muted); color: var(--fg); font: 600 14px/1 inherit; font-family: inherit; padding: 10px 14px; cursor: pointer; min-height: 44px; }
-  .nojs-only { display: block; }
-  .js .nojs-only { display: none; }
-  .js-only { display: none; }
-  .js .js-only { display: revert; }
-  .disclosure { margin: 0 0 16px; padding: 10px 12px; border-left: 4px solid var(--fg-muted); background: var(--bg-muted); font-size: 14px; }
-
-  /* held accounts: evidence + guided choice */
-  .held-card { border: 1px solid var(--warn-border); background: var(--warn-bg); padding: 14px; margin: 0 0 14px; }
-  .held-card.supported { border-color: var(--ok-fg); background: var(--ok-bg); }
-  .held-card.unsupported { border-color: var(--bad-border); background: var(--bad-bg); }
-  .held-card h5 { font-size: 16px; margin: 0; }
-  .held-card .meta { font-size: 13px; color: var(--fg-muted); }
-  .held-card .why { font-size: 14px; margin: 8px 0 0; }
-  .evidence { margin: 10px 0 0; padding: 10px 12px; background: var(--bg); border: 1px dashed var(--fg-muted); font-size: 14px; }
-  .evidence b { display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 2px; }
-  fieldset { border: 0; margin: 12px 0 0; padding: 0; min-width: 0; }
-  legend { font-weight: 600; font-size: 14px; padding: 0; margin-bottom: 6px; }
-  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; min-height: 44px; border: 1px solid var(--border); background: var(--bg); margin-top: 6px; cursor: pointer; font-size: 14px; }
-  .opt input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
-  .opt small { display: block; color: var(--fg-muted); font-size: 13px; }
-  .outcome { margin: 10px 0 0; font-size: 14px; font-weight: 600; }
-  .record { margin-top: 10px; }
-  .outcome.ok { color: var(--ok-fg); }
-  .outcome.bad { color: var(--bad-fg); }
-  .outcome.wait { color: var(--warn-fg); }
-
   table.accts { width: 100%; border-collapse: collapse; font-size: 14px; }
-  table.accts th { text-align: left; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); font-weight: 600; padding: 10px; border-bottom: 1px solid var(--border); }
+  table.accts th { text-align: left; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   table.accts th.num { text-align: right; }
-  table.accts td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.accts td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   table.accts .code { display: block; font: 13px ui-monospace, Consolas, monospace; color: var(--fg-muted); }
-  table.accts .src { display: block; font-size: 13px; color: var(--fg-muted); }
-  .decided { color: var(--ok-fg); font-size: 13px; font-weight: 600; }
-  .heldtxt { color: var(--warn-fg); font-size: 13px; font-weight: 600; }
+  .held-row td { background: var(--warn-bg); }
+  .heldtxt { color: var(--warn-fg); font-weight: 600; }
   @media (max-width: 640px) {
     table.accts thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
     table.accts, table.accts tbody, table.accts tr, table.accts td { display: block; width: 100%; }
-    table.accts tr { border-bottom: 1px solid var(--border); padding: 10px 0; }
-    table.accts td { border: 0; padding: 4px 10px; }
+    table.accts tr { border-bottom: 1px solid var(--border); padding: 6px 0; }
+    table.accts td { border: 0; padding: 2px 10px; }
     table.accts td.num { text-align: left; }
-    table.accts td[data-label]::before { content: attr(data-label); display: block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted); }
+    table.accts td[data-label]::before { content: attr(data-label) ": "; color: var(--fg-muted); font-size: 13px; }
   }
 
-  .log { list-style: none; padding: 0; margin: 12px 0 0; border: 1px solid var(--border); font-size: 14px; }
-  .log li { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; }
+  /* optional "Try the two decisions" */
+  .try { border-top: 1px solid var(--border); padding: 18px 16px; }
+  .try h3 { font-size: 17px; margin: 0 0 6px; }
+  .try .intro { margin: 0 0 14px; font-size: 14px; color: var(--fg-muted); max-width: 680px; }
+  .status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 0 0 12px; }
+  .pill { font-size: 14px; font-weight: 600; padding: 6px 10px; border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-fg); margin: 0; }
+  .pill.ok { border-color: var(--ok-fg); background: var(--ok-bg); color: var(--ok-fg); }
+  .plainbtn { background: var(--bg); border: 1px solid var(--fg-muted); color: var(--fg); font: 600 14px/1 inherit; font-family: inherit; padding: 10px 14px; cursor: pointer; min-height: 44px; }
+  .held-card { border: 1px solid var(--warn-border); background: var(--warn-bg); padding: 14px; margin: 0 0 12px; }
+  .held-card.supported { border-color: var(--ok-fg); background: var(--ok-bg); }
+  .held-card.unsupported { border-color: var(--bad-border); background: var(--bad-bg); }
+  .held-card h4 { font-size: 16px; margin: 0; }
+  .held-card .meta { font-size: 13px; color: var(--fg-muted); }
+  .held-card .why { font-size: 14px; margin: 6px 0 0; }
+  .evidence { margin: 8px 0 0; padding: 8px 10px; background: var(--bg); border: 1px dashed var(--fg-muted); font-size: 14px; }
+  .evidence b { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); margin-right: 6px; }
+  fieldset { border: 0; margin: 10px 0 0; padding: 0; min-width: 0; }
+  legend { font-weight: 600; font-size: 14px; padding: 0; }
+  .guided { display: inline-block; margin: 4px 0 2px; font: 700 12px/1.3 system-ui, sans-serif; padding: 3px 8px; border: 1px solid var(--fg-muted); background: var(--bg); color: var(--fg); }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; min-height: 44px; border: 1px solid var(--border); background: var(--bg); margin-top: 6px; cursor: pointer; font-size: 14px; }
+  .opt input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+  .opt small { display: block; color: var(--fg-muted); font-size: 13px; }
+  .record { margin-top: 10px; }
+  .outcome { margin: 8px 0 0; font-size: 14px; font-weight: 600; }
+  .outcome.ok { color: var(--ok-fg); }
+  .outcome.bad { color: var(--bad-fg); }
+  .outcome.wait { color: var(--warn-fg); }
+  .log { list-style: none; padding: 0; margin: 0; border: 1px solid var(--border); font-size: 14px; }
+  .log li { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; }
   .log li:last-child { border-bottom: 0; }
   .log .who { color: var(--fg-muted); font-size: 13px; }
   .limit { margin: 0; padding: 14px 16px; border-top: 1px solid var(--border); font-size: 14px; }
-  .after { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; justify-content: space-between; margin-top: 22px; }
-  .after p { margin: 0; color: var(--fg-muted); max-width: 640px; font-size: 14px; }
-  .after .btn-primary { background: var(--slate); color: #fff; }
 
-  section.trust { padding: 40px 0; border-bottom: 1px solid var(--border); }
+  /* read-only completed example */
+  section.completed { padding: 48px 0; border-bottom: 1px solid var(--border); background: var(--bg-muted); }
+  .completed h2 { font-size: clamp(23px, 5vw, 30px); letter-spacing: -.02em; line-height: 1.2; margin: 8px 0 0; }
+  .completed h2:focus { outline: none; }
+  .completed h2:focus-visible { outline: 3px solid var(--focus); }
+  .completed .intro { color: var(--fg-muted); margin: 8px 0 0; max-width: 680px; }
+  .completed .panel { padding: 16px; }
+  .completed h3 { font-size: 15px; margin: 18px 0 8px; }
+  .completed h3:first-child { margin-top: 0; }
+  ul.limits { margin: 0; padding-left: 20px; font-size: 14px; }
+  ul.limits li { margin: 4px 0; }
+  .equation-line { font-size: 14px; margin: 0; }
+
+  section.trust { padding: 36px 0; border-bottom: 1px solid var(--border); }
   .trust ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 24px; }
   @media (max-width: 760px) { .trust ul { grid-template-columns: 1fr; } }
   .trust .t { font-weight: 650; font-size: 14px; margin: 0; }
   .trust .c { font-size: 14px; margin: 4px 0 0; }
   .trust .p { font-size: 13px; color: var(--fg-muted); margin: 4px 0 0; }
-  section.plans { padding: 40px 0 56px; }
+  section.plans { padding: 40px 0 48px; }
   .plans h2 { font-size: 26px; letter-spacing: -.02em; margin: 8px 0 0; }
   .plans p { color: var(--fg-muted); max-width: 680px; }
   .placeholder { border: 1px dashed var(--fg-muted); padding: 18px; color: var(--fg-muted); font-size: 14px; }
+
+  /* reviewer-only, collapsed, outside <main> */
+  details.reviewer-notes { background: var(--note-bg); color: var(--note-fg); border-top: 4px double var(--note-border); font-size: 14px; }
+  details.reviewer-notes > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; font-weight: 700; max-width: 1120px; margin: 0 auto; }
+  details.reviewer-notes ul { margin: 0 auto; padding: 0 16px 16px 36px; max-width: 1120px; }
+  details.reviewer-notes li { margin: 4px 0; }
 </style>
 </head>
 <body>
 <a class="skip" href="#sample">Skip to the sample review</a>
-
-<!-- ═══ REVIEWER NOTES: not part of the proposed page ═══ -->
-<aside class="reviewer-notes" aria-labelledby="rn-title" data-testid="reviewer-notes">
-  <div class="wrap">
-    <h2 id="rn-title">Reviewer notes (not part of the proposed page)</h2>
-    <ul>
-      <li>Research mockup on baseline <code>00a2653</code>. Not the live site. Every company, figure and piece of evidence below is invented.</li>
-      <li>Changed: the hero's secondary action was "View plans" (a second route to pricing). It is now "See a sample review".</li>
-      <li>New: the sample review section, one plain-language line under each trust claim (each needs a claim-registry entry before it ships), and the plans-intro sentence "There is no free plan…".</li>
-      <li>The comparison of a decision with the invented evidence is part of this illustration only. CFOClose records decisions; it does not check them against evidence.</li>
-      <li>The plan table is not reproduced: the server decides prices and actions at runtime.</li>
-    </ul>
-  </div>
-</aside>
-<p class="page-start" aria-hidden="true">Proposed page starts below</p>
 
 <header class="site">
   <div class="wrap">
@@ -235,135 +217,164 @@
     <div class="wrap">
       <p class="eyebrow">Trial balance workspace</p>
       <h1 id="hero-title">From trial balance to review-ready accounts.</h1>
-      <p>Import a trial balance, check it, and map every account to its statement category, with each decision recorded. CFOCLOSE performs the checks and records the decisions; professional judgement stays with you.</p>
+      <p data-testid="hero-supporting">Check your trial balance, review account classifications, and keep a traceable record of your decisions.</p>
       <div class="actions">
-        <a class="btn btn-primary" href="#plans" data-testid="hero-primary">Explore plans <span aria-hidden="true">↓</span></a>
-        <a class="btn btn-secondary" href="#sample" data-testid="hero-secondary">See a sample review <span aria-hidden="true">→</span></a>
+        <a class="btn btn-primary" href="#sample" data-testid="hero-primary">See a sample review <span aria-hidden="true">↓</span></a>
+        <a class="btn btn-secondary" href="#plans" data-testid="hero-secondary">View plans <span aria-hidden="true">→</span></a>
       </div>
     </div>
   </section>
 
+  <!-- ═══ SAMPLE ═══ -->
   <section class="sample" id="sample" aria-labelledby="sample-title" tabindex="-1">
     <div class="wrap">
       <p class="eyebrow" style="color:var(--fg-muted)">Sample review</p>
       <h2 id="sample-title">Explore an illustrative trial balance review</h2>
-      <p class="intro">An invented company with invented figures and evidence, showing the three steps of a trial balance review. Nothing you choose here is saved, and you cannot upload a file.</p>
 
       <div class="frame">
         <div class="frame-head">
-          <div><span class="co">Kilele Supplies Ltd</span> <span class="meta">· FY2026 · Reporting framework recorded: IFRS for SMEs</span></div>
+          <div><span class="co">Kilele Supplies Ltd</span> <span class="meta">· FY2026 · 16 accounts · USD</span></div>
           <span class="tag" data-testid="sample-label">Illustrative example — invented data</span>
         </div>
 
-        <p class="outstanding" data-testid="outstanding-note"><strong>This example has two outstanding decisions.</strong> Two accounts are held because their names do not show how to classify them. In a real workspace, readiness depends on all applicable checks and the required decisions being recorded by authorised users.</p>
-
-        <div class="steps" role="tablist" aria-label="Review steps">
-          <button type="button" role="tab" id="tab-1" aria-controls="panel-1" aria-selected="true"><span class="n">STEP 1</span><span class="t">Checks</span></button>
-          <button type="button" role="tab" id="tab-2" aria-controls="panel-2" aria-selected="false" tabindex="-1"><span class="n">STEP 2</span><span class="t">Account mapping</span></button>
-          <button type="button" role="tab" id="tab-3" aria-controls="panel-3" aria-selected="false" tabindex="-1" aria-disabled="true" aria-describedby="tab3-why"><span class="n">STEP 3</span><span class="t">Reviewed</span></button>
-        </div>
-        <p id="tab3-why" class="sr-only">Step 3 opens only when both held accounts have a decision that matches the invented evidence.</p>
-
-        <!-- STEP 1 -->
-        <div class="panel" role="tabpanel" id="panel-1" aria-labelledby="tab-1" tabindex="0">
-          <h3 class="nojs-only">Step 1 · Checks</h3>
-          <p class="lead">Some checks are arithmetic and run on import. Others depend on how accounts are classified, so they wait until every account has a category.</p>
-          <dl class="totals">
-            <div><dt>Total debits (USD)</dt><dd>127,150.00</dd></div>
-            <div><dt>Total credits (USD)</dt><dd>127,150.00</dd></div>
-            <div><dt>Difference</dt><dd>0.00</dd></div>
-          </dl>
-          <h4>Arithmetic checks, run on import</h4>
-          <ul class="checks" data-testid="arithmetic-checks">
-            <li><span class="what">File read<span class="why">16 rows read and totalled from an invented file, kilele-tb-fy2026.csv</span></span><span class="state passed">✓ Passed</span></li>
-            <li><span class="what">Amounts are valid<span class="why">Every amount is a valid number</span></span><span class="state passed">✓ Passed</span></li>
-            <li><span class="what">Debits equal credits<span class="why">The source totals agree to the cent. This says nothing yet about how accounts are classified.</span></span><span class="state passed">✓ Passed</span></li>
-          </ul>
-          <h4>Classification-dependent check</h4>
-          <ul class="checks" data-testid="classification-checks">
-            <li data-testid="equation-check"><span class="what">Statement equation<span class="why" id="equation-detail">Pending. It can be evaluated only when every account has a category, and 2 accounts are still held.</span></span><span class="state pending" id="equation-state">Pending</span></li>
-          </ul>
-          <p class="fp">Source fingerprint (SHA-256, illustrative): <code>9c41e0d2…7b3f</code><br>
-            It identifies the exact file that was imported. It is not a signature and not a security certification.</p>
-          <div class="after js-only"><p>The arithmetic checks passed. Next, the accounts are mapped, including the two held ones.</p>
-            <button class="btn btn-primary" type="button" data-go="2">Continue to account mapping <span aria-hidden="true">→</span></button></div>
+        <p class="lead-status" id="lead-status" data-testid="lead-status" aria-live="polite">Balanced <span class="dot">·</span> 2 accounts need your review.</p>
+        <div class="lead-actions">
+          <a class="btn btn-dark" href="#completed-example" id="view-completed" data-testid="view-completed">View completed example</a>
+          <button type="button" class="btn btn-quiet js-only" id="try-toggle" aria-expanded="false" aria-controls="try-region" data-testid="try-toggle">Try the two decisions</button>
         </div>
 
-        <!-- STEP 2 -->
-        <div class="panel" role="tabpanel" id="panel-2" aria-labelledby="tab-2" tabindex="0">
-          <h3 class="nojs-only">Step 2 · Account mapping</h3>
-          <p class="lead">Fourteen accounts are mapped from their names. Two are held for a decision, with the invented evidence a reviewer would look at.</p>
-          <p class="disclosure" data-testid="decision-disclosure"><strong>What this sample shows:</strong> how a decision is recorded, with who made it and when. In this illustration the invented evidence points to one treatment for each account, and the sample compares your choice with it. CFOClose itself records decisions; it does not check them against evidence.</p>
+        <details class="more" data-testid="checks-disclosure">
+          <summary>Checks <span class="sub">3 passed · 1 pending</span></summary>
+          <div class="more-body">
+            <h4>Arithmetic, run on import</h4>
+            <ul class="checks">
+              <li><span class="what">File read<span class="why">16 rows from an invented file</span></span><span class="state passed">✓ Passed</span></li>
+              <li><span class="what">Amounts are valid</span><span class="state passed">✓ Passed</span></li>
+              <li><span class="what">Debits equal credits<span class="why">127,150.00 each side. This says nothing about how accounts are classified.</span></span><span class="state passed">✓ Passed</span></li>
+            </ul>
+            <h4>Depends on classification</h4>
+            <ul class="checks">
+              <li data-testid="equation-check"><span class="what">Statement equation<span class="why" id="equation-detail">Pending until every account has a category. 2 accounts are still held.</span></span><span class="state pending" id="equation-state">Pending</span></li>
+            </ul>
+            <p class="fp">Source fingerprint (SHA-256, illustrative): <code>9c41e0d2…7b3f</code>. It identifies the exact file that was imported. It is not a signature and not a security certification.</p>
+          </div>
+        </details>
+
+        <details class="more" data-testid="accounts-disclosure">
+          <summary>All 16 accounts <span class="sub">14 mapped · 2 held</span></summary>
+          <div class="more-body">
+            <table class="accts">
+              <caption class="sr-only">Accounts in the illustrative trial balance</caption>
+              <thead><tr><th scope="col">Account</th><th scope="col" class="num">Balance</th><th scope="col">Category</th></tr></thead>
+              <tbody id="rows">
+                <tr><td data-label="Account">Cash at bank <span class="code">1000</span></td><td class="num" data-label="Balance">18,400.00</td><td data-label="Category">Current Assets</td></tr>
+                <tr><td data-label="Account">Trade receivables <span class="code">1100</span></td><td class="num" data-label="Balance">9,600.00</td><td data-label="Category">Current Assets</td></tr>
+                <tr><td data-label="Account">Inventory <span class="code">1200</span></td><td class="num" data-label="Balance">7,250.00</td><td data-label="Category">Current Assets</td></tr>
+                <tr><td data-label="Account">Equipment at cost <span class="code">1500</span></td><td class="num" data-label="Balance">24,000.00</td><td data-label="Category">Non-Current Assets</td></tr>
+                <tr><td data-label="Account">Accumulated depreciation – equipment <span class="code">1510</span></td><td class="num" data-label="Balance">(9,600.00)</td><td data-label="Category">Non-Current Assets</td></tr>
+                <tr><td data-label="Account">Trade payables <span class="code">2000</span></td><td class="num" data-label="Balance">(8,150.00)</td><td data-label="Category">Current Liabilities</td></tr>
+                <tr class="held-row"><td data-label="Account">Director current account <span class="code">2100</span></td><td class="num" data-label="Balance">(3,000.00)</td><td data-label="Category"><span class="heldtxt" id="cat-2100">Held for review</span></td></tr>
+                <tr><td data-label="Account">Accrued expenses <span class="code">2200</span></td><td class="num" data-label="Balance">(1,900.00)</td><td data-label="Category">Current Liabilities</td></tr>
+                <tr><td data-label="Account">Share capital <span class="code">3000</span></td><td class="num" data-label="Balance">(10,000.00)</td><td data-label="Category">Equity</td></tr>
+                <tr><td data-label="Account">Retained earnings <span class="code">3100</span></td><td class="num" data-label="Balance">(14,500.00)</td><td data-label="Category">Equity</td></tr>
+                <tr><td data-label="Account">Revenue <span class="code">4000</span></td><td class="num" data-label="Balance">(79,000.00)</td><td data-label="Category">Revenue</td></tr>
+                <tr class="held-row"><td data-label="Account">Sundry balances <span class="code">4900</span></td><td class="num" data-label="Balance">(1,000.00)</td><td data-label="Category"><span class="heldtxt" id="cat-4900">Held for review</span></td></tr>
+                <tr><td data-label="Account">Cost of sales <span class="code">5000</span></td><td class="num" data-label="Balance">41,300.00</td><td data-label="Category">Cost of Sales</td></tr>
+                <tr><td data-label="Account">Salaries and wages <span class="code">6100</span></td><td class="num" data-label="Balance">15,800.00</td><td data-label="Category">Operating Expenses</td></tr>
+                <tr><td data-label="Account">Rent <span class="code">6200</span></td><td class="num" data-label="Balance">6,000.00</td><td data-label="Category">Operating Expenses</td></tr>
+                <tr><td data-label="Account">Depreciation expense <span class="code">6300</span></td><td class="num" data-label="Balance">4,800.00</td><td data-label="Category">Operating Expenses</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <!-- Optional: try the two decisions (static and disabled without JavaScript) -->
+        <div class="try" id="try-region" data-testid="try-region" aria-labelledby="try-title">
+          <h3 id="try-title">Try the two decisions</h3>
+          <p class="intro">Choosing an option records nothing. Only "Record decision" records it, under the name "Sample reviewer". CFOClose records decisions; it does not check them against evidence.</p>
           <div class="status">
             <p class="pill" id="pending-pill" role="status" aria-live="polite" data-testid="pending-status">2 held accounts need a decision</p>
             <button class="plainbtn js-only" type="button" id="reset">Reset sample</button>
           </div>
 
-          <article class="held-card" id="held-2100" data-code="2100" aria-labelledby="h-2100">
-            <h5 id="h-2100">Director current account</h5>
-            <span class="meta">2100 · balance (3,000.00) credit</span>
-            <p class="why">Held: the name does not show whether this is owed to or by the director, or when it is due.</p>
-            <p class="evidence"><b>Invented evidence</b>A signed loan note dated 3 March 2026: the director lent the company 3,000.00, interest-free, repayable on demand.</p>
+          <article class="held-card" id="held-2100" aria-labelledby="h-2100">
+            <h4 id="h-2100">Director current account</h4>
+            <span class="meta">2100 · (3,000.00) credit</span>
+            <p class="why">The credit balance suggests the company owes the director. The repayment terms decide the category.</p>
+            <p class="evidence"><b>Invented evidence</b>Loan note: 3,000.00 lent by the director, interest-free, repayable on demand.</p>
             <fieldset>
-              <legend>Your decision for Director current account</legend>
-              <label class="opt"><input type="radio" name="d-2100" value="Current Liabilities" disabled> <span>Current Liabilities<small>Owed by the company and repayable on demand</small></span></label>
-              <label class="opt"><input type="radio" name="d-2100" value="Non-Current Liabilities" disabled> <span>Non-Current Liabilities<small>Owed by the company, due after more than a year</small></span></label>
+              <legend>Your decision</legend>
+              <span class="guided" data-testid="guided-label-2100">Guided example—not automated evidence checking.</span>
+              <label class="opt"><input type="radio" name="d-2100" value="Current Liabilities" disabled> <span>Current Liabilities<small>Repayable on demand</small></span></label>
+              <label class="opt"><input type="radio" name="d-2100" value="Non-Current Liabilities" disabled> <span>Non-Current Liabilities<small>Due after more than a year</small></span></label>
               <label class="opt"><input type="radio" name="d-2100" value="Equity" disabled> <span>Equity<small>An owner's investment, not a loan</small></span></label>
             </fieldset>
             <button type="button" class="plainbtn js-only record" data-record="2100">Record decision</button>
-            <p class="outcome wait" id="out-2100" data-testid="outcome-2100" aria-live="polite">No decision recorded yet.</p>
+            <p class="outcome wait" id="out-2100" aria-live="polite">No decision recorded.</p>
           </article>
 
-          <article class="held-card" id="held-4900" data-code="4900" aria-labelledby="h-4900">
-            <h5 id="h-4900">Sundry balances</h5>
-            <span class="meta">4900 · balance (1,000.00) credit</span>
-            <p class="why">Held: "Sundry" does not identify what the balance is.</p>
-            <p class="evidence"><b>Invented evidence</b>The ledger detail lists three customer overpayments (400.00, 350.00 and 250.00) received in June 2026 and not yet refunded.</p>
+          <article class="held-card" id="held-4900" aria-labelledby="h-4900">
+            <h4 id="h-4900">Sundry balances</h4>
+            <span class="meta">4900 · (1,000.00) credit</span>
+            <p class="why">The name does not say what the balance is.</p>
+            <p class="evidence"><b>Invented evidence</b>Ledger detail: three customer overpayments (400.00, 350.00, 250.00), not yet refunded.</p>
             <fieldset>
-              <legend>Your decision for Sundry balances</legend>
-              <label class="opt"><input type="radio" name="d-4900" value="Current Liabilities" disabled> <span>Current Liabilities<small>Amounts owed back to customers</small></span></label>
+              <legend>Your decision</legend>
+              <span class="guided" data-testid="guided-label-4900">Guided example—not automated evidence checking.</span>
+              <label class="opt"><input type="radio" name="d-4900" value="Current Liabilities" disabled> <span>Current Liabilities<small>Owed back to customers</small></span></label>
               <label class="opt"><input type="radio" name="d-4900" value="Other Income" disabled> <span>Other Income<small>Income outside normal sales</small></span></label>
               <label class="opt"><input type="radio" name="d-4900" value="Revenue" disabled> <span>Revenue<small>Income from sales</small></span></label>
             </fieldset>
             <button type="button" class="plainbtn js-only record" data-record="4900">Record decision</button>
-            <p class="outcome wait" id="out-4900" data-testid="outcome-4900" aria-live="polite">No decision recorded yet.</p>
+            <p class="outcome wait" id="out-4900" aria-live="polite">No decision recorded.</p>
           </article>
 
-          <table class="accts">
-            <caption class="sr-only">The fourteen accounts mapped from their names</caption>
-            <thead><tr><th scope="col">Account</th><th scope="col" class="num">Balance (USD)</th><th scope="col">Category</th><th scope="col">Decision</th></tr></thead>
-            <tbody id="rows">
-              <tr><td data-label="Account"><strong>Cash at bank</strong><span class="code">1000</span></td><td class="num" data-label="Balance (USD)">18,400.00</td><td data-label="Category">Current Assets<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Trade receivables</strong><span class="code">1100</span></td><td class="num" data-label="Balance (USD)">9,600.00</td><td data-label="Category">Current Assets<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Inventory</strong><span class="code">1200</span></td><td class="num" data-label="Balance (USD)">7,250.00</td><td data-label="Category">Current Assets<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Equipment at cost</strong><span class="code">1500</span></td><td class="num" data-label="Balance (USD)">24,000.00</td><td data-label="Category">Non-Current Assets<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Accumulated depreciation – equipment</strong><span class="code">1510</span></td><td class="num" data-label="Balance (USD)">(9,600.00)</td><td data-label="Category">Non-Current Assets<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Trade payables</strong><span class="code">2000</span></td><td class="num" data-label="Balance (USD)">(8,150.00)</td><td data-label="Category">Current Liabilities<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Accrued expenses</strong><span class="code">2200</span></td><td class="num" data-label="Balance (USD)">(1,900.00)</td><td data-label="Category">Current Liabilities<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Share capital</strong><span class="code">3000</span></td><td class="num" data-label="Balance (USD)">(10,000.00)</td><td data-label="Category">Equity<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Retained earnings</strong><span class="code">3100</span></td><td class="num" data-label="Balance (USD)">(14,500.00)</td><td data-label="Category">Equity<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Revenue</strong><span class="code">4000</span></td><td class="num" data-label="Balance (USD)">(79,000.00)</td><td data-label="Category">Revenue<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Cost of sales</strong><span class="code">5000</span></td><td class="num" data-label="Balance (USD)">41,300.00</td><td data-label="Category">Cost of Sales<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Salaries and wages</strong><span class="code">6100</span></td><td class="num" data-label="Balance (USD)">15,800.00</td><td data-label="Category">Operating Expenses<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Rent</strong><span class="code">6200</span></td><td class="num" data-label="Balance (USD)">6,000.00</td><td data-label="Category">Operating Expenses<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
-              <tr><td data-label="Account"><strong>Depreciation expense</strong><span class="code">6300</span></td><td class="num" data-label="Balance (USD)">4,800.00</td><td data-label="Category">Operating Expenses<span class="src">Suggested from the account name</span></td><td data-label="Decision"><span class="decided">Confirmed</span></td></tr>
+          <div class="status js-only" data-testid="ready-state" hidden><p class="pill ok">Reviewed (illustrative) · 16 of 16 accounts have a category</p></div>
+          <details class="more js-only" data-testid="visitor-log-disclosure">
+            <summary>Your recorded decisions <span class="sub" id="log-count">none yet</span></summary>
+            <div class="more-body"><ul class="log" id="log" data-testid="decision-log"></ul></div>
+          </details>
+          <p class="nojs-only" style="font-size:14px;color:var(--fg-muted);margin:0">With JavaScript off, the decisions cannot be made here. The completed example below shows the supplied decisions.</p>
+        </div>
+
+        <p class="limit" data-testid="limit-note"><strong>What "reviewed" means:</strong> a reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved. In a real workspace, readiness depends on all applicable checks and the required decisions being recorded by authorised users.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ COMPLETED EXAMPLE (read-only) ═══ -->
+  <section class="completed" id="completed-example" aria-labelledby="completed-title" data-testid="completed-example">
+    <div class="wrap">
+      <p class="eyebrow" style="color:var(--fg-muted)">Completed example · read-only</p>
+      <h2 id="completed-title" tabindex="-1">The same trial balance, with its two decisions made</h2>
+      <p class="intro">These decisions were supplied with the example. Viewing them records nothing for you.</p>
+      <div class="frame">
+        <div class="frame-head">
+          <div><span class="co">Kilele Supplies Ltd</span> <span class="meta">· FY2026 · 16 accounts · USD</span></div>
+          <span class="tag">Illustrative example — invented data</span>
+        </div>
+        <p class="lead-status" data-testid="completed-status">Balanced <span class="dot">·</span> reviewed (illustrative)</p>
+        <div class="panel">
+          <h3>Decisions supplied with this example</h3>
+          <table class="accts" data-testid="supplied-decisions">
+            <caption class="sr-only">Decisions supplied with the example, who made them and on what invented basis</caption>
+            <thead><tr><th scope="col">Account</th><th scope="col">Recorded decision</th><th scope="col">Recorded by</th><th scope="col">Invented basis</th></tr></thead>
+            <tbody>
+              <tr><td data-label="Account">Director current account <span class="code">2100</span></td><td data-label="Recorded decision">Current Liabilities</td><td data-label="Recorded by">Example reviewer (invented) · 14 Oct 2026, 10:42</td><td data-label="Invented basis">Loan note: repayable on demand</td></tr>
+              <tr><td data-label="Account">Sundry balances <span class="code">4900</span></td><td data-label="Recorded decision">Current Liabilities</td><td data-label="Recorded by">Example reviewer (invented) · 14 Oct 2026, 10:47</td><td data-label="Invented basis">Customer overpayments not yet refunded</td></tr>
             </tbody>
           </table>
-          <p class="nojs-only" style="font-size:14px;color:var(--fg-muted)">With JavaScript off, the two decisions cannot be made here. The sample stays as shown: two accounts held, the statement equation pending, and the trial balance not reviewed.</p>
+          <h3>Statement equation</h3>
+          <p class="equation-line">Assets 49,650.00 = liabilities 14,050.00 + equity 24,500.00 + period result 11,100.00. It holds because the totals balance and every account has a category; it does not show that the categories are right.</p>
+          <h3>Remaining limitations</h3>
+          <ul class="limits" data-testid="limitations">
+            <li>These are recorded decisions, not validated accounting treatment.</li>
+            <li>The match with the invented evidence belongs to this guided example. CFOClose records decisions; it does not check them against evidence.</li>
+            <li>A reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved.</li>
+            <li>Financial reporting is a pilot by invitation and is not shown here.</li>
+          </ul>
+          <p style="margin:16px 0 0"><a class="btn btn-quiet" href="#sample" data-testid="back-to-sample">Back to the sample</a></p>
         </div>
-
-        <!-- STEP 3 -->
-        <div class="panel" role="tabpanel" id="panel-3" aria-labelledby="tab-3" tabindex="0">
-          <h3 class="nojs-only">Step 3 · Reviewed</h3>
-          <p class="lead">In this sample, the trial balance is marked reviewed only when the arithmetic checks have passed, every account has a category, and both held accounts have a decision that matches the invented evidence.</p>
-          <div class="status js-only" data-testid="ready-state" hidden><p class="pill ok" id="reviewed-pill">Reviewed (illustrative) · 16 of 16 accounts have a category</p></div>
-          <p class="js-only" style="margin:0;font-weight:600;font-size:14px">Decisions recorded in this sample, in order</p>
-          <ul class="log js-only" id="log" data-testid="decision-log"></ul>
-          <div class="after"><p>Checks, mapping and a recorded review are what the trial balance workspace provides today. Financial reporting is a pilot by invitation and is not shown here.</p>
-            <a class="btn btn-primary" href="#plans">Explore plans</a></div>
-        </div>
-
-        <p class="limit"><strong>What "reviewed" means:</strong> a reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved.</p>
       </div>
     </div>
   </section>
@@ -395,10 +406,20 @@
   </section>
 </main>
 
+<details class="reviewer-notes" data-testid="reviewer-notes">
+  <summary>Reviewer-only notes (not part of the proposed page)</summary>
+  <ul>
+    <li>Research mockup on baseline <code>00a2653</code>. Not the live site. Every company, person, figure and piece of evidence is invented.</li>
+    <li>Hero: the supporting sentence is new; the primary action is "See a sample review" (live: "Explore plans"); the secondary is "View plans".</li>
+    <li>New: the sample with "View completed example" (read-only) and the optional "Try the two decisions"; one plain line under each trust claim (each needs a claim-registry entry); the plans-intro sentence.</li>
+    <li>The comparison of a recorded decision with the invented evidence belongs to this guided example only. CFOClose records decisions; it does not check them against evidence.</li>
+    <li>The plan table is not reproduced: the server decides prices and actions at runtime.</li>
+  </ul>
+</details>
+
 <script>
 (() => {
   document.documentElement.classList.add("js");
-  // The fourteen accounts mapped from their names (signed: debit +, credit −), plus the two held ones.
   const MAPPED = [
     [18400, "Current Assets"], [9600, "Current Assets"], [7250, "Current Assets"], [24000, "Non-Current Assets"], [-9600, "Non-Current Assets"],
     [-8150, "Current Liabilities"], [-1900, "Current Liabilities"], [-10000, "Equity"], [-14500, "Equity"], [-79000, "Revenue"],
@@ -412,115 +433,98 @@
     "Revenue": "R", "Other Income": "R", "Cost of Sales": "R", "Operating Expenses": "R" };
   const fmt = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const decisions = new Map();   // code -> category (current decision)
-  const history = [];            // every decision recorded, in order (append-only in this sample)
-  const pill = document.getElementById("pending-pill");
-  const tabs = [...document.querySelectorAll('[role="tab"]')];
-  const tab3 = document.getElementById("tab-3");
+  // The VISITOR's decisions only. The completed example's supplied decisions are static markup and are never read or written here.
+  const decisions = new Map();
+  const history = [];
+  const $ = (id) => document.getElementById(id);
   const radios = [...document.querySelectorAll('.held-card input[type="radio"]')];
   radios.forEach((r) => { r.disabled = false; });
+  const tryRegion = $("try-region"), tryToggle = $("try-toggle");
+  tryRegion.hidden = true;
 
-  /** The statement equation, evaluated only when every account has a category. Returns null while any is missing. */
   function equation() {
     if (Object.keys(HELD).some((c) => !decisions.has(c))) return null;
-    const rows = MAPPED.concat(Object.entries(HELD).map(([c, h]) => [h.balance, decisions.get(c)]));
     const t = { A: 0, L: 0, E: 0, R: 0 };
-    for (const [bal, cat] of rows) t[GROUP[cat]] += bal;
+    for (const [bal, cat] of MAPPED.concat(Object.entries(HELD).map(([c, h]) => [h.balance, decisions.get(c)]))) t[GROUP[cat]] += bal;
     const assets = t.A, liabilities = -t.L, equity = -t.E, result = -t.R;
     return { assets, liabilities, equity, result, holds: Math.abs(assets - (liabilities + equity + result)) < 0.005 };
   }
-  /** The illustrated ready state: arithmetic passed (static), every account categorised, and each held decision supported. */
   function ready() {
     const eq = equation();
     return !!eq && eq.holds && Object.entries(HELD).every(([c, h]) => decisions.get(c) === h.supported);
   }
 
   function update() {
+    const missing = Object.keys(HELD).filter((c) => !decisions.has(c)).length;
+    const open = Object.entries(HELD).filter(([c, h]) => decisions.get(c) !== h.supported).length;
     for (const [code, h] of Object.entries(HELD)) {
-      const card = document.getElementById("held-" + code);
-      const out = document.getElementById("out-" + code);
-      const d = decisions.get(code);
+      const d = decisions.get(code), card = $("held-" + code), out = $("out-" + code);
       card.classList.toggle("supported", d === h.supported);
       card.classList.toggle("unsupported", !!d && d !== h.supported);
       out.className = "outcome " + (!d ? "wait" : d === h.supported ? "ok" : "bad");
-      out.textContent = !d ? "No decision recorded yet."
-        : d === h.supported ? `Recorded: ${d}. This matches the invented evidence.`
-        : `Recorded: ${d}. The invented evidence does not support this treatment, so the sample stays not reviewed.`;
+      out.textContent = !d ? "No decision recorded."
+        : d === h.supported ? `Recorded: ${d}. In this guided example, it matches the invented evidence.`
+        : `Recorded: ${d}. In this guided example, the invented evidence does not support it.`;
+      $("cat-" + code).textContent = d ? `${d} (your recorded decision)` : "Held for review";
     }
-    const open = Object.entries(HELD).filter(([c, h]) => decisions.get(c) !== h.supported).length;
-    const missing = Object.keys(HELD).filter((c) => !decisions.has(c)).length;
-    pill.textContent = open === 0 ? "Both decisions match the invented evidence. Step 3 is now available."
+    $("pending-pill").textContent = open === 0 ? "Both recorded decisions match the invented evidence."
       : missing ? `${missing} held account${missing === 1 ? "" : "s"} need${missing === 1 ? "s" : ""} a decision`
-      : `${open} decision${open === 1 ? " does" : "s do"} not match the invented evidence`;
-    pill.classList.toggle("ok", open === 0);
+      : `${open} recorded decision${open === 1 ? " does" : "s do"} not match the invented evidence`;
+    $("pending-pill").classList.toggle("ok", open === 0);
+    $("lead-status").innerHTML = open === 0 ? 'Balanced <span class="dot">·</span> reviewed in your sample (illustrative).'
+      : missing ? `Balanced <span class="dot">·</span> ${missing} account${missing === 1 ? "" : "s"} need${missing === 1 ? "s" : ""} your review.`
+      : `Balanced <span class="dot">·</span> ${open} decision${open === 1 ? "" : "s"} not supported by the invented evidence.`;
 
     const eq = equation();
-    const state = document.getElementById("equation-state"), detail = document.getElementById("equation-detail");
     if (!eq) {
-      state.className = "state pending"; state.textContent = "Pending";
-      detail.textContent = `Pending. It can be evaluated only when every account has a category, and ${missing} account${missing === 1 ? " is" : "s are"} still held.`;
+      $("equation-state").className = "state pending"; $("equation-state").textContent = "Pending";
+      $("equation-detail").textContent = `Pending until every account has a category. ${missing} account${missing === 1 ? " is" : "s are"} still held.`;
     } else {
-      state.className = "state holds"; state.textContent = eq.holds ? "Holds" : "Does not hold";
-      detail.textContent = `Recalculated from the current categories: assets ${fmt(eq.assets)} = liabilities ${fmt(eq.liabilities)} + equity ${fmt(eq.equity)} + period result ${fmt(eq.result)}. `
-        + "It holds whenever the totals balance and every account has a category, so it does not show that the categories are right.";
+      $("equation-state").className = "state holds"; $("equation-state").textContent = eq.holds ? "Holds" : "Does not hold";
+      $("equation-detail").textContent = `Assets ${fmt(eq.assets)} = liabilities ${fmt(eq.liabilities)} + equity ${fmt(eq.equity)} + period result ${fmt(eq.result)}. It holds whenever the totals balance and every account has a category; it does not show that the categories are right.`;
     }
-
-    const isReady = ready();
-    tab3.setAttribute("aria-disabled", String(!isReady));
-    document.querySelector('[data-testid="ready-state"]').hidden = !isReady;
-    if (!isReady && tab3.getAttribute("aria-selected") === "true") select(2);
-    document.getElementById("log").innerHTML = history.map((e) =>
-      `<li><span>${HELD[e.code].name} → <strong>${e.cat}</strong> <em>(${e.cat === HELD[e.code].supported ? "matches the invented evidence" : "not supported by the invented evidence"})</em></span><span class="who">Sample reviewer · ${e.at}</span></li>`).join("")
-      + `<li><span>${MAPPED.length} categories suggested from account names, confirmed</span><span class="who">Sample reviewer</span></li>`;
+    document.querySelector('[data-testid="ready-state"]').hidden = !ready();
+    $("log").innerHTML = history.map((e) =>
+      `<li><span>${HELD[e.code].name} → <strong>${e.cat}</strong></span><span class="who">Sample reviewer (you) · ${e.at}</span></li>`).join("");
+    $("log-count").textContent = history.length ? `${history.length} recorded` : "none yet";
   }
 
-  function select(n, focus = false) {
-    if (n === 3 && tab3.getAttribute("aria-disabled") === "true") return false;
-    tabs.forEach((t, i) => {
-      const on = i === n - 1;
-      t.setAttribute("aria-selected", String(on));
-      t.tabIndex = on ? 0 : -1;
-      document.getElementById("panel-" + (i + 1)).hidden = !on;
-    });
-    if (focus) tabs[n - 1].focus();
-    return true;
-  }
-
-  // Selecting a treatment records nothing; only "Record decision" does (so moving through options by keyboard is never logged).
-  document.getElementById("panel-2").addEventListener("change", (e) => {
+  tryRegion.addEventListener("change", (e) => {
     const r = e.target.closest('input[type="radio"]'); if (!r) return;
     const code = r.name.slice(2);
     if (decisions.get(code) === r.value) { update(); return; }
-    const out = document.getElementById("out-" + code);
-    out.className = "outcome wait";
-    out.textContent = `Selected: ${r.value}. Not recorded until you choose Record decision.`;
+    $("out-" + code).className = "outcome wait";
+    $("out-" + code).textContent = `Selected: ${r.value}. Not recorded until you choose Record decision.`;
   });
-  document.getElementById("panel-2").addEventListener("click", (e) => {
+  tryRegion.addEventListener("click", (e) => {
     const b = e.target.closest("[data-record]"); if (!b) return;
-    const code = b.dataset.record;
-    const r = document.querySelector(`input[name="d-${code}"]:checked`);
-    const out = document.getElementById("out-" + code);
-    if (!r) { out.className = "outcome wait"; out.textContent = "Select a treatment first."; return; }
+    const code = b.dataset.record, r = document.querySelector(`input[name="d-${code}"]:checked`);
+    if (!r) { $("out-" + code).className = "outcome wait"; $("out-" + code).textContent = "Select a treatment first."; return; }
     decisions.set(code, r.value);
     history.push({ code, cat: r.value, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) });
     update();
   });
-  document.getElementById("reset").addEventListener("click", () => {
-    decisions.clear(); history.length = 0; radios.forEach((r) => { r.checked = false; }); update(); select(2); radios[0].focus();
+  $("reset").addEventListener("click", () => { decisions.clear(); history.length = 0; radios.forEach((r) => { r.checked = false; }); update(); radios[0].focus(); });
+  tryToggle.addEventListener("click", () => {
+    const open = tryRegion.hidden;
+    tryRegion.hidden = !open;
+    tryToggle.setAttribute("aria-expanded", String(open));
+    tryToggle.textContent = open ? "Hide the two decisions" : "Try the two decisions";
+    if (open) { $("try-title").setAttribute("tabindex", "-1"); $("try-title").focus(); }
   });
-  tabs.forEach((t, i) => t.addEventListener("click", () => select(i + 1)));
-  document.querySelector('[role="tablist"]').addEventListener("keydown", (e) => {
-    const i = tabs.indexOf(document.activeElement); if (i < 0) return;
-    const map = { ArrowRight: (i + 1) % 3, ArrowLeft: (i + 2) % 3, Home: 0, End: 2 };
-    if (!(e.key in map)) return;
-    e.preventDefault();
-    tabs[map[e.key]].focus();
-    select(map[e.key] + 1);
-  });
-  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => select(+b.dataset.go, true)));
-  window.__sample = { ready, equation };   // read-only hooks for the regression checks
+
+  // Route: #completed-example shows the read-only view in place of the sample; any other hash shows the sample.
+  const sample = $("sample"), completed = $("completed-example");
+  function route(fromNavigation) {
+    const onCompleted = location.hash === "#completed-example";
+    completed.hidden = !onCompleted;
+    sample.hidden = onCompleted;
+    if (fromNavigation) (onCompleted ? $("completed-title") : sample).focus();
+  }
+  window.addEventListener("hashchange", () => route(true));
+  window.__sample = { ready, equation, decisionCount: () => decisions.size, historyLength: () => history.length };
   update();
-  select(1);
+  route(false);
 })();
 </script>
 </body>

@@ -30,8 +30,8 @@ node research/landing-review/evidence/run-checks.mjs
 - To view the mockup, open `mockup/sample-review-mockup.html` in any browser.
 
 ## Evidence index
-- `evidence/results.json`: mockup reflow (320, 390, 1280 px), keyboard and focus, regression scenarios S0–S6 (the runner exits 1 if any fails), no-JavaScript fallback; live reflow, hero image scale, rendered head metadata and keyboard focus.
+- `evidence/results.json`: mockup reflow (320, 390, 1280 px), keyboard and focus, regression scenarios S0–S6, completed-route checks C1–C3 (the runner exits 1 if any fails), no-JavaScript fallback; live reflow, hero image scale, rendered head metadata and keyboard focus.
 - `evidence/seo-probe.json`: status codes, head metadata, JSON-LD, robots.txt, sitemap, host redirects, transfer sizes and the deployment marker.
-- `evidence/copy-rules-check.json`: 29/29 proposed strings pass (two expected negations, "not a … certification", are allowed explicitly).
-- `evidence/screenshots/`: mockup at 320, 390 and 1280 px (top, section, held accounts), an unsupported decision, the reviewed state, the no-JavaScript fallback at 320 and 1280 px, and the live hero at all three widths.
+- `evidence/copy-rules-check.json`: 36/36 proposed strings pass (two expected negations, "not a … certification", are allowed explicitly).
+- `evidence/screenshots/`: customer views at 390 and 1280 px (top, sample, try region, completed example), the no-JavaScript fallback at 320 and 1280 px, and the live hero at all three widths.
 - `evidence/authenticated/`: three screenshots referenced by `HANDOFF_NORMAL.md` (demonstration company; their build differs from the reviewed baseline; exact identity unverified).

@@ -101,7 +101,7 @@ The following were **not** treated as defects: the page being a React single-pag
 | # | Decision | Recommendation |
 |---|---|---|
 | D-1 | Add the illustrative (synthetic) review section | Yes. No entitlement, price or data-path change. |
-| D-2 | Secondary hero action: "See a sample review" | Yes, if D-1. One pinned test changes. |
+| D-2 | Hero: "See a sample review" primary, "View plans" secondary; shorter supporting sentence | Yes, if D-1. Two pinned hero assertions change. |
 | D-3 | A real-file free preview | Not now. See `OWNER_DECISION_real_file_preview.md`. |
 | D-4 | Keep the screenshot at ≥1024 px only, or drop it | Keep on desktop as evidence it is the real product; the HTML example becomes the readable product example. |
 | D-5 | Correct the metadata (S-1) | Yes. It is a correctness fix, independent of D-1. |
@@ -111,47 +111,37 @@ The following were **not** treated as defects: the page being a React single-pag
 
 ## 6. The illustrative review mockup (proposal)
 
-`mockup/sample-review-mockup.html` is self-contained and makes no network request.
+`mockup/sample-review-mockup.html` is self-contained and makes no network request. Revision 3, after the visual review:
 
 **Behaviour**
-- The hero's secondary action is **"See a sample review"**. The section heading is "Explore an illustrative trial balance review", and the section is labelled **"Illustrative example — invented data"**.
-- **The checks are split into two kinds.**
-  - *Arithmetic checks* run on import and pass: file read, valid amounts, debits equal credits. The balance line says plainly that it "says nothing yet about how accounts are classified".
-  - The *statement equation* depends on classification. It shows **Pending**, with a plain reason, while any account has no category. Once every account has one it is **recalculated from the current categories**, with figures, and explained as holding whenever the totals balance and every account has a category: it does not show that the categories are right.
-- **Guided resolution with invented evidence.** Each of the two held accounts shows invented supporting evidence (a loan note; a ledger detail of customer overpayments) and three treatments.
-  - Selecting a treatment records nothing; only **Record decision** records one, so moving through options by keyboard is never logged.
-  - Each recorded decision is compared with the invented evidence. An unsupported one is recorded, labelled as not supported, and keeps the sample not reviewed.
-  - The page says plainly that this comparison belongs to the illustration: **CFOClose records decisions; it does not check them against evidence**. No validation capability is claimed for the product.
-- **The illustrated ready state** (step 3 and "Reviewed (illustrative)") requires all of these: the arithmetic checks passed, every account has a category, and both recorded decisions match the evidence. Changing a decision back to an unsupported one locks step 3 again.
-- **Reviewer notes** (the proposed changes, the new lines that need registry entries, the illustration-only comparison) sit in a separate, clearly marked area above the proposed page. The customer-facing view contains no annotations and no "NEW" markers.
-- **Accessibility:** native radio groups with legends; buttons; a locked step 3 that is focusable and announces why (`aria-disabled`, `aria-describedby`); `role="status"` and polite live regions; a skip link; and a visible 3 px focus ring.
-- **Static fallback:** without JavaScript all three steps, the 14 mapped accounts, both held accounts with their evidence and the explanation render as plain HTML. The radios are disabled, the equation shows Pending, and nothing is shown as reviewed.
+- **Hero:** the supporting sentence is shorter (capability-checked in `PROPOSED_COPY.md` §1). The primary action is **See a sample review**; **View plans** is secondary.
+- **Sample:** it leads with **Balanced · 2 accounts need your review.** and the invented-data label. The checks, the account list and the visitor's decision log sit behind native `<details>` disclosures.
+- **View completed example** (`#completed-example`) is a read-only view. It shows the two supplied decisions, who recorded them ("Example reviewer (invented)"), when, and on what invented basis, then the recalculated equation and the remaining limitations. It holds no recording controls. Viewing it never touches the visitor's decisions.
+- **Try the two decisions** is optional. Each held account keeps the adjacent label "Guided example—not automated evidence checking.", explicit **Record decision**, and the guided comparison with invented evidence. The statement equation is Pending until every account has a category. The ready state needs both recorded decisions to match. The director explanation now separates the credit-balance signal from the repayment terms that decide the category.
+- **Reviewer-only notes** are collapsed at the foot of the page, outside `<main>`.
+- **Static fallback:** without JavaScript the sample, the disclosures and the completed example render as plain HTML. The radios are disabled, the equation is Pending, and nothing is shown as reviewed for the visitor.
 
-**Test results** (`evidence/results.json`, `evidence/screenshots/`; `run-checks.mjs` exits 1 if any regression scenario fails)
+**Test results** (`evidence/results.json`; `run-checks.mjs` exits 1 if any regression or route check fails)
 | Check | Result |
 |---|---|
-| Reflow at 320, 390 and 1280 px | 0 overflow, 0 clipped actions, 0 unlabelled fields; smallest text 12 px |
+| Reflow at 320, 390 and 1280 px, including the open try region and the completed view | 0 overflow, 0 clipped actions, 0 unlabelled fields; smallest text 12 px; reviewer notes collapsed |
 | Console errors / network requests | 0 / 0 |
-| Tab order | skip → nav (2) → hero actions (2) → step tab → panel → Continue → end of document; every stop shows a visible focus indicator (radios included) |
-| Arrow key to locked step 3 | focus moves, the panel stays closed, the reason is announced |
+| Tab order | skip → nav (2) → See a sample review → View plans → View completed example → Try the two decisions → Checks → All 16 accounts → Reviewer-only notes → end; every stop shows a visible focus indicator |
+| Disclosures and the try toggle by keyboard | Enter opens Checks; the try toggle sets `aria-expanded="true"` and moves focus to the region heading |
+| Guided labels | present inside both fieldsets, exact text, visible |
 
-**Regression scenarios** (all decisions made by keyboard only: Space and ArrowDown on the radio group, Enter on Record decision)
-| # | Scenario | Ready state | Equation |
-|---|---|---|---|
-| S0 | Both held, nothing decided | not reached; End cannot open step 3 | Pending |
-| S1 | One supported decision recorded, one unresolved | not reached | Pending |
-| S1b | Both supported treatments selected but **not recorded** | not reached | Pending |
-| S2 | Both recorded, both unsupported by the evidence | not reached | Holds (recalculated) |
-| S3 | One supported, one unsupported | not reached | Holds |
-| S4 | Both supported (after one earlier unsupported decision) | **reached**; step 3 opens; the log shows all three decisions in order | Holds |
-| S5 | From S4, a supported decision is changed to an unsupported one | **lost**; step 3 locks again | Holds |
-| S6 | Reset | not reached; log cleared | Pending |
+**Regression scenarios** (reused; keyboard only): S0 nothing decided, S1 one recorded, S1b selected but not recorded, S2 both unsupported, S3 one unsupported, S5 reverted after the ready state and S6 reset all keep the ready state unreached; only **S4** (both supported) reaches it. The equation is Pending in S0, S1, S1b and S6 and recalculated in the others.
 
-**Mutation check** (run once by hand; the mockup was restored afterwards):
-- Removing the evidence comparison from the ready rule made S2, S3, S5 and S6 fail.
-- Removing the completeness guard from the equation made S0, S1, S1b and S6 fail.
+**Completed-example route checks** (new; all pass):
+| # | Check |
+|---|---|
+| C1 | Opens by keyboard; replaces the sample; focus moves to its heading; no recording controls; two supplied decisions, each with "Example reviewer (invented) · 14 Oct 2026"; at least 3 limitations; invented-data label; never names the visitor |
+| C2 | Browser back returns to the sample; the visitor has 0 decisions, an empty log, an unreached ready state, a Pending equation and the original lead line |
+| C3 | A visitor's own unsupported decision never appears in the supplied example, and is still the visitor's after the round trip |
 
-So the scenarios detect both defect classes. **No JavaScript (320 and 1280 px):** 3/3 panels visible, 14 mapped rows and 2 held cards, radios disabled, equation Pending, ready state not shown, reviewer notes outside `<main>`, no layout problems.
+**Mutation checks** (run by hand; the mockup was restored afterwards):
+- From revision 2: removing the evidence comparison, or the completeness guard, fails the regression scenarios.
+- New: making the completed view write its supplied decisions into the visitor's state made C2 and C3 fail.
 
 ## 7. Authenticated screenshots: handoff inconsistencies (for NORMAL; not repaired here)
 
