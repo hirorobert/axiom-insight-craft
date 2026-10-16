@@ -358,9 +358,11 @@ async function main() {
     return outcome !== "created" && outcome !== "already_created" && theirs.length === 0 && !capAccess && mine.length === 0
       ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
   });
-  await check("with a plan granted by an administrator: the next step becomes 'Add your first company', the form is on the home, and creating one opens its workspace", async () => {
+  await check("with a plan granted by an administrator: the home offers the first upload (Phase 2 P2-3) and the company form as the secondary; creating one opens its workspace", async () => {
     await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
-    await go("/dashboard", "Add your first company");
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload"]');
+    await page.click('[data-testid="add-company"]');
     await page.waitForSelector('[data-testid="add-company-form"]');
     await page.fill("#fr-org", `Fresh Co ${run}`);
     await page.click("#fr-currency");

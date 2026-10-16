@@ -602,7 +602,7 @@ async function main() {
     const period = (await admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("company_id", B)).data ?? [];
     const ups = (await admin.from("trial_balance_uploads").select("id, file_path, period_year, period_id, status").eq("company_id", B)).data ?? [];
     const draft = (await admin.from("trial_balance_drafts").select("state, committed_upload_id").eq("owner_ref", U.ownerB.id)).data ?? [];
-    return co.length === 1 && co[0].name === "Kilima Invented Traders Ltd" && stages.length === 3 && /File read · Done/.test(stages[0])
+    return co.length === 1 && co[0].name === "Kilima Invented Traders Ltd" && stages.length === 3 && /^File read\s*·\s*Done$/.test(stages[0].trim())
       && period.length === 1 && period[0].reporting_start === "2025-07-01" && period[0].reporting_end === "2026-06-30" && period[0].reporting_currency === "TZS"
       && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
       && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, stages, period, ups, draft };
