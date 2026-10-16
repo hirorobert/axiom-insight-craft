@@ -175,6 +175,9 @@ jobs:
       - name: Type-check the complete trial-balance-draft function (Phase 2 P2-2 drafts; sign, commit and cancel) against the real Supabase client types
         run: deno check supabase/functions/trial-balance-draft/index.ts
 
+      - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
+        run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
+
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
 

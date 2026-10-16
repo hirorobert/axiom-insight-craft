@@ -15,7 +15,7 @@ import {
   type Cell, type IngestIssue, type IngestResult, type SourceRow,
 } from "./tbIngestion.ts";
 import { ingestWithLayout, type LayoutProfile, type ResolvedLayout } from "./layoutProfile.ts";
-import { checkSourceBytes, checkSourceTables } from "./uploadPolicy.ts";
+import { TB_UPLOAD_POLICY, checkSourceBytes, checkSourceTables } from "./uploadPolicy.ts";
 
 export type SourceFormat = "xlsx" | "csv" | "unknown";
 
@@ -28,7 +28,7 @@ export function detectSourceFormat(fileName: string): SourceFormat {
 
 /** The subset of the SheetJS API this module uses. */
 export interface XlsxLike {
-  read(data: Uint8Array, opts: { type: "array"; cellDates?: boolean }): { SheetNames: string[]; Sheets: Record<string, Record<string, unknown>> };
+  read(data: Uint8Array, opts: { type: "array"; cellDates?: boolean; sheetRows?: number }): { SheetNames: string[]; Sheets: Record<string, Record<string, unknown>> };
   utils: {
     decode_range(ref: string): { s: { r: number; c: number }; e: { r: number; c: number } };
     sheet_to_json<T>(ws: Record<string, unknown>, opts: { header: 1; defval: null; raw: true; blankrows: true }): T[];
@@ -78,6 +78,17 @@ export interface ReadContext {
   workspaceEntityName?: string | null;
 }
 
+/**
+ * The spreadsheet library stops reading each sheet after this many rows, so a sheet over the row limit is refused
+ * (checkSourceTables sees limit + 1) without the whole sheet ever being materialised in memory.
+ */
+export const SHEET_ROWS = TB_UPLOAD_POLICY.maxRows + 1;
+
+/** A blocked read for an upload-policy refusal found before any reader ran (checkSourceBytesActual). */
+export function refusedRead(ctx: ReadContext, issue: IngestIssue): IngestResult {
+  return unreadable(ctx, null, issue);
+}
+
 /** A result with no rows: the file could not be read at all. Lineage and totals are empty; the one issue says why. */
 function unreadable(ctx: ReadContext, sheetName: string | null, issue: IngestIssue): IngestResult {
   const r = ingestTrialBalance({ rows: [], sheetName, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
@@ -106,7 +117,7 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   }
   let wb: ReturnType<XlsxLike["read"]>;
   try {
-    wb = xlsx.read(bytes, { type: "array", cellDates: false });
+    wb = xlsx.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS });
   } catch {
     return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." });
   }
@@ -141,7 +152,7 @@ export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: Xlsx
     return { ok: true, kind: "csv", sheets: [{ name: "", rows: parsed.rows }] };
   }
   try {
-    const sheets = workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false }));
+    const sheets = workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS }));
     const tooMany = checkSourceTables(sheets.map((s) => ({ rows: s.rows.map((r) => r.cells) })));
     if (tooMany) return { ok: false, issue: tooMany };
     return { ok: true, kind: "workbook", sheets };

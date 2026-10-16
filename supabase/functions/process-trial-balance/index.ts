@@ -40,7 +40,8 @@ import {
   MilestoneLog, TB_INGESTION_VERSION, classificationNeedsReview, formatMinor, ingestTrialBalance, markIngestionMilestones,
   minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
 } from "../_shared/tbIngestion.ts";
-import { detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, type XlsxLike } from "../_shared/tbSource.ts";
+import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
+import { checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -1401,7 +1402,12 @@ serve(async (req) => {
     // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
     // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
     let layoutResolvedSha256: string | null = null;
-    if (layoutConfirmation) {
+    // The upload policy on the ACTUAL bytes before any reader (size; a workbook's real expansion, inflated as a stream and
+    // cut off at the limit). A refusal is an ordinary blocked read: recorded, explained, nothing parsed.
+    const policyIssue = await checkSourceBytesActual(fileBytes, readContext.fileName);
+    if (policyIssue) {
+      ingest = refusedRead(readContext, policyIssue);
+    } else if (layoutConfirmation) {
       const layoutRefusal = (code: string, message: string) => jsonResponse({ status: "blocked", code, message }, 409);
       if (layoutConfirmation.source_file_hash !== sourceFileHash) {
         return layoutRefusal("LAYOUT_SOURCE_MISMATCH", "The confirmed layout is for different file contents. Confirm the layout for this file again.");
@@ -2172,7 +2178,7 @@ async function resolveReportingCurrency(
 
 function tryReadWorkbook(bytes: Uint8Array): XLSX.WorkBook | null {
   try {
-    return XLSX.read(bytes, { type: "array", cellDates: false });
+    return XLSX.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS });
   } catch {
     return null;
   }

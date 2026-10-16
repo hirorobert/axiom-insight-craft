@@ -25,7 +25,7 @@ export const TB_UPLOAD_POLICY = Object.freeze({
   maxCells: 4_000_000,
 });
 
-export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS";
+export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "UNSUPPORTED_FORMAT";
 export interface PolicyIssue { code: PolicyIssueCode; severity: "blocking"; message: string }
 
 const mb = (n: number) => `${Math.round(n / 1_048_576)} MB`;
@@ -90,4 +90,63 @@ export function zipDeclaredSizes(b: Uint8Array): { ok: true; entries: number; un
     p += 46 + dv.getUint16(p + 28, true) + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
   }
   return { ok: true, entries, uncompressed: total };
+}
+
+// ── ACTUAL expansion (declared sizes are only a first filter) ────────────────────────────────────────────────────────
+
+/**
+ * Every entry of an .xlsx/.xlsm package is inflated as a STREAM and its real output counted; the count stops (and the
+ * stream is cancelled) as soon as the total passes the limit, so a package whose directory understates its sizes is
+ * refused after at most `limit` bytes of output — the spreadsheet library never sees it. Web-standard
+ * DecompressionStream ("deflate-raw"): the same code in the Edge Runtime (Deno), Node 20.12+ and Bun; no dependency.
+ */
+export async function zipActualExpansion(b: Uint8Array, limit: number): Promise<{ kind: "not_zip" } | { kind: "unsupported" } | { kind: "measured"; total: number; over: boolean }> {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const min = Math.max(0, b.byteLength - 22 - 65_535);
+  let eocd = -1;
+  for (let i = b.byteLength - 22; i >= min; i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) return { kind: "not_zip" };
+  const entries = dv.getUint16(eocd + 10, true), cdOffset = dv.getUint32(eocd + 16, true);
+  if (entries === 0xffff || cdOffset === 0xffffffff || cdOffset >= b.byteLength) return { kind: "unsupported" };
+  let p = cdOffset, total = 0;
+  for (let n = 0; n < entries; n++) {
+    if (p + 46 > b.byteLength || dv.getUint32(p, true) !== 0x02014b50) return { kind: "unsupported" };
+    const method = dv.getUint16(p + 10, true), compressed = dv.getUint32(p + 20, true), local = dv.getUint32(p + 42, true);
+    p += 46 + dv.getUint16(p + 28, true) + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+    if (local + 30 > b.byteLength || dv.getUint32(local, true) !== 0x04034b50) return { kind: "unsupported" };
+    const start = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+    if (start + compressed > b.byteLength) return { kind: "unsupported" };
+    if (method === 0) { total += compressed; }
+    else if (method === 8) {
+      const reader = new Blob([b.subarray(start, start + compressed)]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > limit) { await reader.cancel().catch(() => {}); return { kind: "measured", total, over: true }; }
+        }
+      } catch {
+        return { kind: "unsupported" };
+      }
+    } else return { kind: "unsupported" };
+    if (total > limit) return { kind: "measured", total, over: true };
+  }
+  return { kind: "measured", total, over: false };
+}
+
+/**
+ * The gate every entry point runs on the downloaded bytes BEFORE any reader: the declared checks, then the ACTUAL
+ * expansion of a workbook package. Bytes that are not a ZIP at all keep their existing behaviour (the reader refuses
+ * them as unreadable).
+ */
+export async function checkSourceBytesActual(bytes: Uint8Array, fileName: string): Promise<PolicyIssue | null> {
+  const declared = checkSourceBytes(bytes, fileName);
+  if (declared) return declared;
+  if (!/\.(xlsx|xlsm)$/i.test(fileName)) return null;
+  const m = await zipActualExpansion(bytes, TB_UPLOAD_POLICY.maxExpandedBytes);
+  if (m.kind === "not_zip") return null;
+  if (m.kind === "unsupported") return { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." };
+  if (m.over) return { code: "WORKBOOK_TOO_LARGE_EXPANDED", severity: "blocking", message: `The workbook expands to more than ${mb(TB_UPLOAD_POLICY.maxExpandedBytes)} when opened. Save only the trial balance sheet in a new workbook, or export it as CSV, and upload it.` };
+  return null;
 }

@@ -598,7 +598,7 @@ describe("database inertness — schema and functions", () => {
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
       "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
       // The upload-policy measurement (invented data, local processes only; no network, no secret).
-      "scripts/bench/tbUploadPolicyBench.mjs",
+      "scripts/bench/tbUploadPolicyBench.mjs", "scripts/bench/tbUploadPolicyDenoProbe.ts",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).
       "scripts/payments/providerSandboxSmoke.ts",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.
