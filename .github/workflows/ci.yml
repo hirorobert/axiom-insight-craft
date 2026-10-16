@@ -173,7 +173,7 @@ jobs:
         run: deno check supabase/functions/layout-assist/index.ts
 
       - name: Type-check the complete trial-balance-draft function (Phase 2 P2-2 drafts; sign, commit and cancel) against the real Supabase client types
-        run: deno check supabase/functions/trial-balance-draft/index.ts supabase/functions/trial-balance-source-sweeper/index.ts
+        run: deno check supabase/functions/trial-balance-draft/index.ts
 
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts

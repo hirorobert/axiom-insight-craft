@@ -76,7 +76,19 @@ Files: `supabase/migrations/20261106100000_trial_balance_drafts.sql`, `supabase/
 
 ### Evidence for the tested commit
 
-Recorded below with the exact head SHA and CI run once pushed.
+| Head | Run | Result |
+|---|---|---|
+| #136 `b65769b` (P2-2) | 38853987539 | Drafts PostgreSQL proof **ALL PASSED** (CI container); local-stack draft journey **25/25** (real Auth, PostgREST, RLS, Storage, function); Release Gate, lint/build/typecheck, golden, migration audit **green**. Failing: payment proofs (fixed by #133, known) and the new Deno check of `trial-balance-draft` (it used `npm:` imports that the Deno job cannot resolve → switched to the `esm.sh` pattern of the other checked functions in the next commit). |
+| #137 `f12ebcf` (#132 + #133 on main `00a2653`) | 38853015089 | **Every job green** (Staging RLS skipped, as on every PR). |
+
+Locally on PostgreSQL 16 (embedded): drafts proof 71/71; existing shared-source proof 44/44 and upload-lifecycle proof
+207/207 unchanged with the redefined sweeper functions.
+
+**Exercised vs simulated (local-stack journey).** Exercised for real: sign-in, RPCs as the user, the function's sign /
+commit / cancel, signed upload, server copy + read-back + SHA-256, registration, Storage RLS, and the sweeper
+orchestration deleting real objects. Simulated: a worker stopping between steps (the same RPCs and copy are performed,
+then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
+service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
 ## Outstanding owner decisions
 

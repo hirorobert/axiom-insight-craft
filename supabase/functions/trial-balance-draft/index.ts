@@ -11,8 +11,8 @@
 // The service-role key never leaves the function and no client Storage policy is widened. See _shared/draftUpload.ts
 // for the decision sequence.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/auth.ts";
 import { DRAFT_CAPABILITY, parseDraftRequest, runDraftRequest, type BeginResult } from "../_shared/draftUpload.ts";
 
 const BUCKET = "trial-balance-files";
