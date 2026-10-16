@@ -119,13 +119,15 @@ async function main() {
   const files = currentChain(REPO);
 
   group("Replay — the chain up to (not including) the repair");
-  await check(`${REPAIR_FILE} is the last migration of the chain and everything before it applies`, async () => {
-    if (files[files.length - 1] !== REPAIR_FILE) return `last is ${files[files.length - 1]}`;
-    for (const f of files.slice(0, -1)) {
-      let t = migrationSql(REPO, f);
-      if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
-      try { await admin.query(t); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; }
-    }
+  const cut = files.indexOf(REPAIR_FILE);
+  const applyFile = async (f) => {
+    let t = migrationSql(REPO, f);
+    if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
+    await admin.query(t);
+  };
+  await check(`${REPAIR_FILE} is in the chain and everything before it applies`, async () => {
+    if (cut < 0) return `${REPAIR_FILE} missing`;
+    for (const f of files.slice(0, cut)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
     return true;
   });
 
@@ -195,6 +197,10 @@ async function main() {
   group("Repair — applied over the same database");
   await check(`${REPAIR_FILE} applies`, async () => { await admin.query(migrationSql(REPO, REPAIR_FILE)); return true; });
   await refused("applying it again is refused by its preflight (nothing is replaced)", "P0001", () => admin.query(migrationSql(REPO, REPAIR_FILE)), "PREFLIGHT_REFUSED");
+  await check("every later migration applies on top", async () => {
+    for (const f of files.slice(cut + 1)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
+    return true;
+  });
 
   group("Complete findings — 2,000 unclassified accounts");
   const big = findingsFor(2000);
