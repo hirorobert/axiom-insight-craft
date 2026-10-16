@@ -76,7 +76,7 @@ describe("migration hygiene", () => {
       "20261031110000_sandbox_licence_isolation.sql",
       "20261101100000_payment_reversal_authority.sql",
       "20261102100000_verified_charge_outcomes.sql",
-      "20261104100000_platform_owner_access_and_entity_allowance.sql",
+      "20261104100000_platform_owner_access_and_entity_allowance.sql", "20261105100000_checkout_open_session_conflict.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

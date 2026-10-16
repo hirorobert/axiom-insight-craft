@@ -224,6 +224,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       const readiness = computeCertificationReadiness({
         uploadExists: true,
         currentUploadId: match.id,
+        processingResult: match.processing_result,
         authoritative: reads.authoritative,
         latestForUpload: reads.latestForUpload,
         fetchFailed: false,
@@ -237,6 +238,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       const readiness = computeCertificationReadiness({
         uploadExists: true,
         currentUploadId: match.id,
+        processingResult: match.processing_result,
         authoritative: null,
         latestForUpload: null,
         fetchFailed: true,

@@ -128,6 +128,8 @@ export interface CertificationReadinessInput {
    * exception for them. Omitted = not read (the certification alone decides).
    */
   recordedEquation?: RecordedEquation;
+  /** Stored progress can withhold a pass, but can never confer certification authority. */
+  processingResult?: unknown;
 }
 
 /**
@@ -179,7 +181,7 @@ export function exceptionsMalformed(row: TbCertificationRow): boolean {
 }
 
 const LAYER_META: Record<1 | 2 | 3 | 4 | 5 | 6, { id: string; label: string }> = {
-  1: { id: "l1_structure", label: "File read and structured" },
+  1: { id: "l1_structure", label: "File read" },
   2: { id: "l2_data_quality", label: "Data quality" },
   3: { id: "l3_arithmetic", label: "Arithmetic integrity" },
   4: { id: "l4_classification", label: "Classification completeness" },
@@ -259,7 +261,7 @@ function buildLayerChecks(row: TbCertificationRow | null, recordedEquation?: Rec
         id: meta.id,
         label: meta.label,
         state: "passed",
-        detail: "Every row in the file was read and totalled.",
+        detail: "The file was read successfully.",
       };
     }
 
@@ -312,7 +314,7 @@ function countPassed(checks: PreflightCheck[]): number {
   return checks.filter((c) => c.state === "passed").length;
 }
 
-export function computeCertificationReadiness(input: CertificationReadinessInput): PreflightResult {
+function computeLedgerReadiness(input: CertificationReadinessInput): PreflightResult {
   if (!input.uploadExists) {
     return {
       verdict: "pending",
@@ -484,3 +486,43 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
 }
 
 export type { PreflightResult, PreflightVerdict, PreflightCheck, PreflightCheckState };
+
+/** Negative evidence only: absent exceptions never override a recorded step that failed or did not run.
+ * Older results without a milestone contract retain their existing ledger interpretation.
+ */
+export function constrainChecksByIngestion(checks: PreflightCheck[], processingResult: unknown): PreflightCheck[] {
+  const obj = (v: unknown): Record<string, unknown> | null => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : null;
+  const ingestion = obj(obj(processingResult)?.ingestion);
+  if (!ingestion || !("milestones" in ingestion)) return checks;
+  const raw = ingestion.milestones;
+  const requirements: Record<string, string[]> = {
+    l1_structure: ["read"], l2_data_quality: ["read", "columns", "rows", "amounts"],
+    l3_arithmetic: ["read", "columns", "rows", "amounts", "balance"],
+    l4_classification: ["read", "columns", "rows", "amounts", "balance", "classification"],
+  };
+  const statuses = new Map<string, unknown[]>();
+  for (const m of Array.isArray(raw) ? raw : []) {
+    const entry = obj(m);
+    if (typeof entry?.id === "string") statuses.set(entry.id, [...(statuses.get(entry.id) ?? []), entry.status]);
+  }
+  return checks.map(check => {
+    const steps = requirements[check.id];
+    if (!steps) return check;
+    const states = steps.map(id => statuses.get(id));
+    const complete = states.every(s => s?.length === 1 && s[0] === "passed");
+    if (complete || check.state === "failed" || check.state === "review") return check;
+    const own = states[states.length - 1];
+    if (own?.length === 1 && own[0] === "failed") return { ...check, state: "failed", detail: "The processing record reports that this check failed." };
+    if (own?.length === 1 && own[0] === "needs_review") return { ...check, state: "review", detail: "The processing record reports that this check needs review." };
+    return { ...check, state: "pending", detail: "Not completed: an earlier processing step failed, did not run, or has no readable result." };
+  });
+}
+
+export function computeCertificationReadiness(input: CertificationReadinessInput): PreflightResult {
+  const result = computeLedgerReadiness(input);
+  const checks = constrainChecksByIngestion(result.checks, input.processingResult);
+  if (checks === result.checks) return result;
+  const constrained = { ...result, checks, passedCount: countPassed(checks) };
+  if (result.verdict !== "certified" || checks.filter(c => ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"].includes(c.id)).every(c => c.state === "passed")) return constrained;
+  return { ...constrained, verdict: "unknown", headline: "Processing results need verification", blocker: "The recorded processing steps do not support a completed trial balance check. Reprocess the file before continuing." };
+}

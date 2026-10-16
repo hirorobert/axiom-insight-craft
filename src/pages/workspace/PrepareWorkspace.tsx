@@ -421,6 +421,7 @@ export default function PrepareWorkspace() {
     ? {
         uploadExists: true,
         currentUploadId: upload.id,
+        processingResult: upload.processing_result,
         authoritative: certReadiness.authoritative,
         latestForUpload: certReadiness.latestForUpload,
         fetchFailed: certReadiness.fetchFailed,
