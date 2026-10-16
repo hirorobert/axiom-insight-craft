@@ -138,9 +138,10 @@ The prototype detects an **unexpected balance** (a sign anomaly for the proposed
   context (entity + currency + any dimensions; currency/period from `fiscal_periods`) ⇒ reuse **may be proposed**;
   (ii) **UNKNOWN** context ⇒ **reopen for explicit confirmation** (`CONTEXT_UNVERIFIED`); (iii) a **known change** ⇒ reopen
   (`CONTEXT_INCOMPATIBLE`). **UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE:** a field absent on *both* sides is **UNKNOWN**
-  (reopen) **unless an explicit authoritative rule** declares it NOT APPLICABLE (`notApplicableContextFields`); `currency`/
-  `entity` are never declarable N/A. Missing relevant context requires renewed confirmation. A treatment is **never inherited
-  solely from `company_id + account_key`**. Honest schema reality: currency + period are authoritative on `fiscal_periods`;
+  (reopen) **unless the governed, versioned contract** declares it NOT APPLICABLE (`notApplicableContextFields` represents
+  that contract — **not an arbitrary caller declaration that bypasses a check**); `currency`/`entity` are never declarable
+  N/A. Missing relevant context requires renewed confirmation. A treatment is **never inherited solely from `company_id +
+  account_key`**. Honest schema reality: currency + period are authoritative on `fiscal_periods`;
   the remaining work is **binding the accepting context onto the decision ledger** plus **dimension**/**ruleset-version**
   axes and the authoritative N/A declaration (gap #4). Additive, not in the first slice.
 - **Same-name / different-code accounts (finding from NORMAL #140, preserved).** `uq_acct_map_company_norm_name` forbids two

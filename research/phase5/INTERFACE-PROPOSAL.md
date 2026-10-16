@@ -100,17 +100,20 @@ same bytes or `account_key`. `classifyAgainstPrior` returns one of three states:
 - **`CONTEXT_INCOMPATIBLE`** — a field is present on both sides and **differs** (a known change, e.g. currency) ⇒ reopen.
 
 **UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE.** "Absent on both sides" is **UNKNOWN** (reopen) unless an explicit,
-authoritative rule establishes the field is NOT APPLICABLE for the engagement (`notApplicableContextFields`, e.g. a
-non-dimensional single entity declaring `dimensions` N/A). `currency`/`entity` can never be declared N/A
-(`fiscal_periods.reporting_currency` is required). Missing relevant context therefore requires **renewed confirmation**
-before reuse. A treatment is **never inherited silently from `company_id + account_key` alone**. Binding the
+authoritative rule establishes the field is NOT APPLICABLE for the engagement. That applicability comes from the **governed,
+versioned contract** (`notApplicableContextFields` represents it) — **not an arbitrary caller declaration that bypasses a
+reuse check**. `currency`/`entity` can never be declared N/A (`fiscal_periods.reporting_currency` is required). A missing
+*relevant* field therefore requires **renewed confirmation** before reuse, regardless of caller input. A treatment is
+**never inherited silently from `company_id + account_key` alone**. Binding the
 accepting context onto the decision ledger is the Phase 6 change — see §9 gap #4. Period is confirmed but not a reuse blocker
 (mappings reuse across periods by design).
 
 **Finding (NORMAL #140), persistence-level:** two accounts with the same normalized name and different codes cannot both be
 mapped per company (`uq_acct_map_company_norm_name`); the real RPC raises a raw constraint error, not a structured refusal.
 Interpretation still treats them as distinct; the Phase 6 treatment + production dependency are in HANDOFF. Preserved, not
-smoothed.
+smoothed. **Source names/codes are never renamed to satisfy the constraint** — any disambiguation is an **optional display
+label separate from source identity**; the coordinated constraint-and-lookup repair is **NORMAL-owned** (this lane does not
+prescribe replacing the index with `account_key` alone).
 Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group.
 `HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never **auto-grouped by inferred treatment** — but they do **not**
 require a separate action each: a reviewer may **explicitly select several and assign one common treatment in a single

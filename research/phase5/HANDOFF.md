@@ -42,14 +42,24 @@ structured refusal**. This is a real production limitation, **preserved not smoo
 collision-free group and a dedicated `fnd()` finding asserts the raw-constraint behaviour; it is also surfaced at the static
 tier (`real_contract_static` 18/18). The interpretation layer is still correct to treat the two as **distinct** accounts
 (distinct `account_key`); the conflict is at **persistence**.
-- **Proposed Phase 6 treatment (for owner decision — not implemented):** (a) **preparer disambiguation** — the reviewer gives
-  the two accounts distinct line-item names (the usual chart reality: "Sales — Product A/B"), the minimal no-schema-change
-  path; or (b) a **structured pre-flight refusal** so the UI surfaces `SAME_NORMALIZED_NAME_DIFFERENT_CODE` *before* submit
-  instead of a raw DB error (additive validation, no schema change); or (c) **relax the uniqueness** to `(company_id,
-  account_key)` only — a **schema change** with migration + review, only if genuinely distinct same-name accounts must
-  coexist. (a)/(b) are additive; (c) is a production-authority decision.
+- **Principle (correction):** a legitimate same-name/different-code account must **not** require **renaming the source
+  account as the permanent solution**. **Original source names and codes are preserved**; any disambiguating text is an
+  **optional display label kept separate from source identity** (`account_key`/`account_code`/`account_name` are never
+  mutated to satisfy the constraint).
+- **Proposed handling (for owner decision — not implemented):**
+  - (a) **Preparer disambiguation — a TEMPORARY workaround where appropriate**, not the permanent fix: the reviewer supplies
+    a distinct *display label* (e.g. "Sales — Product A/B") while the **source name/code stay intact**. It unblocks a real
+    engagement today but does not resolve the underlying constraint.
+  - (b) **Structured refusal — improved FAILURE HANDLING, not compatibility:** surface `SAME_NORMALIZED_NAME_DIFFERENT_CODE`
+    *before* submit instead of a raw DB error. This makes the failure legible; it does **not** make the two accounts
+    mappable. The research lane can provide the pure pre-flight validator.
+  - (c) **Coordinated constraint-and-lookup repair — the PROPOSED SUPPORT PATH, owned by NORMAL** under the existing bounded
+    repair instruction: reconcile the uniqueness/lookup model so genuinely distinct same-name/different-code accounts are
+    supported with source identity preserved. **This handoff does NOT prescribe replacing the index with `account_key`
+    alone** — NORMAL must verify all uniqueness, lookup and migration dependencies before choosing the mechanism.
 - **Production dependency:** the partial unique index `uq_acct_map_company_norm_name` (`20260703100000`, reinforced by the
-  full key work in `20260703120000`). Any treatment must reconcile with it; it is not bypassable from research.
+  full key work in `20260703120000`). Any treatment must reconcile with it; it is not bypassable from research, and the
+  repair in (c) is NORMAL's to design and verify.
 
 ## Runtime-vs-inspection honesty (reinforced)
 SQL inspection (Tier 2 static) tells us the real function's **shape and rules**; it does **not** prove runtime behaviour.
@@ -207,11 +217,13 @@ review summary + repeat upload** — no financial-statement engine, no withheld-
   on both sides with no authoritative N/A rule**, or no recorded context. Missing relevant context requires renewed
   confirmation before reuse.
 - **Known change ⇒ reopen** (`CONTEXT_INCOMPATIBLE`): a field present on both sides and differing (e.g. a changed currency).
-- **`notApplicable` must be an explicit, authoritative declaration** (e.g. a non-dimensional single-entity engagement
-  declaring `dimensions` N/A). `currency`/`entity` are never declarable N/A (`reporting_currency` is required). A treatment
-  is **never silently inherited from `company_id + account_key` alone.** Implemented in `reuseContext.contextCompatible`
-  (+ `notApplicableContextFields`) and `classifyAgainstPrior`; proven in `manual.test` (incl. a case where, WITHOUT the N/A
-  declaration, absent dimensions/ruleset reopen).
+- **Applicability comes from the GOVERNED, VERSIONED CONTRACT — not arbitrary caller declarations that bypass reuse
+  checks.** `notApplicableContextFields` represents that contract (e.g. a non-dimensional single-entity engagement where
+  `dimensions` is contractually N/A); it is **not** a free input a caller can set to skip a check. `currency`/`entity` are
+  never declarable N/A (`reporting_currency` is required). A **missing *relevant* field still reopens for confirmation**
+  regardless of caller input. A treatment is **never silently inherited from `company_id + account_key` alone.** Implemented
+  in `reuseContext.contextCompatible` (+ `notApplicableContextFields`) and `classifyAgainstPrior`; proven in `manual.test`
+  (incl. a case where, WITHOUT the contract's N/A declaration, absent dimensions/ruleset reopen).
 
 ## Future reporting compatibility — DESIGN ONLY (no schema, no rendering, no XBRL change)
 Inspected existing mechanisms first: `account_mappings` (`account_key`, `statement`/`classification`/`line_item`/
@@ -256,15 +268,19 @@ and manual acceptance both expand to its atomic batch). No objection; this is a 
 claim of ownership.
 **Amendments (minor):** (1) the **read-only review-summary projection** (edge or SECURITY DEFINER read RPC) should be
 **co-owned** — NORMAL owns its placement/shape in the journey, the research lane owns the pure projection logic it renders;
-(2) the reuse-context + `notApplicableContextFields` authority (which fields an engagement may declare N/A) is a **shared
-contract decision** (it affects both the library and the journey), to be fixed with NORMAL before Phase 6 build.
+(2) the reuse-context + `notApplicableContextFields` authority is a **shared contract decision**: applicability is derived
+from the **governed, versioned contract — not arbitrary caller declarations that bypass reuse checks**. Which fields an
+engagement may declare NOT APPLICABLE is fixed in that contract with NORMAL before Phase 6 build; a missing *relevant* field
+still **reopens for confirmation** regardless of any caller input.
 **Dependency to support legitimate same-name/different-code accounts safely (explicit):** the partial unique index
-`uq_acct_map_company_norm_name` (`20260703100000`, reinforced by `20260703120000`) is the blocker. A safe Phase 6 needs **one**
-of: (a) **preparer disambiguation** of `line_item`/name (no schema change — preferred first step); (b) an **additive
-structured pre-flight refusal** `SAME_NORMALIZED_NAME_DIFFERENT_CODE` so the UI surfaces it before submit instead of a raw DB
-error (no schema change); or (c) **relaxing the index** to `(company_id, account_key)` (a **schema change + migration +
-review** — owner/production decision, only if genuinely distinct same-name accounts must coexist). The research lane can
-provide (b) as a pure pre-flight validator; (c) is **not** a research-lane change. Owner decides (a)/(b)/(c).
+`uq_acct_map_company_norm_name` (`20260703100000`, reinforced by `20260703120000`) is the blocker. **Source names/codes are
+preserved — renaming the source is never the permanent fix; disambiguation is an optional display label separate from source
+identity.** Handling: (a) **preparer disambiguation** = a **temporary workaround** (display label only, no schema change);
+(b) a **structured pre-flight refusal** `SAME_NORMALIZED_NAME_DIFFERENT_CODE` = **improved failure handling, not
+compatibility** (the research lane can provide the pure validator); (c) the **coordinated constraint-and-lookup repair** =
+the **proposed support path, owned by NORMAL** under the existing bounded repair instruction. **This handoff does not
+prescribe replacing the index with `account_key` alone** — NORMAL verifies all uniqueness, lookup and migration dependencies
+and chooses the mechanism. (c) is **not** a research-lane change.
 
 ## Scope cleanliness
 `git diff origin/main` is **entirely under `research/phase5/`** (verified). No production component, migration, registry,
