@@ -179,6 +179,13 @@ states "Maximum CPU Time: 2s … per request" and that a worker can serve multip
 on the hosted runtime must be read back after an authorised deployment (the function now logs each check's worker, number
 in that worker and CPU time to make that read-back direct).
 
+Measured on the candidate (CI run 38908184567, runtime log with each check's worker): one 2,000-account check alone on a
+fresh worker stays under the 1,000 ms soft limit; the soft limit is reached during a worker's second heavy check (e.g.
+worker cf380410: check 1 at 2,000 accounts completes, check 2 reaches the soft limit), and the runtime then retires the
+worker once that check ends — transparently: six sequential 2,000-account checks all answered 200 in 1.15–1.28 s, no hard
+limit, no 546, no cancelled request. Locally, therefore, ≈0.5–1.0 s CPU per 2,000-account check. The runtime's
+process.cpuUsage reports zero, so per-check CPU is logged as "unavailable" and the runtime's limit lines are the evidence.
+
 Control: each worker runs ONE check and queues nothing; a request arriving meanwhile is refused at once (503
 `PROCESSING_BUSY`, Retry-After 3) before anything begins — no attempt, no lease, nothing recorded or consumed. A per-worker
 queue (run 38889700399) and database slots shared across workers (reverted) did not prevent 546. Candidate run 38895891672:
@@ -224,6 +231,31 @@ Reporting Pack orphan cleanup is not operationally complete — its invocation, 
 smallest completion is a new kind in the existing scheduled `trial-balance-source-sweeper`, whose run report is the
 monitoring signal; that needs a migration and a function change, a scope decision); owner decisions: #143's contract change
 and the provisional limits. No single PR is the release vehicle: the combined candidate #139 is.
+
+## Release proposal (owner decisions; merge and deployment are separate)
+
+**Merge readiness:** the combined candidate #139 is the one vehicle; it is merge-ready only at a head with every required
+check green (last: `ca2e2a2`, run 38908184567; current `8445e41` adds the adopted orphan-sweeper tests, the narrowed node:
+rule and the CPU-reading fix). No merge is authorised by this programme; #134 and #140 are not to be merged.
+
+**Deployment readiness additionally requires** — none done, none authorised: the owner applies `20261106100000`,
+`20261107100000`, `20261108100000` in order; deploys `process-trial-balance` (generation 6), `trial-balance-draft` and
+`seal-reporting-pack`; then the read-back below; then raises `min_engine_generation` to 6.
+
+1. **Canonical-orphan contract (#143):** accept — after a last-moment seal refusal the unsealed canonical file is kept,
+   private, never official, reused by a retry that re-checks authority.
+2. **Orphan cleanup invocation:** add a reporting-pack kind to the existing scheduled `trial-balance-source-sweeper` (pg_cron
+   every 5 minutes, ticket-authorised), running `reportingPackOrphans.mjs`; monitoring: the run report (deleted / kept /
+   failed), an alert on any orphan past expiry + grace after two runs and on any sealed pack without its object (the
+   read-only impact query). Optional: a `lock_timeout` on the seal function to bound the in-flight window by the database.
+   Needs a migration and a function change — not built.
+3. **Limits (provisional):** 2,000 accounts, 10,000 rows, 120,000 cells, 10 MB raw, 2 MB expanded; one check per worker,
+   busy retried by the browser (≤ 4, jittered); a killed worker's attempt recovers after its 600 s lease (a disclosed delay:
+   retries answer in progress, then "did not finish", and a new request completes once).
+4. **Representative verification (staging or hosted, authorised):** a small and a 2,000-account check (hosted CPU time read
+   against the documented 2 s per-request limit; locally ≈0.5–1.0 s), a 4-way burst (one processed, the rest busy then
+   retried), a same-name/different-code pair reviewed, a pack sealed and verified intact, the impact queries run read-only.
+   If a 2,000-account check approaches the hosted limit, lower the account bound to the measured safe level.
 
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
