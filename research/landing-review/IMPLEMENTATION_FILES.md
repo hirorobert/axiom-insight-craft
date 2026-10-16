@@ -1,5 +1,7 @@
 # Production files for a later, bounded implementation
 
+> **Superseded for scope by `IMPLEMENTATION_PROPOSAL.md`** (bounded proposal after the accepted visual review). The wording requirements below still apply.
+
 **Not started.** This list scopes a future change if the owner approves D-1, D-2, D-4 and D-5 (`REVIEW.md` §5). Paths exist at baseline
 `00a2653b5736e89447334e1147aa25f5308b0393` unless marked NEW. Out of scope: the authenticated journey (NORMAL), entitlements, prices,
 checkout, migrations and Edge Functions.

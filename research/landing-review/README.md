@@ -10,7 +10,8 @@ Research only: no production file is changed by this branch, nothing is publishe
 | `proposed-strings.json` | The same strings in machine-readable form (input to the copy check) |
 | `mockup/sample-review-mockup.html` | A runnable, self-contained mockup of the illustrative review (invented data; no network requests) |
 | `OWNER_DECISION_real_file_preview.md` | The separate owner decision on a real-file free preview |
-| `IMPLEMENTATION_FILES.md` | The exact production files for a later bounded implementation |
+| `IMPLEMENTATION_PROPOSAL.md` | The bounded implementation proposal: scope, exact production files, shared dependencies, collision check and required checks |
+| `IMPLEMENTATION_FILES.md` | The earlier file list, superseded for scope; its wording requirements still apply |
 | `HANDOFF_NORMAL.md` | Four authenticated-journey observations for NORMAL, with evidence |
 | `evidence/` | Results, scripts and screenshots (below) |
 
