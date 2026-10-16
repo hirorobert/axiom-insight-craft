@@ -114,3 +114,48 @@ The prototype `research/phase5/prototype/*` implements §1–§8 deterministical
 projection + reuse classification as pure functions + one read RPC/edge summary, and (c) prove byte-compatibility of the
 expanded per-account decisions against the existing RPC via a contract test. No migration, entitlement, payment, lockfile,
 registry or deployment change is implied.
+
+## 9. Persistence & reuse — what production stores today, and the PRECISE gaps
+Verified against the real schema/functions (read-only). "Do not claim unchanged-contract compatibility if new persistence or
+authority is necessary" — so this is stated honestly.
+
+| Concern | Stored today | New persistence/authority needed? |
+|---|---|---|
+| Proposed mapping sets | **Not persisted** (proposals are computed per upload). | **No** — proposals stay ephemeral; only accepted decisions persist. |
+| Authorised accepted decisions | `account_review_decisions` (append-only, `sequence_no`) + `account_mappings` (current projection). | **No**. |
+| Evidence references | `financial_evidence` batches, `tb_certifications`, close-review evidence. | **No**. |
+| Decision attribution | `firm_member_id` on batches/decisions; actor from `auth.uid()`. | **No**. |
+| Mapping/rule versions | `sequence_no` latest-wins; `account_mappings.review_decision_id` provenance link; `rule_id`/`rule_version`; `tb_certifications.normalized_input_hash`/`engine_run_id`; `layout_templates.version`. | **No** (no monotonic mapping-version column, but `sequence_no` serves). |
+| Reuse scope | `account_mappings` is **company-scoped** → a repeat upload's accounts match existing mappings natively. | **No** — reuse within a company is native. |
+| Invalidation | certification invalidation (append-only), reprocess `SOURCE_CHANGED`, provenance-link clearing, dependency bump, **identity-drift reopen for `MARK_NON_REPORTING` only**. | **Partial** — see gaps. |
+
+### The precise gaps and the MINIMUM compatible change
+1. **Reuse status for CLASSIFICATION decisions (`REUSABLE/NEW/STALE_IDENTITY`).** The identity-drift reopen exists today only
+   for `MARK_NON_REPORTING_ACCOUNT` (`get_effective_non_reporting_status`). Generalising it to classification decisions is
+   **new read logic, NO new table/authority** — it compares an account's current `account_key` + normalized name to the
+   `account_review_decisions`/`account_mappings` basis already stored. It only **surfaces** the account for re-review; it does
+   not auto-invalidate. Minimum change: one read projection (RPC or edge) + the summary UI.
+2. **`STALE_MEANING` beyond identity drift** (a comparative/GL reconciliation reveals a different meaning). **No production
+   mechanism exists.** The first Phase 6 slice handles only identity/chart-code changes (derivable with no new persistence);
+   richer meaning-change detection is a **future, separately-scoped** signal/authority — **do not build it in the first slice**.
+3. **Output version-binding (a completed summary must bind the exact versions used; changing a reusable profile must not
+   silently change history).** Layout templates are already versioned and `layout_confirmations` bind `source_file_hash` +
+   `resolved_profile_sha256` per upload, so changing a template never rewrites an old confirmation. For the TB **review
+   summary** itself: record, at completion, the `reviewInputVersion` + the `(account_key → review_decision_id/sequence_no)` set
+   it used. **Minimum compatible change: a `close_review_events` row** (`subject_kind='upload'`, a new `event_type` such as
+   `tb_review_summarised`, `detail` = the versions/decision set) — the existing append-only timeline, **no new table**. A
+   completed summary is then immutable and bound; a later reopen produces a NEW summary, never mutating the old one.
+
+## 10. Prototype vs real-contract evidence (necessary vs sufficient)
+- **Executed now — static shape+semantics against the REAL function** (`tests/real_contract_static.mjs`, 14/14): the
+  grouped-acceptance expansion uses only fields the real `resolve_account_review_batch` consumes, a non-forbidden
+  `proposal_type`, an accepted `decision_action`, a supported `statement`/`classification` pairing, tri-state flags, and
+  deterministic (replay-safe) payloads; refusal codes align. *This is necessary, not sufficient — shape-match alone is not
+  compatibility.*
+- **Replayable, NOT executed on this host — execution against the REAL function** (`proof/real_contract_proof.mjs`): replays
+  the authoritative chain on disposable PG17 and proves legitimate SUCCESS (`account_mappings` written) + refusals + lifecycle.
+  This host has no Docker / local Postgres (Windows embedded-pg unavailable) and scope-cleanliness forbids wiring a CI
+  workflow here, so it is delivered as a one-command replayable package for a PG-capable runtime (CI service / local Docker).
+- **Prototype behaviour** (`tests/phase5.test.mjs` 29/29, `tests/coverage.test.mjs` 15/15): deterministic layers + lifecycle,
+  with simulated/LIMIT lines labelled. DB/RLS-enforced guarantees (auth.uid binding, server-computed account_key, append-only
+  immutability) are asserted against the production RPCs in the replayable proof, not re-proven in the pure prototype.

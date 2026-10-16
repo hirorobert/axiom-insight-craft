@@ -61,3 +61,33 @@ every versioning/invalidation primitive that already exists, and keeps the revie
 
 Financial-statement generation and withheld modules remain **excluded**. The first production slice ends at a **traceable TB
 review summary + a repeat upload** — not a newly released statement engine.
+
+## AI scope — what actually executes (honest)
+**No AI participates. Nothing here calls a model.** The prototype is **deterministic proposals + grouping + reviewer-confirmed
+decisions + controlled reuse**. Arithmetic, reconciliation, evidence sufficiency and every enforced gate are deterministic
+code (and, in production, the real SQL functions). AI remains an **optional, separately-governed proposal mechanism**: it may
+only ever emit `MACHINE_SUGGESTION` proposals that a reviewer confirms, re-validated deterministically — exactly as the
+existing `layout-assist` seam does. It is disabled today (`ai_provider_settings` seeded DISABLED, `PROVIDER_DISABLED`), and
+enabling meaning-suggestion AI needs its own consent wording + data-handling approval + budget (it would need account names,
+which the `ai-sample/1` data-minimisation contract withholds). No paid model execution without existing provider/budget
+authority; no private customer data in fixtures, evaluation or training; `cfoclose_tb_fixtures.zip` is not used.
+
+## Interpretation boundaries (reaffirmed, kept separate)
+1. **Export layout** (how the file is read) — never implies a treatment. 2. **Account identity & dimensions** —
+`account_key = COALESCE(code, normalized name)`; ingestion also carries dimensions, but `account_mappings` has no dimension
+axis (a dimension-aware mapping is a separate decision). 3. **Accounting meaning** — proposed, reviewer-confirmed. 4.
+**Reporting treatment** — the `account_mappings` enums. 5. **Evidence sufficiency** — per output, never a plug.
+Enforced throughout: **gross source rows are preserved**; different codes with similar descriptions are **not** auto-duplicates;
+opening/addition/transfer relationships are **presented with evidence, never netted**; **net movement is not automatically cash
+flow**; **no automatic netting, balancing plugs or unsupported journals**.
+
+## Limitations surfaced by the extended coverage (reported, not optimised away)
+- **Header recognition is partial.** QuickBooks- and Odoo-style headers are recognised; **SunSystems' "T/B Code" is not**, so
+  the automatic path loses codes and keys by description. **Resolution with an EXISTING contract:** the manual `LayoutProfile`
+  (header-text based) maps any header to its role — Phase 6 routes unrecognised headers through the confirmed-layout path; no
+  new mechanism.
+- **Keyword heuristics collide** (e.g. "rent income"). Mitigated by an income-precedence rule and an **abnormal-sign check**
+  (mirrors finding A01), which surfaces side mismatches for individual review — but it cannot catch every wrong mapping; the
+  reviewer is the authority (and AI could assist, separately governed).
+- **Balance/imbalance checking** is owned by the production ingestion core (`TRIAL_BALANCE_IMBALANCE`); the prototype defers.
+- **`STALE_MEANING`** beyond identity/chart-code change has **no production mechanism** and is **not** in the first slice.
