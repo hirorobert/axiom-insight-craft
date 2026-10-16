@@ -125,18 +125,23 @@ group("Reuse is MORE than a file-hash match (entity + currency + dimensions + ru
   const u1 = { id: "u1", company_id: "co-A", source_digest: TB.source_digest, currency: "TZS", period_year: 2025 };
   const s1 = buildReviewSummary({ upload: u1, headers: TB.headers, dataRows: TB.dataRows, store });
   assignCommonTreatment(store, { upload: u1, summary: s1, selectedKeys: ["9000", "9100", "9200", "9300"], treatment: { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", flag_candidate: null }, actor: { company_id: "co-A", firm_member_id: "fm" }, reason: "", client_request_id: "r1" });
-  // Same entity + same currency, later period → REUSABLE (mappings reuse across periods by design).
+  // This single-entity engagement authoritatively declares dimensions + ruleset N/A (otherwise absent context is UNKNOWN).
+  const NA = ["dimensions", "rulesetVersion"];
+  // Same entity + same currency, later period, N/A declared → REUSABLE (mappings reuse across periods by design).
   const u2 = { id: "u2", company_id: "co-A", source_digest: TB.source_digest, currency: "TZS", period_year: 2026 };
-  const s2 = buildReviewSummary({ upload: u2, headers: TB.headers, dataRows: TB.dataRows, store });
-  check("same entity + same currency → reused (not re-reviewed) across a new period", s2.reuse.reusable.includes("9000") && s2.reuse.context_incompatible.length === 0, s2.reuse);
+  const s2 = buildReviewSummary({ upload: u2, headers: TB.headers, dataRows: TB.dataRows, store, notApplicableContextFields: NA });
+  check("verified-compatible context (entity + currency equal; dimensions/ruleset authoritatively N/A) → reusable across a new period", s2.reuse.reusable.includes("9000") && s2.reuse.context_incompatible.length === 0 && s2.reuse.context_unverified.length === 0, s2.reuse);
   // Same entity, DIFFERENT currency → NOT silently reused: CONTEXT_INCOMPATIBLE (more than file-hash).
   const u3 = { id: "u3", company_id: "co-A", source_digest: TB.source_digest, currency: "USD", period_year: 2026 };
-  const s3 = buildReviewSummary({ upload: u3, headers: TB.headers, dataRows: TB.dataRows, store });
+  const s3 = buildReviewSummary({ upload: u3, headers: TB.headers, dataRows: TB.dataRows, store, notApplicableContextFields: NA });
   check("a changed currency reopens reuse as CONTEXT_INCOMPATIBLE (file hash alone is insufficient)", s3.reuse.context_incompatible.includes("9000") && !s3.reuse.reusable.includes("9000"), s3.reuse);
   // Unknown/unverifiable currency → REOPEN for explicit confirmation (never silently reused on entity+key alone).
   const u4 = { id: "u4", company_id: "co-A", source_digest: TB.source_digest, period_year: 2026 }; // no currency (prior had TZS)
-  const s4 = buildReviewSummary({ upload: u4, headers: TB.headers, dataRows: TB.dataRows, store });
-  check("an unverifiable currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse", s4.reuse.context_unverified.includes("9000") && !s4.reuse.reusable.includes("9000") && s4.reuseDisclosure.reopen_context_fields.includes("currency"), s4.reuse);
+  const s4 = buildReviewSummary({ upload: u4, headers: TB.headers, dataRows: TB.dataRows, store, notApplicableContextFields: NA });
+  check("an unverifiable (absent) currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse", s4.reuse.context_unverified.includes("9000") && !s4.reuse.reusable.includes("9000") && s4.reuseDisclosure.reopen_context_fields.includes("currency"), s4.reuse);
+  // UNKNOWN != NOT APPLICABLE: WITHOUT the authoritative N/A declaration, absent dimensions/ruleset are UNKNOWN → reopen.
+  const s5 = buildReviewSummary({ upload: u2, headers: TB.headers, dataRows: TB.dataRows, store });
+  check("absent dimensions/ruleset with NO authoritative N/A rule → UNKNOWN → reopen (not silently reused)", s5.reuse.context_unverified.includes("9000") && !s5.reuse.reusable.includes("9000") && s5.reuseDisclosure.reopen_context_fields.some((f) => f === "dimensions" || f === "rulesetVersion"), s5.reuse);
 }
 
 group("Exact money preserved on the manual path (BigInt; nothing netted)");

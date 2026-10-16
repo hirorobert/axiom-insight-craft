@@ -15,7 +15,11 @@ const group = (n) => console.log(`\n== ${n}`);
 const HEADERS = ["Account Code", "Account Name", "Debit", "Credit"];
 const TB = (rows) => { const dataRows = rows.map((r) => [r[0], r[1], r[2] ?? "", r[3] ?? ""]); return { headers: HEADERS, dataRows, source_digest: sha256Hex(dataRows) }; };
 const actor = { company_id: "co-A", firm_member_id: "fm-1" };
-const upload = (tb, over = {}) => ({ id: "up-1", company_id: "co-A", source_digest: tb.source_digest, ...over });
+// A single-entity engagement in one reporting currency (from fiscal_periods). Reuse needs VERIFIED context, so uploads carry
+// the currency; the engagement authoritatively declares `dimensions`/`rulesetVersion` NOT APPLICABLE (non-dimensional, one
+// ruleset) — absent context is otherwise UNKNOWN and would reopen, never silently inherited.
+const upload = (tb, over = {}) => ({ id: "up-1", company_id: "co-A", currency: "TZS", source_digest: tb.source_digest, ...over });
+const NA_CTX = ["dimensions", "rulesetVersion"];  // explicit authoritative not-applicable declaration for this engagement
 
 // ── An invented 20-account trial balance (minor units; integers). ──
 const MAIN = TB([
@@ -121,7 +125,7 @@ group("5 · Compatible repeat-upload reuse (no re-approval of unchanged accounts
   s1.groups.forEach((g, k) => acceptGroup(store, { upload: upload(MAIN), summary: s1, group: g, actor, reason: "first review", client_request_id: `r1-${k}` }));
   // A second upload of the SAME accounts (new amounts, same identities) — only new/changed accounts should need review.
   const REPEAT = TB(MAIN.dataRows.map((r) => [r[0], r[1], r[2] === "" ? "" : Math.round(Number(r[2]) * 1.07), r[3] === "" ? "" : Math.round(Number(r[3]) * 1.07)]));
-  const s2 = buildReviewSummary({ upload: upload(REPEAT, { id: "up-2" }), headers: REPEAT.headers, dataRows: REPEAT.dataRows, store });
+  const s2 = buildReviewSummary({ upload: upload(REPEAT, { id: "up-2" }), headers: REPEAT.headers, dataRows: REPEAT.dataRows, store, notApplicableContextFields: NA_CTX });
   const grouped = MAIN.dataRows.length - s1.individual.length; // accounts that got an accepted decision in round 1
   check("every previously-accepted account is REUSABLE on the repeat upload", s2.reuse.reusable.length === grouped, { reusable: s2.reuse.reusable.length, expected: grouped });
   const needReview2 = new Set([...s2.groups.flatMap((g) => g.members.map((m) => m.account_key)), ...s2.individual.map((i) => i.account_key)]);
@@ -139,11 +143,11 @@ group("6 · Changed account meaning / identity reopens the affected decision");
   s1.groups.forEach((g, k) => acceptGroup(store, { upload: upload(MAIN), summary: s1, group: g, actor, reason: "first review", client_request_id: `rr-${k}` }));
   // (a) identity drift: same code 1200, materially changed name.
   const DRIFT = TB(MAIN.dataRows.map((r) => (r[0] === "1200" ? [r[0], "Loan to related party", r[2], r[3]] : r)));
-  const sa = buildReviewSummary({ upload: upload(DRIFT, { id: "up-3" }), headers: DRIFT.headers, dataRows: DRIFT.dataRows, store });
+  const sa = buildReviewSummary({ upload: upload(DRIFT, { id: "up-3" }), headers: DRIFT.headers, dataRows: DRIFT.dataRows, store, notApplicableContextFields: NA_CTX });
   check("a coded account whose name materially changed is reopened as STALE_IDENTITY", sa.reuse.stale_identity.includes("1200"), sa.reuse);
   check("the reopened account re-appears for review; unchanged accounts stay reused", sa.reuse.reusable.length > 0 && !sa.reuse.reusable.includes("1200"));
   // (b) relevant meaning/context changed (e.g. a comparative/GL reconciliation revealed a different meaning for 2100).
-  const sb = buildReviewSummary({ upload: upload(MAIN, { id: "up-4" }), headers: MAIN.headers, dataRows: MAIN.dataRows, store, meaningChangedKeys: ["2100"] });
+  const sb = buildReviewSummary({ upload: upload(MAIN, { id: "up-4" }), headers: MAIN.headers, dataRows: MAIN.dataRows, store, meaningChangedKeys: ["2100"], notApplicableContextFields: NA_CTX });
   check("an account flagged as meaning/context-changed is reopened as STALE_MEANING", sb.reuse.stale_meaning.includes("2100"), sb.reuse);
   const c = classifyAgainstPrior(store, "co-A", { account_code: "2100", account_name: "Supplier payable - Northwind" }, { meaningChanged: true });
   check("the reopen reason is explicit and traceable", c.reason === "RELEVANT_MEANING_OR_CONTEXT_CHANGED");

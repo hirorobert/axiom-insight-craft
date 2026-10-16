@@ -163,14 +163,15 @@ _Manual multi-account treatment path: no inferred-equivalence grouping, visual-b
   PASS  the latest (highest sequence_no) decision is effective — deterministic last-writer-wins
 
 == Reuse is MORE than a file-hash match (entity + currency + dimensions + ruleset context)
-  PASS  same entity + same currency → reused (not re-reviewed) across a new period
+  PASS  verified-compatible context (entity + currency equal; dimensions/ruleset authoritatively N/A) → reusable across a new period
   PASS  a changed currency reopens reuse as CONTEXT_INCOMPATIBLE (file hash alone is insufficient)
-  PASS  an unverifiable currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse
+  PASS  an unverifiable (absent) currency reopens for explicit confirmation (CONTEXT_UNVERIFIED), not silent reuse
+  PASS  absent dimensions/ruleset with NO authoritative N/A rule → UNKNOWN → reopen (not silently reused)
 
 == Exact money preserved on the manual path (BigInt; nothing netted)
   PASS  selected account balances remain exact BigInt minor units (no float, no netting)
 
-24/24 manual-path checks passed.
+25/25 manual-path checks passed.
 ```
 **exit status: 0**
 
@@ -246,7 +247,7 @@ _Parses the REAL resolve_account_review_batch SQL; asserts field+semantics compa
 
 18/18 static real-contract checks passed.
 NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in
-research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL 17; NOT executed on this host.
+research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL (16+/17; version reported at runtime); NOT executed on this host.
 ```
 **exit status: 0**
 

@@ -13,12 +13,19 @@
 // migration chain present at supabase/migrations. This host (no Docker / no local Postgres / Windows embedded-pg) cannot run
 // it; scope-cleanliness forbids wiring a CI workflow here, so it is delivered as a replayable package for a PG-capable runtime.
 //
-// RECONCILIATION (this is the single identified proof version shared with NORMAL #140). NORMAL ran #138's proof and
-// contributed four setup corrections, adopted here: (1) seats — grant the licence additional_seats so the partner + viewer
-// are admitted (the seat wall trg_firm_members_named_user_seats refuses them otherwise: included_seats = 1 on every paid
-// plan); (2) report the ACTUAL server_version (never hard-coded); (3) shim extensions.digest(), which the real RPC calls;
-// (4) a period has ONE active upload (uq_one_active_upload_per_period), so a repeat upload is the NEXT period. All through
-// supported authority; no trigger is bypassed. This version ALSO carries #138's manual-path / atomic / conflict coverage.
+// RECONCILIATION — this is the single identified proof version for lane #138 (branch tip). Exact versions & differences:
+//   • NORMAL #140 commit 2632348 (based on #138 @ 5a06e56) reported PostgreSQL 17.11: 24/25, the ONE non-pass being the
+//     same-name/different-code identity incompatibility (it used the revenue group — 4000/4100 Sales — for the success path,
+//     so the collision surfaced as a failed check).
+//   • This version adopts NORMAL's four setup corrections — (1) seats so the partner+viewer are admitted (here via licence
+//     additional_seats; NORMAL used an equivalent NAMED_USER_SEATS entitlement override — both supported, neither bypasses
+//     the seat wall); (2) report the ACTUAL server_version; (3) shim+verify extensions.digest(); (4) next-period repeat
+//     upload (uq_one_active_upload_per_period) — and ADDS #138's manual-path / atomic / conflict coverage, a collision-free
+//     success group, and the same-name case as an explicit fnd() FINDING (reported separately from pass/fail).
+//   • DIFFERENCE IN REPRESENTATION ONLY, NOT RESOLUTION: NORMAL counts the same-name case in the denominator (24/25 = 1
+//     FAIL); here it is an isolated reproduced FINDING so the rec() tally is not polluted. The underlying incompatibility is
+//     IDENTICAL and UNRESOLVED. Do NOT read "checks pass + 1 finding" as complete compatibility or as a passing support
+//     claim — same-name/different-code remains an open limitation (see fnd() below + HANDOFF).
 //
 // GENUINE FINDING (preserved, not smoothed): two accounts with the same normalized name and different codes
 // (4000/4100 Sales) cannot both map in one company (uq_acct_map_company_norm_name); the real RPC raises a RAW constraint
@@ -108,6 +115,11 @@ async function main() {
   const serverVersion = (await admin.query("SHOW server_version")).rows[0].server_version;
   console.log(`  [runtime] PostgreSQL ${serverVersion}`);
   rec(`REPLAY · entire authoritative migration chain (${total} files) applied on PostgreSQL ${serverVersion}`, true);
+  // RECONCILED from NORMAL #140 (2632348): prove the extensions.digest shim is GENUINE pgcrypto, not a fake that could mask
+  // a real mismatch — SHA-256('abc') test vector, and identical to public.digest.
+  const dg = (await admin.query("SELECT encode(extensions.digest('abc','sha256'),'hex') AS e, encode(public.digest('abc','sha256'),'hex') AS p")).rows[0];
+  rec("SETUP · extensions.digest is pgcrypto's digest (SHA-256 vector for 'abc'; identical to public.digest)",
+    dg.e === dg.p && dg.e === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", JSON.stringify(dg));
 
   // ── Seed: product, licences (prepare_close needs a current plan; additional_seats so >1 member is admitted),
   //    companies (auto owner firm_member), a partner + viewer, an upload bound to company A. ──

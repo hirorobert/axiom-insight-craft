@@ -104,5 +104,5 @@ check("FINDING (production limitation, preserved): the real schema forbids two s
 
 console.log(`\n${pass}/${pass + fail} static real-contract checks passed.`);
 console.log("NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in");
-console.log("research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL 17; NOT executed on this host.");
+console.log("research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL (16+/17; version reported at runtime); NOT executed on this host.");
 process.exit(fail ? 1 : 0);

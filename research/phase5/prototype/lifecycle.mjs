@@ -38,7 +38,7 @@ export class ReviewStore {
  * Classify a new-upload account against the store: NEW | REUSABLE | STALE_IDENTITY | STALE_MEANING.
  * meaningChanged = an upstream signal (a comparative/GL reconciliation revealed the account means something else).
  */
-export function classifyAgainstPrior(store, company_id, account, { meaningChanged = false, nowCtx = null } = {}) {
+export function classifyAgainstPrior(store, company_id, account, { meaningChanged = false, nowCtx = null, notApplicableContextFields = [] } = {}) {
   const key = accountKey(account);
   const prior = store.effective(company_id, key);
   if (!prior) return { status: "NEW", key };
@@ -53,7 +53,7 @@ export function classifyAgainstPrior(store, company_id, account, { meaningChange
   // REUSE RULE). Verified-compatible ⇒ reuse may be proposed (REUSABLE). A KNOWN change ⇒ reopen (CONTEXT_INCOMPATIBLE).
   // Missing / unverifiable context ⇒ reopen for explicit confirmation (CONTEXT_UNVERIFIED) — NEVER a silent inherit.
   if (nowCtx && prior.context) {
-    const ctx = contextCompatible(prior.context, nowCtx);
+    const ctx = contextCompatible(prior.context, nowCtx, new Set(notApplicableContextFields));
     if (ctx.state === "INCOMPATIBLE") return { status: "CONTEXT_INCOMPATIBLE", key, prior, reason: ctx.blocking.join(","), blocking: ctx.blocking };
     if (ctx.state === "UNVERIFIED") return { status: "CONTEXT_UNVERIFIED", key, prior, reason: `UNVERIFIABLE_CONTEXT:${ctx.reopen.join(",")}`, reopen: ctx.reopen };
     return { status: "REUSABLE", key, prior, notApplicable: ctx.notApplicable };
@@ -67,7 +67,7 @@ export function classifyAgainstPrior(store, company_id, account, { meaningChange
  * mapping coverage. Returns a summary the UI would render (grouped treatments + individual accounts + relationships +
  * reuse breakdown + coverage + a source_digest the acceptance step binds to).
  */
-export function buildReviewSummary({ upload, headers, dataRows, store = new ReviewStore(), meaningChangedKeys = [] }) {
+export function buildReviewSummary({ upload, headers, dataRows, store = new ReviewStore(), meaningChangedKeys = [], notApplicableContextFields = [] }) {
   const read = readAccounts(headers, dataRows);
   if (read.kind !== "flat_tb") return { ok: false, structure: read, source_digest: upload.source_digest };
   const { meanings, relationships } = interpretMeaning(read.accounts);
@@ -75,7 +75,7 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
 
   const changedSet = new Set(meaningChangedKeys);
   const nowCtx = reuseContextOf(upload);
-  const reuse = read.accounts.map((a) => classifyAgainstPrior(store, upload.company_id, a, { meaningChanged: changedSet.has(accountKey(a)), nowCtx }));
+  const reuse = read.accounts.map((a) => classifyAgainstPrior(store, upload.company_id, a, { meaningChanged: changedSet.has(accountKey(a)), nowCtx, notApplicableContextFields }));
   const byStatus = (s) => reuse.filter((r) => r.status === s).map((r) => r.key);
 
   // Accounts still needing a reviewer this time = NEW + reopened (STALE_* / CONTEXT_INCOMPATIBLE / CONTEXT_UNVERIFIED) +
@@ -100,7 +100,7 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
     individual: individual.filter((i) => needsReviewKeys.has(i.account_key)),
     relationships,
     reuse: { reusable: byStatus("REUSABLE"), new: byStatus("NEW"), stale_identity: byStatus("STALE_IDENTITY"), stale_meaning: byStatus("STALE_MEANING"), context_incompatible: byStatus("CONTEXT_INCOMPATIBLE"), context_unverified: byStatus("CONTEXT_UNVERIFIED") },
-    reuseDisclosure: { reopen_context_fields: reopenContextFields, note: "First-slice reuse rule: a decision is REUSABLE only when the applicable accounting context (entity + currency + dimensions, from fiscal_periods etc.) is verified compatible. Missing/unverifiable context reopens for explicit confirmation (CONTEXT_UNVERIFIED); a known change reopens (CONTEXT_INCOMPATIBLE). A treatment is never inherited silently from company_id + account_key alone." },
+    reuseDisclosure: { reopen_context_fields: reopenContextFields, note: "First-slice reuse rule: a decision is REUSABLE only when every relevant context field (entity + currency + dimensions, from fiscal_periods etc.) is VERIFIED equal or EXPLICITLY declared NOT APPLICABLE by an authoritative rule. UNKNOWN != EQUAL != MISMATCH != NOT APPLICABLE: a field absent on BOTH sides is UNKNOWN (reopen for confirmation) unless such a rule exists; present-on-one-side is UNKNOWN; a known difference is CONTEXT_INCOMPATIBLE. A treatment is never inherited silently from company_id + account_key alone." },
     context: nowCtx,
     mappingCoverage: { total, unmapped, ambiguous },
     accountsRead: read.accounts,

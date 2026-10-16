@@ -40,33 +40,47 @@ export function reuseContextOf(upload) {
 /**
  * Compare a prior decision's recorded context with the current upload's context, implementing the Phase 6 first-slice
  * REUSE RULE as three explicit states (never a silent inherit from company_id + account_key alone):
- *   - COMPATIBLE: every applicable field is verified equal ⇒ reuse may be PROPOSED.
- *   - UNVERIFIED: an applicable field is missing on one side or otherwise cannot be confirmed ⇒ REOPEN for explicit
- *     confirmation. (A field absent on BOTH sides is consistent absence — "not applicable" — not an unverifiable context.)
- *   - INCOMPATIBLE: an applicable field is present on both sides and DIFFERS (a known change) ⇒ REOPEN.
- * Returns { state, blocking[], reopen[], notApplicable[], period }. `period` is advisory (mappings reuse across periods by
- * design) — recorded, never a reuse blocker.
+ *   - COMPATIBLE: every relevant field is verified equal (or explicitly NOT APPLICABLE) ⇒ reuse may be PROPOSED.
+ *   - UNVERIFIED: a relevant field is UNKNOWN — absent on one side, OR absent on BOTH with no authoritative rule declaring
+ *     it not-applicable ⇒ REOPEN for explicit confirmation.
+ *   - INCOMPATIBLE: a relevant field is present on both sides and DIFFERS (a known change) ⇒ REOPEN.
+ *
+ * CRITICAL (per the directive): UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE. "Absent on both sides" is **UNKNOWN**
+ * (requires renewed confirmation) UNLESS an explicit, authoritative rule establishes the field is NOT APPLICABLE for this
+ * engagement. `notApplicable` carries those authoritative declarations (e.g. a non-dimensional single-entity engagement
+ * explicitly declaring `dimensions` N/A). currency is NEVER declarable N/A — fiscal_periods.reporting_currency is required,
+ * so an absent currency is genuinely unknown.
+ *
+ * Returns { state, blocking[], reopen[], notApplicable[], period }. `period` is advisory via an authoritative rule
+ * (mappings reuse across periods by design) — recorded, never a reuse blocker.
  */
-export function contextCompatible(priorCtx, nowCtx) {
-  const blocking = [], reopen = [], notApplicable = [];
-  // Entity is natively enforced by the RPC (UPLOAD_COMPANY_MISMATCH + company-scoped account_mappings); a mismatch is fatal.
+const NEVER_NOT_APPLICABLE = new Set(["currency", "entity"]);
+export function contextCompatible(priorCtx, nowCtx, notApplicable = new Set()) {
+  const na = notApplicable instanceof Set ? notApplicable : new Set(notApplicable || []);
+  const blocking = [], reopen = [], declaredNA = [];
+  // Entity is natively enforced by the RPC (UPLOAD_COMPANY_MISMATCH + company-scoped account_mappings); a mismatch is fatal;
+  // an absent entity is UNKNOWN, never not-applicable.
   if (priorCtx.entity == null || nowCtx.entity == null) reopen.push("entity");
   else if (priorCtx.entity !== nowCtx.entity) blocking.push("ENTITY_CHANGED");
 
-  // An applicable field: absent-on-both = not applicable (consistent); present-both-equal = ok; present-both-differ =
-  // a KNOWN change (blocking/reopen); present-on-one-side-only = cannot confirm ⇒ reopen for explicit confirmation.
+  // present-both-equal = ok; present-both-differ = KNOWN change (incompatible); present-one-side-only = UNKNOWN (reopen);
+  // absent-both = UNKNOWN (reopen) UNLESS an explicit authoritative rule declares the field NOT APPLICABLE.
   const field = (name, priorV, nowV, changeCode) => {
     const pHas = priorV != null, nHas = nowV != null;
-    if (!pHas && !nHas) { notApplicable.push(name); return; }
     if (pHas && nHas) { if (priorV !== nowV) blocking.push(changeCode); return; }
-    reopen.push(name);                                  // present on one side only — context cannot be confirmed
+    if (!pHas && !nHas) {
+      if (na.has(name) && !NEVER_NOT_APPLICABLE.has(name)) { declaredNA.push(name); return; }
+      reopen.push(name);                                // absent on both, not authoritatively N/A ⇒ UNKNOWN ⇒ reopen
+      return;
+    }
+    reopen.push(name);                                  // present on one side only ⇒ UNKNOWN ⇒ reopen
   };
   field("currency", priorCtx.currency, nowCtx.currency, "CURRENCY_CHANGED");
   field("dimensions", priorCtx.dimensions, nowCtx.dimensions, "DIMENSION_AXES_CHANGED");
   field("rulesetVersion", priorCtx.rulesetVersion, nowCtx.rulesetVersion, "MAPPING_RULESET_VERSION_CHANGED");
-  // Period is advisory only: recorded for confirmation, never a reuse blocker (a reusable chart treatment spans periods).
+  // Period is advisory via an authoritative rule: recorded for confirmation, never a reuse blocker (treatments span periods).
   const period = { prior: priorCtx.period ?? null, now: nowCtx.period ?? null };
 
   const state = blocking.length > 0 ? "INCOMPATIBLE" : reopen.length > 0 ? "UNVERIFIED" : "COMPATIBLE";
-  return { state, compatible: state === "COMPATIBLE", blocking, reopen, notApplicable, period };
+  return { state, compatible: state === "COMPATIBLE", blocking, reopen, notApplicable: declaredNA, period };
 }
