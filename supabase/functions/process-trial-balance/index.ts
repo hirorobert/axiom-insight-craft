@@ -45,7 +45,6 @@ import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
 import { createAdmission, withAdmission } from "../_shared/admission.ts";
 import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
-import { cpuUsage } from "node:process";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -1302,12 +1301,17 @@ const PROCESSING_BUSY = {
 };
 
 // Diagnostics only (no behaviour): which worker ran an admitted check, the check's number in that worker, its wall time
-// and the CPU time it used where the runtime exposes it (node:process cpuUsage; "unavailable" otherwise). Read with the
+// and the CPU time it used where the runtime exposes it (a global process.cpuUsage; "unavailable" otherwise). Read with the
 // runtime's own "CPU time soft/hard limit reached" lines to see how a worker's budget is spent across checks.
 const WORKER_ID = crypto.randomUUID().slice(0, 8);
 let workerChecks = 0;
 const cpuMs = (): number | null => {
-  try { const u = cpuUsage(); return (u.user + u.system) / 1000; } catch { return null; }
+  // Only through a global the runtime may provide: importing node:process made the function fail to boot (CI run
+  // 38904836096, BOOT_ERROR). Where it is absent the value is "unavailable"; the runtime's own CPU-limit lines remain.
+  try {
+    const u = (globalThis as { process?: { cpuUsage?: () => { user: number; system: number } } }).process?.cpuUsage?.();
+    return u ? (u.user + u.system) / 1000 : null;
+  } catch { return null; }
 };
 function observed(handler: (req: Request) => Promise<Response>): (req: Request) => Promise<Response> {
   return async (req) => {
