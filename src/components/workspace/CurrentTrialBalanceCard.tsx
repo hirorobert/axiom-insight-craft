@@ -43,6 +43,7 @@ export function CurrentTrialBalanceCard({
   busy = false,
   onPrimary,
   management,
+  primaryEmphasis = "primary",
 }: {
   fileName: string;
   uploadedAt: string;
@@ -53,6 +54,8 @@ export function CurrentTrialBalanceCard({
   onPrimary: (kind: NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"]) => void;
   /** Replace / Remove as quiet secondary actions (ManageTrialBalance, inline variant). */
   management?: ReactNode;
+  /** Whether the verdict's action leads the page (reviewActionHierarchy): secondary while review decisions are ready to save. */
+  primaryEmphasis?: "primary" | "secondary";
 }) {
   const tone = TONE[verdict.tone];
   const totals = verdict.totals;
@@ -146,9 +149,11 @@ export function CurrentTrialBalanceCard({
           {verdict.primaryAction && (
             <Button
               size="lg"
+              variant={primaryEmphasis === "primary" ? "default" : "outline"}
               disabled={busy}
               onClick={() => onPrimary(verdict.primaryAction!.kind)}
               data-testid="trial-balance-primary-action"
+              data-action-emphasis={primaryEmphasis}
               className="h-auto min-h-11 w-full whitespace-normal rounded-none px-5 py-2.5 text-left text-[14px] font-semibold leading-snug shadow-none sm:w-auto"
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : ACTION_ICON[verdict.primaryAction.kind]}
