@@ -398,35 +398,6 @@ async function main() {
     const after = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
     return r.outcome === "certified" && before === true && after === false && viaTrigger ? true : { r, before, after, viaTrigger };
   });
-
-  group("Processing admission — leased slots shared by every worker (tb_processing_slots)");
-  const acquire = async (holder, lease = 60) => (await asService("SELECT public.tb_acquire_processing_slot($1,$2) s", [holder, lease]))[0].s;
-  const releaseSlot = async (holder) => (await asService("SELECT public.tb_release_processing_slot($1) r", [holder]))[0].r;
-  await check("capacity is two: two holders get slots 1 and 2, a third gets none (without blocking); a holder asking again keeps its slot", async () => {
-    const [h1, h2, h3] = [uuid(), uuid(), uuid()];
-    const a = await acquire(h1), b = await acquire(h2), c = await acquire(h3), again = await acquire(h1);
-    const freed = await releaseSlot(h1), d = await acquire(h3), notHeld = await releaseSlot(uuid());
-    await releaseSlot(h2); await releaseSlot(h3);
-    return a === 1 && b === 2 && c === null && again === 1 && freed === true && d === 1 && notHeld === false ? true : { a, b, c, again, freed, d, notHeld };
-  });
-  await check("a killed worker's slot is reclaimed once its lease expires (never before)", async () => {
-    const [h1, h2, h3] = [uuid(), uuid(), uuid()];
-    await acquire(h1, 5); await acquire(h2, 60);
-    const before = await acquire(h3);
-    await admin.query("UPDATE public.tb_processing_slots SET lease_expires_at = now() - interval '1 second' WHERE holder=$1", [h1]);
-    const after = await acquire(h3);
-    const staleRelease = await releaseSlot(h1);
-    await releaseSlot(h2); await releaseSlot(h3);
-    return before === null && after !== null && staleRelease === false ? true : { before, after, staleRelease };
-  });
-  await check("20 simultaneous claims: exactly two granted, every other answered at once with none", async () => {
-    const holders = Array.from({ length: 20 }, () => uuid());
-    const got = await Promise.all(holders.map((h) => acquire(h)));
-    const granted = got.filter((x) => x !== null);
-    await Promise.all(holders.map((h) => releaseSlot(h)));
-    return granted.length === 2 && new Set(granted).size === 2 ? true : got;
-  });
-  await refused("clients cannot claim or see slots", "42501", () => asUser(U.owner, "SELECT public.tb_acquire_processing_slot($1,60)", [uuid()]));
 }
 
 try { await main(); } catch (e) { record("unexpected", false, String(e?.stack ?? e)); }

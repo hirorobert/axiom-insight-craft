@@ -44,52 +44,6 @@ export function createAdmission(limit: number, maxWaitMs: number): Admission {
   };
 }
 
-/**
- * Admission across workers: one of the database's leased processing slots (tb_processing_slots, 20261107100000), polled
- * until `maxWaitMs`. An error from the database counts as busy (the caller retries; nothing has begun).
- */
-export function createSlotAdmission(
-  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>,
-  opts: { maxWaitMs: number; pollMs: number; leaseSeconds: number },
-): Admission {
-  let active = 0;
-  return {
-    async acquire() {
-      const holder = crypto.randomUUID();
-      const deadline = Date.now() + opts.maxWaitMs;
-      for (;;) {
-        const { data, error } = await rpc("tb_acquire_processing_slot", { p_holder: holder, p_lease_seconds: opts.leaseSeconds });
-        if (!error && typeof data === "number") {
-          active++;
-          let done = false;
-          return () => {
-            if (done) return;
-            done = true; active--;
-            rpc("tb_release_processing_slot", { p_holder: holder }).catch(() => { /* the lease frees it */ });
-          };
-        }
-        if (Date.now() + opts.pollMs > deadline) return null;
-        await new Promise((r) => setTimeout(r, opts.pollMs));
-      }
-    },
-    state: () => ({ active, waiting: 0 }),
-  };
-}
-
-/** Both: a slot in this worker, then one shared by every worker. */
-export function combineAdmissions(first: Admission, second: Admission): Admission {
-  return {
-    async acquire() {
-      const a = await first.acquire();
-      if (!a) return null;
-      const b = await second.acquire();
-      if (!b) { a(); return null; }
-      return () => { b(); a(); };
-    },
-    state: () => first.state(),
-  };
-}
-
 /** Wraps a handler: OPTIONS passes straight through; everything else holds a slot for its whole duration. */
 export function withAdmission(
   admission: Admission,
