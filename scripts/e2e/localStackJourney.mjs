@@ -4,7 +4,7 @@
 // bridge: the production build of the app is served on loopback and driven in headless Chrome by real signed-in users.
 //
 //   routing     an unauthenticated deep link lands on sign-in; a wrong password is refused; sign-in by keyboard
-//   new user    first run creates the company (FY ending 30 June) through the real form; with one service the entry card
+//   new user    first visit offers the upload as the one primary action; the company form (secondary) creates the company (FY ending 30 June); with one service the entry card
 //               ("Check your trial balance") replaces the launchpad and the data choice (Phase 2 §5.1); previously the launchpad and data choice
 //   periods     explicit non-calendar periods (1 Jul – 30 Jun) with the prior period, through Trial Balance › Intake
 //   trial bal.  both years uploaded through the real uploader and checked by the real edge function; classifications
@@ -18,6 +18,9 @@
 //   sign-off    evidence stored with a version; REVIEWED by the partner; FINAL by the owner; the sealed pack on Exports
 //   stale       a changed file layout makes the trial-balance result out of date; the sealed version stays FINAL
 //   isolation   a second account sees nothing of the first: the workspace URL is refused, and its API reads return nothing
+//   first upload the second account's first visit: drop zone → private draft → confirmation card (entity, 'Year ended
+//               30 June 2026', TZS) → entity, dated period and file saved through the existing authorities → the
+//               server's check on the same page → its result page (Phase 2 P2-3)
 //   widths      every page checked at 1280 px and 375 px for horizontal overflow, cut-off controls and unlabeled fields
 //
 //   node scripts/e2e/localStackJourney.mjs <evidence-dir>       (after `supabase start`; reads `supabase status -o json`)
@@ -210,8 +213,17 @@ async function main() {
   });
 
   startGroup("New user: first run");
-  await check("first run creates the company through the real form (FY ending 30 June, TZS, IFRS for SMEs) and opens its workspace", async () => {
-    await go("/dashboard", "Entity name");
+  await check("first visit: the upload is the one primary action, with formats and the size limit visible (Phase 2 P2-3)", async () => {
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload-dropzone"]', { timeout: 30000 });
+    await widths("02-first-visit");
+    const t = await page.bodyText();
+    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
+    return /CSV or Excel \(\.csv, \.xlsx, \.xls\), up to 50 MB/.test(t) && primaries === 0 ? true : { primaries, t: t.slice(0, 300) };
+  });
+  await check("first run creates the company through the real form, reached by the secondary 'Add a company' (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
+    await page.click('[data-testid="add-company"]');
+    await page.waitForSelector("#fr-org", { timeout: 30000 });
     await widths("02-first-run");
     await page.fill("#fr-org", "Mto Holdings Limited");
     await pickRadix("#fr-year", "2026");
@@ -543,6 +555,62 @@ async function main() {
     const leaked = reads.filter(([, n]) => n > 0);
     const refused = !!comp.error || (comp.data && comp.data.state !== "composed");
     return leaked.length === 0 && refused ? true : { leaked, comp: comp.data ?? comp.error?.message };
+  });
+
+  startGroup("Second account: the first upload on one page (Phase 2 P2-3; real components and server operations)");
+  // The second account has a plan and no entity yet: its first visit is the upload itself. Invented file and names only.
+  let B = null;
+  await check("the drop zone takes the file; it is stored privately as a draft, not yet in any entity", async () => {
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    const note = await page.evaluate(() => document.querySelector('[data-testid="first-upload-draft-note"]')?.textContent ?? "");
+    const companies = ((await ownerBApi.from("companies").select("id")).data ?? []).length;
+    const drafts = (await admin.from("trial_balance_drafts").select("state").eq("owner_ref", U.ownerB.id)).data ?? [];
+    await widths("17-first-upload-draft");
+    return /Stored privately as a draft\. Not yet added to your entity\./.test(note) && companies === 0 && drafts.length === 1 && drafts[0].state === "reserved" ? true : { note, companies, drafts };
+  });
+  await check("nothing is pre-filled or guessed; starting with empty fields lists what is missing and starts nothing", async () => {
+    const empty = await page.evaluate(() => [...document.querySelectorAll('[data-testid="confirm-entity"], [data-testid="confirm-currency"]')].map((e) => e.value));
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-problems"]', { timeout: 10000 });
+    const t = await page.evaluate(() => document.querySelector('[data-testid="first-upload-problems"]').textContent);
+    const companies = ((await ownerBApi.from("companies").select("id")).data ?? []).length;
+    return empty.every((v) => v === "") && /entity's name/.test(t) && /Choose the period/.test(t) && /currency/.test(t) && companies === 0 ? true : { empty, t, companies };
+  });
+  await check("the card: entity, 'Year' ending 30 June 2026 shows 'Year ended 30 June 2026 · 1 Jul 2025 – 30 Jun 2026', currency TZS", async () => {
+    await setByLabel("Entity name", "Kilima Invented Traders Ltd");
+    await page.click('[data-testid="confirm-period-year"]');
+    await sleep(200);
+    await setByLabel("Ends on", "2026-06-30");
+    await setByLabel("Trial balance currency", "TZS");
+    await sleep(300);
+    const d = await page.evaluate(() => document.querySelector('[data-testid="confirm-period-derived"]')?.textContent ?? "");
+    await widths("18-first-upload-confirm");
+    return /Year ended 30 June 2026/.test(d) && /1 Jul 2025 – 30 Jun 2026/.test(d) ? true : d;
+  });
+  await check("'Start trial balance check' saves the entity, the dated period and the file, and the server's check runs on the same page", async () => {
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+    const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
+    if (failure) return { failure };
+    const stages = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="first-upload-stage-"]')].map((e) => e.textContent));
+    await widths("19-first-upload-checked");
+    const co = (await ownerBApi.from("companies").select("id, name")).data ?? [];
+    B = co[0]?.id ?? null;
+    const period = (await admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("company_id", B)).data ?? [];
+    const ups = (await admin.from("trial_balance_uploads").select("id, file_path, period_year, period_id, status").eq("company_id", B)).data ?? [];
+    const draft = (await admin.from("trial_balance_drafts").select("state, committed_upload_id").eq("owner_ref", U.ownerB.id)).data ?? [];
+    return co.length === 1 && co[0].name === "Kilima Invented Traders Ltd" && stages.length === 3 && /File read · Done/.test(stages[0])
+      && period.length === 1 && period[0].reporting_start === "2025-07-01" && period[0].reporting_end === "2026-06-30" && period[0].reporting_currency === "TZS"
+      && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
+      && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, stages, period, ups, draft };
+  });
+  await check("'See the result' opens the entity's trial balance page for FY2026", async () => {
+    await page.click('[data-testid="first-upload-open-result"]');
+    const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026\/prepare/, { timeout: 45000 });
+    return url.includes(B) ? true : url;
   });
 
   startGroup("Every request stayed on loopback");

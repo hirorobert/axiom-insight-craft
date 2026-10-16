@@ -223,6 +223,9 @@ async function journeys(browser) {
   let C = null
   let Y = null
   await check('1-2. owner signs in and creates a workspace through the first-run form', async () => {
+    // Phase 2 P2-3: a first visit offers the upload first; the company form is the secondary "Add a company".
+    await op.waitForSelector('[data-testid="add-company"], #fr-org')
+    if (await op.evaluate(() => !document.querySelector('#fr-org') && !!document.querySelector('[data-testid="add-company"]'))) await op.click('[data-testid="add-company"]')
     await op.waitForText('Add the entity you are reporting on')
     await op.fill('#fr-org', `Browser Acceptance ${TS}`)
     await op.click('#fr-currency')

@@ -40,8 +40,8 @@ entity list. The two removed screens never appear while only one service exists.
 | Batch | Content | Status |
 |---|---|---|
 | P2-1 | One way in while one service exists (entry card); header status; entity wording | VERIFIED IN ISOLATION (PR #136 at `578ac97`: every job green except the payment proofs #133 fixes) |
-| **P2-2 (current)** | Draft upload authority: owner-scoped drafts, commit to an entity, recovery protocol, 7-day retention | VERIFIED IN ISOLATION; end-to-end journey written and running in CI — see evidence |
-| P2-3 (next) | First-visit drop zone; stages File read → Columns confirmed → Checks completed; confirmation card (entity, period, currency); draft message | NOT STARTED |
+| P2-2 | Draft upload authority: owner-scoped drafts, commit to an entity, recovery protocol, 7-day retention | VERIFIED END TO END on the local stack (`d2e2bad`, run 38856014011); not integrated, not deployed |
+| **P2-3 (current)** | First-visit drop zone; confirmation card (new entity, period presets with derived start or custom dates, currency from the registry); one primary "Start trial balance check" through create_entity → open_engagement_with_period → draft commit → process-trial-balance (resumable, no duplicates); stages File read → Columns confirmed → Checks completed from the server's milestones; draft message | IMPLEMENTED — awaiting exact-head CI; real-app journey extended with the first upload (second account) |
 | P2-4 | Returning Home list; Orders → Settings › Billing with redirects; payment notice; Reconcile locked with reason | NOT STARTED |
 | P2-5 | Integrity across entity creation → commit → job → usage; acceptance journeys 1–14; desktop/mobile screenshots | NOT STARTED |
 

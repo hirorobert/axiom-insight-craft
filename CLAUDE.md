@@ -384,6 +384,8 @@ src/
       resultVersion.ts                ← Which check set a stored result came from: no processing milestones = "Checked by an earlier version" on every surface (history unchanged)
       resultStatus.ts                 ← The one trial-balance status vocabulary and finding order (blocking → needs confirmation → review) for sidebar, Overview and page
       trialBalanceDraft.ts            ← ONLY browser path for a trial balance draft (reserve bound to file identity, signed upload, commit with a bound key; drafts_unavailable on an old backend)
+      reportingPeriod.ts              ← Confirmation-card period arithmetic: Year/Quarter/Month presets (derived start) and custom dates; no defaults
+      firstUpload.ts                  ← First-visit start: create_entity → open_engagement_with_period → draft commit → check, resumable; stages from server milestones
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
@@ -475,6 +477,7 @@ src/
       StageScopeGate.tsx      ← Stage URL cannot bypass scope
       ManageTrialBalance.tsx  ← "Manage Trial Balance" (Replace / Remove) directly under the Prepare Data file header
       FirstRunEngagement.tsx  ← Zero-company first-run form
+      FirstUpload.tsx         ← First visit: drop zone → private draft → confirmation card → "Start trial balance check" (Phase 2 P2-3)
     safisha/
       SafishaGate.tsx         ← Evidence-matching gate. NOT mounted in Trial balance review (scope correction); tax stays locked until a reconciliation is complete.
 
