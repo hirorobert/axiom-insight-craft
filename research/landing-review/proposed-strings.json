@@ -1,0 +1,26 @@
+{
+  "baseline": "origin/main 00a2653b5736e89447334e1147aa25f5308b0393",
+  "note": "Machine-readable copy of every NEW or CHANGED public string in PROPOSED_COPY.md. Checked by evidence/copy-rules-check.mjs against the repository's own copy rules, and (inMockup: true) for verbatim presence in mockup/sample-review-mockup.html.",
+  "strings": [
+    { "id": "hero.secondaryCta", "inMockup": true, "text": "Explore an illustrative review" },
+    { "id": "sample.eyebrow", "inMockup": true, "text": "Illustrative example" },
+    { "id": "sample.heading", "inMockup": true, "text": "Explore an illustrative trial balance review" },
+    { "id": "sample.intro", "inMockup": true, "text": "An invented company with invented figures, showing the three steps of a trial balance review. Nothing you choose here is saved, and you cannot upload a file." },
+    { "id": "sample.label", "inMockup": true, "text": "Illustrative example — invented data" },
+    { "id": "sample.outstanding", "inMockup": true, "text": "This example has two outstanding decisions. They are left open so you can see how accounts are held for review. In a real workspace, readiness depends on all applicable checks passing and the required decisions being recorded by authorised users." },
+    { "id": "sample.step1", "inMockup": true, "text": "Every import is checked: the file is read, amounts are valid numbers, debits equal credits, and the statement equation holds. Each check reports what it found." },
+    { "id": "sample.fingerprint", "inMockup": true, "allowNegated": ["signature", "certification"], "text": "It identifies the exact file that was imported. It is not a signature and not a security certification." },
+    { "id": "sample.step2", "inMockup": true, "text": "Each account is mapped to a statement category. Where the workspace cannot map an account on evidence it can defend, it holds the account for a decision." },
+    { "id": "sample.step3", "inMockup": true, "text": "When all applicable checks have passed and the required decisions are recorded, the trial balance is marked reviewed and ready for statement preparation. In this example that happens only after the two outstanding decisions." },
+    { "id": "sample.close", "inMockup": true, "text": "Checks, mapping and a recorded review are what the trial balance workspace provides today. Financial reporting is a pilot by invitation and is not shown here." },
+    { "id": "sample.limit", "inMockup": true, "text": "a reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved." },
+    { "id": "trust.source.plain", "inMockup": true, "allowNegated": ["signature", "certification"], "text": "It identifies the exact file you imported. It is not a signature and not a security certification." },
+    { "id": "trust.attribution.plain", "inMockup": true, "text": "You can see who decided each account. Your firm still sets its own approval policy." },
+    { "id": "trust.history.plain", "inMockup": true, "text": "Work you have prepared stays readable if a plan ends; preparing new work needs a current plan." },
+    { "id": "plans.addition", "inMockup": true, "text": "There is no free plan. You can explore an illustrative trial balance review above, using invented data." },
+    { "id": "finalCta.supporting", "inMockup": false, "text": "Choose the plan that fits your entities and users." },
+    { "id": "faq.preview.question", "inMockup": false, "text": "Can I see how CFOCLOSE works before choosing a plan?" },
+    { "id": "faq.preview.answer", "inMockup": false, "text": "There is no free plan. The illustrative trial balance review on this page shows each step on an invented company, without an account. Plans run for 12 months and do not renew automatically." },
+    { "id": "meta.description", "inMockup": false, "text": "Import a trial balance, run the checks and record a classification decision for every account. Financial reporting is a pilot by invitation." }
+  ]
+}

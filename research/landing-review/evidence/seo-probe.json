@@ -1,0 +1,121 @@
+{
+  "measuredAt": "2026-10-16T12:50:09.435Z",
+  "origin": "https://cfoclose.com",
+  "deployment": {
+    "commitShaMarker": "00a2653b5736e89447334e1147aa25f5308b0393",
+    "xDeploymentId": "psr2.e7b555d5-2e88-4d6e-bad9-71a685c42bd1.1792759809.6zQHhkW82xlXU-WiuFboAx4qzXYGOsQ6EnQEz_NGzOY"
+  },
+  "home": {
+    "status": 200,
+    "htmlBytes": 9468,
+    "xRobotsTag": null
+  },
+  "head": {
+    "lang": "en",
+    "title": "CFOClose — Trial balance review software",
+    "description": "Import a trial balance, run the checks and record a classification decision for every account. Subscriptions are activated by our team; financial reporting is a pilot by invitation.",
+    "canonical": null,
+    "robotsMeta": null,
+    "viewport": "width=device-width, initial-scale=1.0",
+    "ogTitle": "CFOClose — Trial balance review software",
+    "ogDescription": "Import a trial balance, run the checks and record a classification decision for every account. Subscriptions are activated by our team; financial reporting is a pilot by invitation.",
+    "ogUrl": "https://cfoclose.com/",
+    "ogImage": "https://cfoclose.com/og-image.png",
+    "twitterCard": "summary_large_image",
+    "jsonLd": [
+      {
+        "type": "Organization"
+      },
+      {
+        "type": "SoftwareApplication"
+      },
+      {
+        "type": "FAQPage",
+        "count": 9
+      }
+    ]
+  },
+  "initialHtml": {
+    "h1Count": 0,
+    "visibleTextChars": 0,
+    "visibleTextSample": "",
+    "hasNoscript": false,
+    "noscriptTextChars": 0
+  },
+  "robotsTxt": {
+    "status": 200,
+    "type": "text/plain; charset=utf-8",
+    "text": "# CFOClose — https://cfoclose.com is the one public origin; previews are noindex (src/lib/seo/publicMeta.ts).\n# These rules only ask crawlers to stay out of signed-in areas. They are NOT a security boundary: every such page\n# requires sign-in and is protected by the database (row-level security), and every non-public page is also noindex.\n\nUser-agent: Googlebot\nAllow: /\nDisallow: /dashboard\nDisallow: /workspace/\nDisallow: /settings\nDisallow: /uploads/status\nDisallow: /commercial/admin\nDisallow: /internal/\nDisallow: /admin/\n\nUser-agent: Bingbot\nAllow: /\nDisallow: /dashboard\nDisallow: /workspace"
+  },
+  "sitemap": {
+    "status": 200,
+    "type": "application/xml",
+    "urls": [
+      "https://cfoclose.com/",
+      "https://cfoclose.com/plans",
+      "https://cfoclose.com/contact",
+      "https://cfoclose.com/terms",
+      "https://cfoclose.com/privacy"
+    ]
+  },
+  "routes": {
+    "/plans": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    },
+    "/contact": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    },
+    "/privacy": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    },
+    "/terms": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    },
+    "/auth": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    },
+    "/this-path-does-not-exist-404-probe": {
+      "status": 200,
+      "sameShellAsHome": true,
+      "location": null
+    }
+  },
+  "hostVariants": {
+    "www": {
+      "status": 302,
+      "location": "https://cfoclose.com/"
+    },
+    "http": {
+      "status": 301,
+      "location": "https://cfoclose.com/"
+    }
+  },
+  "weight": {
+    "mainJs": {
+      "path": "/assets/index-1zBFVhf0.js",
+      "transferBytes": 369390,
+      "encoding": "gzip",
+      "uncompressedBytes": 1284896
+    },
+    "mainCss": {
+      "path": "/assets/index-C1P9uSgm.css",
+      "transferBytes": 20269,
+      "encoding": "gzip"
+    },
+    "heroImage": {
+      "status": 200,
+      "type": "image/png",
+      "bytes": 102596
+    }
+  }
+}

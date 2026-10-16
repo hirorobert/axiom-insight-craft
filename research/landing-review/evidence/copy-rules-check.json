@@ -1,0 +1,159 @@
+{
+  "baseline": "origin/main 00a2653b5736e89447334e1147aa25f5308b0393",
+  "prohibitedWordingCount": 56,
+  "results": [
+    {
+      "id": "hero.secondaryCta",
+      "words": 4,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.eyebrow",
+      "words": 2,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.heading",
+      "words": 6,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.intro",
+      "words": 27,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.label",
+      "words": 5,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.outstanding",
+      "words": 40,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.step1",
+      "words": 26,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.fingerprint",
+      "words": 18,
+      "inMockup": true,
+      "hits": [
+        {
+          "rule": "assurance-vocabulary",
+          "match": "certification",
+          "status": "allowed-negation"
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.step2",
+      "words": 27,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.step3",
+      "words": 34,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.close",
+      "words": 26,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "sample.limit",
+      "words": 17,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "trust.source.plain",
+      "words": 17,
+      "inMockup": true,
+      "hits": [
+        {
+          "rule": "assurance-vocabulary",
+          "match": "certification",
+          "status": "allowed-negation"
+        }
+      ],
+      "status": "PASS"
+    },
+    {
+      "id": "trust.attribution.plain",
+      "words": 15,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "trust.history.plain",
+      "words": 17,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "plans.addition",
+      "words": 17,
+      "inMockup": true,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "finalCta.supporting",
+      "words": 9,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "faq.preview.question",
+      "words": 10,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "faq.preview.answer",
+      "words": 33,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    },
+    {
+      "id": "meta.description",
+      "words": 22,
+      "inMockup": null,
+      "hits": [],
+      "status": "PASS"
+    }
+  ],
+  "failures": 0
+}

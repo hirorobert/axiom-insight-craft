@@ -1,0 +1,514 @@
+{
+  "runAt": "2026-10-16T12:48:32.804Z",
+  "baseline": "origin/main 00a2653b5736e89447334e1147aa25f5308b0393",
+  "mockup": {
+    "reflow": {
+      "320": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 11,
+          "text": "NEW"
+        },
+        "cw": 320,
+        "sw": 320,
+        "consoleErrors": [],
+        "networkRequests": []
+      },
+      "390": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 11,
+          "text": "NEW"
+        },
+        "cw": 390,
+        "sw": 390,
+        "consoleErrors": [],
+        "networkRequests": []
+      },
+      "1280": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 11,
+          "text": "NEW"
+        },
+        "cw": 1280,
+        "sw": 1280,
+        "consoleErrors": [],
+        "networkRequests": []
+      }
+    },
+    "keyboard": {
+      "tabOrder": [
+        {
+          "el": "a",
+          "label": "Skip to the illustrative review",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 47
+        },
+        {
+          "el": "a",
+          "label": "Illustrative review",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 44
+        },
+        {
+          "el": "a",
+          "label": "Plans",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 44
+        },
+        {
+          "el": "a",
+          "label": "Explore plans ↓",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "a",
+          "label": "Explore an illustrative review →",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "button#tab-1[role=tab]",
+          "label": "STEP 1 Checks",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": "rgb(36, 125, 82) 0px -3px 0px 0px inset",
+          "inViewport": true,
+          "height": 61
+        },
+        {
+          "el": "div#panel-1[role=tabpanel]",
+          "label": "Every import is checked: the file is read, amoun",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 630
+        },
+        {
+          "el": "button",
+          "label": "Continue to account mapping →",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "body",
+          "endOfDocument": true
+        },
+        {
+          "el": "a",
+          "label": "Skip to the illustrative review",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 47
+        },
+        {
+          "el": "a",
+          "label": "Illustrative review",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 44
+        },
+        {
+          "el": "a",
+          "label": "Plans",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 3px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 44
+        }
+      ],
+      "everyFocusVisible": true,
+      "arrowRight": {
+        "focus": "tab-2",
+        "selected": "tab-2",
+        "panel2": true
+      },
+      "arrowToLocked": {
+        "focus": "tab-3",
+        "ariaDisabled": "true",
+        "describedBy": "Step 3 opens once both outstanding decisions are made.",
+        "panel3Hidden": true,
+        "panel2Visible": true
+      },
+      "enterOnLocked": {
+        "panel3Hidden": true
+      },
+      "status": {
+        "role": "status",
+        "live": "polite",
+        "text": "2 accounts need a decision"
+      },
+      "decisions": [
+        {
+          "id": "sel-2100",
+          "focusVisible": true,
+          "value": "Current Liabilities",
+          "status": "1 account needs a decision"
+        },
+        {
+          "id": "sel-4900",
+          "focusVisible": true,
+          "value": "Current Liabilities",
+          "status": "Both decisions made. Step 3 is now available."
+        }
+      ],
+      "afterDecisions": {
+        "tab3Disabled": "false"
+      },
+      "endOpensReviewed": {
+        "focus": "tab-3",
+        "selected": "tab-3",
+        "panel3": true,
+        "log": [
+          "Director current account → Current Liabilities Illustrative reviewer · 15:48",
+          "Sundry balances → Current Liabilities Illustrative reviewer · 15:48",
+          "14 suggested categories confirmed Illustrative reviewer"
+        ]
+      },
+      "home": "tab-1",
+      "resetFocus": {
+        "el": "button#reset",
+        "label": "Reset example",
+        "visible": true,
+        "browserDefaultRing": false,
+        "outline": "solid 3px",
+        "boxShadow": null,
+        "inViewport": true,
+        "height": 44
+      },
+      "afterReset": {
+        "status": "2 accounts need a decision",
+        "tab3Disabled": "true",
+        "focus": "sel-2100"
+      }
+    },
+    "noJs320": {
+      "jsClass": false,
+      "panelsVisible": [
+        true,
+        true,
+        true
+      ],
+      "tablistHidden": true,
+      "rows": 16,
+      "label": "Illustrative example — invented data",
+      "outstanding": "This example has two outstanding decisions. They are left op",
+      "selectsDisabled": true,
+      "totals": [
+        "127,150.00",
+        "127,150.00",
+        "0.00"
+      ],
+      "layoutProblems": []
+    },
+    "noJs1280": {
+      "jsClass": false,
+      "panelsVisible": [
+        true,
+        true,
+        true
+      ],
+      "tablistHidden": true,
+      "rows": 16,
+      "label": "Illustrative example — invented data",
+      "outstanding": "This example has two outstanding decisions. They are left op",
+      "selectsDisabled": true,
+      "totals": [
+        "127,150.00",
+        "127,150.00",
+        "0.00"
+      ],
+      "layoutProblems": []
+    }
+  },
+  "live": {
+    "origin": "https://cfoclose.com",
+    "reflow": {
+      "320": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 10,
+          "text": "Product"
+        },
+        "commitShaMarker": "00a2653b5736e89447334e1147aa25f5308b0393",
+        "heroPrimary": {
+          "top": 457,
+          "height": 48,
+          "text": "Explore plans",
+          "href": "#plans"
+        },
+        "heroSecondary": {
+          "top": 517,
+          "height": 48,
+          "text": "View plans",
+          "href": "/plans"
+        },
+        "heroImage": {
+          "renderedWidth": 288,
+          "naturalWidth": 1280,
+          "scale": 0.225
+        },
+        "planRows": [
+          "online | PRICE PER YEAR USD 490 per year by card",
+          "online | PRICE PER YEAR USD 990 per year by card",
+          "online | PRICE PER YEAR USD 2,990 per year by card",
+          "enterprise | PRICE PER YEAR Terms agreed with our team"
+        ]
+      },
+      "390": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 10,
+          "text": "Product"
+        },
+        "commitShaMarker": "00a2653b5736e89447334e1147aa25f5308b0393",
+        "heroPrimary": {
+          "top": 393,
+          "height": 48,
+          "text": "Explore plans",
+          "href": "#plans"
+        },
+        "heroSecondary": {
+          "top": 453,
+          "height": 48,
+          "text": "View plans",
+          "href": "/plans"
+        },
+        "heroImage": {
+          "renderedWidth": 358,
+          "naturalWidth": 1280,
+          "scale": 0.28
+        },
+        "planRows": [
+          "online | PRICE PER YEAR USD 490 per year by card",
+          "online | PRICE PER YEAR USD 990 per year by card",
+          "online | PRICE PER YEAR USD 2,990 per year by card",
+          "enterprise | PRICE PER YEAR Terms agreed with our team"
+        ]
+      },
+      "1280": {
+        "layoutProblems": [],
+        "smallestText": {
+          "px": 10,
+          "text": "Product"
+        },
+        "commitShaMarker": "00a2653b5736e89447334e1147aa25f5308b0393",
+        "heroPrimary": {
+          "top": 482,
+          "height": 48,
+          "text": "Explore plans",
+          "href": "#plans"
+        },
+        "heroSecondary": {
+          "top": 482,
+          "height": 48,
+          "text": "View plans",
+          "href": "/plans"
+        },
+        "heroImage": {
+          "renderedWidth": 683,
+          "naturalWidth": 1280,
+          "scale": 0.534
+        },
+        "planRows": [
+          "online | USD 490 per year by card",
+          "online | USD 990 per year by card",
+          "online | USD 2,990 per year by card",
+          "enterprise | Terms agreed with our team"
+        ]
+      }
+    },
+    "head": {
+      "/": {
+        "title": "CFOClose — Trial balance review software",
+        "canonical": "https://cfoclose.com/",
+        "robots": "index,follow",
+        "description": "Import a trial balance, run the checks and record a classification decision for every account. Subscriptions are activated by our team; financial reporting is a pilot by invitation.",
+        "h1": [
+          "From trial balance to review-ready accounts."
+        ]
+      },
+      "/plans": {
+        "title": "Plans — CFOClose",
+        "canonical": "https://cfoclose.com/plans",
+        "robots": "index,follow",
+        "description": "Compare CFOClose plans by entities and named users. Every plan is a 12-month term with no automatic renewal; a price marked proposed is confirmed before activation.",
+        "h1": [
+          "Choose your plan"
+        ]
+      },
+      "/this-path-does-not-exist-404-probe": {
+        "title": "CFOClose",
+        "canonical": null,
+        "robots": "noindex,nofollow",
+        "description": "Import a trial balance, run the checks and record a classification decision for every account. Subscriptions are activated by our team; financial reporting is a pilot by invitation.",
+        "h1": [
+          "404"
+        ]
+      }
+    },
+    "keyboard": {
+      "tabOrder": [
+        {
+          "el": "a",
+          "label": "Skip to main content",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 2px",
+          "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 126, 83) 0px 0px",
+          "inViewport": true,
+          "height": 38
+        },
+        {
+          "el": "a",
+          "label": "CFOClose home",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 34
+        },
+        {
+          "el": "a",
+          "label": "Product",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 20
+        },
+        {
+          "el": "a",
+          "label": "Plans",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 20
+        },
+        {
+          "el": "a",
+          "label": "Questions",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 20
+        },
+        {
+          "el": "a",
+          "label": "Expert help",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 20
+        },
+        {
+          "el": "a",
+          "label": "Contact",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": true,
+          "height": 20
+        },
+        {
+          "el": "a",
+          "label": "Sign in",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 2px",
+          "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 126, 83) 0px 0px",
+          "inViewport": true,
+          "height": 36
+        },
+        {
+          "el": "a",
+          "label": "View plans",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 2px",
+          "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 126, 83) 0px 0px",
+          "inViewport": true,
+          "height": 36
+        },
+        {
+          "el": "a",
+          "label": "Explore plans",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 2px",
+          "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 126, 83) 0px 0px",
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "a",
+          "label": "View plans",
+          "visible": true,
+          "browserDefaultRing": false,
+          "outline": "solid 2px",
+          "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 2px, rgb(37, 126, 83) 0px 0px",
+          "inViewport": true,
+          "height": 48
+        },
+        {
+          "el": "a",
+          "label": "Choose Solo",
+          "visible": true,
+          "browserDefaultRing": true,
+          "outline": "auto 1px",
+          "boxShadow": null,
+          "inViewport": false,
+          "height": 20
+        }
+      ],
+      "everyFocusVisible": true,
+      "browserDefaultRingCount": 7
+    }
+  }
+}
