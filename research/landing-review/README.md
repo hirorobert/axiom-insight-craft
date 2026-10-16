@@ -34,4 +34,4 @@ node research/landing-review/evidence/run-checks.mjs
 - `evidence/seo-probe.json`: status codes, head metadata, JSON-LD, robots.txt, sitemap, host redirects, transfer sizes and the deployment marker.
 - `evidence/copy-rules-check.json`: 20/20 proposed strings pass (two expected negations, "not a … certification", are allowed explicitly).
 - `evidence/screenshots/`: mockup at 320, 390 and 1280 px (top, section, mapping), the reviewed state, the no-JavaScript fallback at 320 and 1280 px, and the live hero at all three widths.
-- `evidence/authenticated/`: three screenshots referenced by `HANDOFF_NORMAL.md` (demonstration company; captured from a build newer than the baseline).
+- `evidence/authenticated/`: three screenshots referenced by `HANDOFF_NORMAL.md` (demonstration company; their build differs from the reviewed baseline; exact identity unverified).

@@ -55,7 +55,7 @@ We did **not** do a byte-identical rebuild. This review says "served" or "deploy
 |---|---|---|---|
 | Horizontal overflow, clipped actions, unlabelled fields (`layoutProblems`) | none | none | none |
 | Smallest visible text | 10 px (section eyebrows, e.g. "Product") | 10 px | 10 px |
-- **L-5 Keyboard.** All of the first 12 Tab stops show a focus indicator. **5** of them (skip link, Sign in, header "View plans", both hero actions) use the site's designed 2 px ring. **7** use the browser's default ring (the header logo and four section links, Contact, and "Choose Solo"). Both are visible; they are inconsistent, not missing.
+- **L-5 Keyboard.** All of the first 12 Tab stops show a focus indicator. **5** of them (skip link, Sign in, header "View plans", both hero actions) use the site's designed 2 px ring. **7** use the browser's default ring (the header logo and four section links, Contact, and "Choose Solo"). Classified by actual visibility: every one of the 12 stops shows a visible focus indicator. The browser-default rings are visible and usable, so they are **not defects**, only stylistically different from the site's ring. Contrast of the default ring against each background was not measured.
 - **L-6** The skip link ("Skip to main content") is the first Tab stop and becomes visible on focus.
 
 ### 3.4 Technical SEO: measured facts (`evidence/seo-probe.json`; rendered values from `evidence/results.json`)
@@ -105,7 +105,7 @@ The following were **not** treated as defects: the page being a React single-pag
 | D-3 | A real-file free preview | Not now. See `OWNER_DECISION_real_file_preview.md`. |
 | D-4 | Keep the screenshot at ≥1024 px only, or drop it | Keep on desktop as evidence it is the real product; the HTML example becomes the readable product example. |
 | D-5 | Correct the metadata (S-1) | Yes. It is a correctness fix, independent of D-1. |
-| D-6 | Unify focus rings (L-5) | Optional polish. |
+| D-6 | Restyle the browser-default focus rings to match the site (L-5) | Optional and stylistic only; no accessibility defect was found. |
 
 **Unchanged:** entitlements, prices, terms, checkout, the claim registry's approved wordings, and the pilot status.
 
@@ -133,6 +133,6 @@ Test results (`evidence/results.json`, `evidence/screenshots/`):
 
 ## 7. Authenticated screenshots: handoff inconsistencies (for NORMAL; not repaired here)
 
-See `HANDOFF_NORMAL.md`. In short: an account-level suggestion appears in the trial-balance status line; the noun used for the thing being reported on differs between pages; `.xls` is accepted but publicly unmentioned; and the seat wording differs. **The screenshots were captured from a build newer than the baseline**: two of their strings do not exist at `00a2653`.
+See `HANDOFF_NORMAL.md`. In short: an account-level suggestion appears in the trial-balance status line; the noun used for the thing being reported on differs between pages; `.xls` is accepted but publicly unmentioned; and the seat wording differs. **The screenshots' build differs from the reviewed baseline, and its exact identity is unverified**: two of their strings do not exist at `00a2653`.
 
 Brand casing ("CFOCLOSE" against "CFOClose") varies. It is recorded only; no brand change is authorised.

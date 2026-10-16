@@ -5,7 +5,7 @@ Please check each one against your current candidate and close any that are alre
 implementation, and I will not repair any of them.
 
 - **Reviewed baseline (code references):** `origin/main` `00a2653b5736e89447334e1147aa25f5308b0393`.
-- **Screenshots:** a local real-application run at 2026-10-16 12:14 +03:00, with demonstration company "Mto Holdings Limited". **They come from a build newer than the baseline**: "Upload your trial balance to start" and "Add the entity you are reporting on" do not exist at `00a2653`. So the line numbers below may have moved in your candidate.
+- **Screenshots:** a local real-application run at 2026-10-16 12:14 +03:00, with demonstration company "Mto Holdings Limited". **Their build differs from the reviewed baseline; its exact identity is unverified.** "Upload your trial balance to start" and "Add the entity you are reporting on" do not exist at `00a2653`, so the line numbers below may not match the build in the screenshots or your candidate.
 - **Files:** `evidence/authenticated/` (SHA-256 below).
 
 | # | Observation | Screenshot | Code at baseline |
