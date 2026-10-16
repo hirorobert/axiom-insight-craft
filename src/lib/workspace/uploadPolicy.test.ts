@@ -57,9 +57,9 @@ describe("one policy, one set of numbers", () => {
     expect(new Set(limits)).toEqual(new Set([SERVER.maxFileBytes]));
   });
   it("the visible limits text is derived from the policy", () => {
-    expect(UPLOAD_LIMITS_TEXT).toBe("CSV or Excel (.csv, .xlsx, .xls), up to 50 MB.");
+    expect(UPLOAD_LIMITS_TEXT).toBe("CSV or Excel (.csv, .xlsx, .xls), up to 10 MB.");
     expect(fileTooLarge({ name: "a.xlsx", size: SERVER.maxFileBytes })).toBeNull();
-    expect(fileTooLarge({ name: "a.xlsx", size: SERVER.maxFileBytes + 1 })).toMatch(/larger than 50 MB/);
+    expect(fileTooLarge({ name: "a.xlsx", size: SERVER.maxFileBytes + 1 })).toMatch(/larger than 10 MB/);
   });
 });
 
@@ -161,5 +161,15 @@ describe("rows are bounded DURING the parse (sheetRows), not only after it", () 
     readTrialBalanceSource(workbook([["Account", "Debit", "Credit"], ["Cash", 1, 0]]), ctx, spy);
     expect(SHEET_ROWS).toBe(SERVER.maxRows + 1);
     expect(seen).toEqual([{ type: "array", cellDates: false, sheetRows: SHEET_ROWS }, { type: "array", cellDates: false, sheetRows: SHEET_ROWS }]);
+  });
+});
+
+describe("CSV rows are bounded DURING the parse too", () => {
+  it("parseCsvText stops after the given number of records (the caller's table check then refuses)", async () => {
+    const { parseCsvText } = await import("../../../supabase/functions/_shared/tbIngestion");
+    const text = Array.from({ length: 10 }, (_, i) => `a${i},1,0`).join("\n") + "\n";
+    const all = parseCsvText(text), bounded = parseCsvText(text, 3);
+    expect(all.ok && all.rows.length).toBe(10);
+    expect(bounded.ok && bounded.rows.length).toBe(3);
   });
 });

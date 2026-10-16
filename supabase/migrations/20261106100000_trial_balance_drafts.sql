@@ -53,7 +53,7 @@ CREATE TABLE public.trial_balance_drafts (
   owner_user_id uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL,
   object_path text NOT NULL UNIQUE,
   file_name text NOT NULL CHECK (length(file_name) BETWEEN 1 AND 255),
-  file_size bigint NOT NULL CHECK (file_size > 0 AND file_size <= 52428800),
+  file_size bigint NOT NULL CHECK (file_size > 0 AND file_size <= 10485760),
   content_sha256 text NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
   idempotency_key text NOT NULL CHECK (idempotency_key ~ '^[A-Za-z0-9_-]{16,64}$'),
   request_hash text NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
@@ -177,7 +177,7 @@ BEGIN
   IF v_uid IS NULL OR NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_uid) THEN
     RETURN QUERY SELECT 'forbidden'::text, NULL::uuid, NULL::text, NULL::timestamptz; RETURN;
   END IF;
-  IF p_file_name IS NULL OR length(p_file_name) NOT BETWEEN 1 AND 255 OR p_file_size IS NULL OR p_file_size <= 0 OR p_file_size > 52428800
+  IF p_file_name IS NULL OR length(p_file_name) NOT BETWEEN 1 AND 255 OR p_file_size IS NULL OR p_file_size <= 0 OR p_file_size > 10485760
      OR p_content_sha256 IS NULL OR p_content_sha256 !~ '^[0-9a-f]{64}$'
      OR p_idempotency_key IS NULL OR p_idempotency_key !~ '^[A-Za-z0-9_-]{16,64}$' THEN
     RETURN QUERY SELECT 'invalid_request'::text, NULL::uuid, NULL::text, NULL::timestamptz; RETURN;

@@ -20,6 +20,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { assertLocalStack } from "./localStackFixtures.mjs";
@@ -310,6 +311,53 @@ await check("a stored draft whose bytes are not the declared file: 422 content_m
   const r = await fn(owner, commitBody(d));
   const row = await draftRow(d.draft_id);
   return r.status === 422 && r.body.outcome === "content_mismatch" && row.state === "rejected" && (await uploadsOf(A)).length === n ? true : { r, row };
+});
+
+startGroup("Upload policy on the REAL processing function: hostile files fail explicitly, nothing partial, the worker stays healthy");
+// Invented hostile inputs. Each is stored as a draft, committed to its own period, then checked by process-trial-balance.
+const lyingZip = (actual, declared) => {
+  const data = zlib.deflateRawSync(actual, { level: 9 });
+  const name = Buffer.from("xl/worksheets/sheet1.xml");
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+  const local = Buffer.concat([u32(0x04034b50), u16(20), u16(0), u16(8), u16(0), u16(0), u32(0), u32(data.length), u32(declared), u16(name.length), u16(0), name, data]);
+  const central = Buffer.concat([u32(0x02014b50), u16(20), u16(20), u16(0), u16(8), u16(0), u16(0), u32(0), u32(data.length), u32(declared), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(0), name]);
+  return Buffer.concat([local, central, u32(0x06054b50), u16(0), u16(0), u16(1), u16(1), u32(central.length), u32(local.length), u16(0)]);
+};
+const policy = await import("../../supabase/functions/_shared/uploadPolicy.ts");
+const commitAndProcess = async (bytes, name) => {
+  const d = await reserve(owner, bytes, key(), name);
+  await upload(owner, d, bytes);
+  const c = await fn(owner, commitBody({ ...d, bytes }));
+  if (c.body?.outcome !== "committed") return { commit: c };
+  const t0 = Date.now();
+  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: c.body.upload_id, clientRequestId: crypto.randomUUID() }) });
+  const ms = Date.now() - t0;
+  const row = (await admin.from("trial_balance_uploads").select("status, processing_result").eq("id", c.body.upload_id).single()).data;
+  const ing = row?.processing_result?.ingestion ?? null;
+  return { httpStatus: res.status, ms, status: row?.status, codes: (ing?.issues ?? []).map((i) => i.code), accounts: ing?.lineage_summary?.account ?? null, totals: ing?.totals ?? null };
+};
+const refusedCleanly = (r, code) => r.httpStatus && r.httpStatus < 500 && r.codes?.includes(code) && (r.accounts === 0 || r.accounts === null) && !r.totals && !["complete", "valid"].includes(r.status);
+await check("a workbook whose directory claims 10 bytes but really inflates past the limit: refused (WORKBOOK_TOO_LARGE_EXPANDED) before any parse; no row accepted", async () => {
+  const r = await commitAndProcess(lyingZip(Buffer.alloc(policy.TB_UPLOAD_POLICY.maxExpandedBytes + 1_048_576), 10), "lying.xlsx");
+  return refusedCleanly(r, "WORKBOOK_TOO_LARGE_EXPANDED") ? true : r;
+});
+await check("a CSV one row over the row limit: refused (TOO_MANY_ROWS); nothing truncated or partially accepted", async () => {
+  const rows = policy.TB_UPLOAD_POLICY.maxRows; // + the header row = one over
+  const body = "Account code,Account name,Debit,Credit\n" + Array.from({ length: rows }, (_, i) => `${100000 + i},Invented ${i},1.00,0.00`).join("\n") + "\n";
+  const r = await commitAndProcess(Buffer.from(body), "over-rows.csv");
+  return refusedCleanly(r, "TOO_MANY_ROWS") ? true : r;
+});
+await check("a workbook one row over the row limit: the parse stops at limit + 1 rows and it is refused (TOO_MANY_ROWS)", async () => {
+  const XLSX = await import("xlsx");
+  const aoa = [["Account code", "Account name", "Debit", "Credit"], ...Array.from({ length: policy.TB_UPLOAD_POLICY.maxRows }, (_, i) => [String(100000 + i), `Invented ${i}`, 1, 0])];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "TB");
+  const r = await commitAndProcess(Buffer.from(XLSX.write(wb, { type: "array", bookType: "xlsx", compression: true })), "over-rows.xlsx");
+  return refusedCleanly(r, "TOO_MANY_ROWS") ? true : r;
+});
+await check("after the hostile files, an ordinary trial balance is still processed normally (the worker was not exhausted)", async () => {
+  const r = await commitAndProcess(csv("after-hostile"), "after.csv");
+  return r.httpStatus === 200 && r.accounts === 2 && r.codes.every((c) => !/TOO_|LARGE/.test(c)) ? true : r;
 });
 
 startGroup("Retention — the real sweeper orchestration against real Storage");

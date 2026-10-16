@@ -4,15 +4,15 @@
  * drafts migration's size CHECK — by uploadPolicy.test.ts. The server remains the authority; the browser only refuses
  * early what the server would refuse anyway, with the same words.
  *
- * PROVISIONAL limits (owner decision pending; measured in scripts/bench/tbUploadPolicyBench.mjs).
+ * PROVISIONAL limits (owner decision pending; set from the Deno/V8 heap-capped probe, see uploadPolicy.ts and roadmap.md).
  */
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-1",
+  version: "tb-upload-policy-2",
   extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
-  maxFileBytes: 52_428_800,
+  maxFileBytes: 10_485_760,
 });
 
-/** "CSV or Excel (.csv, .xlsx, .xls), up to 50 MB." */
+/** "CSV or Excel (.csv, .xlsx, .xls), up to 10 MB." */
 export const UPLOAD_LIMITS_TEXT = `CSV or Excel (${TB_UPLOAD_POLICY.extensions.join(", ")}), up to ${Math.round(TB_UPLOAD_POLICY.maxFileBytes / 1_048_576)} MB.`;
 
 /** The same refusal the server gives for an over-size file (uploadPolicy.checkSourceBytes), or null. */

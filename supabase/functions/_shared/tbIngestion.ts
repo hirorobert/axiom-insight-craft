@@ -232,7 +232,7 @@ function detectDelimiter(text: string): string {
  * RFC 4180 parser: quoted fields, doubled quotes, delimiters and line breaks inside quotes, CRLF/LF/CR. Every record
  * keeps the 1-based line on which it starts; blank lines are kept as empty rows so lineage counts every line.
  */
-export function parseCsvText(text: string): CsvResult {
+export function parseCsvText(text: string, maxRows?: number): CsvResult {
   const delimiter = detectDelimiter(text);
   const rows: SourceRow[] = [];
   let cells: Cell[] = [];
@@ -254,8 +254,11 @@ export function parseCsvText(text: string): CsvResult {
     rows.push({ rowNumber: recordStart, cells: cells.every((c) => c === null) ? [] : cells });
     cells = [];
   };
+  // The upload policy's row bound DURING the parse (as sheetRows for workbooks): stop after maxRows records, so an
+  // over-limit file is refused by the caller's table check without the whole file ever being materialised.
+  const full = () => maxRows !== undefined && rows.length >= maxRows;
 
-  for (let i = 0; i < text.length; i++) {
+  for (let i = 0; i < text.length && !full(); i++) {
     const ch = text[i];
     if (quoted) {
       if (ch === '"') {
@@ -278,6 +281,7 @@ export function parseCsvText(text: string): CsvResult {
     }
     field += ch;
   }
+  if (full()) return { ok: true, rows, delimiter };
   if (quoted) {
     return { ok: false, issue: { code: "CSV_UNTERMINATED_QUOTE", severity: "blocking", rows: [quoteOpenedAt], message: `Row ${quoteOpenedAt} opens a quoted value that never closes. Check that row's quotation marks and upload the file again.` } };
   }

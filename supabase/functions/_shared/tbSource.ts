@@ -109,7 +109,7 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   if (format === "csv") {
     const decoded = decodeCsvBytes(bytes);
     if (!decoded.ok) return unreadable(ctx, null, decoded.issue);
-    const parsed = parseCsvText(decoded.text);
+    const parsed = parseCsvText(decoded.text, SHEET_ROWS);
     if (!parsed.ok) return unreadable(ctx, null, parsed.issue);
     const tooMany = checkSourceTables([{ rows: parsed.rows.map((r) => r.cells) }]);
     if (tooMany) return unreadable(ctx, null, tooMany);
@@ -145,7 +145,7 @@ export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: Xlsx
   if (format === "csv") {
     const decoded = decodeCsvBytes(bytes);
     if (!decoded.ok) return { ok: false, issue: decoded.issue };
-    const parsed = parseCsvText(decoded.text);
+    const parsed = parseCsvText(decoded.text, SHEET_ROWS);
     if (!parsed.ok) return { ok: false, issue: parsed.issue };
     const tooMany = checkSourceTables([{ rows: parsed.rows.map((r) => r.cells) }]);
     if (tooMany) return { ok: false, issue: tooMany };

@@ -4,25 +4,27 @@
 //   * the drafts migration's CHECK and reserve RPC (20261106100000; kept equal by src/lib/workspace/uploadPolicy.test.ts);
 //   * the browser (src/lib/workspace/trialBalanceDraft.ts and the first-visit copy).
 //
-// PROVISIONAL limits (owner decision pending; measured by scripts/bench/tbUploadPolicyBench.mjs, see roadmap.md). They
-// bound resource use; they are not accounting rules. A refusal names the limit and the next step; nothing is truncated.
+// PROVISIONAL limits (owner decision pending), set from MEASUREMENT: the Deno/V8 probe under a hard 150 MB heap cap
+// (scripts/bench/tbUploadPolicyDenoProbe.ts, CI) terminated a 100,000-row workbook (16.3 MB expanded) and fitted 25,000
+// rows in a 54 MB heap. Raw upload/storage size is a separate, larger number than the safe-parse limits. They bound
+// resource use; they are not accounting rules. A refusal names the limit and the next step; nothing is truncated.
 //
 // Workbook expansion is checked from the ZIP central directory alone (declared uncompressed sizes; nothing is inflated),
 // so a highly compressed .xlsx is refused before the spreadsheet library ever sees it.
 
 export const TB_UPLOAD_POLICY = Object.freeze({
-  version: "tb-upload-policy-1",
+  version: "tb-upload-policy-2",
   extensions: Object.freeze([".csv", ".xlsx", ".xls"] as const),
-  /** Bytes of the file as uploaded. */
-  maxFileBytes: 52_428_800,
-  /** .xlsx: the sum of every entry's declared uncompressed size. */
-  maxExpandedBytes: 209_715_200,
+  /** Bytes of the file as uploaded and stored (raw upload/storage limit). */
+  maxFileBytes: 10_485_760,
+  /** .xlsx/.xlsm: the ACTUAL inflated size of every entry together (declared sizes are only a first filter). */
+  maxExpandedBytes: 6_291_456,
   /** .xlsx: entries in the package. */
   maxZipEntries: 2_000,
-  /** Rows across every sheet (or the CSV table) after reading. */
-  maxRows: 200_000,
+  /** Rows across every sheet (or the CSV table); also the bound DURING the parse (limit + 1 rows are read at most). */
+  maxRows: 25_000,
   /** Cells across every sheet after reading. */
-  maxCells: 4_000_000,
+  maxCells: 300_000,
 });
 
 export type PolicyIssueCode = "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "UNSUPPORTED_FORMAT";

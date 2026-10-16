@@ -35,18 +35,36 @@ if (Deno.args[0] === "--child") { await child(Deno.args[1], Deno.args[2]); Deno.
 
 const heapMb = Number(Deno.args[0] ?? 150);
 const dir = await Deno.makeTempDir({ prefix: "tb-policy-probe-" });
-const cases: { kind: "csv" | "xlsx" | "xlsx-deflate"; rows: number }[] = [
-  ...[10_000, 25_000, 50_000, 100_000, 150_000].map((rows) => ({ kind: "csv" as const, rows })),
-  ...[5_000, 10_000, 25_000, 50_000, 75_000, 100_000].map((rows) => ({ kind: "xlsx" as const, rows })),
-  ...[10_000, 50_000, 100_000].map((rows) => ({ kind: "xlsx-deflate" as const, rows })),
+// Around the enforced limits (tb-upload-policy-2: 25,000 rows): within the limit, one step over it (refused explicitly by
+// the bounded parse), and far over it (still refused, never parsed in full — no termination).
+const cases: { kind: "csv" | "xlsx" | "xlsx-deflate" | "lying-zip"; rows: number }[] = [
+  ...[10_000, 25_000, 30_000, 150_000].map((rows) => ({ kind: "csv" as const, rows })),
+  ...[5_000, 10_000, 25_000, 30_000, 100_000].map((rows) => ({ kind: "xlsx" as const, rows })),
+  ...[10_000, 25_000, 100_000].map((rows) => ({ kind: "xlsx-deflate" as const, rows })),
+  { kind: "lying-zip", rows: 0 },
 ];
+/** A package whose directory DECLARES 10 bytes while its one entry really inflates to 512 MB of zeros. */
+async function lyingZip(): Promise<Uint8Array> {
+  const raw = new Blob([new Uint8Array(512 * 1048576)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+  const data = new Uint8Array(await new Response(raw).arrayBuffer());
+  const name = new TextEncoder().encode("xl/worksheets/sheet1.xml");
+  const u16 = (n: number) => [n & 0xff, (n >>> 8) & 0xff];
+  const u32 = (n: number) => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+  const local = [...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(8), ...u16(0), ...u16(0), ...u32(0), ...u32(data.length), ...u32(10), ...u16(name.length), ...u16(0), ...name];
+  const central = [...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(8), ...u16(0), ...u16(0), ...u32(0), ...u32(data.length), ...u32(10), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(0), ...name];
+  const end = [...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(1), ...u16(1), ...u32(central.length), ...u32(local.length + data.length), ...u16(0)];
+  const out = new Uint8Array(local.length + data.length + central.length + end.length);
+  out.set(local, 0); out.set(data, local.length); out.set(central, local.length + data.length); out.set(end, local.length + data.length + central.length);
+  return out;
+}
 const rows: Record<string, unknown>[] = [];
 for (const c of cases) {
-  const data = invented(c.rows);
   const fileName = c.kind === "csv" ? "tb.csv" : "tb.xlsx";
   const file = `${dir}/${c.kind}-${c.rows}.${c.kind === "csv" ? "csv" : "xlsx"}`;
-  if (c.kind === "csv") await Deno.writeTextFile(file, data.map((r) => r.join(",")).join("\n") + "\n");
+  if (c.kind === "lying-zip") await Deno.writeFile(file, await lyingZip());
+  else if (c.kind === "csv") await Deno.writeTextFile(file, invented(c.rows).map((r) => r.join(",")).join("\n") + "\n");
   else {
+    const data = invented(c.rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), "TB");
     await Deno.writeFile(file, new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx", compression: c.kind === "xlsx-deflate" }) as ArrayBuffer));

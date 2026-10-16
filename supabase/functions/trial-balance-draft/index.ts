@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
       const { error } = await storage.remove([path]);
       return !error;
     },
-    // Every byte array here comes from Blob.arrayBuffer() (never a SharedArrayBuffer); narrowing avoids copying up to 50 MB.
+    // Every byte array here comes from Blob.arrayBuffer() (never a SharedArrayBuffer); narrowing avoids copying up to the upload limit.
     sha256: async (bytes) => hex(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)),
     recordCopyVerified: async (commitId, userId, sha, size) => {
       const { data, error } = await service.rpc("tbd_record_copy_verified", { p_commit_id: commitId, p_user_id: userId, p_copy_sha256: sha, p_copy_size: size });

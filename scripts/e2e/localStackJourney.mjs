@@ -219,7 +219,7 @@ async function main() {
     await widths("02-first-visit");
     const t = await page.bodyText();
     const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
-    return /CSV or Excel \(\.csv, \.xlsx, \.xls\), up to 50 MB/.test(t) && primaries === 0 ? true : { primaries, t: t.slice(0, 300) };
+    return /CSV or Excel \(\.csv, \.xlsx, \.xls\), up to 10 MB/.test(t) && primaries === 0 ? true : { primaries, t: t.slice(0, 300) };
   });
   await check("first run creates the company through the real form, reached by the secondary 'Add a company' (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
     await page.click('[data-testid="add-company"]');
