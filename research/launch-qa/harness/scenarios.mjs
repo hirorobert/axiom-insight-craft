@@ -221,7 +221,7 @@ async function scenarioF(env) {
   let resultText = "";
   // (firstUploadInto already follows "See the result" when the card offers it; read wherever the user now is.)
   if (await page.evaluate(() => /\/workspace\//.test(location.pathname)).catch(() => false)) {
-    await page.waitFor(() => /more than [d,]+ accounts|Trial balance checks/i.test(document.body.innerText), [], { label: "result content", timeout: 30000 }).catch(() => {});
+    await page.waitFor(() => /more than [\d,]+ accounts|Trial balance checks/i.test(document.body.innerText), [], { label: "result content", timeout: 30000 }).catch(() => {});
     await new Promise((r) => setTimeout(r, 1500));
     resultText = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
     await env.shot?.(page, "F-over-limit-result");
