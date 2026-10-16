@@ -9,6 +9,7 @@
 // MUSE reference cases are used as SCOPED, UNVERIFIED-UNTIL-RECONCILED knowledge, expressed as UNCERTAINTY, never as global
 // rules. No MUSE prefix is hard-coded. Nothing nets balances, invents a journal, or treats a net movement as cash flow.
 import { accountKey, normalizeAccountName } from "./layer2_identity.mjs";
+import { toMinorUnits } from "./layer1_structure.mjs";
 
 const KW = {
   revenue: ["sales", "revenue", "turnover", "fees earned", "grant income", "donation income", "interest income"],
@@ -61,9 +62,11 @@ export function interpretMeaning(accounts) {
   accounts.forEach((a) => { const k = normalizeAccountName(a.account_name); byName.set(k, (byName.get(k) || 0) + 1); });
 
   const meanings = accounts.map((a) => {
+    const n = normalizeAccountName(a.account_name);
     const nature = natureOf(a.account_name);
     const fam = familyOf(a.account_name);
     const reasons = [];
+    const signals = [];
     let level = "low";
     // Year-under-review vs carry-forward is SCOPED MUSE knowledge, surfaced as a proposal, not a verified fact.
     const temporal = nature === "revenue" || nature === "expense"
@@ -77,17 +80,30 @@ export function interpretMeaning(accounts) {
       level = level === "high" ? "high" : "medium";
       reasons.push("Supplier/payable: the statement debit/credit perspective can differ from the entity's — confirm the sign (scoped MUSE knowledge).");
     }
-    // Abnormal-sign check (mirrors the production A01 finding): a recognised account whose balance sits on the opposite
-    // side to its nature's normal side is consequential — surfaced for individual review, never silently grouped.
-    const expectedSide = { revenue: "credit", expense: "debit", asset: "debit", liability: "credit", equity: "credit" }[nature];
-    const d = Number(a.debitMinor || 0), c = Number(a.creditMinor || 0);
+    // Unexpected-balance SIGNAL (ROLE-AWARE; mirrors the production A01 finding). The expected side depends on the specific
+    // ROLE, not just the broad nature bucket: a contra-asset (accumulated depreciation / provision for …) is CREDIT-normal,
+    // and drawings (contra-equity) is DEBIT-normal. Comparing against the broad bucket alone would mis-flag both — this is
+    // the "role-aware" correction. Comparison is EXACT (BigInt minor units), never float.
+    //
+    // CRITICAL EPISTEMICS: this detects an UNEXPECTED BALANCE (a sign anomaly for the proposed role). It is a SIGNAL to
+    // review the account individually — it does NOT establish that the mapping is wrong. A correctly-identified account can
+    // legitimately carry an abnormal balance (e.g. an overdrawn bank/cash account shows a credit balance). The prototype
+    // therefore never emits a "wrong mapping" verdict; it raises uncertainty and defers to the reviewer.
+    const isContraAsset = CONTRA_ASSET.test(n);
+    const isDrawings = /\bdrawings?\b/.test(n);
+    const expectedSide = isContraAsset ? "credit"
+      : isDrawings ? "debit"
+        : { revenue: "credit", expense: "debit", asset: "debit", liability: "credit", equity: "credit" }[nature];
+    const roleLabel = isContraAsset ? "contra-asset" : isDrawings ? "contra-equity (drawings)" : nature;
+    const d = toMinorUnits(a.debitMinor), c = toMinorUnits(a.creditMinor);
     const actualSide = c > d ? "credit" : d > c ? "debit" : null;
     if (expectedSide && actualSide && expectedSide !== actualSide) {
       level = "high";
-      reasons.push(`Abnormal balance: a ${nature} account normally sits on the ${expectedSide} side, but this balance is on the ${actualSide} side — confirm the classification before accepting (mirrors the A01 abnormal-sign finding). Gross rows are preserved; nothing is netted.`);
+      signals.push("UNEXPECTED_BALANCE_FOR_PROPOSED_ROLE");
+      reasons.push(`UNEXPECTED_BALANCE: a ${roleLabel} account normally sits on the ${expectedSide} side, but this balance is on the ${actualSide} side. This is a SIGNAL to confirm the classification individually — it does NOT by itself prove the mapping is incorrect (a correctly-identified account can carry an abnormal balance, e.g. a bank overdraft). Gross rows are preserved; nothing is netted.`);
     }
     if (fam) reasons.push(`Part of a '${fam.stem}' lifecycle (${fam.role}); related to opening/addition/transfer/depreciation accounts — presented, never netted automatically.`);
-    return { account_key: accountKey(a), account_name: a.account_name, account_code: a.account_code, nature, temporal, family: fam, uncertainty: { level, reasons }, proposal_type: nature === "unknown" ? "NONE" : "MACHINE_SUGGESTION" };
+    return { account_key: accountKey(a), account_name: a.account_name, account_code: a.account_code, nature, temporal, family: fam, uncertainty: { level, reasons }, signals, proposal_type: nature === "unknown" ? "NONE" : "MACHINE_SUGGESTION" };
   });
 
   // Similar-description / distinct-code pairs: flagged as "confirm not a duplicate", NEVER merged (keys already differ).

@@ -52,6 +52,27 @@ export const WRONGLY_MAPPED = TB(["Account Code", "Account Name", "Debit", "Cred
   ["1000", "Cash at bank", 50000000, ""], ["2000", "Trade payables", "", 50000000],
 ]);
 
+// Unexpected balance on a CORRECTLY-IDENTIFIED account: an overdrawn bank/cash account legitimately shows a CREDIT balance.
+// The account IS the bank account (identity/mapping correct), yet the abnormal-sign check fires. Used to prove that
+// "unexpected balance detected" does NOT establish "incorrect mapping" — a true-positive signal on a correct mapping.
+// Balanced: debits 40,000,000 (COGS 20M + receivables 20M) vs credits 40,000,000 (sales 30M + overdraft 10M).
+export const OVERDRAFT = TB(["Account Code", "Account Name", "Debit", "Credit"], [
+  ["4000", "Sales", "", 30000000], ["5000", "Cost of goods sold", 20000000, ""],
+  ["1200", "Trade receivables", 20000000, ""], ["1000", "Bank overdraft", "", 10000000],
+]);
+
+// Balanced AND incorrectly mapped, but every sign looks NORMAL — the prototype CANNOT detect it.
+// "Prepaid rent" is TRULY a current asset (a prepayment, debit-normal), but the deterministic keyword rule recognises the
+// word "rent" as an EXPENSE (also debit-normal). Because both the proposed role (expense) and the true role (asset) are
+// debit-normal, the balance sits on the expected side, the abnormal-sign SIGNAL does NOT fire, and the account is grouped
+// as an operating expense with no uncertainty. Only a reviewer or corroborating evidence can catch this class of error.
+// Balanced: debits 50,000,000 (prepaid 20M + cash 30M) vs credits 50,000,000 (sales).
+export const WRONGLY_MAPPED_NORMAL_SIGN = TB(["Account Code", "Account Name", "Debit", "Credit"], [
+  ["4000", "Sales", "", 50000000],
+  ["1400", "Prepaid rent", 20000000, ""], // TRUE: current asset (prepayment). Prototype recognises -> operating expense. Both DEBIT-normal.
+  ["1000", "Cash at bank", 30000000, ""],
+]);
+
 // Genuinely IMBALANCED (debits != credits).
 export const IMBALANCED = TB(["Account Code", "Account Name", "Debit", "Credit"], [
   ["4000", "Sales", "", 100000000], ["5000", "Cost of goods sold", 40000000, ""], ["1000", "Cash at bank", 30000000, ""],

@@ -46,7 +46,28 @@ export function recogniseStructure(headers) {
   return { kind, columnMap: map, issues };
 }
 
-/** Read recognised rows into synthetic ingested accounts. Amounts are integer minor units (bigint in production). */
+/**
+ * Read recognised rows into synthetic ingested accounts.
+ *
+ * EXACT-MONEY: amounts are exact integer minor units carried as **BigInt** — never JS floats. Production stores
+ * `bigint`/exact decimal strings and no float ever reaches the DB; this prototype mirrors that so a sign/relationship
+ * comparison is exact at any magnitude (not merely correct below 2^53). `toMinorUnits` rejects a non-integer source value
+ * rather than silently rounding money — a fractional minor-unit cell is a data defect, not something to guess around.
+ */
+export function toMinorUnits(v) {
+  if (typeof v === "bigint") return v;
+  if (v == null || v === "") return 0n;
+  const s = String(v).trim();
+  if (s === "") return 0n;
+  if (!/^-?\d+$/.test(s)) {
+    // Fixtures are authored in whole minor units; a non-integer here is an authoring/ingestion defect, surfaced not hidden.
+    const num = Number(s);
+    if (!Number.isFinite(num) || !Number.isInteger(num)) throw new Error(`NON_INTEGER_MINOR_UNIT: ${JSON.stringify(v)}`);
+    return BigInt(num);
+  }
+  return BigInt(s);
+}
+
 export function readAccounts(headers, dataRows) {
   const { kind, columnMap, issues } = recogniseStructure(headers);
   if (kind !== "flat_tb") return { kind, columnMap, issues, accounts: [] };
@@ -54,9 +75,10 @@ export function readAccounts(headers, dataRows) {
   const accounts = dataRows.map((cells) => {
     const dims = {};
     columnMap.dimensions.forEach((ci, k) => { const v = cells[ci]; if (v != null && String(v).trim() !== "") dims[dimHeaders[k]] = String(v).trim(); });
-    const n = (i) => (i == null ? 0 : Math.round(Number(cells[i] || 0)));
-    const debitMinor = columnMap.debit != null ? n(columnMap.debit) : Math.max(0, n(columnMap.balance));
-    const creditMinor = columnMap.credit != null ? n(columnMap.credit) : Math.max(0, -n(columnMap.balance));
+    const n = (i) => (i == null ? 0n : toMinorUnits(cells[i]));
+    const bal = columnMap.balance != null ? n(columnMap.balance) : 0n;
+    const debitMinor = columnMap.debit != null ? n(columnMap.debit) : (bal > 0n ? bal : 0n);
+    const creditMinor = columnMap.credit != null ? n(columnMap.credit) : (bal < 0n ? -bal : 0n);
     return {
       account_code: columnMap.account_code != null ? (String(cells[columnMap.account_code] ?? "").trim() || null) : null,
       account_name: columnMap.account_name != null ? String(cells[columnMap.account_name] ?? "").trim() : "",

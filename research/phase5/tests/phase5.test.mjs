@@ -82,7 +82,7 @@ group("3 · Opening / addition / transfer / depreciation relationships (surfaced
   // No netting: each member's balance is preserved separately in the accounts read (nothing combined into one figure).
   const costOpen = s.accountsRead.find((a) => a.account_code === "1500");
   const accDep = s.accountsRead.find((a) => a.account_code === "1530");
-  check("balances are preserved separately — no automatic netting of cost against depreciation", costOpen.debitMinor === 36000000 && accDep.creditMinor === 14000000);
+  check("balances are preserved separately — no automatic netting of cost against depreciation (exact BigInt minor units)", costOpen.debitMinor === 36000000n && accDep.creditMinor === 14000000n);
   check("the relationship note states movements are never netted into one figure or a cash flow", /never netted/i.test(fam.note));
 }
 
