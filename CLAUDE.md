@@ -392,6 +392,7 @@ src/
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
+      reviewActionHierarchy.ts ← Pure: which ONE action leads the trial-balance page while account review is open (Resolve vs Save & reprocess)
       accountNextAction.ts    ← THE account home's one primary next action (plan → existing work → review → companies → shared → add company → capacity), pure; companyCreation() says whether creation is offered (create_entity stays the authority)
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.

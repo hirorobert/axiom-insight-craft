@@ -16,6 +16,7 @@ import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { buildBatchDecisions, isTreatmentReasonValid, KEEP_AS_MAPPED_CHOICE, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
 import { supabase } from "@/integrations/supabase/client";
 import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
+import { deriveReviewSubmission, type ActionEmphasis, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -136,6 +137,10 @@ interface AccountReviewPanelProps {
    * restoring trust in whatever the last read happened to return.
    */
   onReprocessed: (reason: "terminal" | "timeout" | "initiation_failed") => void;
+  /** The panel's own review state (reviewActionHierarchy), reported so the page can choose the one leading action. */
+  onSubmissionStateChange?: (state: ReviewSubmissionState) => void;
+  /** Whether "Save & reprocess" is the page's leading action (reviewActionHierarchy). Defaults to leading. */
+  saveEmphasis?: ActionEmphasis;
 }
 
 // ── Classification helpers ─────────────────────────────────────────────────
@@ -244,6 +249,8 @@ export function AccountReviewPanel({
   focusUnresolved = false,
   onReprocessingStarted,
   onReprocessed,
+  onSubmissionStateChange,
+  saveEmphasis = "primary",
 }: AccountReviewPanelProps) {
   // Pre-select suggestion where it exists; otherwise empty (Save stays disabled).
   const initialChoices: Record<string, string> = {};
@@ -271,6 +278,8 @@ export function AccountReviewPanel({
   const [keepDrafts,   setKeepDrafts]   = useState<Record<string, string>>({});
   const [saving,       setSaving]       = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  /** The last save was refused: nothing was saved, the decisions on screen are kept, and the reason is shown inline. */
+  const [saveFailed,   setSaveFailed]   = useState(false);
   const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
   /** Focus mode: one undecided account on screen at a time. Presentation only. */
   const [focusMode, setFocusMode] = useState(true);
@@ -332,6 +341,11 @@ export function AccountReviewPanel({
     : excluded.size > 0; // all rows excluded is also valid
   const isWorking = saving || reprocessing;
   const remaining = pendingRows.length - resolvedCount;
+  const submission = deriveReviewSubmission({
+    pendingCount: pendingRows.length, undecidedCount: remaining, excludedCount: excluded.size,
+    saving, reprocessing, lastSaveFailed: saveFailed,
+  });
+  useEffect(() => { onSubmissionStateChange?.(submission); }, [submission, onSubmissionStateChange]);
 
   /** Unresolved first — the accountant's queue, in queue order. */
   const ordered = useMemo(() => {
@@ -372,6 +386,7 @@ export function AccountReviewPanel({
 
   const handleSaveAndReprocess = async () => {
     if (!allResolved || isWorking) return;
+    setSaveFailed(false);
     setSaving(true);
 
     // Ω∞ Phase 2A: professional intent only. Actor identity, company/upload
@@ -494,6 +509,7 @@ export function AccountReviewPanel({
     } catch (err) {
       console.error("AccountReviewPanel save error:", err);
       toast.error("Failed to save decisions. Please try again.");
+      setSaveFailed(true);
       setSaving(false);
       setReprocessing(false);
     }
@@ -606,7 +622,9 @@ export function AccountReviewPanel({
   };
 
   return (
-    <SurfaceCard data-testid="account-review-workbench" id="account-review">
+    // tabIndex -1: "Resolve account classifications" moves focus here (programmatic only; it is not a Tab stop).
+    <SurfaceCard data-testid="account-review-workbench" id="account-review" tabIndex={-1} aria-label="Accounts requiring review"
+      className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <SurfaceCardHeader
         label="Accounts requiring review"
         meta={
@@ -785,14 +803,28 @@ export function AccountReviewPanel({
 
       {/* Footer — the one action on this panel */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border px-5 py-4">
-        <p className="text-[12px] text-muted-foreground tabular-nums">
-          {remaining > 0
-            ? `${remaining} account${remaining === 1 ? "" : "s"} still need a decision`
-            : "All decisions recorded"}
-        </p>
+        <div className="min-w-0">
+          {/* Live: the reviewer hears where the submission is, and why a save did not happen. */}
+          <p className="text-[12px] text-muted-foreground tabular-nums" role="status" aria-live="polite" data-testid="account-review-submission" data-state={submission}>
+            {submission === "submitting"
+              ? (saving ? "Saving your decisions…" : "Decisions saved. Rechecking the trial balance…")
+              : remaining > 0
+                ? `${remaining} account${remaining === 1 ? "" : "s"} still need a decision`
+                : "All decisions recorded. Save and reprocess to apply them."}
+          </p>
+          {submission === "failed" && (
+            <p role="alert" className="mt-1 text-[12px] text-destructive" data-testid="account-review-save-failed">
+              Your decisions were not saved. They are still here — try Save &amp; reprocess again.
+            </p>
+          )}
+        </div>
         <Button
           onClick={handleSaveAndReprocess}
           disabled={!allResolved || isWorking}
+          aria-busy={isWorking}
+          variant={saveEmphasis === "primary" ? "default" : "outline"}
+          data-testid="account-review-save"
+          data-action-emphasis={saveEmphasis}
           className="gap-2 rounded-none w-full sm:w-auto"
         >
           {isWorking ? (

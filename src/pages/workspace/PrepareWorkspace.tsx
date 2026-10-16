@@ -78,6 +78,7 @@ import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
+import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
 function deriveFiscalPeriod(
@@ -127,6 +128,8 @@ export default function PrepareWorkspace() {
   // unresolved accounts, no second hunt.
   const focusUnresolved = searchParams.get("review") === "unresolved";
   const reviewRef = useRef<HTMLDivElement>(null);
+  /** The review panel's own state (reported by AccountReviewPanel); decides which ONE action leads the page. */
+  const [reviewSubmission, setReviewSubmission] = useState<ReviewSubmissionState | null>(null);
   const [processingOpen, setProcessingOpen] = useState(false);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
@@ -458,8 +461,11 @@ export default function PrepareWorkspace() {
     if (kind === "replace") replaceInputRef.current?.click();
     else if (kind === "retry") void handleRetry();
     else if (kind === "review_classifications") {
-      if (reviewRef.current) reviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      else navigate(buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null));
+      if (reviewRef.current) {
+        reviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        // Lead keyboard and screen-reader users to the review itself, not just the eye.
+        reviewRef.current.querySelector<HTMLElement>("#account-review")?.focus({ preventScroll: true });
+      } else navigate(buildPrepareReviewRoute(companyId, periodYear, upload?.id ?? null));
     }
   };
 
@@ -531,6 +537,8 @@ export default function PrepareWorkspace() {
     reviewAccounts.length > 0 &&
     !!upload?.company_id &&
     !!user;
+  const reviewPanelShown = !prepareOnly && showReviewPanel;
+  const actionHierarchy = reviewActionHierarchy(verdict.primaryAction?.kind ?? null, reviewPanelShown ? reviewSubmission : null);
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -579,6 +587,7 @@ export default function PrepareWorkspace() {
                 verdict={verdict}
                 busy={replacing || retryingProcess}
                 onPrimary={onPrimary}
+                primaryEmphasis={actionHierarchy.card}
                 management={
                   <ManageTrialBalance
                     variant="inline"
@@ -672,6 +681,8 @@ export default function PrepareWorkspace() {
                     userId={user.id}
                     needsReviewAccounts={reviewAccounts}
                     focusUnresolved={focusUnresolved}
+                    onSubmissionStateChange={setReviewSubmission}
+                    saveEmphasis={actionHierarchy.save}
                     onReprocessingStarted={() => {
                       // PPG-1R HIGH-1: the SAME immediate-invalidation
                       // contract as handleProcessAsAuditedAccounts — the
