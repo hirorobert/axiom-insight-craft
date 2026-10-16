@@ -134,6 +134,24 @@ brackets the new limits (within, one over, far over, and a package declaring 10 
 a CSV one row over and a workbook one row over are each refused by name by `process-trial-balance`, with no accounts and no
 totals recorded; an ordinary file processed afterwards succeeds.
 
+**RELEASE BLOCKER found at the limit (pre-existing; not introduced by this work; not fixed):** processing ceilings in the
+certification layer, far below the upload policy. Evidence: the real function on the local stack (run 38878031417, Edge
+Runtime log kept) and a direct PostgreSQL measurement.
+1. `tb_certifications.exceptions` is bounded by `pg_column_size(exceptions) <= 65536`
+   (`20260902130000_safisha_certification_foundation.sql`). On a first upload every account without a reviewed mapping adds
+   one NEEDS_REVIEW exception (≈190 bytes with realistic names), so **a trial balance with more than ≈340 accounts needing
+   review cannot be processed at all**: `tb_finalize_attempt` is refused (23514) and the customer sees "could not be processed
+   right now". Measured: 300 accounts 57,085 bytes (fits); 400 accounts 76,175 bytes (refused). Reproduced: 1,000-, 2,500- and
+   5,000-line files all failed this way; a 3-account file succeeds.
+2. `tb_snapshot_dependencies` accepts at most 20,000 dependency keys and processing sends four per coded account (code and
+   name, company and global scope), so **more than ≈4,999 coded accounts can never be processed** (INVALID_DEPENDENCIES,
+   reproduced at 10,000 lines).
+Until resolved, the effective first-upload capacity is ≈340 accounts, and above it the failure is NOT explicit. Smallest
+compatible resolution (needs owner approval: it changes the certification record and its CHECK): record one bounded
+aggregate NEEDS_REVIEW exception (count and the first accounts) in the certification while the per-account review detail
+stays where the review UI already reads it (the processing result), size the remaining bounds from the upload policy, and
+until then map a finalize refusal for size to an explicit, named refusal instead of "processing unavailable".
+
 **Remaining runtime limitations (stated, not solved):** (a) the hosted Edge Runtime's own memory/CPU limits have not been
 measured on the hosted project (needs an authorised deployment); the 150 MB cap is a stand-in; (b) JavaScript cannot
 preempt a synchronous parse, so time is bounded by the size limits, not by a timer — the runtime's wall-clock kill and the
