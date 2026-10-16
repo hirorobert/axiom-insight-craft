@@ -250,6 +250,21 @@ export function readIngestionIssues(processingResult: unknown): TrialBalanceIssu
   return FINDING_ORDER.flatMap((k) => read.filter((i) => i.kind === k));
 }
 
+export const REFUSED_BEFORE_CHECKS = "Not run: the file was refused before any check.";
+
+/**
+ * The blocking issues of a REFUSED file, or null. A refusal is exactly the INGESTION_REFUSED outcome: the upload records
+ * status "blocked", zero accepted accounts and the blocking ingestion issues that named the reason, while no certification
+ * is in force (pending: never certified; stale: an earlier certification no longer applies). A blocking CERTIFICATION
+ * (for example an imbalance) has a certification and is not a refusal.
+ */
+export function refusedFileIssues(processingResult: unknown, status: string, verdict: PreflightVerdict | undefined): TrialBalanceIssue[] | null {
+  if (status !== "blocked" || (verdict !== "pending" && verdict !== "stale")) return null;
+  if (record(record(processingResult)?.summary)?.total_accounts !== 0) return null;
+  const blocking = readIngestionIssues(processingResult).filter((i) => i.kind === "blocking");
+  return blocking.length > 0 ? blocking : null;
+}
+
 /** One plain sentence counting open non-blocking findings; each finding is listed in its own group below it. */
 export function findingsSummary(findings: readonly TrialBalanceIssue[]): string {
   const n = (k: FindingKind) => findings.filter((i) => i.kind === k).length;
@@ -483,6 +498,24 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
 
   if (subjectMismatch) {
     return { ...base, status: "checking", statusLabel: "Checking", tone: "neutral", reason: "The result for this file is being confirmed.", primaryAction: null };
+  }
+
+  // A REFUSED file (process-trial-balance INGESTION_REFUSED): the check finished and refused the file as a whole, by name,
+  // accepting no account, so nothing was certified and the lifecycle stays as its authority derives it. It is a final
+  // answer — Blocked, the recorded reason, a new file — never "being confirmed", and no check is named as failed (none ran).
+  const refusal = refusedFileIssues(upload.processing_result, status, input.readiness?.verdict);
+  if (refusal) {
+    const readFailed = milestones.some((m) => m.id === "read" && m.status === "failed");
+    return {
+      ...base, status: "blocked", statusLabel: "Blocked", tone: "danger", issues: refusal, failedCheckId: null, balanceStatement: null,
+      reason: refusal[0].message,
+      checks: checks.map((c) => ({ ...c, state: "pending" as const, notEvaluated: true, detail: REFUSED_BEFORE_CHECKS })),
+      informational: [],
+      // Only a record that stops where the refusal happened is shown; an earlier record that listed later steps for a
+      // refused file (no totals recorded as a failed balance) is not repeated.
+      milestones: readFailed ? milestones : [],
+      primaryAction: { kind: "replace", label: "Replace with corrected Trial Balance" },
+    };
   }
 
   const verdict = input.readiness?.verdict;
