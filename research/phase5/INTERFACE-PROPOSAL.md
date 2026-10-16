@@ -95,11 +95,15 @@ A prior accepted decision is reusable for a later upload only when the accountin
 same bytes or `account_key`. `classifyAgainstPrior` returns one of three states:
 - **`REUSABLE`** — every applicable context field (entity + currency + any dimensions; currency/period read from
   `fiscal_periods`) is **verified equal** ⇒ reuse **may be proposed** (still a reviewer-visible proposal, never auto-applied).
-- **`CONTEXT_UNVERIFIED`** — a field is **missing/unverifiable** (present on one side only, or no recorded context) ⇒
-  **reopen for explicit confirmation**. A field absent on *both* sides is "not applicable" (consistent absence), not a reopen.
+- **`CONTEXT_UNVERIFIED`** — a field is **UNKNOWN**: present on one side only, absent on *both* sides with **no authoritative
+  rule** declaring it not-applicable, or no recorded context ⇒ **reopen for explicit confirmation**.
 - **`CONTEXT_INCOMPATIBLE`** — a field is present on both sides and **differs** (a known change, e.g. currency) ⇒ reopen.
 
-A treatment is **never inherited silently from `company_id + account_key` alone** (UNKNOWN ≠ EQUAL ≠ MISMATCH). Binding the
+**UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE.** "Absent on both sides" is **UNKNOWN** (reopen) unless an explicit,
+authoritative rule establishes the field is NOT APPLICABLE for the engagement (`notApplicableContextFields`, e.g. a
+non-dimensional single entity declaring `dimensions` N/A). `currency`/`entity` can never be declared N/A
+(`fiscal_periods.reporting_currency` is required). Missing relevant context therefore requires **renewed confirmation**
+before reuse. A treatment is **never inherited silently from `company_id + account_key` alone**. Binding the
 accepting context onto the decision ledger is the Phase 6 change — see §9 gap #4. Period is confirmed but not a reuse blocker
 (mappings reuse across periods by design).
 
@@ -107,8 +111,12 @@ accepting context onto the decision ledger is the Phase 6 change — see §9 gap
 mapped per company (`uq_acct_map_company_norm_name`); the real RPC raises a raw constraint error, not a structured refusal.
 Interpretation still treats them as distinct; the Phase 6 treatment + production dependency are in HANDOFF. Preserved, not
 smoothed.
-Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group;
-`HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never groupable and must be classified individually.
+Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group.
+`HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never **auto-grouped by inferred treatment** — but they do **not**
+require a separate action each: a reviewer may **explicitly select several and assign one common treatment in a single
+action** (§3c), subject to per-account validation and the real RPC's **atomic** batch semantics (all-or-nothing). They may
+also be organised visually by issue with no treatment implied. Inferred equivalence never groups them; a deliberate human
+selection may.
 ```ts
 // Expansion (client/edge) → the UNCHANGED server call:
 acceptTreatmentGroup(group, reason) => ReviewDecisionPayload[]   // decision_action: "USER_ACCEPTED_SUGGESTION"

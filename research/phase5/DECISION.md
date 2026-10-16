@@ -136,11 +136,13 @@ The prototype detects an **unexpected balance** (a sign anomaly for the proposed
   reason.
 - **Reuse is more than a file hash — three explicit states, never a silent inherit.** (i) **Verified compatible** accepting
   context (entity + currency + any dimensions; currency/period from `fiscal_periods`) ⇒ reuse **may be proposed**;
-  (ii) **missing/unverifiable** context ⇒ **reopen for explicit confirmation** (`CONTEXT_UNVERIFIED`); (iii) a **known
-  change** ⇒ reopen (`CONTEXT_INCOMPATIBLE`). A treatment is **never inherited solely from `company_id + account_key`**; a
-  field absent on both sides is "not applicable", not a false reopen. Honest schema reality: currency + period are
-  authoritative on `fiscal_periods`; the remaining work is **binding the accepting context onto the decision ledger** plus
-  **dimension** and **ruleset-version** axes (gap #4). Additive, not in the first slice.
+  (ii) **UNKNOWN** context ⇒ **reopen for explicit confirmation** (`CONTEXT_UNVERIFIED`); (iii) a **known change** ⇒ reopen
+  (`CONTEXT_INCOMPATIBLE`). **UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE:** a field absent on *both* sides is **UNKNOWN**
+  (reopen) **unless an explicit authoritative rule** declares it NOT APPLICABLE (`notApplicableContextFields`); `currency`/
+  `entity` are never declarable N/A. Missing relevant context requires renewed confirmation. A treatment is **never inherited
+  solely from `company_id + account_key`**. Honest schema reality: currency + period are authoritative on `fiscal_periods`;
+  the remaining work is **binding the accepting context onto the decision ledger** plus **dimension**/**ruleset-version**
+  axes and the authoritative N/A declaration (gap #4). Additive, not in the first slice.
 - **Same-name / different-code accounts (finding from NORMAL #140, preserved).** `uq_acct_map_company_norm_name` forbids two
   accounts with the same normalized name per company, so the real RPC raises a **raw constraint error** when both are mapped
   (e.g. `4000`/`4100 Sales`). The interpretation layer is right to treat them as distinct; the conflict is at persistence.

@@ -11,18 +11,28 @@
   reason relaxed to the server's actual requirement, `manual.test.mjs`, extended static + replayable proofs) and
   `b56f504` (SEAT_LIMIT fix in the replayable proof via a supported seat grant, runtime DB-version reporting, and the
   `accounting_boundaries.test.mjs` regression harness) and
-  **`9c135b0`** (reconciled the RPC proof to ONE identified version with NORMAL #140's four corrections, preserved the
-  same-name/different-code finding, and tightened the first-slice reuse rule to three explicit states).
+  `9c135b0` (reconciled the RPC proof to ONE identified version with NORMAL #140's four corrections, preserved the
+  same-name/different-code finding, tightened the first-slice reuse rule to three explicit states) and
+  **`ab04257`** (UNKNOWN ≠ NOT APPLICABLE reuse rule — absent-on-both context reopens unless an explicit authoritative N/A
+  rule exists; reconciled the proof against NORMAL `2632348` / PG 17.11 24/25 and adopted its `extensions.digest`==pgcrypto
+  verification; corrected the acceptance wording for uncertain accounts).
   (This HANDOFF is a separate, later commit — no commit embeds its own hash.)
 
-## Reconciliation with NORMAL #140 — one identified proof version
-NORMAL ran #138's proof on their isolated chain and contributed four **justified setup corrections**, now adopted verbatim
-into `research/phase5/proof/real_contract_proof.mjs` so **both sessions use one identified version** (this branch tip):
-(1) grant the licence `additional_seats` so the partner + viewer are admitted (the seat wall refuses them otherwise —
-`included_seats = 1` on every paid plan → `SEAT_LIMIT_REACHED`); (2) report the **actual** `server_version` (no hard-coded
-PG); (3) shim `extensions.digest()`, which the real RPC calls; (4) a period has **one active upload**
-(`uq_one_active_upload_per_period`) so the repeat upload is the **next** period. This version also keeps #138's manual /
-atomic / conflict coverage. Fixtures were **not** changed to get green.
+## Reconciliation with NORMAL #140 — one identified proof version (exact versions & differences)
+**Versions:** NORMAL #140 commit **`2632348`** (based on #138 @ `5a06e56`) reported **PostgreSQL 17.11: 24/25**, the single
+non-pass being the same-name/different-code identity incompatibility (its success path used the revenue group `4000`/`4100
+Sales`, so the collision surfaced as a failed check). The identified version is now this branch tip
+(`real_contract_proof.mjs` @ the head below).
+**Differences (this version vs `2632348`):** (a) seats — here via licence `additional_seats`; NORMAL used an equivalent
+`NAMED_USER_SEATS` entitlement override (both supported authority, neither bypasses the seat wall — `included_seats = 1` on
+every paid plan); (b) version — `SHOW server_version` vs `current_setting` (both report the **actual** version, neither
+hard-codes); (c) success path — a **collision-free** group here vs the revenue group there; (d) the same-name case is an
+explicit `fnd()` **FINDING** here (reported separately from pass/fail) vs a counted **FAIL** there; (e) this version adds
+#138's manual / atomic / conflict coverage and NORMAL's `extensions.digest`==pgcrypto (SHA-256 vector) verification.
+**No completeness claim:** (d) is a **representation** difference, **not a resolution**. The same-name/different-code
+incompatibility is **identical and unresolved** in both; "checks pass + 1 finding reproduced" here must **not** be read as
+complete compatibility or a passing support claim. The four corrections are justified; fixtures were **not** changed to get
+green. NORMAL should re-point the evidence job at the head below.
 
 ## GENUINE FINDING (from NORMAL #140), preserved — same-name / different-code accounts
 Two accounts with the **same normalized name** and **different codes** (synthetic `4000 Sales`, `4100 Sales`) **cannot both
@@ -189,15 +199,72 @@ both atomic through the unchanged RPC) → **versioned per-account decisions** (
 compatible reuse and changed-account reopen (identity drift today; context/meaning reopen per gaps #2/#4). **Ends at the
 review summary + repeat upload** — no financial-statement engine, no withheld-module activation.
 
-**First-slice REUSE RULE (clarified, three explicit states — never a silent inherit):**
+**First-slice REUSE RULE (three explicit states — never a silent inherit; UNKNOWN ≠ EQUAL ≠ MISMATCH ≠ NOT APPLICABLE):**
 - **Verified compatible accepting context** (entity + currency + any dimensions, confirmed equal — currency/period read from
-  `fiscal_periods`): reuse **may be proposed** (still a proposal the reviewer sees, not an auto-apply).
-- **Missing, changed, or unverifiable context:** **reopen for explicit confirmation** — `CONTEXT_UNVERIFIED` when a field
-  cannot be confirmed (present on one side only / no recorded context), `CONTEXT_INCOMPATIBLE` when a field is present on
-  both sides and differs (e.g. a changed currency).
-- **Never silently inherit a treatment solely from `company_id + account_key`.** A field absent on *both* sides is
-  "not applicable" (consistent absence), not a false reopen. Implemented in `reuseContext.contextCompatible` +
-  `classifyAgainstPrior`; proven in `manual.test` (reuse-context).
+  `fiscal_periods`, or a field explicitly declared NOT APPLICABLE): reuse **may be proposed** (a reviewer-visible proposal,
+  not an auto-apply).
+- **UNKNOWN context ⇒ reopen for explicit confirmation** (`CONTEXT_UNVERIFIED`): a field present on one side only, **absent
+  on both sides with no authoritative N/A rule**, or no recorded context. Missing relevant context requires renewed
+  confirmation before reuse.
+- **Known change ⇒ reopen** (`CONTEXT_INCOMPATIBLE`): a field present on both sides and differing (e.g. a changed currency).
+- **`notApplicable` must be an explicit, authoritative declaration** (e.g. a non-dimensional single-entity engagement
+  declaring `dimensions` N/A). `currency`/`entity` are never declarable N/A (`reporting_currency` is required). A treatment
+  is **never silently inherited from `company_id + account_key` alone.** Implemented in `reuseContext.contextCompatible`
+  (+ `notApplicableContextFields`) and `classifyAgainstPrior`; proven in `manual.test` (incl. a case where, WITHOUT the N/A
+  declaration, absent dimensions/ruleset reopen).
+
+## Future reporting compatibility — DESIGN ONLY (no schema, no rendering, no XBRL change)
+Inspected existing mechanisms first: `account_mappings` (`account_key`, `statement`/`classification`/`line_item`/
+`normal_balance`, `review_decision_id`), the XBRL layer (`20260711500000_xbrl_layer.sql`, concept seed
+`20260711500100`), and `generate-xbrl` (framework-conditional: IFRS variants supported, IPSAS blocked; `TAXONOMY_VERSION =
+"2023-01-01"`). These already separate the concerns below — the design keeps them separate and adds nothing.
+
+**Four distinct layers (do not collapse):**
+1. **Source identity** — what the account *is* in the client's books: `account_key = COALESCE(account_code, normalized
+   name)` + its review-decision lineage. **Stable and internal.**
+2. **Confirmed accounting treatment** — the reviewer-approved `statement`/`classification`/`normal_balance` (+ tri-state
+   flags). Internal; independent of any external framework or taxonomy.
+3. **Framework-specific presentation** — how a treatment is *presented* under a chosen framework (e.g. IFRS-for-SMEs vs full
+   IFRS line items). **Many-to-one and one-to-many are both allowed:** several accounts may roll up to one presentation
+   line, and **one account may map to different presentation categories under different frameworks** (or be split across
+   lines). Do **not** assume one account always has exactly one presentation category.
+4. **Optional taxonomy references** — external concept IDs (e.g. an IFRS XBRL concept at a taxonomy *version*). An **optional
+   overlay**, keyed by framework + taxonomy version; **swapping the taxonomy version must never change layers 1–3.**
+
+**Invariant:** internal identities (layers 1–2) are **independent of external taxonomy versions** (layer 4). A new taxonomy
+release re-points layer-4 references only; the source identity and confirmed treatment, and any completed review summary
+bound to them, are unchanged.
+
+**Example A — straightforward (one presentation, one concept):** `account_key "1000" "Cash at bank"` → treatment
+`balance_sheet / current_assets` (`is_cash_account=true`) → presentation line "Cash and cash equivalents" under IFRS-for-SMEs
+→ taxonomy concept `ifrs-full:CashAndCashEquivalents@2023-01-01`. One account, one presentation, one concept; a 2024 taxonomy
+would change only the concept reference.
+
+**Example B — requires additional evidence (presentation not determinable from the treatment alone):** `account_key "2500"
+"Bank loan"` → treatment `balance_sheet / … liabilities`. Its **presentation split between current and non-current** depends
+on the repayment schedule (the portion due within 12 months) — **evidence that is not in the trial balance**. Until that
+evidence is supplied and reconciled, the presentation is a **gap** (`KNOWN/MISSING/CANNOT_ASSESS`), never guessed; the
+internal treatment is settled, but the framework presentation stays unresolved. This is the honest "a TB may not be enough"
+case at the presentation layer, mirroring the evidence discipline in §4/§5.
+
+## Ownership — response to the proposed production-file ownership (task 5)
+**Agreement:** the Phase 6 file/owner split proposed above stands — **NORMAL owns the customer-journey & UI surfaces**
+(`*ReviewSummary*`, `*ManualAssign*`, placement in the journey) and the **canonical accepted contract**; the **Phase 5
+research lane owns the pure-library ports** (`src/lib/accounting/interpretation/*`, incl. `manual.ts`, `reuseContext`,
+`boundaries`) and the **contract/acceptance tests**; **writes stay on the unchanged `resolve_account_review_batch`** (group
+and manual acceptance both expand to its atomic batch). No objection; this is a proposal pending owner scope approval, not a
+claim of ownership.
+**Amendments (minor):** (1) the **read-only review-summary projection** (edge or SECURITY DEFINER read RPC) should be
+**co-owned** — NORMAL owns its placement/shape in the journey, the research lane owns the pure projection logic it renders;
+(2) the reuse-context + `notApplicableContextFields` authority (which fields an engagement may declare N/A) is a **shared
+contract decision** (it affects both the library and the journey), to be fixed with NORMAL before Phase 6 build.
+**Dependency to support legitimate same-name/different-code accounts safely (explicit):** the partial unique index
+`uq_acct_map_company_norm_name` (`20260703100000`, reinforced by `20260703120000`) is the blocker. A safe Phase 6 needs **one**
+of: (a) **preparer disambiguation** of `line_item`/name (no schema change — preferred first step); (b) an **additive
+structured pre-flight refusal** `SAME_NORMALIZED_NAME_DIFFERENT_CODE` so the UI surfaces it before submit instead of a raw DB
+error (no schema change); or (c) **relaxing the index** to `(company_id, account_key)` (a **schema change + migration +
+review** — owner/production decision, only if genuinely distinct same-name accounts must coexist). The research lane can
+provide (b) as a pure pre-flight validator; (c) is **not** a research-lane change. Owner decides (a)/(b)/(c).
 
 ## Scope cleanliness
 `git diff origin/main` is **entirely under `research/phase5/`** (verified). No production component, migration, registry,
