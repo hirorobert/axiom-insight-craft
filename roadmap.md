@@ -93,6 +93,34 @@ orchestration deleting real objects. Simulated: a worker stopping between steps 
 then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
 service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
+## Upload policy (tb-upload-policy-1) — PROVISIONAL, enforced
+
+One module, `supabase/functions/_shared/uploadPolicy.ts`, enforced by the shared reader before any parse (so by
+`process-trial-balance`, `trial-balance-layout` and `layout-assist`), mirrored for the browser (`src/lib/workspace/uploadPolicy.ts`)
+and equal to the drafts migration's size CHECK (all held equal by `uploadPolicy.test.ts`). Current values: file 50 MB;
+`.xlsx` expanded (declared, from the ZIP central directory, nothing inflated) 200 MB and 2,000 parts; 200,000 rows;
+4,000,000 cells. Before this, the trial-balance path enforced **no** resource limit at all.
+
+**Measured** (`scripts/bench/tbUploadPolicyBench.mjs`, invented balanced TBs, real shared reader + ingestion, one fresh process
+per case; Bun 1.3.14 on Windows — NOT the hosted Deno Edge Runtime, so absolute numbers differ there; process baseline ≈130 MB):
+
+| Input | File | Expanded | Read + ingest | Peak RSS |
+|---|---|---|---|---|
+| CSV 10k rows | 0.4 MB | — | 0.14 s | 165 MB |
+| CSV 100k rows | 4.0 MB | — | 1.6 s | 290 MB |
+| XLSX 10k rows | 1.6 MB | 1.6 MB | 0.4 s | 205 MB |
+| XLSX 50k rows | 8.1 MB | 8.1 MB | 1.7 s | 347 MB |
+| XLSX 100k rows | 16.3 MB | 16.3 MB | 3.0 s | 570 MB |
+| XLSX (deflated) 100k rows | 6.1 MB | 16.3 MB | 5.7 s | 548 MB |
+| XLSX 200k rows (refused: rows) | 33.3 MB | 33.3 MB | 5.8 s | 790 MB |
+| 4 concurrent XLSX 100k (separate processes) | | | 7.8 s wall | ≈567 MB each |
+
+Findings: (1) workbook memory grows ≈27 bytes per expanded byte; (2) the row/cell limits apply only AFTER the spreadsheet
+library has parsed the workbook, so for `.xlsx` the expanded-size limit is the real memory guard; (3) at today's values a
+single accepted workbook can exceed any plausible single-invocation memory budget; (4) the declared-size check stops ordinary
+compression bombs but trusts the archive's own directory (a forged directory could understate sizes) — a streaming,
+capped inflate is the stronger guard and is not built; (5) not yet measured in the hosted Edge Runtime (needs a deployment).
+
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
 Compatible, with these points to settle before Phase 6:
@@ -128,11 +156,11 @@ Compatible, with these points to settle before Phase 6:
 
 1. **#132/#133 integration**: recommended arrangement is the combined candidate draft #137 (current `main` + #132 + #133,
    no file overlap); merge only with every required check green on its final head. No merge permission is assumed.
-2. **Draft size cap**: 50 MB is a technical bound in the drafts migration. No trial balance upload size limit existed
-   before, so this is a new policy to confirm.
+2. **Draft size cap**: now part of the one upload policy — see decision 6.
 3. **Hosted application** of `20261106100000` and deployment of `trial-balance-draft`: owner/Lovable only; not requested.
 4. **Payments** stay disabled until Polar and Snippe both pass (decided 14 October; restated 15 October).
 5. **Phase 6** scope and the file-ownership split above.
+6. **Upload policy values.** Recommendation from the measurements: file 15 MB, `.xlsx` expanded 16 MB, 100,000 rows, 2,000,000 cells (typical trial balances are well under 5,000 rows), then confirm with one measured run in the hosted Edge Runtime before publishing the limits to customers.
 
 ## Earlier notes (kept)
 

@@ -322,6 +322,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261106100000_trial_balance_drafts.sql",
       "supabase/functions/_shared/draftUpload.ts",
       "supabase/functions/trial-balance-draft/index.ts",
+      // The ONE trial balance upload policy (size, workbook expansion, rows, cells) the shared reader enforces before any
+      // parse. Pure; no schema.
+      "supabase/functions/_shared/uploadPolicy.ts",
     ]);
     const modified = new Set([
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.

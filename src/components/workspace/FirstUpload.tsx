@@ -18,14 +18,15 @@ import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { ACCEPTED_EXTENSIONS, classifyCheckAnswer, validateFileChoice } from "@/lib/ingestion/uploadFlow";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 import { openEngagementWithPeriod, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
-import { DRAFT_MAX_BYTES, DraftError, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft, type ReservedDraft } from "@/lib/workspace/trialBalanceDraft";
+import { UPLOAD_LIMITS_TEXT, fileTooLarge } from "@/lib/workspace/uploadPolicy";
+import { DraftError, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft, type ReservedDraft } from "@/lib/workspace/trialBalanceDraft";
 import { EMPTY_PERIOD, derivePeriod, periodName, periodProblem, periodRange, periodYear, type PeriodChoice, type PeriodPreset } from "@/lib/workspace/reportingPeriod";
 import { START_STEPS, STAGES, readMilestones, runStart, stagesFromMilestones, type StageStatus, type StartDeps, type StartKeys, type StartProgress, type StartResult, type StartStep } from "@/lib/workspace/firstUpload";
 
 export const FIRST_UPLOAD_COPY = {
   heading: "Check your trial balance",
   intro: "Upload your trial balance to start. You confirm the entity, period and currency on the same page.",
-  limits: `CSV or Excel (${ACCEPTED_EXTENSIONS.join(", ")}), up to ${DRAFT_MAX_BYTES / 1048576} MB.`,
+  limits: UPLOAD_LIMITS_TEXT,
   choose: "Choose a file",
   storing: "Saving your file privately…",
   draft: "Stored privately as a draft. Not yet added to your entity.",
@@ -86,7 +87,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult }: {
   // ── The file: validated, hashed, reserved and stored as a draft (retry-safe: one key per file) ────────────────────
   const choose = async (file: File | null | undefined) => {
     if (!file || phase.kind === "storing" || locked) return;
-    const invalid = validateFileChoice(file) ?? (file.size > DRAFT_MAX_BYTES ? `“${file.name}” is larger than ${DRAFT_MAX_BYTES / 1048576} MB. Export a smaller file and upload it.` : null);
+    const invalid = validateFileChoice(file) ?? fileTooLarge(file);
     if (invalid) { setPhase({ kind: "empty", error: invalid }); return; }
     setPhase({ kind: "storing", file });
     draftKey.current = newDraftKey();

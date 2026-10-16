@@ -15,6 +15,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { TB_UPLOAD_POLICY } from "./uploadPolicy";
 
 export type DraftErrorCode =
   | "drafts_unavailable" | "forbidden" | "invalid_file" | "conflict" | "expired" | "not_found" | "content_mismatch"
@@ -34,14 +35,15 @@ export class DraftError extends Error {
 export const DRAFT_MESSAGES = {
   unavailable: "Uploading before choosing an entity isn't available yet. Add the entity first, then upload your trial balance.",
   forbidden: "You don't have permission to add a trial balance to this entity.",
-  invalidFile: "This file can't be uploaded. Use a CSV or Excel file under 50 MB.",
+  invalidFile: `This file can't be uploaded. Use a CSV or Excel file of at most ${Math.round(TB_UPLOAD_POLICY.maxFileBytes / 1_048_576)} MB.`,
   conflict: "This upload changed while it was being saved. Start the upload again.",
   expired: "This upload is no longer available. Upload the file again.",
   contentMismatch: "The stored file is not the file that was checked. Upload it again.",
   retry: "This didn't finish. Try again; nothing will be added twice.",
 } as const;
 
-export const DRAFT_MAX_BYTES = 52428800;
+/** The one upload policy's file-size limit (uploadPolicy.ts; equal to the drafts migration's CHECK). */
+export const DRAFT_MAX_BYTES = TB_UPLOAD_POLICY.maxFileBytes;
 // PostgREST "function not found" / Postgres undefined function or table: the migration is not applied yet.
 const RPC_NOT_DEPLOYED = new Set(["PGRST202", "PGRST205", "42883", "42P01"]);
 
