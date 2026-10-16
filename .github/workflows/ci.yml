@@ -393,10 +393,10 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
-      - name: Launch-acceptance identity (evidence branch only; proves the tree actually checked out and built equals candidate f57b944 apart from the QA files, and records the harness commit separately)
+      - name: Launch-acceptance identity (evidence branch only; proves the tree actually checked out and built equals the candidate under test apart from the QA files, and records the harness commit separately)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: f57b9441d46ae382c43b9e9da3fa1cdff8758805
+          LAUNCH_QA_CANDIDATE_SHA: 2537b0490776dabb23951e08820bb9004f464484
         run: |
           set -u
           OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
@@ -418,7 +418,7 @@ jobs:
       - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: f57b9441d46ae382c43b9e9da3fa1cdff8758805
+          LAUNCH_QA_CANDIDATE_SHA: 2537b0490776dabb23951e08820bb9004f464484
           LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
           LAUNCH_QA_PAYMENTS: "1"
         run: |

@@ -372,6 +372,81 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       return (data ?? [])[0] ?? null;
     },
     async uploadRow(id) { const { data } = await admin.from("trial_balance_uploads").select("id, lifecycle_state, superseded_by_upload_id, version").eq("id", id).maybeSingle(); return data ?? null; },
+    // RULING I-1 observation: the hub's "Choose an engagement" state — its heading, every peer Resume (accessible name,
+    // visibility, whether styled as THE primary), any other primary on the screen, and the real Tab sequence.
+    async observeChooser(page) {
+      const snap = await page.evaluate(() => {
+        const vis = (el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; };
+        const isPrimary = (el) => /(^|\s)bg-primary(\s|$)/.test(el.className);
+        const card = document.querySelector('[data-testid="account-next-action"]');
+        const peers = [...document.querySelectorAll('[data-testid^="resume-"]')].map((b) => ({ testid: b.getAttribute("data-testid"), name: (b.getAttribute("aria-label") || b.textContent).trim(), visible: vis(b), primary: isPrimary(b) }));
+        const others = [...document.querySelectorAll("button, a[href], [role=button]")]
+          .filter((el) => vis(el) && !el.closest("header, nav") && !el.matches('[data-testid^="resume-"]') && isPrimary(el)).map((el) => el.textContent.trim().slice(0, 40));
+        return { kind: card?.getAttribute("data-kind") ?? null, title: card?.querySelector("h2")?.textContent?.trim() ?? "", peers, others };
+      });
+      const stops = await env.observeTabWalk(page, 200);
+      return { kind: snap.kind, title: snap.title, peers: snap.peers, otherPrimaries: snap.others.length, otherPrimaryLabels: snap.others, tabLabels: stops.map((s) => s.label) };
+    },
+    // Activate one peer and observe where it lands: that engagement's workspace, or a confirmation in between.
+    async activateChooserPeer(page, peer) {
+      const m = /^Resume\s+(.+)\s+FY(\d{4})$/.exec(peer.name);
+      const co = m ? ((await admin.from("companies").select("id").eq("name", m[1]).eq("user_id", env.currentUser?.id ?? "").maybeSingle()).data ?? null) : null;
+      const expectedPath = co ? `/workspace/${co.id}/${m[2]}` : null;
+      await page.click(`[data-testid="${peer.testid}"]`);
+      await page.waitFor(() => /^\/workspace\//.test(location.pathname) || !!document.querySelector("[role=dialog], [role=alertdialog]"), [], { label: "chooser navigation", timeout: 30000 }).catch(() => {});
+      const landedPath = await page.evaluate(() => location.pathname).catch(() => null);
+      const dialog = await page.evaluate(() => !!document.querySelector("[role=dialog], [role=alertdialog]")).catch(() => false);
+      return { name: peer.name, expectedPath, landedPath, dialog };
+    },
+    // Persisted processing facts for ONE upload (read-only, service role): the upload row, how many certifications exist for
+    // it (a refused file must have none), its current engine run (never left running) and that run's dependency snapshot
+    // (a refusal happens before any is taken).
+    async processingFacts(uploadId) {
+      const u = (await admin.from("trial_balance_uploads").select("id, company_id, period_year, period_id, status, lifecycle_state, version, file_path, source_file_hash, current_engine_run_id, processing_attempt, processing_result, superseded_by_upload_id").eq("id", uploadId).maybeSingle()).data ?? null;
+      const certifications = (await admin.from("tb_certifications").select("id", { count: "exact", head: true }).eq("upload_id", uploadId)).count ?? null;
+      const run = u?.current_engine_run_id ? ((await admin.from("engine_runs").select("id, status, error_code").eq("id", u.current_engine_run_id).maybeSingle()).data ?? null) : null;
+      const dependencies = run ? ((await admin.from("engine_run_dependencies").select("engine_run_id", { count: "exact", head: true }).eq("engine_run_id", run.id)).count ?? null) : 0;
+      return { upload: u, certifications, run, dependencies };
+    },
+    // A check request exactly as the browser sends it (processingInvoke: { uploadId, clientRequestId }), as the user.
+    async invokeCheck(u, uploadId, clientRequestId) {
+      const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { data: s, error } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
+      if (error) return { status: null, body: { error: error.message } };
+      const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST",
+        headers: { Authorization: `Bearer ${s.session.access_token}`, apikey: anonKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId, clientRequestId }) });
+      let body = null; try { body = await res.json(); } catch { /* no body */ }
+      return { status: res.status, body };
+    },
+    // The trial-balance page for one entity/period as the user sees it: its text, and whether Replace is offered.
+    async observeTrialBalancePage(page, companyId, year, shotName) {
+      await env.go(page, `/workspace/${companyId}/${year}/trial-balance/review`);
+      await page.waitFor(() => /Trial balance checks|Blocked|Needs review|Reviewed/i.test(document.body.innerText), [], { label: "trial-balance page", timeout: 30000 }).catch(() => {});
+      await sleep(1500);
+      const text = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
+      const replaceOffered = await page.evaluate(() => { const b = document.querySelector('[data-testid="replace-trial-balance"]'); return !!b && !b.disabled && b.getBoundingClientRect().width > 0; }).catch(() => false);
+      if (shotName) await shot(page, shotName);
+      return { text, replaceOffered, url: await page.url().catch(() => null) };
+    },
+    // Replace the period's trial balance through the page's own Replace (PrepareWorkspace handleReplacePicked: the picked
+    // file is checked, uploaded, then retire_trial_balance_upload swaps it in). Waits for server truth, not the screen.
+    async replaceOnTrialBalancePage(page, companyId, year, file) {
+      const before = await env.activeUpload(companyId, year);
+      const view = await env.observeTrialBalancePage(page, companyId, year);
+      if (!before || !view.replaceOffered) return { offered: view.replaceOffered, oldId: before?.id ?? null };
+      await page.setFiles('input[type="file"].hidden', [file]);
+      for (let i = 0; i < 60; i++) {
+        const old = await env.uploadRow(before.id);
+        const act = await env.activeUpload(companyId, year);
+        if (old?.lifecycle_state === "superseded" && act && act.id !== before.id) {
+          const settled = await env.settleUpload(act.id);
+          return { offered: true, oldId: before.id, newId: act.id, old, settled, facts: await env.processingFacts(act.id) };
+        }
+        await sleep(2000);
+      }
+      return { offered: true, oldId: before.id, timedOut: true, old: await env.uploadRow(before.id) };
+    },
     // Server truth: is there an authoritative certification for this period? (as the owner, like the repository journey).
     async isCertified(companyId, periodYear, u = users.owner) {
       const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });

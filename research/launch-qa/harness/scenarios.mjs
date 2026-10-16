@@ -12,7 +12,7 @@
 //   - FAIL lists observed mismatches with the independent expectation.
 //   - BLOCKED names a missing prerequisite (e.g. NORMAL's same-name repair, final invalid-file policy, mock-payment hook).
 // RUNTIME-UNVERIFIED until executed on a capable runner; do not read these as passed until the runner reports PASS.
-import { tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
+import { chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "../checks.mjs";
 import { accessOf, accessUnchanged, hasSandboxRecord, requireCreatedUpload } from "./evidenceRules.mjs";
 import { BALANCED, IMBALANCED, SAME_NAME, UNSUPPORTED } from "../fixtures/syntheticTb.mjs";
 
@@ -198,6 +198,40 @@ async function scenarioE(env) {
 
 // F: Invalid / unsupported / over-limit files — actionable refusal, no silent truncation, no accepted partial result,
 // recovery with a normal file afterwards. USES NORMAL's final policy/fixtures for the limit — does not invent one.
+// The approved contract for a file the SERVER refuses (owner ruling on the 68f9710 report): the trial-balance page shows it
+// Blocked with its recorded reason and a Replace action — never "being confirmed", never a check named failed that did not
+// run — and, persisted: the source kept, the exact refusal code, zero accepted accounts, no certification, no attempt left
+// running, no dependency snapshot, and the upload still active (so it can be replaced, retried or removed).
+async function assertRefused(env, page, label, r, { code = null } = {}) {
+  const problems = [];
+  const u = r.committedUpload;
+  if (!u) return { problems: [`${label}: the file's own upload could not be bound exactly: ${(r.bindProblems ?? []).join("; ")}`], facts: null };
+  await env.settleUpload(u.id);
+  const f = await env.processingFacts(u.id);
+  const pr = f.upload?.processing_result ?? null;
+  const blocking = (pr?.ingestion?.issues ?? []).filter((i) => i.severity === "blocking");
+  const codes = blocking.map((i) => i.code);
+  if (code ? !codes.includes(code) : codes.length === 0) problems.push(`${label}: not refused by its exact code (${code ?? "any blocking code"}); recorded ${JSON.stringify(codes)}`);
+  if (pr?.summary?.total_accounts !== 0) problems.push(`${label}: accepted accounts (summary.total_accounts=${JSON.stringify(pr?.summary?.total_accounts)}) — must be exactly 0`);
+  if (pr?.ingestion?.totals) problems.push(`${label}: totals were recorded for a refused file`);
+  if (f.upload?.status !== "blocked") problems.push(`${label}: upload status is ${f.upload?.status}, expected blocked`);
+  if (!f.upload?.file_path || !f.upload?.source_file_hash) problems.push(`${label}: the source evidence was not preserved (file_path/source_file_hash missing)`);
+  if (f.certifications !== 0) problems.push(`${label}: ${f.certifications} certification(s) exist for refused data`);
+  if (f.run?.status === "running") problems.push(`${label}: the refused attempt is still running (a processing lock remains)`);
+  if (f.dependencies !== 0) problems.push(`${label}: a dependency snapshot was recorded for a refused file (${f.dependencies})`);
+  if (!["active_processing", "blocked", "active_unprocessed", "active_processed"].includes(f.upload?.lifecycle_state)) problems.push(`${label}: the refused upload is not active (${f.upload?.lifecycle_state}) — it must stay replaceable`);
+  const view = await env.observeTrialBalancePage(page, u.company_id, u.period_year, `F-${label}-page`);
+  const reason = String(blocking[0]?.message ?? "").replace(/\s+/g, " ").trim();
+  if (!/\bBlocked\b/.test(view.text)) problems.push(`${label}: the page does not say Blocked`);
+  if (!reason || !view.text.includes(reason)) problems.push(`${label}: the page does not state the recorded reason ("${reason.slice(0, 120)}")`);
+  if (/being confirmed|updates itself/i.test(view.text)) problems.push(`${label}: the page still says the result is being confirmed / updates itself`);
+  if (/processing record reports that this check failed|(Arithmetic check|Debits equal credits)[^.]{0,80}\bFailed\b/i.test(view.text)) problems.push(`${label}: the page attributes the refusal to a check that did not run`);
+  if (!view.replaceOffered) problems.push(`${label}: no Replace action is offered`);
+  return { problems, facts: { uploadId: u.id, companyId: u.company_id, periodYear: u.period_year, codes, totalAccounts: pr?.summary?.total_accounts ?? null,
+    status: f.upload?.status, lifecycle: f.upload?.lifecycle_state, version: f.upload?.version, certifications: f.certifications, run: f.run, dependencies: f.dependencies,
+    reasonShown: !!reason && view.text.includes(reason) } };
+}
+
 async function scenarioF(env) {
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
@@ -212,40 +246,71 @@ async function scenarioF(env) {
   if (unsup.error) problems.push(...loadingErrorStateProblems({ phase: "error", errorMessage: unsup.error, nextAction: "choose another file" }).filter((p) => /raw\/internal/.test(p)));
   if (unsup.uploadsForFile > 0) problems.push("the unsupported file produced an upload (must accept nothing)");
 
-  // OVER-LIMIT (NORMAL's fixture, its OWN identifiable file). The product contract (P2-3, uploadPolicy): "Start" saves the
-  // entity, the dated period and the file, then the server's check runs; an over-limit file is REFUSED BY NAME on that
-  // upload — blocked, the named issue, no account accepted, no totals, never certified — and the page says so. (An
-  // assertion that nothing at all is created would contradict the designed flow.) Bound EXACTLY: user → draft → commit → upload.
+  // ACCOUNT-LIMIT refusal (NORMAL's fixture, one account over the current policy): "Start" saves the entity, the dated
+  // period and the file; the server's check refuses it by name. Bound EXACTLY: user → draft → commit → upload.
   const over = await env.firstUploadInto(page, { mode: "new", entityName: "Finvalid Over Limit Ltd", file: env.overLimitFixture.path });
-  // The card says the check stopped and offers "See the result": a user follows it, so the refusal is read there too.
-  let resultText = "";
-  // (firstUploadInto already follows "See the result" when the card offers it; read wherever the user now is.)
-  if (await page.evaluate(() => /\/workspace\//.test(location.pathname)).catch(() => false)) {
-    await page.waitFor(() => /more than [\d,]+ accounts|Trial balance checks/i.test(document.body.innerText), [], { label: "result content", timeout: 30000 }).catch(() => {});
-    await new Promise((r) => setTimeout(r, 1500));
-    resultText = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
-    await env.shot?.(page, "F-over-limit-result");
-  }
-  const shown = `${over.failure ?? ""} | ${over.shownProblems ?? ""} | ${resultText}`;
-  const refusedOnPage = new RegExp(expected, "i").test(shown) || /more than [\d,]+ accounts|too many accounts|account limit/i.test(shown);
-  const u = over.committedUpload;
-  if (!u) problems.push(`the over-limit file's own upload could not be bound exactly: ${(over.bindProblems ?? []).join("; ")}`);
-  else {
-    const settled = await env.settleUpload(u.id);
-    const ing = settled?.processing_result?.ingestion ?? u.processing_result?.ingestion ?? null;
-    const codes = (ing?.issues ?? []).map((i) => i.code);
-    const accounts = ing?.lineage_summary?.account ?? null;
-    if (!codes.includes(expected)) problems.push(`the over-limit upload was not refused by name (${expected}); issues=${JSON.stringify(codes)}`);
-    if (!(accounts === 0 || accounts === null) || ing?.totals) problems.push(`the over-limit upload accepted accounts or totals (accounts=${accounts}, totals=${JSON.stringify(ing?.totals ?? null)}) — must accept nothing`);
-    if (["complete", "valid"].includes(settled?.status)) problems.push(`the over-limit upload reached an accepted status (${settled?.status})`);
-    if (await env.isCertified(u.company_id, u.period_year)) problems.push("the over-limit upload was certified as accepted");
-  }
-  if (!refusedOnPage) problems.push(`the page did not state the refusal by name (shown: "${shown.slice(0, 240)}")`);
+  const overR = await assertRefused(env, page, "over-limit", over, { code: expected });
+  problems.push(...overR.problems);
 
-  // RECOVERY: a normal file into a fresh entity succeeds (its own file, bound by hash).
-  const rec = await env.firstUploadInto(page, { mode: "new", entityName: "Frecovery Normal Ltd", file: env.taggedCsv("F", "F-recovery.csv") });
-  if (!rec.uploadId) problems.push(`could not recover with a normal file after the refusals (no upload bound; failure="${String(rec.failure ?? "").slice(0, 160)}")`);
-  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup, overFailure: shown.slice(0, 240), overBinding: over.binding, overUploadId: over.committedUpload?.id ?? null, recoveryUploadId: rec.uploadId });
+  // RETRIES of the refused check, as the browser sends them: a NEW request starts a new attempt that is refused the same
+  // way (deterministic; never certified); the SAME request again is a replay that starts nothing.
+  const retries = {};
+  if (overR.facts) {
+    const id = overR.facts.uploadId, reqId = crypto.randomUUID();
+    const before = await env.processingFacts(id);
+    retries.retry = await env.invokeCheck(env.users.owner, id, reqId);
+    const afterRetry = await env.processingFacts(id);
+    retries.replay = await env.invokeCheck(env.users.owner, id, reqId);
+    const afterReplay = await env.processingFacts(id);
+    retries.attempts = [before.upload?.processing_attempt, afterRetry.upload?.processing_attempt, afterReplay.upload?.processing_attempt];
+    if (retries.retry.status !== 200) problems.push(`retry of the refused check answered ${retries.retry.status} ${JSON.stringify(retries.retry.body ?? {}).slice(0, 160)} (expected the same refusal, 200)`);
+    if (!(afterRetry.upload?.processing_attempt > before.upload?.processing_attempt)) problems.push(`a new retry request did not start a new attempt (attempts ${retries.attempts.join(" → ")}) — a processing lock may remain`);
+    if (afterReplay.upload?.processing_attempt !== afterRetry.upload?.processing_attempt) problems.push(`replaying the same retry request started another attempt (attempts ${retries.attempts.join(" → ")})`);
+    for (const [k, f] of [["retry", afterRetry], ["replay", afterReplay]]) {
+      if (f.certifications !== 0) problems.push(`after the ${k}, ${f.certifications} certification(s) exist for refused data`);
+      if (f.upload?.processing_result?.summary?.total_accounts !== 0) problems.push(`after the ${k}, accounts were accepted`);
+      if (!(f.upload?.processing_result?.ingestion?.issues ?? []).some((i) => i.code === expected)) problems.push(`after the ${k}, the refusal no longer names ${expected}`);
+      if (f.run?.status === "running") problems.push(`after the ${k}, an attempt is left running`);
+    }
+    // STALE replacement of the refused upload (draft-commit contract, expected version one behind): refused; it stays current.
+    retries.stale = await env.drafts?.staleReplace?.(env.users.owner, overR.facts.companyId, overR.facts.periodYear);
+    if (!retries.stale?.executed) problems.push(`stale replacement of the refused upload did not execute: ${retries.stale?.reason ?? "facility absent"}`);
+    else {
+      if (retries.stale.status !== 409 || retries.stale.outcome !== "replace_conflict") problems.push(`a stale replacement of the refused upload was not refused as replace_conflict (got ${retries.stale.status} ${retries.stale.outcome})`);
+      if (retries.stale.accepted || !retries.stale.currentKept || retries.stale.currentId !== id) problems.push("a stale replacement changed the refused upload");
+    }
+  }
+
+  // RECOVERY by REPLACEMENT through the page's own Replace: the refused upload is superseded (kept as history, never
+  // certified) and the corrected file becomes the period's active, checked trial balance — same entity and period.
+  let replacement = null;
+  if (overR.facts) {
+    replacement = await env.replaceOnTrialBalancePage(page, overR.facts.companyId, overR.facts.periodYear, env.taggedCsv("F", "F-replacement.csv"));
+    if (!replacement.offered) problems.push("the refused upload offered no Replace on its trial-balance page");
+    else if (replacement.timedOut) problems.push(`replacing the refused upload did not complete (old=${JSON.stringify(replacement.old)})`);
+    else {
+      if (replacement.old?.superseded_by_upload_id !== replacement.newId) problems.push("the refused upload is not recorded as superseded by its replacement");
+      const nf = replacement.facts;
+      if (!(nf?.certifications >= 1)) problems.push("the replacement was not checked (no certification)");
+      if (!(nf?.upload?.processing_result?.summary?.total_accounts > 0)) problems.push("the replacement accepted no accounts");
+      if (nf?.upload?.status === "blocked") problems.push("the replacement is blocked");
+      const oldFacts = await env.processingFacts(replacement.oldId);
+      if (oldFacts.certifications !== 0) problems.push("the superseded refused upload gained a certification");
+      if (!oldFacts.upload?.file_path) problems.push("the superseded refused upload lost its source evidence");
+      replacement.oldAfter = { lifecycle: oldFacts.upload?.lifecycle_state, certifications: oldFacts.certifications };
+      replacement.newAfter = { lifecycle: nf?.upload?.lifecycle_state, status: nf?.upload?.status, totalAccounts: nf?.upload?.processing_result?.summary?.total_accounts, certifications: nf?.certifications };
+    }
+  }
+
+  // UNREADABLE-file refusal: a .csv the browser accepts (extension and size) but the server cannot read as a trial balance
+  // (no amount columns) — refused whole by name, same contract.
+  const unreadable = await env.firstUploadInto(page, { mode: "new", entityName: "Funreadable Columns Ltd",
+    file: env.writeFile("F-no-amount-columns.csv", "Account code,Account name\n1000,Cash at bank\n3000,Share capital\n") });
+  const unreadR = await assertRefused(env, page, "unreadable", unreadable);
+  problems.push(...unreadR.problems);
+
+  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup,
+    overLimit: { binding: over.binding, ...overR.facts }, retries, replacement, unreadable: { binding: unreadable.binding, ...unreadR.facts } });
 }
 
 // G: Review + identity — legitimate same-name/different-code accounts AFTER NORMAL's repair: separate identities &
@@ -335,16 +400,27 @@ async function scenarioI(env) {
   const hubKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind") ?? null).catch(() => null);
   if (!home) return result("FAIL", ["could not observe the first-upload home to assess clarity"]);
   problems.push(...clarityStateProblems(home));
-  problems.push(...primaryActionProblems(home.ctas));
+  // RULING I-1 (documented in research/launch-qa/ACCEPTANCE-PLAN.md): the deliberate "Choose an engagement" state may offer
+  // PEER Resume actions — it passes only on an explicit task, actions naming their engagements, no default, keyboard
+  // reachability and direct navigation. Every state with one actual next task keeps the single-primary rule.
+  let chooser = null;
+  if (hubKind === "choose_engagement") {
+    chooser = await env.observeChooser(page);
+    chooser.navigation = chooser.peers.length ? await env.activateChooserPeer(page, chooser.peers[0]) : null;
+    problems.push(...chooserStateProblems(chooser));
+  } else {
+    problems.push(...primaryActionProblems(home.ctas));
+  }
   problems.push(...copyWordingProblems(home.copy, { context: "first-upload-home" }));
   // RESULT state clarity: A's reviewed workspace page — actionable controls + no codenames/unsupported claims.
   const ws = env.lastWorkspace;
   if (ws?.companyId) {
     await env.go(page, `/workspace/${ws.companyId}/${ws.periodYear}/trial-balance/review`);
     const res = await env.captureClarityState(page, "result");
-    if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
+    // One actual next task on this page: the single-primary rule applies unchanged.
+    if (res) { problems.push(...copyWordingProblems(res.copy, { context: "result" })); problems.push(...primaryActionProblems(res.ctas).map((p) => `[result] ${p}`)); if (!res.whatNext) problems.push("[result] offers no actionable next control on the trial-balance page"); }
   }
-  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved, hubNextActionKind: hubKind, ctas: home.ctas } });
+  return result(problems.length ? "FAIL" : "PASS", problems, { home: { whatHappened: home.whatHappened, whatNext: home.whatNext, saved: home.saved, hubNextActionKind: hubKind, ctas: home.ctas }, chooser });
 }
 
 export const SCENARIOS = [

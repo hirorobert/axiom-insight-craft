@@ -34,3 +34,30 @@ without a real run; existing unit/contract coverage is not journey execution.
 3. `LAUNCH_QA_BASE_URL=<preview> node research/launch-qa/harness/launchQaHarness.mjs`.
 4. Record per-scenario PASS/FAIL + problems + screenshots into `REPORT.md`; a scenario is PASS only on a real run with no
    problems — never from a mockup.
+
+## Owner rulings on the 68f9710 report (2026-10-16)
+
+### Ruling I-1 — peer actions in a deliberate choice
+Scenario I keeps the single-primary rule for every state with **one actual next task** (for example the
+trial-balance result page: "Resolve account classifications"). The hub's deliberate **"Choose an engagement to
+continue"** state (`account-next-action[data-kind="choose_engagement"]`) may present several **peer** Resume actions
+instead of one primary. It passes only when every one of these holds (`chooserStateProblems`, `checks.mjs`):
+
+- the task is explicit: the state's heading tells the user to choose;
+- there are at least two peers, and each action's accessible name identifies its engagement (company and FY), uniquely;
+- nothing is pre-selected: no peer, and nothing else on the screen, is styled as the primary action;
+- every peer is visible and reachable in the real Tab sequence;
+- activating a peer opens that engagement's workspace directly, with no extra confirmation screen.
+
+This is a contextual clarification, not a waiver: scenario I still fails on any violation above, and on a second
+primary in any single-task state.
+
+### Ruling F-1 — a file the server refuses
+A file refused as a whole by the server's check (an upload-policy limit such as `TOO_MANY_ACCOUNTS`, or a file that
+cannot be read as a trial balance) is shown **Blocked** with its recorded reason and a Replace action. It is never
+"being confirmed", and no check is named failed when it did not run. Persisted: the source evidence is kept, the exact
+refusal code is recorded, zero accounts are accepted, no certification exists, no attempt is left running, and no
+dependency snapshot is taken. The upload stays active, so it can be retried (a new request is refused the same way; the
+same request replays), protected from stale replacement (409 `replace_conflict`), and replaced through the page's own
+Replace (the refused upload is superseded and kept, and the corrected file is checked). Scenario F asserts all of this
+for both an account-limit refusal and an unreadable-file refusal.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Launch-acceptance QA — runnable tests for the PURE checks. These execute HERE (no browser/network). They validate the
 // check logic itself; they do NOT assert any of the 9 end-to-end scenarios passed — that needs a live candidate (see REPORT).
-import { productionTargetProblem, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
+import { productionTargetProblem, chooserStateProblems, tabWalkProblems, programmaticFocusProblems, focusOrderProblems, loadingErrorStateProblems, copyWordingProblems, primaryActionProblems, responsiveProblems, ariaAssociationProblems, announcementProblems, clarityStateProblems } from "./checks.mjs";
 
 let pass = 0, fail = 0;
 const check = (n, c, d) => { if (c) { pass++; console.log(`  PASS  ${n}`); } else { fail++; console.log(`  FAIL  ${n}${d !== undefined ? `  — ${JSON.stringify(d)}` : ""}`); } };
@@ -79,6 +79,22 @@ check("a roving-tabindex item inside a composite widget is accepted", programmat
 check("a named hidden notifications region is accepted", programmaticFocusProblems([{ label: "Notifications", role: "region", interactive: false, visible: false, named: true }]).length === 0);
 check("a hidden live region is accepted", programmaticFocusProblems([{ label: "", role: "ol", interactive: false, visible: false, liveRegion: true }]).length === 0);
 check("an unnamed hidden non-live target is flagged", programmaticFocusProblems([{ label: "", role: "div", interactive: false, visible: false }]).some((p) => /no name and no live-region/.test(p)));
+
+group("chooserStateProblems — RULING I-1: peer Resume actions in a deliberate choice");
+const chooser = (o = {}) => ({ title: "Choose an engagement to continue",
+  peers: [{ name: "Resume Mto Holdings Limited FY2026", visible: true, primary: false }, { name: "Resume Gemini Same Name Ltd FY2026", visible: true, primary: false }],
+  otherPrimaries: 0, tabLabels: ["CFOClose home", "Resume Mto Holdings Limited FY2026", "Resume Gemini Same Name Ltd FY2026"],
+  navigation: { name: "Resume Mto Holdings Limited FY2026", expectedPath: "/workspace/c1/2026", landedPath: "/workspace/c1/2026/prepare", dialog: false }, ...o });
+check("an explicit choice of named, keyboard-reachable peers that open directly passes", chooserStateProblems(chooser()).length === 0);
+check("an implicit task is flagged", chooserStateProblems(chooser({ title: "Your engagements" })).some((p) => /not stated explicitly/.test(p)));
+check("a peer that does not name its engagement is flagged", chooserStateProblems(chooser({ peers: [{ name: "Resume", visible: true }, { name: "Resume Gemini Same Name Ltd FY2026", visible: true }] })).some((p) => /does not identify/.test(p)));
+check("indistinguishable peers are flagged", chooserStateProblems(chooser({ peers: [{ name: "Resume Mto Holdings Limited FY2026", visible: true }, { name: "Resume Mto Holdings Limited FY2026", visible: true }] })).some((p) => /same name/.test(p)));
+check("an arbitrary default (a primary peer) is flagged", chooserStateProblems(chooser({ peers: [{ name: "Resume Mto Holdings Limited FY2026", visible: true, primary: true }, { name: "Resume Gemini Same Name Ltd FY2026", visible: true }] })).some((p) => /pre-selected/.test(p)));
+check("another primary on the screen is flagged", chooserStateProblems(chooser({ otherPrimaries: 1 })).some((p) => /pre-selected/.test(p)));
+check("a peer missing from the Tab sequence is flagged", chooserStateProblems(chooser({ tabLabels: ["Resume Mto Holdings Limited FY2026"] })).some((p) => /not reachable by keyboard/.test(p)));
+check("a confirmation screen after choosing is flagged", chooserStateProblems(chooser({ navigation: { name: "x", expectedPath: "/workspace/c1/2026", landedPath: "/workspace/c1/2026", dialog: true } })).some((p) => /confirmation/.test(p)));
+check("opening a different engagement is flagged", chooserStateProblems(chooser({ navigation: { name: "x", expectedPath: "/workspace/c1/2026", landedPath: "/workspace/c2/2026", dialog: false } })).some((p) => /did not open its engagement/.test(p)));
+check("a single peer is not a choice", chooserStateProblems(chooser({ peers: [{ name: "Resume Mto Holdings Limited FY2026", visible: true }] })).some((p) => /at least two/.test(p)));
 
 console.log(`\n${pass}/${pass + fail} launch-qa check-logic tests passed.`);
 console.log("NOTE: these validate the CHECK LOGIC only. No end-to-end launch scenario is executed here — that requires a live");

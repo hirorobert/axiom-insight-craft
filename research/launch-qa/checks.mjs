@@ -178,3 +178,35 @@ export function programmaticFocusProblems(targets) {
   }
   return problems;
 }
+
+/**
+ * RULING I-1 (owner, on the 68f9710 report): a deliberate "Choose an engagement" state may present several PEER Resume
+ * actions instead of one primary. It passes only when ALL hold:
+ *   - the task is explicit (the state's own heading tells the user to choose);
+ *   - there are at least two peers and each action's accessible name identifies its engagement, uniquely;
+ *   - nothing is pre-selected as the default (no primary-styled action anywhere on the screen);
+ *   - every peer is reachable by keyboard (it appears in the real Tab sequence) and visible;
+ *   - activating one opens THAT engagement directly (no extra confirmation screen).
+ * States with one actual next task keep primaryActionProblems (exactly one primary). obs:
+ * { title, peers: [{ name, visible, primary }], otherPrimaries, tabLabels: string[], navigation: { name, expectedPath, landedPath, dialog } }
+ */
+export function chooserStateProblems(obs) {
+  const problems = [];
+  const peers = obs?.peers ?? [];
+  if (!obs?.title || !/choose/i.test(obs.title)) problems.push(`[chooser] the task is not stated explicitly (heading: "${obs?.title ?? ""}")`);
+  if (peers.length < 2) problems.push(`[chooser] a choice needs at least two peer actions (found ${peers.length})`);
+  const names = peers.map((p) => String(p.name ?? "").trim());
+  names.forEach((n, i) => { if (!/FY\s?\d{4}/.test(n) || n.replace(/^Resume\s*/i, "").replace(/FY\s?\d{4}/, "").trim().length < 2) problems.push(`[chooser] action ${i + 1} does not identify its engagement ("${n}")`); });
+  if (new Set(names).size !== names.length) problems.push("[chooser] two actions have the same name — the engagements cannot be told apart");
+  if (peers.some((p) => p.primary) || (obs?.otherPrimaries ?? 0) > 0) problems.push("[chooser] an action is pre-selected as the default (primary-styled) — a choice must not guess");
+  peers.forEach((p, i) => { if (!p.visible) problems.push(`[chooser] action ${i + 1} ("${names[i]}") is not visible`); });
+  const tab = new Set((obs?.tabLabels ?? []).map((l) => String(l).trim()));
+  names.forEach((n) => { if (n && !tab.has(n)) problems.push(`[chooser] "${n}" is not reachable by keyboard (not in the Tab sequence)`); });
+  const nav = obs?.navigation;
+  if (!nav) problems.push("[chooser] activating an action was not observed");
+  else {
+    if (nav.dialog) problems.push(`[chooser] activating "${nav.name}" opened a confirmation instead of the engagement`);
+    if (!nav.expectedPath || !String(nav.landedPath ?? "").startsWith(nav.expectedPath)) problems.push(`[chooser] activating "${nav.name}" did not open its engagement (expected ${nav.expectedPath}, landed ${nav.landedPath})`);
+  }
+  return problems;
+}
