@@ -82,3 +82,27 @@ describe("Phase 1 acceptance", () => {
     for (const id of ["l2_data_quality", "l3_arithmetic", "l4_classification"]) expect(v.checks.find((c) => c.id === id)?.state).not.toBe("passed");
   });
 });
+
+describe("evidence wording and precision (owner corrections, 16 October)", () => {
+  // Unexplained differences are described neutrally: what differs and by how much, never why.
+  const CAUSAL = /\b(because|caused|due to|mistake|fraud|error by|probably|likely|someone|preparer|clerk|keyed|forgot|omitted by)\b/i;
+  it("an imbalance states the totals and the exact difference, and attributes no cause", () => {
+    const accounts = [...ACCOUNTS.slice(0, 2), ["93001", "Capital", null, 140.02]];
+    const issue = printed(accounts, [null, null, 146.37, 140.02]).issues.find((i) => i.code === "TRIAL_BALANCE_IMBALANCE")!;
+    expect(issue.message).toMatch(/146\.37/);
+    expect(issue.message).toMatch(/140\.02/);
+    expect(issue.message).toMatch(/difference is 6\.35\b/); // exact, not rounded
+    expect(issue.message).not.toMatch(CAUSAL);
+  });
+  it("a printed control total that differs from the accounts is stated as a difference, without blame", () => {
+    const issue = printed(ACCOUNTS, [null, null, 146.37, 145.37]).issues.find((i) => i.code === "TOTAL_ROW_MISMATCH")!;
+    expect(issue.message).toMatch(/does not equal/);
+    expect(issue.message).not.toMatch(CAUSAL);
+  });
+  it("amounts are kept in exact minor units; display formatting never changes the recorded totals", () => {
+    const r = printed();
+    expect(r.totals?.debitMinor).toBe(14637n);
+    expect(r.totals?.creditMinor).toBe(14637n);
+    expect(r.totals?.differenceMinor).toBe(0n);
+  });
+});

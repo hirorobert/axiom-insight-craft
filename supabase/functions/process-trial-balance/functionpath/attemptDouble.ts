@@ -48,11 +48,14 @@ export function installAttemptDoubles(w: World): void {
     return ok({ recorded: (a.p_keys as unknown[]).length });
   };
 
+  // 20261107100000: the complete-findings store is present.
+  w.rpc.tb_certification_findings_supported = () => ok(true);
+
   w.rpc.tb_finalize_attempt = (a) => {
     const r = a.p_result as {
       outcome: "certified" | "failed"; error_code?: string;
       upload: { status: string; is_valid: boolean; processing_result: unknown; validation_report?: unknown; accounting_errors: unknown };
-      certification?: { normalized_input_hash: string; output_hash: string; is_blocking: boolean; requires_review: boolean; exceptions: unknown[]; rows_snapshot: unknown[] };
+      certification?: { normalized_input_hash: string; output_hash: string; is_blocking: boolean; requires_review: boolean; exceptions: unknown[]; findings?: unknown[]; rows_snapshot: unknown[] };
     };
     const run = (w.tables.engine_runs ?? []).find((x) => x.id === a.p_engine_run_id);
     const up = run && w.tables.trial_balance_uploads?.find((u) => u.id === run.source_record_id);
@@ -68,6 +71,7 @@ export function installAttemptDoubles(w: World): void {
         p_normalized_input_hash: r.certification.normalized_input_hash, p_output_hash: r.certification.output_hash,
         p_is_blocking: r.certification.is_blocking, p_requires_review: r.certification.requires_review,
         p_exceptions: r.certification.exceptions, p_rows_snapshot: r.certification.rows_snapshot,
+        findings: r.certification.findings ?? null,
       });
     }
     Object.assign(up, {

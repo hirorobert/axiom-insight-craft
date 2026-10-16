@@ -175,6 +175,9 @@ jobs:
       - name: Type-check the complete trial-balance-draft function (Phase 2 P2-2 drafts; sign, commit and cancel) against the real Supabase client types
         run: deno check supabase/functions/trial-balance-draft/index.ts
 
+      - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
+        run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
+
       - name: Type-check the online payment functions (checkout, recovery, provider diagnostics and the Polar and Snippe webhooks) against the real Supabase client types
         run: deno check supabase/functions/commercial-create-checkout/index.ts supabase/functions/commercial-payment-status/index.ts supabase/functions/commercial-provider-diagnostics/index.ts supabase/functions/commercial-webhook-polar/index.ts supabase/functions/commercial-webhook-snippe/index.ts supabase/functions/commercial-payment-webhook/index.ts
 
@@ -371,6 +374,10 @@ jobs:
       - name: Trial balance drafts journey (the same stack; real Auth, PostgREST, RLS, Storage and the trial-balance-draft function served from this repository; reserve, signed upload, commit with server copy and SHA-256 verification, lost responses, interruptions resumed, revoked authority, integrity refusal, retention sweeps deleting real objects, committed evidence intact)
         if: always()
         run: bun scripts/e2e/draftJourney.mjs real-app-evidence/drafts
+
+      - name: Keep the local Edge Functions log with the drafts evidence when that journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/drafts/edge-runtime.log 2>&1
 
       - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
         if: always()
@@ -595,6 +602,22 @@ jobs:
         run: |
           createdb drafts_proof
           bun scripts/db-proof/trialBalanceDrafts.mjs
+
+      - name: Certification capacity proof (repair A — reproduces the 64 KB refusal on the chain without 20261107100000, then every finding is stored under the attempt fence with a bounded, server-checked summary and a recomputable hash; a disagreeing summary records nothing; 12 concurrent attempts keep their own findings; earlier certifications unchanged; every dependency key recorded with bounded locks; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/cert_capacity_proof
+        run: |
+          createdb cert_capacity_proof
+          bun scripts/db-proof/certificationCapacity.mjs
+
+      - name: Account identity proof (repair B — reproduces the raw unique violation for two coded accounts sharing a name on the chain without 20261108100000, then both are reviewed and kept apart, renaming works, codeless names stay unique for companies and globally, tenants isolated, 12 concurrent acceptances; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/account_identity_proof
+        run: |
+          createdb account_identity_proof
+          bun scripts/db-proof/accountIdentity.mjs
 
       - name: I1-C layout-assist controls proof (the real layout-assist function refuses before any read while no provider is wired; provider disabled with both approval gates required; versioned, revocable, append-only workspace consent by manage_members; daily quota and monthly cost cap reserved pessimistically under 12-way concurrency; idempotent runs completed once; a test provider injected into the real function sees only the minimized sample, the suggestion is validated against the whole file and confirmed only through the existing layout function; on the same throwaway container)
         env:

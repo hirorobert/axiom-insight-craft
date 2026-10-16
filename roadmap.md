@@ -42,7 +42,7 @@ entity list. The two removed screens never appear while only one service exists.
 | P2-1 | One way in while one service exists (entry card); header status; entity wording | VERIFIED IN ISOLATION (PR #136 at `578ac97`: every job green except the payment proofs #133 fixes) |
 | P2-2 | Draft upload authority: owner-scoped drafts, commit to an entity, recovery protocol, 7-day retention | VERIFIED END TO END on the local stack (`d2e2bad`, run 38856014011); not integrated, not deployed |
 | P2-3 | First-visit drop zone; confirmation card (new entity, period presets with derived start or custom dates, currency from the registry); one primary "Start trial balance check" through create_entity → open_engagement_with_period → draft commit → process-trial-balance (resumable, no duplicates); stages File read → Columns confirmed → Checks completed from the server's milestones; draft message | VERIFIED END TO END on the local stack (`8de0eec`, run 38860710080) for a new customer WITH a plan and entity capacity; existing-entity and purchase-required paths not built |
-| **P2-4 (current)** | DONE in code: returning Home compact upload (outline, above the one next action); upload to an existing entity with the currency pre-filled from its confirmed period (source shown) and the following year as a suggestion only; purchase-required path (no plan: draft kept, 'Choose a plan', 'Continue with' the same draft and card afterwards); Orders → Settings › Billing (`/settings/billing`, `/billing/orders` redirects with query). NOT YET: entity list redesign (entity · latest period · service · status), payment notice, Reconcile locked with reason, replace-from-draft, investigation access while finalisation is blocked | IMPLEMENTED — awaiting exact-head CI |
+| **P2-4 (current)** | DONE in code: returning Home compact upload (outline, above the one next action); upload to an existing entity with the currency pre-filled from its confirmed period (source shown) and the following year as a suggestion only; purchase-required path (no plan: draft kept, 'Choose a plan', 'Continue with' the same draft and card afterwards); Orders → Settings › Billing (`/settings/billing`, `/billing/orders` redirects with query). Safe replacement from a draft (retire_trial_balance_upload; current kept if it fails; stale version refused). A locked stage's tab shows the state engine's own one-line blocker (e.g. Reconcile waiting for a certified trial balance) instead of a generic sentence; the locked tab still opens the stage's explanation with its link to the prerequisite (investigation stays reachable). NOT YET: entity list redesign (entity · latest period · service · status), the unresolved-payment notice | IMPLEMENTED — exact-head CI on `a8aa55d` / candidate `1eee1d9` running |
 | P2-5 | Integrity across entity creation → commit → job → usage; acceptance journeys 1–14; desktop/mobile screenshots | NOT STARTED |
 
 ### P2-2 — what exists and what it proves
@@ -82,6 +82,7 @@ Files: `supabase/migrations/20261106100000_trial_balance_drafts.sql`, `supabase/
 | #136 `b65769b` (P2-2) | 38853987539 | Drafts PostgreSQL proof **ALL PASSED** (CI container); local-stack draft journey **25/25** (real Auth, PostgREST, RLS, Storage, function); Release Gate, lint/build/typecheck, golden, migration audit **green**. Failing: payment proofs (fixed by #133, known) and the new Deno check of `trial-balance-draft` (it used `npm:` imports that the Deno job cannot resolve → switched to the `esm.sh` pattern of the other checked functions in the next commit). |
 | #136 `d2e2bad` (P2-2 + Deno fixes) | 38856014011 | **All P2-2 evidence green on this exact head:** drafts PostgreSQL proof 71/71 (CI container); local-stack draft journey 25/25 (real Storage); the existing real-app journey (entity-first flow, i.e. old frontend path on the new backend) ALL PASSED; Deno check of `trial-balance-draft` green; Release Gate, lint/build/typecheck, golden, migration audit green; every other database proof green (upload lifecycle 207/207, shared source, wrappers, …). **Only failing steps:** the payment proofs #133 fixes (`paymentJourney` 49/54, verified-charge proof 19/26). So #136 is NOT green as a tree; it becomes mergeable only on a base that includes #133. |
 | #136 `8de0eec` (P2-3) | 38860710080 | Real-app journey **ALL PASSED** including the first upload through the real UI: draft stored (no entity yet), empty card refused with a problem list, card → entity "Kilima Invented Traders Ltd", period 1 Jul 2025 – 30 Jun 2026 TZS, upload bound to that period, draft committed to that exact upload, stages File read Done / Columns confirmed Done / Checks completed Needs review, result page opened; 1280/375 px layout checks on every new screen. Drafts journey 25/25; drafts proof 71/71; all other jobs green except the payment proofs #133 fixes (5 payment-journey checks, verified-charge proof). |
+| #139 `1eee1d9` (combined candidate: main `00a2653` + #137 + #136 at `a8aa55d`) | 38871104237 | **Every required job green** (Staging RLS skipped, as on every PR), including P2-4 and the safe replacement. Earlier green heads do not cover later commits. |
 | #137 `f12ebcf` (#132 + #133 on main `00a2653`) | 38853015089 | **Every job green** (Staging RLS skipped, as on every PR). |
 
 Locally on PostgreSQL 16 (embedded): drafts proof 71/71; existing shared-source proof 44/44 and upload-lifecycle proof
@@ -93,33 +94,69 @@ orchestration deleting real objects. Simulated: a worker stopping between steps 
 then the real function resumes), a lost response (the same request again), time passing (expiry columns moved by the
 service role), and the pg_cron/pg_net ticket (the sweeper orchestration is called directly).
 
-## Upload policy (tb-upload-policy-1) — PROVISIONAL, enforced
+## Upload policy (tb-upload-policy-2) — PROVISIONAL values, ENFORCED in code, NOT deployed
 
-One module, `supabase/functions/_shared/uploadPolicy.ts`, enforced by the shared reader before any parse (so by
-`process-trial-balance`, `trial-balance-layout` and `layout-assist`), mirrored for the browser (`src/lib/workspace/uploadPolicy.ts`)
-and equal to the drafts migration's size CHECK (all held equal by `uploadPolicy.test.ts`). Current values: file 50 MB;
-`.xlsx` expanded (declared, from the ZIP central directory, nothing inflated) 200 MB and 2,000 parts; 200,000 rows;
-4,000,000 cells. Before this, the trial-balance path enforced **no** resource limit at all.
+One module, `supabase/functions/_shared/uploadPolicy.ts`, mirrored for the browser (`src/lib/workspace/uploadPolicy.ts`) and
+equal to the drafts migration's size CHECK (held equal by `uploadPolicy.test.ts`). Before this work the trial-balance path
+enforced **no** resource limit at all.
 
-**Measured** (`scripts/bench/tbUploadPolicyBench.mjs`, invented balanced TBs, real shared reader + ingestion, one fresh process
-per case; Bun 1.3.14 on Windows — NOT the hosted Deno Edge Runtime, so absolute numbers differ there; process baseline ≈130 MB):
+**Enforcement (in code since `c532eda`/`fac0304`; deployed nowhere):** on the downloaded bytes, before any reader, at every
+entry point (`process-trial-balance` — also before its audited-accounts workbook probe — and `trial-balance-layout`'s
+`openUpload`, which serves `layout-assist`): (1) raw size; (2) for `.xlsx`/`.xlsm`, every entry inflated as a STREAM and its
+REAL output counted, cut off at the limit (a package whose directory understates its sizes is caught; declared sizes are only
+a first filter); (3) during the parse, at most limit + 1 rows per sheet (`sheetRows`) and per CSV (`parseCsvText` bound);
+(4) rows and cells after reading. Every refusal is a named, blocking issue with no rows accepted and no totals — never a
+truncation or a partial acceptance.
 
-| Input | File | Expanded | Read + ingest | Peak RSS |
-|---|---|---|---|---|
-| CSV 10k rows | 0.4 MB | — | 0.14 s | 165 MB |
-| CSV 100k rows | 4.0 MB | — | 1.6 s | 290 MB |
-| XLSX 10k rows | 1.6 MB | 1.6 MB | 0.4 s | 205 MB |
-| XLSX 50k rows | 8.1 MB | 8.1 MB | 1.7 s | 347 MB |
-| XLSX 100k rows | 16.3 MB | 16.3 MB | 3.0 s | 570 MB |
-| XLSX (deflated) 100k rows | 6.1 MB | 16.3 MB | 5.7 s | 548 MB |
-| XLSX 200k rows (refused: rows) | 33.3 MB | 33.3 MB | 5.8 s | 790 MB |
-| 4 concurrent XLSX 100k (separate processes) | | | 7.8 s wall | ≈567 MB each |
+**Values (provisional, owner approval pending), set from measurement — on the REAL function, not only the parser.** A first
+setting of 25,000 rows passed the bare Deno probe (45 MB heap, 0.45 s) but, in the real `process-trial-balance` on the local
+Edge Runtime, a 25,000-line workbook exhausted the worker (HTTP 546 after 2.3 s; the upload left "processing" until the
+attempt lease frees it). The values were therefore lowered, and the drafts journey now processes a workbook and a CSV EXACTLY
+at the limit through the real function (must answer 200 with every account read) and one row over (must be refused by name):
 
-Findings: (1) workbook memory grows ≈27 bytes per expanded byte; (2) the row/cell limits apply only AFTER the spreadsheet
-library has parsed the workbook, so for `.xlsx` the expanded-size limit is the real memory guard; (3) at today's values a
-single accepted workbook can exceed any plausible single-invocation memory budget; (4) the declared-size check stops ordinary
-compression bombs but trusts the archive's own directory (a forged directory could understate sizes) — a streaming,
-capped inflate is the stronger guard and is not built; (5) not yet measured in the hosted Edge Runtime (needs a deployment).
+| Limit | Value | Why |
+|---|---|---|
+| Raw upload / storage (draft and file) | 10 MB | separate from parse limits; a raw byte cap, not a memory guard |
+| Workbook ACTUAL expansion | 2 MB | a 10,000-row workbook ≈ 1.6 MB expanded |
+| Rows (lines, header included) | 10,000 | about twice a large trial balance (typical < 5,000) |
+| Cells | 120,000 | 10,000 lines × 12 columns |
+| Workbook parts | 2,000 | unchanged |
+
+**Measurement (Deno 2.9.6 / V8 15.0, the Edge Runtime's engine, HARD 150 MB heap cap, one process per invented case, CI
+run on `ba36380`):** CSV 10k/25k/50k/100k/150k rows fitted (heap 18/39/66/100/134 MB, 0.07–0.76 s); XLSX 5k/10k/25k/50k/75k
+rows fitted (heap 18/21/54/100/115 MB, 0.13–1.5 s); **XLSX 100,000 rows (16.3 MB expanded) TERMINATED**, plain and deflated —
+which the previous provisional limits (50 MB file, 200 MB expansion, 200,000 rows) would have admitted. The probe now
+brackets the new limits (within, one over, far over, and a package declaring 10 bytes that inflates to 512 MB): results on
+`fac0304`. Earlier Bun runs (local, not the hosted engine) showed the same shape (≈27 bytes of memory per expanded byte;
+4 concurrent 100k-row workbooks ≈567 MB each — memory is per invocation, not shared).
+
+**Demonstrated on the real function (local stack, drafts journey on `fac0304`):** a package that understates its expansion,
+a CSV one row over and a workbook one row over are each refused by name by `process-trial-balance`, with no accounts and no
+totals recorded; an ordinary file processed afterwards succeeds.
+
+**RELEASE BLOCKER found at the limit (pre-existing; not introduced by this work; not fixed):** processing ceilings in the
+certification layer, far below the upload policy. Evidence: the real function on the local stack (run 38878031417, Edge
+Runtime log kept) and a direct PostgreSQL measurement.
+1. `tb_certifications.exceptions` is bounded by `pg_column_size(exceptions) <= 65536`
+   (`20260902130000_safisha_certification_foundation.sql`). On a first upload every account without a reviewed mapping adds
+   one NEEDS_REVIEW exception (≈190 bytes with realistic names), so **a trial balance with more than ≈340 accounts needing
+   review cannot be processed at all**: `tb_finalize_attempt` is refused (23514) and the customer sees "could not be processed
+   right now". Measured: 300 accounts 57,085 bytes (fits); 400 accounts 76,175 bytes (refused). Reproduced: 1,000-, 2,500- and
+   5,000-line files all failed this way; a 3-account file succeeds.
+2. `tb_snapshot_dependencies` accepts at most 20,000 dependency keys and processing sends four per coded account (code and
+   name, company and global scope), so **more than ≈4,999 coded accounts can never be processed** (INVALID_DEPENDENCIES,
+   reproduced at 10,000 lines).
+Until resolved, the effective first-upload capacity is ≈340 accounts, and above it the failure is NOT explicit. Smallest
+compatible resolution (needs owner approval: it changes the certification record and its CHECK): record one bounded
+aggregate NEEDS_REVIEW exception (count and the first accounts) in the certification while the per-account review detail
+stays where the review UI already reads it (the processing result), size the remaining bounds from the upload policy, and
+until then map a finalize refusal for size to an explicit, named refusal instead of "processing unavailable".
+
+**Remaining runtime limitations (stated, not solved):** (a) the hosted Edge Runtime's own memory/CPU limits have not been
+measured on the hosted project (needs an authorised deployment); the 150 MB cap is a stand-in; (b) JavaScript cannot
+preempt a synchronous parse, so time is bounded by the size limits, not by a timer — the runtime's wall-clock kill and the
+processing attempt lease are the backstop; (c) `.xls` (BIFF) has no expansion step; it is bounded by raw size and the row
+bound during the parse; (d) the draft commit reads the stored file whole to hash it (bounded by the 10 MB raw limit).
 
 ## Phase 5/6 compatibility with Phase 2 (assessed 16 October against #138 `403b312`)
 
@@ -135,9 +172,9 @@ Compatible, with these points to settle before Phase 6:
    (legacy year-only uploads), and the commit's `confirmation.currency` is a record of what the user saw, not the currency
    authority (`fiscal_periods.reporting_currency`). P2-3 must persist the confirmed period and currency through the existing
    period authority before commit; Phase 6 must treat a null period as a context gap, not assume one.
-5. **Replacement.** Draft commit registers initial uploads only; a period with an active trial balance answers
-   `active_upload_exists`. Replace-from-draft (via `retire_trial_balance_upload`) is not built; Phase 6 reuse
-   (`STALE_IDENTITY`/`STALE_MEANING` on a repeat upload) depends on it or on the existing replace path.
+5. **Replacement.** Built (P2-4): a draft replaces the period's active trial balance only by the user's choice, through
+   `retire_trial_balance_upload` (the old upload superseded and kept, linked by `replaces_upload_id`). Phase 6 reuse
+   (`STALE_IDENTITY`/`STALE_MEANING` on a repeat upload) can rely on that link.
 6. **One status vocabulary.** Phase 6 readiness words must map onto `src/lib/workspace/resultStatus.ts` (Phase 1).
 7. **No competing mapping mechanism** is built by Phase 2; mapping authority stays `resolve_account_review_batch`.
 
@@ -157,6 +194,54 @@ is — it should print `SHOW server_version`; (b) `prototype/layer4_treatment.mj
 (c) `TB_INGESTION_VERSION` is cited as `tb-ingest-3.0.0` (current 3.2.0). A PostgreSQL 17 run is to follow in CI (a
 `postgres:17` service) once the fixture is fixed — running it now would fail at the same step.
 
+**#138 actual-RPC proof — reconciled with #138 `5a06e56` (evidence branch commit `2632348`, draft #140, never to be merged).**
+The owner adopted two corrections (seats via the supported `NAMED_USER_SEATS` entitlement override; the real server version
+printed). Two remain, labelled `EVIDENCE-BRANCH CORRECTION` for the owner to adopt: the `extensions` schema setup and the
+next-period repeat upload. The `extensions.digest` setup exposes the SAME pgcrypto function hosted Supabase installs in
+`extensions` (verified in the run: SHA-256 test vector for "abc", identical through both schemas) — it replaces no
+application logic.
+
+| Class | Result |
+|---|---|
+| Fixture setup failures (not evidence either way) | seats (fixed by the owner), `extensions` schema, two active uploads in one period — all corrected; none remain |
+| Expected refusals (executed against the real RPC) | PASS: non-member, cross-tenant, viewer, empty batch, AUTO_MAPPED_RULE, invalid action, cash-flow classification, statement/classification mismatch, changed payload under one key, mixed manual batch (atomic) |
+| Positive paths | PASS: idempotent replay, atomic abort with nothing persisted, company-scoped reuse on a repeat upload, the manual multi-account path (one attributable decision per account), conflict serialisation with both decisions in the ledger |
+| **Genuine product incompatibility** | **FAIL: same name, different codes** (below) |
+
+**PostgreSQL 17.11 (CI, isolated `postgres:17` container, run 38874699334 on `2632348`): 24/25** — the extensions setup and the
+seat override pass; the only failure is the same-name finding. PostgreSQL 16.14 (local): 24/25, identical. Authenticated
+runtime (local stack / hosted): none.
+
+**Identity-model compatibility finding (not fixed; recommendation for owner approval).** The decision key is
+`account_key = COALESCE(account_code, normalized_account_name)` (unique `(company_id, account_key)`; every review write is
+`ON CONFLICT (company_id, account_key)`). The older index `uq_acct_map_company_norm_name (company_id,
+normalized_account_name)` was kept "as belt-and-suspenders" and enforces a DIFFERENT identity — name per company — so two
+coded accounts with the same name (`4000 Sales`, `4100 Sales`) cannot both be mapped, and the real RPC fails with a raw
+constraint violation. This affects today's Account Review too, not only Phase 6. Affected: that index; the review RPC's
+writes; `process-trial-balance`'s Tier 2 `companyByName` (a last-wins `Map`, deterministic today only because of that
+index); the `account_review_decisions` key (`review_account_key` = `account_key`, already code-based — unaffected).
+**Smallest compatible resolution:** (1) a forward migration that replaces the name index with
+`UNIQUE (company_id, normalized_account_name) WHERE account_code IS NULL` — name identity only for codeless accounts, exactly
+what `account_key` already means; code identity and `(company_id, account_key)` unchanged; `company_id` stays in every key
+(tenant isolation unchanged); no identity is merged; (2) Tier 2 name matching in `process-trial-balance` reads only codeless
+reviewed mappings, and a name shared by several coded mappings matches none (falls to review), never last-wins. A cleaner
+error alone would not establish support; this needs its own migration, proof and owner approval.
+
+**Phase 6 reuse rule (agreed constraint):** a reviewed decision is reused only where the context it was accepted in is
+recorded and verified compatible (same company, the same account identity, a compatible chart/source and reporting context);
+absent or unverifiable accepting context requires renewed confirmation — never silent reuse on `company_id + account_key`
+alone. NOTE (existing behaviour, registered not changed): today `process-trial-balance` already applies a company's reviewed
+mapping to any later upload by code (Tier 1) without such a context check; Phase 6 must not extend that, and its reuse
+authority is where the context binding belongs.
+
+**Evidence principles (owner, 16 October) — binding on Phase 2 output and on Phase 6:** two trial balances establish NET
+movements per account, not their cash/non-cash composition (cash flow needs ledger evidence); a source imbalance stays
+visible after balanced adjustments (adjustments never restate the source result); signed prior statements are identified
+separately from later comparatives; amounts are exact minor units and display rounding is labelled as display (pinned:
+`trialBalanceExactTotals`, `phase1Acceptance`); corrections create linked source versions and never overwrite history
+(replacement: `replaces_upload_id`, old upload superseded and kept — proven); unexplained differences are described
+neutrally, with amounts and no cause (pinned in `phase1Acceptance`).
+
 **Contract points to agree before Phase 6 (beyond byte identity):** entity — mappings are company-scoped by `account_key`;
 period — Phase 2 binds period year + dated period, but legacy uploads may have no `period_id`; currency — the dated period's
 `reporting_currency` is the authority (the commit's confirmation is a record of what was confirmed); dimensions — #138
@@ -167,7 +252,8 @@ that merely share an uncertainty flag); versions — reuse must be bound to the 
 version read from code; reviewer semantics — `USER_ACCEPTED_SUGGESTION` per account, latest `sequence_no` wins, history
 never rewritten.
 
-**Proposed file ownership (to agree before any shared production edit):**
+**Proposed file ownership — NOT YET AGREED (posted on #138, no response from its owner yet; no shared production edit until
+agreed):**
 - Core journey/integration (this session): `supabase/migrations/20261106100000_*`, `supabase/functions/trial-balance-draft/`,
   `_shared/draftUpload.ts`, `_shared/sourceSweeper.ts`, `_shared/tbIngestion.ts`, `_shared/printedReportMetadata.ts`,
   `src/lib/workspace/**` (incl. `resultStatus.ts`, `trialBalanceDraft.ts`, `onboardingState.ts`), `src/pages/workspace/**`,
@@ -180,13 +266,15 @@ never rewritten.
 
 ## Outstanding owner decisions
 
-1. **#132/#133 integration**: recommended arrangement is the combined candidate draft #137 (current `main` + #132 + #133,
-   no file overlap); merge only with every required check green on its final head. No merge permission is assumed.
+1. **Integration**: the combined candidate is draft #139 (current `main` + #137 [= #132 + #133] + #136). Merge only on an
+   authorised decision with every required check green on its final head. No merge permission is assumed; #134 and #140
+   are evidence-only and never merged.
 2. **Draft size cap**: now part of the one upload policy — see decision 6.
 3. **Hosted application** of `20261106100000` and deployment of `trial-balance-draft`: owner/Lovable only; not requested.
 4. **Payments** stay disabled until Polar and Snippe both pass (decided 14 October; restated 15 October).
 5. **Phase 6** scope and the file-ownership split above.
-6. **Upload policy values.** Recommendation from the measurements: file 15 MB, `.xlsx` expanded 16 MB, 100,000 rows, 2,000,000 cells (typical trial balances are well under 5,000 rows), then confirm with one measured run in the hosted Edge Runtime before publishing the limits to customers.
+6. **Upload policy values (tb-upload-policy-2).** Approve, or change, the measured provisional values above (raw 10 MB; actual workbook expansion 6 MB; 25,000 rows; 300,000 cells) before they are shown to customers, and authorise one measured run in the hosted Edge Runtime.
+7. **Identity model.** Approve the same-name/different-code resolution above (a forward migration and a Tier 2 matching change), as its own batch.
 
 ## Earlier notes (kept)
 

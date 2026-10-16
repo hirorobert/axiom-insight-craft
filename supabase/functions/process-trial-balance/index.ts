@@ -40,7 +40,10 @@ import {
   MilestoneLog, TB_INGESTION_VERSION, classificationNeedsReview, formatMinor, ingestTrialBalance, markIngestionMilestones,
   minorToNumber, sheetRowsFromMatrix, type Cell, type IngestIssue, type IngestResult,
 } from "../_shared/tbIngestion.ts";
-import { detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, type XlsxLike } from "../_shared/tbSource.ts";
+import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
+import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
+import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
+import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -60,12 +63,18 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // functions; the database refuses every other write to the upload's processing fields, runs and certifications.
 // A2 (v4): reads the upload's confirmed layout, binds its resolved hash into the input hash and records the
 // '#layout_confirmation:<upload>' dependency; refuses before any write when the layout authority is missing.
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v4";
+// v5: records the COMPLETE findings (tb_certification_findings, 20261107100000) with a bounded summary on the
+// certification; output_hash binds the certified rows AND the complete findings; the account bound is enforced.
+// v6: name fallback by counting candidates (20261108100000): a coded account never takes another code's decision by
+// name; several candidates go to review, never the first or the last.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v6";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
 // refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
 // 4 = reads layout confirmations; tb_begin_attempt refuses a lower generation for an upload that has one (20261010100000).
-const ENGINE_GENERATION = 4;
+// 5 = records complete findings (needs 20261107100000; a floor of 5 retires engines that cannot).
+// 6 = counts name candidates (20261108100000 lets coded accounts share a name; a floor of 6 retires last-wins engines).
+const ENGINE_GENERATION = 6;
 
 // The attempt lease: longer than the hosted Edge wall-clock limit (400 s) plus a margin. A run still marked running after
 // it can be abandoned (LEASE_EXPIRED) by the next authorized request or the expiry pass; its worker is then fenced out.
@@ -521,21 +530,6 @@ function levenshtein(a: string, b: string): number {
   return row[n];
 }
 
-// ── Fuzzy lookup over a normalised-name → AccountMapping map (distance ≤ 2) ───
-
-function fuzzyMapLookup(
-  normName: string,
-  nameMap:  Map<string, AccountMapping>,
-): AccountMapping | null {
-  let best = 3; // must be strictly less than 3 (i.e., ≤ 2) to win
-  let hit: AccountMapping | null = null;
-  for (const [key, mapping] of nameMap) {
-    const d = levenshtein(normName, key);
-    if (d < best) { best = d; hit = mapping; }
-  }
-  return hit;
-}
-
 // ── Derive statement + normal_balance from classification ─────────────────────
 
 function classificationMeta(cls: string): { statement: string; normal_balance: "debit" | "credit" } {
@@ -554,6 +548,16 @@ function classificationMeta(cls: string): { statement: string; normal_balance: "
   return table[cls] ?? { statement: "income_statement", normal_balance: "debit" };
 }
 
+/** Why an account's name cannot choose its reviewed mapping: the candidates are named, none is chosen. */
+function ambiguousNameReason(account: RawAccount, match: NameMatch<AccountMapping>): string {
+  const code = account.account_code?.trim() ?? "";
+  const label = `"${account.account_name}"${code ? ` (${code})` : ""}`;
+  if (match.kind !== "ambiguous") return `${label} shares its name with another account in this file, so a decision made for the name cannot tell them apart. Choose its classification.`;
+  const shown = match.candidates.slice(0, 3).map((m) => `"${m.account_name ?? ""}"${m.account_code ? ` (${m.account_code})` : ""}`).join(", ");
+  const more = match.candidates.length > 3 ? ` and ${match.candidates.length - 3} more` : "";
+  return `${label} matches ${match.candidates.length} reviewed accounts by name (${shown}${more}). Choose its classification.`;
+}
+
 // ── 6-tier account classifier ─────────────────────────────────────────────────
 // Tier 1–3: account_mappings (company-scoped then global) — code exact, then name exact/fuzzy.
 // Tier 4:   keyword_dictionary — exact → contains longest-match-wins → fuzzy (exact terms only).
@@ -567,11 +571,12 @@ function classifyAccountTiered(
   account:       RawAccount,
   reportingFramework: string | null,
   companyByCode: Map<string, AccountMapping>,
-  companyByName: Map<string, AccountMapping>,
+  companyByName: Map<string, AccountMapping[]>,
   globalByCode:  Map<string, AccountMapping>,
-  globalByName:  Map<string, AccountMapping>,
+  globalByName:  Map<string, AccountMapping[]>,
   kwdExact:      KeywordRow[],
   kwdContains:   KeywordRow[],
+  namesSharedInFile: ReadonlySet<string> = new Set(),
 ): TieredClassifyResult {
   const normName = normalizeAccountName(account.account_name);
   const code     = account.account_code?.trim() ?? "";
@@ -581,13 +586,18 @@ function classifyAccountTiered(
     return { status: "classified", mapping: companyByCode.get(code)!, confidence: "high", confidence_source: "mapping", tier: 1 };
   }
 
-  // ── Tier 2: company mapping, normalised name — exact then fuzzy ≤ 2 ───────
+  // ── Tier 2: company reviewed mapping by name — exact then fuzzy ≤ 2, by COUNTING candidates ───────────────────
+  // companyByName holds only codeless reviewed mappings (a name is an identity only without a code), so a coded
+  // account never takes another code's decision by name. Several candidates — in the mappings, or a name carried by
+  // more than one account of this file — are never resolved by picking one: the account goes to review.
   if (normName) {
-    if (companyByName.has(normName)) {
-      return { status: "classified", mapping: companyByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 2 };
+    const c = matchByName(normName, companyByName);
+    if (c.kind === "one" && !namesSharedInFile.has(normName)) {
+      return { status: "classified", mapping: c.mapping, confidence: "high", confidence_source: "mapping", tier: 2, ...(c.fuzzy ? { fuzzy: true } : {}) };
     }
-    const fuzzyC = fuzzyMapLookup(normName, companyByName);
-    if (fuzzyC) return { status: "classified", mapping: fuzzyC, confidence: "high", confidence_source: "mapping", tier: 2, fuzzy: true };
+    if (c.kind === "ambiguous" || (c.kind === "one" && namesSharedInFile.has(normName))) {
+      return { status: "needs_review", reason: ambiguousNameReason(account, c) };
+    }
   }
 
   // ── Tier 3: global mapping (company_id IS NULL) — code exact, then name exact/fuzzy ─
@@ -595,11 +605,9 @@ function classifyAccountTiered(
     return { status: "classified", mapping: globalByCode.get(code)!, confidence: "high", confidence_source: "mapping", tier: 3 };
   }
   if (normName) {
-    if (globalByName.has(normName)) {
-      return { status: "classified", mapping: globalByName.get(normName)!, confidence: "high", confidence_source: "mapping", tier: 3 };
-    }
-    const fuzzyG = fuzzyMapLookup(normName, globalByName);
-    if (fuzzyG) return { status: "classified", mapping: fuzzyG, confidence: "high", confidence_source: "mapping", tier: 3, fuzzy: true };
+    // A suggestion only (Tier 3 always needs review); several candidates suggest nothing by name.
+    const g = matchByName(normName, globalByName);
+    if (g.kind === "one") return { status: "classified", mapping: g.mapping, confidence: "high", confidence_source: "mapping", tier: 3, ...(g.fuzzy ? { fuzzy: true } : {}) };
   }
 
   // ── Framework vocabulary: IPSAS/GFRS only ────────────────────────────────
@@ -1200,6 +1208,23 @@ function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccoun
   return [...keys.values()];
 }
 
+/** Records the attempt as failed with a named reason and answers it as a refusal (never as a success). */
+async function refuseCertification(
+  supabase: ReturnType<typeof createClient>,
+  engineRunId: string,
+  code: string,
+  message: string,
+): Promise<{ ok: false; response: Response }> {
+  const refusal = { code, message };
+  const done = await finishAttempt(supabase, engineRunId, {
+    outcome: "failed", errorCode: code,
+    upload: { status: "error", is_valid: false, accounting_errors: [refusal], validation_report: null,
+              processing_result: { status: "blocked", statements: null, errors: [refusal], validation_report: {} } },
+  });
+  if (!done.ok) return done;
+  return { ok: false, response: jsonResponse({ status: "blocked", ...refusal }, 422) };
+}
+
 async function finishAttempt(
   supabase: ReturnType<typeof createClient>,
   engineRunId: string,
@@ -1207,13 +1232,38 @@ async function finishAttempt(
 ): Promise<{ ok: true } | { ok: false; response: Response }> {
   const result: Record<string, unknown> = { outcome: params.outcome, upload: params.upload };
   if (params.outcome === "certified") {
-    const outputHashSource: CanonicalValue = (params.rowsSnapshot.length > 0 ? params.rowsSnapshot : params.exceptions) as unknown as CanonicalValue;
+    // v5: params.exceptions are the COMPLETE findings. The certification row carries them verbatim when they fit, else a
+    // bounded summary (every kind of finding represented); the database stores every finding and refuses a summary that
+    // does not agree with them. The output hash binds the certified rows and the complete findings.
+    const findings = params.exceptions;
+    let summary: ReturnType<typeof summarizeFindings>;
+    try {
+      summary = summarizeFindings(findings);
+    } catch (e) {
+      if (!(e instanceof FindingsSummaryTooLarge)) throw e;
+      return await refuseCertification(supabase, engineRunId, "FINDINGS_SUMMARY_TOO_LARGE",
+        "This trial balance produced more kinds of findings than one check can summarise. Nothing was certified.");
+    }
+    if (new TextEncoder().encode(JSON.stringify(params.rowsSnapshot)).length > TB_UPLOAD_POLICY.maxCertifiedRowsBytes) {
+      return await refuseCertification(supabase, engineRunId, "CERTIFIED_ROWS_TOO_LARGE",
+        "The accounts of this trial balance are too large for one check to certify (for example, very long account names). Nothing was certified.");
+    }
+    if (summary.summarized) {
+      // A database without the complete-findings store would keep only the summary: refuse instead (rollout order).
+      const { error: probeError } = await supabase.rpc("tb_certification_findings_supported", {} as never);
+      if (probeError) {
+        console.error("[PTB] complete findings cannot be stored:", (probeError as { code?: string }).code ?? "unknown");
+        return await refuseCertification(supabase, engineRunId, "FINDINGS_STORE_UNAVAILABLE",
+          "This check found more items than can be recorded right now. Nothing was certified. Try again later.");
+      }
+    }
     result.certification = {
       normalized_input_hash: params.normalizedInputHash,
-      output_hash: await sha256Hex(canonicalJson(outputHashSource)),
+      output_hash: await sha256Hex(canonicalJson({ rows: params.rowsSnapshot, findings } as unknown as CanonicalValue)),
       is_blocking: params.isBlocking,
       requires_review: params.requiresReview,
-      exceptions: params.exceptions,
+      exceptions: summary.exceptions,
+      findings,
       rows_snapshot: params.rowsSnapshot,
     };
   } else {
@@ -1401,7 +1451,12 @@ serve(async (req) => {
     // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
     // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
     let layoutResolvedSha256: string | null = null;
-    if (layoutConfirmation) {
+    // The upload policy on the ACTUAL bytes before any reader (size; a workbook's real expansion, inflated as a stream and
+    // cut off at the limit). A refusal is an ordinary blocked read: recorded, explained, nothing parsed.
+    const policyIssue = await checkSourceBytesActual(fileBytes, readContext.fileName);
+    if (policyIssue) {
+      ingest = refusedRead(readContext, policyIssue);
+    } else if (layoutConfirmation) {
       const layoutRefusal = (code: string, message: string) => jsonResponse({ status: "blocked", code, message }, 409);
       if (layoutConfirmation.source_file_hash !== sourceFileHash) {
         return layoutRefusal("LAYOUT_SOURCE_MISMATCH", "The confirmed layout is for different file contents. Confirm the layout for this file again.");
@@ -1432,6 +1487,10 @@ serve(async (req) => {
         ingest = readTrialBalanceSource(fileBytes, readContext, XLSX as unknown as XlsxLike);
       }
     }
+    // The account bound (upload policy): one certification holds every account, so a larger trial balance is refused
+    // whole before any check runs — never certified in part.
+    const accountIssue = ingest.blocking ? null : checkAccountCount(ingest.accounts.length);
+    if (accountIssue) ingest = refusedRead(readContext, accountIssue);
     markIngestionMilestones(milestones, ingest);
     for (const issue of ingest.issues) allErrors.push(issueToValidationError(issue));
     const detectedCols = ingest.columns;
@@ -1651,10 +1710,12 @@ serve(async (req) => {
       .select("*")
       .or(companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null");
 
-    const companyByCode = new Map<string, AccountMapping>(); // Tier 1
-    const companyByName = new Map<string, AccountMapping>(); // Tier 2
+    const companyByCode = new Map<string, AccountMapping>(); // Tier 1 (codes are unique per company)
     const globalByCode  = new Map<string, AccountMapping>(); // Tier 3 (code)
-    const globalByName  = new Map<string, AccountMapping>(); // Tier 3 (name)
+    // Name candidates are LISTS (20261108100000: coded accounts may share a name); see accountNameMatch.ts.
+    const companyNameRows: { m: AccountMapping; name: string }[] = [];     // Tier 2: reviewed, codeless only
+    const unconfirmedNameRows: { m: AccountMapping; name: string }[] = []; // Tier 3 (name): this company's unconfirmed rows…
+    const sharedNameRows: { m: AccountMapping; name: string }[] = [];      // …and shared rows, used for a name only when the company has none
 
     for (const m of (rawMappings ?? [])) {
       const mapping: AccountMapping = {
@@ -1679,7 +1740,8 @@ serve(async (req) => {
       if (reviewed) {
         mapping.provenance = "reviewed";
         if (m.account_code)            companyByCode.set(m.account_code, mapping);
-        if (m.normalized_account_name) companyByName.set(m.normalized_account_name, mapping);
+        // A name is the identity only of an account without a code; a coded mapping is reached by its code alone.
+        else if (m.normalized_account_name) companyNameRows.push({ m: mapping, name: m.normalized_account_name });
       } else if (isCompanyRow || m.company_id == null) {
         mapping.provenance = isCompanyRow ? "unconfirmed_company" : "shared";
         // Deterministic precedence among suggestions: this company's own unconfirmed row over a shared row.
@@ -1688,10 +1750,19 @@ serve(async (req) => {
           map.set(key, mapping);
         };
         if (m.account_code)            put(globalByCode, m.account_code);
-        if (m.normalized_account_name) put(globalByName, m.normalized_account_name);
+        if (m.normalized_account_name) (isCompanyRow ? unconfirmedNameRows : sharedNameRows).push({ m: mapping, name: m.normalized_account_name });
       }
       // Any other company's row is never used (the query already excludes it; this is the second guard).
     }
+    const byName = (rows: { m: AccountMapping; name: string }[]) => {
+      const idx = indexByName(rows, (r) => r.name, normalizeAccountName);
+      return new Map([...idx].map(([k, list]) => [k, list.map((r) => r.m)] as [string, AccountMapping[]]));
+    };
+    const companyByName = byName(companyNameRows);
+    // Deterministic precedence among suggestions, per name: this company's own unconfirmed rows over shared rows.
+    const globalByName = byName(sharedNameRows);
+    for (const [k, list] of byName(unconfirmedNameRows)) globalByName.set(k, list);
+    const namesSharedInFile = namesSharedInUpload(rawAccounts, normalizeAccountName);
     console.log(`[PTB] Mappings loaded — reviewed company: ${companyByCode.size} by code / ${companyByName.size} by name, suggestions (unconfirmed company + shared): ${globalByCode.size} / ${globalByName.size}`);
 
     const { data: rawKwd } = await supabase
@@ -1793,6 +1864,7 @@ serve(async (req) => {
         companyByCode, companyByName,
         globalByCode,  globalByName,
         kwdExact, kwdContains,
+        namesSharedInFile,
       );
 
       // Review policy (_shared/tbIngestion.classificationNeedsReview): only this company's own reviewed mapping,
@@ -2172,7 +2244,7 @@ async function resolveReportingCurrency(
 
 function tryReadWorkbook(bytes: Uint8Array): XLSX.WorkBook | null {
   try {
-    return XLSX.read(bytes, { type: "array", cellDates: false });
+    return XLSX.read(bytes, { type: "array", cellDates: false, sheetRows: SHEET_ROWS });
   } catch {
     return null;
   }
