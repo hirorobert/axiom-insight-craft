@@ -78,19 +78,46 @@ export function IllustrativeReview() {
   const completedHeading = useRef<HTMLHeadingElement>(null);
   const sampleSection = useRef<HTMLElement>(null);
   const tryHeading = useRef<HTMLHeadingElement>(null);
+  const completedSection = useRef<HTMLElement>(null);
+  // A request to bring the current view into place, honoured only after React has rendered that view (an element still
+  // carrying `hidden` can be neither scrolled to nor focused). Counted, so a repeated request for the same view still runs.
+  const [arrival, setArrival] = useState(0);
+  const pendingArrival = useRef<string | null>(null);
 
-  // The completed example is an in-page view keyed on the URL hash, so it can be linked to and left with the back button.
+  // The completed example is an in-page view keyed on the URL hash, so it can be linked to, loaded directly and left with
+  // Back/Forward. #completed-example shows it; any other fragment (or none) shows the sample.
   useEffect(() => {
-    const sync = (moveFocus: boolean) => {
-      const next = window.location.hash === COMPLETED_HASH ? "completed" : "sample";
-      setView(next);
-      if (moveFocus) requestAnimationFrame(() => (next === "completed" ? completedHeading.current : sampleSection.current)?.focus());
+    const sync = () => {
+      const hash = window.location.hash;
+      setView(hash === COMPLETED_HASH ? "completed" : "sample");
+      if (hash) {
+        pendingArrival.current = hash;
+        setArrival((n) => n + 1);
+      }
     };
-    sync(window.location.hash === COMPLETED_HASH);
-    const onHash = () => sync(window.location.hash === COMPLETED_HASH || window.location.hash === "#sample");
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    // The page mounts after the browser's own fragment scroll has already missed (the section did not exist yet), and
+    // switching views moves everything below this section, so the fragment is brought into place again after rendering.
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
   }, []);
+
+  useEffect(() => {
+    const hash = pendingArrival.current;
+    if (!hash) return;
+    // Wait for the render that shows the view the fragment asks for (on mount, this effect first runs with the initial view).
+    if ((hash === COMPLETED_HASH ? "completed" : "sample") !== view) return;
+    pendingArrival.current = null;
+    if (hash === COMPLETED_HASH || hash === "#sample") {
+      (view === "completed" ? completedSection.current : sampleSection.current)?.scrollIntoView({ block: "start" });
+      (view === "completed" ? completedHeading.current : sampleSection.current)?.focus({ preventScroll: true });
+      return;
+    }
+    // Another section of the page (#plans, #faq…): scroll only; focus stays with the browser. Unknown or hidden targets
+    // are left alone, and the sample stays shown.
+    const target = document.getElementById(decodeURIComponent(hash.slice(1)));
+    if (target && !target.closest("[hidden]")) target.scrollIntoView({ block: "start" });
+  }, [arrival, view]);
 
   useEffect(() => {
     if (tryOpen) tryHeading.current?.focus();
@@ -318,6 +345,7 @@ export function IllustrativeReview() {
 
       <section
         id="completed-example"
+        ref={completedSection}
         hidden={view !== "completed"}
         aria-labelledby="completed-title"
         className="scroll-mt-20 border-b border-border bg-muted/20"
