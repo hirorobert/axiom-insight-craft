@@ -403,7 +403,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
           BUILT=$(git rev-parse HEAD)
           CHANGED=$(git diff --name-only "$LAUNCH_QA_CANDIDATE_SHA" HEAD 2>/dev/null || echo "__candidate_unavailable__")
-          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|scripts/e2e/launchQaHooks\.mjs$|scripts/e2e/launchQaGate\.mjs$|scripts/e2e/launchQaPayments\.mjs$|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
+          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|scripts/e2e/launchQaHooks\.mjs$|scripts/e2e/launchQaGate\.mjs$|scripts/e2e/launchQaPayments\.mjs$|scripts/e2e/launchQaDrafts\.mjs$|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
           DIRTY=$(git diff --name-only HEAD)
           VERIFIED=false; [ -z "$OUTSIDE" ] && [ -z "$DIRTY" ] && VERIFIED=true
           APPTREE=$(git rev-parse "$LAUNCH_QA_CANDIDATE_SHA^{tree}" 2>/dev/null || echo unknown)
@@ -428,6 +428,15 @@ jobs:
           echo "repair B in the database under test: codeless-name index=$NEW, all-names index=$OLD"
           if [ "$NEW" = "1" ] && [ "$OLD" = "0" ]; then export LAUNCH_QA_SAME_NAME_REPAIR=verified; fi
           node research/launch-qa/qa/realAppJourney.mjs real-app-evidence/launch-qa
+
+      - name: Launch-acceptance persisted state (always; read-only - every upload of the QA accounts with its lifecycle, and the processing lines the functions logged during the QA)
+        if: always()
+        run: |
+          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          docker exec "$DB" psql -U postgres -tAc "select coalesce(json_agg(t), '[]') from (select u.id, c.name as company, u.period_year, u.file_name, u.status, u.lifecycle_state, u.version, u.superseded_by_upload_id, u.uploaded_at from public.trial_balance_uploads u join public.companies c on c.id = u.company_id join auth.users au on au.id = c.user_id where au.email like '%@laq-local.test' order by u.uploaded_at) t" > "$OUT/persisted-uploads.json" 2>&1 || true
+          cat "$OUT/persisted-uploads.json"
+          grep -hE "Detected file|Ingested|TOO_MANY|worker=" "$OUT"/payments-functions-serve.log 2>/dev/null || true
 
       - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
         if: always()

@@ -10,8 +10,9 @@
 //      through the real checkout and the mock hosted page — by the product's rules it NEVER grants access;
 //      env.payments.activateByAgreement(user) is the authorised path (manual activation); env.entitlementSnapshot(user)
 //      is the server's statement of access. env.purchaseAuthorised stays false: a sandbox payment authorises nothing.
-//   E  replacement: no facility is needed beyond the running stack — the replacement journey (FirstUpload's "Replace"
-//      path / the workspace's replacement through retire_trial_balance_upload) is BLACK's browser journey.
+//   E  the explicit replacement is BLACK's browser journey; its STALE sub-check uses env.drafts.staleReplace(user, companyId,
+//      periodYear) — the draft-commit contract with an expected version one behind (launchQaDrafts.mjs), which must answer
+//      409 replace_conflict and keep the current upload (a stale replacement cannot be produced from the browser).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,9 @@ export default async function hooks(env) {
     overLimitFixture: { path: env.writeFile("F-over-account-limit.csv", rows.join("\n") + "\n"), accounts: n, expectedCode: "TOO_MANY_ACCOUNTS", policy: TB_UPLOAD_POLICY.version },
     sameNameRepairApplied: process.env.LAUNCH_QA_SAME_NAME_REPAIR === "verified",
   };
+  // E (stale sub-check): the draft-commit contract with an expected version one behind (launchQaDrafts.mjs).
+  const { draftsFacility } = await import("./launchQaDrafts.mjs");
+  out.drafts = draftsFacility({ apiUrl: env.apiUrl, anonKey: env.anonKey, admin: env.admin });
   if (process.env.LAUNCH_QA_PAYMENTS === "1") {
     const { startPaymentsFacility } = await import("./launchQaPayments.mjs");
     const payments = await startPaymentsFacility({ apiUrl: env.apiUrl, anonKey: env.anonKey, admin: env.admin, appOrigin: env.APP, outDir: env.outDir });
