@@ -37,11 +37,26 @@ describe("static copy never claims online payment", () => {
     expect(all).not.toMatch(TRANSACTIONAL);
     // These sentences would be false in one of the two server states, so static copy contains neither.
     expect(all).not.toMatch(/there is no online (payment|checkout)|online payment is available|pay online now/i);
-    // The primary public action is the plans; the activation request is always reachable.
-    expect(LANDING.LANDING_HERO.primaryCta.label).toBe("Explore plans");
+    // The primary public action is the illustrative sample (owner decision, 2026-10-16); the plans stay one click away.
+    expect(LANDING.LANDING_HERO.primaryCta.label).toBe("See a sample review");
     expect(LANDING.LANDING_HERO.secondaryCta.label).toBe("View plans");
     expect(all).not.toMatch(/Request activation|activated by our team/);
     expect(LANDING.LANDING_FINAL_CTA.primaryCta.href).toBe("#plans");
+  });
+  it("public metadata (index.html head and the public-page registry) makes no payment or manual-activation claim", () => {
+    // Search and social descriptions are static and must be true whether or not online payment is open.
+    const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+    const head = html.slice(0, html.indexOf("</head>"));
+    const descriptions = [...head.matchAll(/<meta (?:name|property)="(?:description|og:description|twitter:description)" content="([^"]*)"/g)].map((m) => m[1]);
+    expect(descriptions).toHaveLength(3);
+    const registry = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/seo/publicPages.json"), "utf8")) as { pages: { path: string; description: string }[] };
+    const home = registry.pages.find((p) => p.path === "/")!;
+    for (const d of [...descriptions, home.description]) {
+      expect(d).not.toMatch(TRANSACTIONAL);
+      expect(d).not.toMatch(/activated by our team|there is no online (payment|checkout)|online payment is available|pay online now/i);
+    }
+    // The home description and the head descriptions say the same thing.
+    for (const d of descriptions) expect(d).toBe(home.description);
   });
   it("no public copy invites self-serve workspace creation", () => {
     expect(JSON.stringify({ COPY, LANDING })).not.toMatch(/Create a workspace and explore|explore CFOCLOSE/i);
