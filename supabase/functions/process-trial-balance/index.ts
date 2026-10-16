@@ -1307,7 +1307,9 @@ const cpuMs = (): number | null => {
   // 38904836096, BOOT_ERROR). Where it is absent the value is "unavailable"; the runtime's own CPU-limit lines remain.
   try {
     const u = (globalThis as { process?: { cpuUsage?: () => { user: number; system: number } } }).process?.cpuUsage?.();
-    return u ? (u.user + u.system) / 1000 : null;
+    // The local Edge Runtime provides a process.cpuUsage that reports zero (CI run 38908184567: cpu_ms=0 for checks
+    // that reached the runtime's CPU soft limit), so a zero reading is not a measurement: "unavailable".
+    return u && u.user + u.system > 0 ? (u.user + u.system) / 1000 : null;
   } catch { return null; }
 };
 function observed(handler: (req: Request) => Promise<Response>): (req: Request) => Promise<Response> {
