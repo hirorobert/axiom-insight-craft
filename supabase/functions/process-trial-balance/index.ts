@@ -44,6 +44,7 @@ import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanc
 import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
 import { createAdmission, withAdmission } from "../_shared/admission.ts";
+import { cpuUsage } from "node:process";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
@@ -1297,7 +1298,29 @@ const PROCESSING_BUSY = {
   message: "Another trial balance is being checked right now. Nothing was started for this one; check again in a moment — it will not be counted twice.",
 };
 
-serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3" } }), async (req) => {
+// Diagnostics only (no behaviour): which worker ran an admitted check, the check's number in that worker, its wall time
+// and the CPU time it used where the runtime exposes it (node:process cpuUsage; "unavailable" otherwise). Read with the
+// runtime's own "CPU time soft/hard limit reached" lines to see how a worker's budget is spent across checks.
+const WORKER_ID = crypto.randomUUID().slice(0, 8);
+let workerChecks = 0;
+const cpuMs = (): number | null => {
+  try { const u = cpuUsage(); return (u.user + u.system) / 1000; } catch { return null; }
+};
+function observed(handler: (req: Request) => Promise<Response>): (req: Request) => Promise<Response> {
+  return async (req) => {
+    if (req.method === "OPTIONS") return handler(req);
+    const n = ++workerChecks;
+    const c0 = cpuMs(), t0 = Date.now();
+    let status: number | string = "error";
+    try { const r = await handler(req); status = r.status; return r; }
+    finally {
+      const c1 = cpuMs();
+      console.log(`[PTB] worker=${WORKER_ID} check=${n} http=${status} wall_ms=${Date.now() - t0} cpu_ms=${c0 === null || c1 === null ? "unavailable" : Math.round(c1 - c0)}`);
+    }
+  };
+}
+
+serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3" } }), observed(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const allErrors: ValidationError[] = [];
@@ -2209,7 +2232,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
-}));
+})));
 
 // ── Ingestion helpers (declared after the handler; hoisted) ─────────────────────────────────────────────────────────
 

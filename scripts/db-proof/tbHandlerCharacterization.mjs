@@ -48,6 +48,8 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   "REQ-E1-AMOUNTS", "REQ-E1-CASH-ORDER-A", "REQ-E1-CASH-ORDER-B", "REQ-E1-TREATMENT", "REQ-E1-TREATMENT-REFUTED", "REQ-E1-CONTRA",
   "REQ-E1-GENUINE-EQUATION", "REQ-E1-NONREPORTING-NONZERO", "REQ-E1-NONREPORTING-ZERO", "REQ-E1-PRECISION", "REQ-E1-INVARIANT",
   "REQ-E1-GENERATION", "REQ-E1-REPROCESS-REQUIRED", "X-E1-INV",
+  // A worker killed AFTER its check began (its attempt leased, never finished): recovery through the real handler
+  "REQ-KILLED-WORKER-RECOVERY",
   // E2 / X8 (the previous engines on S2's schema)
   "X8-PREVIOUS-ENGINE-FENCED", "X8-E1-ENGINE-FENCED", "X8-REPLAY-COMPLETES", "REQ-E2-DEPENDENCY-STALE",
   // R0 release: functions with an open registered defect refuse on the server (_shared/openDefectRestriction.ts)
@@ -507,6 +509,50 @@ async function main() {
     // Every run is a current-engine attempt: version v5, integer generation 5, an attempt number and a lease.
     const rows = (await admin.query("SELECT engine_version, engine_generation, bool_and(attempt_no IS NOT NULL AND lease_expires_at IS NOT NULL) a, count(*)::int n FROM public.engine_runs WHERE function_name='process-trial-balance' GROUP BY 1,2 ORDER BY 1,2")).rows;
     return rows.length === 1 && rows[0].engine_version === "safisha-tb-certification-v5" && rows[0].engine_generation === 5 && rows[0].a === true ? true : rows;
+  });
+
+  await req1("REQ-KILLED-WORKER-RECOVERY", async () => {
+    // A SEPARATE instance of the current handler (its own module state, as a separate worker is) begins a check, then its
+    // database connection hangs at the next step: from the database's side this is exactly a worker killed mid-check —
+    // an attempt running under its 600 s lease, never finished. Retries go to the live handler.
+    const doomed = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
+    let unfreeze; const frozen = new Promise((r) => { unfreeze = r; });
+    const hangingPool = { connect: async () => {
+      const c = await pool.connect();
+      return new Proxy(c, { get(t, k) {
+        if (k === "query") return async (q, params) => { if (String(q?.text ?? q).includes("tb_snapshot_dependencies")) await frozen; return t.query(q, params); };
+        const v = t[k]; return typeof v === "function" ? v.bind(t) : v;
+      } });
+    } };
+    const id = await upload(A, 2041, csv(HAPPY));
+    const R = uuid();
+    const zombie = call(doomed, hangingPool, mintTestJwt(U.owner), { uploadId: id, clientRequestId: R });
+    let run = null;
+    for (let i = 0; i < 100 && !run; i++) { run = (await admin.query("SELECT id, status, attempt_no FROM public.engine_runs WHERE source_record_id=$1 AND status='running'", [id])).rows[0] ?? null; if (!run) await new Promise((r) => setTimeout(r, 50)); }
+    if (!run) return "the doomed worker never began its attempt";
+    // 1. While the lease runs: the same request and a new request are both answered "in progress"; nothing new begins.
+    const same = await runHandler(U.owner, id, R);
+    const other = await runHandler(U.owner, id, uuid());
+    const runsWhileLeased = Number((await one("SELECT count(*)::int n FROM public.engine_runs WHERE source_record_id=$1", [id])).n);
+    // 2. The lease expires (test-only: aged in place, as s2Authority does).
+    await admin.query("SET session_replication_role = replica");
+    await admin.query("UPDATE public.engine_runs SET lease_expires_at = now() - interval '1 second' WHERE id=$1", [run.id]);
+    await admin.query("SET session_replication_role = origin");
+    // 3. The same request again: answered as a spent request whose run did not finish (the browser then starts a new one).
+    const replay = await runHandler(U.owner, id, R);
+    // 4. A new request checks it: attempt 2, completed, exactly one certification.
+    const fresh = await runHandler(U.owner, id, uuid());
+    const runs = (await admin.query("SELECT attempt_no, status, error_code FROM public.engine_runs WHERE source_record_id=$1 ORDER BY attempt_no", [id])).rows;
+    // 5. The killed worker "wakes" (a zombie): its late finish is refused; nothing more is certified, nothing accepted twice.
+    unfreeze();
+    const z = await zombie;
+    const after = await certs(id);
+    const row = await uploadRow(id);
+    const ok = same.http === 409 && other.http === 409 && runsWhileLeased === 1
+      && replay.http === 200 && replay.body?.replay === true
+      && fresh.http === 200 && runs.length === 2 && runs[0].status === "abandoned" && runs[1].status === "completed" && runs[1].attempt_no === 2
+      && after.length === 1 && after[0].engine_run_id !== run.id && z.http !== 200 && row.status === "complete";
+    return ok ? true : { same: [same.http, same.body?.status], other: other.http, runsWhileLeased, replay: [replay.http, replay.body], fresh: [fresh.http, fresh.body?.status], runs, certs: after.length, zombie: [z.http, z.body?.code ?? z.body?.status], status: row.status };
   });
 
   await req1("REQ-E2-DEPENDENCY-STALE", async () => {
