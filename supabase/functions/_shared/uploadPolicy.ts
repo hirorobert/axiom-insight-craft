@@ -118,7 +118,8 @@ export async function zipActualExpansion(b: Uint8Array, limit: number): Promise<
     if (start + compressed > b.byteLength) return { kind: "unsupported" };
     if (method === 0) { total += compressed; }
     else if (method === 8) {
-      const reader = new Blob([b.subarray(start, start + compressed)]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+      // (Bytes downloaded from Storage are ArrayBuffer-backed; the narrowing satisfies Deno's strict BlobPart type.)
+      const reader = new Blob([b.subarray(start, start + compressed) as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
       try {
         for (;;) {
           const { value, done } = await reader.read();
