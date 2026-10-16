@@ -79,7 +79,11 @@ describe("the handler uses exactly this path, after the entitlement refusal", ()
     const check = src.indexOf("await processingEntitlementRefusal(");
     expect(check).toBeGreaterThan(-1);
     expect(src.indexOf(".download(", check)).toBeGreaterThan(check);
-    expect(src.slice(src.indexOf("serve(async (req) => {"), check)).not.toMatch(/\.download\(|\.update\(/);
+    // The handler's own body (wrapped by the admission gate, which only waits or refuses before it runs).
+    const handler = src.indexOf('async (req) => {\n  if (req.method === "OPTIONS")');
+    expect(handler).toBeGreaterThan(-1);
+    expect(handler).toBeLessThan(check);
+    expect(src.slice(handler, check)).not.toMatch(/\.download\(|\.update\(/);
   });
   it("7. the successful processing path after the download is unchanged (parse follows the download)", () => {
     const dl = src.indexOf(".download(upload.file_path)");
