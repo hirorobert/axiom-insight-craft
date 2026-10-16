@@ -82,21 +82,37 @@ async function scenarioC(env) {
 // D: Purchase-required path — entitlements unchanged; the requirement is explained; the draft is preserved; the existing
 // isolated purchase SIMULATION returns the user to the intended work. No implied free preview / unauthorised paid access.
 async function scenarioD(env) {
-  if (!env.mockPurchase) return result("BLOCKED", ["needs NORMAL's existing isolated purchase simulation hook (scripts/e2e/mockPaymentProviders.mjs) wired into env.mockPurchase — do not create a real payable checkout"]);
+  if (typeof env.mockPurchase !== "function" || typeof env.entitlementSnapshot !== "function") {
+    return result("BLOCKED", ["purchase simulation not supplied (env.mockPurchase / env.entitlementSnapshot) — do not create a real payable checkout"]);
+  }
   const problems = [];
-  const page = await env.openPage(); await env.signIn(page, env.users.preparer); // a user without the required entitlement
-  const gated = await env.reachPurchaseRequired(page);
-  if (!gated) return result("FAIL", ["the purchase-required state was not reached for a non-entitled user"]);
-  const copy = await env.captureCopy(page);
-  problems.push(...copyWordingProblems(copy, { context: "purchase-required" }));
-  if (!/need|requires|upgrade|plan/i.test(copy)) problems.push("purchase requirement is not clearly explained");
+  const page = await env.openPage(); await env.signIn(page, env.users.preparer); // a user WITHOUT the required entitlement
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  // NO BYPASS (grounded, server truth): a SANDBOX purchase authorises NOTHING. If entitlement changes from a mere sandbox
+  // payment, that is a real product defect (a paid-access bypass) → FAIL.
   const before = await env.entitlementSnapshot(env.users.preparer);
-  await env.mockPurchase(page); // existing sandbox/mock path ONLY — never a real charge
-  const after = await env.entitlementSnapshot(env.users.preparer);
-  if (JSON.stringify(before) !== JSON.stringify(after) && !env.purchaseAuthorised) problems.push("entitlement changed without an authorised purchase (no bypass permitted)");
-  const draftKept = await env.draftStillPresent(page);
-  if (!draftKept) problems.push("the draft was not preserved across the purchase-required detour");
-  return result(problems.length ? "FAIL" : "PASS", problems);
+  await env.mockPurchase(page, env.users.preparer); // sandbox card purchase ONLY — never a real charge
+  const afterPurchase = await env.entitlementSnapshot(env.users.preparer);
+  if (!eq(before, afterPurchase) || env.purchaseAuthorised) problems.push(`entitlement changed after a sandbox purchase (no authorised grant) — a paid-access bypass: before=${JSON.stringify(before)} after=${JSON.stringify(afterPurchase)}`);
+
+  // AUTHORISED grant (grounded): the manual-activation path IS distinct and DOES grant — proving the grant is gated on
+  // authorisation, not on a mere payment.
+  let grantEvidence = "activateByAgreement not supplied";
+  if (env.payments && typeof env.payments.activateByAgreement === "function") {
+    await env.payments.activateByAgreement(env.users.preparer);
+    const afterGrant = await env.entitlementSnapshot(env.users.preparer);
+    if (eq(afterGrant, before)) problems.push("the authorised activation path did not grant access (expected the server's access to change)");
+    grantEvidence = `granted=${!eq(afterGrant, before)}`;
+  }
+  if (problems.length) return result("FAIL", problems, { before, afterPurchase, grantEvidence });
+
+  // The UI sub-checks — reaching the purchase-required screen with a clear explanation, and the DRAFT being preserved across
+  // the return — are not grounded in this harness (no reach/draft probe and no verified paywall selectors). Per the strict
+  // rule they are BLOCKED, never a NOTE/PASS. The no-bypass + authorised-grant evidence above is recorded.
+  return result("BLOCKED", [
+    "purchase-required UI sub-checks not grounded: 'reach the requirement with a clear explanation' and 'draft preserved across the return' need the paywall/draft selectors (NORMAL to confirm, or supply reachPurchaseRequired/draftStillPresent). No-bypass + authorised-grant executed and clean.",
+  ], { before, afterPurchase, grantEvidence });
 }
 
 // E: Replacement — explicit replacement decision; prior upload + history preserved; a STALE replacement refuses safely and
@@ -105,13 +121,16 @@ async function scenarioE(env) {
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
   const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing reviewed upload (run A first)"]);
+  // Both probes are required. A MISSING probe is BLOCKED (never a silent skip that lets E pass).
+  if (typeof env.replaceUpload !== "function" || typeof env.staleReplace !== "function") return result("BLOCKED", ["replacement controls not supplied (env.replaceUpload / env.staleReplace) — UI-driven replacement not in this harness; NORMAL-owned"]);
   const r = await env.replaceUpload(page, ws.companyId, ws.periodYear, env.writeFile("E-replacement.csv", BALANCED.csv));
-  if (!r) return result("BLOCKED", ["replacement affordance not located — confirm the real replacement control with NORMAL"]);
+  if (r == null) return result("BLOCKED", ["replacement affordance not located — the real replacement control is not driveable yet (NORMAL-owned)"]);
   if (!r.explicit) problems.push("replacement happened without an explicit decision");
   if (!r.historyPreserved) problems.push("prior upload/history was not preserved by the replacement");
   const stale = await env.staleReplace(page, ws.companyId, ws.periodYear);
-  if (stale && stale.accepted) problems.push("a STALE replacement was accepted instead of safely refused");
-  if (stale && !stale.currentIntact) problems.push("a refused stale replacement did not leave the current upload intact");
+  if (stale == null) return result("BLOCKED", ["stale-replacement probe unavailable — cannot verify a safe stale refusal (NORMAL-owned); not skipped, not PASS"]);
+  if (stale.accepted) problems.push("a STALE replacement was accepted instead of safely refused");
+  if (!stale.currentIntact) problems.push("a refused stale replacement did not leave the current upload intact");
   return result(problems.length ? "FAIL" : "PASS", problems);
 }
 
@@ -121,31 +140,57 @@ async function scenarioF(env) {
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
   const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
+  // The OVER-LIMIT sub-check is mandatory and needs NORMAL's policy fixture. Absent ⇒ BLOCKED (never PASS/NOTE).
+  if (!env.overLimitFixture?.path) return result("BLOCKED", ["over-limit sub-check needs env.overLimitFixture (NORMAL's current upload-policy fixture); no invented limit"]);
+
   // Unsupported file → actionable refusal (not a false success), via the real uploader + error state.
   const unsup = await env.uploadRaw(page, ws.companyId, ws.periodYear, env.writeFile(UNSUPPORTED.name, UNSUPPORTED.content));
   if (unsup?.accepted) problems.push("an unsupported file was accepted (false success)");
   else { const err = await env.captureErrorState(page); problems.push(...loadingErrorStateProblems(err)); }
-  // Over-limit: NORMAL owns the final size/row limit + fixtures. Without them this sub-check is BLOCKED, not invented.
-  if (!env.overLimitFixture) return result(problems.length ? "FAIL" : (problems.length ? "FAIL" : "PASS"), [...problems, "OVER-LIMIT sub-check BLOCKED: needs NORMAL's final size/row policy + fixture (no invented limit)"]);
+
+  // Over-limit: ACTUALLY upload NORMAL's over-limit fixture and require the named refusal with NO partial accepted result.
+  const expected = env.overLimitFixture.expectedCode || "TOO_MANY_ACCOUNTS";
+  const over = await env.uploadRaw(page, ws.companyId, ws.periodYear, env.overLimitFixture.path);
+  const errState = await env.captureErrorState(page);
+  const latest = await env.admin.from("trial_balance_uploads").select("id, status, processing_result").eq("company_id", ws.companyId).eq("period_year", ws.periodYear).order("uploaded_at", { ascending: false }).limit(1).maybeSingle();
+  const prText = JSON.stringify(latest.data?.processing_result ?? {});
+  const refusedByName = new RegExp(expected, "i").test(prText) || new RegExp(expected, "i").test(errState.errorMessage || "") || /too many accounts|account limit|exceed/i.test(errState.errorMessage || "");
+  const cert = await env.isCertified(ws.companyId, ws.periodYear); // server truth: must NOT certify an over-limit upload
+  const accepted = !!over?.accepted || cert || ["needs_review", "reviewed", "processed", "certified"].includes(latest.data?.status);
+  if (!refusedByName) problems.push(`over-limit upload was not refused by name (${expected}); status=${latest.data?.status}; pr=${prText.slice(0, 160)}; err=${(errState.errorMessage || "").slice(0, 120)}`);
+  if (accepted) problems.push(`over-limit upload produced an accepted/partial result (status=${latest.data?.status}, certified=${cert}) — must accept nothing`);
+
   // Recovery: a normal file afterwards succeeds.
   const ok = await env.uploadTb(page, ws.companyId, ws.periodYear, env.writeFile("F-recovery.csv", BALANCED.csv));
   if (!ok) problems.push("could not recover with a normal file after a refusal");
-  return result(problems.length ? "FAIL" : "PASS", problems);
+  return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts });
 }
 
 // G: Review + identity — legitimate same-name/different-code accounts AFTER NORMAL's repair: separate identities &
 // treatments; ambiguous matching stays unresolved (never first/last); an imbalance/missing evidence stays visible.
 async function scenarioG(env) {
-  if (!env.sameNameRepairApplied) return result("BLOCKED", ["gated on NORMAL's same-name/different-code constraint-and-lookup repair (uq_acct_map_company_norm_name). Until applied, mapping two same-name accounts raises a raw constraint error — tested as a FINDING in the Phase-5 lane, not here."]);
+  if (!env.sameNameRepairApplied) return result("BLOCKED", ["gated on NORMAL's same-name/different-code repair being present+verified in the DB under test (uq_acct_map_company_codeless_name, old all-names index gone). Until verified, mapping two same-name accounts raises a raw constraint error — a FINDING in the Phase-5 lane, not asserted here."]);
   const problems = [];
   const page = await env.openPage(); await env.signIn(page, env.users.owner);
   const ws = env.lastWorkspace; if (!ws?.companyId) return result("BLOCKED", ["requires an existing workspace (run A first)"]);
   const uploadId = await env.uploadTb(page, ws.companyId, ws.periodYear, env.writeFile("G-same-name.csv", SAME_NAME.csv));
+  if (!uploadId) return result("FAIL", ["the same-name trial balance did not upload"]);
   await env.settle(ws.companyId, ws.periodYear);
+  // Mappings exist ONLY after review decisions (resolve_account_review_batch). REVIEW BOTH "Sales" accounts first, as the
+  // owner (authenticated), each keyed by its own code — then check they persist as two DISTINCT mappings.
+  const decisions = SAME_NAME.rows.filter((r) => /sales/i.test(r.name)).map((r) => ({
+    account_code: r.code, account_name: r.name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
+    statement: "income_statement", classification: "revenue", line_item: r.name, normal_balance: "credit",
+  }));
+  const reviewed = await env.reviewAccounts(env.users.owner, ws.companyId, uploadId, decisions);
+  if (reviewed.error) return result("FAIL", [`reviewing both same-name accounts was refused: ${reviewed.error}`], { uploadId });
   const mapped = await env.admin.from("account_mappings").select("account_key, account_code, account_name").eq("company_id", ws.companyId).ilike("account_name", "Sales");
-  const codes = new Set((mapped.data ?? []).map((m) => m.account_code));
-  if (codes.size < 2) problems.push(`the two same-name/different-code 'Sales' accounts are not both preserved as distinct identities (codes: ${[...codes].join(",")})`);
-  return result(problems.length ? "FAIL" : "PASS", problems, { uploadId });
+  const rows = mapped.data ?? [];
+  const codes = new Set(rows.map((m) => m.account_code));
+  const keys = new Set(rows.map((m) => m.account_key));
+  if (rows.length < 2) problems.push(`both same-name 'Sales' accounts were not persisted as mappings (rows=${rows.length})`);
+  if (codes.size < 2 || keys.size < 2) problems.push(`the two 'Sales' accounts are not DISTINCT identities (codes=${[...codes].join(",")}; keys=${[...keys].join(",")}) — a coded account must not inherit another's treatment by name`);
+  return result(problems.length ? "FAIL" : "PASS", problems, { uploadId, codes: [...codes], keys: [...keys] });
 }
 
 // H: Accessibility + responsive — keyboard access, logical/visible focus, accessible labels, error association, processing
@@ -164,9 +209,14 @@ async function scenarioH(env) {
   problems.push(...ariaAssociationProblems(fields));
   const ann = await env.observeProcessingAnnouncement(page);
   problems.push(...announcementProblems(ann));
-  if (env.axe) { const violations = await env.axe(page); if (violations?.length) problems.push(...violations.map((v) => `axe: ${v.id} (${v.nodes} nodes)`)); }
-  else problems.push("NOTE: no automated accessibility tool wired — manual keyboard checks above only; a zero-violation count alone is not full proof");
-  return result(problems.filter((p) => !p.startsWith("NOTE")).length ? "FAIL" : "PASS", problems);
+  // A manual problem is a FAIL. If the manual checks are clean, full a11y acceptance still requires the AUTOMATED sub-check;
+  // when axe is not wired that sub-check is a MISSING PREREQUISITE ⇒ BLOCKED (never a NOTE that passes). A zero automated
+  // count alone would not be full proof either — the two are complementary.
+  if (problems.length) return result("FAIL", problems);
+  if (typeof env.axe !== "function") return result("BLOCKED", ["manual keyboard/focus/aria/announcement/responsive checks passed, but the automated accessibility sub-check (axe) is not wired — a11y is not fully verified; BLOCKED, not a NOTE/PASS"]);
+  const violations = await env.axe(page);
+  if (violations?.length) return result("FAIL", violations.map((v) => `axe: ${v.id} (${v.nodes} nodes)`));
+  return result("PASS", []);
 }
 
 // I: Professional clarity — first-visit/confirmation/processing/result/blocked/retry each say what happened, what to do

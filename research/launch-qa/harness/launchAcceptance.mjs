@@ -195,6 +195,22 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       const { data } = await c.from("trial_balance_uploads").select("id").eq("company_id", companyId);
       return (data ?? []).length > 0; // true ⇒ leakage
     },
+    // Review accounts through the REAL RPC as an AUTHENTICATED member (auth.uid()); service-role cannot (no uid). Used by G
+    // to record decisions for both same-name accounts so their mappings exist before checking they are distinct.
+    async reviewAccounts(u, companyId, uploadId, decisions) {
+      const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { error: se } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
+      if (se) return { error: `sign-in: ${se.message}` };
+      const { data, error } = await c.rpc("resolve_account_review_batch", { p_company_id: companyId, p_upload_id: uploadId, p_client_request_id: uuid(), p_decisions: decisions });
+      return error ? { error: error.message } : { data };
+    },
+    // Server truth: is there an authoritative certification for this period? (as the owner, like the repository journey).
+    async isCertified(companyId, periodYear, u = users.owner) {
+      const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      await c.auth.signInWithPassword({ email: u.email, password: u.password });
+      const { data } = await c.rpc("get_authoritative_certification", { p_company_id: companyId, p_period_year: periodYear });
+      return Array.isArray(data) ? data.length > 0 : !!data;
+    },
     async observeViewport(page, route, vw) { await env.go(page, route); await page.setViewport(vw, 800); await sleep(500); await shot(page, `H-${vw}`); return { layoutWidth: await page.evaluate(() => document.documentElement.scrollWidth) }; },
     async observeFocusSequence(page) {
       return page.evaluate(() => {
