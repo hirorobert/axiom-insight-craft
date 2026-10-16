@@ -73,6 +73,14 @@ export const WRONGLY_MAPPED_NORMAL_SIGN = TB(["Account Code", "Account Name", "D
   ["1000", "Cash at bank", 30000000, ""],
 ]);
 
+// Several UNRECOGNISED / uncertain accounts — for the deliberate manual multi-account selection path. No deterministic
+// meaning attaches to these names, so every one is routed to INDIVIDUAL review and never auto-grouped by inferred
+// equivalence. A reviewer may select some of them and assign one common treatment explicitly. Balanced: debits 180,000 = credit 180,000.
+export const UNCERTAIN = TB(["Account Code", "Account Name", "Debit", "Credit"], [
+  ["9000", "Suspense account", 100000, ""], ["9100", "Clearing account", 50000, ""],
+  ["9200", "Miscellaneous", 30000, ""], ["9300", "Sundry balances", "", 180000],
+]);
+
 // Genuinely IMBALANCED (debits != credits).
 export const IMBALANCED = TB(["Account Code", "Account Name", "Debit", "Credit"], [
   ["4000", "Sales", "", 100000000], ["5000", "Cost of goods sold", 40000000, ""], ["1000", "Cash at bank", 30000000, ""],

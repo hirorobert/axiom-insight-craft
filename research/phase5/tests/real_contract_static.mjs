@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildReviewSummary, expandGroupToDecisions } from "../prototype/lifecycle.mjs";
+import { buildManualDecisions } from "../prototype/manual.mjs";
 import { FLAT } from "../fixtures/synthetic.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -77,6 +78,15 @@ check("expansion is deterministic (a retry replays byte-identically; real reques
 for (const code of ["UPLOAD_COMPANY_MISMATCH", "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD", "NOT_A_MEMBER_OF_COMPANY", "EMPTY_DECISION_BATCH"]) {
   check(`refusal code '${code}' exists in the real function`, fnBody.includes(code));
 }
+
+// 9. The MANUAL multi-account path emits USER_MANUAL_CLASSIFICATION payloads that are equally server-compatible.
+const manual = buildManualDecisions(
+  [{ account_key: "9000", account_code: "9000", account_name: "Suspense account" }, { account_key: "9100", account_code: "9100", account_name: "Clearing account" }],
+  { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", flag_candidate: null }, "treated as current assets");
+check("manual decisions use decision_action USER_MANUAL_CLASSIFICATION (in the real accepted set)", manual.every((d) => d.decision_action === "USER_MANUAL_CLASSIFICATION" && actionSet.has(d.decision_action)));
+check("manual decisions use proposal_type NONE (not AUTO_MAPPED_RULE) and a supported statement/class pair", manual.every((d) => d.proposal_type === "NONE" && pairOk(d)));
+const manualUnknown = [...new Set(manual.flatMap((d) => Object.keys(d)))].filter((k) => !ALLOWED.has(k) && k !== "account_key");
+check("manual decisions carry no field the real function does not consume (account_key is the local identity, not sent)", manualUnknown.length === 0, { manualUnknown });
 
 console.log(`\n${pass}/${pass + fail} static real-contract checks passed.`);
 console.log("NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in");
