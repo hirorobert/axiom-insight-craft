@@ -33,6 +33,20 @@ describe("Phase 2 §5.5 b: presets with defined date arithmetic", () => {
   });
 });
 
+describe("followingYear: a suggestion after a confirmed year, nothing else", () => {
+  it("the year after a June year end, and after a calendar year", async () => {
+    const { followingYear } = await import("./reportingPeriod");
+    expect(followingYear({ start: "2025-07-01", end: "2026-06-30" })).toEqual({ preset: "year", end: "2027-06-30", start: null });
+    expect(followingYear({ start: "2025-01-01", end: "2025-12-31" })).toEqual({ preset: "year", end: "2026-12-31", start: null });
+    expect(followingYear({ start: "2023-03-01", end: "2024-02-29" })).toEqual({ preset: "year", end: "2025-02-28", start: null });
+  });
+  it("a quarter or a 15-month period has no automatic successor", async () => {
+    const { followingYear } = await import("./reportingPeriod");
+    expect(followingYear({ start: "2026-01-01", end: "2026-03-31" })).toBeNull();
+    expect(followingYear({ start: "2024-04-01", end: "2025-06-30" })).toBeNull();
+  });
+});
+
 describe("no silent defaults; the server's limits mirrored in words", () => {
   it("with no evidence nothing is chosen and the card says what is missing", () => {
     expect(periodProblem(EMPTY_PERIOD)).toBe("Choose the period.");

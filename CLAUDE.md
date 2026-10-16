@@ -385,6 +385,7 @@ src/
       resultStatus.ts                 ← The one trial-balance status vocabulary and finding order (blocking → needs confirmation → review) for sidebar, Overview and page
       trialBalanceDraft.ts            ← ONLY browser path for a trial balance draft (reserve bound to file identity, signed upload, commit with a bound key; drafts_unavailable on an old backend)
       reportingPeriod.ts              ← Confirmation-card period arithmetic: Year/Quarter/Month presets (derived start) and custom dates; no defaults
+      uploadPolicy.ts                 ← Browser mirror of the ONE upload policy (_shared/uploadPolicy.ts): types, size, limits text; held equal by test
       firstUpload.ts                  ← First-visit start: create_entity → open_engagement_with_period → draft commit → check, resumable; stages from server milestones
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)

@@ -142,8 +142,8 @@ async function main() {
   const CONF = { entity: "Invented Trading A", period: "FY", currency: "TZS" };
   let year = 1960;
   const target = (companyId = A, over = {}) => ({ company: companyId, year: ++year, periodId: null, engagementId: null, confirmation: CONF, ...over });
-  const begin = (draftId, who, k, t) => asService("SELECT * FROM public.tbd_begin_commit($1,$2,$3,$4,$5,$6,$7,$8)",
-    [draftId, who, k, t.company, t.year, t.periodId, t.engagementId, JSON.stringify(t.confirmation)]);
+  const begin = (draftId, who, k, t) => asService("SELECT * FROM public.tbd_begin_commit($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    [draftId, who, k, t.company, t.year, t.periodId, t.engagementId, JSON.stringify(t.confirmation), t.replaces?.uploadId ?? null]);
 
   // The Edge Function's commit, step by step in the same order (supabase/functions/_shared/draftUpload.ts): service-role
   // bookkeeping; the workspace reservation and the registration AS THE USER. Storage is the bootstrap's storage.objects
@@ -169,8 +169,11 @@ async function main() {
       const v = await asService("SELECT public.tbd_record_copy_verified($1,$2,$3,$4) r", [b.commit_id, who, b.content_sha256, Number(b.file_size)]);
       if (!["verified", "already_verified"].includes(v.r)) return { step: "verify", outcome: v.r, k };
     }
-    const g = await asUser(who, "SELECT * FROM public.register_trial_balance_upload($1,$2,$3,$4,$5)", [reservationId, Number(b.file_size), t.year, t.periodId, t.engagementId]);
-    if (!["registered", "already_registered"].includes(g.outcome)) return { step: "register", ...g, commitId: b.commit_id, k };
+    // A replacement registers through retire_trial_balance_upload (one transaction, or nothing); anything else registers.
+    const g = t.replaces
+      ? await asUser(who, "SELECT outcome::text AS outcome, new_upload_id AS upload_id, detail FROM public.retire_trial_balance_upload($1,$2,$3,$4,'Replaced from a draft')", [t.replaces.uploadId, t.replaces.expectedVersion, reservationId, Number(b.file_size)])
+      : await asUser(who, "SELECT * FROM public.register_trial_balance_upload($1,$2,$3,$4,$5)", [reservationId, Number(b.file_size), t.year, t.periodId, t.engagementId]);
+    if (!["registered", "already_registered", "replaced"].includes(g.outcome)) return { step: "register", ...g, commitId: b.commit_id, k };
     if (stopAfter === "register") return { step: "register", upload_id: g.upload_id, commitId: b.commit_id, k };
     const f = await asService("SELECT public.tbd_finish_commit($1,$2,$3) r", [b.commit_id, who, g.upload_id]);
     return { step: "finish", outcome: f.r, upload_id: g.upload_id, workspacePath: res.object_path, commitId: b.commit_id, k };
@@ -249,7 +252,7 @@ async function main() {
       await refused(`${role} cannot read ${t} directly`, "42501", () => asRole(role, U.owner, `SELECT * FROM public.${t}`));
     }
   }
-  for (const [fn, args] of [["tbd_sign_target($1,$2)", 2], ["tbd_begin_commit($1,$2,'k',$1,2000,NULL,NULL,'{}')", 2], ["tbd_record_commit_reservation($1,$2,$1)", 2],
+  for (const [fn, args] of [["tbd_sign_target($1,$2)", 2], ["tbd_begin_commit($1,$2,'k',$1,2000,NULL,NULL,'{}',NULL)", 2], ["tbd_record_commit_reservation($1,$2,$1)", 2],
     ["tbd_record_copy_verified($1,$2,'x',1)", 2], ["tbd_finish_commit($1,$2,$1)", 2], ["tbd_cancel_commit($1,$2)", 2], ["tbd_reject_draft($1,$2)", 2], ["tbd_commit_abandoned($1)", 1]]) {
     await refused(`a signed-in user cannot call ${fn.split("(")[0]} (service role only)`, "42501",
       () => asRole("authenticated", U.owner, `SELECT public.${fn}`, args === 2 ? [D1.draft_id, U.owner] : [D1.draft_id]));
@@ -318,6 +321,8 @@ async function main() {
   });
   await refused("what a commit is bound to never changes (even for the service role)", "42501",
     () => asRole("service_role", null, "UPDATE public.trial_balance_draft_commits SET period_year = period_year + 1 WHERE draft_id=$1", [D1.draft_id]), "DRAFT_COMMIT_BINDING_IMMUTABLE");
+  await refused("the upload a commit replaces is part of its binding and never changes", "42501",
+    () => asRole("service_role", null, "UPDATE public.trial_balance_draft_commits SET replaces_upload_id = $2 WHERE draft_id=$1", [D1.draft_id, uuid()]), "DRAFT_COMMIT_BINDING_IMMUTABLE");
 
   // ── Commit recovery ──────────────────────────────────────────────────────────────────────────────────────────────
   group("Commit — every interruption resumes; nothing is consumed or registered twice");
@@ -387,6 +392,35 @@ async function main() {
     const rows = await commitRows(d.draft_id);
     return r.step === "register" && r.outcome === "active_upload_exists" && cancel.r === "cancelled" && respent.outcome === "not_eligible"
       && ok.outcome === "committed" && rows.map((x) => x.state).join() === "cancelled,committed" ? true : { r, cancel, respent, ok, rows };
+  });
+  await check("replace the period's active trial balance with a draft: through retire, the old one superseded (kept as history), the new one active and bound; the commit binds the replaced upload", async () => {
+    const d = await newDraft(); const t = { ...target(A), year: T1.year };
+    const old = await one("SELECT id, version FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=$2 AND lifecycle_state IN ('active_unprocessed','active_processing','active_processed','blocked')", [A, t.year]);
+    const r = await commit(d, U.owner, { ...t, replaces: { uploadId: old.id, expectedVersion: Number(old.version) } });
+    const o = await one("SELECT lifecycle_state, superseded_by_upload_id FROM public.trial_balance_uploads WHERE id=$1", [old.id]);
+    const n = await one("SELECT lifecycle_state, replaces_upload_id FROM public.trial_balance_uploads WHERE id=$1", [r.upload_id]);
+    const [c] = await commitRows(d.draft_id);
+    const bound = (await one("SELECT public.tbu_upload_source_bound($1) b", [r.upload_id])).b;
+    return r.outcome === "committed" && o.lifecycle_state === "superseded" && o.superseded_by_upload_id === r.upload_id
+      && n.replaces_upload_id === old.id && n.lifecycle_state === "active_unprocessed" && c.replaces_upload_id === old.id && bound ? true : { r, o, n, c, bound };
+  });
+  await check("a replacement at a stale version is refused by retire; the current trial balance stays active and nothing is registered", async () => {
+    const d = await newDraft(); const t = { ...target(A), year: T1.year };
+    const cur = await one("SELECT id, version FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=$2 AND lifecycle_state IN ('active_unprocessed','active_processing','active_processed','blocked')", [A, t.year]);
+    const n = await count("SELECT count(*) n FROM public.trial_balance_uploads WHERE company_id=$1", [A]);
+    const r = await commit(d, U.owner, { ...t, replaces: { uploadId: cur.id, expectedVersion: Number(cur.version) - 1 } });
+    const after = await one("SELECT lifecycle_state FROM public.trial_balance_uploads WHERE id=$1", [cur.id]);
+    return r.step === "register" && r.outcome === "stale_version" && after.lifecycle_state === "active_unprocessed"
+      && (await count("SELECT count(*) n FROM public.trial_balance_uploads WHERE company_id=$1", [A])) === n ? true : { r, after };
+  });
+  await check("the replaced upload is part of the commit's binding: the same key replacing another upload is a conflict; finish refuses an upload that is not that replacement", async () => {
+    const d = await newDraft(); const t = { ...target(A), year: T1.year };
+    const k = key();
+    const b1 = await begin(d.draft_id, U.owner, k, { ...t, replaces: { uploadId: uuid() } });
+    const b2 = await begin(d.draft_id, U.owner, k, { ...t, replaces: { uploadId: uuid() } });
+    const plain = await begin(d.draft_id, U.owner, k, t);
+    const f = await asService("SELECT public.tbd_finish_commit($1,$2,$3) r", [b1.commit_id, U.owner, C1.upload_id]);
+    return b1.outcome === "started" && b2.outcome === "conflict" && plain.outcome === "conflict" && ["mismatch", "not_found"].includes(f.r) ? true : { b1: b1.outcome, b2: b2.outcome, plain: plain.outcome, f };
   });
   await check("a registered commit can never be cancelled", async () => {
     const c = await asService("SELECT public.tbd_cancel_commit($1,$2) r", [C1.commitId, U.owner]);

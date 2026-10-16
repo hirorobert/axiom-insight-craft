@@ -15,6 +15,7 @@ import {
   type Cell, type IngestIssue, type IngestResult, type SourceRow,
 } from "./tbIngestion.ts";
 import { ingestWithLayout, type LayoutProfile, type ResolvedLayout } from "./layoutProfile.ts";
+import { checkSourceBytes, checkSourceTables } from "./uploadPolicy.ts";
 
 export type SourceFormat = "xlsx" | "csv" | "unknown";
 
@@ -91,11 +92,16 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   if (format === "unknown") {
     return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "Upload the trial balance as .xlsx, .xls or .csv." });
   }
+  // The upload policy, before anything parses the bytes.
+  const tooBig = checkSourceBytes(bytes, ctx.fileName);
+  if (tooBig) return unreadable(ctx, null, tooBig);
   if (format === "csv") {
     const decoded = decodeCsvBytes(bytes);
     if (!decoded.ok) return unreadable(ctx, null, decoded.issue);
     const parsed = parseCsvText(decoded.text);
     if (!parsed.ok) return unreadable(ctx, null, parsed.issue);
+    const tooMany = checkSourceTables([{ rows: parsed.rows.map((r) => r.cells) }]);
+    if (tooMany) return unreadable(ctx, null, tooMany);
     return ingestTrialBalance({ rows: parsed.rows, sheetName: null, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
   }
   let wb: ReturnType<XlsxLike["read"]>;
@@ -104,7 +110,10 @@ export function readTrialBalanceSource(bytes: Uint8Array, ctx: ReadContext, xlsx
   } catch {
     return unreadable(ctx, null, { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." });
   }
-  const choice = selectTrialBalanceSheet(workbookSheets(xlsx, wb), ctx.periodYear);
+  const sheets = workbookSheets(xlsx, wb);
+  const tooMany = checkSourceTables(sheets.map((s) => ({ rows: s.rows.map((r) => r.cells) })));
+  if (tooMany) return unreadable(ctx, null, tooMany);
+  const choice = selectTrialBalanceSheet(sheets, ctx.periodYear);
   if (!choice.ok) return unreadable(ctx, null, choice.issue);
   return ingestTrialBalance({ rows: choice.sheet.rows, sheetName: choice.sheet.name, periodYear: ctx.periodYear, currency: ctx.currency, workspaceEntityName: ctx.workspaceEntityName });
 }
@@ -119,15 +128,23 @@ export type SourceTables = { ok: true; kind: "csv" | "workbook"; sheets: Workboo
 export function readSourceTables(bytes: Uint8Array, fileName: string, xlsx: XlsxLike): SourceTables {
   const format = detectSourceFormat(fileName);
   if (format === "unknown") return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "Upload the trial balance as .xlsx, .xls or .csv." } };
+  // The upload policy, before anything parses the bytes, and on the read tables before anything uses them.
+  const tooBig = checkSourceBytes(bytes, fileName);
+  if (tooBig) return { ok: false, issue: tooBig };
   if (format === "csv") {
     const decoded = decodeCsvBytes(bytes);
     if (!decoded.ok) return { ok: false, issue: decoded.issue };
     const parsed = parseCsvText(decoded.text);
     if (!parsed.ok) return { ok: false, issue: parsed.issue };
+    const tooMany = checkSourceTables([{ rows: parsed.rows.map((r) => r.cells) }]);
+    if (tooMany) return { ok: false, issue: tooMany };
     return { ok: true, kind: "csv", sheets: [{ name: "", rows: parsed.rows }] };
   }
   try {
-    return { ok: true, kind: "workbook", sheets: workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false })) };
+    const sheets = workbookSheets(xlsx, xlsx.read(bytes, { type: "array", cellDates: false }));
+    const tooMany = checkSourceTables(sheets.map((s) => ({ rows: s.rows.map((r) => r.cells) })));
+    if (tooMany) return { ok: false, issue: tooMany };
+    return { ok: true, kind: "workbook", sheets };
   } catch {
     return { ok: false, issue: { code: "UNSUPPORTED_FORMAT", severity: "blocking", message: "The workbook could not be opened. Save it again from Excel as .xlsx and upload it." } };
   }

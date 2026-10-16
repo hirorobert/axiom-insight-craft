@@ -233,6 +233,26 @@ await check("copy succeeded but registration failed (period already active): act
   return r.status === 409 && r.body.outcome === "active_upload_exists" && /already active/.test(r.body.detail) && c.copy_verified_at && res.consumed_at === null
     && copy && sha(copy) === sha(d.bytes) && cancel.body?.outcome === "cancelled" && respent.body?.outcome === "not_eligible" && done.body?.outcome === "committed" ? true : { r, c, cancel, respent, done };
 });
+await check("replace the period's active trial balance with a draft: a stale version is refused and the current one is kept; the right version replaces it (old kept as history)", async () => {
+  const active = async () => (await admin.from("trial_balance_uploads").select("id, version, lifecycle_state").eq("company_id", A).eq("period_year", D1.year)
+    .in("lifecycle_state", ["active_unprocessed", "active_processing", "active_processed", "blocked"])).data ?? [];
+  const before = await active();
+  const d = await readyDraft("replacement");
+  const refused = await fn(owner, commitBody(d, { period_year: D1.year }));
+  await fn(owner, { action: "cancel", commit_id: refused.body?.commit_id });
+  const stale = await fn(owner, commitBody(d, { commit_key: key(), period_year: D1.year, replaces_upload_id: before[0].id, expected_version: Number(before[0].version) - 1 }));
+  const stillActive = await active();
+  // A stale attempt's commit is cancelled before the user tries again (as the card does).
+  await fn(owner, { action: "cancel", commit_id: stale.body?.commit_id });
+  const ok = await fn(owner, commitBody(d, { commit_key: key(), period_year: D1.year, replaces_upload_id: before[0].id, expected_version: Number(before[0].version) }));
+  const after = await active();
+  const old = (await admin.from("trial_balance_uploads").select("lifecycle_state, superseded_by_upload_id").eq("id", before[0].id).single()).data;
+  const copy = after[0] ? await stored((await admin.from("trial_balance_uploads").select("file_path").eq("id", after[0].id).single()).data.file_path) : null;
+  return before.length === 1 && refused.body?.outcome === "active_upload_exists" && stale.status === 409 && stale.body?.outcome === "replace_conflict"
+    && stillActive.length === 1 && stillActive[0].id === before[0].id
+    && ok.body?.outcome === "committed" && after.length === 1 && after[0].id === ok.body.upload_id && old.lifecycle_state === "superseded" && old.superseded_by_upload_id === ok.body.upload_id
+    && copy && sha(copy) === sha(d.bytes) ? true : { before, refused: refused.body, stale: stale.body, stillActive, ok: ok.body, after, old };
+});
 await check("the worker stopped after reserving and recording the workspace reservation: the real function resumes; one reservation, one upload", async () => {
   const d = await readyDraft("stop-record");
   const t = commitBody(d);

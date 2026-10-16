@@ -1,5 +1,5 @@
 /**
- * /billing/orders — the signed-in customer's own orders (get_my_payments, owner-scoped on the server): what was bought,
+ * /settings/billing (Settings › Billing; /billing/orders redirects here) — the signed-in customer's own orders (get_my_payments, owner-scoped on the server): what was bought,
  * the amount, the payment state, the references for their records, the term each payment bought, and any refund.
  */
 import { useEffect, useState } from "react";

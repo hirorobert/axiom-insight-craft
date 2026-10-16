@@ -106,6 +106,48 @@ describe("runStart: refusals say why and give the one next action", () => {
   });
 });
 
+describe("runStart: an existing entity (P2-4) and the purchase-required path", () => {
+  const E: ConfirmedStart = { ...C, entity: { kind: "existing", companyId: "co-9", name: "Invented Existing Ltd" } };
+  it("an existing entity is never created: period → add → check, against that entity, with its name on the confirmation", async () => {
+    const { d, calls } = deps();
+    const r = await runStart(d, E, K, {});
+    expect(r).toMatchObject({ kind: "checked", progress: { companyId: "co-9" } });
+    expect(calls.map((c) => c.split(":")[0])).toEqual(["period", "add", "check"]);
+    expect(calls[0]).toContain("period:co-9:");
+    expect(calls[1]).toContain('"entity":"Invented Existing Ltd"');
+  });
+  it("a refusal to set up the period for an existing entity names permission and plan, and offers no plan as the fix", async () => {
+    const { d } = deps({ openPeriod: async () => { throw new WorkspaceSetupError("NOT_AUTHORISED", "x"); } });
+    const r = await runStart(d, E, K, {});
+    expect(r).toMatchObject({ kind: "failed", step: "period", retryable: false });
+    expect((r as { next?: string }).next).toBeUndefined();
+    expect((r as { message: string }).message).toMatch(/permission/);
+  });
+  it("no plan at all (capacity answer without a plan): a plan is needed; the draft is kept; nothing is created", async () => {
+    const { d, calls } = deps({ createEntity: async () => ({ kind: "capacity", capacity: { capacity: 0, used: 0, planCode: null, determined: true } }) });
+    const r = await runStart(d, C, K, {});
+    expect(r).toMatchObject({ kind: "failed", step: "entity", next: "choose_plan", retryable: false });
+    expect((r as { message: string }).message).toMatch(/needs a plan.*draft/);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("runStart: the period already has an active trial balance", () => {
+  it("the refusal offers replacing it (a choice, never automatic) and carries the refused commit", async () => {
+    const { d, calls } = deps({ commit: async () => { throw Object.assign(new Error("A trial balance is already active for this period."), { code: "active_upload_exists", retryable: false, commitId: "c-refused" }); } });
+    const r = await runStart(d, C, K, {});
+    expect(r).toMatchObject({ kind: "failed", step: "add", next: "replace", commitId: "c-refused", retryable: false });
+    expect(calls.filter((c) => c.startsWith("check:"))).toEqual([]);
+  });
+  it("a chosen replacement is bound to the commit (the upload and the version seen)", async () => {
+    let seen: unknown = null;
+    const { d } = deps({ commit: async (a) => { seen = a.replaces; return { uploadId: "up-2" }; } });
+    const r = await runStart(d, { ...C, replaces: { uploadId: "up-old", expectedVersion: 7 } }, K, { companyId: "co-1", periodId: "pe-1", engagementId: "en-1" });
+    expect(r.kind).toBe("checked");
+    expect(seen).toEqual({ uploadId: "up-old", expectedVersion: 7 });
+  });
+});
+
 describe("stagesFromMilestones: File read → Columns confirmed → Checks completed, from the server's record only", () => {
   const all = (status: string) => ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status }));
   it("nothing recorded → every stage pending (never shown as done)", () => {

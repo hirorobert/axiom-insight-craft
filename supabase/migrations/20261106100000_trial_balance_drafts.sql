@@ -10,7 +10,9 @@
 --     the same identity returns the same draft; the same key with a different identity is refused (conflict). No entity
 --     is needed to reserve.
 --   * COMMIT is its own record (trial_balance_draft_commits) that binds the draft and its content hash, the target
---     entity, the period (year, period, engagement) and the context the user confirmed (entity, period, currency). The
+--     entity, the period (year, period, engagement), the context the user confirmed (entity, period, currency) and, for a
+--     replacement, the upload it replaces (registered through retire_trial_balance_upload, which keeps the current
+--     trial balance if the replacement fails). The
 --     same commit key with changed inputs is refused; the same inputs resume or replay. A draft is committed at most once.
 --     The entity's authority is NEVER decided here: the trial-balance-draft Edge Function re-checks it on every call
 --     (a replay included) and reserves and registers AS THE USER through the existing workspace functions.
@@ -91,6 +93,9 @@ CREATE TABLE public.trial_balance_draft_commits (
   period_id uuid NULL,
   engagement_id uuid NULL,
   confirmation jsonb NOT NULL,
+  -- A REPLACEMENT of the period's active trial balance (registered through retire_trial_balance_upload, which keeps the
+  -- current upload if the replacement fails). Plain history, not a foreign key (see trial_balance_drafts.committed_upload_id).
+  replaces_upload_id uuid NULL,
   state text NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'cancelled', 'committed')),
   reservation_id uuid NULL REFERENCES public.trial_balance_source_reservations(id) ON DELETE SET NULL,
   copy_verified_at timestamptz NULL,
@@ -121,8 +126,8 @@ BEGIN
       RAISE EXCEPTION 'DRAFT_BINDING_IMMUTABLE' USING ERRCODE = '42501';
     END IF;
   ELSE
-    IF (NEW.id, NEW.draft_id, NEW.owner_ref, NEW.commit_key, NEW.request_hash, NEW.target_company_ref, NEW.period_year, NEW.period_id, NEW.engagement_id, NEW.confirmation, NEW.created_at)
-       IS DISTINCT FROM (OLD.id, OLD.draft_id, OLD.owner_ref, OLD.commit_key, OLD.request_hash, OLD.target_company_ref, OLD.period_year, OLD.period_id, OLD.engagement_id, OLD.confirmation, OLD.created_at) THEN
+    IF (NEW.id, NEW.draft_id, NEW.owner_ref, NEW.commit_key, NEW.request_hash, NEW.target_company_ref, NEW.period_year, NEW.period_id, NEW.engagement_id, NEW.confirmation, NEW.replaces_upload_id, NEW.created_at)
+       IS DISTINCT FROM (OLD.id, OLD.draft_id, OLD.owner_ref, OLD.commit_key, OLD.request_hash, OLD.target_company_ref, OLD.period_year, OLD.period_id, OLD.engagement_id, OLD.confirmation, OLD.replaces_upload_id, OLD.created_at) THEN
       RAISE EXCEPTION 'DRAFT_COMMIT_BINDING_IMMUTABLE' USING ERRCODE = '42501';
     END IF;
   END IF;
@@ -143,10 +148,10 @@ CREATE OR REPLACE FUNCTION public.tbd_reserve_hash(p_owner uuid, p_name text, p_
 RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
   SELECT encode(sha256(convert_to(concat_ws(chr(31), 'reserve.v1', p_owner::text, p_name, p_size::text, p_sha), 'UTF8')), 'hex');
 $$;
-CREATE OR REPLACE FUNCTION public.tbd_commit_hash(p_draft uuid, p_sha text, p_company uuid, p_year integer, p_period uuid, p_engagement uuid, p_confirmation jsonb)
+CREATE OR REPLACE FUNCTION public.tbd_commit_hash(p_draft uuid, p_sha text, p_company uuid, p_year integer, p_period uuid, p_engagement uuid, p_confirmation jsonb, p_replaces uuid)
 RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
   SELECT encode(sha256(convert_to(concat_ws(chr(31), 'commit.v1', p_draft::text, p_sha, p_company::text, p_year::text,
-    COALESCE(p_period::text, '-'), COALESCE(p_engagement::text, '-'), p_confirmation::text), 'UTF8')), 'hex');
+    COALESCE(p_period::text, '-'), COALESCE(p_engagement::text, '-'), p_confirmation::text, COALESCE(p_replaces::text, '-')), 'UTF8')), 'hex');
 $$;
 -- The confirmed context: exactly entity, period and currency, each a non-empty string the user saw and confirmed.
 CREATE OR REPLACE FUNCTION public.tbd_confirmation_valid(p jsonb)
@@ -245,7 +250,7 @@ $$;
 -- object_missing | not_eligible | invalid_request. reservation_state: none | live | expired | consumed.
 CREATE OR REPLACE FUNCTION public.tbd_begin_commit(
   p_draft_id uuid, p_user_id uuid, p_commit_key text, p_company_id uuid, p_period_year integer,
-  p_period_id uuid, p_engagement_id uuid, p_confirmation jsonb)
+  p_period_id uuid, p_engagement_id uuid, p_confirmation jsonb, p_replaces_upload_id uuid DEFAULT NULL)
 RETURNS TABLE (outcome text, commit_id uuid, object_path text, file_name text, file_size bigint, content_sha256 text,
                reservation_id uuid, reservation_state text, copy_verified boolean, upload_id uuid)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -264,7 +269,7 @@ BEGIN
   IF v.id IS NULL THEN
     RETURN QUERY SELECT 'not_found'::text, NULL::uuid, NULL::text, NULL::text, NULL::bigint, NULL::text, NULL::uuid, NULL::text, NULL::boolean, NULL::uuid; RETURN;
   END IF;
-  v_hash := public.tbd_commit_hash(v.id, v.content_sha256, p_company_id, p_period_year, p_period_id, p_engagement_id, p_confirmation);
+  v_hash := public.tbd_commit_hash(v.id, v.content_sha256, p_company_id, p_period_year, p_period_id, p_engagement_id, p_confirmation, p_replaces_upload_id);
 
   -- The key is bound to its first inputs, on any draft: the same key with changed inputs is a conflict.
   SELECT * INTO c FROM public.trial_balance_draft_commits k WHERE k.owner_ref = v.owner_ref AND k.commit_key = p_commit_key;
@@ -299,8 +304,8 @@ BEGIN
   IF NOT public.tbu_storage_object_exists(v.object_path) THEN
     RETURN QUERY SELECT 'object_missing'::text, NULL::uuid, NULL::text, NULL::text, NULL::bigint, NULL::text, NULL::uuid, NULL::text, NULL::boolean, NULL::uuid; RETURN;
   END IF;
-  INSERT INTO public.trial_balance_draft_commits (draft_id, owner_ref, commit_key, request_hash, company_id, target_company_ref, period_year, period_id, engagement_id, confirmation)
-  VALUES (v.id, v.owner_ref, p_commit_key, v_hash, p_company_id, p_company_id, p_period_year, p_period_id, p_engagement_id, p_confirmation)
+  INSERT INTO public.trial_balance_draft_commits (draft_id, owner_ref, commit_key, request_hash, company_id, target_company_ref, period_year, period_id, engagement_id, confirmation, replaces_upload_id)
+  VALUES (v.id, v.owner_ref, p_commit_key, v_hash, p_company_id, p_company_id, p_period_year, p_period_id, p_engagement_id, p_confirmation, p_replaces_upload_id)
   RETURNING id INTO v_new;
   UPDATE public.trial_balance_drafts d SET state = 'committing' WHERE d.id = v.id;
   RETURN QUERY SELECT 'started'::text, v_new, v.object_path, v.file_name, v.file_size, v.content_sha256, NULL::uuid, 'none'::text, false, NULL::uuid;
@@ -379,7 +384,9 @@ BEGIN
                      WHERE t.id = p_upload_id AND t.company_id = c.target_company_ref AND t.file_path = v_res.object_path
                        AND t.period_year = c.period_year AND t.period_id IS NOT DISTINCT FROM COALESCE(c.period_id, t.period_id)
                        AND t.engagement_id IS NOT DISTINCT FROM COALESCE(c.engagement_id, t.engagement_id)
-                       AND t.file_size = v_draft.file_size) THEN
+                       AND t.file_size = v_draft.file_size
+                       -- A replacement must be exactly the replacement of the bound upload; a first upload replaces nothing.
+                       AND t.replaces_upload_id IS NOT DISTINCT FROM c.replaces_upload_id) THEN
     RETURN 'mismatch';
   END IF;
   IF c.copy_verified_at IS NULL THEN RETURN 'not_verified'; END IF;
@@ -447,15 +454,15 @@ REVOKE ALL ON FUNCTION public.trial_balance_draft_retention() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.trial_balance_draft_retention() TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tbd_bound_fields_immutable() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbd_reserve_hash(uuid, text, bigint, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.tbd_commit_hash(uuid, text, uuid, integer, uuid, uuid, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tbd_commit_hash(uuid, text, uuid, integer, uuid, uuid, jsonb, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.tbd_confirmation_valid(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tbd_reserve_hash(uuid, text, bigint, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.tbd_commit_hash(uuid, text, uuid, integer, uuid, uuid, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.tbd_commit_hash(uuid, text, uuid, integer, uuid, uuid, jsonb, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.tbd_confirmation_valid(jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.tbd_sign_target(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tbd_sign_target(uuid, uuid) TO service_role;
-REVOKE ALL ON FUNCTION public.tbd_begin_commit(uuid, uuid, text, uuid, integer, uuid, uuid, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.tbd_begin_commit(uuid, uuid, text, uuid, integer, uuid, uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.tbd_begin_commit(uuid, uuid, text, uuid, integer, uuid, uuid, jsonb, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tbd_begin_commit(uuid, uuid, text, uuid, integer, uuid, uuid, jsonb, uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.tbd_record_commit_reservation(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tbd_record_commit_reservation(uuid, uuid, uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.tbd_record_copy_verified(uuid, uuid, text, bigint) FROM PUBLIC, anon, authenticated;

@@ -141,6 +141,16 @@ export default function EngagementHub({
     : null;
   const creation = reads ? companyCreation(reads) : null;
   const canCreate = creation === "allowed" && !!account?.onCompanyCreated;
+  // Phase 2 P2-3/P2-4: the upload is offered from the home. Entities the user can see (the server re-checks authority).
+  const uploadEntities = [...new Map([
+    ...entries.map((e) => [e.companyId, { id: e.companyId, name: e.companyName }] as const),
+    ...companiesWithoutEngagement.map((c) => [c.id, { id: c.id, name: c.name }] as const),
+  ]).values()];
+  const uploadHome: "full" | "full_needs_plan" | "compact" | null = !account?.onOpenTrialBalance || !next ? null
+    : next.kind === "add_company" && canCreate ? "full"
+    : next.kind === "choose_plan" && uploadEntities.length === 0 && sharedWorkspaces.length === 0 ? "full_needs_plan"
+    : uploadEntities.length > 0 && !["checking", "retry"].includes(next.kind) ? "compact"
+    : null;
 
   const renderEntry = (entry: ActiveEngagementEntry) => {
     const nextVisible = isStageCustomerVisible(entry.workspaceState.nextAction.mission);
@@ -222,8 +232,14 @@ export default function EngagementHub({
       {account && next && (
         <section className="mb-10" aria-labelledby="account-home-title">
           <h1 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h1>
-          {next.kind === "add_company" && canCreate && account.onOpenTrialBalance ? (
-            <FirstUpload onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
+          {uploadHome === "compact" && account.onOpenTrialBalance && (
+            <div className="mb-4">
+              <FirstUpload compact entities={uploadEntities} canCreateEntity={creation === "allowed"} needsPlan={next.kind === "choose_plan"}
+                onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
+            </div>
+          )}
+          {(uploadHome === "full" || uploadHome === "full_needs_plan") && account.onOpenTrialBalance ? (
+            <FirstUpload needsPlan={uploadHome === "full_needs_plan"} onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
           ) : (
           <NextActionCard
             next={next}

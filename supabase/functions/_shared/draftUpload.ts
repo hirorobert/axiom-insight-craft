@@ -28,14 +28,16 @@ const NOT_DEPLOYED = new Set(["PGRST202", "PGRST205", "42883", "42P01"]);
 export type DraftOutcome =
   | "signed" | "already_stored" | "committed" | "cancelled" | "already_cancelled"
   | "unauthenticated" | "forbidden" | "invalid_request" | "not_found" | "expired" | "not_eligible"
-  | "commit_conflict" | "draft_not_stored" | "content_mismatch" | "active_upload_exists" | "registration_refused"
+  | "commit_conflict" | "draft_not_stored" | "content_mismatch" | "active_upload_exists" | "registration_refused" | "replace_conflict"
   | "retry" | "storage_unavailable" | "copy_integrity_failed" | "commit_failed" | "drafts_unavailable" | "signing_failed";
 
 export interface Confirmation { entity: string; period: string; currency: string }
 
 export type DraftRequest =
   | { action: "sign"; draftId: string }
-  | { action: "commit"; draftId: string; commitKey: string; companyId: string; periodYear: number; periodId: string | null; engagementId: string | null; confirmation: Confirmation }
+  | { action: "commit"; draftId: string; commitKey: string; companyId: string; periodYear: number; periodId: string | null; engagementId: string | null; confirmation: Confirmation;
+      /** A replacement of this active upload (bound to the commit), at the version the user saw (a concurrency token). */
+      replaces?: { uploadId: string; expectedVersion: number } | null }
   | { action: "cancel"; commitId: string };
 
 export interface BeginResult {
@@ -70,6 +72,8 @@ export interface DraftDeps {
   removeObject(path: string): Promise<boolean>;
   sha256(bytes: Uint8Array): Promise<string>;
   recordCopyVerified(commitId: string, userId: string, sha: string, size: number): Promise<string>;
+  /** AS THE USER: retire_trial_balance_upload(old, expected version, reservation, size, reason) — atomic; keeps the old one on failure. */
+  retire(oldUploadId: string, expectedVersion: number, reservationId: string, size: number): Promise<{ outcome: string; new_upload_id: string | null; detail: string | null }>;
   /** AS THE USER: register_trial_balance_upload(reservation, size, year, period, engagement). */
   register(reservationId: string, size: number, periodYear: number, periodId: string | null, engagementId: string | null): Promise<{ outcome: string; upload_id: string | null; detail: string | null }>;
   finish(commitId: string, userId: string, uploadId: string): Promise<string>;
@@ -103,7 +107,9 @@ export function parseDraftRequest(body: unknown): DraftRequest | null {
     return onlyKeys(b, ["action", "commit_id"]) && isUuid(b.commit_id) ? { action: "cancel", commitId: b.commit_id } : null;
   }
   if (b.action !== "commit") return null;
-  if (!onlyKeys(b, ["action", "draft_id", "commit_key", "company_id", "period_year", "period_id", "engagement_id", "confirmation"])) return null;
+  if (!onlyKeys(b, ["action", "draft_id", "commit_key", "company_id", "period_year", "period_id", "engagement_id", "confirmation", "replaces_upload_id", "expected_version"])) return null;
+  const replacing = b.replaces_upload_id != null || b.expected_version != null;
+  if (replacing && (!isUuid(b.replaces_upload_id) || !Number.isInteger(b.expected_version) || (b.expected_version as number) < 0)) return null;
   const c = b.confirmation as Record<string, unknown> | null;
   const okText = (v: unknown) => typeof v === "string" && v.trim().length > 0 && v.length <= 200;
   if (!isUuid(b.draft_id) || typeof b.commit_key !== "string" || !KEY.test(b.commit_key) || !isUuid(b.company_id)
@@ -115,6 +121,7 @@ export function parseDraftRequest(body: unknown): DraftRequest | null {
     action: "commit", draftId: b.draft_id, commitKey: b.commit_key, companyId: b.company_id, periodYear: b.period_year as number,
     periodId: (b.period_id as string | null | undefined) ?? null, engagementId: (b.engagement_id as string | null | undefined) ?? null,
     confirmation: { entity: c.entity as string, period: c.period as string, currency: c.currency as string },
+    replaces: replacing ? { uploadId: b.replaces_upload_id as string, expectedVersion: b.expected_version as number } : null,
   };
 }
 
@@ -245,8 +252,26 @@ async function commit(deps: DraftDeps, userId: string, r: Extract<DraftRequest, 
   return await registerAndFinish(deps, userId, commitId, reservationId, size, r);
 }
 
+const RETIRE_REFUSAL: Record<string, DraftResult> = {
+  forbidden: { status: 403, outcome: "forbidden" },
+  stale_version: { status: 409, outcome: "replace_conflict", detail: "The current trial balance changed since you chose to replace it. Look at it again, then replace it." },
+  already_discarded: { status: 409, outcome: "replace_conflict", detail: "The trial balance you chose to replace is no longer active. Look at the period again." },
+};
+
 async function registerAndFinish(deps: DraftDeps, userId: string, commitId: string, reservationId: string, size: number,
   r: Extract<DraftRequest, { action: "commit" }>): Promise<DraftResult> {
+  if (r.replaces) {
+    // Replacement: one transaction demotes the old upload and creates the new one, or changes nothing. A retry with the
+    // same reservation answers the same new upload ('replaced'); the old one is never lost.
+    const x = await deps.retire(r.replaces.uploadId, r.replaces.expectedVersion, reservationId, size);
+    if (x.outcome !== "replaced" || !x.new_upload_id) {
+      const refusal = RETIRE_REFUSAL[x.outcome] ?? { status: 500, outcome: "commit_failed" as const, retryable: true };
+      return { ...refusal, commit_id: commitId, detail: refusal.detail ?? x.detail ?? undefined };
+    }
+    const f = await deps.finish(commitId, userId, x.new_upload_id);
+    if (f === "committed" || f === "already_committed") return { status: 200, outcome: "committed", commit_id: commitId, upload_id: x.new_upload_id, replayed: f === "already_committed" };
+    return { status: 500, outcome: "commit_failed", retryable: f === "not_verified", commit_id: commitId };
+  }
   const g = await deps.register(reservationId, size, r.periodYear, r.periodId, r.engagementId);
   if (g.outcome !== "registered" && g.outcome !== "already_registered") {
     const refusal = REGISTER_REFUSAL[g.outcome] ?? { status: 500, outcome: "commit_failed" as const, retryable: true };
