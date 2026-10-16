@@ -261,16 +261,17 @@ async function main() {
   });
 
   group("Delayed · a success verified after the order's local expiry");
-  await check("the order passed its 1-hour local expiry and a new attempt was blocked; the payment then completes (Snippe allows up to 4 hours): one licence; another transaction for the order is never applied as a licence (it is recorded for recovery)", async () => {
+  await check("the order passed its 1-hour local expiry and a new attempt was blocked without writing (20261105100000: the order stays PENDING); the payment then completes (Snippe allows up to 4 hours): one licence; another transaction for the order is never applied as a licence (it is recorded for recovery)", async () => {
     const a = await account("delayed");
     const i = await order(a, "SOLO");
     await admin.query("UPDATE public.payment_checkout_intents SET expires_at = now() - interval '2 hours' WHERE id=$1", [i.id]);
     await setState("CUSTOMER_PAYMENTS_ENABLED");
     const blocked = await attempt(a, "SOLO", "SNIPPE", "production");
     await setState("PAYMENTS_DISABLED");
+    const stillOpen = (await admin.query("SELECT status FROM public.payment_checkout_intents WHERE id=$1", [i.id])).rows[0].status;
     const r = await commit(i);
     const other = await commit(i, { tx: `${i.pref}-second` });
-    return blocked.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" && r.committed === true && other.status === "RECOVERY_REQUIRED" && other.licence_id === null && (await lic(a)).length === 1 ? true : { blocked, r, other };
+    return blocked.action === "OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT" && stillOpen === "PENDING" && r.committed === true && other.status === "RECOVERY_REQUIRED" && other.licence_id === null && (await lic(a)).length === 1 ? true : { blocked, stillOpen, r, other };
   });
 
   group("Polar and Snippe · one account, both providers");
@@ -282,15 +283,16 @@ async function main() {
     const open = (await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
     return rs.filter((r) => r.action === "NEW_ATTEMPT").length === 1 && open === 1 ? true : { actions: rs.map((r) => r.action), open };
   });
-  await check("a Snippe prompt is outstanding when the customer tries Polar: no second payment starts (the Snippe order goes to review); its payment still settles once", async () => {
+  await check("a Snippe prompt is outstanding when the customer tries Polar: no second payment starts (20261105100000: the Snippe order stays PENDING, nothing is written); its payment still settles once", async () => {
     const a = await account("switch");
     const i = await order(a, "SOLO");
     await setState("CUSTOMER_PAYMENTS_ENABLED");
     const polar = await attempt(a, "SOLO", "POLAR", "production");
     await setState("PAYMENTS_DISABLED");
+    const stillOpen = (await admin.query("SELECT status FROM public.payment_checkout_intents WHERE id=$1", [i.id])).rows[0].status;
     const r = await commit(i);
     const polarIntents = (await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1 AND provider='POLAR'", [a.bc])).rows[0].n;
-    return polar.action === "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT" && polarIntents === 0 && r.committed === true && (await lic(a)).length === 1 ? true : { polar, r, polarIntents };
+    return polar.action === "OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT" && stillOpen === "PENDING" && polarIntents === 0 && r.committed === true && (await lic(a)).length === 1 ? true : { polar, stillOpen, r, polarIntents };
   });
   await check("a Polar term paid, then a Snippe payment for the same plan: the second term starts exactly when the first ends (two paid terms, never overlapping)", async () => {
     const a = await account("sequence");

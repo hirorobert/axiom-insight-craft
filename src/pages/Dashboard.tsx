@@ -282,6 +282,7 @@ export default function Dashboard() {
         onRetry: () => { retryBilling(); retryCapacity(); },
         onSignOut: signOutHome,
         onCompanyCreated: (companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true }),
+        onOpenTrialBalance: (companyId, year) => navigate(`/workspace/${companyId}/${year}/prepare`, { replace: true }),
         initialAddOpen: firstRun && companyCreation({
           billing: { loading: billingLoading, error: !!billingError, summary: billing },
           capacity: { loading: capacityLoading, error: !!capacityError, answer: capacity },

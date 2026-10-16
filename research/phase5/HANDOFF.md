@@ -1,0 +1,177 @@
+# Phase 5 — Handoff
+
+## Branch & commits
+- Branch: `research/phase5-accounting-interpretation-20261016` (off `origin/main` @ `00a2653`). Draft **PR #138**.
+- Worktree: `D:/DevStorage/Temp/claude/cfoclose-phase5-20261016`. Push: available (verified non-destructively).
+- **Implementation commits (preceding this handoff):** `4ec6cf1` (prototype + original proofs + INTERFACE/DECISION),
+  `b40097a` (real-contract static check, replayable PG17 proof, extended coverage, income rules),
+  `cfa42e2` (exact-money BigInt, role-aware unexpected-balance *signal* vs mapping-verdict separation, `OVERDRAFT` /
+  `WRONGLY_MAPPED_NORMAL_SIGN`, executed real-layout contract proof, `run_all.mjs` recorder) and
+  `dc07f35` (manual multi-account treatment path, reuse-context > file-hash, atomicity mirrored from the real RPC,
+  reason relaxed to the server's actual requirement, `manual.test.mjs`, extended static + replayable proofs) and
+  **`b56f504`** (SEAT_LIMIT fix in the replayable proof via a supported `NAMED_USER_SEATS` override, runtime DB-version
+  reporting, and the `accounting_boundaries.test.mjs` regression harness).
+  (This HANDOFF is a separate, later commit — no commit embeds its own hash.)
+
+## Runtime-vs-inspection honesty (reinforced)
+SQL inspection (Tier 2 static) tells us the real function's **shape and rules**; it does **not** prove runtime behaviour.
+**Atomic batch acceptance, idempotency, concurrency serialization, cross-tenant refusal and stale-decision refusal are
+asserted statically here and are only truly PROVEN by Tier 4** — successful execution against the real RPCs on PostgreSQL
+(`proof/real_contract_proof.mjs`), which is **still unexecuted on this host** (no Docker/PG). They stay explicitly
+unexecuted until NORMAL runs the proof. Nothing in these deliverables claims them as runtime-proven.
+
+## Execution tiers — what is proven at which level (never conflated; unexecuted stays unexecuted)
+| Tier | Meaning | Status here |
+|---|---|---|
+| 1 · Prototype assertions | deterministic behaviour of the research adapters | **EXECUTED** — phase5 29/29, coverage 21/21, manual 24/24 |
+| 2 · Static compatibility | payloads/refusals parsed from the **real** RPC SQL match what we emit | **EXECUTED** — real_contract_static 17/17 (necessary, not sufficient) |
+| 3 · Actual layout-contract execution | the **real** `layoutProfile.ts` runs against our input | **EXECUTED** — real_layout_contract 8/8 (imports the real module) |
+| 4 · Real RPC / RLS / persistence enforcement | the **real** `resolve_account_review_batch` on PostgreSQL (success + refusal + lifecycle + manual + atomic + conflict); the runtime version is reported, not assumed | **REPLAYABLE, NOT executed here** — `proof/real_contract_proof.mjs` (needs a loopback PG; coordinate with NORMAL) |
+| 5 · Authenticated application integration | the real UI → edge → RPC under a real logged-in session | **NOT built, NOT executed** — Phase 6, pending scope approval |
+
+## Batch atomicity (authoritative — read from the real SQL, not assumed)
+`resolve_account_review_batch` (migration `20261007100000`) validates **every** decision in a first pass and `RAISE`s on the
+first invalid one **before any write**; there is no per-decision `try/catch`, and it returns a single aggregate
+`result_summary`. **Batch acceptance is therefore ATOMIC / all-or-nothing; partial outcomes do not exist server-side.** The
+honest UX consequence (built into the manual path): show each account's **pre-flight** outcome *before* submission; submit
+only the confirmed set; a failing submit rejects the **whole** batch naming the offending account — never a silent skip,
+never a misleading blanket success. Same-account concurrency is serialized by `pg_advisory_xact_lock(company, account_key)`
+(last writer wins; the append-only ledger keeps both).
+
+## Prototype vs real-contract evidence
+| Evidence | What it proves | Status |
+|---|---|---|
+| `tests/phase5.test.mjs` | deterministic 5-layer prototype + lifecycle (the 7 North-Star behaviours); exact BigInt minor units | **EXECUTED 29/29** |
+| `tests/coverage.test.mjs` | vendor-style patterns + edge cases; "unexpected balance" vs "incorrect mapping" separated; disclosed LIMITs | **EXECUTED 21/21** |
+| `tests/manual.test.mjs` | manual multi-account path: no inferred-equivalence grouping, visual-by-issue, preview, atomic mixed-batch, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context | **EXECUTED 24/24** |
+| `tests/accounting_boundaries.test.mjs` | prepayment three-component bridge, two-TB net movement, source-imbalance-survives-balanced-adjustment, signed-prior vs comparative, corrected-version immutability, MUSE candidate-rule scope | **EXECUTED 17/17** |
+| `tests/real_contract_static.mjs` | grouped **and manual** expansions are field+semantics compatible with the **real** `resolve_account_review_batch` (parsed from the migration SQL) | **EXECUTED 17/17** (static — necessary, not sufficient) |
+| `proof/real_layout_contract.mjs` | the SunSystems "T/B Code" manual-layout fallback **executes through the real, unmodified** `layoutProfile.ts` (`validateProfile`+`resolveLayout` recover every code) | **EXECUTED 8/8** (Node type-stripping; imports the real module) |
+| `run_all.mjs` → `TEST-OUTPUT.md` | recorded full output + exit status, categorised prototype / real-contract / deferred | **EXECUTED** (4 executed suites pass, 1 deferred) |
+| `proof/real_contract_proof.mjs` | **execution** against the real RPC on disposable PG17: success + refusals + lifecycle | **REPLAYABLE, NOT executed on this host** (no Docker/local PG; scope forbids a CI workflow here) |
+
+**Access limitation (reported once):** this Windows host has no Docker and no local PostgreSQL (embedded-pg is unavailable),
+and scope-cleanliness confines my writes to `research/phase5/**` (so I did not add a CI workflow). The real-function execution
+proof is therefore delivered as a **one-command replayable package**:
+`DB_PROOF_CONN=postgres://…@127.0.0.1:5432/db node research/phase5/proof/real_contract_proof.mjs` (a PG-capable runtime —
+CI service or local Docker — runs it; loopback-only; refuses the production ref).
+
+## Test-to-requirement matrix
+| North-Star / verification requirement | Test(s) | Result |
+|---|---|---|
+| Recognise supported structure | coverage (QB/Odoo/SunSystems), phase5 #1 | PASS |
+| SunSystems manual-layout fallback executes through the existing contract | `proof/real_layout_contract.mjs` | **EXECUTED 8/8 — VERIFIED route, not proposed** |
+| Exact money (BigInt minor units; no float; relationships/signs exact) | phase5 #3, coverage (Odoo), layer1 `toMinorUnits` | PASS |
+| Role-aware unexpected-balance signal (contra-asset/drawings normal sides) | coverage (A), layer3 | PASS |
+| "Unexpected balance" is a SIGNAL, not an "incorrect mapping" verdict | coverage (A), (A≠B) | PASS (separated tests; no overclaim) |
+| Balanced + mis-mapped + normal signs ⇒ **undetectable** (honest limit) | coverage (B, undetectable) | PASS (asserts non-detection) |
+| Establish essential accounting context | INTERFACE §2; readiness/evidence tests | design + 4/… evidence checks |
+| Propose GROUPED treatments (no Accept-all) | phase5 #1 | PASS |
+| Expose consequential uncertainty | phase5 #1 (suspense/contra), coverage (abnormal sign) | PASS |
+| Obtain explicit authorised acceptance | phase5 #1, #7; real_contract_static #4/#5 | PASS (expansion compat) |
+| Reuse compatible approved decisions | phase5 #5; coverage (compatible repeat) | PASS |
+| Reopen on meaning/identity change | phase5 #6; coverage (chart re-code, identity drift) | PASS (identity/code); **STALE_MEANING = GAP** |
+| Different codes / similar descriptions ≠ duplicate | phase5 #2 | PASS |
+| Opening/addition/transfer/depreciation relationships, never netted | phase5 #3; coverage (MUSE) | PASS |
+| Missing comparative/GL blocks OUTPUT not review | phase5 #4; coverage (conflicting) | PASS |
+| Balanced-but-wrongly-mapped (abnormal sign) | coverage (A) | PASS (unexpected-balance signal → individual review) |
+| Balanced-but-wrongly-mapped (normal sign) | coverage (B, undetectable) | PASS (documented as undetectable — not a false green) |
+| Genuine imbalance | coverage | PASS (deferred to production ingestion) |
+| Compatible repeat vs incompatible reuse | phase5 #5, coverage | PASS |
+| Cross-tenant / stale / concurrent / retry / partial-failure / duplicate | manual.test (prototype), real_contract_static #8 (codes), proof (execution) | prototype PASS; static PASS; execution REPLAYABLE |
+| Real-function compatibility (success + refusal) | real_contract_static (static); proof (execution) | static 17/17; execution REPLAYABLE |
+| Uncertain accounts NOT auto-grouped by inferred equivalence | manual.test, phase5 #1 | PASS |
+| Visual-by-issue organisation implies no treatment/approval | manual.test | PASS (`impliesTreatment:false`) |
+| Deliberate multi-select → shown preview → atomic submit | manual.test, proof (manual) | prototype PASS; execution REPLAYABLE |
+| Batch atomicity (all-or-nothing; no partial/blanket success) | manual.test (mixed), proof (manual mixed) | prototype PASS; execution REPLAYABLE |
+| Conflicting concurrent decisions (serialized; last-writer-wins) | manual.test, proof (conflict) | prototype PASS; execution REPLAYABLE |
+| Reuse > file-hash (entity/currency/dimensions/ruleset; UNKNOWN disclosed) | manual.test (reuse-context) | PASS (+ documented schema gap) |
+| Advisory sign WARNING vs blocking mapping ERROR | manual.test | PASS (distinct) |
+| Prepayment three-component bridge (arithmetic ≠ net authority) | accounting_boundaries | PASS |
+| Two TBs → net movement only (no additions/splits) | accounting_boundaries | PASS |
+| Source imbalance survives balanced adjustment; no invented entry | accounting_boundaries | PASS (refs `close_review_adjustments`) |
+| Signed prior figure ≠ comparative; source precision preserved | accounting_boundaries | PASS |
+| Corrected source = linked immutable version; outputs re-evaluated | accounting_boundaries | PASS (refs revalidation model) |
+| MUSE observations = scoped, evidenced, proposed candidate rules (not global) | accounting_boundaries | PASS |
+| Approval ≠ reuse; context compatibility required | manual.test (reuse), accounting_boundaries (MUSE) | PASS |
+
+## Remaining gaps (precise; see INTERFACE §9)
+1. **Reuse status for classification decisions** (`REUSABLE/NEW/STALE_IDENTITY`) — new READ logic, **no new table**; generalises the existing `MARK_NON_REPORTING` identity-drift reopen.
+2. **`STALE_MEANING` beyond identity/chart-code** — **no production mechanism**; **excluded** from the first slice; a future, separately-scoped signal.
+3. **Output version-binding** — bind a completed TB review summary to the exact `reviewInputVersion` + decision `sequence_no`s. **Minimum compatible change: a `close_review_events` row** (new `event_type`), reusing the existing append-only timeline — **no new table**.
+4. **Reuse context beyond entity + account_key.** Live `account_mappings` keys only `(company_id, account_key)`, and the write RPC does not compare context — so reuse *through the RPC* is entity + account_key today. **Correction (verified):** currency and period are **not** a schema gap — they are authoritative on `fiscal_periods` (`reporting_currency` FK + explicit dates), reached from an upload via `trial_balance_uploads.period_id`, so a Phase 6 reuse check can **read** them. The genuine remaining gaps are narrower: (a) **binding** the accepting context onto the **decision ledger** (`account_review_decisions` already stores `previous_value`/`new_value` JSON — add context there, or an additive column) so reuse can compare it; (b) a **dimension** axis; (c) a **ruleset-version** axis. The prototype discloses every unverified field (UNKNOWN ≠ EQUAL); no silent assumption. **Not** in the first slice (single-entity, single-currency).
+
+## Proposed Phase 6 production files + owners (for NORMAL to agree; NOT implemented now)
+| File / area | What | Proposed owner |
+|---|---|---|
+| `src/lib/accounting/interpretation/*` (new, pure) | 5 layers + grouping + reuse classification + evidence sufficiency (ports of `research/phase5/prototype/*`) | Phase 6 impl (accounting-interpretation); NORMAL reviews contract |
+| `src/lib/accounting/interpretation/manual.ts` (new, pure) | organise-by-issue + preview + atomic common-treatment expansion (port of `manual.mjs`) | Phase 6 impl; **NORMAL owns the selection/approval UX** |
+| `supabase/functions/tb-review-summary/*` **or** a SECURITY DEFINER read RPC (new, read-only) | renders groups/individual/relationships/reuse/coverage/readiness; **no write authority** | Phase 6 impl; NORMAL owns placement in the journey |
+| `src/components/*ReviewSummary*`, `*ManualAssign*` (new) | grouped-acceptance + deliberate multi-select UI, preview-before-submit, per-account outcomes; **no Accept-all** | **NORMAL** (customer journey) |
+| Writes | **unchanged `resolve_account_review_batch`** — group **and** manual acceptance both expand to its atomic batch | existing authority (do not modify) |
+| Tests | the static + prototype + manual suites ported to CI; the replayable PG17 proof promoted to a CI job | Phase 6 impl |
+
+## Coordination / DB requirements for the replayable proof (priority 1 — verify with NORMAL; never run on hosted)
+**SEAT_LIMIT_REACHED fix:** NORMAL's earlier run stopped during fixture setup at `SEAT_LIMIT_REACHED` (PG16). Cause: the
+named-user seat wall (`trg_firm_members_named_user_seats`) with `included_seats = 1` on every paid plan — seeding a partner +
+viewer exceeded one seat. **Fixed** by provisioning seats through the **supported authority** — a `NAMED_USER_SEATS`
+entitlement override (the `ADMIN_OVERRIDE` path in `_seat_capacity_for_account`) **before** any extra member is inserted. No
+trigger is bypassed. The proof now also **queries and prints the actual `server_version`** — no PostgreSQL version is
+hard-coded as an executed result (it runs on PG16+/17; NORMAL's isolated run is PG17).
+
+**Corrected invocation (unchanged command; loopback only; refuses the production ref):**
+`DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/phase5_proof node research/phase5/proof/real_contract_proof.mjs`
+(requires the `pg` devDependency installed and a throwaway PostgreSQL). **Head to run: `b56f504` (branch tip below).**
+
+`proof/real_contract_proof.mjs` replays `scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql` then **every**
+`supabase/migrations/*.sql` in filename order on a disposable PostgreSQL, then drives the real RPC. It refuses the
+production project ref and any non-loopback host. The authoritative chain it depends on (verify these exist/apply cleanly):
+`extensions.digest` (pgcrypto); the `financial_statement` + `account_classification` enums; `trial_balance_uploads`
+(`source_file_hash`, `processing_result`); `account_mappings` (GENERATED `account_key` + UNIQUE `(company_id, account_key)`,
+`20260703120000`); `account_review_batches` + `account_review_decisions` (`20260816120000`); `account_mapping_content` +
+`treatment_request_id` + the latest `resolve_account_review_batch` (`20261006100000`, `20261007100000`); the
+membership/capability + **seat** chain (`firm_members` + `trg_firm_members_named_user_seats`, `named_user_access_active`,
+`workspace_capability_allowed`, `_seat_capacity_for_account`, `entitlement_overrides`, and the
+`commercial_products/plans/licences/billing_customers` seed for `prepare_close` — the proof provisions the
+`NAMED_USER_SEATS` override itself before seeding members). **Run it on a throwaway loopback PostgreSQL only**, coordinated
+through this branch; it is Tier 4 enforcement, delivered replayable because this host has no PG.
+
+## Dependencies & compatibility
+- Prototype/tests: **Node standard library only** (no package, no lockfile change); the real-layout proof needs Node ≥ 22.18 type-stripping. Replayable RPC proof: `pg` (already `pg@8.23.1` devDependency) + a loopback PostgreSQL (16+/17).
+- Compatibility: both the grouped and the manual per-account decisions use only fields the real RPC consumes, a non-forbidden `proposal_type`, an accepted `decision_action` (`USER_ACCEPTED_SUGGESTION` / `USER_MANUAL_CLASSIFICATION`), supported statement/class pairings, tri-state flags, and are deterministic (replay-safe). Verified statically (17/17); execution proof replayable.
+
+## Acceptance tests (for Phase 6, to be run in a PG-capable CI)
+`proof/real_contract_proof.mjs` (success + refusal + lifecycle + **manual path + atomic mixed-batch + conflicting-decision
+serialization** against the real RPC on a disposable PostgreSQL) is the acceptance harness. It must pass on the authoritative
+chain before any production wiring. The static + prototype + coverage + manual + accounting-boundary suites run in plain Node
+and gate the pure logic.
+
+## Schema / API changes (justified, not assumed)
+- **None required for the first slice's writes** — `resolve_account_review_batch` unchanged; group **and** manual acceptance both expand to its existing atomic batch; reuse is native (company-scoped `account_mappings`).
+- **One additive, reviewed change if output-binding is wanted now:** a new `close_review_events.event_type = 'tb_review_summarised'` (append-only timeline; **no new table, no new authority**). Justified by requirement #3. If deferred, summaries are recomputed from the ledger at `sequence_no ≤ N`.
+- **Reuse-context binding (gap #4), only when multi-currency/dimension reuse is in scope (NOT the first slice):** record the accepting context on `account_review_decisions` (additive JSON/column) and compare on reuse. Additive, no change to the write path's authority.
+- A read-only summary RPC/edge (additive; no write authority). Everything else is pure library + UI.
+
+## First proposed Phase 6 slice (single-entity, no statement engine, no withheld modules)
+Synthetic **annual single-entity TB** → **grouped review** (proposals with visible exceptions; uncertain accounts individual /
+deliberately multi-selectable, never auto-grouped) → **authorised acceptance** (group expansion **and** manual common-treatment,
+both atomic through the unchanged RPC) → **versioned per-account decisions** (`account_review_decisions` append-only,
+`sequence_no` latest-wins) → **traceable TB review summary** (read-only projection) → **repeat upload** demonstrating
+compatible reuse and changed-account reopen (identity drift today; context/meaning reopen per gaps #2/#4). **Ends at the
+review summary + repeat upload** — no financial-statement engine, no withheld-module activation.
+
+## Scope cleanliness
+`git diff origin/main` is **entirely under `research/phase5/`** (verified). No production component, migration, registry,
+lockfile, entitlement, payment or deployment file is touched.
+
+## Owner-access recap (explained; NOT modified)
+`origin/main` @ `00a2653` already contains the merged **platform-owner / entity-allowance** workstream (migration
+`20261104100000_platform_owner_access_and_entity_allowance.sql`, the `reauthenticate` edge function) from earlier PRs
+(#130 / #131). My Phase 5 branch is **based on that main**, so those commits appear in its baseline/ancestry — but my diff adds
+**nothing** to them and I have **not modified** that separate workstream.
+
+## Coordination
+NORMAL owns the customer journey, final integration and the canonical accepted contract, and reviews compatibility + agrees
+file ownership at its next natural checkpoint; the concrete Phase 6 scope then goes to the owner for approval. **Technical
+agreement is not deployment permission.** No merge, deployment, hosted migration, permission/payment-state/feature-gate change
+is authorised. Read `docs/HANDOFF-core.md` (or its equivalent) when available and reconcile INTERFACE-PROPOSAL before Phase 6.

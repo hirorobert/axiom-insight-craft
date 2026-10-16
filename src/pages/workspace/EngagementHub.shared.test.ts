@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 // The creation form (create_entity) reaches the browser Supabase client; it is exercised in Dashboard.test.ts and the
 // end-to-end journey, not in these static renders.
 vi.mock("@/components/workspace/FirstRunEngagement", () => ({ default: () => null }));
+vi.mock("@/components/workspace/FirstUpload", () => ({ default: () => null }));
 import EngagementHub from "./EngagementHub";
 
 const LONG = "Browser Acceptance 1790234805819-60edf1-a-very-long-unbreakable-workspace-name";

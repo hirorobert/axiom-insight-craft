@@ -163,7 +163,7 @@ export default function PaymentReturn() {
             <AlertCircle className="mx-auto h-12 w-12 text-destructive" aria-hidden="true" />
             <h1 className="text-xl font-semibold">Order reference missing</h1>
             <p className="text-sm text-muted-foreground">This link does not name an order. Your orders, with their status, are listed on one page.</p>
-            <Button asChild className="w-full"><Link to="/billing/orders">See your orders</Link></Button>
+            <Button asChild className="w-full"><Link to="/settings/billing">See your orders</Link></Button>
           </div>
         )}
 
@@ -172,7 +172,7 @@ export default function PaymentReturn() {
             <AlertCircle className="mx-auto h-12 w-12 text-destructive" aria-hidden="true" />
             <h1 className="text-xl font-semibold">Order not found</h1>
             <p className="text-sm text-muted-foreground">No order with this reference belongs to the account you are signed in with.</p>
-            <Button asChild className="w-full"><Link to="/billing/orders">See your orders</Link></Button>
+            <Button asChild className="w-full"><Link to="/settings/billing">See your orders</Link></Button>
           </div>
         )}
 
@@ -278,7 +278,7 @@ export default function PaymentReturn() {
               {(phase === "REVIEW" || phase === "TIMEOUT" || (phase === "CONFIRMED" && status?.reversalType)) && (
                 <Button asChild variant="outline" className="w-full"><Link to={activationRequestHref("plan_wall")}>Contact our team</Link></Button>
               )}
-              <Link to="/billing/orders" className="text-center text-sm underline underline-offset-4">See all your orders</Link>
+              <Link to="/settings/billing" className="text-center text-sm underline underline-offset-4">See all your orders</Link>
             </div>
             {notice && <p className="text-center text-xs text-muted-foreground" role="status">{notice}</p>}
             {phase === "POLLING" && <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground"><Clock className="h-3 w-3" aria-hidden="true" />Checked {pollCount} {pollCount === 1 ? "time" : "times"}</p>}
