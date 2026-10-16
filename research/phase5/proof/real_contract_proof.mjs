@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 // Phase 5 — REAL-CONTRACT EXECUTION PROOF (REPLAYABLE; not executed on the research host).
 //
-// Replays the AUTHORITATIVE migration chain from zero on a disposable PostgreSQL 17, then drives the REAL
+// Replays the AUTHORITATIVE migration chain from zero on a disposable PostgreSQL (16/17 — the runtime's ACTUAL version is
+// queried and reported; NOTHING here hard-codes a version as an executed result), then drives the REAL
 // resolve_account_review_batch (its actual definition in the isolated runtime — NOT a hosted customer DB) with the SAME
 // grouped proposals this research's prototype produces, expanded to per-account decisions. Proves legitimate SUCCESS and
 // REFUSAL, plus the lifecycle scenarios the runtime permits.
 //
-// RUN (where a loopback PostgreSQL 17 exists — CI service, local Docker, or an external loopback):
+// RUN (where a loopback PostgreSQL exists — CI service, local Docker, or an external loopback):
 //   DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/phase5_proof node research/phase5/proof/real_contract_proof.mjs
 // Loopback only; refuses the production project ref. Requires the `pg` package (already a devDependency: pg@8.23.1) and a
 // migration chain present at supabase/migrations. This host (no Docker / no local Postgres / Windows embedded-pg) cannot run
 // it; scope-cleanliness forbids wiring a CI workflow here, so it is delivered as a replayable package for a PG-capable runtime.
+//
+// SEATS: the named-user seat wall (trg_firm_members_named_user_seats; included_seats = 1 on every paid plan) previously
+// stopped a run at SEAT_LIMIT_REACHED during fixture setup when more than one synthetic member was seeded. Fixed here by
+// provisioning seats through the SUPPORTED authority — a NAMED_USER_SEATS entitlement override (ADMIN_OVERRIDE path in
+// _seat_capacity_for_account) — before any additional member is inserted. No trigger is bypassed.
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -38,8 +44,9 @@ const rec = (n, ok, d = "") => { results.push({ n, ok }); console.log(`  ${ok ? 
 
 async function replayAll() {
   await admin.query(fs.readFileSync(path.join(REPO, "scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql"), "utf8"));
-  // EVIDENCE-BRANCH CORRECTION: hosted Supabase provides pgcrypto's digest() in the `extensions` schema, which the real
-  // account-review RPC calls; mirror it exactly as the repository's other PostgreSQL proofs do.
+  // EVIDENCE-BRANCH CORRECTION (for the #138 owner to adopt): hosted Supabase installs pgcrypto in the `extensions` schema,
+  // which the authoritative RPCs call as extensions.digest. The bootstrap installed pgcrypto in the default schema, so this
+  // exposes THE SAME pgcrypto function under `extensions` (no application logic is replaced); verified below.
   await admin.query(`CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role;
     CREATE OR REPLACE FUNCTION extensions.digest(text, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';
     CREATE OR REPLACE FUNCTION extensions.digest(bytea, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS 'SELECT public.digest($1, $2)';`);
@@ -56,12 +63,18 @@ async function replayAll() {
 }
 async function giveLicence(user, plan) {
   const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) ON CONFLICT (owner_user_id) DO UPDATE SET product_id=EXCLUDED.product_id RETURNING id", [user, PRODUCT])).rows[0].id;
-  // EVIDENCE-BRANCH CORRECTION (core-journey owner, for the #138 owner to adopt): the plan grants named-user seats for the
-  // partner and viewer this fixture adds (without them the authoritative chain refuses the members: SEAT_LIMIT_REACHED).
-  await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1,id,'ACTIVE','ADMIN_GRANT', now()-interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code=$3", [bc, PRODUCT, plan]);
+  await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start) SELECT $1,id,'ACTIVE','ADMIN_GRANT', now()-interval '1 day' FROM public.commercial_plans WHERE product_id=$2 AND code=$3", [bc, PRODUCT, plan]);
+  return bc;
 }
-// EVIDENCE-BRANCH CORRECTION: a period has ONE active upload (uq_one_active_upload_per_period), so the repeat upload is
-// the returning customer's NEXT period (2027), the reuse case this proof is about.
+// Provision synthetic named-user seats through the SUPPORTED authority: a NAMED_USER_SEATS entitlement override
+// (ADMIN_OVERRIDE in _seat_capacity_for_account). This is the schema's own seat-capacity mechanism, not a trigger bypass.
+async function giveSeats(bc, grantedBy, n) {
+  await admin.query(
+    "INSERT INTO public.entitlement_overrides (billing_customer_id, feature_code, capacity_value, granted_by, reason, effective_start) VALUES ($1,'NAMED_USER_SEATS',$2,$3,'synthetic phase5 proof seats', now()-interval '1 day')",
+    [bc, n, grantedBy]);
+}
+// EVIDENCE-BRANCH CORRECTION: one active upload per period (uq_one_active_upload_per_period), so the repeat upload is the
+// returning customer's NEXT period (2027) — the reuse case this proof is about.
 async function mkUpload(company, owner, hash, year = 2026) {
   return (await admin.query(
     "INSERT INTO public.trial_balance_uploads (user_id, company_id, period_year, file_name, file_path, file_size, status, source_file_hash) VALUES ($1,$2,$6,$3,$4,100,'needs_review',$5) RETURNING id",
@@ -85,16 +98,23 @@ async function main() {
   admin = new Client({ connectionString: CONN }); await admin.connect();
   pool = new Pool({ connectionString: CONN, max: 6 });
   const total = await replayAll();
-  // EVIDENCE-BRANCH CORRECTION: report the server's ACTUAL version (never a hard-coded one).
-  const serverVersion = (await admin.query("SHOW server_version")).rows[0].server_version;
-  rec(`REPLAY · entire authoritative migration chain (${total} files) applied on PostgreSQL ${serverVersion}`, true);
+  const ver = (await admin.query("SELECT current_setting('server_version') AS v, version() AS full")).rows[0];
+  console.log(`  [runtime] PostgreSQL ${ver.v}  (${ver.full})`);
+  rec(`REPLAY · entire authoritative migration chain (${total} files) applied on PostgreSQL ${ver.v}`, true);
+  // The extensions shim is pgcrypto itself: the SHA-256 test vector for "abc", identical through both schemas.
+  const dg = (await admin.query("SELECT encode(extensions.digest('abc','sha256'),'hex') AS e, encode(public.digest('abc','sha256'),'hex') AS p")).rows[0];
+  rec("SETUP · extensions.digest is pgcrypto's digest (SHA-256 test vector for 'abc'; same result as public.digest)",
+    dg.e === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" && dg.e === dg.p, JSON.stringify(dg));
 
-  // ── Seed: product, licences (prepare_close needs a current plan), companies (auto owner firm_member), a partner + viewer, an upload bound to company A. ──
+  // ── Seed: product, licences (prepare_close needs a current plan), SEATS (override so >1 synthetic member is allowed),
+  //    companies (auto owner firm_member), a partner + viewer, an upload bound to company A. ──
   for (const [k, id] of Object.entries(U)) await admin.query("INSERT INTO auth.users (id, email, email_confirmed_at) VALUES ($1,$2, now())", [id, `${k}@example.test`]);
   PRODUCT = (await admin.query("SELECT id FROM public.commercial_products WHERE code='CFOCLOSE'")).rows[0].id;
-  await giveLicence(U.owner, "FIRM"); await giveLicence(U.ownerB, "SOLO");
+  const bcOwner = await giveLicence(U.owner, "FIRM"); await giveLicence(U.ownerB, "PRACTICE");
+  await giveSeats(bcOwner, U.owner, 25);   // included_seats is 1 on every paid plan; provision enough for owner + partner + viewer
   COMPANY_A = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Co A') RETURNING id", [U.owner])).rows[0].id;
   COMPANY_B = (await admin.query("INSERT INTO public.companies (user_id, name) VALUES ($1,'Co B') RETURNING id", [U.ownerB])).rows[0].id;
+  rec(`SEATS · NAMED_USER_SEATS override provisioned via supported authority before seeding members (no trigger bypass)`, true);
   await admin.query("INSERT INTO public.firm_members (company_id, user_id, role, accepted_at) VALUES ($1,$2,'partner',now()),($1,$3,'viewer',now())", [COMPANY_A, U.partner, U.viewer]);
   UPLOAD_A = await mkUpload(COMPANY_A, U.owner, "a".repeat(64));
 

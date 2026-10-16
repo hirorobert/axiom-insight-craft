@@ -174,6 +174,44 @@ _Manual multi-account treatment path: no inferred-equivalence grouping, visual-b
 ```
 **exit status: 0**
 
+### research/phase5/tests/accounting_boundaries.test.mjs
+_Accounting-boundary refusals: prepayment three-component bridge, two-TB net movement, source imbalance survives balanced adjustment, signed-prior vs comparative, corrected-version immutability, MUSE candidate-rule scope._
+
+```
+
+== Prepayments require the three-component bridge (arithmetic agreement ≠ net-presentation authority)
+  PASS  with all three components, closing = opening + additions - release (exact BigInt)
+  PASS  missing the release component → net presentation refused (bridge incomplete)
+  PASS  a closing figure that merely agrees arithmetically does NOT authorise net presentation
+
+== Two TBs establish NET movement only — never gross additions, credit movements or a split
+  PASS  net movement = closing - opening, labelled NET_MOVEMENT (not additions, not a split, not cash flow)
+  PASS  attempting to split a net movement into additions/disposals from two TBs is refused
+
+== Source imbalance survives a balanced adjustment; no balancing entry is invented
+  PASS  a balanced adjustment is accepted (Σdebit = Σcredit > 0, each line one side)
+  PASS  the adjusted imbalance equals the source imbalance (the balanced layer cures nothing)
+  PASS  an UNBALANCED adjustment is refused — the prototype never invents a balancing entry
+  PASS  a two-sided (not one-side-only) line is refused
+
+== Signed prior figure is distinct from a comparative (source precision preserved)
+  PASS  a signed prior figure and a comparative figure are preserved separately, never merged
+
+== Corrected source is a linked immutable version; outputs re-evaluated; history unchanged
+  PASS  the correction links a NEW version and leaves the original signed artefact unchanged
+  PASS  every dependent output is marked requires_revalidation (re-evaluated, not silently carried)
+  PASS  a correction that reuses the same version is refused (a correction must be a new version)
+
+== MUSE observations are candidate rules — scoped, evidenced, proposed; never global; approval ≠ reuse
+  PASS  a MUSE observation is a CANDIDATE rule scoped to entity + chart version + years
+  PASS  it carries evidence, is PROPOSED (not auto-applied), is not global, and reuse still needs context compatibility
+  PASS  a MUSE observation without scope is refused
+  PASS  a MUSE observation without evidence is refused
+
+17/17 accounting-boundary checks passed.
+```
+**exit status: 0**
+
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 ## REAL-CONTRACT (executed here)
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -248,8 +286,9 @@ _Imports & executes the REAL layoutProfile.ts (validateProfile + resolveLayout) 
 - PASS  [PROTOTYPE]  research/phase5/tests/phase5.test.mjs  (exit 0)
 - PASS  [PROTOTYPE]  research/phase5/tests/coverage.test.mjs  (exit 0)
 - PASS  [PROTOTYPE]  research/phase5/tests/manual.test.mjs  (exit 0)
+- PASS  [PROTOTYPE]  research/phase5/tests/accounting_boundaries.test.mjs  (exit 0)
 - PASS  [REAL-CONTRACT (executed here)]  research/phase5/tests/real_contract_static.mjs  (exit 0)
 - PASS  [REAL-CONTRACT (executed here)]  research/phase5/proof/real_layout_contract.mjs  (exit 0)
 - DEFERRED  [DEFERRED (not executed on this host)]  research/phase5/proof/real_contract_proof.mjs  (exit DEFERRED)
 
-Executed: 5  ·  Passed: 5  ·  Failed: 0  ·  Deferred: 1
+Executed: 6  ·  Passed: 6  ·  Failed: 0  ·  Deferred: 1

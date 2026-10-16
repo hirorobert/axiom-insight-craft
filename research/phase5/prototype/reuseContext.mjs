@@ -7,11 +7,15 @@
 //
 // HONEST SCHEMA REALITY (verified against supabase/migrations):
 //   - account_mappings is keyed ONLY on (company_id, account_key) — a GENERATED column COALESCE(account_code, normalized
-//     name). It carries NO period, NO currency, NO dimension axis, NO ruleset-version column. So production reuse is, today,
-//     entity + account_key only.
-//   - Therefore period/currency/dimensions/ruleset compatibility CANNOT be enforced by the live RPC; this module models the
-//     richer binding and DISCLOSES which fields it could not independently verify. UNKNOWN is never coerced to "equal":
-//     a null currency on either side is reported as UNVERIFIED, never assumed to match and never fabricated as a mismatch.
+//     name). It carries NO currency/period/dimension/ruleset column, and the write RPC does not compare context, so TODAY
+//     reuse through resolve_account_review_batch is entity + account_key only.
+//   - BUT currency and period ARE authoritative elsewhere: fiscal_periods.reporting_currency (FK to currency_registry, no
+//     TZS fallback) + explicit dates, reached from an upload via trial_balance_uploads.period_id (20260630100000 /
+//     20261009100000). So a Phase 6 reuse-compatibility check can READ currency + period from real authority — they are
+//     NOT a schema gap. The genuine remaining gaps are narrower: (a) BINDING the accepting context onto the decision ledger
+//     so reuse can compare it, (b) a dimension axis, (c) a ruleset-version axis. See INTERFACE §9 gap #4.
+//   - This module models the richer binding and DISCLOSES which fields it could not verify. UNKNOWN is never coerced to
+//     "equal": a null field on either side is reported as UNVERIFIED, never assumed to match and never fabricated as a mismatch.
 
 /** Normalize a dimension signature (the set of dimension axis names captured at ingestion) to a stable string. */
 export function dimensionSignature(dims) {

@@ -11,6 +11,7 @@ const SUITES = [
   { cat: "PROTOTYPE", file: "research/phase5/tests/phase5.test.mjs", flags: [], note: "Deterministic 5-layer prototype + lifecycle (7 North-Star behaviours)." },
   { cat: "PROTOTYPE", file: "research/phase5/tests/coverage.test.mjs", flags: [], note: "Extended synthetic coverage; detection concepts separated; limits disclosed as LIMIT lines." },
   { cat: "PROTOTYPE", file: "research/phase5/tests/manual.test.mjs", flags: [], note: "Manual multi-account treatment path: no inferred-equivalence grouping, visual-by-issue, atomic submission, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context." },
+  { cat: "PROTOTYPE", file: "research/phase5/tests/accounting_boundaries.test.mjs", flags: [], note: "Accounting-boundary refusals: prepayment three-component bridge, two-TB net movement, source imbalance survives balanced adjustment, signed-prior vs comparative, corrected-version immutability, MUSE candidate-rule scope." },
   { cat: "REAL-CONTRACT (executed here)", file: "research/phase5/tests/real_contract_static.mjs", flags: [], note: "Parses the REAL resolve_account_review_batch SQL; asserts field+semantics compatibility. Static — necessary, not sufficient." },
   { cat: "REAL-CONTRACT (executed here)", file: "research/phase5/proof/real_layout_contract.mjs", flags: ["--experimental-strip-types"], note: "Imports & executes the REAL layoutProfile.ts (validateProfile + resolveLayout) to prove the SunSystems manual-layout fallback." },
 ];
