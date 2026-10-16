@@ -620,6 +620,9 @@ describe("database inertness — schema and functions", () => {
       // Account identity (repair B): the loopback-only real-PostgreSQL proof (reproduces the raw unique violation on the
       // chain without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/accountIdentity.mjs",
+      // The owner's READ-ONLY impact-detection queries for repairs A, B and C (SELECTs only; run in a read-only
+      // transaction by accountIdentity.mjs). No deploy behaviour.
+      "scripts/db-preflight/processingIntegrityImpact.sql",
       // The upload-policy measurement (invented data, local processes only; no network, no secret).
       "scripts/bench/tbUploadPolicyBench.mjs", "scripts/bench/tbUploadPolicyDenoProbe.ts",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).

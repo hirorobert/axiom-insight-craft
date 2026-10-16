@@ -206,6 +206,36 @@ async function main() {
     const decs = await count("SELECT count(*) n FROM public.account_review_decisions WHERE company_id=$1 AND review_account_key IN ('6000','6100')", [A]);
     return failed.length === 0 && maps === 2 && decs === 12 ? true : { failed, maps, decs };
   });
+
+  group("Impact detection — the owner's read-only queries (scripts/db-preflight/processingIntegrityImpact.sql)");
+  // A certification as an earlier engine could record it: 4100 "Sales" certified by NAME (tier 2) after a reviewed
+  // decision for "Sales" existed only under code 4000 — the silent wrong-code reuse generation 6 no longer performs.
+  const reuse = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, user_id)
+    VALUES ('tb.csv',$1,100,'processing',$2,2027,$3) RETURNING id`, [`${U.ownerA}/${uuid()}.csv`, A, U.ownerA])).id;
+  const SRC = crypto.createHash("sha256").update("impact-detection").digest("hex");
+  const b = (await asRole("service_role", null, "SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v4',4,'workspace_user',NULL,$4,600) r", [reuse, uuid(), SRC, U.ownerA]))[0].r;
+  await asRole("service_role", null, "SELECT public.tb_snapshot_dependencies($1,$2::jsonb)", [b.engine_run_id, JSON.stringify([{ scope: A, key: "#currency" }])]);
+  const row = { accountCode: "4900", accountName: "Sales", nature: "income", subNature: "other_income", debitBalance: 0, creditBalance: 10, netBalance: 10, evidenceTier: 2, ruleId: null, requiresReview: false };
+  const fin = (await asRole("service_role", null, "SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [b.engine_run_id, JSON.stringify({ outcome: "certified",
+    upload: { status: "complete", is_valid: true, processing_result: { status: "valid" }, validation_report: { ok: true }, accounting_errors: [] },
+    certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, exceptions: [], rows_snapshot: [row] } })]))[0].r;
+  const sql = fs.readFileSync(path.join(REPO, "scripts/db-preflight/processingIntegrityImpact.sql"), "utf8");
+  const statements = sql.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n").split(/;\s*\n/).map((x) => x.trim()).filter(Boolean);
+  await check(`every query (${statements.length}) runs in a READ ONLY transaction (nothing can be written)`, async () => {
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN TRANSACTION READ ONLY");
+      for (const st of statements) await c.query(st);
+      await c.query("ROLLBACK");
+      return statements.every((st) => /^SELECT\b/i.test(st)) && statements.length >= 7 ? true : "not all SELECT";
+    } finally { c.release(); }
+  });
+  await check("B1 finds the seeded wrong-code reuse (4900 certified by name after a decision under 4000) and nothing for correctly coded accounts", async () => {
+    const rows = (await pool.query(statements[0])).rows;
+    const hit = rows.filter((r) => r.certification_id === fin.certification_id);
+    return fin.outcome === "certified" && hit.length >= 1 && hit.every((r) => r.certified_code === "4900" && r.decision_code !== "4900")
+      && rows.every((r) => r.certified_code !== r.decision_code) ? true : { fin, hit, n: rows.length };
+  });
 }
 
 try { await main(); } catch (e) { record("unexpected", false, String(e?.stack ?? e)); }
