@@ -77,6 +77,14 @@ function world() {
     removeObject: async (p) => { step("remove"); return storage.delete(p); },
     sha256: async (b) => sha(b),
     recordCopyVerified: async (_c, _u, h, size) => { step("verify"); if (h !== s.draft.sha || size !== s.draft.size) return "mismatch"; s.commit!.verified = true; return "verified"; },
+    retire: async (old, _v, id) => {
+      step("retire");
+      const res = s.reservations.get(id)!;
+      if (res.consumedBy) return { outcome: "replaced", new_upload_id: res.consumedBy, detail: null };
+      if (old !== "u-old") return { outcome: "stale_version", new_upload_id: null, detail: null };
+      const up = `u${s.uploads.length + 1}`; s.uploads.push(up); res.consumedBy = up;
+      return { outcome: "replaced", new_upload_id: up, detail: null };
+    },
     register: async (id) => {
       step("register");
       if (!s.authorised) return { outcome: "forbidden", upload_id: null, detail: null };
@@ -229,6 +237,40 @@ describe("commit: integrity and refusals", () => {
     const { s, deps } = world();
     s.storage.delete(s.draftPath);
     expect(await runDraftRequest(deps, COMMIT)).toMatchObject({ status: 503, outcome: "storage_unavailable", retryable: true });
+  });
+});
+
+describe("commit: replacing the period's active trial balance (retire, never register)", () => {
+  const REPLACE = { ...COMMIT, replaces: { uploadId: "u-old", expectedVersion: 3 } };
+  it("registers through retire (one transaction on the server), never through register", async () => {
+    const { s, deps } = world();
+    const r = await runDraftRequest(deps, REPLACE);
+    expect(r).toMatchObject({ status: 200, outcome: "committed", upload_id: "u1" });
+    expect(s.calls).toContain("retire");
+    expect(s.calls).not.toContain("register");
+  });
+  it("a stale version is refused in words (replace_conflict); nothing is registered; the current trial balance stays", async () => {
+    const { s, deps } = world();
+    const r = await runDraftRequest(deps, { ...REPLACE, replaces: { uploadId: "u-other", expectedVersion: 3 } });
+    expect(r).toMatchObject({ status: 409, outcome: "replace_conflict", commit_id: "c1" });
+    expect(r.detail).toMatch(/changed since you chose to replace it/);
+    expect(s.uploads).toEqual([]);
+  });
+  it("a lost answer: the same request again answers the same new upload; no second replacement", async () => {
+    const { s, deps } = world();
+    s.failOnce.add("finish");
+    await runDraftRequest(deps, REPLACE);
+    const again = await runDraftRequest(deps, REPLACE);
+    expect(again).toMatchObject({ outcome: "committed", upload_id: "u1" });
+    expect(s.uploads).toEqual(["u1"]);
+  });
+  it("the request must name both the upload and the version it replaces", () => {
+    const body = { action: "commit", draft_id: D, commit_key: KEY, company_id: CO, period_year: 2025, period_id: null, engagement_id: null, confirmation: CONF };
+    expect(parseDraftRequest({ ...body, replaces_upload_id: U, expected_version: 3 })).toMatchObject({ replaces: { uploadId: U, expectedVersion: 3 } });
+    expect(parseDraftRequest({ ...body, replaces_upload_id: U })).toBeNull();
+    expect(parseDraftRequest({ ...body, expected_version: 3 })).toBeNull();
+    expect(parseDraftRequest({ ...body, replaces_upload_id: "x", expected_version: 3 })).toBeNull();
+    expect(parseDraftRequest(body)).toMatchObject({ replaces: null });
   });
 });
 

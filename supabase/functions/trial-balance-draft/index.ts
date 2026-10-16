@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     beginCommit: async (userId, r) => {
       const { data, error } = await service.rpc("tbd_begin_commit", {
         p_draft_id: r.draftId, p_user_id: userId, p_commit_key: r.commitKey, p_company_id: r.companyId, p_period_year: r.periodYear,
-        p_period_id: r.periodId, p_engagement_id: r.engagementId, p_confirmation: r.confirmation,
+        p_period_id: r.periodId, p_engagement_id: r.engagementId, p_confirmation: r.confirmation, p_replaces_upload_id: r.replaces?.uploadId ?? null,
       });
       fail(error); return first<BeginResult>(data) ?? ({ outcome: "not_found" } as BeginResult);
     },
@@ -100,6 +100,12 @@ Deno.serve(async (req) => {
     recordCopyVerified: async (commitId, userId, sha, size) => {
       const { data, error } = await service.rpc("tbd_record_copy_verified", { p_commit_id: commitId, p_user_id: userId, p_copy_sha256: sha, p_copy_size: size });
       fail(error); return String(data);
+    },
+    retire: async (oldUploadId, expectedVersion, reservationId, size) => {
+      const { data, error } = await asUser.rpc("retire_trial_balance_upload", {
+        p_old_upload_id: oldUploadId, p_expected_version: expectedVersion, p_reservation_id: reservationId, p_new_file_size: size, p_reason: "Replaced from a draft",
+      });
+      fail(error); return first(data) ?? { outcome: "forbidden", new_upload_id: null, detail: null };
     },
     register: async (reservationId, size, periodYear, periodId, engagementId) => {
       const { data, error } = await asUser.rpc("register_trial_balance_upload", {

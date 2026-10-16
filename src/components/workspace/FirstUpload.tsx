@@ -26,7 +26,7 @@ import { ACCEPTED_EXTENSIONS, classifyCheckAnswer, validateFileChoice } from "@/
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 import { openEngagementWithPeriod, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { UPLOAD_LIMITS_TEXT, fileTooLarge } from "@/lib/workspace/uploadPolicy";
-import { DraftError, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft } from "@/lib/workspace/trialBalanceDraft";
+import { DraftError, cancelDraftCommit, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft } from "@/lib/workspace/trialBalanceDraft";
 import { EMPTY_PERIOD, derivePeriod, followingYear, periodName, periodProblem, periodRange, periodYear, type PeriodChoice, type PeriodPreset } from "@/lib/workspace/reportingPeriod";
 import { START_STEPS, STAGES, readMilestones, runStart, stagesFromMilestones, type ConfirmedStart, type StageStatus, type StartDeps, type StartKeys, type StartProgress, type StartResult, type StartStep } from "@/lib/workspace/firstUpload";
 
@@ -194,7 +194,25 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
   };
 
   // ── Start: the existing authorities in order; a retry resumes where the last attempt stopped ─────────────────────
-  const start = async () => {
+  // The period already has an active trial balance and the user chose to replace it: cancel the refused commit (it was
+  // never registered), then commit again bound to that exact upload at the version read now. The server replaces it in
+  // one transaction (retire_trial_balance_upload) or changes nothing — the current trial balance is never lost.
+  const replaces = useRef<{ uploadId: string; expectedVersion: number } | null>(null);
+  const replace = async () => {
+    if (phase.kind !== "failed" || phase.result.next !== "replace") return;
+    const year = periodYear(input.period);
+    const { data } = await supabase.from("trial_balance_uploads").select("id, version")
+      .eq("company_id", progress.current.companyId ?? "").eq("period_year", year ?? 0)
+      .in("lifecycle_state", ["active_unprocessed", "active_processing", "active_processed", "blocked"]).maybeSingle();
+    const current = data as { id: string; version: number | string } | null;
+    if (!current) { setPhase({ ...phase, result: { ...phase.result, message: "The trial balance for this period could not be found. Refresh and try again.", next: undefined, retryable: true } }); return; }
+    try { if (phase.result.commitId) await cancelDraftCommit(phase.result.commitId); } catch { /* an already-cancelled commit is fine */ }
+    replaces.current = { uploadId: current.id, expectedVersion: Number(current.version) };
+    keys.current = { ...(keys.current ?? { entityRequestId: crypto.randomUUID(), checkRequestId: crypto.randomUUID() }), commitKey: newDraftKey(), checkRequestId: crypto.randomUUID() };
+    await start(true);
+  };
+
+  const start = async (forceReplace = false) => {
     if (phase.kind !== "stored" && phase.kind !== "failed") return;
     if (problems.length) { setShowProblems(true); document.getElementById(ids.problems)?.focus(); return; }
     const { file, draft } = phase;
@@ -205,6 +223,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
       draftId: draft.draftId,
       entity: input.mode === "existing" && existing ? { kind: "existing", companyId: existing.id, name: existing.name } : { kind: "new", name: input.entityName },
       period: { start: p.start, end: p.end, year: periodYear(input.period)!, name: periodName(input.period)! }, currency: input.currency,
+      replaces: forceReplace || replaces.current ? replaces.current : null,
     };
     const client = supabase as unknown as RpcClient;
     const deps: StartDeps = {
@@ -214,7 +233,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
         return parseCreateEntityOutcome(data);
       },
       openPeriod: (a) => openEngagementWithPeriod(client, { companyId: a.companyId, periodStart: a.start, periodEnd: a.end, reportingCurrency: a.currency, capabilities: ["FINANCIAL_STATEMENTS"] }),
-      commit: (a) => commitDraft(a.draftId, a.commitKey, { companyId: a.companyId, periodYear: a.periodYear, periodId: a.periodId, engagementId: a.engagementId, confirmation: a.confirmation }),
+      commit: (a) => commitDraft(a.draftId, a.commitKey, { companyId: a.companyId, periodYear: a.periodYear, periodId: a.periodId, engagementId: a.engagementId, confirmation: a.confirmation, replaces: a.replaces }),
       check: async (a) => {
         await ensureFreshSession();
         const { error } = await supabase.functions.invoke("process-trial-balance", { body: { uploadId: a.uploadId, clientRequestId: a.requestId } });
@@ -235,7 +254,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     setPhase({ kind: "checked", file, draft, companyId: r.progress.companyId, periodYear: r.periodYear, stages });
   };
 
-  const reset = () => { keys.current = null; progress.current = {}; setInput({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" }); setPhase({ kind: "empty" }); };
+  const reset = () => { keys.current = null; progress.current = {}; replaces.current = null; setInput({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" }); setPhase({ kind: "empty" }); };
 
   // ── Render ────────────────────────────────────────────────────────────────────────────────────────────────────────
   const filtered = (currencies ?? []).filter((c) => !currencyFilter || `${c.code} ${c.name}`.toLowerCase().includes(currencyFilter.toLowerCase()) || c.code === input.currency);
@@ -245,7 +264,14 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     <SurfaceCard data-testid="first-upload" data-compact={compact ? "true" : undefined}>
       <h2 className={compact ? "text-[15px] font-semibold text-foreground" : "text-xl font-semibold text-foreground"}>{compact ? FIRST_UPLOAD_COPY.compactHeading : FIRST_UPLOAD_COPY.heading}</h2>
       {!compact && <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">{FIRST_UPLOAD_COPY.intro}</p>}
-      {needsPlan && <p className="mt-2 max-w-2xl text-[14px] text-foreground" data-testid="first-upload-needs-plan">{FIRST_UPLOAD_COPY.needsPlan}</p>}
+      {needsPlan && (
+        <p className="mt-2 max-w-2xl text-[14px] text-foreground" data-testid="first-upload-needs-plan">
+          {FIRST_UPLOAD_COPY.needsPlan}{" "}
+          <button type="button" onClick={onChoosePlan} className="underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="first-upload-view-plans">
+            View plans
+          </button>
+        </p>
+      )}
 
       {(phase.kind === "empty" || phase.kind === "storing") && (
         <div
@@ -400,7 +426,9 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
 
           {phase.kind === "starting" && <StepList current={phase.step} />}
 
-          {phase.kind === "failed" && phase.result.next === "choose_plan" ? (
+          {phase.kind === "failed" && phase.result.next === "replace" ? (
+            <Button type="button" onClick={() => void replace()} data-testid="first-upload-replace">Replace the current trial balance with this file</Button>
+          ) : phase.kind === "failed" && phase.result.next === "choose_plan" ? (
             <Button type="button" onClick={onChoosePlan} data-testid="first-upload-choose-plan">Choose a plan</Button>
           ) : phase.kind === "failed" && phase.result.next === "upload_again" ? (
             <Button type="button" onClick={reset} data-testid="first-upload-again">Upload the file again</Button>

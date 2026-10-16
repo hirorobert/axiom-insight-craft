@@ -19,11 +19,13 @@ import { TB_UPLOAD_POLICY } from "./uploadPolicy";
 
 export type DraftErrorCode =
   | "drafts_unavailable" | "forbidden" | "invalid_file" | "conflict" | "expired" | "not_found" | "content_mismatch"
-  | "active_upload_exists" | "upload_failed" | "retry" | "failed";
+  | "active_upload_exists" | "replace_conflict" | "upload_failed" | "retry" | "failed";
 
 export class DraftError extends Error {
   readonly code: DraftErrorCode;
   readonly retryable: boolean;
+  /** The commit the refusal belongs to, when the server named one (so it can be cancelled before another target). */
+  commitId?: string;
   constructor(message: string, code: DraftErrorCode, retryable: boolean) {
     super(message);
     this.name = "DraftError";
@@ -95,6 +97,7 @@ function refusal(outcome: unknown, detail?: unknown): DraftError {
     case "not_found": return new DraftError(DRAFT_MESSAGES.expired, "not_found", false);
     case "content_mismatch": return new DraftError(DRAFT_MESSAGES.contentMismatch, "content_mismatch", false);
     case "active_upload_exists": return new DraftError(d ?? "A trial balance is already active for this period.", "active_upload_exists", false);
+    case "replace_conflict": return new DraftError(d ?? "The current trial balance changed. Look at it again, then replace it.", "replace_conflict", false);
     case "registration_refused": return new DraftError(d ?? "The trial balance could not be added.", "failed", false);
     default: return new DraftError(DRAFT_MESSAGES.retry, "retry", true);
   }
@@ -138,6 +141,8 @@ export interface CommitTarget {
   engagementId?: string | null;
   /** Exactly what the user confirmed on the confirmation card. */
   confirmation: { entity: string; period: string; currency: string };
+  /** Replace the period's active trial balance (at the version the user saw); the current one is kept if this fails. */
+  replaces?: { uploadId: string; expectedVersion: number } | null;
 }
 
 /** Step 3. Send the same `commitKey` on every retry of this commit; it is bound to this draft and target. */
@@ -145,13 +150,16 @@ export async function commitDraft(draftId: string, commitKey: string, target: Co
   const reply = await invokeDraft({
     action: "commit", draft_id: draftId, commit_key: commitKey, company_id: target.companyId, period_year: target.periodYear,
     period_id: target.periodId ?? null, engagement_id: target.engagementId ?? null, confirmation: target.confirmation,
+    ...(target.replaces ? { replaces_upload_id: target.replaces.uploadId, expected_version: target.replaces.expectedVersion } : {}),
   });
   if (notDeployed(reply)) throw new DraftError(DRAFT_MESSAGES.unavailable, "drafts_unavailable", false);
   const b = reply.body;
   if (b?.outcome === "committed" && typeof b.upload_id === "string" && typeof b.commit_id === "string") {
     return { uploadId: b.upload_id, commitId: b.commit_id, replayed: b.replayed === true };
   }
-  throw refusal(b?.outcome, b?.detail);
+  const e = refusal(b?.outcome, b?.detail);
+  if (typeof b?.commit_id === "string") e.commitId = b.commit_id;
+  throw e;
 }
 
 /** Cancels a commit that was never added (e.g. to choose another period). */

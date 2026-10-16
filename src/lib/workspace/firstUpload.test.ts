@@ -132,6 +132,22 @@ describe("runStart: an existing entity (P2-4) and the purchase-required path", (
   });
 });
 
+describe("runStart: the period already has an active trial balance", () => {
+  it("the refusal offers replacing it (a choice, never automatic) and carries the refused commit", async () => {
+    const { d, calls } = deps({ commit: async () => { throw Object.assign(new Error("A trial balance is already active for this period."), { code: "active_upload_exists", retryable: false, commitId: "c-refused" }); } });
+    const r = await runStart(d, C, K, {});
+    expect(r).toMatchObject({ kind: "failed", step: "add", next: "replace", commitId: "c-refused", retryable: false });
+    expect(calls.filter((c) => c.startsWith("check:"))).toEqual([]);
+  });
+  it("a chosen replacement is bound to the commit (the upload and the version seen)", async () => {
+    let seen: unknown = null;
+    const { d } = deps({ commit: async (a) => { seen = a.replaces; return { uploadId: "up-2" }; } });
+    const r = await runStart(d, { ...C, replaces: { uploadId: "up-old", expectedVersion: 7 } }, K, { companyId: "co-1", periodId: "pe-1", engagementId: "en-1" });
+    expect(r.kind).toBe("checked");
+    expect(seen).toEqual({ uploadId: "up-old", expectedVersion: 7 });
+  });
+});
+
 describe("stagesFromMilestones: File read → Columns confirmed → Checks completed, from the server's record only", () => {
   const all = (status: string) => ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status }));
   it("nothing recorded → every stage pending (never shown as done)", () => {

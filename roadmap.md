@@ -141,6 +141,32 @@ Compatible, with these points to settle before Phase 6:
 6. **One status vocabulary.** Phase 6 readiness words must map onto `src/lib/workspace/resultStatus.ts` (Phase 1).
 7. **No competing mapping mechanism** is built by Phase 2; mapping authority stays `resolve_account_review_batch`.
 
+**Evidence check of #138 at `3349527` (16 October, run here on an isolated branch = combined candidate + #138's
+`research/phase5/**`; #138's branch itself untouched):**
+
+| Class | What | Result |
+|---|---|---|
+| Prototype | `tests/phase5.test.mjs`, `tests/coverage.test.mjs` | PASS |
+| Static (reads SQL/source text; no database) | `tests/real_contract_static.mjs`, `proof/real_layout_contract.mjs` | PASS |
+| Database (actual RPC on the replayed authoritative chain) | `proof/real_contract_proof.mjs` on embedded **PostgreSQL 16.14** (no 17 available locally; hosted is 17) | **FAILS before any RPC**: the chain replays (177 files), then the proof's own fixture stops with `SEAT_LIMIT_REACHED` — its licence (line 53) grants no additional seats and line 86 adds two members. Fix belongs to the #138 owner (grant seats as the other proofs do). |
+| Authenticated runtime (local stack / hosted) | — | NONE |
+
+Further findings for the #138 owner: (a) the proof's PASS line hard-codes "applied on PostgreSQL 17" whatever the server
+is — it should print `SHOW server_version`; (b) `prototype/layer4_treatment.mjs` contains a literal NUL byte (an intended
+`"\x00"` separator written as the raw byte at offset 3344), so Git treats the file as binary and review diffs are lost;
+(c) `TB_INGESTION_VERSION` is cited as `tb-ingest-3.0.0` (current 3.2.0). A PostgreSQL 17 run is to follow in CI (a
+`postgres:17` service) once the fixture is fixed — running it now would fail at the same step.
+
+**Contract points to agree before Phase 6 (beyond byte identity):** entity — mappings are company-scoped by `account_key`;
+period — Phase 2 binds period year + dated period, but legacy uploads may have no `period_id`; currency — the dated period's
+`reporting_currency` is the authority (the commit's confirmation is a record of what was confirmed); dimensions — #138
+proposes none (no cost-centre/segment axis), so reuse is per company + account key only; permissions —
+`resolve_account_review_batch`'s own capability check is the authority, and every group acceptance must expand to
+per-account decisions each validated and attributed to the reviewing firm member (no inferred common treatment for accounts
+that merely share an uncertainty flag); versions — reuse must be bound to the upload's `source_file_hash` and the parser
+version read from code; reviewer semantics — `USER_ACCEPTED_SUGGESTION` per account, latest `sequence_no` wins, history
+never rewritten.
+
 **Proposed file ownership (to agree before any shared production edit):**
 - Core journey/integration (this session): `supabase/migrations/20261106100000_*`, `supabase/functions/trial-balance-draft/`,
   `_shared/draftUpload.ts`, `_shared/sourceSweeper.ts`, `_shared/tbIngestion.ts`, `_shared/printedReportMetadata.ts`,

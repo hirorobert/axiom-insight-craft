@@ -34,6 +34,8 @@ export interface ConfirmedStart {
   entity: { kind: "new"; name: string } | { kind: "existing"; companyId: string; name: string };
   period: { start: string; end: string; year: number; name: string };
   currency: string;
+  /** Replace the period's active trial balance (chosen by the user after the server said one is active). */
+  replaces?: { uploadId: string; expectedVersion: number } | null;
 }
 
 /** Fixed once per confirmation, before the first attempt. */
@@ -46,13 +48,13 @@ export interface StartDeps {
   createEntity(a: { requestId: string; name: string; fiscalYearEnd: string; currency: string }): Promise<CreateEntityOutcome>;
   openPeriod(a: { companyId: string; start: string; end: string; currency: string }): Promise<PeriodOpenResult>;
   commit(a: { draftId: string; commitKey: string; companyId: string; periodYear: number; periodId: string; engagementId: string;
-    confirmation: { entity: string; period: string; currency: string } }): Promise<{ uploadId: string }>;
+    confirmation: { entity: string; period: string; currency: string }; replaces?: { uploadId: string; expectedVersion: number } | null }): Promise<{ uploadId: string }>;
   check(a: { uploadId: string; requestId: string }): Promise<CheckOutcome>;
 }
 
 export type StartResult =
   | { kind: "checked"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
-  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" };
+  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" | "replace"; commitId?: string };
 
 const msg = (e: unknown, fallback: string) => {
   const m = e instanceof Error ? e.message : null;
@@ -114,11 +116,16 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
       const r = await deps.commit({
         draftId: c.draftId, commitKey: keys.commitKey, companyId: progress.companyId, periodYear: c.period.year,
         periodId: progress.periodId, engagementId: progress.engagementId,
-        confirmation: { entity: c.entity.name.trim(), period: c.period.name, currency: c.currency },
+        confirmation: { entity: c.entity.name.trim(), period: c.period.name, currency: c.currency }, replaces: c.replaces ?? null,
       });
       progress.uploadId = r.uploadId;
     } catch (e) {
       const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "";
+      // The period already has an active trial balance: replacing it is a choice the user makes, never automatic.
+      if (code === "active_upload_exists" && !c.replaces) {
+        return { kind: "failed", step: "add", message: msg(e, "A trial balance is already active for this period."), retryable: false, progress: { ...progress }, next: "replace",
+          commitId: (e as { commitId?: string }).commitId };
+      }
       return fail("add", msg(e, "The file could not be added. Try again."), retryableError(e),
         code === "expired" || code === "content_mismatch" || code === "not_found" ? "upload_again" : undefined);
     }
