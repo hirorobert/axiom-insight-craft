@@ -16,6 +16,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { buildReviewSummary, expandGroupToDecisions } from "../prototype/lifecycle.mjs";
+import { buildManualDecisions } from "../prototype/manual.mjs";
 import { FLAT } from "../fixtures/synthetic.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +131,35 @@ async function main() {
   const mappedKeys = new Set((await admin.query("SELECT account_key FROM public.account_mappings WHERE company_id=$1", [COMPANY_A])).rows.map((x) => x.account_key));
   rec("REUSE · a repeat upload sees the company's already-accepted account_mappings (native company-scoped reuse — no re-approval)", mappedKeys.size > 0);
   rec("GAP · the real RPC has NO 'reopen on classification meaning change' — only MARK_NON_REPORTING identity-drift exists; a Phase 6 reuse/reopen authority is the documented minimum change (see INTERFACE-PROPOSAL §5/§8).", true);
+
+  // ── MANUAL multi-account path: deliberate selection → USER_MANUAL_CLASSIFICATION through the SAME real RPC. ──
+  const manualDecisions = buildManualDecisions(
+    [{ account_key: "9000", account_code: "9000", account_name: "Suspense account" }, { account_key: "9100", account_code: "9100", account_name: "Clearing account" }],
+    { statement: "balance_sheet", classification: "current_assets", normal_balance: "debit", flag_candidate: null }, "manually treated as current assets");
+  let manRes;
+  try { manRes = await asUser(U.owner, (c) => callBatch(c, COMPANY_A, UPLOAD_A, uuid(), manualDecisions)); rec("MANUAL · owner assigns a common treatment to selected uncertain accounts (USER_MANUAL_CLASSIFICATION) via the REAL RPC", true); }
+  catch (e) { rec("MANUAL · owner assigns a common treatment to selected uncertain accounts (USER_MANUAL_CLASSIFICATION) via the REAL RPC", false, String(e.message).split("\n")[0]); }
+  if (manRes) {
+    const r = manRes.rows[0].r;
+    rec("MANUAL · the real function wrote one mapping per selected account", r.mappings_written === manualDecisions.length, JSON.stringify(r));
+    const acts = (await admin.query("SELECT DISTINCT decision_action FROM public.account_review_decisions WHERE company_id=$1 AND review_account_key IN ('9000','9100')", [COMPANY_A])).rows.map((x) => x.decision_action);
+    rec("MANUAL · the decisions are recorded as USER_MANUAL_CLASSIFICATION", acts.length === 1 && acts[0] === "USER_MANUAL_CLASSIFICATION", JSON.stringify(acts));
+  }
+  // MANUAL mixed valid/invalid → the whole manual batch aborts atomically (never a partial accept).
+  const beforeM = (await admin.query("SELECT count(*)::int n FROM public.account_mappings WHERE company_id=$1", [COMPANY_A])).rows[0].n;
+  await refused("MANUAL · a mixed valid/invalid selection aborts the entire batch (STATEMENT_CLASSIFICATION_MISMATCH)", U.owner,
+    (c) => callBatch(c, COMPANY_A, UPLOAD_A, uuid(), [manualDecisions[0], { ...manualDecisions[1], account_code: "9200", account_name: "Miscellaneous", classification: "revenue" }]), /STATEMENT_CLASSIFICATION_MISMATCH/);
+  const afterM = (await admin.query("SELECT count(*)::int n FROM public.account_mappings WHERE company_id=$1", [COMPANY_A])).rows[0].n;
+  rec("MANUAL · nothing from the aborted mixed batch persisted (atomic; '9200' not written)", beforeM === afterM, { beforeM, afterM });
+
+  // ── CONFLICTING DECISIONS on the SAME account: pg_advisory_xact_lock(company,key) serializes; last writer wins; the
+  //    append-only ledger keeps BOTH. (The RPC takes the per-key advisory lock at line ~570; two callers cannot interleave
+  //    writes to one account_key. Shown here as the serialized OUTCOME via two sequential batches on key '9000'.) ──
+  await asUser(U.owner, (c) => callBatch(c, COMPANY_A, UPLOAD_A, uuid(), buildManualDecisions([{ account_key: "9000", account_code: "9000", account_name: "Suspense account" }], { statement: "balance_sheet", classification: "non_current_assets", normal_balance: "debit", flag_candidate: null }, "reclassified to non-current")));
+  const eff = (await admin.query("SELECT classification FROM public.account_mappings WHERE company_id=$1 AND account_key='9000'", [COMPANY_A])).rows[0];
+  const ledger = (await admin.query("SELECT count(*)::int n FROM public.account_review_decisions WHERE company_id=$1 AND review_account_key='9000'", [COMPANY_A])).rows[0].n;
+  rec("CONFLICT · the last decision wins in account_mappings (non_current_assets)", eff && eff.classification === "non_current_assets", JSON.stringify(eff));
+  rec("CONFLICT · both decisions on the account are retained in the append-only ledger (no lost write)", ledger >= 2, { ledger });
 
   await pool.end(); await admin.end();
   const failed = results.filter((r) => !r.ok);

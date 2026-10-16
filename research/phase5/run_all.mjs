@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 const SUITES = [
   { cat: "PROTOTYPE", file: "research/phase5/tests/phase5.test.mjs", flags: [], note: "Deterministic 5-layer prototype + lifecycle (7 North-Star behaviours)." },
   { cat: "PROTOTYPE", file: "research/phase5/tests/coverage.test.mjs", flags: [], note: "Extended synthetic coverage; detection concepts separated; limits disclosed as LIMIT lines." },
+  { cat: "PROTOTYPE", file: "research/phase5/tests/manual.test.mjs", flags: [], note: "Manual multi-account treatment path: no inferred-equivalence grouping, visual-by-issue, atomic submission, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context." },
   { cat: "REAL-CONTRACT (executed here)", file: "research/phase5/tests/real_contract_static.mjs", flags: [], note: "Parses the REAL resolve_account_review_batch SQL; asserts field+semantics compatibility. Static — necessary, not sufficient." },
   { cat: "REAL-CONTRACT (executed here)", file: "research/phase5/proof/real_layout_contract.mjs", flags: ["--experimental-strip-types"], note: "Imports & executes the REAL layoutProfile.ts (validateProfile + resolveLayout) to prove the SunSystems manual-layout fallback." },
 ];
@@ -17,9 +18,9 @@ const SUITES = [
 const DEFERRED = [
   {
     cat: "DEFERRED (not executed on this host)", file: "research/phase5/proof/real_contract_proof.mjs",
-    reason: "Needs a disposable PostgreSQL 17 (no Docker / local PG / embedded-pg available here; scope confines writes to research/phase5/** so no CI workflow was added).",
+    reason: "Needs a disposable PostgreSQL 17 (no Docker / local PG / embedded-pg available here; scope confines writes to research/phase5/** so no CI workflow was added). Coordinate the run with NORMAL on the existing branch — DB requirements/migration chain are in HANDOFF.md §Coordination. NEVER run it against hosted customer systems; it refuses the production ref and non-loopback hosts.",
     replay: "DB_PROOF_CONN=postgres://user:pass@127.0.0.1:5432/db node research/phase5/proof/real_contract_proof.mjs",
-    proves: "EXECUTION against the real RPC on the replayed authoritative chain: legitimate success + every refusal + the reuse/invalidation lifecycle.",
+    proves: "EXECUTION against the real RPC on the replayed authoritative chain: legitimate success + every refusal + the reuse/invalidation lifecycle + the MANUAL path (USER_MANUAL_CLASSIFICATION) + atomic mixed-batch failure + conflicting-decision serialization.",
   },
 ];
 

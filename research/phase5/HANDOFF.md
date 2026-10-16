@@ -4,17 +4,38 @@
 - Branch: `research/phase5-accounting-interpretation-20261016` (off `origin/main` @ `00a2653`). Draft **PR #138**.
 - Worktree: `D:/DevStorage/Temp/claude/cfoclose-phase5-20261016`. Push: available (verified non-destructively).
 - **Implementation commits (preceding this handoff):** `4ec6cf1` (prototype + original proofs + INTERFACE/DECISION),
-  `b40097a` (real-contract static check, replayable PG17 proof, extended coverage, income rules) and
-  **`cfa42e2`** (exact-money BigInt, role-aware unexpected-balance *signal* vs mapping-verdict separation, the `OVERDRAFT`
-  and `WRONGLY_MAPPED_NORMAL_SIGN` cases, the executed real-layout contract proof, and the `run_all.mjs` recorder).
+  `b40097a` (real-contract static check, replayable PG17 proof, extended coverage, income rules),
+  `cfa42e2` (exact-money BigInt, role-aware unexpected-balance *signal* vs mapping-verdict separation, `OVERDRAFT` /
+  `WRONGLY_MAPPED_NORMAL_SIGN`, executed real-layout contract proof, `run_all.mjs` recorder) and
+  **`dc07f35`** (manual multi-account treatment path, reuse-context > file-hash, atomicity mirrored from the real RPC,
+  reason relaxed to the server's actual requirement, `manual.test.mjs`, extended static + replayable proofs).
   (This HANDOFF is a separate, later commit — no commit embeds its own hash.)
+
+## Execution tiers — what is proven at which level (never conflated; unexecuted stays unexecuted)
+| Tier | Meaning | Status here |
+|---|---|---|
+| 1 · Prototype assertions | deterministic behaviour of the research adapters | **EXECUTED** — phase5 29/29, coverage 21/21, manual 24/24 |
+| 2 · Static compatibility | payloads/refusals parsed from the **real** RPC SQL match what we emit | **EXECUTED** — real_contract_static 17/17 (necessary, not sufficient) |
+| 3 · Actual layout-contract execution | the **real** `layoutProfile.ts` runs against our input | **EXECUTED** — real_layout_contract 8/8 (imports the real module) |
+| 4 · Real RPC / RLS / persistence enforcement | the **real** `resolve_account_review_batch` on PostgreSQL 17 (success + refusal + lifecycle + manual + atomic + conflict) | **REPLAYABLE, NOT executed here** — `proof/real_contract_proof.mjs` (needs PG17; coordinate with NORMAL) |
+| 5 · Authenticated application integration | the real UI → edge → RPC under a real logged-in session | **NOT built, NOT executed** — Phase 6, pending scope approval |
+
+## Batch atomicity (authoritative — read from the real SQL, not assumed)
+`resolve_account_review_batch` (migration `20261007100000`) validates **every** decision in a first pass and `RAISE`s on the
+first invalid one **before any write**; there is no per-decision `try/catch`, and it returns a single aggregate
+`result_summary`. **Batch acceptance is therefore ATOMIC / all-or-nothing; partial outcomes do not exist server-side.** The
+honest UX consequence (built into the manual path): show each account's **pre-flight** outcome *before* submission; submit
+only the confirmed set; a failing submit rejects the **whole** batch naming the offending account — never a silent skip,
+never a misleading blanket success. Same-account concurrency is serialized by `pg_advisory_xact_lock(company, account_key)`
+(last writer wins; the append-only ledger keeps both).
 
 ## Prototype vs real-contract evidence
 | Evidence | What it proves | Status |
 |---|---|---|
 | `tests/phase5.test.mjs` | deterministic 5-layer prototype + lifecycle (the 7 North-Star behaviours); exact BigInt minor units | **EXECUTED 29/29** |
 | `tests/coverage.test.mjs` | vendor-style patterns + edge cases; "unexpected balance" vs "incorrect mapping" separated; disclosed LIMITs | **EXECUTED 21/21** |
-| `tests/real_contract_static.mjs` | the grouped-acceptance expansion is field+semantics compatible with the **real** `resolve_account_review_batch` (parsed from the isolated runtime's migration SQL) | **EXECUTED 14/14** (static — necessary, not sufficient) |
+| `tests/manual.test.mjs` | manual multi-account path: no inferred-equivalence grouping, visual-by-issue, preview, atomic mixed-batch, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context | **EXECUTED 24/24** |
+| `tests/real_contract_static.mjs` | grouped **and manual** expansions are field+semantics compatible with the **real** `resolve_account_review_batch` (parsed from the migration SQL) | **EXECUTED 17/17** (static — necessary, not sufficient) |
 | `proof/real_layout_contract.mjs` | the SunSystems "T/B Code" manual-layout fallback **executes through the real, unmodified** `layoutProfile.ts` (`validateProfile`+`resolveLayout` recover every code) | **EXECUTED 8/8** (Node type-stripping; imports the real module) |
 | `run_all.mjs` → `TEST-OUTPUT.md` | recorded full output + exit status, categorised prototype / real-contract / deferred | **EXECUTED** (4 executed suites pass, 1 deferred) |
 | `proof/real_contract_proof.mjs` | **execution** against the real RPC on disposable PG17: success + refusals + lifecycle | **REPLAYABLE, NOT executed on this host** (no Docker/local PG; scope forbids a CI workflow here) |
@@ -47,33 +68,66 @@ CI service or local Docker — runs it; loopback-only; refuses the production re
 | Balanced-but-wrongly-mapped (normal sign) | coverage (B, undetectable) | PASS (documented as undetectable — not a false green) |
 | Genuine imbalance | coverage | PASS (deferred to production ingestion) |
 | Compatible repeat vs incompatible reuse | phase5 #5, coverage | PASS |
-| Cross-tenant / stale / concurrent / retry / partial-failure / duplicate | real_contract_static #8 (codes); proof (execution) | static PASS; execution REPLAYABLE |
-| Real-function compatibility (success + refusal) | real_contract_static (static); proof (execution) | static 14/14; execution REPLAYABLE |
+| Cross-tenant / stale / concurrent / retry / partial-failure / duplicate | manual.test (prototype), real_contract_static #8 (codes), proof (execution) | prototype PASS; static PASS; execution REPLAYABLE |
+| Real-function compatibility (success + refusal) | real_contract_static (static); proof (execution) | static 17/17; execution REPLAYABLE |
+| Uncertain accounts NOT auto-grouped by inferred equivalence | manual.test, phase5 #1 | PASS |
+| Visual-by-issue organisation implies no treatment/approval | manual.test | PASS (`impliesTreatment:false`) |
+| Deliberate multi-select → shown preview → atomic submit | manual.test, proof (manual) | prototype PASS; execution REPLAYABLE |
+| Batch atomicity (all-or-nothing; no partial/blanket success) | manual.test (mixed), proof (manual mixed) | prototype PASS; execution REPLAYABLE |
+| Conflicting concurrent decisions (serialized; last-writer-wins) | manual.test, proof (conflict) | prototype PASS; execution REPLAYABLE |
+| Reuse > file-hash (entity/currency/dimensions/ruleset; UNKNOWN disclosed) | manual.test (reuse-context) | PASS (+ documented schema gap) |
+| Advisory sign WARNING vs blocking mapping ERROR | manual.test | PASS (distinct) |
 
 ## Remaining gaps (precise; see INTERFACE §9)
 1. **Reuse status for classification decisions** (`REUSABLE/NEW/STALE_IDENTITY`) — new READ logic, **no new table**; generalises the existing `MARK_NON_REPORTING` identity-drift reopen.
 2. **`STALE_MEANING` beyond identity/chart-code** — **no production mechanism**; **excluded** from the first slice; a future, separately-scoped signal.
 3. **Output version-binding** — bind a completed TB review summary to the exact `reviewInputVersion` + decision `sequence_no`s. **Minimum compatible change: a `close_review_events` row** (new `event_type`), reusing the existing append-only timeline — **no new table**.
+4. **Reuse context beyond entity + account_key.** Live `account_mappings` keys only `(company_id, account_key)` — it has **no currency, period, dimension, or ruleset-version axis**, so the RPC cannot enforce the richer reuse compatibility the prototype models (currency/dimension/ruleset change ⇒ reopen). The prototype **discloses** every unverified field rather than assuming equality. **Minimum compatible change:** record the accepting context on the **decision ledger** (`account_review_decisions` already stores `previous_value`/`new_value` JSON — add the context there, or an additive column), and compare it on reuse. This is **not** in the first slice (the first slice is single-entity, single-currency); it is the honest next gap. No silent assumption is made in the interim.
 
-## Proposed Phase 6 production files (for NORMAL to agree ownership; NOT implemented now)
-- `src/lib/accounting/interpretation/*` (new, pure): the 5 layers + grouping + reuse classification + evidence sufficiency (ports of `research/phase5/prototype/*`).
-- A **read-only** review-summary projection: either an edge function `supabase/functions/tb-review-summary/*` or a SECURITY DEFINER read RPC — renders groups/individual/relationships/reuse/coverage/readiness. **Writes stay on the unchanged `resolve_account_review_batch`** (group acceptance expands to its batch).
-- `src/components/*ReviewSummary*` (new): grouped-acceptance UI (no Accept-all).
-- Tests: contract test proving the expansion is byte-compatible with the real RPC; the 7 scenarios + coverage ported to CI; the replayable PG17 proof promoted to a CI job.
+## Proposed Phase 6 production files + owners (for NORMAL to agree; NOT implemented now)
+| File / area | What | Proposed owner |
+|---|---|---|
+| `src/lib/accounting/interpretation/*` (new, pure) | 5 layers + grouping + reuse classification + evidence sufficiency (ports of `research/phase5/prototype/*`) | Phase 6 impl (accounting-interpretation); NORMAL reviews contract |
+| `src/lib/accounting/interpretation/manual.ts` (new, pure) | organise-by-issue + preview + atomic common-treatment expansion (port of `manual.mjs`) | Phase 6 impl; **NORMAL owns the selection/approval UX** |
+| `supabase/functions/tb-review-summary/*` **or** a SECURITY DEFINER read RPC (new, read-only) | renders groups/individual/relationships/reuse/coverage/readiness; **no write authority** | Phase 6 impl; NORMAL owns placement in the journey |
+| `src/components/*ReviewSummary*`, `*ManualAssign*` (new) | grouped-acceptance + deliberate multi-select UI, preview-before-submit, per-account outcomes; **no Accept-all** | **NORMAL** (customer journey) |
+| Writes | **unchanged `resolve_account_review_batch`** — group **and** manual acceptance both expand to its atomic batch | existing authority (do not modify) |
+| Tests | the static + prototype + manual suites ported to CI; the replayable PG17 proof promoted to a CI job | Phase 6 impl |
+
+## Coordination / DB requirements for the replayable proof (priority 1 — verify with NORMAL; never run on hosted)
+`proof/real_contract_proof.mjs` replays `scripts/db-contract-tests/00_bootstrap_roles_and_shims.sql` then **every**
+`supabase/migrations/*.sql` in filename order on a disposable **PostgreSQL 17**, then drives the real RPC. It refuses the
+production project ref and any non-loopback host. The authoritative chain it depends on (verify these exist/apply cleanly):
+`extensions.digest` (pgcrypto); the `financial_statement` + `account_classification` enums; `trial_balance_uploads`
+(`source_file_hash`, `processing_result`); `account_mappings` (GENERATED `account_key` + UNIQUE `(company_id, account_key)`,
+`20260703120000`); `account_review_batches` + `account_review_decisions` (`20260816120000`); `account_mapping_content` +
+`treatment_request_id` + the latest `resolve_account_review_batch` (`20261006100000`, `20261007100000`); the
+membership/capability chain (`firm_members`, `named_user_access_active`, `workspace_capability_allowed`, and the
+`commercial_products/plans/licences/billing_customers` seed for `prepare_close`). **Run it on a throwaway PG17 only**,
+coordinated through this branch; it is Tier 4 enforcement, delivered replayable because this host has no PG.
 
 ## Dependencies & compatibility
-- Prototype/tests: **Node standard library only** (no package, no lockfile change). Replayable proof: `pg` (already `pg@8.23.1` devDependency) + a loopback PG17.
-- Compatibility: the expanded per-account decisions use only fields the real RPC consumes, a non-forbidden `proposal_type`, an accepted `decision_action`, supported statement/class pairings, tri-state flags, and are deterministic (replay-safe). Verified statically (14/14); execution proof replayable.
+- Prototype/tests: **Node standard library only** (no package, no lockfile change); the real-layout proof needs Node ≥ 22.18 type-stripping. Replayable RPC proof: `pg` (already `pg@8.23.1` devDependency) + a loopback PG17.
+- Compatibility: both the grouped and the manual per-account decisions use only fields the real RPC consumes, a non-forbidden `proposal_type`, an accepted `decision_action` (`USER_ACCEPTED_SUGGESTION` / `USER_MANUAL_CLASSIFICATION`), supported statement/class pairings, tri-state flags, and are deterministic (replay-safe). Verified statically (17/17); execution proof replayable.
 
 ## Acceptance tests (for Phase 6, to be run in a PG-capable CI)
-`proof/real_contract_proof.mjs` (success + refusal + lifecycle against the real RPC on disposable PG17) is the acceptance
-harness. It must pass on the authoritative chain before any production wiring. The static + prototype + coverage suites run in
-plain Node and gate the pure logic.
+`proof/real_contract_proof.mjs` (success + refusal + lifecycle + **manual path + atomic mixed-batch + conflicting-decision
+serialization** against the real RPC on disposable PG17) is the acceptance harness. It must pass on the authoritative chain
+before any production wiring. The static + prototype + coverage + manual suites run in plain Node and gate the pure logic.
 
 ## Schema / API changes (justified, not assumed)
-- **None required for the first slice's writes** — `resolve_account_review_batch` unchanged; reuse is native (company-scoped `account_mappings`).
-- **One additive, reviewed change if output-binding is wanted now:** a new `close_review_events.event_type = 'tb_review_summarised'` (append-only timeline; **no new table, no new authority**). Justified by requirement #3 (a completed summary must bind its exact versions). If deferred, summaries are recomputed from the ledger at `sequence_no ≤ N` instead.
+- **None required for the first slice's writes** — `resolve_account_review_batch` unchanged; group **and** manual acceptance both expand to its existing atomic batch; reuse is native (company-scoped `account_mappings`).
+- **One additive, reviewed change if output-binding is wanted now:** a new `close_review_events.event_type = 'tb_review_summarised'` (append-only timeline; **no new table, no new authority**). Justified by requirement #3. If deferred, summaries are recomputed from the ledger at `sequence_no ≤ N`.
+- **Reuse-context binding (gap #4), only when multi-currency/dimension reuse is in scope (NOT the first slice):** record the accepting context on `account_review_decisions` (additive JSON/column) and compare on reuse. Additive, no change to the write path's authority.
 - A read-only summary RPC/edge (additive; no write authority). Everything else is pure library + UI.
+
+## First proposed Phase 6 slice (single-entity, no statement engine, no withheld modules)
+Synthetic **annual single-entity TB** → **grouped review** (proposals with visible exceptions; uncertain accounts individual /
+deliberately multi-selectable, never auto-grouped) → **authorised acceptance** (group expansion **and** manual common-treatment,
+both atomic through the unchanged RPC) → **versioned per-account decisions** (`account_review_decisions` append-only,
+`sequence_no` latest-wins) → **traceable TB review summary** (read-only projection) → **repeat upload** demonstrating
+compatible reuse and changed-account reopen (identity drift today; context/meaning reopen per gaps #2/#4). **Ends at the
+review summary + repeat upload** — no financial-statement engine, no withheld-module activation.
 
 ## Scope cleanliness
 `git diff origin/main` is **entirely under `research/phase5/`** (verified). No production component, migration, registry,

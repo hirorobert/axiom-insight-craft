@@ -119,6 +119,61 @@ _Extended synthetic coverage; detection concepts separated; limits disclosed as 
 ```
 **exit status: 0**
 
+### research/phase5/tests/manual.test.mjs
+_Manual multi-account treatment path: no inferred-equivalence grouping, visual-by-issue, atomic submission, cross-tenant/stale/idempotency/concurrent-conflict, reuse-context._
+
+```
+
+== Uncertain accounts are NOT auto-grouped by inferred equivalence
+  PASS  every unrecognised account is INDIVIDUAL (no proposal group formed from inferred equivalence)
+  PASS  each is flagged NO_RECOGNISED_MEANING (not silently treated)
+
+== Visual organisation by issue implies NO treatment or approval
+  PASS  accounts are organised into issue buckets for display
+  PASS  every bucket explicitly implies NO common treatment and NO approval
+
+== Deliberate selection → preview shows selected accounts, proposed treatment, warnings, and per-account preflight
+  PASS  the preview lists exactly the selected accounts with the proposed treatment
+  PASS  the preview is submittable (all three preflight OK) with no reason required
+
+== Proposed-role sign WARNING (advisory) is distinct from a blocking mapping ERROR
+  PASS  an UNEXPECTED_BALANCE sign warning is ADVISORY (warning present, preflight still OK — not a block)
+  PASS  an unsupported statement/classification pair BLOCKS (STATEMENT_CLASSIFICATION_MISMATCH), not merely warns
+
+== Mixed valid/invalid selection → ATOMIC: nothing is written, the offending account is named
+  PASS  the preview shows each outcome explicitly: 2 OK, 1 blocking (never a blanket success)
+  PASS  submission is refused atomically (ACCOUNT_NOT_IN_UPLOAD) — no partial accept
+  PASS  NOTHING was written from the aborted batch (store unchanged — all-or-nothing)
+
+== Valid manual assignment succeeds, logs USER_MANUAL_CLASSIFICATION, becomes effective
+  PASS  all three are written (decisions_logged = mappings_written = 3)
+  PASS  each decision is a USER_MANUAL_CLASSIFICATION with proposal_type NONE
+  PASS  the effective treatment is the assigned one and the previous value was preserved on the decision
+
+== Cross-tenant / stale-source refusals on the manual path
+  PASS  an actor from another company cannot assign (UPLOAD_COMPANY_MISMATCH)
+  PASS  assigning against a summary whose source has changed is refused (SOURCE_CHANGED)
+
+== Duplicate submission / lost-response retry (idempotency)
+  PASS  a retry with the same request id + same payload replays (no duplicate rows)
+  PASS  the same request id with a DIFFERENT payload is refused (IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD)
+
+== Conflicting concurrent decisions on the same account (serialized; last-writer-wins; no lost write)
+  PASS  both conflicting decisions are retained in the append-only ledger (no lost write)
+  PASS  the latest (highest sequence_no) decision is effective — deterministic last-writer-wins
+
+== Reuse is MORE than a file-hash match (entity + currency + dimensions + ruleset context)
+  PASS  same entity + same currency → reused (not re-reviewed) across a new period
+  PASS  a changed currency reopens reuse as CONTEXT_INCOMPATIBLE (file hash alone is insufficient)
+  PASS  an unknown currency is reused on entity+key but DISCLOSED as unverified (never assumed equal)
+
+== Exact money preserved on the manual path (BigInt; nothing netted)
+  PASS  selected account balances remain exact BigInt minor units (no float, no netting)
+
+24/24 manual-path checks passed.
+```
+**exit status: 0**
+
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 ## REAL-CONTRACT (executed here)
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -145,8 +200,11 @@ _Parses the REAL resolve_account_review_batch SQL; asserts field+semantics compa
   PASS  refusal code 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD' exists in the real function
   PASS  refusal code 'NOT_A_MEMBER_OF_COMPANY' exists in the real function
   PASS  refusal code 'EMPTY_DECISION_BATCH' exists in the real function
+  PASS  manual decisions use decision_action USER_MANUAL_CLASSIFICATION (in the real accepted set)
+  PASS  manual decisions use proposal_type NONE (not AUTO_MAPPED_RULE) and a supported statement/class pair
+  PASS  manual decisions carry no field the real function does not consume (account_key is the local identity, not sent)
 
-14/14 static real-contract checks passed.
+17/17 static real-contract checks passed.
 NOTE: static shape+semantics only. Execution against the real function (success + refusal + lifecycle) is in
 research/phase5/proof/real_contract_proof.mjs — replayable on a disposable PostgreSQL 17; NOT executed on this host.
 ```
@@ -179,8 +237,8 @@ _Imports & executes the REAL layoutProfile.ts (validateProfile + resolveLayout) 
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 ### research/phase5/proof/real_contract_proof.mjs
-- **Why deferred:** Needs a disposable PostgreSQL 17 (no Docker / local PG / embedded-pg available here; scope confines writes to research/phase5/** so no CI workflow was added).
-- **Proves (when run):** EXECUTION against the real RPC on the replayed authoritative chain: legitimate success + every refusal + the reuse/invalidation lifecycle.
+- **Why deferred:** Needs a disposable PostgreSQL 17 (no Docker / local PG / embedded-pg available here; scope confines writes to research/phase5/** so no CI workflow was added). Coordinate the run with NORMAL on the existing branch — DB requirements/migration chain are in HANDOFF.md §Coordination. NEVER run it against hosted customer systems; it refuses the production ref and non-loopback hosts.
+- **Proves (when run):** EXECUTION against the real RPC on the replayed authoritative chain: legitimate success + every refusal + the reuse/invalidation lifecycle + the MANUAL path (USER_MANUAL_CLASSIFICATION) + atomic mixed-batch failure + conflicting-decision serialization.
 - **One-command replay:** `DB_PROOF_CONN=postgres://user:pass@127.0.0.1:5432/db node research/phase5/proof/real_contract_proof.mjs`
 
 ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -189,8 +247,9 @@ _Imports & executes the REAL layoutProfile.ts (validateProfile + resolveLayout) 
 
 - PASS  [PROTOTYPE]  research/phase5/tests/phase5.test.mjs  (exit 0)
 - PASS  [PROTOTYPE]  research/phase5/tests/coverage.test.mjs  (exit 0)
+- PASS  [PROTOTYPE]  research/phase5/tests/manual.test.mjs  (exit 0)
 - PASS  [REAL-CONTRACT (executed here)]  research/phase5/tests/real_contract_static.mjs  (exit 0)
 - PASS  [REAL-CONTRACT (executed here)]  research/phase5/proof/real_layout_contract.mjs  (exit 0)
 - DEFERRED  [DEFERRED (not executed on this host)]  research/phase5/proof/real_contract_proof.mjs  (exit DEFERRED)
 
-Executed: 4  ·  Passed: 4  ·  Failed: 0  ·  Deferred: 1
+Executed: 5  ·  Passed: 5  ·  Failed: 0  ·  Deferred: 1

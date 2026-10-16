@@ -13,6 +13,7 @@ import { accountKey, normalizeAccountName } from "./layer2_identity.mjs";
 import { readAccounts } from "./layer1_structure.mjs";
 import { interpretMeaning } from "./layer3_meaning.mjs";
 import { proposeTreatments } from "./layer4_treatment.mjs";
+import { reuseContextOf, contextCompatible } from "./reuseContext.mjs";
 import { sha256Hex } from "./util.mjs";
 
 export class Refusal extends Error { constructor(code, detail) { super(code); this.code = code; this.detail = detail; } }
@@ -37,7 +38,7 @@ export class ReviewStore {
  * Classify a new-upload account against the store: NEW | REUSABLE | STALE_IDENTITY | STALE_MEANING.
  * meaningChanged = an upstream signal (a comparative/GL reconciliation revealed the account means something else).
  */
-export function classifyAgainstPrior(store, company_id, account, { meaningChanged = false } = {}) {
+export function classifyAgainstPrior(store, company_id, account, { meaningChanged = false, nowCtx = null } = {}) {
   const key = accountKey(account);
   const prior = store.effective(company_id, key);
   if (!prior) return { status: "NEW", key };
@@ -48,7 +49,15 @@ export function classifyAgainstPrior(store, company_id, account, { meaningChange
       ? { status: "STALE_IDENTITY", key, prior, reason: "PRIOR_DECISION_STALE_IDENTITY_CHANGED" }
       : { status: "STALE_MEANING", key, prior, reason: "RELEVANT_MEANING_OR_CONTEXT_CHANGED" };
   }
-  return { status: "REUSABLE", key, prior };
+  // Reuse is MORE than a file-hash / account_key match: the accounting CONTEXT must be compatible. A KNOWN material
+  // difference (currency/dimensions/ruleset changed) reopens the decision; fields the live schema cannot track are
+  // disclosed as `unverified`, never assumed equal and never fabricated as a mismatch (UNKNOWN != EQUAL != MISMATCH).
+  if (nowCtx && prior.context) {
+    const ctx = contextCompatible(prior.context, nowCtx);
+    if (!ctx.compatible) return { status: "CONTEXT_INCOMPATIBLE", key, prior, reason: ctx.blocking.join(","), blocking: ctx.blocking };
+    return { status: "REUSABLE", key, prior, unverified: ctx.unverified };
+  }
+  return { status: "REUSABLE", key, prior, unverified: ["currency", "dimensions", "rulesetVersion", "period"] };
 }
 
 /**
@@ -63,12 +72,15 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
   const { groups, individual } = proposeTreatments(read.accounts, meanings);
 
   const changedSet = new Set(meaningChangedKeys);
-  const reuse = read.accounts.map((a) => classifyAgainstPrior(store, upload.company_id, a, { meaningChanged: changedSet.has(accountKey(a)) }));
+  const nowCtx = reuseContextOf(upload);
+  const reuse = read.accounts.map((a) => classifyAgainstPrior(store, upload.company_id, a, { meaningChanged: changedSet.has(accountKey(a)), nowCtx }));
   const byStatus = (s) => reuse.filter((r) => r.status === s).map((r) => r.key);
 
-  // Accounts still needing a reviewer this time = NEW + reopened (STALE_*) + individual (no meaning / high uncertainty).
-  const reopened = reuse.filter((r) => r.status === "STALE_IDENTITY" || r.status === "STALE_MEANING");
+  // Accounts still needing a reviewer this time = NEW + reopened (STALE_* / CONTEXT_INCOMPATIBLE) + individual.
+  const reopened = reuse.filter((r) => r.status === "STALE_IDENTITY" || r.status === "STALE_MEANING" || r.status === "CONTEXT_INCOMPATIBLE");
   const needsReviewKeys = new Set([...byStatus("NEW"), ...reopened.map((r) => r.key), ...individual.map((i) => i.account_key)]);
+  // Disclose which context fields reuse could NOT independently verify (the live schema does not track them). Never hidden.
+  const reusedUnverified = [...new Set(reuse.filter((r) => r.status === "REUSABLE").flatMap((r) => r.unverified || []))].sort();
 
   // Coverage over accounts that need a mapping (every account): unmapped = needs review & not groupable-approved yet.
   const total = read.accounts.length;
@@ -84,7 +96,9 @@ export function buildReviewSummary({ upload, headers, dataRows, store = new Revi
     groups: groupsNeedingReview,
     individual: individual.filter((i) => needsReviewKeys.has(i.account_key)),
     relationships,
-    reuse: { reusable: byStatus("REUSABLE"), new: byStatus("NEW"), stale_identity: byStatus("STALE_IDENTITY"), stale_meaning: byStatus("STALE_MEANING") },
+    reuse: { reusable: byStatus("REUSABLE"), new: byStatus("NEW"), stale_identity: byStatus("STALE_IDENTITY"), stale_meaning: byStatus("STALE_MEANING"), context_incompatible: byStatus("CONTEXT_INCOMPATIBLE") },
+    reuseDisclosure: { unverified_context_fields: reusedUnverified, note: "Reused decisions are bound to entity + account_key (what the live schema enforces). Listed fields were not independently verified because account_mappings carries no such axis — a documented Phase 6 gap, never silently assumed equal." },
+    context: nowCtx,
     mappingCoverage: { total, unmapped, ambiguous },
     accountsRead: read.accounts,
   };
@@ -125,7 +139,9 @@ export function expandGroupToDecisions(group, reason) {
 export function acceptGroup(store, { upload, summary, group, actor, reason, client_request_id }) {
   if (actor.company_id !== upload.company_id) throw new Refusal("UPLOAD_COMPANY_MISMATCH", { actor: actor.company_id, upload: upload.company_id });
   if (summary.source_digest !== upload.source_digest) throw new Refusal("SOURCE_CHANGED", { was: summary.source_digest, now: upload.source_digest });
-  if (!reason || String(reason).trim().length < 3) throw new Refusal("REASON_REQUIRED");
+  // Reason is OPTIONAL for routine classification — the real resolve_account_review_batch requires a reason ONLY for
+  // CONFIRM_ACCOUNT_TREATMENT (3..500); account_review_decisions.reason is TEXT NULL. We do not invent a mandatory essay;
+  // a reason is recorded when supplied. (Corrected from an earlier prototype that over-required a 3-char reason.)
   if (group.uncertainty.level === "high") throw new Refusal("GROUP_UNCERTAIN_REVIEW_INDIVIDUALLY");
 
   const payload = { upload_id: upload.id, group_id: group.groupId, treatment: group.treatment, members: group.members.map((m) => m.account_key).sort(), reason };
@@ -152,7 +168,7 @@ export function acceptGroup(store, { upload, summary, group, actor, reason, clie
       account_code: m.account_code, normalized_account_name: identity_norm, review_account_key: m.account_key,
       proposal_type: "MACHINE_SUGGESTION", decision_action: "USER_ACCEPTED_SUGGESTION",
       treatment, identity_norm, basis_digest: account ? basisDigest(account) : sha256Hex(basisOf({ account_code: m.account_code, account_name: m.account_name })),
-      reason,
+      context: reuseContextOf(upload), reason,
     });
     logged++;
   }

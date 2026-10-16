@@ -96,6 +96,27 @@ The prototype detects an **unexpected balance** (a sign anomaly for the proposed
   evidence (a lease schedule, a GL drill-down, a comparative) can catch this class — an inherent limit of deterministic
   interpretation; AI could *propose*, separately governed, but never auto-accept.
 
+## Batch atomicity, reason requirement, and manual selection (decided from the REAL contract, not assumed)
+- **Atomicity: ALL-OR-NOTHING.** `resolve_account_review_batch` (`20261007100000`) validates every decision in a first pass
+  and `RAISE`s on the first failure **before any write**; no per-decision `try/catch`; a single aggregate `result_summary`.
+  There are **no partial outcomes** server-side. The manual path mirrors this: show each account's **pre-flight outcome
+  before submission**, submit the confirmed set, and reject the **whole** batch (naming the offending account) on any
+  failure — never a silent skip, never a misleading blanket success. Same-account concurrency is serialized by
+  `pg_advisory_xact_lock` (last-writer-wins; the append-only ledger keeps both decisions).
+- **Reason: use the existing requirement, invent no essay.** The RPC requires a reason **only** for
+  `CONFIRM_ACCOUNT_TREATMENT` (3..500); `account_review_decisions.reason` is `TEXT NULL`. Routine
+  `USER_ACCEPTED_SUGGESTION` / `USER_MANUAL_CLASSIFICATION` need **none**. An earlier prototype over-required a 3-char
+  reason; **corrected** — a reason is recorded when supplied, never forced for a routine decision.
+- **Uncertain accounts.** `HIGH_UNCERTAINTY` / `NO_RECOGNISED_MEANING` accounts are never auto-grouped by inferred
+  equivalence (layer 4 keeps them individual). They may be organised **visually by issue** (`impliesTreatment:false`), and a
+  reviewer may **deliberately** select several and assign one common treatment — each validated through the same server
+  authority, preserving identity, previous + proposed treatment, actor, operation identity (`client_request_id`) and any
+  reason.
+- **Reuse is more than a file hash.** Compatibility requires entity + currency + dimensions + ruleset; a known change
+  reopens (`CONTEXT_INCOMPATIBLE`), an untrackable field is **disclosed as unverified** (never assumed equal). Honest schema
+  reality: live `account_mappings` keys only `(company_id, account_key)` — richer binding is an additive Phase 6 change on
+  the decision ledger (gap #4), not in the first slice.
+
 ## Limitations surfaced by the extended coverage (reported, not optimised away)
 - **Header recognition is partial.** QuickBooks- and Odoo-style headers are recognised; **SunSystems' "T/B Code" is not**, so
   the automatic path loses codes and keys by description. **Resolution — now VERIFIED through an EXISTING contract (not merely

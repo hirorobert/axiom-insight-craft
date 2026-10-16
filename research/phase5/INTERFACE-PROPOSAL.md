@@ -67,6 +67,36 @@ bank overdraft) and is silent on some wrong ones (a mis-mapped account whose sig
 expected side is taken from the specific role — contra-assets are credit-normal, drawings are debit-normal — so neither is
 mis-flagged. Consumers must treat the signal as a prompt for individual review, not as proof. (Proven: `coverage.test.mjs`
 groups (A), (A≠B), (B, undetectable).)
+
+### 3c. Manual multi-account treatment (deliberate selection — uncertain accounts are never auto-grouped)
+`HIGH_UNCERTAINTY` / `NO_RECOGNISED_MEANING` accounts are **never** grouped for acceptance by inferred equivalence. They may
+be organised **visually by issue** (no treatment/approval implied), and a reviewer may **deliberately select** several and
+assign **one** common treatment in a single action, after a shown preview.
+```ts
+organiseByIssue(individual, meaningsByKey) => { issue: string; impliesTreatment: false; impliesApproval: false; members: {account_key,account_name}[] }[]
+previewManualAssignment({store, upload, summary, selectedKeys, treatment, reason}) => {
+  rows: { account_key; account_name; previous_treatment: Treatment|null; proposed_treatment: ProposedTreatment;
+          warnings: { code; advisory: boolean; note? }[];         // advisory sign/role signals ≠ blocking errors
+          preflight: { ok: true } | { ok: false; code; detail } }[];
+  blocking: { account_key; code }[]; submittable: boolean; decisions: ReviewDecisionPayload[] }
+assignCommonTreatment(store, {upload, summary, selectedKeys, treatment, actor, reason, client_request_id})
+  // ATOMIC: validates every selected account first; ANY failure throws and NOTHING is written (mirrors the RPC).
+  // decision_action = "USER_MANUAL_CLASSIFICATION"; proposal_type = "NONE"; reason OPTIONAL (server requires none here).
+  => { batch_id; decisions_logged; mappings_written } | throws Refusal
+```
+**Atomicity (authoritative, read from `20261007100000`):** `resolve_account_review_batch` validates all decisions and
+`RAISE`s before any write; one aggregate `result_summary`; **no partial outcomes**. So the UI shows each account's
+**pre-flight outcome before submission**, submits the confirmed set, and a failing submit rejects the **whole** batch naming
+the offending account — never a silent skip or blanket success. Same-account concurrency is serialized by
+`pg_advisory_xact_lock(company, account_key)` (last-writer-wins; append-only ledger keeps both).
+
+### 3d. Reuse is more than a file hash
+A prior accepted decision is reusable for a later upload only when the accounting **context** is compatible — entity +
+currency + dimensions + ruleset — not merely the same bytes or `account_key`. A KNOWN change (e.g. currency) reopens the
+decision (`CONTEXT_INCOMPATIBLE`); a field the live schema cannot track (`account_mappings` keys only
+`(company_id, account_key)`) is **disclosed as unverified**, never assumed equal (UNKNOWN ≠ EQUAL ≠ MISMATCH). Closing this
+needs context on the decision ledger — see §9 gap #4. Period is confirmed but intentionally not a reuse blocker (mappings
+reuse across periods by design).
 Acceptance EXPANDS one group into the existing per-account batch. No "Accept all": one explicit, reasoned acceptance per group;
 `HIGH_UNCERTAINTY`/`NO_RECOGNISED_MEANING` accounts are never groupable and must be classified individually.
 ```ts
@@ -157,6 +187,14 @@ authority is necessary" — so this is stated honestly.
    it used. **Minimum compatible change: a `close_review_events` row** (`subject_kind='upload'`, a new `event_type` such as
    `tb_review_summarised`, `detail` = the versions/decision set) — the existing append-only timeline, **no new table**. A
    completed summary is then immutable and bound; a later reopen produces a NEW summary, never mutating the old one.
+4. **Reuse context beyond entity + `account_key`.** Live `account_mappings` keys only `(company_id, account_key)` — **no
+   currency, period, dimension, or ruleset-version axis** — so the RPC cannot enforce the richer reuse compatibility the
+   prototype models (a currency/dimension/ruleset change ⇒ `CONTEXT_INCOMPATIBLE` ⇒ reopen). The prototype **discloses**
+   every field it could not verify rather than assuming equality (UNKNOWN ≠ EQUAL ≠ MISMATCH). **Minimum compatible change:**
+   record the accepting context on the **decision ledger** (`account_review_decisions` already carries `previous_value`/
+   `new_value` JSON — add context there, or an additive column) and compare it on reuse. **Additive; no change to the write
+   path's authority.** **Not in the first slice** (single-entity, single-currency); the honest next gap. Entity itself is
+   already enforced natively (`UPLOAD_COMPANY_MISMATCH` + company-scoped mappings).
 
 ## 10. Prototype vs real-contract evidence (necessary vs sufficient)
 - **Executed now — static shape+semantics against the REAL function** (`tests/real_contract_static.mjs`, 14/14): the
