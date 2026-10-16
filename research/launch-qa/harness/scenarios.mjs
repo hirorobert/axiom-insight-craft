@@ -159,15 +159,22 @@ async function scenarioE(env) {
   if (problems.length) return result("FAIL", problems, { original: cur, afterOld, afterActive });
 
   // STALE action: a deterministic stale replacement is NOT producible from the browser — FirstUpload.replace() re-reads the
-  // current version at click time (FirstUpload.tsx L205-207), so holding an old card and clicking later commits at the
-  // CURRENT version, never stale. The authentic test is the draft-commit CONTRACT with a crafted expected_version (exactly
-  // scripts/e2e/draftJourney.mjs proves: replaces_upload_id + expected_version-1 ⇒ 409 replace_conflict, current kept).
-  // Wiring that into this harness needs two values I will not guess: the private drafts STORAGE BUCKET name and the exact
-  // `confirmation` shape the commit validates for THIS entity/period. GENUINE dependency for NORMAL (or allow driving
-  // commitDraft with replaces.expectedVersion directly). The explicit replacement above executed and preserved history.
-  return result("BLOCKED", [
-    "stale-action sub-check: a deterministic stale replacement cannot be produced via the browser (replace() re-reads the version); the contract test needs the drafts storage-bucket name + the commit confirmation shape for this entity/period (draftJourney has the exact calls). Explicit replacement + history-preservation executed and PASS.",
-  ], { original: cur, afterOld, afterActive, explicitReplacement: "pass" });
+  // current version at click time — so it is checked at the server CONTRACT, kept as SEPARATE evidence from the browser
+  // replacement above. [NORMAL, coordinated on #144] env.drafts.staleReplace (scripts/e2e/launchQaDrafts.mjs) is the
+  // draftJourney.mjs contract as this user, on this entity/period: a draft commit naming the CURRENT active upload with an
+  // expected version one behind must be refused 409 replace_conflict, commit nothing, and leave that upload active at its
+  // version. Absent or not executed ⇒ BLOCKED (never PASS).
+  const browserReplacement = { executed: true, oldSuperseded: true, newActive: afterActive?.id ?? null };
+  if (typeof env.drafts?.staleReplace !== "function") {
+    return result("BLOCKED", ["stale-action contract check not supplied (env.drafts.staleReplace)"], { browserReplacement, original: cur, afterOld, afterActive });
+  }
+  const stale = await env.drafts.staleReplace(env.users.owner, ws.companyId, ws.periodYear);
+  if (!stale?.executed) return result("BLOCKED", [`stale-action contract check did not execute: ${stale?.reason ?? "unknown"}`], { browserReplacement, staleContract: stale });
+  if (stale.status !== 409 || stale.outcome !== "replace_conflict") problems.push(`a stale replacement was not refused as replace_conflict (got ${stale.status} ${stale.outcome})`);
+  if (stale.accepted) problems.push("a stale replacement was ACCEPTED (committed)");
+  if (!stale.currentKept) problems.push("the active upload did not stay current (id and version) after the refused stale replacement");
+  if (stale.currentId !== afterActive?.id) problems.push(`the stale check did not target the upload the browser replacement made current (${stale.currentId} vs ${afterActive?.id})`);
+  return result(problems.length ? "FAIL" : "PASS", problems, { browserReplacement, staleContract: stale, original: cur, afterOld, afterActive });
 }
 
 // F: Invalid / unsupported / over-limit files — actionable refusal, no silent truncation, no accepted partial result,
