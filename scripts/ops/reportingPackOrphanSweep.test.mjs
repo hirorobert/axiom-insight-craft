@@ -16,7 +16,9 @@ const world = () => {
   };
   const objects = [ID.expired, ID.live, ID.none].map((i) => ({ storage_path: p(i), created_at: new Date(NOW - 4 * H).toISOString() }));
   const removed = [];
-  const deps = { listOrphans: async () => objects, issuance: async (id) => issuances[id] ?? null, remove: async (path) => { removed.push(path); return { error: null }; } };
+  // The database barrier, modelled on reporting_pack_orphan_deletable: decided under the row lock from the issuance's state.
+  const barrier = async (id) => { const i = issuances[id]; if (!i) return "no_issuance"; if (i.consumed_at) return "sealed"; return Date.parse(i.expires_at) > NOW ? "may_still_be_sealed" : "deletable"; };
+  const deps = { listOrphans: async () => objects, issuance: async (id) => issuances[id] ?? null, remove: async (path) => { removed.push(path); return { error: null }; }, barrier };
   return { deps, issuances, objects, removed };
 };
 
@@ -28,11 +30,21 @@ const world = () => {
   check("a confirm that does not match deletes nothing and alerts", w.removed.length === 0 && r.record.mode === "apply_refused" && r.exitCode === 2); }
 { const w = world(); const r = await runOrphanSweep({ deps: w.deps, operator: "Owner", apply: true, nowMs: NOW, serverNowMs: NOW });
   check("apply without a confirm deletes nothing", w.removed.length === 0 && r.exitCode === 2); }
-{ // A seal lands between the inventory and the deletion: the rule re-reads the issuance and keeps the object.
-  const w = world(); let reads = 0;
-  w.deps.issuance = async (id) => { if (id === ID.expired && ++reads >= 2) return { ...w.issuances[id], consumed_at: new Date(NOW).toISOString() }; return w.issuances[id] ?? null; };
+{ // A seal that was in flight commits before the barrier decides: the barrier answers 'sealed' and the object is kept.
+  const w = world();
+  w.deps.barrier = async (id) => (id === ID.expired ? "sealed" : "deletable");
   const r = await runOrphanSweep({ deps: w.deps, operator: "Owner", apply: true, confirm: 2, nowMs: NOW, serverNowMs: NOW });
-  check("an issuance sealed concurrently is kept (re-read before deletion)", !w.removed.includes(p(ID.expired)) && r.record.outcome.kept.some((k) => k.path === p(ID.expired) && k.reason === "sealed")); }
+  check("the barrier's 'sealed' keeps the object (an in-flight seal committed)", !w.removed.includes(p(ID.expired)) && r.record.outcome.kept.some((k) => k.path === p(ID.expired) && k.reason === "sealed")); }
+{ // A barrier that cannot take the lock in time answers 'busy': nothing is deleted for that object.
+  const w = world();
+  w.deps.barrier = async () => "busy";
+  const r = await runOrphanSweep({ deps: w.deps, operator: "Owner", apply: true, confirm: 2, nowMs: NOW, serverNowMs: NOW });
+  check("a 'busy' barrier deletes nothing", w.removed.length === 0 && r.record.outcome.kept.every((k) => k.reason === "busy")); }
+{ // 'no_issuance' from the barrier is accepted only for an object the rule itself classed as having no issuance.
+  const w = world();
+  w.deps.barrier = async () => "no_issuance";
+  await runOrphanSweep({ deps: w.deps, operator: "Owner", apply: true, confirm: 2, nowMs: NOW, serverNowMs: NOW });
+  check("'no_issuance' deletes only a stray object, never an expired issuance's object", w.removed.join() === p(ID.none)); }
 { const w = world(); w.objects.push({ storage_path: p(ID.old), created_at: new Date(NOW - 20 * 24 * H).toISOString() });
   const r = await runOrphanSweep({ deps: w.deps, operator: "Owner", nowMs: NOW });
   check("a deletable object overdue for more than 14 days raises an alert", r.exitCode === 2 && r.record.alerts.some((a) => /14 days/.test(a))); }

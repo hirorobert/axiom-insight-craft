@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Interim, operator-run Reporting Pack orphan sweep (repair C follow-up; owner decision 4(b) of the release package).
 // Until a scheduled sweeper kind exists, a NAMED operator runs this by hand on a fixed cadence. It decides nothing itself:
-// the ONLY deletion rule is supabase/functions/_shared/reportingPackOrphans.mjs (unsealed AND past issuance expiry + 1 h
-// grace, or no issuance and older than 1 h; a sealed object is never deleted; each issuance is re-read immediately
-// before each deletion). It lists through the existing service-role RPC public.reporting_pack_storage_orphans(), reads
+// the inventory follows supabase/functions/_shared/reportingPackOrphans.mjs (unsealed AND past issuance expiry + 1 h
+// grace, or no issuance and older than 1 h; a sealed object is never deleted), and every deletion is gated by the
+// database barrier reporting_pack_orphan_deletable (20261110100000), decided under the issuance row lock. It lists through the existing service-role RPC public.reporting_pack_storage_orphans(), reads
 // public.reporting_pack_issuances, and deletes only through the Storage API (direct storage.objects deletes are refused).
 //
 //   dry run (default):  node scripts/ops/reportingPackOrphanSweep.mjs --operator "<name>"
@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { orphanDecision, sweepReportingPackOrphans, ORPHAN_GRACE_MS } from "../../supabase/functions/_shared/reportingPackOrphans.mjs";
+import { orphanDecision, ORPHAN_GRACE_MS } from "../../supabase/functions/_shared/reportingPackOrphans.mjs";
 
 const BUCKET = "reporting-packs";
 export const STALE_ALERT_MS = 14 * 24 * 60 * 60 * 1000;
@@ -63,8 +63,20 @@ export async function runOrphanSweep({ deps, operator, apply = false, confirm = 
       mode = "apply_refused";
     } else {
       mode = "apply";
-      // The rule re-reads each issuance immediately before each deletion (a concurrent seal keeps the object).
-      outcome = await sweepReportingPackOrphans(deps, Date.now() > nowMs ? Date.now() : nowMs, graceMs);
+      // The FINAL gate is the database barrier (reporting_pack_orphan_deletable, 20261110100000): it takes the issuance row
+      // lock every seal holds from before its expiry check until it commits, waits for any in-flight seal, and decides
+      // under that lock. Only 'deletable' (or 'no_issuance' for an object no issuance names) lets an object be removed;
+      // after it no seal can succeed, however long any earlier seal transaction took. Elapsed time decides nothing here.
+      for (const item of deletable) {
+        const m = /^([0-9a-f-]{36})\/([0-9a-f-]{36})\.json$/.exec(item.path ?? "");
+        const verdict = await deps.barrier(m ? m[2] : null);
+        const allowed = verdict === "deletable" || (verdict === "no_issuance" && item.decision === "no_issuance");
+        if (!allowed) { outcome.kept.push({ path: item.path, reason: verdict }); continue; }
+        let error = null;
+        try { ({ error } = await deps.remove(item.path)); } catch (e) { error = e; }
+        if (error) outcome.failed.push({ path: item.path, reason: String(error?.message ?? error).slice(0, 120) });
+        else outcome.deleted.push({ path: item.path, reason: verdict });
+      }
       if (outcome.failed.length) alerts.push(`${outcome.failed.length} deletion(s) failed (retried by the next run)`);
     }
   }
@@ -94,6 +106,7 @@ if (isMain) {
       listOrphans: async () => { const { data, error } = await svc.rpc("reporting_pack_storage_orphans"); if (error) throw error; return data ?? []; },
       issuance: async (id) => { const { data, error } = await svc.from("reporting_pack_issuances").select("expires_at, consumed_at").eq("id", id).maybeSingle(); if (error) throw error; return data ?? null; },
       remove: async (p) => { const { error } = await svc.storage.from(BUCKET).remove([p]); return { error }; },
+      barrier: async (id) => { const { data, error } = await svc.rpc("reporting_pack_orphan_deletable", { p_issuance_id: id }); if (error) throw error; return data; },
     };
     // The server's clock (the API gateway's Date header, read just now) — compared with this machine's before any decision.
     const head = await fetch(`${url}/rest/v1/`, { method: "GET", headers: { apikey: key, Authorization: `Bearer ${key}` } });

@@ -243,7 +243,8 @@ describe("migration directory integrity", () => {
     // 176 -> 177: 20261106100000_trial_balance_drafts.sql (owner-scoped trial balance drafts and their 7-day retention, Phase 2 P2-2), a NEW forward-only migration pending hosted application.
     // 177 -> 178: 20261107100000_certification_findings_capacity.sql (every finding of a certification kept durably; bounded summary; bounded dependency locks — repair A), a NEW forward-only migration pending hosted application.
     // 178 -> 179: 20261108100000_account_identity_codeless_name.sql (accounts with different codes may share a name; name uniqueness only for codeless accounts — repair B), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(179);
+    // 179 -> 180: 20261110100000_reporting_pack_orphan_barrier.sql (the database barrier for deleting an unsealed Reporting Pack object; interim cleanup, #149), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(180);
   });
 });
 

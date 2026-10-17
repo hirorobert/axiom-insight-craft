@@ -341,6 +341,9 @@ describe("database inertness — schema and functions", () => {
       // account_mappings by a codeless-only one (no row changed); the pure candidate-counting name matcher the processing
       // function uses. Proven on PostgreSQL by accountIdentity.mjs.
       "supabase/migrations/20261108100000_account_identity_codeless_name.sql",
+      // Reporting Pack orphan barrier (#149, interim cleanup; separate approval, 20261110100000): a NEW forward-only migration
+      // adding one service-role function that decides a deletion under the issuance row lock. Proven by billingSuspension.mjs.
+      "supabase/migrations/20261110100000_reporting_pack_orphan_barrier.sql",
       "supabase/functions/_shared/accountNameMatch.ts",
     ]);
     const modified = new Set([

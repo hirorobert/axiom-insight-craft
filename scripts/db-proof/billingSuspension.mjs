@@ -998,6 +998,51 @@ async function main() {
       return r.outcome === "sealed" && seen.consumed_at === null && zeroGraceWouldDelete && kept && intact ? true : JSON.stringify({ r, seen, zeroGraceWouldDelete, kept, intact, sealMs });
     } finally { c.release(); }
   });
+  // ── The barrier (20261110100000): deletion decided under the issuance row lock, never by elapsed time ──────────────
+  const barrier = async (id) => (await q(SERVICE, "SELECT public.reporting_pack_orphan_deletable($1) r", [id]))[0].r;
+  const barrierWaiting = async () => Number((await admin.query("SELECT count(*) n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%reporting_pack_orphan_deletable%'")).rows[0].n);
+  await check("barrier: a seal whose check passed BEFORE expiry, held open past expiry, makes the barrier WAIT; when it commits the barrier answers 'sealed' (never deletable), whatever the elapsed time", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      await untilExpired(o.id);
+      const pending = barrier(o.id);
+      await pause(500);
+      const waited = await barrierWaiting();
+      await c.query("COMMIT");
+      const answer = await pending;
+      return r.outcome === "sealed" && waited >= 1 && answer === "sealed" && (await sealsOf(o.id)) === 1 && bucket.has(o.path) ? true : JSON.stringify({ r, waited, answer });
+    } finally { c.release(); }
+  });
+  await check("barrier: if that in-flight seal ROLLS BACK, the barrier then answers 'deletable', and any later seal is refused 'expired' (no seal can follow a deletable answer)", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path]);
+      await untilExpired(o.id);
+      const pending = barrier(o.id);
+      await pause(500);
+      await c.query("ROLLBACK");
+      const answer = await pending;
+      const later = (await official(pk.uid, o.id)).body.outcome;
+      return answer === "deletable" && later === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ answer, later });
+    } finally { c.release(); }
+  });
+  await check("barrier: 'may_still_be_sealed' before expiry, 'no_issuance' for an unknown id, 'busy' (not a wait without end) when the row lock is held past its timeout", async () => {
+    const live = await orphanFor();
+    const before = await barrier(live.id);
+    const none = await barrier(uuid());
+    const h = await pool.connect();
+    try {
+      await h.query("BEGIN"); await h.query("SELECT 1 FROM public.reporting_pack_issuances WHERE id=$1 FOR UPDATE", [live.id]);
+      const t = Date.now(); const busy = await barrier(live.id); const ms = Date.now() - t;
+      await h.query("ROLLBACK");
+      return before === "may_still_be_sealed" && none === "no_issuance" && busy === "busy" && ms < 15_000 ? true : JSON.stringify({ before, none, busy, ms });
+    } finally { h.release(); }
+  });
   await check("verification: official for the workspace's members only (also after the plan ends); unknown bytes never are", async () => {
     const v = await account("PRACTICE", 1);
     const vr = await savedOutput(v.uid, v.co, 2031, DOC);
