@@ -585,6 +585,9 @@ describe("database inertness — schema and functions", () => {
       // The self-checking release wrappers: the generator (reads committed migration bytes, writes release/wrappers/; no
       // network, no database) and its loopback-only real-PostgreSQL proof. No deploy behaviour.
       "scripts/release/selfCheckingWrapper.mjs", "scripts/db-proof/selfCheckingWrappers.mjs",
+      // tb-release-r1 hosted checks: writes deterministic INVENTED trial balance files to a local directory and prints
+      // their SHA-256. No network, no database, no deploy behaviour.
+      "scripts/release/tbSyntheticFixtures.mjs",
       // The coverage-matrix renderer (reads src/lib/frameworkPacks, writes docs/reporting; no network, no database).
       "scripts/release/renderCoverageMatrix.mjs",
       "scripts/db-proof/statementComposition.mjs",
