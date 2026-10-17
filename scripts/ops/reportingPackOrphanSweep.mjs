@@ -22,13 +22,20 @@ import { orphanDecision, sweepReportingPackOrphans, ORPHAN_GRACE_MS } from "../.
 
 const BUCKET = "reporting-packs";
 export const STALE_ALERT_MS = 14 * 24 * 60 * 60 * 1000;
+/** The operator's clock may differ from the server's by at most this much before an apply is refused (grace is 1 h). */
+export const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /**
  * One run. deps: listOrphans(), issuance(id), remove(path) — the same contract as sweepReportingPackOrphans. Pure apart
  * from deps; returns the record (without secrets) and the exit code.
  */
-export async function runOrphanSweep({ deps, operator, apply = false, confirm = null, nowMs = Date.now(), graceMs = ORPHAN_GRACE_MS }) {
+export async function runOrphanSweep({ deps, operator, apply = false, confirm = null, nowMs = Date.now(), serverNowMs = null, graceMs = ORPHAN_GRACE_MS }) {
   if (!operator || !String(operator).trim()) throw new Error("an operator name is required (--operator)");
+  // Sealing is refused by the DATABASE clock (expires_at <= clock_timestamp(), under the issuance row lock); this run judges
+  // expiry by its own clock. It uses the EARLIER of its clock and the server's (never deletes earlier than the server
+  // would allow) and refuses to apply when they differ by more than MAX_CLOCK_SKEW_MS.
+  const skewMs = serverNowMs === null ? null : nowMs - serverNowMs;
+  if (serverNowMs !== null) nowMs = Math.min(nowMs, serverNowMs);
   const listed = await deps.listOrphans();
   // Inventory: the rule's own decision for every listed object, before anything is deleted.
   const inventory = [];
@@ -44,6 +51,12 @@ export async function runOrphanSweep({ deps, operator, apply = false, confirm = 
   if (deletable.some((i) => i.overdueMs > STALE_ALERT_MS)) alerts.push("a deletable object has been overdue for more than 14 days");
   if (inventory.some((i) => i.decision === "unknown_expiry" || i.decision === "unknown_age")) alerts.push("an object's age or expiry could not be read");
   let outcome = { deleted: [], kept: [], failed: [] }, mode = "dry_run";
+  let applyBlocked = false;
+  if (apply && (skewMs === null || Math.abs(skewMs) > MAX_CLOCK_SKEW_MS)) {
+    alerts.push(skewMs === null ? "the server's clock could not be read; nothing was deleted" : `the operator clock differs from the server's by ${Math.round(skewMs / 1000)} s; nothing was deleted`);
+    apply = false;
+    applyBlocked = true;
+  }
   if (apply) {
     if (confirm === null || Number(confirm) !== deletable.length) {
       alerts.push(`confirm mismatch: --confirm ${confirm} but this run found ${deletable.length} deletable; nothing was deleted`);
@@ -61,7 +74,8 @@ export async function runOrphanSweep({ deps, operator, apply = false, confirm = 
     deleted: outcome.deleted.length, failed: outcome.failed.length,
   };
   if (counts.sealedListed) alerts.push(`${counts.sealedListed} listed object(s) belong to a sealed issuance (the listing should exclude them)`);
-  return { record: { operator: String(operator).trim(), mode, nowIso: new Date(nowMs).toISOString(), graceMs, counts, alerts, inventory, outcome }, exitCode: alerts.length ? 2 : 0 };
+  if (applyBlocked) mode = "apply_refused";
+  return { record: { operator: String(operator).trim(), mode, clockSkewMs: skewMs, nowIso: new Date(nowMs).toISOString(), graceMs, counts, alerts, inventory, outcome }, exitCode: alerts.length ? 2 : 0 };
 }
 
 // ── CLI ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -81,8 +95,11 @@ if (isMain) {
       issuance: async (id) => { const { data, error } = await svc.from("reporting_pack_issuances").select("expires_at, consumed_at").eq("id", id).maybeSingle(); if (error) throw error; return data ?? null; },
       remove: async (p) => { const { error } = await svc.storage.from(BUCKET).remove([p]); return { error }; },
     };
+    // The server's clock (the API gateway's Date header, read just now) — compared with this machine's before any decision.
+    const head = await fetch(`${url}/rest/v1/`, { method: "GET", headers: { apikey: key, Authorization: `Bearer ${key}` } });
+    const serverNowMs = Date.parse(head.headers.get("date") ?? "");
     const started = new Date().toISOString();
-    const { record, exitCode } = await runOrphanSweep({ deps, operator, apply, confirm });
+    const { record, exitCode } = await runOrphanSweep({ deps, operator, apply, confirm, serverNowMs: Number.isFinite(serverNowMs) ? serverNowMs : null });
     const runId = `${started.replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
     fs.mkdirSync(recordsDir, { recursive: true, mode: 0o700 });
     const host = new URL(url).host;
