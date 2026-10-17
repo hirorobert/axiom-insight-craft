@@ -348,6 +348,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/accountNameMatch.ts",
     ]);
     const modified = new Set([
+      // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
+      // indexes by DEFINITION, not name — the hosted database names them uq_mappings_company_code / uq_mappings_company_name.
+      // Same end state; unapplied anywhere hosted (journal head 0057). Proven on PostgreSQL by accountIdentity.mjs.
+      "supabase/migrations/20261108100000_account_identity_codeless_name.sql",
       // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
       "supabase/functions/_shared/sourceSweeper.ts",
       // Certification capacity (repair A): the function-path double of tb_finalize_attempt keeps the complete findings and
