@@ -120,6 +120,13 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
   const store = {};
   const env = {
     shot,
+    // A named evidence record next to the screenshots, stamped with the build it describes (the identity step proves the
+    // built tree is LAUNCH_QA_CANDIDATE_SHA apart from the QA files; GITHUB_SHA is the harness commit CI checked out).
+    recordEvidence(name, data) {
+      const rec = { applicationSha: process.env.LAUNCH_QA_CANDIDATE_SHA ?? null, harnessSha: process.env.GITHUB_SHA ?? null, capturedAt: new Date().toISOString(), ...data };
+      fs.writeFileSync(path.join(OUT, name), `${JSON.stringify(rec, null, 2)}\n`);
+      return rec;
+    },
     APP, admin, users, sleep, lastWorkspace: null,
     // NORMAL-owned hooks (undefined ⇒ the dependent scenario returns BLOCKED with a precise reason):
     mockPurchase: undefined, overLimitFixture: undefined, sameNameRepairApplied: false, axe: undefined,

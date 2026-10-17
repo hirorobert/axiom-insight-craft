@@ -416,6 +416,23 @@ async function reviewHierarchyJourney(env, page) {
     await page.setViewport(vw, 900); await env.sleep(500); await env.shot(page, `I-review-ready-${vw}`);
     problems.push(...responsiveProblems(vw, await page.evaluate(() => document.documentElement.scrollWidth), { label: `review@${vw}` }));
     problems.push(...reviewHierarchyProblems(await env.observeReviewHierarchy(page), "ready").map((p) => `${p} (@${vw}px)`));
+    if (vw === 390) {
+      // The action area itself at 390px, in this genuine ready state: each review action scrolled into view and captured,
+      // with the observed state and its provenance (owner request after the ebafa68 checkpoint).
+      const shots = [];
+      for (const [testid, name] of [["trial-balance-primary-action", "I-review-card-action-390"], ["account-review-save", "I-review-save-action-390"]]) {
+        await page.evaluate((t) => document.querySelector(`[data-testid="${t}"]`)?.scrollIntoView({ block: "center" }), testid).catch(() => {});
+        await env.sleep(400);
+        const box = await page.evaluate((t) => { const r = document.querySelector(`[data-testid="${t}"]`)?.getBoundingClientRect(); return r ? { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), inViewport: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth } : null; }, testid).catch(() => null);
+        if (!box?.inViewport) problems.push(`[review] at 390px the ${testid} control is not fully inside the viewport (${JSON.stringify(box)})`);
+        await env.shot(page, name);
+        shots.push({ file: `${name}.png`, control: testid, box });
+      }
+      steps.actionArea390 = env.recordEvidence("I-review-action-area-390.json", {
+        viewport: { width: 390, height: 900 }, url: await page.url().catch(() => null), uploadId: r.uploadId, companyId: r.companyId, periodYear: r.periodYear,
+        observedState: await env.observeReviewHierarchy(page), screenshots: shots,
+      });
+    }
   }
   await page.setViewport(1280, 900);
 
