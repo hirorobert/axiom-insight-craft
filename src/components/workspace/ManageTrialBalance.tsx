@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -31,6 +31,10 @@ const REMOVE_FOLLOW_UP: Record<"remove" | "discard" | "cancel_replacement", stri
   discard: "It has not been processed yet. You can undo this for a short time afterwards.",
   cancel_replacement: "The Trial Balance it replaced becomes the active one again.",
 };
+
+export const RESTORE_PREVIOUS_LABEL = "Restore the previous trial balance";
+export const RESTORE_PREVIOUS_CONFIRMATION_COPY =
+  "This file was refused by the check, so nothing from it was accepted. Restore the Trial Balance it replaced? That Trial Balance becomes the active one again with its checks and result unchanged; the refused file stays in the processing history.";
 
 export function ManageTrialBalance({
   mode,
@@ -69,6 +73,7 @@ export function ManageTrialBalance({
   }, [focusRequested]);
 
   const busy = replacing || removing;
+  const restoring = removeAction?.kind === "restore_previous";
 
   return (
     <section
@@ -97,7 +102,14 @@ export function ManageTrialBalance({
               {replacing ? "Replacing…" : "Replace Trial Balance"}
             </Button>
           )}
-          {removeAction && removeAction.kind !== "unavailable" && (
+          {removeAction?.kind === "restore_previous" && (
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmOpen(true)} data-testid="restore-previous-trial-balance"
+              className={variant === "inline" ? "h-11 rounded-none px-4" : undefined}>
+              {removing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Undo2 className="mr-1.5 h-3.5 w-3.5" />}
+              {removing ? "Restoring…" : RESTORE_PREVIOUS_LABEL}
+            </Button>
+          )}
+          {removeAction && removeAction.kind !== "unavailable" && removeAction.kind !== "restore_previous" && (
             <Button
               variant="outline"
               size="sm"
@@ -141,10 +153,10 @@ export function ManageTrialBalance({
       <AlertDialog open={confirmOpen} onOpenChange={(o) => { if (!removing) setConfirmOpen(o); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Trial Balance</AlertDialogTitle>
+            <AlertDialogTitle>{restoring ? RESTORE_PREVIOUS_LABEL : "Remove Trial Balance"}</AlertDialogTitle>
             <AlertDialogDescription>
-              {REMOVE_CONFIRMATION_COPY}
-              {removeAction && removeAction.kind !== "unavailable" && (
+              {restoring ? RESTORE_PREVIOUS_CONFIRMATION_COPY : REMOVE_CONFIRMATION_COPY}
+              {removeAction && removeAction.kind !== "unavailable" && removeAction.kind !== "restore_previous" && (
                 <span className="mt-2 block">{REMOVE_FOLLOW_UP[removeAction.kind]}</span>
               )}
             </AlertDialogDescription>
@@ -152,7 +164,7 @@ export function ManageTrialBalance({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removing}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              data-testid="confirm-remove-trial-balance"
+              data-testid={restoring ? "confirm-restore-previous-trial-balance" : "confirm-remove-trial-balance"}
               disabled={removing}
               onClick={(e) => {
                 e.preventDefault();
@@ -161,9 +173,9 @@ export function ManageTrialBalance({
                   setConfirmOpen(false);
                 })();
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className={restoring ? undefined : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
             >
-              {removing ? "Removing…" : "Remove Trial Balance"}
+              {restoring ? (removing ? "Restoring…" : "Restore") : (removing ? "Removing…" : "Remove Trial Balance")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -341,6 +341,10 @@ describe("database inertness — schema and functions", () => {
       // account_mappings by a codeless-only one (no row changed); the pure candidate-counting name matcher the processing
       // function uses. Proven on PostgreSQL by accountIdentity.mjs.
       "supabase/migrations/20261108100000_account_identity_codeless_name.sql",
+      // Refused-replacement restore (owner-approved bounded repair, 20261109100000): a NEW forward-only migration — two internal
+      // helper functions and the existing cancel_trial_balance_replacement / get_trial_balance_removal_eligibility redefined
+      // with marked branches only; no table, column, index or policy changes. Proven on PostgreSQL by certificationCapacity.mjs.
+      "supabase/migrations/20261109100000_refused_replacement_restore.sql",
       "supabase/functions/_shared/accountNameMatch.ts",
     ]);
     const modified = new Set([

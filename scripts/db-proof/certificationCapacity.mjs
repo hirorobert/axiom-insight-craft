@@ -398,6 +398,215 @@ async function main() {
     const after = (await one("SELECT public.tb_run_authoritative($1) a", [t.run])).a;
     return r.outcome === "certified" && before === true && after === false && viaTrigger ? true : { r, before, after, viaTrigger };
   });
+  // ── Refused-replacement restore (20261109100000) — through the real attempt, replacement and restore authorities ──────
+  group("Refused replacement — the previous trial balance can be restored, only when genuinely refused");
+  const ACTIVE = ["active_unprocessed", "active_processing", "active_processed", "blocked"];
+  const upRow = async (id) => one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [id]);
+  const certsOf = async (id) => (await pool.query("SELECT id, normalized_input_hash, certified_at FROM public.tb_certifications WHERE upload_id=$1 ORDER BY sequence_no", [id])).rows
+    .map((c) => `${c.id}|${c.normalized_input_hash}|${new Date(c.certified_at).toISOString()}`).join(",");
+  const activeIn = async (y) => (await pool.query("SELECT id FROM public.trial_balance_uploads WHERE company_id=$1 AND period_year=$2 AND lifecycle_state = ANY($3)", [A, y, ACTIVE])).rows.map((r) => r.id);
+  const eligibility = async (who, id) => (await asUser(who, "SELECT public.get_trial_balance_removal_eligibility($1) e", [id]))[0].e;
+  const restoreAs = async (who, id, version) => (await asUser(who, "SELECT * FROM public.cancel_trial_balance_replacement($1,$2)", [id, version]))[0];
+  const beginOn = async (id) => (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r",
+    [id, uuid(), crypto.createHash("sha256").update(`refused-${id}`).digest("hex"), U.owner]))[0].r;
+  /** The refused read process-trial-balance records (INGESTION_REFUSED): blocked, zero accounts, the named issue. */
+  const refusal = (code, accounts = 0) => ({ outcome: "failed", error_code: "INGESTION_REFUSED", upload: { status: "blocked", is_valid: false, accounting_errors: [{ code }],
+    validation_report: null, processing_result: { status: "blocked", statements: null, errors: [{ code }], summary: { total_accounts: accounts },
+      ingestion: { issues: [{ code, severity: "blocking", message: `Refused: ${code}` }], milestones: [{ id: "read", status: "failed" }] } } } });
+  /** A certified predecessor in its own period. */
+  async function certifiedPredecessor() {
+    const t = await attempt();
+    // An authoritative certification (not blocking, no review required): get_authoritative_certification returns it.
+    // Like the real function, the run records its dependency snapshot before an accepted result.
+    await snapshot(t.run, depKeys(A, 1));
+    const r = await finalize(t.run, { ...certified({ exceptions: [], requires_review: false }), upload: { ...upload, status: "complete", is_valid: true } });
+    if (r.outcome !== "certified") throw new Error(`predecessor: ${JSON.stringify(r)}`);
+    const year = (await upRow(t.up)).period_year;
+    const authBefore = (await pool.query("SELECT upload_id FROM public.get_authoritative_certification($1,$2)", [A, year])).rows[0]?.upload_id ?? null;
+    return { id: t.up, year, authBefore };
+  }
+  /** The real replacement path as the owner: reserve, the stored object, retire_trial_balance_upload. */
+  async function replace(old) {
+    const cur = await upRow(old);
+    const res = (await asUser(U.owner, "SELECT * FROM public.reserve_trial_balance_source($1,'replacement.csv')", [A]))[0];
+    await admin.query("INSERT INTO storage.objects (bucket_id, name) VALUES ('trial-balance-files', $1)", [res.object_path]);
+    const r = (await asUser(U.owner, "SELECT * FROM public.retire_trial_balance_upload($1,$2,$3,$4,'Replaced via Prepare Data')", [old, cur.version, res.reservation_id, 12_582_919]))[0];
+    return r;
+  }
+  async function refusedReplacement(code = "FILE_TOO_LARGE") {
+    const p = await certifiedPredecessor();
+    const rep = await replace(p.id);
+    if (rep.outcome !== "replaced") throw new Error(`replace: ${JSON.stringify(rep)}`);
+    const b = await beginOn(rep.new_upload_id);
+    if (b.outcome !== "claimed") throw new Error(`begin: ${JSON.stringify(b)}`);
+    const f = await finalize(b.engine_run_id, refusal(code));
+    if (f.outcome !== "failed") throw new Error(`refuse: ${JSON.stringify(f)}`);
+    return { prev: p.id, rep: rep.new_upload_id, year: p.year, run: b.engine_run_id, prevCerts: await certsOf(p.id), authBefore: p.authBefore };
+  }
+
+  for (const code of ["FILE_TOO_LARGE", "TOO_MANY_ACCOUNTS", "MISSING_COLUMN"]) {
+    await check(`${code}: a refused replacement is offered 'restore_previous'; restoring it brings back the exact predecessor with its certification unchanged; the refused upload is kept, retired, with its failed run`, async () => {
+      const s = await refusedReplacement(code);
+      const e = await eligibility(U.owner, s.rep);
+      const v = (await upRow(s.rep)).version;
+      const r = await restoreAs(U.owner, s.rep, v);
+      const prev = await upRow(s.prev), rep = await upRow(s.rep);
+      const run = await one("SELECT status, error_code FROM public.engine_runs WHERE id=$1", [s.run]);
+      const auth = (await pool.query("SELECT upload_id FROM public.get_authoritative_certification($1,$2)", [A, s.year])).rows[0]?.upload_id ?? null;
+      const ok = e.outcome === "restore_previous" && e.restores_upload_id === s.prev && r.outcome === "restored" && r.restored_upload_id === s.prev
+        && ACTIVE.includes(prev.lifecycle_state) && prev.superseded_by_upload_id === null && (await certsOf(s.prev)) === s.prevCerts
+        && rep.lifecycle_state === "retired" && rep.processing_result?.ingestion?.issues?.[0]?.code === code && rep.replaces_upload_id === s.prev
+        && run.status === "failed" && run.error_code === "INGESTION_REFUSED" && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [s.rep])) === 0
+        && JSON.stringify(await activeIn(s.year)) === JSON.stringify([s.prev]) && s.authBefore === s.prev && auth === s.prev;
+      return ok ? true : { e, r, prev: prev.lifecycle_state, rep: rep.lifecycle_state, run, auth, authBefore: s.authBefore, certsSame: (await certsOf(s.prev)) === s.prevCerts };
+    });
+  }
+
+  await check("the refused upload's source history is preserved: no cleanup operation, its stored object kept, both histories in the lifecycle events", async () => {
+    const s = await refusedReplacement("TOO_MANY_ACCOUNTS");
+    const path = (await upRow(s.rep)).file_path;
+    await restoreAs(U.owner, s.rep, (await upRow(s.rep)).version);
+    const ops = await count("SELECT count(*) n FROM public.trial_balance_upload_operations WHERE upload_id=$1", [s.rep]);
+    const obj = await count("SELECT count(*) n FROM storage.objects WHERE bucket_id='trial-balance-files' AND name=$1", [path]);
+    const evRep = await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND to_state='retired' AND outcome='applied'", [s.rep]);
+    const evPrev = await count("SELECT count(*) n FROM public.trial_balance_upload_lifecycle_events WHERE upload_id=$1 AND from_state='superseded' AND outcome='applied'", [s.prev]);
+    return ops === 0 && obj === 1 && evRep === 1 && evPrev === 1 ? true : { ops, obj, evRep, evPrev };
+  });
+
+  await check("not merely blocked: a replacement CERTIFIED as blocking, or failed for another reason, or refused with accepted accounts, is never offered or restored", async () => {
+    const out = {};
+    { const p = await certifiedPredecessor(); const rep = (await replace(p.id)).new_upload_id; const b = await beginOn(rep);
+      await finalize(b.engine_run_id, { ...certified({ exceptions: [] }), upload: { ...upload, status: "blocked" }, certification: { ...certified({ exceptions: [] }).certification, is_blocking: true } });
+      out.blockingCert = [(await eligibility(U.owner, rep)).outcome, (await restoreAs(U.owner, rep, (await upRow(rep)).version)).outcome]; }
+    { const p = await certifiedPredecessor(); const rep = (await replace(p.id)).new_upload_id; const b = await beginOn(rep);
+      await finalize(b.engine_run_id, { ...refusal("FILE_TOO_LARGE"), error_code: "UNHANDLED_EXCEPTION" });
+      out.otherFailure = [(await eligibility(U.owner, rep)).outcome, (await restoreAs(U.owner, rep, (await upRow(rep)).version)).outcome]; }
+    { const p = await certifiedPredecessor(); const rep = (await replace(p.id)).new_upload_id; const b = await beginOn(rep);
+      await finalize(b.engine_run_id, refusal("TOO_MANY_ACCOUNTS", 3));
+      out.acceptedAccounts = [(await eligibility(U.owner, rep)).outcome, (await restoreAs(U.owner, rep, (await upRow(rep)).version)).outcome]; }
+    return Object.values(out).every(([e, r]) => e !== "restore_previous" && r === "replacement_processed") ? true : out;
+  });
+
+  await check("a running attempt or dependent evidence blocks the restore (nothing changes); once the attempt is refused again, the restore is offered", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const b = await beginOn(s.rep);                         // a retry, now running
+    const during = [(await eligibility(U.owner, s.rep)).outcome, (await restoreAs(U.owner, s.rep, (await upRow(s.rep)).version))];
+    await finalize(b.engine_run_id, refusal("FILE_TOO_LARGE"));
+    const after = (await eligibility(U.owner, s.rep)).outcome;
+    const s2 = await refusedReplacement("MISSING_COLUMN");
+    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_PERIOD_MISMATCH')", [s2.rep, A]);
+    const dep = [(await eligibility(U.owner, s2.rep)).outcome, (await restoreAs(U.owner, s2.rep, (await upRow(s2.rep)).version))];
+    const unchanged = (await upRow(s2.prev)).lifecycle_state === "superseded" && ACTIVE.includes((await upRow(s2.rep)).lifecycle_state);
+    return during[0] !== "restore_previous" && during[1].outcome === "not_restorable" && /being checked/.test(during[1].detail) && after === "restore_previous"
+      && dep[0] !== "restore_previous" && dep[1].outcome === "not_restorable" && /recorded against/.test(dep[1].detail) && unchanged ? true : { during, after, dep, unchanged };
+  });
+
+  await check("permission and version are re-checked server-side: an outsider is refused (forbidden), a stale version is refused (stale_version); nothing changes", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const v = (await upRow(s.rep)).version;
+    const outsider = [(await eligibility(U.outsider, s.rep)).outcome, (await restoreAs(U.outsider, s.rep, v)).outcome];
+    const stale = (await restoreAs(U.owner, s.rep, v - 1)).outcome;
+    const unchanged = (await upRow(s.prev)).lifecycle_state === "superseded" && (await upRow(s.rep)).version === v;
+    return outsider[0] === "forbidden" && outsider[1] === "forbidden" && stale === "stale_version" && unchanged ? true : { outsider, stale, unchanged };
+  });
+
+  await check("a repeated restore answers already_restored and changes nothing", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const v = (await upRow(s.rep)).version;
+    const first = (await restoreAs(U.owner, s.rep, v)).outcome;
+    const snap = JSON.stringify([await upRow(s.prev), await upRow(s.rep)]);
+    const again = await restoreAs(U.owner, s.rep, v);
+    return first === "restored" && again.outcome === "already_restored" && again.restored_upload_id === s.prev && snap === JSON.stringify([await upRow(s.prev), await upRow(s.rep)])
+      ? true : { first, again };
+  });
+
+  await check("never over a newer active upload: once the refused upload is itself replaced, its restore is refused and the newer upload stays current", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const newer = (await replace(s.rep)).new_upload_id;
+    const r = await restoreAs(U.owner, s.rep, (await upRow(s.rep)).version);
+    const e = (await eligibility(U.owner, s.rep)).outcome;
+    return r.outcome !== "restored" && e !== "restore_previous" && JSON.stringify(await activeIn(s.year)) === JSON.stringify([newer]) ? true : { r, e, active: await activeIn(s.year) };
+  });
+
+  group("Refused replacement — races (12 rounds each)");
+  await check("12 concurrent restores of one refused replacement: exactly one 'restored', the rest 'already_restored'; one active upload, the predecessor", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const v = (await upRow(s.rep)).version;
+    const out = (await Promise.all(Array.from({ length: 12 }, () => restoreAs(U.owner, s.rep, v)))).map((x) => x.outcome);
+    return out.filter((o) => o === "restored").length === 1 && out.filter((o) => o === "already_restored").length === 11
+      && JSON.stringify(await activeIn(s.year)) === JSON.stringify([s.prev]) ? true : { out, active: await activeIn(s.year) };
+  });
+  await check("restore and a new replacement at the same moment (12 rounds): exactly one wins; one active upload; the predecessor's certification unchanged", async () => {
+    const seen = [];
+    for (let k = 0; k < 12; k++) {
+      const s = await refusedReplacement("FILE_TOO_LARGE");
+      const v = (await upRow(s.rep)).version;
+      const [r, rp] = await Promise.all([restoreAs(U.owner, s.rep, v).catch((e) => ({ outcome: `error:${e.code}` })), replace(s.rep).catch((e) => ({ outcome: `error:${e.code}` }))]);
+      const active = await activeIn(s.year);
+      const wins = (r.outcome === "restored" ? 1 : 0) + (rp.outcome === "replaced" ? 1 : 0);
+      seen.push(`${r.outcome}/${rp.outcome}`);
+      if (wins !== 1 || active.length !== 1 || (await certsOf(s.prev)) !== s.prevCerts
+          || (r.outcome === "restored" && active[0] !== s.prev) || (rp.outcome === "replaced" && active[0] !== rp.new_upload_id)) return { round: k, r, rp, active };
+    }
+    console.log(`        outcomes (restore/replace): ${[...new Set(seen)].join(" ")}`);
+    return true;
+  });
+  await check("restore and a processing retry at the same moment (12 rounds): never both — either the retry claims and the restore waits for it, or the restore wins and the retry is refused UPLOAD_NOT_ACTIVE", async () => {
+    const seen = [];
+    for (let k = 0; k < 12; k++) {
+      const s = await refusedReplacement("FILE_TOO_LARGE");
+      const v = (await upRow(s.rep)).version;
+      const [r, b] = await Promise.all([restoreAs(U.owner, s.rep, v).catch((e) => ({ outcome: `error:${e.code}` })), beginOn(s.rep).catch((e) => ({ outcome: `error:${e.code}` }))]);
+      seen.push(`${r.outcome}/${b.outcome}${b.code ? `:${b.code}` : ""}`);
+      const bothWon = r.outcome === "restored" && b.outcome === "claimed";
+      const consistent = (r.outcome === "restored" && b.outcome === "refused" && b.code === "UPLOAD_NOT_ACTIVE")
+        || (b.outcome === "claimed" && r.outcome !== "restored");
+      if (bothWon || !consistent || (await activeIn(s.year)).length !== 1) return { round: k, r, b };
+      if (b.outcome === "claimed") await finalize(b.engine_run_id, refusal("FILE_TOO_LARGE"));
+    }
+    console.log(`        outcomes (restore/retry): ${[...new Set(seen)].join(" ")}`);
+    return true;
+  });
+  /** A statement run as `role` inside a transaction that stays OPEN until release(commit) is called. */
+  async function held(role, uid, sql, params) {
+    const c = await pool.connect();
+    await c.query("BEGIN"); await c.query(`SET LOCAL ROLE ${role}`);
+    await c.query("SELECT set_config('request.jwt.claim.role',$1,true), set_config('request.jwt.claim.sub',$2,true)", [role, uid ?? ""]);
+    const rows = (await c.query(sql, params)).rows;
+    return { rows, release: async (commit = true) => { try { await c.query(commit ? "COMMIT" : "ROLLBACK"); } finally { c.release(); } } };
+  }
+  const waitingOnLock = async () => Number((await one("SELECT count(*) n FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%cancel_trial_balance_replacement%'")).n);
+  await check("deterministic order: a retry that claims FIRST (its transaction open) makes the waiting restore refuse (being checked); nothing is restored", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const v = (await upRow(s.rep)).version;
+    const h = await held("service_role", null, "SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r",
+      [s.rep, uuid(), crypto.createHash("sha256").update(`refused-${s.rep}`).digest("hex"), U.owner]);
+    const pending = restoreAs(U.owner, s.rep, v);
+    await new Promise((r) => setTimeout(r, 400));
+    const waited = await waitingOnLock();
+    await h.release(true);
+    const r = await pending;
+    const claimed = h.rows[0].r.outcome;
+    const state = [(await upRow(s.prev)).lifecycle_state, (await upRow(s.rep)).lifecycle_state];
+    return claimed === "claimed" && waited >= 1 && r.outcome === "not_restorable" && /being checked/.test(r.detail) && state[0] === "superseded" && ACTIVE.includes(state[1])
+      ? true : { claimed, waited, r, state };
+  });
+  await check("deterministic order: a new replacement that commits FIRST (its transaction open) makes the waiting restore refuse; the newer upload stays current", async () => {
+    const s = await refusedReplacement("FILE_TOO_LARGE");
+    const v = (await upRow(s.rep)).version;
+    const res = (await asUser(U.owner, "SELECT * FROM public.reserve_trial_balance_source($1,'newer.csv')", [A]))[0];
+    await admin.query("INSERT INTO storage.objects (bucket_id, name) VALUES ('trial-balance-files', $1)", [res.object_path]);
+    const h = await held("authenticated", U.owner, "SELECT * FROM public.retire_trial_balance_upload($1,$2,$3,$4,'Replaced via Prepare Data')", [s.rep, v, res.reservation_id, 1000]);
+    const pending = restoreAs(U.owner, s.rep, v);
+    await new Promise((r) => setTimeout(r, 400));
+    const waited = await waitingOnLock();
+    await h.release(true);
+    const r = await pending;
+    const newer = h.rows[0].new_upload_id;
+    const active = await activeIn(s.year);
+    return h.rows[0].outcome === "replaced" && waited >= 1 && r.outcome !== "restored" && JSON.stringify(active) === JSON.stringify([newer])
+      && (await upRow(s.prev)).lifecycle_state === "superseded" ? true : { replace: h.rows[0], waited, r, active };
+  });
 }
 
 try { await main(); } catch (e) { record("unexpected", false, String(e?.stack ?? e)); }

@@ -17,7 +17,7 @@ vi.mock("@/lib/workspace/sourceUpload", async (orig) => ({ ...(await orig<typeof
 
 const {
   ISSUED_OUTPUT_EXPLANATION, buildManageTrialBalanceRoute, decideRemoveAction, decideSourceManagementMode, fetchRemovalEligibility,
-  parseRemovalEligibility, removeTrialBalance, validateReplacementFile, RemoveTrialBalanceError,
+  parseRemovalEligibility, removeTrialBalance, validateReplacementFile, RemoveTrialBalanceError, restorePreviousTrialBalance,
 } = await import("./trialBalanceManagement");
 const { retireUpload, DiscardError } = await import("@/components/workspace/DiscardUploadDialog");
 
@@ -141,3 +141,33 @@ describe("the Overview's Manage file destination", () => {
     expect(buildManageTrialBalanceRoute("c1", 2025, null)).toBe("/workspace/c1/2025/prepare?manage=source#manage-trial-balance");
   });
 });
+
+describe("refused replacement — restoring the previous trial balance (20261109100000)", () => {
+  beforeEach(() => rpc.mockReset());
+  it("the server's 'restore_previous' is parsed and becomes the one restore action (never guessed from a blocked state)", () => {
+    expect(parseRemovalEligibility({ outcome: "restore_previous", version: 3, restores_upload_id: "p1" })).toEqual({ status: "known", outcome: "restore_previous", binding: null });
+    expect(decideRemoveAction({ lifecycle_state: "active_processing", status: "blocked", replaces_upload_id: "p1" }, known("restore_previous"))).toEqual({ kind: "restore_previous" });
+    // Without the server's answer, a processed (blocked) replacement gets no restore control.
+    expect(decideRemoveAction({ lifecycle_state: "active_processing", status: "blocked", replaces_upload_id: "p1" }, null)).toBeNull();
+  });
+  it("calls the existing restore operation with the exact version; 'restored' and 'already_restored' succeed", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ outcome: "restored", restored_upload_id: "p1", detail: null }], error: null });
+    await expect(restorePreviousTrialBalance({ id: "r1", version: 4 })).resolves.toEqual({ restoredUploadId: "p1" });
+    expect(rpc).toHaveBeenCalledWith("cancel_trial_balance_replacement", { p_replacement_upload_id: "r1", p_expected_version: 4 });
+    rpc.mockResolvedValueOnce({ data: [{ outcome: "already_restored", restored_upload_id: "p1", detail: null }], error: null });
+    await expect(restorePreviousTrialBalance({ id: "r1", version: 4 })).resolves.toEqual({ restoredUploadId: "p1" });
+  });
+  it("a stale, refused or unknown answer throws the server's reason; nothing is claimed as restored", async () => {
+    rpc.mockResolvedValueOnce({ data: [{ outcome: "stale_version", restored_upload_id: null, detail: "This trial balance changed since you last viewed it. Refresh and try again." }], error: null });
+    await expect(restorePreviousTrialBalance({ id: "r1", version: 4 })).rejects.toMatchObject({ outcome: "stale_version", message: expect.stringMatching(/Refresh/) });
+    rpc.mockResolvedValueOnce({ data: [{ outcome: "not_restorable", restored_upload_id: null, detail: "A newer trial balance is now current for this period, so the earlier one cannot be restored over it." }], error: null });
+    await expect(restorePreviousTrialBalance({ id: "r1", version: 4 })).rejects.toMatchObject({ outcome: "not_restorable" });
+    rpc.mockResolvedValueOnce({ data: null, error: { message: "network" } });
+    await expect(restorePreviousTrialBalance({ id: "r1", version: 4 })).rejects.toThrow(/Nothing was changed/);
+  });
+  it("the replace path refuses an over-size file before anything is uploaded (the shared policy's raw limit)", () => {
+    expect(validateReplacementFile({ name: "big.csv", size: 10_485_761 })).toMatch(/larger than 10 MB/);
+    expect(validateReplacementFile({ name: "ok.csv", size: 10_485_760 })).toBeNull();
+  });
+});
+

@@ -16,6 +16,7 @@
  *   cancel_replacement  an unprocessed replacement is cancelled, restoring the upload it replaced.
  */
 
+import { fileTooLarge } from "./uploadPolicy";
 import { supabase } from "@/integrations/supabase/client";
 import type { MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import type { WorkspaceAccess } from "./workspaceAccess";
@@ -45,7 +46,7 @@ export function decideSourceManagementMode(
   return access.kind === "owner" || access.capabilities.includes("manage_source_files") ? "manage" : "view_only";
 }
 
-export type RemovalEligibilityOutcome = "remove" | "discard" | "cancel_replacement" | "issued_output_bound" | "not_active" | "forbidden";
+export type RemovalEligibilityOutcome = "remove" | "discard" | "cancel_replacement" | "restore_previous" | "issued_output_bound" | "not_active" | "forbidden";
 export type IssuedOutputBinding = "reporting_pack_issued" | "final_statements_published";
 
 export type RemovalEligibility =
@@ -53,7 +54,7 @@ export type RemovalEligibility =
   /** The eligibility read is not available (for example, before the migration is applied) or failed. */
   | { status: "unavailable" };
 
-const OUTCOMES: readonly RemovalEligibilityOutcome[] = ["remove", "discard", "cancel_replacement", "issued_output_bound", "not_active", "forbidden"];
+const OUTCOMES: readonly RemovalEligibilityOutcome[] = ["remove", "discard", "cancel_replacement", "restore_previous", "issued_output_bound", "not_active", "forbidden"];
 const BINDINGS: readonly IssuedOutputBinding[] = ["reporting_pack_issued", "final_statements_published"];
 
 /** Strict parse; malformed → unavailable (never a guessed outcome). */
@@ -74,6 +75,8 @@ export interface RemovableUpload {
 
 export type RemoveAction =
   | { kind: "remove" | "discard" | "cancel_replacement" }
+  /** A REFUSED replacement: the trial balance it replaced can be restored (offered only when the server says so). */
+  | { kind: "restore_previous" }
   /** Shown, but disabled, with the exact reason. */
   | { kind: "unavailable"; reason: string };
 
@@ -97,6 +100,8 @@ export function decideRemoveAction(upload: RemovableUpload | null | undefined, e
       case "discard":
       case "cancel_replacement":
         return { kind: eligibility.outcome };
+      case "restore_previous":
+        return { kind: "restore_previous" };
       case "issued_output_bound":
         return { kind: "unavailable", reason: ISSUED_OUTPUT_EXPLANATION[eligibility.binding ?? "reporting_pack_issued"] };
       default:
@@ -116,6 +121,8 @@ interface RemovalRpcClient {
   rpc(name: "get_trial_balance_removal_eligibility", args: { p_upload_id: string }): PromiseLike<{ data: unknown; error: RpcError }>;
   rpc(name: "remove_trial_balance_upload", args: { p_upload_id: string; p_expected_version: number; p_reason?: string }):
     PromiseLike<{ data: RemoveRpcRow[] | null; error: RpcError }>;
+  rpc(name: "cancel_trial_balance_replacement", args: { p_replacement_upload_id: string; p_expected_version: number }):
+    PromiseLike<{ data: { outcome: string; restored_upload_id: string | null; detail: string | null }[] | null; error: RpcError }>;
 }
 // The migration is committed but not yet in the generated types; the cast is scoped to exactly these two RPCs.
 const removalRpc = () => supabase as unknown as RemovalRpcClient;
@@ -151,6 +158,23 @@ export async function removeTrialBalance(upload: { id: string; version?: number 
   throw new RemoveTrialBalanceError(row?.detail ?? "Could not remove this Trial Balance. Nothing was changed.", row?.outcome ?? "unknown");
 }
 
+/**
+ * Restores the trial balance a REFUSED replacement displaced (cancel_trial_balance_replacement, 20261109100000). The server
+ * re-checks permission, the exact lineage, the refusal and the version under its row locks; the refused file is retired
+ * (kept, with its history), never deleted. 'restored' and 'already_restored' succeed; anything else throws the server's
+ * plain-language reason and nothing changed.
+ */
+export async function restorePreviousTrialBalance(upload: { id: string; version?: number | null }): Promise<{ restoredUploadId: string | null }> {
+  const { data, error } = await removalRpc().rpc("cancel_trial_balance_replacement", {
+    p_replacement_upload_id: upload.id,
+    p_expected_version: upload.version ?? 1,
+  });
+  if (error) throw new RemoveTrialBalanceError("Could not restore the previous Trial Balance. Nothing was changed. Please try again.", "transport_error");
+  const row = data?.[0];
+  if (row?.outcome === "restored" || row?.outcome === "already_restored") return { restoredUploadId: row.restored_upload_id };
+  throw new RemoveTrialBalanceError(row?.detail ?? "Could not restore the previous Trial Balance. Nothing was changed.", row?.outcome ?? "unknown");
+}
+
 /** Prepare Data with the management area focused (the Overview's "Manage file" destination). */
 export function buildManageTrialBalanceRoute(companyId: string, periodYear: number, uploadId?: string | null): string {
   const base = `/workspace/${companyId}/${periodYear}/prepare`;
@@ -169,5 +193,8 @@ export function validateReplacementFile(file: { name: string; size: number } | n
   const lower = file.name.toLowerCase();
   if (!TRIAL_BALANCE_FILE_TYPES.some((ext) => lower.endsWith(ext))) return "Choose a CSV or Excel (.xlsx, .xls) Trial Balance file.";
   if (!Number.isFinite(file.size) || file.size <= 0) return "The selected file is empty.";
+  // The shared upload policy's raw-size limit, before anything is uploaded or swapped in (the server still enforces it).
+  const tooLarge = fileTooLarge(file);
+  if (tooLarge) return tooLarge;
   return null;
 }

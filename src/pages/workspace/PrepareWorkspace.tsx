@@ -64,8 +64,7 @@ import {
   fetchRemovalEligibility,
   removeTrialBalance,
   validateReplacementFile,
-  type RemovalEligibility,
-} from "@/lib/workspace/trialBalanceManagement";
+  type RemovalEligibility, restorePreviousTrialBalance } from "@/lib/workspace/trialBalanceManagement";
 import { Button } from "@/components/ui/button";
 import {
   SurfaceCard,
@@ -258,6 +257,14 @@ export default function PrepareWorkspace() {
           navigate(buildPrepareUploadRoute(companyId, periodYear, receipt.id), { replace: true });
           refreshUpload();
         });
+      } else if (removeAction.kind === "restore_previous") {
+        // An explicit user action; the server re-checks the refusal, lineage and version before anything changes.
+        await restorePreviousTrialBalance(target);
+        setDiscardedIds((prev) => suppressUpload(prev, target.id));
+        toast.success("The previous Trial Balance is active again, with its checks unchanged. The refused file stays in the processing history.");
+        navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
+        refreshUpload();
+        certReadiness.refetch();
       } else {
         const { storageCleanupPending } = await cancelReplacement(target);
         setDiscardedIds((prev) => suppressUpload(prev, target.id));
