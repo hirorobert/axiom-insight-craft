@@ -302,6 +302,41 @@ async function scenarioF(env) {
     }
   }
 
+  // REPLACE-PATH SIZE CHECK (repair 1): an over-limit file picked for replacement is refused in the page before anything
+  // is uploaded or swapped; the current trial balance and its version are untouched and no upload is created.
+  let sizeCheck = null, restoreUi = null;
+  if (replacement?.newId && !replacement.timedOut) {
+    const co = overR.facts.companyId, y = overR.facts.periodYear;
+    const before = await env.activeUpload(co, y);
+    const countBefore = ((await env.admin.from("trial_balance_uploads").select("id").eq("company_id", co)).data ?? []).length;
+    const big = env.writeFile("F-replace-oversized.csv", "Account code,Account name,Debit,Credit\n" + "100001,Invented padding account with a long descriptive name for size,1.00,0.00\n".repeat(150_000));
+    const picked = await env.pickReplacementFile(page, co, y, big, "F-replace-oversized-refused");
+    const after = await env.activeUpload(co, y);
+    const countAfter = ((await env.admin.from("trial_balance_uploads").select("id").eq("company_id", co)).data ?? []).length;
+    sizeCheck = { offered: picked.offered, said: /larger than 10 MB/.test(picked.text ?? ""), before: before?.id, after: after?.id, versionSame: before?.version === after?.version, countBefore, countAfter };
+    if (!(picked.offered && sizeCheck.said && before?.id === after?.id && sizeCheck.versionSame && countBefore === countAfter)) problems.push(`the browser did not refuse an over-limit replacement before upload: ${JSON.stringify(sizeCheck)}`);
+
+    // EXPLICIT RESTORE (repair 2 + 3): the checked trial balance is replaced by a file the server refuses (one account over the
+    // limit); the page then offers "Restore the previous trial balance"; confirming it makes the checked one current again.
+    const prevId = after.id;
+    const prevFacts = await env.processingFacts(prevId);
+    const prevCertIds = (await env.admin.from("tb_certifications").select("id,normalized_input_hash").eq("upload_id", prevId).order("sequence_no")).data ?? [];
+    const rr = await env.replaceOnTrialBalancePage(page, co, y, env.overLimitFixture.path);
+    const refusedId = rr.newId ?? null;
+    const rf = refusedId ? await env.processingFacts(refusedId) : null;
+    const ui = refusedId ? await env.restorePreviousOnPage(page, co, y, prevId) : { offered: false };
+    const certAfter = (await env.admin.from("tb_certifications").select("id,normalized_input_hash").eq("upload_id", prevId).order("sequence_no")).data ?? [];
+    const refusedAfter = refusedId ? await env.processingFacts(refusedId) : null;
+    restoreUi = { prevId, refusedId, refusedCodes: (rf?.upload?.processing_result?.ingestion?.issues ?? []).map((i) => i.code), offered: ui.offered, confirm: ui.confirm,
+      confirmText: ui.confirmText?.slice(0, 300), activeAfter: ui.active?.id ?? null, certsUnchanged: JSON.stringify(certAfter) === JSON.stringify(prevCertIds) && prevCertIds.length >= 1,
+      refusedLifecycle: refusedAfter?.upload?.lifecycle_state ?? null, refusedObjectKept: !!refusedAfter?.upload?.file_path, prevCertCount: prevFacts.certifications };
+    if (!refusedId || !restoreUi.refusedCodes.includes(expected)) problems.push(`the over-limit replacement was not refused by name: ${JSON.stringify(restoreUi)}`);
+    if (!ui.offered || !ui.confirm) problems.push(`the page did not offer an explicit, confirmed "Restore the previous trial balance": ${JSON.stringify(restoreUi)}`);
+    if (restoreUi.activeAfter !== prevId || !restoreUi.certsUnchanged || restoreUi.refusedLifecycle !== "retired") problems.push(`restoring did not bring back the exact checked trial balance unchanged: ${JSON.stringify(restoreUi)}`);
+  } else {
+    problems.push("the size-check and restore sub-checks could not run (no checked replacement to start from)");
+  }
+
   // UNREADABLE-file refusal: a .csv the browser accepts (extension and size) but the server cannot read as a trial balance
   // (no amount columns) — refused whole by name, same contract.
   const unreadable = await env.firstUploadInto(page, { mode: "new", entityName: "Funreadable Columns Ltd",
@@ -310,7 +345,7 @@ async function scenarioF(env) {
   problems.push(...unreadR.problems);
 
   return result(problems.length ? "FAIL" : "PASS", problems, { expected, policy: env.overLimitFixture.policy, overLimitAccounts: env.overLimitFixture.accounts, unsup,
-    overLimit: { binding: over.binding, ...overR.facts }, retries, replacement, unreadable: { binding: unreadable.binding, ...unreadR.facts } });
+    overLimit: { binding: over.binding, ...overR.facts }, retries, replacement, sizeCheck, restoreUi, unreadable: { binding: unreadable.binding, ...unreadR.facts } });
 }
 
 // G: Review + identity — legitimate same-name/different-code accounts AFTER NORMAL's repair: separate identities &

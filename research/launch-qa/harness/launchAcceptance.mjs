@@ -476,6 +476,35 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
       if (shotName) await shot(page, shotName);
       return { text, replaceOffered, url: await page.url().catch(() => null) };
     },
+    // Pick a replacement file on the trial-balance page and observe what the page says (no server wait: a file the browser
+    // refuses must change nothing).
+    async pickReplacementFile(page, companyId, year, file, shotName) {
+      const view = await env.observeTrialBalancePage(page, companyId, year);
+      if (!view.replaceOffered) return { offered: false };
+      await page.setFiles('input[type="file"].hidden', [file]);
+      await sleep(2500);
+      const text = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
+      if (shotName) await shot(page, shotName);
+      return { offered: true, text };
+    },
+    // The explicit restore of a refused replacement: the offered control, its confirmation, then server truth.
+    async restorePreviousOnPage(page, companyId, year, expectId) {
+      await env.go(page, `/workspace/${companyId}/${year}/trial-balance/review`);
+      const offered = await page.waitFor(() => !!document.querySelector('[data-testid="restore-previous-trial-balance"]'), [], { label: "restore offered", timeout: 30000 }).then(() => true, () => false);
+      await shot(page, "F-restore-offered");
+      if (!offered) return { offered: false };
+      await page.click('[data-testid="restore-previous-trial-balance"]');
+      const confirm = await page.waitForSelector('[data-testid="confirm-restore-previous-trial-balance"]', { timeout: 10000 }).then(() => true, () => false);
+      const confirmText = await page.evaluate(() => document.querySelector('[role="alertdialog"]')?.textContent ?? "").catch(() => "");
+      await shot(page, "F-restore-confirm");
+      if (!confirm) return { offered: true, confirm: false };
+      await page.click('[data-testid="confirm-restore-previous-trial-balance"]');
+      let act = null;
+      for (let i = 0; i < 30; i++) { act = await env.activeUpload(companyId, year); if (act?.id === expectId) break; await sleep(1000); }
+      await sleep(1500); await shot(page, "F-restore-done");
+      const after = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ")).catch(() => "");
+      return { offered: true, confirm: true, confirmText, active: act, pageAfter: after.slice(0, 600) };
+    },
     // Replace the period's trial balance through the page's own Replace (PrepareWorkspace handleReplacePicked: the picked
     // file is checked, uploaded, then retire_trial_balance_upload swaps it in). Waits for server truth, not the screen.
     async replaceOnTrialBalancePage(page, companyId, year, file) {

@@ -439,7 +439,7 @@ jobs:
       - name: Landing browser checks (landing PR 145 sample review on the same checkout; local build with an unreachable placeholder backend, loopback only, 320 390 and 1280 px)
         if: always()
         run: node scripts/browser-acceptance/landingSample.mjs real-app-evidence/landing
-      - name: Compatibility of the served frontend (main 00a2653, which the cfoclose.com bundle matches) with this backend, plus the oversized replacement, with this checkout's functions served for the duration
+      - name: Compatibility of the served frontend (main 00a2653, which the cfoclose.com bundle matches) with this backend, plus the refused-replacement restore, with this checkout's functions served for the duration
         if: always()
         run: |
           set +e
@@ -457,9 +457,9 @@ jobs:
           (cd /tmp/old-frontend && bun install --frozen-lockfile)
           (cd /tmp/old-frontend && node scripts/e2e/localStackJourney.mjs "$GITHUB_WORKSPACE/compat-evidence/old-journey"); J=$?
           node research/compat/oldFrontendCompat.mjs /tmp/old-frontend compat-evidence/checks; K=$?
-          node research/compat/oversizedReplacement.mjs compat-evidence/oversized; O=$?
+          node research/compat/refusedReplacementRestore.mjs compat-evidence/refused-restore; O=$?
           kill -INT $SERVE 2>/dev/null; wait $SERVE 2>/dev/null
-          echo "old journey=$J compat checks=$K oversized=$O"
+          echo "old journey=$J compat checks=$K refused-replacement restore=$O"
           [ $J -eq 0 ] && [ $K -eq 0 ] && [ $O -eq 0 ]
 
       - name: Upload the compatibility evidence
