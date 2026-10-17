@@ -932,6 +932,72 @@ async function main() {
       && later.deleted.some((x) => x.path === stray && x.reason === "no_issuance") && !bucket.has(stray)
       ? true : JSON.stringify({ failed: failed.failed.length, stillThere, strayRecent, later: later.deleted.length });
   });
+  // ── Expiry semantics for the interim orphan sweep (#149): which clock decides, and when ─────────────────────────────
+  const { orphanDecision } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackOrphans.mjs")).href);
+  const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+  const untilExpired = async (id, extraMs = 800) => {
+    const s = Number((await admin.query("SELECT extract(epoch FROM expires_at - clock_timestamp()) s FROM public.reporting_pack_issuances WHERE id=$1", [id])).rows[0].s);
+    await pause(s * 1000 + extraMs);
+  };
+  await check("the only sealing path checks expiry with clock_timestamp() under the issuance row lock; no other function writes issuances; the now()-based consume path is gone", async () => {
+    const refusal = (await admin.query("SELECT pg_get_functiondef('public._reporting_pack_seal_refusal(uuid,uuid)'::regprocedure) d")).rows[0].d;
+    const seal = (await admin.query("SELECT pg_get_functiondef('public.seal_reporting_pack_server(uuid,uuid,text)'::regprocedure) d")).rows[0].d;
+    const consume = (await admin.query("SELECT to_regprocedure('public.consume_reporting_pack_issuance(uuid,uuid,integer,text,text,text)')::text r")).rows[0].r;
+    const writers = (await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.prokind = 'f' AND pg_get_functiondef(p.oid) ~* $1 ORDER BY 1`, [String.raw`update\s+public\.reporting_pack_issuances`])).rows.map((r) => r.proname);
+    return /expires_at <= clock_timestamp\(\)/.test(refusal) && /reporting_pack_issuances WHERE id = p_issuance_id FOR UPDATE/.test(seal)
+      && /_reporting_pack_seal_refusal/.test(seal) && consume === null && writers.join() === "seal_reporting_pack_server"
+      ? true : JSON.stringify({ clock: /clock_timestamp/.test(refusal), lock: /FOR UPDATE/.test(seal), consume, writers });
+  });
+  await check("a seal that STARTS before expiry but waits on the issuance row lock until after expiry is refused 'expired'; nothing is sealed", async () => {
+    const o = await orphanFor(); await expire(o.id, -4 / 3600);
+    const holder = await pool.connect(), sealer = await pool.connect();
+    try {
+      const before = (await admin.query("SELECT clock_timestamp() < expires_at b FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0].b;
+      await holder.query("BEGIN"); await holder.query("SELECT 1 FROM public.reporting_pack_issuances WHERE id=$1 FOR UPDATE", [o.id]);
+      await sealer.query("BEGIN"); await sealer.query("SET LOCAL ROLE service_role");
+      const pending = sealer.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path]);
+      await pause(400);
+      const waiting = (await admin.query("SELECT count(*)::int n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%seal_reporting_pack_server%'")).rows[0].n;
+      await untilExpired(o.id);
+      await holder.query("COMMIT");
+      const r = (await pending).rows[0].r; await sealer.query("COMMIT");
+      return before && waiting >= 1 && r.outcome === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ before, waiting, r });
+    } finally { holder.release(); sealer.release(); }
+  });
+  await check("a seal transaction that BEGAN before expiry (its now() fixed then) but checks after expiry is refused: the check reads clock_timestamp(), not the transaction start", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const t0 = (await c.query("SELECT now() t")).rows[0].t;
+      await untilExpired(o.id);
+      const t1 = (await c.query("SELECT now() t")).rows[0].t;
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      await c.query("COMMIT");
+      const exp = (await admin.query("SELECT expires_at FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0].expires_at;
+      return +t0 === +t1 && t0 < exp && r.outcome === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ t0, t1, exp, r });
+    } finally { c.release(); }
+  });
+  await check("the boundary the grace covers: a seal whose check passed BEFORE expiry, still uncommitted after expiry, is unaffected by the sweep (kept, may_still_be_sealed); with zero grace the rule would have deleted it", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const t = Date.now();
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      const sealMs = Date.now() - t;
+      await untilExpired(o.id);
+      const seen = (await admin.query("SELECT expires_at, consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0];
+      const zeroGraceWouldDelete = orphanDecision({ storage_path: o.path, created_at: new Date().toISOString() }, seen, Date.now() + 1, 0).delete;
+      const swept = await sweepReportingPackOrphans(sweepDeps);
+      const kept = swept.kept.some((k) => k.path === o.path && k.reason === "may_still_be_sealed") && bucket.has(o.path);
+      await c.query("COMMIT");
+      const intact = (await verifyStoredPack(deps, o.id)).outcome === "intact";
+      console.log(`        seal statement took ${sealMs} ms (the window the 1 h grace must exceed is the time from this check to its commit)`);
+      return r.outcome === "sealed" && seen.consumed_at === null && zeroGraceWouldDelete && kept && intact ? true : JSON.stringify({ r, seen, zeroGraceWouldDelete, kept, intact, sealMs });
+    } finally { c.release(); }
+  });
   await check("verification: official for the workspace's members only (also after the plan ends); unknown bytes never are", async () => {
     const v = await account("PRACTICE", 1);
     const vr = await savedOutput(v.uid, v.co, 2031, DOC);
