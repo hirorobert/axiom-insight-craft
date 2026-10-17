@@ -40,7 +40,6 @@ serve(async (req) => {
     const deps: SealDeps = {
       rpc: (fn, args) => admin.rpc(fn, args),
       put: async (path, bytes, contentType) => ({ error: (await bucket.upload(path, bytes, { contentType, upsert: false })).error }),
-      remove: (path) => bucket.remove([path]),
       get: async (path) => {
         const { data, error } = await bucket.download(path);
         return error || !data ? null : new Uint8Array(await data.arrayBuffer());

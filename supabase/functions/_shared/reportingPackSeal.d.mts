@@ -5,7 +5,6 @@ export interface SealDeps {
   readonly rpc: Rpc;
   /** Store without overwrite; an existing object is an error. */
   readonly put: (path: string, bytes: Uint8Array, contentType: string) => Promise<{ error: unknown }>;
-  readonly remove: (path: string) => Promise<unknown>;
   readonly get: (path: string) => Promise<Uint8Array | null>;
   readonly sha256Hex: (bytes: Uint8Array) => Promise<string>;
 }

@@ -543,7 +543,6 @@ async function main() {
       finally { storing.delete(p); done(); }
       return { error: null };
     },
-    remove: async (p) => dropObject(p),
     get: async (p) => bucket.get(p) ?? null,
     sha256Hex: async (b) => sha(b),
   };
@@ -665,7 +664,8 @@ async function main() {
       deps.put = put;
       svc.push({ outcome: r.body.outcome, sealed: await sealsOf(j.issuance_id), stored: bucket.has(`${pk.co}/${j.issuance_id}.json`) });
     }
-    const svcOk = svc.every((x) => x.outcome === "seal_failed" && x.sealed === 0 && x.stored === false);
+    // Issuance never deletes (#156): the substitute bytes stay where they were found, unsealed and never official.
+    const svcOk = svc.every((x) => x.outcome === "seal_failed" && x.sealed === 0 && x.stored === true);
     return Object.values(out).every((x) => x.refused && x.official === false) && noSeal && svcOk ? true : JSON.stringify({ out, noSeal, svc });
   });
   await check("post-seal storage substitution is detected (substituted / missing), and substitute bytes never verify as official", async () => {
@@ -703,7 +703,7 @@ async function main() {
     return svc === "42501" && forged === "P0001" && wrongPath === "P0001" && wrongSize === "P0001" && (await sealsOf(i.issuance_id)) === 0 && !/sha|hash|byte|content|document/.test(fnArgs)
       ? true : JSON.stringify({ svc, forged, wrongPath, wrongSize, fnArgs });
   });
-  await check("storage success followed by seal failure leaves no uncontrolled orphan: an interrupted request's object is listed, never official, and a retry reuses exactly-canonical bytes or replaces foreign ones", async () => {
+  await check("storage success followed by seal failure leaves no uncontrolled orphan: an interrupted request's object is listed, never official, and a retry reuses exactly-canonical bytes; foreign bytes are refused untouched and a NEW issuance recovers", async () => {
     const i = await issueO(pk.uid, pk.co, R);
     const p = `${pk.co}/${i.issuance_id}.json`;
     const doc = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r;
@@ -714,12 +714,16 @@ async function main() {
     const cleared = !(await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
     const j = await issueO(pk.uid, pk.co, R);
     const pj = `${pk.co}/${j.issuance_id}.json`;
-    await storeObject(pj, new Uint8Array(Buffer.from("foreign bytes left behind")));
-    const replaced = (await official(pk.uid, j.issuance_id)).body;
+    const foreign = new Uint8Array(Buffer.from("foreign bytes left behind"));
+    await storeObject(pj, foreign);
+    const conflict = (await official(pk.uid, j.issuance_id)).body.outcome;
+    const untouched = Buffer.from(bucket.get(pj) ?? []).equals(Buffer.from(foreign)) && (await sealsOf(j.issuance_id)) === 0;
+    const k = await issueO(pk.uid, pk.co, R);   // recovery: the existing authorised path, a new issuance
+    const recovered = (await official(pk.uid, k.issuance_id)).body.outcome;
     const clientOrphans = await codeOf(() => q(user(pk.uid), "SELECT * FROM public.reporting_pack_storage_orphans()"));
-    return listed && notOfficial && retry === "sealed" && cleared && replaced.outcome === "sealed" && sha(bucket.get(pj)) === replaced.content_sha256
-      && (await verifyStoredPack(deps, j.issuance_id)).outcome === "intact" && clientOrphans === "42501"
-      ? true : JSON.stringify({ listed, notOfficial, retry, cleared, replaced: replaced.outcome, clientOrphans });
+    return listed && notOfficial && retry === "sealed" && cleared && conflict === "object_conflict" && untouched && recovered === "sealed"
+      && (await verifyStoredPack(deps, k.issuance_id)).outcome === "intact" && clientOrphans === "42501"
+      ? true : JSON.stringify({ listed, notOfficial, retry, cleared, conflict, untouched, recovered, clientOrphans });
   });
   await check("later live-data changes do not alter an issued document: a new saved version, a new upload and a new period leave the sealed document canonical and official; the saved version itself cannot be changed", async () => {
     const RL = await savedOutput(pk.uid, pk.co, 2031, DOC);
@@ -833,6 +837,53 @@ async function main() {
     const v = await verifyStoredPack(deps, i.issuance_id);
     return wr.body.outcome === "sealed" && l.body.outcome === "seal_failed" && (await sealsOf(i.issuance_id)) === 1 && bucket.has(p) && v.outcome === "intact"
       ? true : JSON.stringify({ w: wr.body.outcome, l: l.body.outcome, stored: bucket.has(p), v: v.outcome });
+  });
+  // Regression for #156: issuance used to delete the object after an "is it still unsealed?" check that is not atomic with a
+  // concurrent seal. B is paused right after reading the object; A completes; B resumes or its worker dies.
+  const pausedAfterRead = (dies) => {
+    let resume; const gate = new Promise((r) => { resume = r; });
+    let readSignal; const read = new Promise((r) => { readSignal = r; });
+    let n = 0;
+    const d = { ...deps, get: async (p) => { const b = await deps.get(p); if (++n === 1) { readSignal(); await gate; if (dies) throw new Error("worker killed"); } return b; } };
+    return { d, read, resume };
+  };
+  await check("#156 on real PostgreSQL, canonical bytes: B paused after its read, A seals, B resumes or dies — one seal, the sealed object intact", async () => {
+    const res = [];
+    for (const dies of [false, true]) {
+      const i = await issueO(pk.uid, pk.co, R);
+      const p = `${pk.co}/${i.issuance_id}.json`;
+      const b = pausedAfterRead(dies);
+      const bRun = issueOfficialPack(b.d, { userId: pk.uid, issuanceId: i.issuance_id }).then((r) => r.body.outcome, () => "died");
+      await b.read;
+      const a = (await official(pk.uid, i.issuance_id)).body.outcome;
+      b.resume();
+      res.push({ dies, a, b: await bRun, seals: await sealsOf(i.issuance_id), stored: bucket.has(p), v: (await verifyStoredPack(deps, i.issuance_id)).outcome });
+    }
+    return res.every((r) => r.a === "sealed" && r.b === (r.dies ? "died" : "already_sealed") && r.seals === 1 && r.stored && r.v === "intact") ? true : JSON.stringify(res);
+  });
+  await check("#156 on real PostgreSQL, foreign bytes: B paused after its read, A refuses, a NEW issuance seals, B resumes or dies — nothing deleted, the sealed object intact", async () => {
+    const res = [];
+    for (const dies of [false, true]) {
+      const i = await issueO(pk.uid, pk.co, R);
+      const p = `${pk.co}/${i.issuance_id}.json`;
+      const doc = (await one(SERVICE, "SELECT public.prepare_official_reporting_pack($1,$2) r", [pk.uid, i.issuance_id])).r.document;
+      const foreign = new Uint8Array(Buffer.from(doc.replace("250000.00", "350000.00")));   // same size, not canonical
+      await storeObject(p, foreign);
+      const b = pausedAfterRead(dies);
+      const bRun = issueOfficialPack(b.d, { userId: pk.uid, issuanceId: i.issuance_id }).then((r) => r.body.outcome, () => "died");
+      await b.read;
+      const a = (await official(pk.uid, i.issuance_id)).body.outcome;
+      const k = await issueO(pk.uid, pk.co, R);
+      const sealedNew = (await official(pk.uid, k.issuance_id)).body.outcome;
+      const pk2 = `${pk.co}/${k.issuance_id}.json`;
+      const sealedBytes = Buffer.from(bucket.get(pk2) ?? []);
+      b.resume();
+      const bOut = await bRun;
+      res.push({ dies, a, b: bOut, sealedNew, oldSeals: await sealsOf(i.issuance_id), foreignKept: Buffer.from(bucket.get(p) ?? []).equals(Buffer.from(foreign)),
+        newSame: Buffer.from(bucket.get(pk2) ?? []).equals(sealedBytes), v: (await verifyStoredPack(deps, k.issuance_id)).outcome });
+    }
+    return res.every((r) => r.a === "object_conflict" && r.b === (r.dies ? "died" : "object_conflict") && r.sealedNew === "sealed" && r.oldSeals === 0 && r.foreignKept && r.newSame && r.v === "intact")
+      ? true : JSON.stringify(res);
   });
   await check("a seal refused after the canonical object was stored keeps it as a listed orphan (never official); a retry seals it", async () => {
     const i = await issueO(pk.uid, pk.co, R);

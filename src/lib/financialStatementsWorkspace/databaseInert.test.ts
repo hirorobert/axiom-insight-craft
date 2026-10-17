@@ -357,9 +357,12 @@ describe("database inertness — schema and functions", () => {
       // Certification capacity (repair A): the function-path double of tb_finalize_attempt keeps the complete findings and
       // answers the findings-store probe. Test double only.
       "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
-      // Repair C (concurrent sealing): a failed seal never removes the canonical object (a concurrent seal may be
-      // committing); only non-canonical bytes are removed. Pure handler; no schema.
+      // Repair C (concurrent sealing) and #156: issuance never deletes or overwrites a stored object (no remove
+      // dependency; non-canonical bytes are refused as object_conflict). Pure handler, its types and the Edge Function's
+      // dependency wiring; no schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
+      "supabase/functions/_shared/reportingPackSeal.d.mts",
+      "supabase/functions/seal-reporting-pack/index.ts",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
