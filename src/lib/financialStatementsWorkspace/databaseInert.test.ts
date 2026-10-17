@@ -639,7 +639,11 @@ describe("database inertness — schema and functions", () => {
       // Landing sample review (PR #145): browser acceptance of the public landing page — a local build with a placeholder
       // (unreachable loopback) backend, served by vite preview on 127.0.0.1, driven by cdp.mjs. No database, no secret,
       // no network beyond loopback, no deploy behaviour; run by hand, not wired into CI.
-      "scripts/browser-acceptance/landingSample.mjs"]);
+      "scripts/browser-acceptance/landingSample.mjs",
+      // Interim Reporting Pack orphan sweep (owner decision 4(b)): an operator-run, dry-run-by-default script over the existing
+      // rule (_shared/reportingPackOrphans.mjs), the existing service-role RPC and the Storage API. No schema, no deploy
+      // behaviour, no schedule; its records stay with the operator, never in this repository.
+      "scripts/ops/reportingPackOrphanSweep.mjs", "scripts/ops/reportingPackOrphanSweep.test.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
