@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -56,6 +56,12 @@ import AccessConsole from "@/pages/admin/AccessConsole";
 import Pricing from "@/pages/Pricing";
 import Plans from "@/pages/Plans";
 import { serviceEnquiryRoutes } from "@/lib/serviceEnquiry/serviceEnquiryRoutes";
+
+/** Orders moved under Settings › Billing (Phase 2 §5.9): the old address keeps working, query string included. */
+function OrdersRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/settings/billing${search}${hash}`} replace />;
+}
 
 function LegacySubRouteRedirect({ to }: { to: string }) {
   const { companyId, periodYear } = useParams<{ companyId: string; periodYear: string }>();
@@ -180,7 +186,8 @@ const App = () => (
                 {serviceEnquiryRoutes()}
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/billing/checkout" element={<Suspense fallback={null}><Checkout /></Suspense>} />
-                <Route path="/billing/orders" element={<Suspense fallback={null}><Orders /></Suspense>} />
+                <Route path="/settings/billing" element={<Suspense fallback={null}><Orders /></Suspense>} />
+                <Route path="/billing/orders" element={<OrdersRedirect />} />
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
                 <Route path="/admin/access" element={<AccessConsole />} />

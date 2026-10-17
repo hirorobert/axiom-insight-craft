@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RemoveAction, SourceManagementMode } from "@/lib/workspace/trialBalanceManagement";
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { rpc: vi.fn(), from: vi.fn(), functions: { invoke: vi.fn() } } }));
-const { ManageTrialBalance, REMOVE_CONFIRMATION_COPY } = await import("./ManageTrialBalance");
+const { ManageTrialBalance, REMOVE_CONFIRMATION_COPY, RESTORE_PREVIOUS_LABEL } = await import("./ManageTrialBalance");
 
 const render = (mode: SourceManagementMode, removeAction: RemoveAction | null, focusRequested = false) =>
   renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ManageTrialBalance, {
@@ -158,3 +158,18 @@ describe("the server contract (static; behaviour is proven on real PostgreSQL, p
     expect(remove.indexOf("PERFORM public.tb_require_read_committed();")).toBeLessThan(remove.indexOf("SELECT * INTO v_row"));
   });
 });
+
+describe("Manage Trial Balance — a refused replacement", () => {
+  it("offers 'Restore the previous trial balance' (an explicit action, not destructive), and no Remove, only when the server says so", () => {
+    const html = render("manage", { kind: "restore_previous" });
+    expect(html).toContain('data-testid="restore-previous-trial-balance"');
+    expect(html).toContain(RESTORE_PREVIOUS_LABEL);
+    expect(html).not.toContain('data-testid="remove-trial-balance"');
+    expect(html).toContain('data-testid="replace-trial-balance"');
+  });
+  it("never offers the restore for an ordinary removal", () => {
+    expect(render("manage", { kind: "remove" })).not.toContain("restore-previous-trial-balance");
+    expect(render("manage", null)).not.toContain("restore-previous-trial-balance");
+  });
+});
+

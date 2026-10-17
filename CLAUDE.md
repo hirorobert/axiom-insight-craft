@@ -373,6 +373,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      processingInvoke.ts     ← ONLY browser path to process-trial-balance (bounded, jittered retry of PROCESSING_BUSY as the same request)
       engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)
       uploadAuthority.ts      ← Reads tb_upload_authority / tb_upload_attempts (S2): Needs re-check, Processing stopped, Retry now, history (F2)
       requestReprocess.ts     ← ONLY browser path to a new check: tbu_request_reprocess, then processing with the same operation id
@@ -381,10 +382,17 @@ src/
       sourceUpload.ts         ← ONLY browser path for a trial balance source: reserve → signed workspace-scoped upload → register
       twoPeriodIntake.ts      ← One file as current + prior year (I1-B): register_two_period_uploads client, adjacency rule; TWO_PERIOD_INTAKE_ENABLED (reviewed constant, false until hosted apply)
       trialBalanceVerdict.ts          ← THE trial balance presentation model (status, reason, totals, checks, primary action, evidence unlock) from the certification ledger; card, checks, ledger, Overview and workspace state all read it
+      resultVersion.ts                ← Which check set a stored result came from: no processing milestones = "Checked by an earlier version" on every surface (history unchanged)
+      resultStatus.ts                 ← The one trial-balance status vocabulary and finding order (blocking → needs confirmation → review) for sidebar, Overview and page
+      trialBalanceDraft.ts            ← ONLY browser path for a trial balance draft (reserve bound to file identity, signed upload, commit with a bound key; drafts_unavailable on an old backend)
+      reportingPeriod.ts              ← Confirmation-card period arithmetic: Year/Quarter/Month presets (derived start) and custom dates; no defaults
+      uploadPolicy.ts                 ← Browser mirror of the ONE upload policy (_shared/uploadPolicy.ts): types, size, limits text; held equal by test
+      firstUpload.ts                  ← First-visit start: create_entity → open_engagement_with_period → draft commit → check, resumable; stages from server milestones
       trialBalanceReadiness.ts        ← THE definition of "Trial balance ready": certified checks + every classification confirmed + a clean reconciliation that matched at least one line (never arithmetic balance alone)
       trialBalanceTask.ts             ← Current service + "Step n of 4" + one instruction for Prepare, derived from the verdict and the readiness rule (never re-derived)
       trialBalanceManagement.ts       ← Manage Trial Balance: what may be shown (access + current plan + server removal eligibility); remove_trial_balance_upload client
       classificationPresentation.ts   ← Pure deterministic 7-state classification presentation (FAILED/PROCESSING/INCONSISTENT/COMPLETE_WITH_REVIEW/PARTIAL/COMPLETE_NO_REVIEW/NOT_COMPUTED) for WorkspaceOverview. "Classified" means mapping_completeness.mapped_accounts (Tier 1-5) — never summary.auto_classified (Tier 4-5 only).
+      reviewActionHierarchy.ts ← Pure: which ONE action leads the trial-balance page while account review is open (Resolve vs Save & reprocess)
       accountNextAction.ts    ← THE account home's one primary next action (plan → existing work → review → companies → shared → add company → capacity), pure; companyCreation() says whether creation is offered (create_entity stays the authority)
       classificationAcceptanceFixtures.ts ← Deterministic fixture inputs (one per classification state) for the internal /internal/acceptance/classification-states dev-only page. No Supabase, no randomness.
       classificationAcceptanceGate.ts ← Gate for that page: renderable only in a dev build (import.meta.env.DEV) — no flag, never enabled in production.
@@ -472,6 +480,7 @@ src/
       StageScopeGate.tsx      ← Stage URL cannot bypass scope
       ManageTrialBalance.tsx  ← "Manage Trial Balance" (Replace / Remove) directly under the Prepare Data file header
       FirstRunEngagement.tsx  ← Zero-company first-run form
+      FirstUpload.tsx         ← First visit: drop zone → private draft → confirmation card → "Start trial balance check" (Phase 2 P2-3)
     safisha/
       SafishaGate.tsx         ← Evidence-matching gate. NOT mounted in Trial balance review (scope correction); tax stays locked until a reconciliation is complete.
 
@@ -515,6 +524,7 @@ supabase/
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
     trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
+    trial-balance-draft/           ← Draft sign / commit / cancel (Phase 2 P2-2, 20261106100000); recovery protocol in _shared/draftUpload.ts
     hesabu-validate/          ← H-01 to H-12 assurance assertions
     safisha-ingest/           ← Bank statement CSV/XLSX → safisha_transactions
     safisha-efdms-ingest/     ← EFDMS Z-Report → safisha_transactions (service role)

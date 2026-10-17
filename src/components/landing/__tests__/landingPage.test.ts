@@ -7,7 +7,7 @@
  *
  * What is protected, each because getting it wrong is a real failure rather than a style regression:
  *
- *  1. Structure: one h1; Software → Plans → Specialist services → Questions; no half-empty selector strip.
+ *  1. Structure: one h1; Product → Sample review → Plans → Questions → Expert help; no half-empty selector strip.
  *  2. Manual activation: every plan action is "Request activation" (Enterprise: "Discuss Enterprise"), preselected with its
  *     plan, and the manual-activation note stands beside every action. No checkout, Buy or Subscribe; no "preview / not a
  *     public offer" contradiction.
@@ -42,6 +42,7 @@ import { Header } from "@/components/Header";
 import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
 import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
+import { IllustrativeReview } from "@/components/landing/IllustrativeReview";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { SoftwareSection } from "@/components/landing/SoftwareSection";
 import { SpecialistServices } from "@/components/landing/SpecialistServices";
@@ -86,6 +87,7 @@ const PAGE = renderToStaticMarkup(
       { id: "main-content" },
       createElement(LandingHero),
       createElement(SoftwareSection),
+      createElement(IllustrativeReview),
       createElement(CapacityPlans),
       createElement(TrustStrip),
       createElement(LandingFAQ),
@@ -114,7 +116,7 @@ describe("page structure", () => {
     expect(PAGE_TEXT).toContain(LANDING_HERO.headline);
   });
 
-  it("renders exactly the declared sections, in order: product → plans → questions → expert help", () => {
+  it("renders exactly the declared sections, in order: product → sample review → plans → questions → expert help", () => {
     const at = LANDING_SECTION_IDS.map((id) => PAGE.indexOf(`id="${id}"`));
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -125,10 +127,11 @@ describe("page structure", () => {
     for (const m of PAGE.matchAll(/href="#([a-z-]+)"/g)) expect(PAGE, `#${m[1]}`).toContain(`id="${m[1]}"`);
   });
 
-  it("the hero: 'Explore plans' first, View plans second, one genuine labelled screenshot; the brand only in the header; no repeated disclaimer", () => {
+  it("the hero: 'See a sample review' first, View plans second, no screenshot; the brand only in the header; no repeated disclaimer", () => {
     const hero = section(PAGE, "hero-title");
-    expect(hrefOf(hero, "hero-explore-plans")).toBe("#plans");
-    expect(hero.indexOf('data-testid="hero-explore-plans"')).toBeLessThan(hero.indexOf('data-testid="hero-view-plans"'));
+    expect(hrefOf(hero, "hero-sample")).toBe("#sample");
+    expect(visibleText(hero)).toContain("See a sample review");
+    expect(hero.indexOf('data-testid="hero-sample"')).toBeLessThan(hero.indexOf('data-testid="hero-view-plans"'));
     expect(visibleText(hero)).not.toContain("Request activation");
     expect(hrefOf(hero, "hero-view-plans")).toBe("/plans");
     expect(hero).not.toMatch(/Choose a service|hero-service-|grid-cols-4/);
@@ -136,16 +139,12 @@ describe("page structure", () => {
     // The brand mark is in the header (and footer), not repeated in the hero.
     expect(hero).not.toContain('data-testid="brand-mark"');
     expect(PAGE).toContain('data-testid="brand-mark"');
-    // One real product screenshot, served from public/, with a descriptive alt text and a visible label saying so.
-    const img = hero.match(/<img[^>]*>/g) ?? [];
-    expect(img).toHaveLength(1);
-    expect(img[0]).toContain(`src="${LANDING_HERO.screenshot.src}"`);
-    expect(img[0]).toMatch(/alt="[^"]{40,}"/);
-    expect(fs.existsSync(path.join(ROOT, "public", LANDING_HERO.screenshot.src))).toBe(true);
-    expect(visibleText(hero)).toContain("Product screenshot");
-    expect(visibleText(hero)).toMatch(/demonstration company/);
-    // The division of responsibility, stated once in the hero: the software checks and records; judgement stays with the user.
-    expect(LANDING_HERO.supporting).toMatch(/performs the checks and records the decisions; professional judgement stays with you/);
+    // The old screenshot was unreadable at its rendered desktop size; the sample review is the product example now.
+    expect(hero).not.toMatch(/<img\b/);
+    expect(fs.existsSync(path.join(ROOT, "public/landing/trial-balance-review.png"))).toBe(false);
+    // The concise proposition: checks, classification review, and a traceable record of decisions (the append-only,
+    // account-attributed review-decision ledger; registered claim "attributable-review-decisions").
+    expect(LANDING_HERO.supporting).toBe("Check your trial balance, review account classifications, and keep a traceable record of your decisions.");
   });
 
   it("copy budgets: hero ≤ 40 words; each specialist description ≤ 25", () => {

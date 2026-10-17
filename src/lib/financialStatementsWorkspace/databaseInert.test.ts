@@ -209,12 +209,17 @@ describe("database inertness — schema and functions", () => {
       // and its pure handler. No financial-statements schema.
       "supabase/functions/_shared/reportingPackSeal.mjs",
       "supabase/functions/_shared/reportingPackSeal.d.mts",
+      // Repair C: the only rule by which an unsealed Reporting Pack object may be deleted (after its issuance expired +
+      // grace; never a sealed one). Pure orchestration; not scheduled; no schema.
+      "supabase/functions/_shared/reportingPackOrphans.mjs",
       "supabase/functions/seal-reporting-pack/index.ts",
       // Trial-balance ingestion integrity: the pure ingestion core process-trial-balance runs on an upload (exact
       // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
       // bytes → rows reader it uses. Pure modules; no schema, no new Edge Function.
       "supabase/functions/_shared/tbIngestion.ts",
       "supabase/functions/_shared/tbSource.ts",
+      // ...and the one configurable printed-report footer rule set it uses (tb-ingest-3.2.0). Pure; no schema.
+      "supabase/functions/_shared/printedReportMetadata.ts",
       // ...and its Deno function-path tests: the real handler with only the network edges (Supabase client, std serve)
       // replaced by in-memory doubles through an import map used by the tests alone. Never deployed (not under a
       // function's entry point), no schema.
@@ -313,8 +318,44 @@ describe("database inertness — schema and functions", () => {
       // server-side and mints a single-use reauth nonce (record_privileged_reauth). Proven on PG17 by owner_access_proof.mjs.
       "supabase/migrations/20261104100000_platform_owner_access_and_entity_allowance.sql",
       "supabase/functions/reauthenticate/index.ts",
+      // Trial balance drafts (Phase 2 P2-2, 20261106100000): a NEW forward-only migration with two new owner-scoped tables
+      // (no existing table, constraint, policy or grant altered; no financial-statements schema), and ONE new Edge
+      // Function, trial-balance-draft (sign / commit / cancel), whose recovery protocol is the pure _shared/draftUpload.ts.
+      // Proven on PostgreSQL by trialBalanceDrafts.mjs and on the local stack by scripts/e2e/draftJourney.mjs.
+      "supabase/migrations/20261106100000_trial_balance_drafts.sql",
+      "supabase/functions/_shared/draftUpload.ts",
+      "supabase/functions/trial-balance-draft/index.ts",
+      // The ONE trial balance upload policy (size, workbook expansion, rows, cells) the shared reader enforces before any
+      // parse. Pure; no schema.
+      "supabase/functions/_shared/uploadPolicy.ts",
+      // Certification capacity (repair A, 20261107100000): a NEW forward-only migration — one new append-only table
+      // (tb_certification_findings: every finding of a certification), three NULLable columns on tb_certifications (no
+      // existing row changes), and tb_finalize_attempt / tb_snapshot_dependencies redefined with only marked blocks added.
+      // The pure summary builder the processing function uses. Proven on PostgreSQL by certificationCapacity.mjs.
+      "supabase/migrations/20261107100000_certification_findings_capacity.sql",
+      "supabase/functions/_shared/certificationFindings.ts",
+      // Controlled admission for process-trial-balance (at most two checks at once per worker; the rest wait or are
+      // refused before anything begins). Pure; no schema.
+      "supabase/functions/_shared/admission.ts",
+      // Account identity (repair B, 20261108100000): a NEW forward-only migration replacing the all-names unique index on
+      // account_mappings by a codeless-only one (no row changed); the pure candidate-counting name matcher the processing
+      // function uses. Proven on PostgreSQL by accountIdentity.mjs.
+      "supabase/migrations/20261108100000_account_identity_codeless_name.sql",
+      // Refused-replacement restore (owner-approved bounded repair, 20261109100000): a NEW forward-only migration — two internal
+      // helper functions and the existing cancel_trial_balance_replacement / get_trial_balance_removal_eligibility redefined
+      // with marked branches only; no table, column, index or policy changes. Proven on PostgreSQL by certificationCapacity.mjs.
+      "supabase/migrations/20261109100000_refused_replacement_restore.sql",
+      "supabase/functions/_shared/accountNameMatch.ts",
     ]);
     const modified = new Set([
+      // Trial balance drafts: the sweeper's kind type names the database's 'source_object' and new 'draft' kinds. Types only.
+      "supabase/functions/_shared/sourceSweeper.ts",
+      // Certification capacity (repair A): the function-path double of tb_finalize_attempt keeps the complete findings and
+      // answers the findings-store probe. Test double only.
+      "supabase/functions/process-trial-balance/functionpath/attemptDouble.ts",
+      // Repair C (concurrent sealing): a failed seal never removes the canonical object (a concurrent seal may be
+      // committing); only non-canonical bytes are removed. Pure handler; no schema.
+      "supabase/functions/_shared/reportingPackSeal.mjs",
       // Packaging repair (batch access-a1) of merged PR #130's migration: the embedded BEGIN/COMMIT the hosted runner
       // rejects are removed (atomicity moves to the reviewed self-checking wrapper, release/wrappers/); a packaging note is
       // added. No SQL logic changes. It is authored and PENDING hosted application (no drizzle journal entry).
@@ -581,11 +622,28 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
+      // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
+      "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
+      // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
+      // without the repair, then proves it). No deploy behaviour.
+      "scripts/db-proof/certificationCapacity.mjs",
+      // Account identity (repair B): the loopback-only real-PostgreSQL proof (reproduces the raw unique violation on the
+      // chain without the repair, then proves it). No deploy behaviour.
+      "scripts/db-proof/accountIdentity.mjs",
+      // The owner's READ-ONLY impact-detection queries for repairs A, B and C (SELECTs only; run in a read-only
+      // transaction by accountIdentity.mjs). No deploy behaviour.
+      "scripts/db-preflight/processingIntegrityImpact.sql",
+      // The upload-policy measurement (invented data, local processes only; no network, no secret).
+      "scripts/bench/tbUploadPolicyBench.mjs", "scripts/bench/tbUploadPolicyDenoProbe.ts",
       // The owner-run provider sandbox smoke test (reads sandbox credentials from the shell; prints no secret).
       "scripts/payments/providerSandboxSmoke.ts",
       // Public search identity (follow-up to PR #101): the approved-logo asset generator and the two production-build checks.
       "scripts/brand/generateBrandAssets.mjs", "scripts/ci/assertPublicMetadata.mjs", "scripts/ci/routeMetadataInBrowser.mjs",
-      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs"]);
+      "scripts/ci/inertBase.mjs", "scripts/ci/assertTestsExecuted.mjs",
+      // Landing sample review (PR #145): browser acceptance of the public landing page — a local build with a placeholder
+      // (unreachable loopback) backend, served by vite preview on 127.0.0.1, driven by cdp.mjs. No database, no secret,
+      // no network beyond loopback, no deploy behaviour; run by hand, not wired into CI.
+      "scripts/browser-acceptance/landingSample.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 

@@ -12,6 +12,7 @@
  */
 
 import { canExercise, type MyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { canReprocessUpload } from "@/lib/workspace/resolveActiveUpload";
 import type { WorkspaceCommercialState } from "@/lib/commercial/paidActions";
 
@@ -136,9 +137,8 @@ export async function requestReprocess(
   if (!mayInvokeProcessing(response)) throw new ReprocessRefusedError(response);
 
   await deps.ensureFreshSession();
-  const { error: fnError } = await client.functions.invoke("process-trial-balance", {
-    body: { uploadId, clientRequestId: operationId },
-  });
+  // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
+  const { error: fnError } = await invokeProcessing(client as unknown as FunctionsClient, { uploadId, clientRequestId: operationId });
   if (fnError) throw fnError;
   return response;
 }

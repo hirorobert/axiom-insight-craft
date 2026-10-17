@@ -10,8 +10,12 @@ import { deriveTrialBalanceSteps } from "@/components/workspace/TrialBalanceProg
 import {
   deriveTrialBalanceVerdict, formatCents, lifecycleLabel, plainBlockReason, readTrialBalanceTotals, resultLabel, stripEngineCode,
 } from "./trialBalanceVerdict";
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
 
 const SAMPLE_RESULT = {
+  ingestion: CURRENT_INGESTION,
   summary: { total_accounts: 180, auto_classified: 0 },
   validation_report: {
     mapping_completeness: { total_accounts: 180, mapped_accounts: 180, needs_review: 0 },
@@ -170,4 +174,17 @@ describe("helpers", () => {
     expect([resultLabel("complete"), resultLabel("blocked"), resultLabel("needs_review"), resultLabel("error"), resultLabel("processing")])
       .toEqual(["Checks passed", "Blocked", "Needs review", "Could not be processed", "Processing"]);
   });
+});
+
+it('cannot show Reviewed when stored milestones say balance and classification never ran', () => {
+  const processing_result = { ...SAMPLE_RESULT, ingestion: { milestones: [
+    { id: 'read', status: 'passed' }, { id: 'columns', status: 'failed' },
+    { id: 'rows', status: 'not_reached' }, { id: 'amounts', status: 'not_reached' },
+    { id: 'balance', status: 'not_reached' }, { id: 'classification', status: 'not_reached' },
+  ] } };
+  const v = deriveTrialBalanceVerdict({ upload: upload('completed', { processing_result }), readiness: { verdict: 'certified', checks: passedLayers }, canRetry: true });
+  expect(v.status).not.toBe('accepted');
+  expect(v.checks.find(c => c.id === 'l3_arithmetic')?.state).toBe('pending');
+  expect(v.checks.find(c => c.id === 'l4_classification')?.state).toBe('pending');
+  expect(v.balanceStatement).toBeNull();
 });

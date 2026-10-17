@@ -490,3 +490,31 @@ describe("computeCertificationReadiness â€” L5/L6 evidence states never block (Â
     expect(result.verdict).toBe("certified");
   });
 });
+
+describe('recorded ingestion progress prevents fabricated passes', () => {
+  const input = (authoritative = false) => ({
+    uploadExists: true, currentUploadId: UPLOAD_A,
+    authoritative: authoritative ? row({ upload_id: UPLOAD_A }) : null,
+    latestForUpload: row({ upload_id: UPLOAD_A, is_blocking: true, exceptions: [exc({ layer: 2, severity: 'error', message: 'Columns unresolved' })] }),
+    processingResult: { ingestion: { milestones: [
+      { id: 'read', status: 'passed' }, { id: 'columns', status: 'failed' },
+      { id: 'rows', status: 'not_reached' }, { id: 'amounts', status: 'not_reached' },
+      { id: 'balance', status: 'not_reached' }, { id: 'classification', status: 'not_reached' },
+    ] } },
+  });
+  it('shows balance and classification as pending when columns stopped processing', () => {
+    const r = computeCertificationReadiness(input());
+    expect(r.checks.find(c => c.id === 'l3_arithmetic')?.state).toBe('pending');
+    expect(r.checks.find(c => c.id === 'l4_classification')?.state).toBe('pending');
+    expect(r.passedCount).toBe(1);
+  });
+  it.each([null, [], [{ id: 'balance', status: 'passed' }, { id: 'balance', status: 'failed' }]])('refuses unreadable, incomplete or duplicated progress: %j', milestones => {
+    const i = input(true);
+    const r = computeCertificationReadiness({ ...i, processingResult: { ingestion: { milestones } } });
+    expect(r.verdict).not.toBe('certified');
+    expect(r.checks.find(c => c.id === 'l3_arithmetic')?.state).not.toBe('passed');
+  });
+  it('never certifies contradictory progress even with an authoritative row', () => {
+    expect(computeCertificationReadiness(input(true)).verdict).not.toBe('certified');
+  });
+});

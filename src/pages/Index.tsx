@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/Header";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { SoftwareSection } from "@/components/landing/SoftwareSection";
+import { IllustrativeReview } from "@/components/landing/IllustrativeReview";
 import { SpecialistServices } from "@/components/landing/SpecialistServices";
 import { CapacityPlans } from "@/components/landing/CapacityPlans";
 import { TrustStrip } from "@/components/landing/TrustStrip";
@@ -17,8 +18,9 @@ import { checkoutHref, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 
 // ─── Page composition ────────────────────────────────────────────────────────
 //  1. Header
-//  2. Hero — the proposition, "Explore plans" (primary), an activation request, and one labelled product screenshot
+//  2. Hero — the proposition, "See a sample review" (primary) and "View plans" (secondary)
 //  3. Product — what every plan includes (three outputs, the three-step workflow) and the one pilot, labelled
+//  3a. Sample review — an illustrative trial balance review on invented data, with a read-only completed example
 //  4. Choose your capacity — plans from the catalogue; price and action per plan from the server's public prices
 //  5. Trust — three assurances in registered wording
 //  6. FAQ — the same data the FAQPage structured data in index.html is built from
@@ -73,6 +75,7 @@ const Index = () => {
       <main id="main-content">
         <LandingHero />
         <SoftwareSection />
+        <IllustrativeReview />
         <CapacityPlans prices={prices} />
         <TrustStrip />
         <LandingFAQ />

@@ -4,7 +4,7 @@
  * Ω∞ GLOBAL FIRST-RUN REMEDIATION
  *
  * Screen 1 of 2. Collects the minimum required to create a workspace:
- *   - Organization name (required)
+ *   - Entity name (required): the business or organisation being reported on
  *   - Reporting period year + year-end date (required)
  *   - Functional currency (required — no default; must be explicitly selected)
  *   - Reporting framework (optional — can be set later in workspace settings)
@@ -215,31 +215,31 @@ export default function FirstRunEngagement({
     <form
       onSubmit={submit}
       className="w-full max-w-[520px] space-y-6"
-      aria-label="Create reporting workspace"
+      aria-label="Add an entity"
     >
       {/* Header */}
       <div className="space-y-1.5">
         <Heading className="text-xl font-semibold tracking-tight text-foreground">
-          Set up your reporting workspace
+          Add the entity you are reporting on
         </Heading>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Add the organization and reporting period you want to work on.
-          You can configure reporting and tax requirements later.
+          The entity is the business or organisation the trial balance belongs to. Add it with the reporting period
+          you want to work on. You can set reporting requirements later.
         </p>
       </div>
 
       {/* Fields */}
       <div className="space-y-4 border border-border p-5">
 
-        {/* Organization name */}
+        {/* Entity name (Phase 2 §5.2: the entity is what is reported on; the workspace/account is who owns and pays) */}
         <div className="space-y-2">
-          <Label htmlFor="fr-org">Organization name</Label>
+          <Label htmlFor="fr-org">Entity name</Label>
           <Input
             id="fr-org"
             autoFocus
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
-            placeholder="Enter the organization you are reporting for"
+            placeholder="Your business or organisation"
             required
             aria-required="true"
           />

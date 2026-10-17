@@ -51,7 +51,9 @@ import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
 import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useDataStart } from "@/hooks/useDataStart";
-import { deriveLaunchState, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
+import { deriveLaunchState, impliedService, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
+import { recordDataStart, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
+import TrialBalanceEntryCard from "@/components/workspace/TrialBalanceEntryCard";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
 import { deriveClassificationPresentation } from "@/lib/workspace/classificationPresentation";
@@ -216,6 +218,10 @@ export default function WorkspaceOverview() {
   const needsReview = classification.state === "COMPLETE_WITH_REVIEW" || classification.state === "PARTIAL";
 
   const launchState = deriveLaunchState({ granted, hasUpload, dataStart: dataStart.choice });
+  // Phase 2 §5.1: with one customer service, the service is implied and the upload page is the entry point. The
+  // launchpad and the data question are shown only while there is a real choice to make.
+  const implied = impliedService(CUSTOMER_CAPABILITY_OUTCOMES.map((o) => o.capability));
+  const showEntry = !!implied && (launchState === "LAUNCHPAD" || launchState === "DATA_CHOICE");
 
   // The two existing Prepare Data destinations classification decisions route to — unchanged route builders.
   const prepareHref = `${basePath}/prepare`;
@@ -419,8 +425,24 @@ export default function WorkspaceOverview() {
 
         {mandateLoading || dataStart.loading ? (
           <Skeleton className="h-56 w-full" />
+        ) : showEntry && implied ? (
+          <TrialBalanceEntryCard
+            canStart={launchState === "LAUNCHPAD" ? canAmend : true}
+            onUpload={async () => {
+              // Open (or reuse) the engagement with the implied service, then the single upload surface.
+              if (launchState === "LAUNCHPAD") await createEngagement([implied]);
+              navigate(`${basePath}/prepare`);
+            }}
+            onStartEmpty={async () => {
+              // Persist first; the Overview then re-derives to the genuine empty workspace. No navigation.
+              const engagementId = launchState === "LAUNCHPAD" ? await createEngagement([implied]) : engagement?.id;
+              if (!engagementId) throw new Error("Your choice could not be saved. Try again.");
+              if (launchState === "LAUNCHPAD") await recordDataStart(supabase as unknown as RpcClient, engagementId, "empty", null);
+              else if (!(await dataStart.record("empty"))) throw new Error("Your choice could not be saved. Try again.");
+            }}
+          />
         ) : launchState === "LAUNCHPAD" ? (
-          <ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={(selected) => createEngagement(selected)} />
+          <ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={async (selected) => { await createEngagement(selected); }} />
         ) : launchState === "DATA_CHOICE" ? (
           <DataChoiceCard
             onImport={async () => {

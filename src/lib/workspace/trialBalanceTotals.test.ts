@@ -13,7 +13,10 @@ import {
   BALANCE_TOLERANCE_CENTS, balanceStatement, deriveTrialBalanceVerdict, formatCents, isOutOfBalance, plainBlockReason, readTrialBalanceTotals, toMinorUnits,
 } from "./trialBalanceVerdict";
 
-const pr = (tb: unknown) => ({ validation_report: { tb_balance_check: tb } });
+// A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
+// checked by an earlier version. These fixtures model current results.
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const pr = (tb: unknown) => ({ ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: tb } });
 const read = (tb: unknown) => readTrialBalanceTotals(pr(tb));
 
 describe("above TZS 100 billion with cents", () => {

@@ -152,12 +152,23 @@ async function main() {
   const commit = (i, { tx = `order-${i.session}`, status = "SUCCEEDED", key = null } = {}) =>
     one(SERVICE, `SELECT public.commit_verified_commercial_payment($1,'POLAR',$2,$3,$4,$5,'USD',$6,now(),'PROVIDER_API_VERIFY',$7,$8,$9) r`,
       [i.id, tx, status === "SUCCEEDED" ? "paid" : status.toLowerCase(), status, i.amount, "h".repeat(64), key ?? crypto.createHash("sha256").update(`POLAR:${tx}:${i.id}`).digest("hex"), i.ref, i.env]).then((x) => x.r);
-  /** The real path that closes an intent while its Polar session is still open: local expiry, a new attempt, review, "uncharged". */
-  const closeByReview = async (acct, i, plan) => {
-    await admin.query("UPDATE public.payment_checkout_intents SET expires_at = now() - interval '1 minute' WHERE id=$1", [i.id]);
+  /**
+   * The real path that closes an intent while its Polar session may still be payable: Polar created the session but its
+   * result was not recorded (the provider request is marked uncertain, so the intent goes to MANUAL_REVIEW), then an
+   * administrator closes it as uncharged. Since 20261105100000 a newer attempt over a PENDING session is refused without
+   * writing anything (OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT), so the former route — local expiry, then a new attempt sending the
+   * old intent to review — no longer exists. This route exists before and after that migration.
+   */
+  const closedWhileSessionOpen = async (acct, plan) => {
     const a = await acquire(acct, plan);
-    if (a.action !== "MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT") throw new Error(`expected review, got ${JSON.stringify(a)}`);
-    await asAdmin("SELECT public.admin_resolve_manual_review_intent($1,'CONFIRMED_UNCHARGED_CANCEL','no payment seen when reviewed') r", [i.id]);
+    if (a.action !== "NEW_ATTEMPT") throw new Error(`acquire: ${JSON.stringify(a)}`);
+    const session = uuid();
+    await one(SERVICE, "SELECT public.begin_provider_checkout_request($1,$2) r", [a.intent_id, a.creation_token]);
+    const u = (await one(SERVICE, "SELECT public.mark_checkout_attempt_uncertain($1,$2,'PROVIDER_RESULT_PERSISTENCE_UNCERTAIN') r", [a.intent_id, a.creation_token])).r;
+    if (u?.updated !== true) throw new Error(`uncertain: ${JSON.stringify(u)}`);
+    await asAdmin("SELECT public.admin_resolve_manual_review_intent($1,'CONFIRMED_UNCHARGED_CANCEL','no payment seen when reviewed') r", [a.intent_id]);
+    const o = await offer(plan);
+    return { id: a.intent_id, ref: a.saff_reference, session, amount: Number(o.amount_minor), env: "production" };
   };
   const lic = async (acct) => (await admin.query("SELECT l.id, cp.code, l.status, l.source, l.provenance, l.effective_start, l.effective_end FROM public.commercial_licences l JOIN public.commercial_plans cp ON cp.id=l.plan_id WHERE l.billing_customer_id=$1 ORDER BY l.effective_start, l.created_at", [acct.bc])).rows;
   const events = async (acct) => (await admin.query("SELECT id, event_type, checkout_intent_id, provider_transaction_id, licence_id, metadata FROM public.payment_events WHERE billing_customer_id=$1 ORDER BY recorded_at, id", [acct.bc])).rows;
@@ -167,8 +178,7 @@ async function main() {
   group("Before the correction · a verified charge is dropped");
   await check("an intent closed by review while its Polar session stayed open is then paid: INTENT_ALREADY_RESOLVED — no payment event, no licence, nothing for anyone to act on", async () => {
     const a = await account("before-late");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const r = await commit(old);
     return r.status === "INTENT_ALREADY_RESOLVED" && r.committed === false && (await events(a)).length === 0 && (await lic(a)).length === 0 ? true : { r };
   });
@@ -181,8 +191,7 @@ async function main() {
   });
   await check("discovery: a dropped charge leaves the webhook endpoint's record (processing_result DUPLICATE with the provider transaction) and no payment event — the commercial-p5 preflight lists it (read-only; it records nothing)", async () => {
     const a = await account("before-discover");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const r = await commit(old);
     // Exactly what handleProviderWebhook writes for that outcome: a receipt, then the processing event settle.ts reported.
     const rec = (await admin.query("INSERT INTO public.payment_webhook_receipts (provider, signature_present, payload_hash, provider_event_id, saff_reference, correlation_id) VALUES ('POLAR', true, $1, $2, $3, 'proof') RETURNING id", ["p".repeat(64), `wh-${old.session}`, old.ref])).rows[0].id;
@@ -211,11 +220,33 @@ async function main() {
     (await admin.query(HIST, [cutoff])).rows[0].h === histBefore ? true : "changed");
 
   // ════ AFTER ══════════════════════════════════════════════════════════════════════════════════════════════════════
+  group("An open session is never replaced (20261105100000)");
+  await check("a newer attempt over a PENDING session — even one past its local expiry — is refused without writing anything: OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT; the old intent stays PENDING with its session; no new intent", async () => {
+    const a = await account("open-session");
+    const old = await checkout(a, "SOLO");
+    await admin.query("UPDATE public.payment_checkout_intents SET expires_at = now() - interval '1 minute' WHERE id=$1", [old.id]);
+    const before = (await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
+    const r = await acquire(a, "SOLO");
+    const after = (await admin.query("SELECT count(*)::int n FROM public.payment_checkout_intents WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
+    const row = (await admin.query("SELECT status, provider_checkout_ref, metadata ? 'manual_review_reason' AS reviewed FROM public.payment_checkout_intents WHERE id=$1", [old.id])).rows[0];
+    return r.action === "OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT" && r.intent_id === old.id && before === after
+      && row.status === "PENDING" && row.provider_checkout_ref === old.session && row.reviewed === false ? true : { r, before, after, row };
+  });
+  await check("…and that old session's payment then settles normally: one payment event, one 12-month term, no recovery case", async () => {
+    const a = await account("open-session-paid");
+    const old = await checkout(a, "SOLO");
+    await admin.query("UPDATE public.payment_checkout_intents SET expires_at = now() - interval '1 minute' WHERE id=$1", [old.id]);
+    await acquire(a, "SOLO");
+    const r = await commit(old);
+    const cases = (await admin.query("SELECT count(*)::int n FROM public.payment_recovery_cases WHERE billing_customer_id=$1", [a.bc])).rows[0].n;
+    const l = await lic(a);
+    return r.committed === true && (await status(old)) === "SUCCEEDED" && (await events(a)).length === 1 && l.length === 1 && l[0].status === "ACTIVE" && cases === 0 ? true : { r, l, cases };
+  });
+
   group("Late payment · nothing replaced the closed intent");
   await check("an intent closed by review is then paid, with no newer attempt: placed by the normal rule (one 12-month term), the intent becomes SUCCEEDED, audited as late", async () => {
     const a = await account("late");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const r = await commit(old);
     const ls = await lic(a);
     const audit = (await admin.query("SELECT new_state FROM public.billing_audit_events WHERE billing_customer_id=$1 AND action='LICENCE_GRANTED'", [a.bc])).rows;
@@ -231,8 +262,7 @@ async function main() {
   });
   await check("a provider-reported non-success after the intent closed records nothing (no money moved)", async () => {
     const a = await account("late-fail");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const r = await commit(old, { status: "FAILED" });
     return r.status === "INTENT_ALREADY_RESOLVED" && (await events(a)).length === 0 ? true : r;
   });
@@ -240,8 +270,7 @@ async function main() {
   group("Replacement · the older session paid after a replacement started");
   await check("replacement pending, then the old session is paid: recorded once as RECOVERY_REQUIRED with an OPEN case; no licence; then the replacement is paid: exactly one term", async () => {
     const a = await account("repl-pending");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const repl = await checkout(a, "SOLO");
     const r = await commit(old);
     const caseRow = (await admin.query("SELECT * FROM public.payment_recovery_cases WHERE payment_event_id=$1", [r.event_id])).rows[0];
@@ -253,8 +282,7 @@ async function main() {
   });
   await check("replacement paid first, then the old session: one term (the replacement's); the old charge is an OPEN recovery case", async () => {
     const a = await account("repl-paid");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     const repl = await checkout(a, "SOLO");
     await commit(repl);
     const r = await commit(old);
@@ -271,8 +299,7 @@ async function main() {
   group("Duplicates · one charge, one record");
   await check("8 concurrent deliveries of the old session's payment under one key, plus 4 under other keys: one payment event, one recovery case", async () => {
     const a = await account("dup");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     await checkout(a, "SOLO");
     const rs = await Promise.allSettled([...Array.from({ length: 8 }, () => commit(old)), ...Array.from({ length: 4 }, (_, k) => commit(old, { key: `other-key-${k}-${old.id}` }))]);
     const cases = (await admin.query("SELECT count(*)::int n FROM public.payment_recovery_cases WHERE checkout_intent_id=$1", [old.id])).rows[0].n;
@@ -281,8 +308,7 @@ async function main() {
   });
   await check("a redelivery after the late payment was placed: ALREADY_COMMITTED, nothing new", async () => {
     const a = await account("dup-late");
-    const old = await checkout(a, "SOLO");
-    await closeByReview(a, old, "SOLO");
+    const old = await closedWhileSessionOpen(a, "SOLO");
     await commit(old);
     const again = await commit(old, { key: "a-different-key" });
     return again.status === "ALREADY_COMMITTED" && (await lic(a)).length === 1 && (await events(a)).length === 1 ? true : again;
@@ -293,8 +319,7 @@ async function main() {
     const out = [];
     for (let k = 0; k < 20; k++) {
       const a = await account(`race-${k}`);
-      const old = await checkout(a, "SOLO");
-      await closeByReview(a, old, "SOLO");
+      const old = await closedWhileSessionOpen(a, "SOLO");
       await setState("CUSTOMER_PAYMENTS_ENABLED");
       const o = await offer("SOLO");
       const [acq, com] = await Promise.allSettled([

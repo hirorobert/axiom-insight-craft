@@ -123,7 +123,8 @@ describe("no browser path writes an upload's processing fields (S1)", () => {
   it("processing is invoked from the browser only after the server accepted the request", () => {
     const src = read("src/lib/workspace/requestReprocess.ts");
     const gate = src.indexOf("if (!mayInvokeProcessing(response)) throw");
-    const invoke = src.indexOf('client.functions.invoke("process-trial-balance"');
+    // The one browser path to the function (processingInvoke: a busy refusal retried as the same request, bounded).
+    const invoke = src.indexOf("await invokeProcessing(client");
     expect(gate).toBeGreaterThan(0);
     expect(invoke).toBeGreaterThan(gate);
     expect(src).toContain("clientRequestId: operationId");
