@@ -27,17 +27,27 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "research/launch-qa/acceptance-evidence"));
 // APPLICATION SHA (the candidate code under test) and HARNESS SHA (this QA's commit) are recorded SEPARATELY.
 const CANDIDATE_SHA = process.env.LAUNCH_QA_CANDIDATE_SHA ?? "UNIDENTIFIED";
-let HARNESS_SHA = "unknown";
-try { HARNESS_SHA = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim(); } catch { /* not a git checkout */ }
+// Provenance (research/launch-qa/ci/provenance.mjs): the identity step's record of the PR head (which carries this harness),
+// the base, the commit CI actually checked out and how they relate. The checkout is NOT assumed to be the PR head: on a pull
+// request it is GitHub's merge of the head into the base.
+let CHECKOUT_SHA = "unknown";
+try { CHECKOUT_SHA = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim(); } catch { /* not a git checkout */ }
+const PROVENANCE = (() => { try { return JSON.parse(fs.readFileSync(path.join(OUT, "identity.json"), "utf8")); } catch { return null; } })();
+const PROV = {
+  applicationSha: CANDIDATE_SHA, applicationTree: PROVENANCE?.applicationTree ?? null,
+  prHeadSha: PROVENANCE?.prHeadSha ?? process.env.LAUNCH_QA_PR_HEAD_SHA ?? null, baseSha: PROVENANCE?.baseSha ?? null,
+  checkoutSha: CHECKOUT_SHA, checkoutParents: PROVENANCE?.checkoutParents ?? null, checkoutKind: PROVENANCE?.checkoutKind ?? null,
+  harnessTree: PROVENANCE?.harnessTree ?? null, provenanceVerified: PROVENANCE?.verified === true,
+};
 const PREVIEW_PORT = Number(process.env.LAUNCH_QA_PREVIEW_PORT ?? 4174); // 4174, not the drafts journey's 4173
-// Actual application-source identity: the app is BUILT from this checkout (HARNESS_SHA). We record the declared candidate
+// Actual application-source identity: the app is BUILT from this checkout (CHECKOUT_SHA). We record the declared candidate
 // (CANDIDATE_SHA) AND prove the harness added nothing to the application source — the only diff from the candidate is under
 // research/launch-qa/** — so "the app under test is the candidate" is verified, not asserted.
 let APP_SOURCE_ONLY_QA = null;
 try {
   if (CANDIDATE_SHA !== "UNIDENTIFIED") {
     const diff = execFileSync("git", ["diff", "--name-only", `${CANDIDATE_SHA}..HEAD`], { cwd: REPO, encoding: "utf8" }).split("\n").filter(Boolean);
-    APP_SOURCE_ONLY_QA = diff.every((f) => f.startsWith("research/launch-qa/"));
+    APP_SOURCE_ONLY_QA = diff.every((f) => /^(research\/launch-qa\/|\.github\/workflows\/ci\.yml$)/.test(f));
   }
 } catch { /* not comparable */ }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,14 +58,14 @@ fs.mkdirSync(path.join(OUT, "files"), { recursive: true });
 function finish(results, meta, note) {
   const o = evaluateOverall(results, MANDATORY_SCENARIO_IDS);
   const report = {
-    applicationSha: CANDIDATE_SHA, harnessSha: HARNESS_SHA, applicationSourceOnlyQaChanges: APP_SOURCE_ONLY_QA,
+    ...PROV, applicationSourceOnlyQaChanges: APP_SOURCE_ONLY_QA,
     ...meta, note, results,
     overall: { pass: o.overallPass, exitCode: o.exitCode, reasons: o.reasons },
     summary: { total: results.length, pass: results.filter((r) => r.status === "PASS").length, fail: o.failed.length, blocked: o.blocked.length, notRun: o.notRun.length, missing: o.missing, duplicates: o.duplicates, extra: o.extra },
   };
   fs.writeFileSync(path.join(OUT, "launch-acceptance.json"), JSON.stringify(report, null, 2));
   for (const r of results) console.log(`  [${r.status}] ${r.id} ${r.name}${r.problems?.length ? `\n        - ${r.problems.join("\n        - ")}` : ""}`);
-  console.log(`\napplication ${CANDIDATE_SHA} (source-only-qa=${APP_SOURCE_ONLY_QA}) · harness ${HARNESS_SHA.slice(0, 12)}`);
+  console.log(`\napplication ${CANDIDATE_SHA} (source-only-qa=${APP_SOURCE_ONLY_QA}) · PR head ${String(PROV.prHeadSha).slice(0, 12)} · checkout ${CHECKOUT_SHA.slice(0, 12)} (${PROV.checkoutKind}) · harness tree ${String(PROV.harnessTree).slice(0, 12)}`);
   // Overall PASS requires all nine mandatory ids present exactly once, each executed and PASS (overall.mjs).
   console.log(o.overallPass ? "OVERALL: PASS (all nine mandatory scenarios executed and PASS)" : `OVERALL: NOT PASS — ${o.reasons.join("; ")}`);
   process.exit(o.exitCode); // 0=overall PASS · 1=a FAIL · 4=not executed / missing / duplicate / extra
@@ -121,9 +131,9 @@ function buildEnv({ APP, admin, users, browser, createClient, apiUrl, anonKey })
   const env = {
     shot,
     // A named evidence record next to the screenshots, stamped with the build it describes (the identity step proves the
-    // built tree is LAUNCH_QA_CANDIDATE_SHA apart from the QA files; GITHUB_SHA is the harness commit CI checked out).
+    // built tree is LAUNCH_QA_CANDIDATE_SHA apart from the QA files; PROV separates the PR head, the base and the checkout).
     recordEvidence(name, data) {
-      const rec = { applicationSha: process.env.LAUNCH_QA_CANDIDATE_SHA ?? null, harnessSha: process.env.GITHUB_SHA ?? null, capturedAt: new Date().toISOString(), ...data };
+      const rec = { ...PROV, capturedAt: new Date().toISOString(), ...data };
       fs.writeFileSync(path.join(OUT, name), `${JSON.stringify(rec, null, 2)}\n`);
       return rec;
     },

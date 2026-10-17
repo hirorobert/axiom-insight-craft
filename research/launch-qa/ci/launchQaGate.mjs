@@ -23,10 +23,14 @@ const scenarios = MANDATORY.map((id) => {
 });
 const identityOk = !!identity?.verified && report?.applicationSha === identity?.applicationSha;
 const pass = !!report && identityOk && scenarios.every((s) => s.verdict === "PASS");
-const out = { pass, identityOk, applicationSha: identity?.applicationSha ?? null, applicationTree: identity?.applicationTree ?? null, harnessSha: report?.harnessSha ?? null, scenarios };
+const out = { pass, identityOk, applicationSha: identity?.applicationSha ?? null, applicationTree: identity?.applicationTree ?? null,
+  prHeadSha: identity?.prHeadSha ?? null, baseSha: identity?.baseSha ?? null, checkoutSha: identity?.checkoutSha ?? null,
+  checkoutParents: identity?.checkoutParents ?? null, checkoutKind: identity?.checkoutKind ?? null, harnessTree: identity?.harnessTree ?? null,
+  provenanceProblems: identity?.problems ?? null, scenarios };
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, "gate.json"), JSON.stringify(out, null, 2));
-console.log(`Launch-acceptance gate — application ${out.applicationSha} (tree ${out.applicationTree}, identity ${identityOk ? "verified" : "NOT verified"}), harness ${out.harnessSha}`);
+console.log(`Launch-acceptance gate — application ${out.applicationSha} (tree ${out.applicationTree}), identity ${identityOk ? "verified" : "NOT verified"}`);
+console.log(`  PR head ${out.prHeadSha} · base ${out.baseSha} · checkout ${out.checkoutSha} (${out.checkoutKind}; parents ${(out.checkoutParents ?? []).join(", ")}) · harness tree ${out.harnessTree}`);
 for (const s of scenarios) console.log(`  [${s.verdict}] ${s.id}${s.why ? `  — ${s.why}` : ""}`);
 console.log(pass ? "GATE: PASS (all nine mandatory scenarios executed and passed)" : "GATE: NOT PASS");
 process.exit(pass ? 0 : 1);

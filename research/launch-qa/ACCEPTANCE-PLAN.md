@@ -84,3 +84,22 @@ A Replace or Retry card action keeps the lead. Scenario I walks a fresh entity t
 It checks keyboard focus and the 1280/390 presentation. Passing never depends on counting CSS classes
 (`reviewHierarchyProblems`). Each control's *declared* emphasis must match the state, and so must its *computed* visual
 emphasis (contrast ≥ 1.5 against what it sits on). Exactly one decision batch must be recorded.
+
+## Provenance (from 2026-10-17; BLACK's finding on run 38946721958)
+Every run records, separately, in `identity.json` (`research/launch-qa/ci/recordProvenance.mjs` → `provenance.mjs`):
+- the **application** commit and tree (`LAUNCH_QA_CANDIDATE_SHA`);
+- the **PR head** (`github.event.pull_request.head.sha`), which carries the harness;
+- the **base** (`github.event.pull_request.base.sha`);
+- the **actual checkout** (`git rev-parse HEAD`) with its parents, read from the commit object;
+- the **harness content** (`HEAD:research/launch-qa` tree).
+
+It verifies the relationship rather than assuming one: on a pull request, the checkout must be exactly the merge of the PR
+head into the base (parents `[base, head]`); on a push, it must be the head. The checkout may differ from the application only
+in the QA files, with nothing modified before the build. The harness, the gate and every evidence record carry these fields;
+`GITHUB_SHA` is never taken to be the PR head.
+
+**Reconciliation of the earlier records.** On run 38946721958, GitHub reports the PR head `f23f347`, and the harness recorded
+`5c70e005` as "harnessSha". `5c70e005` is GitHub's `pull/144/merge` checkout: its parents are `00a2653b` (base `main`) and
+`f23f3472` (the PR head). The label was wrong; the commit was not stale. The same holds for the 390 px capture record
+`I-review-action-area-390.json` on run 39001141635: its "harnessSha" `c02d81bf` has parents `00a2653b` and `05ff40ce` (the PR
+head). It therefore describes PR head `05ff40c`, application `ebafa68`. Both parent sets were read from GitHub's commit API.

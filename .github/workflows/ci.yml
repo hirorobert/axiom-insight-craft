@@ -393,23 +393,16 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
-      - name: Launch-acceptance identity (evidence branch only; proves the tree actually checked out and built equals the candidate under test apart from the QA files, and records the harness commit separately)
+      - name: Launch-acceptance identity and provenance (evidence branch only; records the application, the PR head, the base and the actual checkout separately and verifies how they relate)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: ebafa68d06a13d5936a48e2020b8594fd5546daa
+          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          LAUNCH_QA_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LAUNCH_QA_EVENT: ${{ github.event_name }}
         run: |
-          set -u
-          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
           git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
-          BUILT=$(git rev-parse HEAD)
-          CHANGED=$(git diff --name-only "$LAUNCH_QA_CANDIDATE_SHA" HEAD 2>/dev/null || echo "__candidate_unavailable__")
-          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
-          DIRTY=$(git diff --name-only HEAD)
-          VERIFIED=false; [ -z "$OUTSIDE" ] && [ -z "$DIRTY" ] && VERIFIED=true
-          APPTREE=$(git rev-parse "$LAUNCH_QA_CANDIDATE_SHA^{tree}" 2>/dev/null || echo unknown)
-          node -e 'const [o,c,b,t,v,ch,out,d]=process.argv.slice(1); require("fs").writeFileSync(o+"/identity.json", JSON.stringify({applicationSha:c, applicationTree:t, builtCommit:b, verified:v==="true", filesDifferingFromCandidate:ch.split("\n").filter(Boolean), outsideAllowedQaFiles:out.split("\n").filter(Boolean), trackedModificationsBeforeBuild:d.split("\n").filter(Boolean)}, null, 2))' "$OUT" "$LAUNCH_QA_CANDIDATE_SHA" "$BUILT" "$APPTREE" "$VERIFIED" "$CHANGED" "$OUTSIDE" "$DIRTY"
-          cat "$OUT/identity.json"
-          [ "$VERIFIED" = true ]
+          node research/launch-qa/ci/recordProvenance.mjs real-app-evidence/launch-qa
 
       - name: Launch-acceptance browser smoke (BLACK, evidence; synthetic driver and primitive check only, establishes no journey)
         if: always()
@@ -418,7 +411,8 @@ jobs:
       - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: ebafa68d06a13d5936a48e2020b8594fd5546daa
+          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
           LAUNCH_QA_PAYMENTS: "1"
         run: |
@@ -441,6 +435,10 @@ jobs:
       - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
         if: always()
         run: node research/launch-qa/ci/launchQaGate.mjs real-app-evidence/launch-qa
+
+      - name: Landing browser checks (landing PR 145 sample review on the same checkout; local build with an unreachable placeholder backend, loopback only, 320 390 and 1280 px)
+        if: always()
+        run: node scripts/browser-acceptance/landingSample.mjs real-app-evidence/landing
 
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
