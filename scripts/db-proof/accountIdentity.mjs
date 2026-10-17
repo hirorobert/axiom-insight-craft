@@ -138,6 +138,83 @@ async function main() {
   await review(U.ownerA, A, upA, [decision("4000", "Sales", "other_income", "income_statement", "credit")]);
   const before = (await one(FINGERPRINT)).fp;
 
+  // The hosted database carries the 20260703100000 indexes under names no migration here creates (uq_mappings_company_code,
+  // uq_mappings_company_name). The repair identifies every account-identity index by its DEFINITION. Each scenario runs in
+  // one transaction on the owner connection and is rolled back, so the chain below is untouched.
+  group("Hosted shape — identity by definition, never by name (each scenario rolled back)");
+  const repairSql = migrationSql(REPO, REPAIR_FILE);
+  const IDX = "SELECT string_agg(indexname || '=' || indexdef, ' | ' ORDER BY indexname) s FROM pg_indexes WHERE schemaname='public' AND tablename='account_mappings'";
+  const HOSTED_NAMES = "ALTER INDEX public.uq_acct_map_company_code RENAME TO uq_mappings_company_code; ALTER INDEX public.uq_acct_map_company_norm_name RENAME TO uq_mappings_company_name;";
+  const inTx = async (fn) => { await admin.query("BEGIN"); try { return await fn(); } finally { await admin.query("ROLLBACK"); } };
+  const defOf = async (name) => (await admin.query("SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname=$1", [name])).rows[0]?.indexdef ?? null;
+  const reviewTx = async (uid, company, upload, decisions) => {
+    await admin.query("SAVEPOINT rv");
+    try {
+      await admin.query("SET LOCAL ROLE authenticated");
+      await admin.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]);
+      const r = (await admin.query("SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb) r", [company, upload, uuid(), JSON.stringify(decisions)])).rows[0].r;
+      await admin.query("RESET ROLE"); await admin.query("RELEASE SAVEPOINT rv"); return r;
+    } catch (e) { await admin.query("ROLLBACK TO SAVEPOINT rv"); await admin.query("RESET ROLE"); throw e; }
+  };
+  const refusedTx = (name, mutation, text) => check(name, () => inTx(async () => {
+    await admin.query(mutation);
+    const pre = (await admin.query(IDX)).rows[0].s;
+    await admin.query("SAVEPOINT ap");
+    let err = null;
+    try { await admin.query(repairSql); } catch (e) { err = e; }
+    await admin.query("ROLLBACK TO SAVEPOINT ap");
+    const post = (await admin.query(IDX)).rows[0].s;
+    return err?.code === "P0001" && String(err.message).includes(text) && pre === post ? true : { code: err?.code, message: err?.message, unchanged: pre === post };
+  }));
+
+  await check("with the HOSTED names: reproduction fails on uq_mappings_company_name; the repair replaces exactly that index, keeps uq_mappings_company_code and the key byte-identical, and 4100 \"Sales\" is then reviewed", () => inTx(async () => {
+    await admin.query(HOSTED_NAMES);
+    let reproduced = false;
+    try { await reviewTx(U.ownerA, A, upA, [decision("4100", "Sales")]); } catch (e) { reproduced = e.code === "23505" && String(e.message).includes("uq_mappings_company_name"); }
+    const code0 = await defOf("uq_mappings_company_code"), key0 = await defOf("uq_acct_map_company_key"), fp0 = (await admin.query(FINGERPRINT)).rows[0].fp;
+    await admin.query(repairSql);
+    const fpSame = (await admin.query(FINGERPRINT)).rows[0].fp === fp0;
+    const ok = reproduced && fpSame && (await defOf("uq_mappings_company_name")) === null && (await defOf("uq_acct_map_company_norm_name")) === null
+      && (await defOf("uq_mappings_company_code")) === code0 && (await defOf("uq_acct_map_company_key")) === key0
+      && /NULLS NOT DISTINCT WHERE \(\(account_code IS NULL\) AND \(normalized_account_name IS NOT NULL\)\)/.test((await defOf("uq_acct_map_company_codeless_name")) ?? "");
+    const reviewed = ok ? (await reviewTx(U.ownerA, A, upA, [decision("4100", "Sales")])) !== null : false;
+    const two = Number((await admin.query("SELECT count(*) n FROM public.account_mappings WHERE company_id=$1 AND account_code IN ('4000','4100')", [A])).rows[0].n) === 2;
+    return ok && reviewed && two ? true : { reproduced, fpSame, ok, reviewed, two, idx: (await admin.query(IDX)).rows[0].s };
+  }));
+  await check("hosted names with a NULLS DISTINCT all-names index and a NULLS DISTINCT code index: accepted; the all-names index is replaced, the code index kept", () => inTx(async () => {
+    await admin.query(`${HOSTED_NAMES}
+      DROP INDEX public.uq_mappings_company_name; CREATE UNIQUE INDEX uq_mappings_company_name ON public.account_mappings (company_id, normalized_account_name) WHERE normalized_account_name IS NOT NULL;
+      DROP INDEX public.uq_mappings_company_code; CREATE UNIQUE INDEX uq_mappings_company_code ON public.account_mappings (company_id, account_code) WHERE account_code IS NOT NULL;`);
+    const code0 = await defOf("uq_mappings_company_code");
+    await admin.query(repairSql);
+    return (await defOf("uq_mappings_company_name")) === null && (await defOf("uq_mappings_company_code")) === code0 && (await defOf("uq_acct_map_company_codeless_name")) !== null
+      ? true : (await admin.query(IDX)).rows[0].s;
+  }));
+  await check("both name families present (old and hosted all-names indexes): both are replaced, nothing else changes", () => inTx(async () => {
+    await admin.query("CREATE UNIQUE INDEX uq_mappings_company_name ON public.account_mappings (company_id, normalized_account_name) NULLS NOT DISTINCT WHERE normalized_account_name IS NOT NULL;");
+    await admin.query(repairSql);
+    return (await defOf("uq_mappings_company_name")) === null && (await defOf("uq_acct_map_company_norm_name")) === null && (await defOf("uq_acct_map_company_code")) !== null
+      ? true : (await admin.query(IDX)).rows[0].s;
+  }));
+  await refusedTx("an unrecognised unique index on the name (extra column) refuses everything, nothing changed",
+    "CREATE UNIQUE INDEX uq_mappings_name_statement ON public.account_mappings (company_id, normalized_account_name, statement);", "not a recognised account-identity definition");
+  await refusedTx("an all-names-like index with another predicate refuses everything, nothing changed",
+    `${HOSTED_NAMES} DROP INDEX public.uq_mappings_company_name; CREATE UNIQUE INDEX uq_mappings_company_name ON public.account_mappings (company_id, normalized_account_name) WHERE account_code IS NOT NULL;`, "not a recognised account-identity definition");
+  await refusedTx("reversed key columns refuse everything, nothing changed",
+    `${HOSTED_NAMES} DROP INDEX public.uq_mappings_company_name; CREATE UNIQUE INDEX uq_mappings_company_name ON public.account_mappings (normalized_account_name, company_id) WHERE normalized_account_name IS NOT NULL;`, "not a recognised account-identity definition");
+  await refusedTx("a non-default collation on the all-names index refuses everything, nothing changed",
+    `${HOSTED_NAMES} DROP INDEX public.uq_mappings_company_name; CREATE UNIQUE INDEX uq_mappings_company_name ON public.account_mappings (company_id, normalized_account_name COLLATE "POSIX") WHERE normalized_account_name IS NOT NULL;`, "not valid, plain and default");
+  await refusedTx("an INVALID all-names index refuses everything, nothing changed",
+    `${HOSTED_NAMES} UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'public.uq_mappings_company_name'::regclass;`, "not valid, plain and default");
+  await refusedTx("a missing code index refuses everything, nothing changed",
+    `${HOSTED_NAMES} DROP INDEX public.uq_mappings_company_code;`, "account key or code identity index is missing");
+  await refusedTx("a key index without NULLS NOT DISTINCT refuses everything, nothing changed",
+    "DROP INDEX public.uq_acct_map_company_key; CREATE UNIQUE INDEX uq_acct_map_company_key ON public.account_mappings (company_id, account_key);", "not a recognised account-identity definition");
+  await refusedTx("no all-names index at all refuses everything, nothing changed",
+    "DROP INDEX public.uq_acct_map_company_norm_name;", "no all-names identity index to replace");
+  await check("every scenario was rolled back: the chain's indexes and every mapping and decision are unchanged", async () =>
+    (await one(FINGERPRINT)).fp === before && (await defOf("uq_acct_map_company_norm_name")) !== null && (await defOf("uq_acct_map_company_codeless_name")) === null ? true : "changed");
+
   group("Repair — applied over the same database");
   await check(`${REPAIR_FILE} applies and leaves every mapping and decision byte-identical`, async () => {
     await admin.query(migrationSql(REPO, REPAIR_FILE));
