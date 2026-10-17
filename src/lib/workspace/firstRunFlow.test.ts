@@ -56,6 +56,9 @@ describe("launch state machine — durable inputs only", () => {
       emptyStateCta: "Import data",
       frameworkMissing: "Framework not selected",
       scopeEditor: "Manage services",
+      entryHeading: "Check your trial balance",
+      entryDetail: "Upload your trial balance to start. You confirm the entity, period and currency on the same page.",
+      entryAction: "Upload a trial balance",
     });
   });
 });
@@ -222,7 +225,15 @@ describe("UI wiring contracts", () => {
 
   it("Import trial balance persists the choice and reaches the single upload surface; Start without data persists and does NOT navigate", () => {
     expect(overview).toMatch(/dataStart\.record\("import"\)\) navigate\(`\$\{basePath\}\/prepare`\)/);
-    const empty = overview.slice(overview.indexOf("onStartEmpty"), overview.indexOf("onStartEmpty") + 400);
+    // The entry card (one service, Phase 2 §5.1): Start without data persists "empty" — on the engagement it just opened,
+    // or the current one — and never navigates.
+    const entryEmpty = overview.slice(overview.indexOf("onStartEmpty"), overview.indexOf("onStartEmpty") + 700);
+    expect(entryEmpty).toMatch(/recordDataStart\(supabase as unknown as RpcClient, engagementId, "empty", null\)/);
+    expect(entryEmpty).toMatch(/dataStart\.record\("empty"\)/);
+    expect(entryEmpty).not.toMatch(/navigate|<Navigate|window\.location|\/prepare/);
+    // The data-choice card (more than one service): unchanged.
+    const second = overview.indexOf("onStartEmpty", overview.indexOf("onStartEmpty") + 1);
+    const empty = overview.slice(second, second + 400);
     expect(empty).toMatch(/dataStart\.record\("empty"\)/);
     expect(empty).not.toMatch(/navigate|<Navigate|window\.location|\/prepare/);
     expect(choice).toContain("LAUNCH_COPY.primaryAction");

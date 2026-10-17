@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import { ArrowRight, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
+import { FINDING_HEADING, FINDING_ORDER } from "@/lib/workspace/resultStatus";
 
 export const TRIAL_BALANCE_CHECKS_ANCHOR = "trial-balance-checks";
 const MAX_FIXES = 5;
@@ -42,6 +43,7 @@ export function CurrentTrialBalanceCard({
   busy = false,
   onPrimary,
   management,
+  primaryEmphasis = "primary",
 }: {
   fileName: string;
   uploadedAt: string;
@@ -52,6 +54,8 @@ export function CurrentTrialBalanceCard({
   onPrimary: (kind: NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"]) => void;
   /** Replace / Remove as quiet secondary actions (ManageTrialBalance, inline variant). */
   management?: ReactNode;
+  /** Whether the verdict's action leads the page (reviewActionHierarchy): secondary while review decisions are ready to save. */
+  primaryEmphasis?: "primary" | "secondary";
 }) {
   const tone = TONE[verdict.tone];
   const totals = verdict.totals;
@@ -97,18 +101,27 @@ export function CurrentTrialBalanceCard({
         </div>
         <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-foreground" data-testid="trial-balance-reason">{verdict.reason}</p>
         {fixes.length > 0 && (
-          <div className="mt-4 max-w-3xl" data-testid="trial-balance-issues">
-            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground">What to correct in the file</p>
-            <ul className="mt-2 space-y-2">
-              {fixes.slice(0, MAX_FIXES).map((i) => (
-                <li key={`${i.code}-${i.rows.join(",")}`} className="border-l-2 border-destructive/60 pl-3 text-[13px] leading-relaxed text-foreground" data-code={i.code}>
-                  {i.message}
-                </li>
-              ))}
-            </ul>
-            {fixes.length > MAX_FIXES && (
-              <p className="mt-2 text-[12px] text-muted-foreground">and {fixes.length - MAX_FIXES} more — listed under Technical processing details.</p>
-            )}
+          <div className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
+            {/* One group per kind, in order: blocking, needs confirmation, review (resultStatus.ts, §3.5). */}
+            {FINDING_ORDER.map((kind) => {
+              const group = fixes.filter((i) => i.kind === kind);
+              if (group.length === 0) return null;
+              return (
+                <div key={kind} data-finding-kind={kind}>
+                  <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{FINDING_HEADING[kind]}</p>
+                  <ul className="mt-2 space-y-2">
+                    {group.slice(0, MAX_FIXES).map((i) => (
+                      <li key={`${i.code}-${i.rows.join(",")}`} className={`border-l-2 pl-3 text-[13px] leading-relaxed text-foreground ${kind === "blocking" ? "border-destructive/60" : "border-amber-500/70"}`} data-code={i.code}>
+                        {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                  {group.length > MAX_FIXES && (
+                    <p className="mt-2 text-[12px] text-muted-foreground">and {group.length - MAX_FIXES} more — listed under Technical processing details.</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -136,9 +149,11 @@ export function CurrentTrialBalanceCard({
           {verdict.primaryAction && (
             <Button
               size="lg"
+              variant={primaryEmphasis === "primary" ? "default" : "outline"}
               disabled={busy}
               onClick={() => onPrimary(verdict.primaryAction!.kind)}
               data-testid="trial-balance-primary-action"
+              data-action-emphasis={primaryEmphasis}
               className="h-auto min-h-11 w-full whitespace-normal rounded-none px-5 py-2.5 text-left text-[14px] font-semibold leading-snug shadow-none sm:w-auto"
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : ACTION_ICON[verdict.primaryAction.kind]}

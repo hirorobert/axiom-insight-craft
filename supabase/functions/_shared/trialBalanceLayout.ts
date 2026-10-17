@@ -27,6 +27,7 @@ import { processingEntitlementRefusal } from "./paidAction.ts";
 import { PROCESSING_FORBIDDEN, processingRefusal, sourceBindingRefusal } from "./uploadLifecycle.ts";
 import { detectColumns, formatMinor, TB_INGESTION_VERSION, type Cell, type IngestResult, type SourceRow } from "./tbIngestion.ts";
 import { readSourceTables, readTrialBalanceSourceWithLayout, type XlsxLike } from "./tbSource.ts";
+import { checkSourceBytesActual } from "./uploadPolicy.ts";
 
 export interface LayoutUpload {
   id: string;
@@ -96,6 +97,9 @@ async function openUpload(deps: LayoutDeps, userId: string, uploadId: unknown):
   if (unbound) return { ok: false, response: { status: 409, body: { ...unbound } } };
   const bytes = upload.file_path ? await deps.download(upload.file_path) : null;
   if (!bytes) return { ok: false, response: { status: 503, body: { status: "unavailable", code: "SOURCE_UNAVAILABLE", message: "The file could not be read right now. Nothing was changed; try again shortly." } } };
+  // The upload policy on the actual bytes before any reader (the same gate process-trial-balance runs).
+  const policyIssue = await checkSourceBytesActual(bytes, upload.file_name ?? "");
+  if (policyIssue) return { ok: false, response: { status: 422, body: { status: "refused", code: policyIssue.code, message: policyIssue.message } } };
   return { ok: true, upload: upload as LayoutUpload & { company_id: string }, bytes, sourceFileHash: await sha256HexBytes(bytes) };
 }
 

@@ -69,7 +69,11 @@ describe("the verdict reads what the exact ingestion core recorded", () => {
         { id: "zzz", label: "x", status: "exploded" },
       ],
     } };
-    expect(readIngestionIssues(pr)).toEqual([{ code: "DUPLICATE_ACCOUNT_CODE", message: "Account code 1000 appears on rows 2, 3.", rows: [2, 3] }]);
+    // Ordered blocking → needs confirmation → review (§3.5); review findings are read too (§3.6); malformed entries never.
+    expect(readIngestionIssues(pr)).toEqual([
+      { code: "DUPLICATE_ACCOUNT_CODE", message: "Account code 1000 appears on rows 2, 3.", rows: [2, 3], kind: "blocking" },
+      { code: "X", message: "not blocking", rows: [], kind: "review" },
+    ]);
     expect(readMilestones(pr)).toEqual([
       { id: "read", label: "File read", status: "passed", detail: "25 rows" },
       { id: "rows", label: "Every row accounted for", status: "failed", detail: null },

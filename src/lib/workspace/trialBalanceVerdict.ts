@@ -37,7 +37,9 @@
 
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
-import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold } from "./computeCertificationReadiness";
+import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold, constrainChecksByIngestion } from "./computeCertificationReadiness";
+import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
+import { FINDING_ORDER, findingKind, openFindingWord, type FindingKind } from "./resultStatus";
 
 /**
  * What a reviewed trial balance establishes, stated without a blanket "every check passed": debit/credit parity and
@@ -54,7 +56,9 @@ export const reviewedScope = (equationExact: boolean): string => (equationExact 
 /** Presentation-only row (not a stored check): the statement equation for a result that records no equation failure. */
 export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
 /** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
-export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this legacy result.";
+export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this result. Reprocess to apply current checks.";
+
+export { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
 /** The statement equation proven by the stored result's exact amounts (tb-amounts/1, recomputed on read). */
 export const EQUATION_HOLDS_EXACTLY = "Holds exactly: assets equal liabilities + equity + income − expenses, to the minor unit.";
 
@@ -225,18 +229,51 @@ export interface TrialBalanceIssue {
   code: string;
   message: string;
   rows: number[];
+  /** Blocking, needs confirmation or review (resultStatus.ts); the list is ordered by it. */
+  kind: FindingKind;
 }
 
-/** The blocking issues the server recorded for this file, each already a plain sentence naming its rows. */
+/**
+ * The findings the server recorded for this file, each already a plain sentence naming its rows, ordered blocking →
+ * needs confirmation → review (§3.5). Anything without a recognised severity is not shown.
+ */
 export function readIngestionIssues(processingResult: unknown): TrialBalanceIssue[] {
   const issues = record(record(processingResult)?.ingestion)?.issues;
   if (!Array.isArray(issues)) return [];
-  return issues.flatMap((i) => {
+  const read = issues.flatMap((i) => {
     const r = record(i);
-    if (!r || r.severity !== "blocking" || typeof r.code !== "string" || typeof r.message !== "string") return [];
+    const kind = r ? findingKind(r.severity, r.code) : null;
+    if (!r || !kind || typeof r.code !== "string" || typeof r.message !== "string") return [];
     const rows = Array.isArray(r.rows) ? r.rows.filter((n): n is number => Number.isInteger(n)) : [];
-    return [{ code: r.code, message: r.message, rows }];
+    return [{ code: r.code, message: r.message, rows, kind }];
   });
+  return FINDING_ORDER.flatMap((k) => read.filter((i) => i.kind === k));
+}
+
+export const REFUSED_BEFORE_CHECKS = "Not run: the file was refused before any check.";
+
+/**
+ * The blocking issues of a REFUSED file, or null. A refusal is exactly the INGESTION_REFUSED outcome: the upload records
+ * status "blocked", zero accepted accounts and the blocking ingestion issues that named the reason, while no certification
+ * is in force (pending: never certified; stale: an earlier certification no longer applies). A blocking CERTIFICATION
+ * (for example an imbalance) has a certification and is not a refusal.
+ */
+export function refusedFileIssues(processingResult: unknown, status: string, verdict: PreflightVerdict | undefined): TrialBalanceIssue[] | null {
+  if (status !== "blocked" || (verdict !== "pending" && verdict !== "stale")) return null;
+  if (record(record(processingResult)?.summary)?.total_accounts !== 0) return null;
+  const blocking = readIngestionIssues(processingResult).filter((i) => i.kind === "blocking");
+  return blocking.length > 0 ? blocking : null;
+}
+
+/** One plain sentence counting open non-blocking findings; each finding is listed in its own group below it. */
+export function findingsSummary(findings: readonly TrialBalanceIssue[]): string {
+  const n = (k: FindingKind) => findings.filter((i) => i.kind === k).length;
+  const items = (c: number) => `${c} item${c === 1 ? "" : "s"}`;
+  const parts = [
+    ...(n("needs_confirmation") ? [`${items(n("needs_confirmation"))} need${n("needs_confirmation") === 1 ? "s" : ""} your confirmation`] : []),
+    ...(n("review") ? [`${items(n("review"))} ${n("review") === 1 ? "is" : "are"} for review`] : []),
+  ];
+  return `${parts.join(" and ")}. The checks passed; this does not change what the result unlocks.`;
 }
 
 export type MilestoneState = "passed" | "failed" | "needs_review" | "not_reached";
@@ -364,7 +401,7 @@ export interface TrialBalanceVerdictInput {
 const RUNNING = new Set(["pending", "processing", "queued", "validating"]);
 
 const CHECK_TEXT: Record<string, { label: string; passed: string }> = {
-  l1_structure: { label: "File read", passed: "Every row was read and totalled." },
+  l1_structure: { label: "File read", passed: "The file was read successfully." },
   l2_data_quality: { label: "Amounts are valid", passed: "Every amount is a valid number." },
   l3_arithmetic: { label: "Debits equal credits", passed: "Total debits equal total credits." },
   l4_classification: { label: "Every account classified", passed: "Every account has a classification." },
@@ -388,6 +425,7 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   else if (c.state === "passed" && text) detail = text.passed;
   else if (/NO_PRIOR/.test(c.detail)) detail = "No accepted prior-year trial balance to compare with.";
   else if (c.id === "l5_supporting_evidence" && (c.state === "pending" || /NOT_EVALUATED|NO_EVIDENCE/.test(c.detail))) detail = "Not required for a reviewed trial balance.";
+  else if (c.state === "pending" && c.detail.startsWith("Not completed:")) return { id: c.id, label, state: "pending", notEvaluated: true, detail: c.detail };
   else if (c.state === "pending" || /NOT_EVALUATED/.test(c.detail)) detail = "Waiting for processing to finish.";
   else if (c.id === "l3_arithmetic" && label === LAYER3_LABEL.parity && totals && isOutOfBalance(totals)) {
     detail = `Debits ${formatTotal(totals, totals.debitCents)} and credits ${formatTotal(totals, totals.creditCents)} differ by ${formatTotal(totals, Math.abs(totals.differenceCents))}.`;
@@ -416,7 +454,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const subjectMismatch = !!upload?.id && input.readinessSubject !== undefined
     && input.readinessSubject !== uploadSubjectKey({ id: upload.id, version: upload.version, source_file_hash: upload.source_file_hash });
   // A result read for another upload (or an earlier version of this one) is never shown as this upload's checks.
-  const layerChecks = subjectMismatch ? [] : input.readiness?.checks ?? [];
+  const layerChecks = subjectMismatch ? [] : constrainChecksByIngestion(input.readiness?.checks ?? [], upload?.processing_result);
   // What the stored result itself recorded about the statement equation (passed === false, or an unreadable value) holds
   // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
   // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
@@ -462,9 +500,38 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
     return { ...base, status: "checking", statusLabel: "Checking", tone: "neutral", reason: "The result for this file is being confirmed.", primaryAction: null };
   }
 
+  // A REFUSED file (process-trial-balance INGESTION_REFUSED): the check finished and refused the file as a whole, by name,
+  // accepting no account, so nothing was certified and the lifecycle stays as its authority derives it. It is a final
+  // answer — Blocked, the recorded reason, a new file — never "being confirmed", and no check is named as failed (none ran).
+  const refusal = refusedFileIssues(upload.processing_result, status, input.readiness?.verdict);
+  if (refusal) {
+    const readFailed = milestones.some((m) => m.id === "read" && m.status === "failed");
+    return {
+      ...base, status: "blocked", statusLabel: "Blocked", tone: "danger", issues: refusal, failedCheckId: null, balanceStatement: null,
+      reason: refusal[0].message,
+      checks: checks.map((c) => ({ ...c, state: "pending" as const, notEvaluated: true, detail: REFUSED_BEFORE_CHECKS })),
+      informational: [],
+      // Only a record that stops where the refusal happened is shown; an earlier record that listed later steps for a
+      // refused file (no totals recorded as a failed balance) is not repeated.
+      milestones: readFailed ? milestones : [],
+      primaryAction: { kind: "replace", label: "Replace with corrected Trial Balance" },
+    };
+  }
+
   const verdict = input.readiness?.verdict;
   switch (verdict) {
-    case "certified":
+    case "certified": {
+      // Open non-blocking findings (§3.3 confirmation, §3.6 review rules) decide the words, in order: needs confirmation,
+      // then review. They are recorded on layer 2 as warnings; they never change what the certification unlocks.
+      const findings = issues.filter((i) => i.kind !== "blocking");
+      const openKind = findings.some((i) => i.kind === "needs_confirmation") ? "needs_confirmation" as const : findings.length ? "review" as const : null;
+      const onlyFindings = !!openKind && !classificationOpen && checks.every((c) => c.state === "passed" || (c.id === "l2_data_quality" && c.state === "review"));
+      if (onlyFindings && openKind) {
+        return {
+          ...base, status: "needs_review", statusLabel: openFindingWord(openKind), tone: "warning", issues: findings,
+          reason: findingsSummary(findings), failedCheckId: checks.some((c) => c.state === "review") ? "l2_data_quality" : null, primaryAction: null,
+        };
+      }
       // "Reviewed" only when no check needs review or failed — a contradictory certification is never shown as reviewed.
       if (failed) {
         return {
@@ -473,11 +540,25 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
           primaryAction: classificationOpen ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
         };
       }
+      if (checks.some(c => c.state === "pending")) {
+        return { ...base, status: "checking", statusLabel: "Checks incomplete", tone: "warning", reason: "The processing record does not show that all required checks completed. Reprocess the file before continuing.", primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null };
+      }
+      if (!hasMilestoneRecord(upload.processing_result)) {
+        // An earlier version's accepted result: its record and approvals stand, but it does not show today's checks as
+        // passed. Reprocessing creates a new version through the existing authority; nothing here rewrites history.
+        return {
+          ...base, status: "accepted", statusLabel: EARLIER_VERSION_LABEL, tone: "neutral", reason: EARLIER_VERSION_REASON,
+          checks: checks.map((c) => (c.state === "passed" ? { ...c, neutral: true, detail: EARLIER_VERSION_REASON } : c)),
+          informational: informational.filter((c) => c.id !== STATEMENT_EQUATION_NOTE_ID),
+          balanceStatement: null, primaryAction: null,
+        };
+      }
       return {
         ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
         reason: `${REVIEWED_TRIAL_BALANCE}. ${reviewedScope(recordedEquation === "exact")} It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
         primaryAction: null,
       };
+    }
     case "blocked":
       return {
         ...base, status: "blocked", statusLabel: "Blocked", tone: "danger", issues,

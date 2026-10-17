@@ -251,50 +251,54 @@ async function main() {
     return { id: data.company_id };
   })();
   await signInAs(U.fresh);
-  await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — and one next step: choose a plan", async () => {
-    await go("/dashboard", "Choose a plan to begin");
+  await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — one next step (the upload, with the plan stated and 'View plans' beside it; Phase 2 P2-4)", async () => {
+    await go("/dashboard", "Check your trial balance");
     const t = await page.bodyText();
-    const kind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
-    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
+    const needsPlan = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-needs-plan"]'));
+    const viewPlans = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-view-plans"]'));
+    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"], [data-testid="first-upload-choose"]').length);
     const disabled = await page.evaluate(() => [...document.querySelectorAll("button[disabled]")].map((b) => b.innerText.trim()));
     const api = await apiAs(U.fresh);
     const companies = (await api.from("companies").select("id")).data ?? [];
     const noPlanCount = (t.match(/No active plan/g) ?? []).length;
-    return kind === "choose_plan" && primaries === 1 && disabled.length === 0 && companies.length === 0 && noPlanCount <= 1
+    return needsPlan && viewPlans && primaries === 1 && disabled.length === 0 && companies.length === 0 && noPlanCount <= 1
       && !t.includes(`Owner Co ${run}`) && !/demonstration|Your engagements\s*\n\s*\d+ open/i.test(t)
-      ? true : { kind, primaries, disabled, companies: companies.length, noPlanCount, text: t.slice(0, 600) };
+      ? true : { needsPlan, viewPlans, primaries, disabled, companies: companies.length, noPlanCount, text: t.slice(0, 600) };
   });
-  await check("one signed-in frame: Home, Plans, Orders, Settings and Sign out on the home, the plans and the orders pages; no public 'Sign in'", async () => {
+  await check("one signed-in frame: Home, Plans, Billing, Settings and Sign out on the home, the plans and the billing pages (the old orders address redirects); no public 'Sign in'", async () => {
     const seen = {};
-    for (const route of ["/dashboard", "/plans", "/billing/orders"]) {
+    for (const route of ["/dashboard", "/plans", "/billing/orders", "/settings/billing"]) {
       await go(route);
       await page.waitFor(() => !!document.querySelector('[data-testid="account-shell"]'), [], { label: `account shell on ${route}` });
       const nav = await page.evaluate(() => [...document.querySelectorAll('nav[aria-label="Account"] a, nav[aria-label="Account"] button')].map((e) => e.innerText.trim()).filter(Boolean));
       const signIn = await page.evaluate(() => [...document.querySelectorAll("a")].some((a) => a.innerText.trim() === "Sign in"));
       seen[route] = { nav, signIn };
     }
-    return Object.values(seen).every((s) => ["Home", "Plans", "Orders", "Settings", "Sign out"].every((n) => s.nav.includes(n)) && !s.signIn) ? true : seen;
+    return Object.values(seen).every((s) => ["Home", "Plans", "Billing", "Settings", "Sign out"].every((n) => s.nav.includes(n)) && !s.signIn) ? true : seen;
   });
-  await check("keyboard: Tab reaches the skip link first and then the one primary action; Enter on it opens the plans", async () => {
-    await go("/dashboard", "Choose a plan to begin");
+  await check("keyboard: Tab reaches the skip link first, then 'View plans' and the one primary action (choose a file); Enter on 'View plans' opens the plans", async () => {
+    await go("/dashboard", "Check your trial balance");
     await page.press("Tab");
     const first = await page.evaluate(() => document.activeElement?.innerText?.trim());
-    let reached = false;
-    for (let i = 0; i < 20 && !reached; i++) {
+    let reached = false, primary = false;
+    for (let i = 0; i < 25 && !(reached && primary); i++) {
       await page.press("Tab");
-      reached = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") === "next-action-primary");
+      const id = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
+      if (id === "first-upload-choose") primary = true;
+      if (id === "first-upload-view-plans") reached = true;
     }
-    if (!reached) return { first, reached };
+    if (!reached || !primary) return { first, reached, primary };
+    await page.evaluate(() => document.querySelector('[data-testid="first-upload-view-plans"]').focus());
     await page.press("Enter");
     await page.waitFor(() => location.pathname === "/plans", [], { label: "plans opened by keyboard" });
     return first === "Skip to content" ? true : { first };
   });
   await check("home at 1280 and 375 px (fresh account): no sideways scrolling", async () => {
-    await go("/dashboard", "Choose a plan to begin");
+    await go("/dashboard", "Check your trial balance");
     return widths("00-fresh-home");
   });
-  await go("/dashboard", "Choose a plan to begin");
-  await page.click('[data-testid="next-action-primary"]');
+  await go("/dashboard", "Check your trial balance");
+  await page.click('[data-testid="first-upload-view-plans"]');
   await page.waitFor(() => location.pathname === "/plans", [], { label: "plans from the next step" });
   await check("plans (online payment closed, no approved price): 'Proposed', payment shown as unavailable with Contact support — no checkout link, no manual activation, no TZS, no mobile money", async () => {
     await page.waitForText("Choose your plan");
@@ -314,9 +318,9 @@ async function main() {
   await check("back navigation and refresh return to the same home and the same next step", async () => {
     await page.evaluate(() => history.back());
     await page.waitFor(() => location.pathname === "/dashboard", [], { label: "back to home" });
-    await page.waitForText("Choose a plan to begin");
+    await page.waitForText("Check your trial balance");
     await page.evaluate(() => location.reload());
-    await page.waitForText("Choose a plan to begin");
+    await page.waitForText("Check your trial balance");
     return true;
   });
   await check("a failed plan read is a retriable step (never 'no plan'); Try again recovers once the request succeeds", async () => {
@@ -325,7 +329,7 @@ async function main() {
     const failedKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
     await page.send("Network.setBlockedURLs", { urls: [] });
     await page.click('[data-testid="next-action-primary"]');
-    await page.waitForText("Choose a plan to begin");
+    await page.waitForText("Check your trial balance");
     return failedKind === "retry" ? true : { failedKind };
   });
   await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame; payment unavailable, Try again and Contact support", async () => {
@@ -358,9 +362,11 @@ async function main() {
     return outcome !== "created" && outcome !== "already_created" && theirs.length === 0 && !capAccess && mine.length === 0
       ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
   });
-  await check("with a plan granted by an administrator: the next step becomes 'Add your first company', the form is on the home, and creating one opens its workspace", async () => {
+  await check("with a plan granted by an administrator: the home offers the first upload (Phase 2 P2-3) and the company form as the secondary; creating one opens its workspace", async () => {
     await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
-    await go("/dashboard", "Add your first company");
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload"]');
+    await page.click('[data-testid="add-company"]');
     await page.waitForSelector('[data-testid="add-company-form"]');
     await page.fill("#fr-org", `Fresh Co ${run}`);
     await page.click("#fr-currency");
@@ -630,18 +636,28 @@ async function main() {
     return { status: res.status, body: await res.json().catch(() => null) };
   };
   let oldIntent = null, replacement = null;
-  await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt sends it to review, and the administrator resolves it as uncharged", async () => {
+  await check("a card checkout is created (the mock Polar session is open), then passes CFOClose's local expiry; a new attempt is refused (409 OPEN_CHECKOUT_UNFINISHED, 20261105100000) and writes nothing: the old intent stays PENDING with its session", async () => {
     const first = await createCheckout();
     [oldIntent] = await intentsOf(U.late);
     // Time travel for the test only: CFOClose's own one-hour expiry passes while the provider session stays open.
     await admin.from("payment_checkout_intents").update({ expires_at: new Date(Date.now() - 60_000).toISOString() }).eq("id", oldIntent.id);
     const blocked = await createCheckout();
-    const reviewed = (await intentsOf(U.late))[0].status;
+    const after = await intentsOf(U.late);
+    return first.status === 200 && oldIntent?.provider === "POLAR" && !!mock.checkouts.get(oldIntent.provider_checkout_ref)
+      && blocked.status === 409 && blocked.body?.error === "OPEN_CHECKOUT_UNFINISHED" && blocked.body?.previousSaffReference === oldIntent.saff_reference
+      && after.length === 1 && after[0].status === "PENDING" && after[0].provider_checkout_ref === oldIntent.provider_checkout_ref
+      ? true : { first, blocked, after: after.map((i) => i.status) };
+  });
+  await check("the one remaining way such an intent closes while its session stays payable: the provider result is recorded as uncertain (MANUAL_REVIEW), then the administrator resolves it as uncharged", async () => {
+    // Test setup: the mock cannot drop its own response, so record the outcome the real path writes when Polar created the
+    // session but CFOClose could not record the result (mark_checkout_attempt_uncertain: status MANUAL_REVIEW + reason).
+    const meta = (await admin.from("payment_checkout_intents").select("metadata").eq("id", oldIntent.id).single()).data?.metadata ?? {};
+    await admin.from("payment_checkout_intents").update({ status: "MANUAL_REVIEW",
+      metadata: { ...meta, uncertain_reason: "PROVIDER_RESULT_PERSISTENCE_UNCERTAIN", uncertain_at: new Date().toISOString() } }).eq("id", oldIntent.id);
     const ops = await apiAs(U.admin);
     const { error } = await ops.rpc("admin_resolve_manual_review_intent", { p_checkout_intent_id: oldIntent.id, p_resolution: "CONFIRMED_UNCHARGED_CANCEL", p_reason: "no payment seen when reviewed" });
     const closed = (await intentsOf(U.late))[0].status;
-    return first.status === 200 && oldIntent?.provider === "POLAR" && !!mock.checkouts.get(oldIntent.provider_checkout_ref) && blocked.status >= 400 && reviewed === "MANUAL_REVIEW" && !error && closed === "CANCELLED"
-      ? true : { first, blocked, reviewed, error: error?.message, closed };
+    return !error && closed === "CANCELLED" && !!mock.checkouts.get(oldIntent.provider_checkout_ref) ? true : { error: error?.message, closed };
   });
   await check("a replacement checkout then starts; the old session is still payable at the provider", async () => {
     const r = await createCheckout();

@@ -512,6 +512,7 @@ async function main() {
   const { createHash } = await import("node:crypto");
   const sha = (b) => createHash("sha256").update(b).digest("hex");
   const bucket = new Map();
+  const storing = new Map(); // path → the in-flight upload (Storage serialises uploads of one path)
   const serviceRpc = async (fn, args) => {
     const keys = Object.keys(args);
     try {
@@ -528,8 +529,20 @@ async function main() {
   const dropObject = async (p) => { bucket.delete(p); await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]); };
   const deps = {
     rpc: serviceRpc,
-    // No overwrite: check-and-reserve in one tick, then record the object.
-    put: async (p, b) => { if (bucket.has(p)) return { error: { message: "exists" } }; bucket.set(p, b); await storeObject(p, b); return { error: null }; },
+    // No overwrite, as Supabase Storage (upsert: false): a second upload of the same path waits for the first to finish
+    // and is then refused; the object (bytes AND its storage.objects row) becomes visible only once complete. (Before,
+    // this model exposed the bytes before the row existed — a window real Storage does not have — which is how CI saw
+    // one 'object_missing' among 12 concurrent generations.)
+    put: async (p, b) => {
+      if (storing.has(p)) { await storing.get(p); return { error: { message: "exists" } }; }
+      if (bucket.has(p)) return { error: { message: "exists" } };
+      let done; storing.set(p, new Promise((r) => { done = r; }));
+      try { await admin.query("DELETE FROM storage.objects WHERE bucket_id='reporting-packs' AND name=$1", [p]);
+            await admin.query("INSERT INTO storage.objects (bucket_id, name, metadata) VALUES ('reporting-packs', $1, $2::jsonb)", [p, JSON.stringify({ size: b.byteLength, mimetype: "application/json" })]);
+            bucket.set(p, b); }
+      finally { storing.delete(p); done(); }
+      return { error: null };
+    },
     remove: async (p) => dropObject(p),
     get: async (p) => bucket.get(p) ?? null,
     sha256Hex: async (b) => sha(b),
@@ -791,6 +804,244 @@ async function main() {
     const out = await Promise.all(Array.from({ length: CONCURRENCY }, () => official(pk.uid, i.issuance_id).then((r) => r.body.outcome)));
     return out.filter((o) => o === "sealed").length === 1 && out.filter((o) => o === "already_sealed").length === CONCURRENCY - 1 && (await sealsOf(i.issuance_id)) === 1
       ? true : JSON.stringify(out);
+  });
+  await check("a request whose seal fails while another request's seal is committing never removes the object: one seal, its object intact", async () => {
+    // Deterministic interleaving (repair C). W seals inside a transaction held open after its in-database object check;
+    // meanwhile L, for the same issuance, finds the canonical object, and its own seal call fails (a timeout). Before
+    // the repair, L then removed the object (the issuance was still unsealed from where L stood) and W committed a seal
+    // whose stored object was gone.
+    const i = await issueO(pk.uid, pk.co, R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    let release; const gate = new Promise((r) => { release = r; });
+    let inside; const checked = new Promise((r) => { inside = r; });
+    const held = await pool.connect();
+    const wDeps = { ...deps, rpc: async (fn, args) => {
+      if (fn !== "seal_reporting_pack_server") return deps.rpc(fn, args);
+      try {
+        await held.query("BEGIN"); await held.query("SET LOCAL ROLE service_role");
+        const r = await held.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [args.p_user, args.p_issuance_id, args.p_storage_path]);
+        inside(); await gate; await held.query("COMMIT");
+        return { data: r.rows[0].r, error: null };
+      } catch (e) { await held.query("ROLLBACK").catch(() => {}); inside(); return { data: null, error: e }; }
+    } };
+    const lDeps = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    const w = issueOfficialPack(wDeps, { userId: pk.uid, issuanceId: i.issuance_id });
+    await checked;
+    const l = await issueOfficialPack(lDeps, { userId: pk.uid, issuanceId: i.issuance_id });
+    release();
+    const wr = await w; held.release();
+    const v = await verifyStoredPack(deps, i.issuance_id);
+    return wr.body.outcome === "sealed" && l.body.outcome === "seal_failed" && (await sealsOf(i.issuance_id)) === 1 && bucket.has(p) && v.outcome === "intact"
+      ? true : JSON.stringify({ w: wr.body.outcome, l: l.body.outcome, stored: bucket.has(p), v: v.outcome });
+  });
+  await check("a seal refused after the canonical object was stored keeps it as a listed orphan (never official); a retry seals it", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const p = `${pk.co}/${i.issuance_id}.json`;
+    const failing = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    const first = (await issueOfficialPack(failing, { userId: pk.uid, issuanceId: i.issuance_id })).body.outcome;
+    const listed = (await q(SERVICE, "SELECT storage_path FROM public.reporting_pack_storage_orphans()")).map((x) => x.storage_path).includes(p);
+    const notOfficial = (await edgeVerify(pk.uid, i.issuance_id)).official === false;
+    const retry = (await official(pk.uid, i.issuance_id)).body.outcome;
+    return first === "seal_failed" && listed && notOfficial && retry === "sealed" && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact"
+      ? true : JSON.stringify({ first, listed, notOfficial, retry });
+  });
+  // ── Unsealed canonical objects: private, never official, authority re-checked, cleaned up only when unsealable ──
+  const { sweepReportingPackOrphans, ORPHAN_GRACE_MS } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackOrphans.mjs")).href);
+  const failSeal = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+  const orphanFor = async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const outcome = (await issueOfficialPack(failSeal, { userId: pk.uid, issuanceId: i.issuance_id })).body.outcome;
+    if (outcome !== "seal_failed") throw new Error(`orphan setup: ${outcome}`);
+    return { id: i.issuance_id, path: `${pk.co}/${i.issuance_id}.json` };
+  };
+  const expire = async (id, hoursAgo) => {
+    await admin.query("SET session_replication_role = replica"); // test-only: age the issuance (bypasses its guard)
+    await admin.query(`UPDATE public.reporting_pack_issuances SET expires_at = now() - interval '${Number(hoursAgo)} hours' WHERE id=$1`, [id]);
+    await admin.query("SET session_replication_role = origin");
+  };
+  let removeFails = false;
+  const sweepDeps = {
+    listOrphans: async () => q(SERVICE, "SELECT storage_path, created_at FROM public.reporting_pack_storage_orphans()"),
+    issuance: async (id) => (await admin.query("SELECT expires_at, consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [id])).rows[0] ?? null,
+    remove: async (p) => { if (removeFails) return { error: { message: "storage unavailable" } }; await dropObject(p); return { error: null }; },
+  };
+  await check("an unsealed canonical object is private: the bucket is not public and no storage policy lets a client read it", async () => {
+    const pub = (await admin.query("SELECT public FROM storage.buckets WHERE id='reporting-packs'")).rows[0]?.public;
+    const policies = (await admin.query("SELECT policyname FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND (coalesce(qual,'') || coalesce(with_check,'')) LIKE '%reporting-packs%'")).rows.map((r) => r.policyname);
+    return pub === false && policies.length === 0 ? true : JSON.stringify({ pub, policies });
+  });
+  await check("it is never official, for anyone, and a retry RE-CHECKS authority: a downgraded account cannot seal its own orphan; restored, the retry seals it", async () => {
+    const a = await account("PRACTICE", 1);
+    const ar = await savedOutput(a.uid, a.co, 2031, DOC);
+    const i = await issueO(a.uid, a.co, ar);
+    const failA = { ...deps, rpc: async (fn, args) => fn === "seal_reporting_pack_server" ? { data: null, error: { message: "timeout" } } : deps.rpc(fn, args) };
+    await issueOfficialPack(failA, { userId: a.uid, issuanceId: i.issuance_id });
+    const p = `${a.co}/${i.issuance_id}.json`;
+    const kept = bucket.has(p), isOfficial = (await edgeVerify(a.uid, i.issuance_id)).official;
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end=now() WHERE id=$1", [a.lic.id]);
+    const downgraded = (await official(a.uid, i.issuance_id)).body.outcome;
+    const sealedWhileDowngraded = await sealsOf(i.issuance_id);
+    await admin.query("UPDATE public.commercial_licences SET status='ACTIVE', effective_end=NULL WHERE id=$1", [a.lic.id]);
+    const restored = (await official(a.uid, i.issuance_id)).body.outcome;
+    return kept && isOfficial === false && downgraded === "entitlement_required" && sealedWhileDowngraded === 0 && restored === "sealed"
+      && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact" ? true : JSON.stringify({ kept, isOfficial, downgraded, sealedWhileDowngraded, restored });
+  });
+  await check("cleanup keeps an orphan whose issuance can still be sealed (unexpired, or expired within the grace period)", async () => {
+    const live = await orphanFor();
+    const recent = await orphanFor(); await expire(recent.id, 0.5);
+    const r = await sweepReportingPackOrphans(sweepDeps);
+    const reasons = Object.fromEntries([...r.kept, ...r.deleted].map((x) => [x.path, x.reason]));
+    return bucket.has(live.path) && bucket.has(recent.path) && reasons[live.path] === "may_still_be_sealed" && reasons[recent.path] === "may_still_be_sealed"
+      ? true : JSON.stringify(reasons);
+  });
+  await check("cleanup deletes an orphan only after its issuance expired + the grace period; the issuance can then never be sealed", async () => {
+    const o = await orphanFor(); await expire(o.id, 2);
+    const r = await sweepReportingPackOrphans(sweepDeps);
+    const retry = (await official(pk.uid, o.id)).body.outcome;
+    return r.deleted.some((x) => x.path === o.path && x.reason === "expired_unsealed") && !bucket.has(o.path) && retry === "expired" && (await sealsOf(o.id)) === 0
+      ? true : JSON.stringify({ r, retry });
+  });
+  await check("historical sealed artefacts are never deleted, even long after their issuance expired", async () => {
+    const i = await issueO(pk.uid, pk.co, R);
+    const sealed = (await official(pk.uid, i.issuance_id)).body.outcome;
+    await expire(i.issuance_id, 24 * 400);
+    await sweepReportingPackOrphans(sweepDeps);
+    return sealed === "sealed" && bucket.has(`${pk.co}/${i.issuance_id}.json`) && (await verifyStoredPack(deps, i.issuance_id)).outcome === "intact" ? true : sealed;
+  });
+  await check("cleanup running WHILE 12 fresh issuances are being sealed deletes none of their objects; every one ends sealed and intact", async () => {
+    const ids = [];
+    for (let k = 0; k < 12; k++) ids.push((await issueO(pk.uid, pk.co, R)).issuance_id);
+    const [outs] = await Promise.all([
+      Promise.all(ids.map((id) => official(pk.uid, id).then((r) => r.body.outcome))),
+      (async () => { for (let k = 0; k < 6; k++) await sweepReportingPackOrphans(sweepDeps); })(),
+    ]);
+    const intact = await Promise.all(ids.map(async (id) => (await verifyStoredPack(deps, id)).outcome));
+    return outs.every((o) => o === "sealed") && intact.every((v) => v === "intact") ? true : JSON.stringify({ outs, intact });
+  });
+  await check("a failed cleanup is reported, deletes nothing, and the next run completes it (idempotent); an object with no issuance follows the same grace", async () => {
+    const o = await orphanFor(); await expire(o.id, 2);
+    const stray = `${pk.co}/${uuid()}.json`;
+    await storeObject(stray, new Uint8Array(Buffer.from("stray")));
+    removeFails = true;
+    const failed = await sweepReportingPackOrphans(sweepDeps);
+    removeFails = false;
+    const stillThere = bucket.has(o.path);
+    const strayRecent = (await sweepReportingPackOrphans(sweepDeps)).kept.find((x) => x.path === stray)?.reason;
+    const later = await sweepReportingPackOrphans(sweepDeps, Date.now() + ORPHAN_GRACE_MS + 60_000);
+    return failed.failed.some((x) => x.path === o.path) && stillThere && !bucket.has(o.path) && strayRecent === "recent"
+      && later.deleted.some((x) => x.path === stray && x.reason === "no_issuance") && !bucket.has(stray)
+      ? true : JSON.stringify({ failed: failed.failed.length, stillThere, strayRecent, later: later.deleted.length });
+  });
+  // ── Expiry semantics for the interim orphan sweep (#149): which clock decides, and when ─────────────────────────────
+  const { orphanDecision } = await import(pathToFileURL(path.join(REPO, "supabase/functions/_shared/reportingPackOrphans.mjs")).href);
+  const pause = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+  const untilExpired = async (id, extraMs = 800) => {
+    const s = Number((await admin.query("SELECT extract(epoch FROM expires_at - clock_timestamp()) s FROM public.reporting_pack_issuances WHERE id=$1", [id])).rows[0].s);
+    await pause(s * 1000 + extraMs);
+  };
+  await check("the only sealing path checks expiry with clock_timestamp() under the issuance row lock; no other function writes issuances; the now()-based consume path is gone", async () => {
+    const refusal = (await admin.query("SELECT pg_get_functiondef('public._reporting_pack_seal_refusal(uuid,uuid)'::regprocedure) d")).rows[0].d;
+    const seal = (await admin.query("SELECT pg_get_functiondef('public.seal_reporting_pack_server(uuid,uuid,text)'::regprocedure) d")).rows[0].d;
+    const consume = (await admin.query("SELECT to_regprocedure('public.consume_reporting_pack_issuance(uuid,uuid,integer,text,text,text)')::text r")).rows[0].r;
+    const writers = (await admin.query(`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public' AND p.prokind = 'f' AND pg_get_functiondef(p.oid) ~* $1 ORDER BY 1`, [String.raw`update\s+public\.reporting_pack_issuances`])).rows.map((r) => r.proname);
+    return /expires_at <= clock_timestamp\(\)/.test(refusal) && /reporting_pack_issuances WHERE id = p_issuance_id FOR UPDATE/.test(seal)
+      && /_reporting_pack_seal_refusal/.test(seal) && consume === null && writers.join() === "seal_reporting_pack_server"
+      ? true : JSON.stringify({ clock: /clock_timestamp/.test(refusal), lock: /FOR UPDATE/.test(seal), consume, writers });
+  });
+  await check("a seal that STARTS before expiry but waits on the issuance row lock until after expiry is refused 'expired'; nothing is sealed", async () => {
+    const o = await orphanFor(); await expire(o.id, -4 / 3600);
+    const holder = await pool.connect(), sealer = await pool.connect();
+    try {
+      const before = (await admin.query("SELECT clock_timestamp() < expires_at b FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0].b;
+      await holder.query("BEGIN"); await holder.query("SELECT 1 FROM public.reporting_pack_issuances WHERE id=$1 FOR UPDATE", [o.id]);
+      await sealer.query("BEGIN"); await sealer.query("SET LOCAL ROLE service_role");
+      const pending = sealer.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path]);
+      await pause(400);
+      const waiting = (await admin.query("SELECT count(*)::int n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%seal_reporting_pack_server%'")).rows[0].n;
+      await untilExpired(o.id);
+      await holder.query("COMMIT");
+      const r = (await pending).rows[0].r; await sealer.query("COMMIT");
+      return before && waiting >= 1 && r.outcome === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ before, waiting, r });
+    } finally { holder.release(); sealer.release(); }
+  });
+  await check("a seal transaction that BEGAN before expiry (its now() fixed then) but checks after expiry is refused: the check reads clock_timestamp(), not the transaction start", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const t0 = (await c.query("SELECT now() t")).rows[0].t;
+      await untilExpired(o.id);
+      const t1 = (await c.query("SELECT now() t")).rows[0].t;
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      await c.query("COMMIT");
+      const exp = (await admin.query("SELECT expires_at FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0].expires_at;
+      return +t0 === +t1 && t0 < exp && r.outcome === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ t0, t1, exp, r });
+    } finally { c.release(); }
+  });
+  await check("the boundary the grace covers: a seal whose check passed BEFORE expiry, still uncommitted after expiry, is unaffected by the sweep (kept, may_still_be_sealed); with zero grace the rule would have deleted it", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const t = Date.now();
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      const sealMs = Date.now() - t;
+      await untilExpired(o.id);
+      const seen = (await admin.query("SELECT expires_at, consumed_at FROM public.reporting_pack_issuances WHERE id=$1", [o.id])).rows[0];
+      const zeroGraceWouldDelete = orphanDecision({ storage_path: o.path, created_at: new Date().toISOString() }, seen, Date.now() + 1, 0).delete;
+      const swept = await sweepReportingPackOrphans(sweepDeps);
+      const kept = swept.kept.some((k) => k.path === o.path && k.reason === "may_still_be_sealed") && bucket.has(o.path);
+      await c.query("COMMIT");
+      const intact = (await verifyStoredPack(deps, o.id)).outcome === "intact";
+      console.log(`        seal statement took ${sealMs} ms (the window the 1 h grace must exceed is the time from this check to its commit)`);
+      return r.outcome === "sealed" && seen.consumed_at === null && zeroGraceWouldDelete && kept && intact ? true : JSON.stringify({ r, seen, zeroGraceWouldDelete, kept, intact, sealMs });
+    } finally { c.release(); }
+  });
+  // ── The barrier (20261110100000): deletion decided under the issuance row lock, never by elapsed time ──────────────
+  const barrier = async (id) => (await q(SERVICE, "SELECT public.reporting_pack_orphan_deletable($1) r", [id]))[0].r;
+  const barrierWaiting = async () => Number((await admin.query("SELECT count(*) n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%reporting_pack_orphan_deletable%'")).rows[0].n);
+  await check("barrier: a seal whose check passed BEFORE expiry, held open past expiry, makes the barrier WAIT; when it commits the barrier answers 'sealed' (never deletable), whatever the elapsed time", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      const r = (await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path])).rows[0].r;
+      await untilExpired(o.id);
+      const pending = barrier(o.id);
+      await pause(500);
+      const waited = await barrierWaiting();
+      await c.query("COMMIT");
+      const answer = await pending;
+      return r.outcome === "sealed" && waited >= 1 && answer === "sealed" && (await sealsOf(o.id)) === 1 && bucket.has(o.path) ? true : JSON.stringify({ r, waited, answer });
+    } finally { c.release(); }
+  });
+  await check("barrier: if that in-flight seal ROLLS BACK, the barrier then answers 'deletable', and any later seal is refused 'expired' (no seal can follow a deletable answer)", async () => {
+    const o = await orphanFor(); await expire(o.id, -3 / 3600);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL ROLE service_role");
+      await c.query("SELECT public.seal_reporting_pack_server($1,$2,$3) r", [pk.uid, o.id, o.path]);
+      await untilExpired(o.id);
+      const pending = barrier(o.id);
+      await pause(500);
+      await c.query("ROLLBACK");
+      const answer = await pending;
+      const later = (await official(pk.uid, o.id)).body.outcome;
+      return answer === "deletable" && later === "expired" && (await sealsOf(o.id)) === 0 ? true : JSON.stringify({ answer, later });
+    } finally { c.release(); }
+  });
+  await check("barrier: 'may_still_be_sealed' before expiry, 'no_issuance' for an unknown id, 'busy' (not a wait without end) when the row lock is held past its timeout", async () => {
+    const live = await orphanFor();
+    const before = await barrier(live.id);
+    const none = await barrier(uuid());
+    const h = await pool.connect();
+    try {
+      await h.query("BEGIN"); await h.query("SELECT 1 FROM public.reporting_pack_issuances WHERE id=$1 FOR UPDATE", [live.id]);
+      const t = Date.now(); const busy = await barrier(live.id); const ms = Date.now() - t;
+      await h.query("ROLLBACK");
+      return before === "may_still_be_sealed" && none === "no_issuance" && busy === "busy" && ms < 15_000 ? true : JSON.stringify({ before, none, busy, ms });
+    } finally { h.release(); }
   });
   await check("verification: official for the workspace's members only (also after the plan ends); unknown bytes never are", async () => {
     const v = await account("PRACTICE", 1);

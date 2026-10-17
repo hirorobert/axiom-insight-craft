@@ -21,13 +21,14 @@
  */
 
 import { useId, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { AccountShell } from "@/components/account/AccountShell";
 import FirstRunEngagement from "@/components/workspace/FirstRunEngagement";
+import FirstUpload from "@/components/workspace/FirstUpload";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { customerCapabilityTitle } from "@/lib/workspace/mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
@@ -58,6 +59,11 @@ export interface AccountHome {
   onCompanyCreated?: (companyId: string, periodYear: number) => void;
   /** Open the creation form on arrival (a first run with room for a company). */
   initialAddOpen?: boolean;
+  /**
+   * Phase 2 P2-3: opens a trial balance's result (the Prepare page). When present, a first run with room for a company
+   * starts with the upload itself (FirstUpload) instead of the company form; the form stays available as a secondary.
+   */
+  onOpenTrialBalance?: (companyId: string, periodYear: number) => void;
 }
 
 const PRIMARY = "h-10 px-5 text-[13px] font-semibold rounded-none shadow-none";
@@ -94,7 +100,10 @@ export default function EngagementHub({
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [addOpen, setAddOpen] = useState(!!account?.initialAddOpen);
+  // Decided before the first render so the creation form never opens beside the first upload (one primary action).
+  const firstUploadOffered = !!account?.onOpenTrialBalance && !!account?.initialAddOpen;
+  const [addOpen, setAddOpen] = useState(!!account?.initialAddOpen && !firstUploadOffered);
+  const navigate = useNavigate();
   const addFormId = useId();
   // Repeated clicks: one request at a time; a failure releases the guard so the user can retry. The guard lives in ONE
   // holder for the life of this component (createFlightHolder): the parent passes a new callback on every render, and
@@ -132,6 +141,16 @@ export default function EngagementHub({
     : null;
   const creation = reads ? companyCreation(reads) : null;
   const canCreate = creation === "allowed" && !!account?.onCompanyCreated;
+  // Phase 2 P2-3/P2-4: the upload is offered from the home. Entities the user can see (the server re-checks authority).
+  const uploadEntities = [...new Map([
+    ...entries.map((e) => [e.companyId, { id: e.companyId, name: e.companyName }] as const),
+    ...companiesWithoutEngagement.map((c) => [c.id, { id: c.id, name: c.name }] as const),
+  ]).values()];
+  const uploadHome: "full" | "full_needs_plan" | "compact" | null = !account?.onOpenTrialBalance || !next ? null
+    : next.kind === "add_company" && canCreate ? "full"
+    : next.kind === "choose_plan" && uploadEntities.length === 0 && sharedWorkspaces.length === 0 ? "full_needs_plan"
+    : uploadEntities.length > 0 && !["checking", "retry"].includes(next.kind) ? "compact"
+    : null;
 
   const renderEntry = (entry: ActiveEngagementEntry) => {
     const nextVisible = isStageCustomerVisible(entry.workspaceState.nextAction.mission);
@@ -213,6 +232,15 @@ export default function EngagementHub({
       {account && next && (
         <section className="mb-10" aria-labelledby="account-home-title">
           <h1 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h1>
+          {uploadHome === "compact" && account.onOpenTrialBalance && (
+            <div className="mb-4">
+              <FirstUpload compact entities={uploadEntities} canCreateEntity={creation === "allowed"} needsPlan={next.kind === "choose_plan"}
+                onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
+            </div>
+          )}
+          {(uploadHome === "full" || uploadHome === "full_needs_plan") && account.onOpenTrialBalance ? (
+            <FirstUpload needsPlan={uploadHome === "full_needs_plan"} onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
+          ) : (
           <NextActionCard
             next={next}
             busy={pending !== null}
@@ -225,6 +253,7 @@ export default function EngagementHub({
             addFormId={addFormId}
             pendingLabel={next.kind === "start_review" && pending === next.engagementId ? "Starting…" : null}
           />
+          )}
         </section>
       )}
       {entries.length > 0 && (

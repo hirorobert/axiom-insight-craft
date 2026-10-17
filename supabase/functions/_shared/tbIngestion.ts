@@ -24,8 +24,9 @@
  */
 
 import { CURRENCY_REGISTRY } from "./currencyRegistry.ts";
+import { PRINTED_FOOTER_RULES, footerRuleFor, isStandalonePageNumber } from "./printedReportMetadata.ts";
 
-export const TB_INGESTION_VERSION = "tb-ingest-3.0.0";
+export const TB_INGESTION_VERSION = "tb-ingest-3.2.0";
 
 export type Cell = string | number | boolean | null | undefined;
 
@@ -36,6 +37,8 @@ export interface SourceRow {
 }
 
 export type IssueCode =
+  // The upload policy (uploadPolicy.ts): resource limits checked before any check runs.
+  | "FILE_TOO_LARGE" | "WORKBOOK_TOO_LARGE_EXPANDED" | "WORKBOOK_TOO_MANY_PARTS" | "TOO_MANY_ROWS" | "TOO_MANY_CELLS" | "TOO_MANY_ACCOUNTS"
   | "FILE_EMPTY"
   | "UNSUPPORTED_FORMAT"
   | "ENCODING_NOT_UTF8"
@@ -60,6 +63,12 @@ export type IssueCode =
   | "TEMPLATE_EXAMPLE_UPLOADED"
   | "NO_ACCOUNT_ROWS"
   | "TRIAL_BALANCE_IMBALANCE"
+  // Review only (never blocking): text after the last account that no printed-footer rule recognises.
+  | "UNRECOGNISED_TRAILING_TEXT"
+  // Review only (never blocking): the title block names an entity that differs from the workspace's entity.
+  | "ENTITY_NAME_DIFFERS"
+  // Review only (never blocking): a clearing, suspense or in-transit account carries a balance.
+  | "CLEARING_ACCOUNT_BALANCE"
   // A confirmed layout (layout-template/1, _shared/layoutProfile.ts) that does not fit the file. Never produced
   // without a layout.
   | "LAYOUT_SHEET_NOT_FOUND"
@@ -223,7 +232,7 @@ function detectDelimiter(text: string): string {
  * RFC 4180 parser: quoted fields, doubled quotes, delimiters and line breaks inside quotes, CRLF/LF/CR. Every record
  * keeps the 1-based line on which it starts; blank lines are kept as empty rows so lineage counts every line.
  */
-export function parseCsvText(text: string): CsvResult {
+export function parseCsvText(text: string, maxRows?: number): CsvResult {
   const delimiter = detectDelimiter(text);
   const rows: SourceRow[] = [];
   let cells: Cell[] = [];
@@ -245,8 +254,11 @@ export function parseCsvText(text: string): CsvResult {
     rows.push({ rowNumber: recordStart, cells: cells.every((c) => c === null) ? [] : cells });
     cells = [];
   };
+  // The upload policy's row bound DURING the parse (as sheetRows for workbooks): stop after maxRows records, so an
+  // over-limit file is refused by the caller's table check without the whole file ever being materialised.
+  const full = () => maxRows !== undefined && rows.length >= maxRows;
 
-  for (let i = 0; i < text.length; i++) {
+  for (let i = 0; i < text.length && !full(); i++) {
     const ch = text[i];
     if (quoted) {
       if (ch === '"') {
@@ -269,6 +281,7 @@ export function parseCsvText(text: string): CsvResult {
     }
     field += ch;
   }
+  if (full()) return { ok: true, rows, delimiter };
   if (quoted) {
     return { ok: false, issue: { code: "CSV_UNTERMINATED_QUOTE", severity: "blocking", rows: [quoteOpenedAt], message: `Row ${quoteOpenedAt} opens a quoted value that never closes. Check that row's quotation marks and upload the file again.` } };
   }
@@ -287,7 +300,7 @@ type ColumnRole = "account_code" | "account_name" | "debit" | "credit" | "balanc
 
 const COLUMN_MATCHERS: Record<ColumnRole, (s: string) => boolean> = {
   account_code: (s) =>
-    s === "code" || s.startsWith("a/c") ||
+    s === "code" || s === "natural account" || s.startsWith("a/c") ||
     (s.startsWith("gl") && s.includes("code")) || (s.startsWith("ledger") && s.includes("code")) ||
     (s.startsWith("acc") && s.includes("code")) ||
     (s.startsWith("account") && (s.includes("code") || s.includes("number") || /\bno\.?$/.test(s))),
@@ -496,6 +509,76 @@ export function periodAndCurrencyIssues(rows: SourceRow[], map: ColumnMap, perio
   return issues;
 }
 
+// ── Title-block evidence (Phase 1 §3.3, §3.4) ────────────────────────────────────────────────────────────────────────
+
+/** One cell of the source, as evidence: its trimmed text and where it is ("B3"-style column letter, 1-based row). */
+export interface EvidenceCell { text: string; row: number; column: string }
+
+/**
+ * What the file says about itself above the header: an identifiable entity name, the period text and the currency
+ * labels. Evidence only. Nothing here sets an entity, a period, a currency or a framework.
+ */
+export interface TitleBlockEvidence {
+  /** The title block's entity name, only when it is identifiable (it carries a legal or organisational form). */
+  entity: EvidenceCell | null;
+  /** Title-block text that states the period (not a print or run date). */
+  period: EvidenceCell[];
+  /** ISO 4217 codes the file labels its amounts with (header or label row). */
+  currencyLabels: (EvidenceCell & { code: string })[];
+}
+
+export const EMPTY_TITLE_BLOCK: TitleBlockEvidence = Object.freeze({ entity: null, period: [], currencyLabels: [] }) as TitleBlockEvidence;
+
+/** A word that marks text as an organisation's name. Arbitrary cell text without one is never compared. */
+const ENTITY_FORM = /\b(ltd|limited|plc|inc|incorporated|llc|llp|lp|corp|corporation|company|gmbh|ag|s\.?a\.?|sarl|b\.?v\.?|n\.?v\.?|pty|trust|council|authority|foundation|association|society|co-?operative|cooperative|group|holdings|partners|partnership|ministry|agency|commission|university|college|school|hospital|church|institute)\b|\bco\.?$/i;
+const REPORT_TITLE = /\b(trial\s+balance|report|statement|ledger|listing|balances)\b/i;
+
+export function columnLetter(index: number): string {
+  let s = "";
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+  return s;
+}
+
+/** Reads the title block (the rows above the header) as evidence. */
+export function readTitleBlockEvidence(rows: SourceRow[], headerIndex: number): Omit<TitleBlockEvidence, "currencyLabels"> {
+  let entity: EvidenceCell | null = null;
+  const period: EvidenceCell[] = [];
+  for (const row of rows.slice(0, Math.max(0, headerIndex))) {
+    row.cells.forEach((c, col) => {
+      if (typeof c !== "string") return;
+      const text = c.replace(/ /g, " ").replace(/\s+/g, " ").trim();
+      if (!text || text.length > 160) return;
+      const cell = { text, row: row.rowNumber, column: columnLetter(col) };
+      if (describesPeriod(text) && yearsIn(text).length > 0) { period.push(cell); return; }
+      if (!entity && ENTITY_FORM.test(text) && !REPORT_TITLE.test(text)) entity = cell;
+    });
+  }
+  return { entity, period };
+}
+
+/** Canonical form for comparing entity names: case, punctuation, "the" and common legal-form spellings ignored. */
+export function normaliseEntityName(name: string): string {
+  return name.toLowerCase()
+    .replace(/&/g, " and ").replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\blimited\b/g, "ltd").replace(/\bincorporated\b/g, "inc").replace(/\bcompany\b/g, "co").replace(/\bcorporation\b/g, "corp")
+    .replace(/^\s*the\s+/, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The confirmation a differing title-block entity needs (review, never blocking). It names both, with the source text
+ * and its location. Confirming it never renames an entity, moves evidence or bypasses authorisation.
+ */
+export function entityConfirmation(evidence: TitleBlockEvidence, workspaceEntityName: string | null | undefined): IngestIssue | null {
+  const fileEntity = evidence.entity;
+  const workspace = (workspaceEntityName ?? "").trim();
+  if (!fileEntity || !workspace) return null;
+  if (normaliseEntityName(fileEntity.text) === normaliseEntityName(workspace)) return null;
+  return {
+    code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [fileEntity.row], field: "entity",
+    message: `This file names ${fileEntity.text}; this workspace is ${workspace}. Same entity? (From your file: “${fileEntity.text}”, cell ${fileEntity.column}${fileEntity.row}.)`,
+  };
+}
+
 // ── Rows → accounts ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type RowDisposition =
@@ -542,7 +625,24 @@ export interface IngestResult {
   /** Coded rows whose names read like totals — named in an imbalance message so a double count is easy to find. */
   suspectedTotalRows: number[];
   blocking: boolean;
+  /** What the file says about itself above the header (entity, period, currency labels): evidence only. */
+  evidence: TitleBlockEvidence;
+  /** The review-only rules (§3.6): each says whether it applied and what it found. None blocks or adjusts by itself. */
+  reviewChecks: ReviewCheck[];
 }
+
+/** One review-only rule's applicability and outcome (Phase 1 §3.6). */
+export interface ReviewCheck {
+  id: "duplicate_identities" | "residual_balances" | "unexpected_side_balances" | "clearing_account_balances" | "opening_and_movement_columns";
+  label: string;
+  /** "not_run" always carries the reason it could not run (for example, no configured policy). */
+  outcome: "passed" | "review" | "notice" | "blocked" | "not_run";
+  reason: string;
+  rows?: number[];
+}
+
+/** Account names that hold amounts only until they are cleared: a balance on them needs reconciliation evidence. */
+const CLEARING_ACCOUNT_NAME = /\b(clearing|suspense|in\s+transit|transit|holding\s+account|unallocated|unidentified\s+(receipts?|deposits?)|control\s+clearing)\b/i;
 
 const TOTAL_NAME_PATTERNS: RegExp[] = [
   /^(grand\s+)?totals?\b/i, /^sub[-\s]?totals?\b/i, /\btotals?\s*:?$/i,
@@ -569,6 +669,8 @@ export interface IngestInput {
   periodYear: number | null;
   /** ISO 4217 code of the period's reporting currency — required. */
   currency: string | null;
+  /** The workspace's entity name, compared only with an identifiable title-block entity (§3.3). Optional. */
+  workspaceEntityName?: string | null;
   /**
    * A confirmed layout, resolved against these rows (layoutProfile.resolveLayout). Absent: the automatic path, exactly
    * as before — column detection and the default amount grammar.
@@ -607,6 +709,8 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       columns: partial.columns ?? {}, accounts: partial.accounts ?? [], lineage, lineageSummary: summary,
       totals: partial.totals ?? null, issues, suspectedTotalRows: partial.suspectedTotalRows ?? [],
       blocking: issues.some((i) => i.severity === "blocking"),
+      evidence: partial.evidence ?? EMPTY_TITLE_BLOCK,
+      reviewChecks: partial.reviewChecks ?? [],
     };
   };
 
@@ -630,6 +734,15 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   if (!detection.map || detection.issues.some((i) => i.severity === "blocking")) return result({ columns: detection.detected });
   const map = detection.map;
   issues.push(...periodAndCurrencyIssues(rows, map, periodYear as number, currency as string));
+  // Title-block evidence (§3.3, §3.4): the entity text, period text and currency labels, with their locations.
+  const titleBlock = readTitleBlockEvidence(rows, map.headerIndex);
+  const currencyLabels: TitleBlockEvidence["currencyLabels"] = [];
+  for (const col of [map.debit, map.credit, map.balance]) {
+    if (col === null) continue;
+    for (const m of (map.headers[col] ?? "").toUpperCase().matchAll(/\b([A-Z]{3})\b/g)) {
+      if (CURRENCY_EXPONENTS[m[1]] !== undefined) currencyLabels.push({ code: m[1], text: map.headers[col], row: map.headerRowNumber, column: columnLetter(col) });
+    }
+  }
   const exp = exponent as number;
 
   const lineage: RowLineage[] = [];
@@ -649,12 +762,58 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   const hasCodeColumn = map.account_code !== null;
   const useDebitCredit = map.debit !== null && map.credit !== null;
 
+  // Printed exports may finish with a footer: page numbers, print or run dates, end-of-report markers, signature
+  // and date lines (printedReportMetadata.ts). A footer needs positional AND structural evidence: it lies after the
+  // last substantive row (one with an amount or an account code) and it has neither. Only then is its text compared
+  // with the rule set. A trailing row no rule recognises is kept in lineage and held for review, never dropped.
+  const amountColumns = [map.debit, map.credit, map.balance].filter((c): c is number => c !== null);
+  // An account code is a single token with at least one digit ("4010", "4010-01", "A100", "4.1.2"); a sentence in the
+  // code column (a report attribution, a signature caption) is not one.
+  const codeLike = (t: string): boolean => /^[\p{L}\p{N}][\p{L}\p{N}._/:-]{0,39}$/u.test(t) && /\p{N}/u.test(t);
+  const isSubstantive = (r: SourceRow): boolean =>
+    amountColumns.some((c) => cellString(r.cells[c]) !== "") || (hasCodeColumn && codeLike(cellString(r.cells[map.account_code as number])));
+  let lastSubstantive = map.headerIndex;
+  for (let j = map.headerIndex + 1; j < rows.length; j++) if (isSubstantive(rows[j])) lastSubstantive = j;
+  /** For a row after the last substantive row: the footer rules its cells match ([] when empty), or null when a cell is unrecognised. */
+  const trailingFooterRules = (r: SourceRow): string[] | null => {
+    const filled = r.cells.filter((c) => cellString(c) !== "");
+    if (filled.length === 0) return [];
+    const labels: string[] = [];
+    for (const c of filled) {
+      if (typeof c !== "number") {
+        const rule = footerRuleFor(cellString(c), PRINTED_FOOTER_RULES);
+        if (rule) { labels.push(rule.label); continue; }
+      }
+      // A standalone page number: a whole number alone on the row, or beside recognised footer text.
+      if (isStandalonePageNumber(c) && (filled.length === 1 || filled.some((o) => o !== c && typeof o !== "number"))) { labels.push("Page number"); continue; }
+      return null;
+    }
+    return [...new Set(labels)];
+  };
+  const unrecognisedTrailing: number[] = [];
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (i < map.headerIndex) { lineage.push({ rowNumber: row.rowNumber, disposition: row.cells.length === 0 ? "blank" : "preamble" }); continue; }
     if (i === map.headerIndex) { lineage.push({ rowNumber: row.rowNumber, disposition: "header" }); continue; }
     if (row.cells.length === 0) { lineage.push({ rowNumber: row.rowNumber, disposition: "blank" }); continue; }
 
+    if (i > lastSubstantive) {
+      const rules = trailingFooterRules(row);
+      if (rules && rules.length === 0) { lineage.push({ rowNumber: row.rowNumber, disposition: "blank" }); continue; }
+      if (rules) { lineage.push({ rowNumber: row.rowNumber, disposition: "heading", reason: `Printed report footer: ${rules.join(", ")}` }); continue; }
+      unrecognisedTrailing.push(row.rowNumber);
+      lineage.push({ rowNumber: row.rowNumber, disposition: "heading", reason: "Text after the last account, not recognised as a report footer" });
+      continue;
+    }
+    // Standalone ISO currency labels under amount headers are metadata, never postings. Mixed rows are not skipped.
+    const currencyCells = row.cells.map((c, index) => ({ text: cellString(c), index })).filter(c => c.text);
+    if (currencyCells.length > 0 && currencyCells.every(c => amountColumns.includes(c.index) && /^[A-Z]{3}$/.test(c.text) && currencyExponent(c.text) !== null)) {
+      for (const c of currencyCells) currencyLabels.push({ code: c.text, text: c.text, row: row.rowNumber, column: columnLetter(c.index) });
+      if (currencyCells.some(c => c.text !== currency)) issues.push({ code: "CURRENCY_MISMATCH", severity: "blocking", rows: [row.rowNumber], message: `The currency labels on row ${row.rowNumber} do not match the selected currency ${currency}. Confirm the trial balance currency before processing.` });
+      lineage.push({ rowNumber: row.rowNumber, disposition: "heading", reason: "Amount currency labels" });
+      continue;
+    }
     const code = hasCodeColumn ? cellString(row.cells[map.account_code as number]) : "";
     const name = map.account_name !== null ? cellString(row.cells[map.account_name]) : "";
     const read = (col: number | null, field: string): bigint | null | "bad" => {
@@ -675,6 +834,13 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     if (!code && !name) {
       // No label at all: either an empty row with stray formatting, or amounts with nothing to attach them to.
       const anyAmount = [d, c, b].some((v) => v !== null);
+      const onlyAmounts = row.cells.every((v, col) => !cellString(v) || amountColumns.includes(col));
+      if (useDebitCredit && typeof d === "bigint" && typeof c === "bigint" && b !== "bad"
+        && accounts.length > 0 && onlyAmounts && i === lastSubstantive) {
+        totalRowsChecked.push({ row: row.rowNumber, debit: d, credit: c, accountsDebit: runningDebit, accountsCredit: runningCredit });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows" });
+        continue;
+      }
       lineage.push(anyAmount
         ? { rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code or name" }
         : { rowNumber: row.rowNumber, disposition: "blank" });
@@ -782,6 +948,10 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       });
     }
   }
+  if (unrecognisedTrailing.length > 0) {
+    const one = unrecognisedTrailing.length === 1;
+    issues.push({ code: "UNRECOGNISED_TRAILING_TEXT", severity: "review", rows: unrecognisedTrailing, message: `Row${one ? "" : "s"} ${listRows(unrecognisedTrailing)} after the last account contain${one ? "s" : ""} text that is not a recognised report footer and no amounts. Confirm ${one ? "it is" : "they are"} not part of the trial balance.` });
+  }
   if (exampleRows.length > 0) {
     issues.push({ code: "TEMPLATE_EXAMPLE_UPLOADED", severity: "blocking", rows: exampleRows, message: "This file still contains the example rows from the CFOClose sample. Replace them with your own accounts before uploading." });
   }
@@ -793,7 +963,8 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   if (totals.debitMinor > MAX_SAFE_MINOR || totals.creditMinor > MAX_SAFE_MINOR) {
     issues.push({ code: "AMOUNT_OUT_OF_RANGE", severity: "blocking", message: "The trial balance totals are too large to check exactly." });
   }
-  const integrityBlocked = issues.some((i) => i.severity === "blocking");
+  // A printed control mismatch does not invalidate the independently summed account arithmetic.
+  const integrityBlocked = issues.some((i) => i.severity === "blocking" && i.code !== "TOTAL_ROW_MISMATCH");
   if (!integrityBlocked && totals.differenceMinor !== 0n) {
     const diff = totals.differenceMinor < 0n ? -totals.differenceMinor : totals.differenceMinor;
     const hint = suspectedTotalRows.length > 0
@@ -806,7 +977,44 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     });
   }
 
-  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows });
+  const evidence: TitleBlockEvidence = { ...titleBlock, currencyLabels };
+  const entityIssue = entityConfirmation(evidence, input.workspaceEntityName);
+  if (entityIssue) issues.push(entityIssue);
+
+  // ── Review-only rules (§3.6): each reports applicability and outcome; none blocks or adjusts by itself ──────────────
+  const reviewChecks: ReviewCheck[] = [];
+  const duplicateRows = issues.filter((i) => i.code === "DUPLICATE_ACCOUNT_CODE" || i.code === "DUPLICATE_ACCOUNT_NAME").flatMap((i) => i.rows ?? []);
+  reviewChecks.push({
+    id: "duplicate_identities", label: "Duplicate accounts",
+    outcome: duplicateRows.length ? "blocked" : "passed",
+    reason: duplicateRows.length
+      ? "The same account identity (code and every dimension) appears more than once."
+      : "Each account identity (code and every dimension) appears once. The same description under different codes is not a duplicate.",
+    ...(duplicateRows.length ? { rows: duplicateRows } : {}),
+  });
+  reviewChecks.push({ id: "residual_balances", label: "Residual balances", outcome: "not_run", reason: "No residual-balance policy is configured, so residual balances are not assessed." });
+  reviewChecks.push({ id: "unexpected_side_balances", label: "Balances on an unexpected side", outcome: "not_run", reason: "Needs an approved classification or a verified chart rule, which this check does not have yet." });
+  const clearing = accounts.filter((a) => CLEARING_ACCOUNT_NAME.test(a.accountName) && a.debitMinor !== a.creditMinor);
+  if (clearing.length > 0) {
+    const rowsC = clearing.map((a) => a.sourceRowNumber);
+    issues.push({ code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: rowsC, message: `Clearing, suspense or in-transit account${rowsC.length === 1 ? "" : "s"} on row${rowsC.length === 1 ? "" : "s"} ${listRows(rowsC)} ${rowsC.length === 1 ? "has" : "have"} a balance. ${rowsC.length === 1 ? "It needs" : "They need"} reconciliation evidence.` });
+  }
+  reviewChecks.push({
+    id: "clearing_account_balances", label: "Clearing, suspense and in-transit balances",
+    outcome: clearing.length ? "review" : "passed",
+    reason: clearing.length ? "Needs reconciliation evidence." : "No clearing, suspense or in-transit account carries a balance.",
+    ...(clearing.length ? { rows: clearing.map((a) => a.sourceRowNumber) } : {}),
+  });
+  const openingHeaders = map.headers.map((h, col) => ({ h, col })).filter(({ h }) => /\b(opening|b\/?f|brought\s+forward)\b/i.test(h));
+  const movementHeaders = map.headers.map((h, col) => ({ h, col })).filter(({ h }) => /\b(movement|movements|activity|period|closing|c\/?f|carried\s+forward)\b/i.test(h) && !/\bopening\b/i.test(h));
+  if (openingHeaders.length > 0 && movementHeaders.length > 0) {
+    const cols = [...openingHeaders, ...movementHeaders].map(({ h, col }) => `“${h}” (column ${columnLetter(col)})`).join(", ");
+    reviewChecks.push({ id: "opening_and_movement_columns", label: "Opening and movement content", outcome: "notice", rows: [map.headerRowNumber], reason: `The header has opening-balance and movement or closing columns: ${cols}. They are not combined, and no closing balance is derived from them.` });
+  } else {
+    reviewChecks.push({ id: "opening_and_movement_columns", label: "Opening and movement content", outcome: "passed", reason: "The file does not combine opening balances with movements." });
+  }
+
+  return result({ columns: detection.detected, accounts, lineage, totals, suspectedTotalRows, evidence, reviewChecks });
 }
 
 // ── Classification review policy ─────────────────────────────────────────────────────────────────────────────────────
@@ -859,11 +1067,17 @@ export class MilestoneLog {
 const AMOUNT_ISSUES = new Set<IssueCode>(["MALFORMED_NUMERIC_VALUE", "LAYOUT_NUMBER_FORMAT_MISMATCH", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "CURRENCY_MISMATCH"]);
 const ROW_ISSUES = new Set<IssueCode>(["MISSING_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_NAME", "TOTAL_ROW_MISMATCH", "TEMPLATE_EXAMPLE_UPLOADED", "NO_ACCOUNT_ROWS"]);
 const COLUMN_ISSUES = new Set<IssueCode>(["LAYOUT_SHEET_NOT_FOUND", "LAYOUT_HEADER_NOT_FOUND", "LAYOUT_COLUMN_NOT_FOUND", "LAYOUT_COLUMN_DUPLICATED", "MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "PERIOD_MISMATCH", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]);
+// The file was refused as a whole before any check ran: an upload-policy limit (uploadPolicy.ts) or a file that cannot be
+// read as a trial balance. The record stops at "read" with the reason — never a later step (no totals is not an
+// arithmetic failure).
+const READ_REFUSALS = new Set<IssueCode>(["FILE_TOO_LARGE", "WORKBOOK_TOO_LARGE_EXPANDED", "WORKBOOK_TOO_MANY_PARTS", "TOO_MANY_ROWS", "TOO_MANY_CELLS", "TOO_MANY_ACCOUNTS", "UNSUPPORTED_FORMAT", "ENCODING_NOT_UTF8", "CSV_UNTERMINATED_QUOTE"]);
 
 /** Marks the ingestion milestones (read → balance) from an ingest result. */
 export function markIngestionMilestones(log: MilestoneLog, r: IngestResult): void {
   const codes = new Set(r.issues.filter((i) => i.severity === "blocking").map((i) => i.code));
   const has = (set: Set<IssueCode>) => [...codes].some((c) => set.has(c));
+  const refusal = r.issues.find((i) => i.severity === "blocking" && READ_REFUSALS.has(i.code));
+  if (refusal) { log.mark("read", "failed", refusal.message); return; }
   const prereq = codes.has("PERIOD_NOT_SELECTED") || codes.has("CURRENCY_UNRESOLVED") || codes.has("CURRENCY_UNSUPPORTED") || codes.has("FILE_EMPTY");
   if (prereq) { log.mark("read", "failed"); return; }
   log.mark("read", "passed", `${r.lineageSummary.rowsRead} rows${r.sheetName ? ` on sheet “${r.sheetName}”` : ""}`);
