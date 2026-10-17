@@ -396,7 +396,7 @@ jobs:
       - name: Launch-acceptance identity and provenance (evidence branch only; records the application, the PR head, the base and the actual checkout separately and verifies how they relate)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_CANDIDATE_SHA: 69155ae78699a6635ecb86be935403566e1803c7
           LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           LAUNCH_QA_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           LAUNCH_QA_EVENT: ${{ github.event_name }}
@@ -411,7 +411,7 @@ jobs:
       - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
         if: always()
         env:
-          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_CANDIDATE_SHA: 69155ae78699a6635ecb86be935403566e1803c7
           LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
           LAUNCH_QA_PAYMENTS: "1"
@@ -439,6 +439,35 @@ jobs:
       - name: Landing browser checks (landing PR 145 sample review on the same checkout; local build with an unreachable placeholder backend, loopback only, 320 390 and 1280 px)
         if: always()
         run: node scripts/browser-acceptance/landingSample.mjs real-app-evidence/landing
+      - name: Compatibility of the served frontend (main 00a2653, which the cfoclose.com bundle matches) with this backend, plus the oversized replacement, with this checkout's functions served for the duration
+        if: always()
+        run: |
+          set +e
+          mkdir -p compat-evidence
+          # The payment journey stops the function server it started; serve this checkout's functions again and hold them.
+          supabase functions serve > compat-evidence/functions-serve.log 2>&1 &
+          SERVE=$!
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:54321/functions/v1/process-trial-balance -H 'Content-Type: application/json' -d '{}')
+            if [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ]; then echo "functions answering (HTTP $code) after $i tries"; break; fi
+            sleep 2
+          done
+          git fetch --no-tags --depth=1 origin 00a2653b5736e89447334e1147aa25f5308b0393
+          git worktree add /tmp/old-frontend 00a2653b5736e89447334e1147aa25f5308b0393
+          (cd /tmp/old-frontend && bun install --frozen-lockfile)
+          (cd /tmp/old-frontend && node scripts/e2e/localStackJourney.mjs "$GITHUB_WORKSPACE/compat-evidence/old-journey"); J=$?
+          node research/compat/oldFrontendCompat.mjs /tmp/old-frontend compat-evidence/checks; K=$?
+          node research/compat/oversizedReplacement.mjs compat-evidence/oversized; O=$?
+          kill -INT $SERVE 2>/dev/null; wait $SERVE 2>/dev/null
+          echo "old journey=$J compat checks=$K oversized=$O"
+          [ $J -eq 0 ] && [ $K -eq 0 ] && [ $O -eq 0 ]
+
+      - name: Upload the compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-evidence
+          path: compat-evidence
 
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()

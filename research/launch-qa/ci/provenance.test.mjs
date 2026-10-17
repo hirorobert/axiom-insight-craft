@@ -19,6 +19,7 @@ check("a push checkout equal to the PR head is verified", provenanceRecord({ ...
 check("a merge whose second parent is not the PR head is refused", !provenanceRecord({ ...base, checkoutParents: [base.baseSha, "b".repeat(40)] }).verified);
 check("a merge into a different base is refused", !provenanceRecord({ ...base, checkoutParents: ["c".repeat(40), base.prHeadSha] }).verified);
 check("GITHUB_SHA is never assumed to be the PR head", checkoutKind({ ...base, prHeadSha: base.checkoutSha === base.prHeadSha ? "z" : base.prHeadSha }) === "pull_request_merge" && base.checkoutSha !== base.prHeadSha);
+check("the compatibility evidence files are QA files", provenanceRecord({ ...base, filesDifferingFromApplication: ["research/compat/oldFrontendCompat.mjs"] }).verified);
 check("an application difference outside the QA files is refused", !provenanceRecord({ ...base, filesDifferingFromApplication: ["src/App.tsx"] }).verified);
 check("an application that could not be compared is refused", !provenanceRecord({ ...base, applicationDiffAvailable: false }).verified);
 check("a locally modified tree is refused", !provenanceRecord({ ...base, trackedModificationsBeforeBuild: ["src/x.ts"] }).verified);

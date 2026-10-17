@@ -47,7 +47,7 @@ let APP_SOURCE_ONLY_QA = null;
 try {
   if (CANDIDATE_SHA !== "UNIDENTIFIED") {
     const diff = execFileSync("git", ["diff", "--name-only", `${CANDIDATE_SHA}..HEAD`], { cwd: REPO, encoding: "utf8" }).split("\n").filter(Boolean);
-    APP_SOURCE_ONLY_QA = diff.every((f) => /^(research\/launch-qa\/|\.github\/workflows\/ci\.yml$)/.test(f));
+    APP_SOURCE_ONLY_QA = diff.every((f) => /^(research\/launch-qa\/|research\/compat\/|\.github\/workflows\/ci\.yml$)/.test(f));
   }
 } catch { /* not comparable */ }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

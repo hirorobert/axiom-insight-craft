@@ -13,7 +13,7 @@
 // Verified when: the checkout is either the PR head itself (push) or exactly the merge of the PR head into the base
 // (pull_request: parents [base, head]); the checkout differs from the application only in the QA files; nothing was
 // modified locally before the build.
-export const QA_PATH = /^(research\/launch-qa\/|\.github\/workflows\/ci\.yml$)/;
+export const QA_PATH = /^(research\/launch-qa\/|research\/compat\/|\.github\/workflows\/ci\.yml$)/;
 
 export function checkoutKind({ event, prHeadSha, baseSha, checkoutSha, checkoutParents }) {
   const parents = checkoutParents ?? [];
