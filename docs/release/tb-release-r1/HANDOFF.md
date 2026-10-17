@@ -2,6 +2,14 @@
 
 This continues the authorised release (main `365b370`, PRs #151 and #153). The hosted preflight passed, and Lovable is paused before any write. **Publish stays held throughout.**
 
+## Held: `seal-reporting-pack` (finding #156, repair #157)
+
+- **The finding.** #156 reproduced a residual race in the version of `seal-reporting-pack` at `365b370` (closure `2b524fa3…`): issuance could delete a pack another request had just sealed.
+- **Hold.** **Do not deploy that version.** The function and the release completion (the generation floor to 6 and Publish) are held until #157 is merged and accepted by BLACK. #157 is the repair: issuance never deletes or overwrites, and its new closure is `095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8`.
+- **Safe to continue meanwhile.** The four migrations, the other four functions and the synthetic trial balance checks are unaffected. The migrations do not touch Reporting Packs, and the hosted `seal-reporting-pack` keeps working against the new schema.
+- **When #157 has merged:** deploy `seal-reporting-pack` from that merge, alone. Record its status and time; the closure must be `095a9ed9…`. Then check one Reporting Pack seal in the demo company: it is sealed, and verify answers `intact`. After that, continue with the floor and Publish.
+- **No migration is involved and none is replayed.**
+
 ## Why wrappers
 
 Lovable's migration tool accepts pasted SQL text and cannot compare it with a repository file. Each of the four approved migrations is therefore submitted as its **self-checking release wrapper**, using the same mechanism Lovable applied for hosted journal entries 34–57:
@@ -125,12 +133,11 @@ Each check is a catalog `has_function_privilege`/`has_table_privilege` evaluatio
 >
 >    After each, read the new `drizzle.__drizzle_migrations` row: its hash must equal that wrapper's registered SHA-256 (or its final-LF-removed form) in `docs/release/tb-release-r1/HANDOFF.md`. Stop on `RELEASE_PAYLOAD_MISMATCH`, `PREFLIGHT_REFUSED`, `POSTCONDITION_FAILED`, any error or any other hash.
 > 4. Run `docs/release/tb-release-r1/postcondition.sql` read-only. It must end with `POSTCONDITION OK.`. Re-run the account-mapping index query from handoff v2 step 3c and record it.
-> 5. Deploy exactly these five Edge Functions from the same main, in order:
+> 5. Deploy exactly these FOUR Edge Functions from the same main, in order:
 >    1. `trial-balance-draft`
 >    2. `process-trial-balance`
 >    3. `trial-balance-layout`
->    4. `seal-reporting-pack`
->    5. `trial-balance-source-sweeper`
+>    4. `trial-balance-source-sweeper`
 >
->    Never deploy `layout-assist`. Record status and times. An unauthenticated OPTIONS returns 200/204, and an unauthenticated POST returns a 4xx, never a 5xx.
-> 6. Stop there and report. The owner runs the synthetic checks in the preview (this HANDOFF, "Hosted synthetic checks"). The commercial administrator raises the floor to 6 only after they pass; Publish happens once, afterwards.
+>    **Do not deploy `seal-reporting-pack`**: it is held (see "Held: seal-reporting-pack" below). Never deploy `layout-assist`. Record status and times. An unauthenticated OPTIONS returns 200/204, and an unauthenticated POST returns a 4xx, never a 5xx.
+> 6. Stop there and report. The owner runs the synthetic checks in the preview (this HANDOFF, "Hosted synthetic checks"). The generation floor and Publish stay held until `seal-reporting-pack` is resolved; then the commercial administrator raises the floor to 6 and Publish happens once, afterwards.
