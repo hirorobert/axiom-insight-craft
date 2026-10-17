@@ -66,7 +66,7 @@ const processOnce = async (uploadId) => {
   return { http: res.status, ms: Date.now() - t0, body };
 };
 const row = async (id) => (await admin.from("trial_balance_uploads").select("id,status,lifecycle_state,version,superseded_by_upload_id,file_path,processing_result").eq("id", id).single()).data;
-const certsOf = async (id) => (await admin.from("tb_certifications").select("id,output_hash,is_blocking,sequence_no").eq("upload_id", id).order("sequence_no")).data ?? [];
+const certsOf = async (id) => (await admin.from("tb_certifications").select("id,sequence_no,normalized_input_hash,is_blocking,requires_review,certified_at").eq("upload_id", id).order("sequence_no")).data ?? [];
 const objectPresent = async (p) => { const { data, error } = await admin.storage.from("trial-balance-files").download(p); return !error && !!data; };
 const balanced = (n) => { const rows = ["Account code,Account name,Debit,Credit"]; for (let i = 0; i < n - 1; i++) rows.push(`${100000 + i},Invented account ${i},1.00,0.00`); rows.push(`999999,Invented equity,0.00,${(n - 1).toFixed(2)}`); return Buffer.from(rows.join("\n") + "\n"); };
 // A well-formed CSV padded to `bytes` with invented rows (it is refused by size before any reader runs).
@@ -85,7 +85,7 @@ const { data: rg } = await user.rpc("register_trial_balance_upload", { p_reserva
 const U0 = (Array.isArray(rg) ? rg[0] : rg).upload_id;
 const p0 = await processOnce(U0);
 const prior = { row: await row(U0), certs: await certsOf(U0) };
-await check("baseline: the prior trial balance is processed and certified", async () => (p0.http === 200 && prior.certs.length >= 1 ? true : { p0: p0.http, certs: prior.certs.length }));
+await check("baseline: the prior trial balance is processed and certified", async () => (p0.http === 200 && prior.certs.length >= 1 ? true : { p0: p0.http, certs: prior.certs.length, status: prior.row.status, lifecycle: prior.row.lifecycle_state }));
 
 const evidence = { prior: { id: U0, certs: prior.certs }, cases: [] };
 let current = prior.row;
@@ -106,15 +106,21 @@ for (const size of [12 * 1_048_576, 45 * 1_048_576]) {
   const oldRow = await row(current.id), oldCerts = await certsOf(current.id);
   const codes = (nu.processing_result?.ingestion?.issues ?? []).map((i) => i.code);
   const elig = (await user.rpc("get_trial_balance_removal_eligibility", { p_upload_id: rp.newId })).data;
+  // The ONLY operation that restores a replaced trial balance (cancel_trial_balance_replacement), tried on the refused one.
+  const { data: cx } = await user.rpc("cancel_trial_balance_replacement", { p_replacement_upload_id: rp.newId, p_expected_version: nu.version });
+  const cancel = Array.isArray(cx) ? cx[0] : cx;
+  const afterCancel = { prior: (await row(current.id)).lifecycle_state, refused: (await row(rp.newId)).lifecycle_state };
   Object.assign(c, { newId: rp.newId, checkHttp: pr.http, checkMs: pr.ms, codes, newStatus: nu.status, newLifecycle: nu.lifecycle_state, newCerts: ncerts.length,
     accounts: nu.processing_result?.summary?.total_accounts ?? null, prior: { lifecycle: oldRow.lifecycle_state, supersededBy: oldRow.superseded_by_upload_id, certs: oldCerts.map((x) => x.id), objectPresent: await objectPresent(oldRow.file_path) },
-    removalEligibility: elig });
+    removalEligibility: elig, cancelAttempt: { outcome: cancel?.outcome ?? null, detail: cancel?.detail ?? null }, afterCancel });
   evidence.cases.push(c);
   const mb = Math.round(size / 1_048_576);
   await check(`${mb} MiB: refused by name (FILE_TOO_LARGE), HTTP 200, never 546`, async () => (pr.http === 200 && codes.includes("FILE_TOO_LARGE") ? true : c));
+  await check(`${mb} MiB: the prior trial balance cannot be restored: the only restore operation answers replacement_processed and nothing changes`, async () =>
+    c.cancelAttempt.outcome === "replacement_processed" && afterCancel.prior === "superseded" && afterCancel.refused === nu.lifecycle_state ? true : { cancel: c.cancelAttempt, afterCancel });
   await check(`${mb} MiB: nothing accepted (0 accounts, no certification)`, async () => (c.accounts === 0 && ncerts.length === 0 ? true : c));
   await check(`${mb} MiB: the prior evidence is kept (superseded, certification unchanged, source object present)`, async () =>
-    oldRow.lifecycle_state === "superseded" && oldRow.superseded_by_upload_id === rp.newId && JSON.stringify(oldCerts.map((x) => [x.id, x.output_hash])) === JSON.stringify(beforeCerts.map((x) => [x.id, x.output_hash])) && c.prior.objectPresent ? true : c);
+    oldRow.lifecycle_state === "superseded" && oldRow.superseded_by_upload_id === rp.newId && JSON.stringify(oldCerts.map((x) => [x.id, x.normalized_input_hash, x.certified_at])) === JSON.stringify(beforeCerts.map((x) => [x.id, x.normalized_input_hash, x.certified_at])) && c.prior.objectPresent ? true : c);
   current = nu;
 }
 
@@ -125,7 +131,7 @@ const rec = rv.newId ? { row: await row(rv.newId), certs: await certsOf(rv.newId
 evidence.recovery = { retire: rv.retire, http: pv?.http ?? null, ms: pv?.ms ?? null, status: rec?.row.status ?? null, lifecycle: rec?.row.lifecycle_state ?? null, certs: rec?.certs.length ?? 0 };
 await check("recovery: a valid replacement is swapped in, processed and certified", async () => (pv?.http === 200 && rec?.certs.length >= 1 ? true : evidence.recovery));
 await check("the original prior certification still exists unchanged after everything", async () => {
-  const now = await certsOf(U0); return JSON.stringify(now.map((x) => [x.id, x.output_hash])) === JSON.stringify(prior.certs.map((x) => [x.id, x.output_hash])) ? true : now;
+  const now = await certsOf(U0); return JSON.stringify(now.map((x) => [x.id, x.normalized_input_hash, x.certified_at])) === JSON.stringify(prior.certs.map((x) => [x.id, x.normalized_input_hash, x.certified_at])) ? true : now;
 });
 
 const summary = { total: results.length, passed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
