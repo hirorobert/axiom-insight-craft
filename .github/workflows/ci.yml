@@ -393,6 +393,53 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
+      - name: Launch-acceptance identity and provenance (evidence branch only; records the application, the PR head, the base and the actual checkout separately and verifies how they relate)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          LAUNCH_QA_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LAUNCH_QA_EVENT: ${{ github.event_name }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
+          node research/launch-qa/ci/recordProvenance.mjs real-app-evidence/launch-qa
+
+      - name: Launch-acceptance browser smoke (BLACK, evidence; synthetic driver and primitive check only, establishes no journey)
+        if: always()
+        run: node research/launch-qa/harness/driverSmokeTest.mjs
+
+      - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: a6c7bb2bb62bdce1c13daa387ec547043314c6aa
+          LAUNCH_QA_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
+          LAUNCH_QA_PAYMENTS: "1"
+        run: |
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          NEW=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_codeless_name'" 2>/dev/null || echo 0)
+          OLD=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_norm_name'" 2>/dev/null || echo 1)
+          echo "repair B in the database under test: codeless-name index=$NEW, all-names index=$OLD"
+          if [ "$NEW" = "1" ] && [ "$OLD" = "0" ]; then export LAUNCH_QA_SAME_NAME_REPAIR=verified; fi
+          node research/launch-qa/qa/realAppJourney.mjs real-app-evidence/launch-qa
+
+      - name: Launch-acceptance persisted state (always; read-only - every upload of the QA accounts with its lifecycle, and the processing lines the functions logged during the QA)
+        if: always()
+        run: |
+          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          docker exec "$DB" psql -U postgres -tAc "select coalesce(json_agg(t), '[]') from (select u.id, c.name as company, u.period_year, u.file_name, u.status, u.lifecycle_state, u.version, u.superseded_by_upload_id, u.uploaded_at from public.trial_balance_uploads u join public.companies c on c.id = u.company_id join auth.users au on au.id = c.user_id where au.email like '%@laq-local.test' order by u.uploaded_at) t" > "$OUT/persisted-uploads.json" 2>&1 || true
+          cat "$OUT/persisted-uploads.json"
+          grep -hE "Detected file|Ingested|TOO_MANY|worker=" "$OUT"/payments-functions-serve.log 2>/dev/null || true
+
+      - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
+        if: always()
+        run: node research/launch-qa/ci/launchQaGate.mjs real-app-evidence/launch-qa
+
+      - name: Landing browser checks (landing PR 145 sample review on the same checkout; local build with an unreachable placeholder backend, loopback only, 320 390 and 1280 px)
+        if: always()
+        run: node scripts/browser-acceptance/landingSample.mjs real-app-evidence/landing
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4
