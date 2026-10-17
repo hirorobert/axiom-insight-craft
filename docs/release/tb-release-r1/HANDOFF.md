@@ -139,5 +139,5 @@ Each check is a catalog `has_function_privilege`/`has_table_privilege` evaluatio
 >    3. `trial-balance-layout`
 >    4. `trial-balance-source-sweeper`
 >
->    **Do not deploy `seal-reporting-pack`**: it is held (see "Held: seal-reporting-pack" below). Never deploy `layout-assist`. Record status and times. An unauthenticated OPTIONS returns 200/204, and an unauthenticated POST returns a 4xx, never a 5xx.
+>    **Do not deploy `seal-reporting-pack`**: it is held (see "Held: seal-reporting-pack" at the top). Never deploy `layout-assist`. Record status and times. An unauthenticated OPTIONS returns 200/204, and an unauthenticated POST returns a 4xx, never a 5xx.
 > 6. Stop there and report. The owner runs the synthetic checks in the preview (this HANDOFF, "Hosted synthetic checks"). The generation floor and Publish stay held until `seal-reporting-pack` is resolved; then the commercial administrator raises the floor to 6 and Publish happens once, afterwards.
