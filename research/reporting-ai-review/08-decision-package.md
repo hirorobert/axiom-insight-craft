@@ -2,8 +2,15 @@
 
 ## Executive verdict (≤1 page, plain language)
 
+> **CORRECTED — see `09-evidence-reconciliation.md`.** Read the blanket "mostly built" phrasing as
+> the per-capability table in `09` §3 (implemented / tested-at-which-level / disabled / remaining
+> verification). "Live" means "reachable in inspected source" (`09` §1); engine activation is **not
+> approved** and S2 below is recast as verification-and-completion (`09` §7). The sign-off finding
+> is resolved on `69155ae` (`09` §4).
+
 **The real path from an unfamiliar trial balance to professional, evidence-supported financial
-statements is mostly *built* — and mostly *switched off*.** The hard, correct parts exist in code:
+statements is largely *implemented in source* — and largely *gated off / not end-to-end verified*.**
+The substantial parts exist in code (each qualified per-capability in `09` §3):
 a deterministic trial-balance parser, period-agnostic mapping reuse, an immutable certification
 ledger, an authorised versioned account-review, and a sophisticated statement engine that is
 decimal-exact, framework-selected, comparative-aware, provenance-bearing and reproducible. What a
@@ -48,12 +55,15 @@ code and an authorised human must accept, never a figure or an authority.
 sign-off requires owner/partner (or legacy path formally retired for World B); §4.6 corrected;
 "Processing with AI…" reworded; `generate-xbrl` framework default fails closed. *(C-1, C-3, C-4.)*
 
-**S2 — Activate & finish Engine B for the live statement route.** *Dep:* S1; apply migrations
-`20260919100000/110000`; flip `FINANCIAL_STATEMENTS_WORKSPACE_ENABLED` / `persistenceGate` under a
-controlled rollout. *Accept:* reviewed TB → SFP + P&L + SOCIE (where evidence present) with
-comparatives, decimal-exact recomputed totals, line→TB drill-down, deterministic snapshot that
-restores to an identical content hash; evidence gaps shown as `EVIDENCE_GAP`, never filled. This is
-the single biggest competitive unlock (see `07`).
+**S2 — Verify-and-complete Engine B (NOT an activation instruction).** *Engine activation is not
+approved and must not be inferred from source inspection.* *Dep:* S1. *Scope (separately approved):*
+first establish evidence — actual migration state on the target DB, satisfiable evidence
+requirements per statement, capability/publication permissions verified on the target,
+reproducibility (content-hash restore / `DIVERGED`) and output correctness exercised against real
+data — **before** any enablement decision. *Accept (of the verification, not of a go-live):* a
+documented, evidence-backed readiness report covering those five points; only then does an
+enablement decision belong to the owner. See `09` §7. (Engine B is the biggest *potential* unlock —
+`07` — but that does not license flipping a gate from a source constant's value.)
 
 **S3 — Grouped-review UI over the existing batch RPC.** *Dep:* none (RPC already authorised).
 *Accept:* reviewer can assign a confident common treatment to a group and bulk-assign uncertain
@@ -77,10 +87,13 @@ asset/PPE registers) and **hashed versioned MappingSet**; resolve
 READY only with its named minimum evidence; no plugs.
 
 ## Exact owner decisions needed
-1. **Control fix (C-1):** add a role predicate to the legacy sign-off gate, or formally retire it
-   in favour of World B's gate? (Blocks nothing technically; a stated invariant is currently false.)
-2. **World-B rollout:** approve applying migrations `20260919100000/110000` and flipping the gate,
-   and on what rollout controls. (Gates S2 — the biggest unlock.)
+1. **Control / doc fix (C-1):** confirm the capability migrations (`20260925130000/140000`) are
+   applied on the target DB (sign-off SoD is resolved on `69155ae` by capability RLS — `09` §4 —
+   but RLS is inert until applied), and reword CLAUDE.md §4.6 to describe the *capability*
+   mechanism rather than a role check in the hesabu trigger.
+2. **World-B verify-and-complete (not a rollout approval):** authorise the verification scope in S2
+   (`09` §7) — establish migration state, evidence, permissions, reproducibility and output
+   correctness. A go-live decision follows that evidence; it is **not** requested here.
 3. **AI provider & data-handling:** which provider, under what retention/training/residency terms,
    and precisely what data (account names? figures? documents?) may leave the tenant — today this
    is **UNKNOWN** and must be documented, not assumed. (Gates S5; also unblocks safely routing or

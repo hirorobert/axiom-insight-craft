@@ -12,9 +12,13 @@
   a `rejectedRows` entry (`:515,524`) — "no silent omission" holds for content-bearing rows only.
 - **Arithmetic is independent of any model:** debits=credits (tol 1 TZS) is the one hard block
   (`:1680-1726`); the balance-sheet equation is a soft warning (`:1946-1968`).
-- **No account-count cap / `INGESTION_REFUSED` in this branch** (grep clean). (Note: the
-  launch-QA candidate `ebafa68` *does* assert a `TOO_MANY_ACCOUNTS` refusal — that gate lives on a
-  different commit, not on `b32aa4f`. Flagged so the two are not conflated.)
+- **Account-count cap: absent on `b32aa4f` (inspected baseline); PRESENT on `69155ae`.**
+  CORRECTED — see `09` §2: on NORMAL's current candidate the cap exists in
+  `supabase/functions/_shared/uploadPolicy.ts` (`maxAccounts: 2_000`, plus row/byte limits),
+  enforced via `_shared/tbIngestion.ts` with a refusal that names the limit and next step (nothing
+  truncated). It is an explicitly **provisional resource bound (owner decision pending), not an
+  accounting rule**, covered by unit tests, an e2e probe and a db-proof. Do not conflate this with
+  the QA candidate `ebafa68`'s `TOO_MANY_ACCOUNTS` wording.
 
 ### Repeat-year reuse — the one mechanism that is actually wired (VERIFIED)
 - `account_mappings` is keyed `(company_id, account_key)` where
@@ -24,7 +28,13 @@
 - Every later upload resolves each account against that company's mappings in Tier 1/2 **before**
   any dictionary/regex (`index.ts:751-775,1744-1776`). A professionally approved mapping from last
   year is reused automatically this year. **Changed file identity alone does NOT invalidate
-  mappings** — reuse is governed by account identity, not file/period.
+  mappings — and a new reporting period alone does NOT either** (`account_mappings` has no
+  `period_year`; reuse is governed by account identity). CORRECTED/clarified — see `09` §6:
+  distinguish the reusable **treatment** (mapping/classification, period-agnostic) from
+  **period-specific evidence and allocations** (movement splits, cash-perimeter evidence,
+  current/non-current and other allocations) which are legitimately re-supplied/re-derived each
+  period. A decision reopens on a change in account identity, meaning, governing rule/framework, or
+  stale/absent period evidence — not on period rollover per se.
 
 ### Changed-context reopening — live at the certification & suppression layers (VERIFIED)
 - `get_authoritative_certification` carries the upload's current `source_file_hash` and treats the

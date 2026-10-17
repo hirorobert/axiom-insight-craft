@@ -4,7 +4,16 @@ No credential exposure, RCE, or data-exfiltration-in-flight was found. One **liv
 contradiction** and three latent/quality items are registered below. All are repo-at-`b32aa4f`;
 deployed exposure is UNKNOWN.
 
-## C-1 — Sign-off segregation-of-duties NOT enforced on the live path — HIGH (doc invariant false)
+> **CORRECTED — see `09-evidence-reconciliation.md` §4.** C-1 below is accurate only for the
+> inspected baseline `b32aa4f`. On NORMAL's current candidate `69155ae` the gap is **resolved**:
+> `statement_sign_offs` is governed by capability RLS (`20260925140000`) — `sso_update_partner_owner`
+> requires the `approve_certification` capability and enforces approver ≠ preparer ≠ reviewer
+> (DB-level segregation of duties); a preparer cannot approve/lock. Retain C-1 as a baseline
+> observation, not a finding against the current candidate. Static finding; no live reproduction
+> was run. Migration apply-state on any hosted DB is UNKNOWN. C-4 below is **already fixed** on
+> `69155ae`.
+
+## C-1 — Sign-off segregation-of-duties NOT enforced on baseline `b32aa4f` — static finding (resolved on `69155ae`)
 
 - **Claim (CLAUDE.md §4.6):** "Financial sign-offs require role = partner or manager … enforced
   by the `hesabu_gate_before_signoff` trigger on `statement_sign_offs`."

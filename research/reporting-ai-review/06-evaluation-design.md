@@ -35,9 +35,17 @@ evidence. Every AI output is a *proposal* checked by deterministic code and an a
 - Deterministic fixtures + a scorer that compares proposals to an authored ground-truth key — the
   same pattern as the launch-QA harness (own-file binding, no vacuous pass).
 - Each AI stage wrapped by the **existing** guardrails before it can be scored "accepted":
-  numeric validation (0.1% match), append-only storage, "never authorises", explicit excluded-row
-  accounting. A proposal that the deterministic layer rejects is a **fail**, regardless of how
-  confident the model was.
+  figure checking (see precision rule below), append-only storage, "never authorises", explicit
+  excluded-row accounting. A proposal that the deterministic layer rejects is a **fail**, regardless
+  of how confident the model was.
+
+**Precision rule (no general 0.1% tolerance).** Source **amounts retain full precision** — an
+extracted/mapped figure must match the source **exactly**; there is no acceptable numeric
+"closeness" for a figure, and a figure-level discrepancy is a **fail**, never a tolerance. Any
+**presentation-rounding** is a separate, explicit, documented contract (scale, rounding policy,
+where applied) that must **never conceal an extraction difference**. (`maono-decide`'s internal
+0.1% check is only a narrative-token-vs-snapshot guard for generated prose — it is **not** a
+figure-acceptance criterion and is not generalised here.)
 - Injection (F11) and resilience (F12) run on every build; a regression there blocks enablement.
 
 ## 6.4 Explicit non-goals

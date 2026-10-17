@@ -49,7 +49,9 @@ which **reads** existing MAONO rows and writes a board-pack via `rpc("maono_writ
 - **Isolation/authz:** inline `supabase.auth.getUser()` (`:204`); **no `assertCompanyMembership`**
   (see C-5). Isolation = RLS on `variance_runs`/`variance_analyses`/`maono_insights`.
 - **Output validation (strong):** (a) **numeric** — every numeric token ≥1000 in the response
-  must match a snapshot figure within 0.1% (`validateNumbers`, `:116-130`); (b) **structural** —
+  must match a snapshot figure within 0.1% (`validateNumbers`, `:116-130`). *This 0.1% is an
+  internal narrative-token guard for generated prose only — NOT a general figure-acceptance
+  criterion; extracted/mapped amounts must match source exactly (see `09` §5).* (b) **structural** —
   exactly 3 decision paths per issue (`validateDecisionPaths`, `:68-102`). On failure → **one**
   corrective retry (`:400-414`); if still failing → stored with `confidence_level
   "validation_failed"` and surfaced to Accountant role only (`:417-422,464-467`).
