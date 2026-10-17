@@ -4,6 +4,9 @@
  *
  * Phase 0 clarity (2026-10-10): the page leads with the outcome, states each limit once (the pilot label, the footer)
  * instead of repeating negations, calls the product the product, and places expert help after the questions.
+ * Sample first (2026-10-16): the hero's primary action opens an illustrative sample review (invented data, see
+ * src/content/landing/illustrativeReview.ts); "View plans" is the secondary action. The old hero screenshot is removed: at
+ * its rendered desktop size its text was unreadable.
  *
  * The commercial structure:
  *   Product        Trial balance review — a 12-month software subscription. Financial reporting — a pilot by invitation,
@@ -28,6 +31,8 @@
 export const LANDING_SECTION_IDS = [
   "main-content",
   "product",
+  "sample",
+  "completed-example",
   "plans",
   "faq",
   "specialist-services",
@@ -36,24 +41,79 @@ export const LANDING_SECTION_IDS = [
 export type LandingSectionId = (typeof LANDING_SECTION_IDS)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hero — one proposition, one primary action (the plans), one product screenshot
+// Hero — one proposition, one primary action (the sample review), the plans as the secondary action
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const LANDING_HERO = {
   eyebrow: "Trial balance workspace",
   headline: "From trial balance to review-ready accounts.",
-  supporting:
-    "Import a trial balance, check it, and map every account to its statement category, with each decision recorded. CFOCLOSE performs the checks and records the decisions; professional judgement stays with you.",
-  primaryCta: { label: "Explore plans", href: "#plans" },
+  supporting: "Check your trial balance, review account classifications, and keep a traceable record of your decisions.",
+  primaryCta: { label: "See a sample review", href: "#sample" },
   secondaryCta: { label: "View plans" },
-  /** A genuine screenshot of the product (local real-application run), with a fictitious demonstration company. */
-  screenshot: {
-    src: "/landing/trial-balance-review.png",
-    width: 1280,
-    height: 900,
-    alt: "The CFOCLOSE trial balance page for a demonstration company: reviewed status, debit and credit totals of 64,400.00 that agree, and the list of trial balance checks, all passed.",
-    caption: "Product screenshot · a reviewed trial balance · demonstration company and figures",
-  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sample review — an illustrative example on invented data (src/content/landing/illustrativeReview.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Words around the sample. Every limit is stated where it applies: the invented-data label, the guided-example label beside
+ * the choices, "records decisions; does not check them against evidence", and what "reviewed" does not mean.
+ */
+export const LANDING_SAMPLE_COPY = {
+  eyebrow: "Sample review",
+  heading: "Explore an illustrative trial balance review",
+  label: "Illustrative example — invented data",
+  leadBalanced: "Balanced",
+  viewCompleted: "View completed example",
+  tryOpen: "Try the two decisions",
+  tryClose: "Hide the two decisions",
+  checksTitle: "Checks",
+  checksSummary: "3 passed · 1 pending",
+  arithmeticHeading: "Arithmetic, run on import",
+  arithmeticChecks: [
+    { name: "File read", detail: "16 rows from an invented file" },
+    { name: "Amounts are valid", detail: "" },
+    { name: "Debits equal credits", detail: "127,150.00 each side. This says nothing about how accounts are classified." },
+  ],
+  classificationHeading: "Depends on classification",
+  equationName: "Statement equation",
+  equationPendingState: "Pending",
+  equationHoldsState: "Holds",
+  equationNote: "It holds whenever the totals balance and every account has a category; it does not show that the categories are right.",
+  accountsTitle: "All 16 accounts",
+  accountsSummary: "14 mapped · 2 held",
+  heldForReview: "Held for review",
+  tryHeading: "Try the two decisions",
+  tryIntro: "Choosing an option records nothing. Only \"Record decision\" records it, under the name \"Sample reviewer\". CFOClose records decisions; it does not check them against evidence.",
+  invented: "Invented evidence",
+  decisionLegend: "Your decision",
+  guidedLabel: "Guided example—not automated evidence checking.",
+  record: "Record decision",
+  reset: "Reset sample",
+  noDecision: "No decision recorded.",
+  selectFirst: "Select a treatment first.",
+  supported: "In this guided example, it matches the invented evidence.",
+  unsupported: "In this guided example, the invented evidence does not support it.",
+  readyState: "Reviewed (illustrative) · 16 of 16 accounts have a category",
+  visitorLogTitle: "Your recorded decisions",
+  visitorName: "Sample reviewer (you)",
+  limit: "a reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved. In a real workspace, readiness depends on all applicable checks and the required decisions being recorded by authorised users.",
+  completedEyebrow: "Completed example · read-only",
+  completedHeading: "The same trial balance, with its two decisions made",
+  completedIntro: "These decisions were supplied with the example. Viewing them records nothing for you.",
+  completedStatus: "reviewed (illustrative)",
+  suppliedHeading: "Decisions supplied with this example",
+  equationHeading: "Statement equation",
+  completedEquationNote: "It holds because the totals balance and every account has a category; it does not show that the categories are right.",
+  limitationsHeading: "Remaining limitations",
+  limitations: [
+    "These are recorded decisions, not validated accounting treatment.",
+    "The match with the invented evidence belongs to this guided example. CFOClose records decisions; it does not check them against evidence.",
+    "A reviewed trial balance is balanced and mapped. It is not reconciled to evidence, audited or approved.",
+    "Financial reporting is a pilot by invitation and is not shown here.",
+  ],
+  backToSample: "Back to the sample",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
