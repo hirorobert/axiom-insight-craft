@@ -393,6 +393,25 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
+      - name: Compatibility of the served frontend (main 00a2653, which the cfoclose.com bundle matches) with this backend, main's own app journey unchanged
+        if: always()
+        run: |
+          git fetch --no-tags --depth=1 origin 00a2653b5736e89447334e1147aa25f5308b0393
+          git worktree add /tmp/old-frontend 00a2653b5736e89447334e1147aa25f5308b0393
+          (cd /tmp/old-frontend && bun install --frozen-lockfile)
+          (cd /tmp/old-frontend && node scripts/e2e/localStackJourney.mjs "$GITHUB_WORKSPACE/compat-evidence/old-journey")
+
+      - name: Compatibility of the served frontend with this backend (normal, refused and busy checks rendered by the old pages)
+        if: always()
+        run: node research/compat/oldFrontendCompat.mjs /tmp/old-frontend compat-evidence/checks
+
+      - name: Upload the compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-evidence
+          path: compat-evidence
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4
