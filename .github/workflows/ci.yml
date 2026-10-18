@@ -806,6 +806,15 @@ jobs:
           createdb tb_release_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
+      - name: Unlimited team members wrapper proof (the same reviewed apply-and-register proof for the pricing-p1 wrapper, 20261110100000 at PR 161 head 4fba8c5; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pricing_p1_wrappers_proof
+          RELEASE_BATCH: pricing-p1
+        run: |
+          createdb pricing_p1_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
       - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)
         env:
           DB_PROOF_MODE: external
