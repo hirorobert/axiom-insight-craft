@@ -48,7 +48,35 @@ The `process-trial-balance` closure at `3422002` has no child workers, no `waitU
 ### Original upload `f0d5e808…`: CPU BLOCKED
 Its runtime and storage evidence (Record B) stands. Its CPU telemetry is unavailable: the `[PTB]` line reports `cpu_ms=unavailable`, and no correlated `Shutdown` was captured. A completed status establishes neither CPU usage nor the absence of a provider-level 546. So its CPU gate is **BLOCKED** and is not carried forward.
 
-### Correlated run (fresh run 2): open
+### Run 2 (`resource-2000-accounts-run2.csv`): runtime integrity PASS, hosted CPU BLOCKED
+- **Runtime integrity: PASS** (Lovable report, 2026-10-18).
+- **Hosted CPU: BLOCKED.** The §6.3 correlation and numeric CPU were not obtained through the hosted channel.
+- **No further owner uploads** are to be repeated for CPU.
+
+### Why the function cannot measure its own CPU (edge-runtime `v1.77.0` source)
+- **No `process.cpuUsage`.** `ext/node/polyfills/process.ts` defines `process.cpuUsage()` as `warnNotImplemented(...)`, returning `{ user: 0, system: 0 }`. Our `[PTB]` line therefore correctly reports `unavailable`.
+- **No other CPU source.** `ext/runtime/js/namespaces.js` exposes `EdgeRuntime.getRuntimeMetrics()` only to the MAIN worker, never to a user worker. Its `RuntimeMetrics` (`types/global.d.ts`) holds heap and request counts and no CPU field.
+- **Result:** no in-function measurement change can produce CPU time on this runtime. The only CPU figure is the supervisor's `Shutdown.cpu_time_used`, which is reachable only through the provider's log channel. Source support for that field is not proof that our hosted channel exposes it for a given run.
+
+### Open: retrieve run 2's Shutdown from the existing log channel (no new upload)
+Lovable reported seeing `Shutdown` events with `execution_id` and `cpu_time_used` in `function_logs` for another function. If the same read access returns them for `process-trial-balance`, §6.3 is evaluated **unchanged** on run 2, by its `execution_id`:
+- the `Boot`, `[PTB] check=1` and `Shutdown` events correlate;
+- `edge_logs` shows HTTP 200, with no 546;
+- `cpu_time_used` ≤ 1,500 ms.
+
+If that read access cannot return them, there is **no supported access route**, and the gate is decided by the recommendation below. It is never waived, and never marked PASS by default.
+
+### Recommendation if no access route exists (pending the owner's explicit decision)
+**Revise the resource acceptance policy, from "measured CPU ≤ 1,500 ms" to "no CPU-limit termination at the account bound, under the enforced hard limit".**
+- **Evidence it would rest on:**
+  - **How the limit is enforced** (`strategy_per_worker.rs` / `strategy_per_request.rs`): the supervisor terminates a worker whose CPU reaches `cpu_time_hard_limit_ms`. The request is then answered 546, with a CPU-related shutdown reason.
+  - **What runs 1 and 2 must show:** both are 2,000-account checks (the account bound). Each must have `edge_logs` HTTP 200 for its request, a persisted generation-6 certification (R1–R4 PASS) and no CPU-limit event. Together these bound each run's CPU strictly below the hosted hard limit.
+  - **What has to be cited:** the hosted hard limit itself, as Supabase's documented "2 s CPU time per request", from provider documentation.
+- **Residual risk, stated:**
+  - The headroom between real CPU and the hard limit is **unknown**. This revision proves "below the limit", not "≤ 1,500 ms".
+  - A denser file at the bound could still be terminated. That failure is explicit (546; nothing certified; the attempt is recovered after its 600 s lease).
+  - The provisional upload limits (`tb-upload-policy-3`) stay provisional, to be revisited after a week of hosted runs.
+- **Decision:** the owner either approves this revision in writing (recorded here with the date), or keeps the gate BLOCKED. A separately reviewed measurement change is not offered, because none is possible on this runtime (see above).
 To be recorded verbatim from provider logs:
 - `execution_id` and function version;
 - the `[PTB] worker=… check=1 http=200 …` line and its timestamp;
