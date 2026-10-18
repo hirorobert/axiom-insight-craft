@@ -57,8 +57,8 @@ This is the tracked record of hosted verification for the release (application i
 | Defect | Owner lane | Status |
 |---|---|---|
 | DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 | Website review (TB UX) | Fixed in draft #164; unmerged and unpublished |
-| DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001: a replaced over-limit file gets only a transient toast (`PrepareWorkspace.handleReplacePicked`) | Website review (TB UX) | Separate follow-up |
-| DEFECT-UX-TB-REVIEW-CONFIRMATION-VISIBILITY-001: the accounts awaiting confirmation, and what **Save & reprocess** confirms, are not clear on screen | Website review (TB UX) | Open |
+| DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001: a replaced over-limit file gets only a transient toast (`PrepareWorkspace.handleReplacePicked`) | Website review (TB UX) | Fixed in draft #170 (stacked on #168; persistent `role="alert"`); unmerged and unpublished |
+| DEFECT-UX-TB-REVIEW-CONFIRMATION-VISIBILITY-001: the accounts awaiting confirmation, and what **Save & reprocess** confirms, are not clear on screen | Website review (TB UX) | Partly covered by #164 (the pre-selected-suggestions notice); the per-row marker, the count on the action, the post-save summary and the "Previously reviewed" labels await the owner's go-ahead |
 | Publication outside the hold: `cfoclose.com` serves this release's frontend; the publisher and time are unrecorded | Owner | Open finding |
 | CPU observability (a hosted CPU value correlatable per check) | Carried forward; required before broad rollout or any raise of the upload bounds | Open |
 | Orphan cleanup #149 | Separate; weekly read-only inventory | Deferred |
