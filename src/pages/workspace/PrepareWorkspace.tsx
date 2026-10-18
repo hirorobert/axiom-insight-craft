@@ -76,7 +76,7 @@ import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
-import { currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
+import { cardVerdictForAccess, currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
@@ -169,7 +169,8 @@ export default function PrepareWorkspace() {
       // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
       const { error } = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId, clientRequestId: crypto.randomUUID() });
       if (error) throw error;
-      toast.success(`Processing ${fileName}. The result appears on this page.`);
+      // Started, not finished: neutral, never a success mark before the check has answered.
+      toast(`Processing ${fileName}. The result appears on this page.`);
     } catch (err) {
       console.error("[processReplacement]", err);
       // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
@@ -443,7 +444,7 @@ export default function PrepareWorkspace() {
   // neutrally from their structured severity (certificationCheckPresentation.ts).
   const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });
   // The service, the step and the one thing to do now — from the same verdict as the card below, never re-derived.
-  const task = currentTrialBalanceTask(verdict);
+  const task = currentTrialBalanceTask(verdict, { reviewAccess: !prepareOnly });
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
@@ -453,7 +454,7 @@ export default function PrepareWorkspace() {
     try {
       // Through the one reprocess path (E1: the engine refuses a direct re-run of an upload with a recorded result).
       await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
-      toast.success("Processing started. The result appears on this page.");
+      toast("Processing started. The result appears on this page.");
     } catch (err) {
       console.error("[handleRetry]", err);
       toast.error("Processing did not start. Please try again.");
@@ -546,6 +547,9 @@ export default function PrepareWorkspace() {
     !!user;
   const reviewPanelShown = !prepareOnly && showReviewPanel;
   const actionHierarchy = reviewActionHierarchy(verdict.primaryAction?.kind ?? null, reviewPanelShown ? reviewSubmission : null);
+  // Without review access the account review is not on this page, so "Resolve account classifications" would lead
+  // nowhere: the card offers no action and the step states what blocks progress (the server gate is unchanged).
+  const cardVerdict = cardVerdictForAccess(verdict, !prepareOnly);
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -591,7 +595,7 @@ export default function PrepareWorkspace() {
                 fileName={upload.file_name}
                 uploadedAt={upload.uploaded_at}
                 fileSize={upload.file_size}
-                verdict={verdict}
+                verdict={cardVerdict}
                 busy={replacing || retryingProcess}
                 onPrimary={onPrimary}
                 primaryEmphasis={actionHierarchy.card}
@@ -773,9 +777,16 @@ export default function PrepareWorkspace() {
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
                     {mapping && (
-                      <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)}>
-                        View mapped accounts
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)} aria-describedby={prepareOnly ? "mapped-accounts-access" : undefined}>
+                          View mapped accounts
+                        </Button>
+                        {prepareOnly && (
+                          <span id="mapped-accounts-access" className="text-[12px] text-muted-foreground" data-testid="mapped-accounts-access">
+                            Viewing mapped accounts requires separate access to this workspace.
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
