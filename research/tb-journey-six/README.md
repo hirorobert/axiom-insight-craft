@@ -30,3 +30,6 @@ Key differences:
 - C2: before — "Change purpose" inline in the company heading; after — "Company options" with the purpose's meaning.
 - C5/C6: before — "Resolve account classifications" (outline) beside Replace/Remove; after — "Review account classifications" leads, "File options" holds Replace, Remove and Upload history.
 - D3: before — a running check was shown as a red alert with "Try again"; after — that upload's page opens, "Processing … This page updates itself".
+
+## Oversize replacement refusal (DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001)
+`oversize/` — synthetic harness, existing engagement: a 12,000,039-byte replacement is refused with a persistent `role="alert"` beside Replace (File options open), no upload row added and no backend call made, still shown after 6 s, removed by Dismiss; 1280 and 390 px, no layout problems (`oversize.json`, script `oversize.mjs`). Before: only a transient toast (code: `PrepareWorkspace.handleReplacePicked`).

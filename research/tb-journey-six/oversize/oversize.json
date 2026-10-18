@@ -1,0 +1,32 @@
+{
+  "1280-refused": {
+    "before": {
+      "uploads": 1,
+      "calls": 9
+    },
+    "refusal": "“fy2027-demo.csv” is larger than 10 MB. Export only the trial balance (one sheet, no images) and upload it again. The current Trial Balance was not changed.",
+    "role": "alert",
+    "optionsOpen": "true",
+    "uploads": 1,
+    "calls": 9,
+    "toasts": 0,
+    "layout": []
+  },
+  "1280-after-6s": true,
+  "1280-dismissed": true,
+  "390-refused": {
+    "before": {
+      "uploads": 1,
+      "calls": 9
+    },
+    "refusal": "“fy2027-demo.csv” is larger than 10 MB. Export only the trial balance (one sheet, no images) and upload it again. The current Trial Balance was not changed.",
+    "role": "alert",
+    "optionsOpen": "true",
+    "uploads": 1,
+    "calls": 9,
+    "toasts": 0,
+    "layout": []
+  },
+  "390-after-6s": true,
+  "390-dismissed": true
+}
