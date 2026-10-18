@@ -1,0 +1,3595 @@
+{
+  "1280-A1-home-first": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A2-currency-nomatch": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A2-currency-typed": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A3-card-filled": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A4-after-check": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "See the result",
+        "testid": "first-upload-open-result",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A5-result": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 1",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A6-refresh": {
+    "before": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "after": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "file": null
+  },
+  "1280-A6-after-refresh": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 1",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-A7-after-back": {
+    "route": "about:blank",
+    "actions": [],
+    "live": [],
+    "focused": null,
+    "leftApp": true,
+    "layout": null
+  },
+  "1280-B1-home-draft": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Continue with “fy2025-trial-balance.csv”",
+        "testid": "first-upload-resume",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-B2-draft-continued": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C1-home-existing": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C2-purpose": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Record",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": true
+      },
+      {
+        "label": "Cancel",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C3-row-action-destination": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025",
+    "actions": [
+      {
+        "label": "Open the trial balance (Prepare)",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Account home (logo)",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C4-replace-offered": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace the current trial balance with this file",
+        "testid": "first-upload-replace",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:A trial balance is already active for this period."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C5-replacement-result": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C6-file-options": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-C8-review-focus": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "account-review",
+    "layout": []
+  },
+  "keyboard-home": [
+    "(harness)",
+    "(harness)",
+    "(harness)",
+    "Skip to content",
+    "CFOClose home",
+    "Home",
+    "Plans",
+    "Billing",
+    "Settings",
+    "Sign out",
+    "Choose a file",
+    "Change purpose",
+    "Resume Synthetic Services Ltd FY2025",
+    "Change purpose"
+  ],
+  "390-A1-home-first": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-A3-card-filled": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-A4-after-check": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "See the result",
+        "testid": "first-upload-open-result",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-A5-result": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 1",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-A6-refresh": {
+    "before": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "after": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "file": null
+  },
+  "390-A6-after-refresh": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 1",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-A7-after-back": {
+    "route": "about:blank",
+    "actions": [],
+    "live": [],
+    "focused": null,
+    "leftApp": true,
+    "layout": null
+  },
+  "390-B1-home-draft": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Continue with “fy2025-trial-balance.csv”",
+        "testid": "first-upload-resume",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-B2-draft-continued": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Use a different file",
+        "testid": "first-upload-change-file",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Start trial balance check",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C1-home-existing": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C2-purpose": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Choose a file",
+        "testid": "first-upload-choose",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Record",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": true
+      },
+      {
+        "label": "Cancel",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C3-row-action-destination": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025",
+    "actions": [
+      {
+        "label": "Open the trial balance (Prepare)",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Account home (logo)",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C4-replace-offered": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace the current trial balance with this file",
+        "testid": "first-upload-replace",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-0000-4000-8000-00000000000b",
+        "aria": "Resume Synthetic Services Ltd FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Change purpose",
+        "testid": "set-purpose-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resume",
+        "testid": "resume-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        "aria": "Resume Synthetic Trading Co FY2025",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:A trial balance is already active for this period."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C5-replacement-result": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C6-file-options": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-C8-review-focus": {
+    "route": "#/workspace/cccccccc-cccc-4ccc-8ccc-cccccccccccc/2025/trial-balance/review",
+    "actions": [
+      {
+        "label": "← Account home (logo)",
+        "testid": "harness-home",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "testid": "trial-balance-status",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Resolve account classifications",
+        "testid": "trial-balance-primary-action",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Replace Trial Balance",
+        "testid": "replace-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Remove Trial Balance",
+        "testid": "remove-trial-balance",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Show the full list",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "What these assessments mean",
+        "testid": null,
+        "aria": "What these assessments mean",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Save & reprocess",
+        "testid": "account-review-save",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Technical processing details",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Upload history · 2",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "focused": "account-review",
+    "layout": []
+  },
+  "1280-D1-refused": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:This period already exists with a different reporting currency."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-D2-check-failed": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Try again",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counte"
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "1280-D3-check-running": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Home",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Try again",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:The check is still running. Check again in a moment; it will not be counted twice."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-D1-refused": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:This period already exists with a different reporting currency."
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-D2-check-failed": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Try again",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counte"
+    ],
+    "focused": "BODY",
+    "layout": []
+  },
+  "390-D3-check-running": {
+    "route": "#/dashboard",
+    "actions": [
+      {
+        "label": "CFOCLOSE",
+        "testid": null,
+        "aria": "CFOClose home",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Billing",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Settings",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Sign out",
+        "testid": "account-sign-out",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Try again",
+        "testid": "first-upload-start",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Add a company",
+        "testid": "add-company",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Manage companies in Settings",
+        "testid": "manage-companies",
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "View plans",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Contact",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "support@cfoclose.com",
+        "testid": "account-support-email",
+        "aria": "Support: email support@cfoclose.com",
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Privacy Policy",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      },
+      {
+        "label": "Terms of Service",
+        "testid": null,
+        "aria": null,
+        "primary": false,
+        "disabled": false
+      }
+    ],
+    "live": [
+      "alert:The check is still running. Check again in a moment; it will not be counted twice."
+    ],
+    "focused": "BODY",
+    "layout": []
+  }
+}
