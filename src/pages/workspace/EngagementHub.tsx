@@ -42,8 +42,9 @@ import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
-import { groupEngagements, periodDates, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
+import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
+import { engagementNextAction } from "@/lib/workspace/engagementNextAction";
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
 export interface AccountHome {
@@ -63,7 +64,7 @@ export interface AccountHome {
    * Phase 2 P2-3: opens a trial balance's result (the Prepare page). When present, a first run with room for a company
    * starts with the upload itself (FirstUpload) instead of the company form; the form stays available as a secondary.
    */
-  onOpenTrialBalance?: (companyId: string, periodYear: number) => void;
+  onOpenTrialBalance?: (companyId: string, periodYear: number, uploadId: string) => void;
 }
 
 const PRIMARY = "h-10 px-5 text-[13px] font-semibold rounded-none shadow-none";
@@ -158,6 +159,7 @@ export default function EngagementHub({
     const nextLabel = nextVisible
       ? entry.workspaceState.nextAction.label
       : trialBalanceReviewStep(entry.workspaceState)?.label ?? NO_VISIBLE_NEXT_ACTION;
+    const action = engagementNextAction(entry.workspaceState);
     const services = customerVisibleCapabilities(entry.capabilities);
     const serviceLabel =
       services.length > 0
@@ -186,10 +188,11 @@ export default function EngagementHub({
             variant={account ? "outline" : "default"}
             onClick={() => onResume(entry)}
             data-testid={`resume-${entry.engagementId}`}
-            aria-label={`Resume ${entry.companyName} FY${entry.periodYear}`}
+            data-action={action.kind}
+            aria-label={`${action.label}: ${entry.companyName} FY${entry.periodYear}`}
             className={`${account ? SECONDARY : PRIMARY} shrink-0`}
           >
-            Resume <ArrowRight className="w-3.5 h-3.5 ml-1.5" aria-hidden="true" />
+            {action.label} <ArrowRight className="w-3.5 h-3.5 ml-1.5" aria-hidden="true" />
           </Button>
         </SurfaceCard>
       </li>
@@ -243,6 +246,7 @@ export default function EngagementHub({
           ) : (
           <NextActionCard
             next={next}
+            resumeLabel={(() => { const e = next.kind === "resume" ? entries.find((x) => x.engagementId === next.engagementId) : undefined; return e ? engagementNextAction(e.workspaceState).label : null; })()}
             busy={pending !== null}
             onRetry={account.onRetry}
             onResume={() => { const e = entries.find((x) => next.kind === "resume" && x.engagementId === next.engagementId); if (e) onResume(e); }}
@@ -281,8 +285,8 @@ export default function EngagementHub({
                   <h3 className="text-[15px] font-semibold text-foreground">{g.companyName}</h3>
                   {g.distinguisher ? <span className="text-[12px] text-muted-foreground">({g.distinguisher})</span> : null}
                   <span className="text-[12px] text-muted-foreground" data-testid={`company-purpose-${g.companyId}`}>· {g.purpose ? PURPOSE_WORDS[g.purpose] : "Purpose not stated"}</span>
-                  {onSetPurpose ? <PurposeControl companyId={g.companyId} current={g.purpose} onSet={onSetPurpose} /> : null}
                 </div>
+                {onSetPurpose ? <CompanyOptions companyId={g.companyId} companyName={g.companyName} current={g.purpose} onSet={onSetPurpose} /> : null}
                 <ul className="grid gap-2">{g.periods.map(renderEntry)}</ul>
               </li>
             );
@@ -432,8 +436,10 @@ export default function EngagementHub({
 }
 
 /** The one primary action of the account home. At most one filled button; anything else is a link. */
-function NextActionCard({ next, busy, onRetry, onResume, onStartReview, onStartService, onOpenShared, onAddCompany, addFormId, pendingLabel }: {
+function NextActionCard({ next, resumeLabel, busy, onRetry, onResume, onStartReview, onStartService, onOpenShared, onAddCompany, addFormId, pendingLabel }: {
   next: AccountNextAction;
+  /** The resumed engagement's actual next step (engagementNextAction), e.g. "Review account classifications". */
+  resumeLabel: string | null;
   busy: boolean;
   onRetry: () => void;
   onResume: () => void;
@@ -457,7 +463,7 @@ function NextActionCard({ next, busy, onRetry, onResume, onStartReview, onStartS
       primary = <Button asChild className={PRIMARY} data-testid="next-action-primary"><Link to="/plans">View plans{arrow}</Link></Button>;
       secondary = activation;
       break;
-    case "resume": primary = <Button onClick={onResume} className={PRIMARY} data-testid="next-action-primary">Resume{arrow}</Button>; break;
+    case "resume": primary = <Button onClick={onResume} className={PRIMARY} data-testid="next-action-primary">{resumeLabel ?? "Continue"}{arrow}</Button>; break;
     case "start_review": primary = <Button onClick={onStartReview} disabled={busy} aria-busy={!!pendingLabel} className={PRIMARY} data-testid="next-action-primary">{pendingLabel ?? `Start ${TRIAL_BALANCE_REVIEW.title}`}{arrow}</Button>; break;
     case "start_service": primary = <Button onClick={onStartService} className={PRIMARY} data-testid="next-action-primary">Start{arrow}</Button>; break;
     case "open_shared": primary = onOpenShared ? <Button onClick={onOpenShared} className={PRIMARY} data-testid="next-action-primary">Open{arrow}</Button> : null; break;
@@ -474,28 +480,50 @@ function NextActionCard({ next, busy, onRetry, onResume, onStartReview, onStartS
   );
 }
 
-/** The owner records a company's purpose with a reason (set_workspace_purpose; the server refuses anyone else). */
-function PurposeControl({ companyId, current, onSet }: { companyId: string; current: WorkspacePurpose | null;
+/**
+ * Company options: a per-company disclosure under the company's name. It holds the workspace purpose (owner only,
+ * recorded by set_workspace_purpose with a reason; the server refuses anyone else), with what the purpose means.
+ */
+function CompanyOptions({ companyId, companyName, current, onSet }: { companyId: string; companyName: string; current: WorkspacePurpose | null;
   onSet: (companyId: string, purpose: WorkspacePurpose, reason: string) => Promise<string> }) {
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState<WorkspacePurpose>(current === "test" ? "client" : "test");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const ids = { purpose: useId(), reason: useId() };
-  if (!open) return <button type="button" className="text-[12px] underline text-muted-foreground" onClick={() => setOpen(true)} data-testid={`set-purpose-${companyId}`}>Change purpose</button>;
+  const ids = { panel: useId(), heading: useId(), purpose: useId(), reason: useId(), help: useId() };
   return (
-    <form className="mt-1 flex w-full flex-wrap items-end gap-2 text-[12px]" aria-label="Workspace purpose"
-      onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; setBusy(true); try { setNotice(await onSet(companyId, purpose, reason.trim())); } finally { setBusy(false); } }}>
-      <label htmlFor={ids.purpose}>Purpose</label>
-      <select id={ids.purpose} className="border border-input bg-background px-1 py-0.5" value={purpose} onChange={(e) => setPurpose(e.target.value as WorkspacePurpose)}>
-        {(Object.keys(PURPOSE_WORDS) as WorkspacePurpose[]).map((p) => <option key={p} value={p}>{PURPOSE_WORDS[p]}</option>)}
-      </select>
-      <label htmlFor={ids.reason}>Reason</label>
-      <input id={ids.reason} className="min-w-[12rem] flex-1 border border-input bg-background px-1 py-0.5" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button type="submit" className="border border-input px-2 py-0.5 disabled:opacity-50" disabled={busy || reason.trim().length < 3}>{busy ? "Recording…" : "Record"}</button>
-      <button type="button" className="px-2 py-0.5 underline" onClick={() => setOpen(false)}>Cancel</button>
-      {notice ? <p role="status" className="w-full text-muted-foreground">{notice}</p> : null}
-    </form>
+    <div className="mb-2">
+      <button type="button" aria-expanded={open} aria-controls={ids.panel} onClick={() => setOpen((o) => !o)}
+        className="text-[12px] text-muted-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid={`company-options-${companyId}`}>
+        Company options{open ? "" : "…"}
+      </button>
+      {open && (
+        <section id={ids.panel} aria-labelledby={ids.heading} className="mt-2 border border-border bg-card p-4" data-testid={`company-options-panel-${companyId}`}>
+          <h4 id={ids.heading} className="text-[13px] font-semibold text-foreground">Workspace purpose · {companyName}</h4>
+          <p className="mt-1 text-[13px] text-foreground">Recorded: {current ? PURPOSE_WORDS[current] : "Not stated"}</p>
+          <p id={ids.help} className="mt-1 max-w-prose text-[12px] text-muted-foreground" data-testid={`purpose-explanation-${companyId}`}>{PURPOSE_EXPLANATION}</p>
+          <form className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end" aria-describedby={ids.help} data-testid={`set-purpose-${companyId}`}
+            onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; setBusy(true); try { setNotice(await onSet(companyId, purpose, reason.trim())); } finally { setBusy(false); } }}>
+            <div>
+              <label htmlFor={ids.purpose} className="block text-[12px] font-medium text-foreground">Purpose</label>
+              <select id={ids.purpose} className="mt-1 h-9 w-full border border-input bg-background px-2 text-[13px]" value={purpose} onChange={(e) => setPurpose(e.target.value as WorkspacePurpose)}>
+                {(Object.keys(PURPOSE_WORDS) as WorkspacePurpose[]).map((p) => <option key={p} value={p}>{PURPOSE_WORDS[p]}</option>)}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label htmlFor={ids.reason} className="block text-[12px] font-medium text-foreground">Reason (at least 3 characters)</label>
+              <input id={ids.reason} className="mt-1 h-9 w-full border border-input bg-background px-2 text-[13px]" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button type="submit" variant="outline" className="h-9 rounded-none px-4 text-[13px] shadow-none" disabled={busy || reason.trim().length < 3}>{busy ? "Recording…" : "Record purpose"}</Button>
+              <button type="button" className="text-[13px] underline underline-offset-4" onClick={() => setOpen(false)}>Close</button>
+            </div>
+          </form>
+          {notice ? <p role="status" className="mt-2 text-[12px] text-muted-foreground">{notice}</p> : null}
+        </section>
+      )}
+    </div>
   );
 }

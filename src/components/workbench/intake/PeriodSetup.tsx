@@ -1,11 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { CURRENCY_REGISTRY, CURRENCY_REGISTRY_VERSION } from "@/lib/currency/registry";
+import { CurrencySelect } from "@/components/currency/CurrencySelect";
+import { isoCurrencyOptions } from "@/lib/currency/currencyOptions";
 import { periodFormProblems } from "@/lib/workbench/intake/periodForm";
 import {
   SetupFeatureUnavailable, WorkspaceSetupError, openEngagementWithPeriod, type PeriodOpenResult, type RpcClient,
 } from "@/lib/workspace/workspaceSetupClient";
 
-const CODES = Object.keys(CURRENCY_REGISTRY).sort();
+const OPTIONS = isoCurrencyOptions(Object.keys(CURRENCY_REGISTRY).sort());
 /**
  * Trial balance › Intake: the reporting period with explicit start and end dates (any length up to the technical
  * ceiling, calendar or not) and an explicit reporting currency — no default currency, no default dates. The prior
@@ -76,12 +78,9 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
       <div className="flex flex-wrap gap-3">
         <div><label htmlFor={`${id}-s`} className="block text-sm">Start date</label><input id={`${id}-s`} type="date" required className={input} value={f.start} onChange={(e) => set("start", e.target.value)} /></div>
         <div><label htmlFor={`${id}-e`} className="block text-sm">End date</label><input id={`${id}-e`} type="date" required className={input} value={f.end} onChange={(e) => set("end", e.target.value)} /></div>
-        <div>
+        <div className="w-full sm:w-72">
           <label htmlFor={`${id}-c`} className="block text-sm">Reporting currency</label>
-          <select id={`${id}-c`} required className={input} value={f.currency} onChange={(e) => set("currency", e.target.value)} aria-describedby={`${id}-cv`}>
-            <option value="">Choose a currency</option>
-            {CODES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <CurrencySelect id={`${id}-c`} value={f.currency} onChange={(c) => set("currency", c)} options={OPTIONS} describedBy={`${id}-cv`} required className="mt-1" />
           <p id={`${id}-cv`} className="text-xs text-muted-foreground">ISO 4217 monetary currencies ({CURRENCY_REGISTRY_VERSION}).</p>
         </div>
       </div>
@@ -93,12 +92,9 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
         <div className="flex flex-wrap gap-3">
           <div><label htmlFor={`${id}-ps`} className="block text-sm">Prior start date</label><input id={`${id}-ps`} type="date" className={input} value={f.priorStart} onChange={(e) => set("priorStart", e.target.value)} /></div>
           <div><label htmlFor={`${id}-pe`} className="block text-sm">Prior end date</label><input id={`${id}-pe`} type="date" className={input} value={f.priorEnd} onChange={(e) => set("priorEnd", e.target.value)} /></div>
-          <div>
+          <div className="w-full sm:w-72">
             <label htmlFor={`${id}-pc`} className="block text-sm">Prior currency (if different)</label>
-            <select id={`${id}-pc`} className={input} value={f.priorCurrency} onChange={(e) => set("priorCurrency", e.target.value)}>
-              <option value="">Same as this period</option>
-              {CODES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <CurrencySelect id={`${id}-pc`} value={f.priorCurrency} onChange={(c) => set("priorCurrency", c)} options={OPTIONS} noneOption="Same as this period" className="mt-1" />
           </div>
         </div>
       ) : null}

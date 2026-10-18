@@ -172,14 +172,14 @@ describe("PeriodSetup", () => {
       const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
       act(() => { Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, v); el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true })); });
     };
-    set("Start date", "2025-07-01"); set("End date", "2026-06-30"); set("Reporting currency", "KES");
+    set("Start date", "2025-07-01"); set("End date", "2026-06-30"); set("Reporting currency", "KES"); act(() => { select("Reporting currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
     click(byText(/Set up the period/)); await flush();
     expect(rpc).toHaveBeenCalledWith("open_engagement_with_period", expect.objectContaining({ p_reporting_currency: "KES", p_period_start: "2025-07-01" }));
     expect(document.querySelector("[role=alert]")?.textContent).toContain("These dates overlap another reporting period");
     m.unmount(); m = null;
     const missing = vi.fn(async () => ({ data: null, error: { code: "PGRST202", message: "not found" } }));
     m = mount(h(PeriodSetup, { client: { rpc: missing } as never, companyId: "c1" }));
-    set("Start date", "2025-07-01"); set("End date", "2026-06-30"); set("Reporting currency", "KES");
+    set("Start date", "2025-07-01"); set("End date", "2026-06-30"); set("Reporting currency", "KES"); act(() => { select("Reporting currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
     click(byText(/Set up the period/)); await flush();
     expect(document.body.textContent).toContain("Setting up a period with explicit dates is not available yet.");
   });

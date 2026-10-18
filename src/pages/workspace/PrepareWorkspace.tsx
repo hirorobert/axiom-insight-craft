@@ -144,6 +144,8 @@ export default function PrepareWorkspace() {
   const { state: commercialState } = useWorkspaceCommercialState(companyId);
   const sourceMode = decideSourceManagementMode(access, capabilityState);
   const focusManage = searchParams.get(MANAGE_TRIAL_BALANCE_PARAM) === "source";
+  // "File options" › Upload history: each request opens, scrolls to and focuses the history section.
+  const [historyRequest, setHistoryRequest] = useState(0);
   const [removing, setRemoving] = useState(false);
   const [eligibility, setEligibility] = useState<{ key: string; value: RemovalEligibility } | null>(null);
   const eligibilityKey = upload ? `${upload.id}:${upload.version ?? ""}:${upload.lifecycle_state ?? ""}` : null;
@@ -612,6 +614,9 @@ export default function PrepareWorkspace() {
                     onRemove={handleRemove}
                   />
                 }
+                fileOptionsOpen={focusManage}
+                onShowHistory={rawUploads.length > 0 ? () => setHistoryRequest((n) => n + 1) : undefined}
+                historyCount={rawUploads.length}
               />
               {/* F2: what the database says about this result beyond the verdict — Needs re-check, Processing stopped,
                   Checking, New check requested — with at most one action, and the processing history. */}
@@ -796,6 +801,7 @@ export default function PrepareWorkspace() {
                 uploads={rawUploads}
                 currentId={rawUpload?.id ?? null}
                 viewingId={upload.id}
+                openRequest={historyRequest}
                 onOpen={(u) => {
                   const selected = u as WorkspaceUpload;
                   const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);

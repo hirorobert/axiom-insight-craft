@@ -1,13 +1,14 @@
 /**
  * reviewActionHierarchy — which ONE action leads on the trial-balance page when the account review is open. Pure.
  *
- * The page carries two actions for the review task: the result card's "Resolve account classifications" (it leads to
+ * The page carries two actions for the review task: the result card's "Review account classifications" (it leads to
  * and focuses the review section) and the review panel's "Save & reprocess" (it submits the decisions). Exactly one is
- * emphasised, chosen from the panel's own review state — the decisions the reviewer has made, never a guess:
+ * emphasised, chosen from the panel's own review state — the decisions the reviewer has made, never a guess. While the
+ * classifications still block completion (some undecided, or decisions not yet saved), the review leads:
  *
- *   incomplete  some account still needs a decision        → the card's Resolve leads (Save stays secondary and disabled)
- *   ready       every account has a valid, unsaved decision → Save & reprocess leads; Resolve is secondary
- *   failed      the last save was refused; decisions kept    → Save & reprocess leads again (retry), with the reason shown
+ *   incomplete  some account still needs a decision        → the card's Review leads (Save stays secondary and disabled)
+ *   ready       every account has a valid, unsaved decision → the card's Review still leads; Save is secondary
+ *   failed      the last save was refused; decisions kept    → Save & reprocess leads (retry), with the reason shown
  *   submitting  saving or reprocessing                       → Save & reprocess stays emphasised, disabled, with progress
  *   nothing     nothing to submit (no accounts left)         → the card's own next action leads; Save is not promoted
  *
@@ -47,7 +48,7 @@ export function reviewActionHierarchy(
   if (review === null) return { card: "primary", save: "secondary" };
   // The file or the check comes first.
   if (cardAction === "replace" || cardAction === "retry") return { card: "primary", save: "secondary" };
-  if (review === "ready" || review === "failed" || review === "submitting") return { card: "secondary", save: "primary" };
-  // incomplete, or nothing to submit: the card leads (Resolve, or no card action at all).
+  if (review === "failed" || review === "submitting") return { card: "secondary", save: "primary" };
+  // incomplete, ready (not yet saved) or nothing to submit: the card leads (Review, or no card action at all).
   return { card: "primary", save: "secondary" };
 }

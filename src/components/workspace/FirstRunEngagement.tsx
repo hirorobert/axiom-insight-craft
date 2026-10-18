@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { ArrowRight, AlertCircle, RefreshCw } from "lucide-react";
 import { classifyError } from "./workspaceCreateError";
+import { CurrencySelect } from "@/components/currency/CurrencySelect";
 import { capacityCopy } from "@/lib/commercial/paidActions";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
@@ -281,20 +282,8 @@ export default function FirstRunEngagement({
             Functional currency
             <span className="font-normal text-muted-foreground"> — required</span>
           </Label>
-          <Select value={currency} onValueChange={setCurrency}>
-            <SelectTrigger
-              id="fr-currency"
-              aria-label="Functional currency"
-              aria-required="true"
-            >
-              <SelectValue placeholder="Select your functional currency" />
-            </SelectTrigger>
-            <SelectContent>
-              {CURRENCY_OPTIONS.map((c) => (
-                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <CurrencySelect id="fr-currency" value={currency} onChange={setCurrency} required
+            options={CURRENCY_OPTIONS.map((c) => ({ code: c.value, name: c.label.split(" — ")[1] ?? null }))} />
         </div>
 
         {/* Reporting framework — optional progressive disclosure */}
