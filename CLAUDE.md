@@ -1000,7 +1000,7 @@ migration is applied by the owner, hosted company creation stays unrestricted.
   checks the stored object before sealing. The seal trigger itself refuses any hash, size or path that is not the
   canonical document's, whoever writes it; a seal needs its stored object (`object_missing`). An object left by an
   interrupted request is never official, is listed by `reporting_pack_storage_orphans()` (service role) and is reused
-  on retry only when it is exactly the canonical bytes (foreign unsealed bytes are replaced; sealed objects never are). Every browser-rendered
+  on retry only when it is exactly the canonical bytes; issuance never deletes or overwrites a stored object — other bytes at the path are refused as `object_conflict` and a NEW issuance recovers (#156). Every browser-rendered
   format is `official_sealing_unavailable` and is delivered as a labelled WORKING COPY after `issue_reporting_pack`.
   `has_workspace_capability` — the one resolver behind every capability-backed policy — requires an accepted
   (`accepted_at IS NOT NULL`), uncancelled membership of that workspace, an active named user and an open grant;
