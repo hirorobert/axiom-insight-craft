@@ -618,7 +618,9 @@ describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits rem
       expect(src).not.toMatch(/one company/i);
       expect(src).not.toMatch(/multi-company/i);
       expect(src).not.toMatch(/multi-period/i);
-      expect(src).not.toMatch(/unlimited/i);
+      // "Unlimited team members" is the owner's ENFORCED offer (20261110100000: commercial_plans.members_unlimited,
+      // honoured by the named-user seat wall); every other unlimited promise stays forbidden.
+      expect(src.replace(/unlimited team members/gi, "")).not.toMatch(/unlimited/i);
     }
   });
 
