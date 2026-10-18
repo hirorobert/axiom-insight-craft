@@ -361,3 +361,52 @@ describe("6. Review account classifications leads; File options is separate and 
     expect(prep).toMatch(/openRequest=\{historyRequest\}/);
   });
 });
+
+// ── DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001 ──────────────────────────────────────────────────────────────────
+
+describe("an over-limit replacement is refused visibly and persistently, next to Replace", () => {
+  it("the card shows the refusal with role=alert, opens File options beside it, and it can be dismissed", async () => {
+    const { CurrentTrialBalanceCard } = await import("./CurrentTrialBalanceCard");
+    const { fileTooLarge } = await import("@/lib/workspace/uploadPolicy");
+    const { validateReplacementFile } = await import("@/lib/workspace/trialBalanceManagement");
+    const big = { name: "fy2027.csv", size: 12_000_039 };
+    const refusal = `${validateReplacementFile(big)} The current Trial Balance was not changed.`;
+    expect(validateReplacementFile(big)).toBe(fileTooLarge(big));
+    expect(refusal).toContain("“fy2027.csv” is larger than 10 MB. Export only the trial balance (one sheet, no images) and upload it again.");
+    const layers = ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"].map((id) => ({ id, label: "", state: "passed", detail: "" }));
+    const verdict = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: {} }, readiness: { verdict: "certified", blocker: null, checks: layers as never }, canRetry: true });
+    const onDismiss = vi.fn();
+    const props = { fileName: "tb.csv", uploadedAt: "2026-10-18T10:00:00Z", fileSize: 2048, verdict, onPrimary: () => undefined,
+      management: createElement("button", { type: "button", "data-testid": "replace" }, "Replace Trial Balance"), onDismissReplaceRefusal: onDismiss };
+    mounted = mount(createElement(CurrentTrialBalanceCard, { ...props, replaceRefusal: null }));
+    const q = (id: string) => mounted!.container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+    expect(q("trial-balance-replace-refusal")).toBeNull();
+    mounted.rerender(createElement(CurrentTrialBalanceCard, { ...props, replaceRefusal: refusal }));
+    const alert = q("trial-balance-replace-refusal")!;
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain("is larger than 10 MB");
+    expect(q("trial-balance-file-options")!.getAttribute("aria-expanded")).toBe("true");
+    expect(q("replace")).not.toBeNull(); // beside the Replace control
+    click(q("trial-balance-replace-refusal-dismiss")!);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    mounted.rerender(createElement(CurrentTrialBalanceCard, { ...props, replaceRefusal: null }));
+    expect(q("trial-balance-replace-refusal")).toBeNull();
+  });
+
+  it("Prepare keeps the refusal (no transient toast), makes no upload call for it, and clears it when a valid file is picked", () => {
+    const prep = src("src/pages/workspace/PrepareWorkspace.tsx");
+    const handler = prep.slice(prep.indexOf("const handleReplacePicked"), prep.indexOf("setPendingFile(file);"));
+    expect(handler).toMatch(/if \(invalid\) \{\n\s*setReplaceRefusal\(`\$\{invalid\} The current Trial Balance was not changed\.`\);\n\s*return;\n\s*\}/);
+    expect(handler).not.toMatch(/toast/);
+    expect(handler).not.toMatch(/retireAndProcess/);
+    expect(handler).toMatch(/setReplaceRefusal\(null\);\s*$/);
+    expect(prep).toMatch(/replaceRefusal=\{replaceRefusal\}/);
+    expect(prep).toMatch(/onDismissReplaceRefusal=\{\(\) => setReplaceRefusal\(null\)\}/);
+  });
+
+  it("the first-upload path already refuses it persistently with role=alert, before storing anything", () => {
+    const fu = src("src/components/workspace/FirstUpload.tsx");
+    expect(fu).toMatch(/const invalid = validateFileChoice\(file\) \?\? fileTooLarge\(file\);\n\s*if \(invalid\) \{ setPhase\(\{ kind: "empty", error: invalid \}\); return; \}/);
+    expect(fu).toMatch(/role="alert"[^>]*data-testid="first-upload-error"/);
+  });
+});
