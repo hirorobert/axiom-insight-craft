@@ -1,0 +1,58 @@
+{
+  "1280-1-review-first": {
+    "save": "Save & reprocess",
+    "status": "All decisions recorded. Save and reprocess to apply them.",
+    "marks": [],
+    "rows": 4,
+    "layout": [
+      "field without a label: button",
+      "field without a label: button",
+      "field without a label: button",
+      "field without a label: button"
+    ]
+  },
+  "1280-2-record-first": {
+    "layout": []
+  },
+  "1280-3-review-second": {
+    "save": "Save & reprocess",
+    "status": "All decisions recorded. Save and reprocess to apply them.",
+    "marks": [],
+    "rows": 2,
+    "layout": [
+      "field without a label: button",
+      "field without a label: button"
+    ]
+  },
+  "1280-4-record-second": {
+    "layout": []
+  },
+  "390-1-review-first": {
+    "save": "Save & reprocess",
+    "status": "All decisions recorded. Save and reprocess to apply them.",
+    "marks": [],
+    "rows": 0,
+    "layout": [
+      "field without a label: button",
+      "field without a label: button",
+      "field without a label: button",
+      "field without a label: button"
+    ]
+  },
+  "390-2-record-first": {
+    "layout": []
+  },
+  "390-3-review-second": {
+    "save": "Save & reprocess",
+    "status": "All decisions recorded. Save and reprocess to apply them.",
+    "marks": [],
+    "rows": 0,
+    "layout": [
+      "field without a label: button",
+      "field without a label: button"
+    ]
+  },
+  "390-4-record-second": {
+    "layout": []
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "1280-1-review-first": {
+    "save": "Confirm 4 classifications and reprocess",
+    "status": "4 pre-selected suggestions not yet checked. Saving records them as your decisions.",
+    "marks": [
+      "1000: Suggested — not yet confirmed",
+      "1100: Suggested — not yet confirmed",
+      "2000: Suggested — not yet confirmed",
+      "4000: Suggested — not yet confirmed"
+    ],
+    "rows": 4,
+    "layout": []
+  },
+  "1280-2-record-first": {
+    "summary": "4 accounts confirmed in this review by you (owner), 18 Oct 2026, 17:34.",
+    "role": "status",
+    "rows": [
+      "confirmed_here | 1000Cash at bank Current Assets Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34",
+      "confirmed_here | 1100Trade receivables Current Assets Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34",
+      "confirmed_here | 2000Trade payables Current Liabilities Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34",
+      "confirmed_here | 4000Sales revenue Revenue Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34"
+    ],
+    "layout": []
+  },
+  "1280-3-review-second": {
+    "save": "Confirm 2 classifications and reprocess",
+    "status": "2 pre-selected suggestions not yet checked. Saving records them as your decisions.",
+    "marks": [
+      "1200: Suggested — not yet confirmed",
+      "4100: Suggested — not yet confirmed"
+    ],
+    "rows": 2,
+    "layout": []
+  },
+  "1280-4-record-second": {
+    "summary": "2 accounts confirmed in this review by you (owner), 18 Oct 2026, 17:34. 4 accounts stood on a previously reviewed mapping.",
+    "role": "status",
+    "rows": [
+      "confirmed_here | 1200Prepaid rent Operating Expenses Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34",
+      "confirmed_here | 4100Service income Revenue Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:34",
+      "previously_reviewed | 1000Cash at bank Current Assets Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 1100Trade receivables Current Assets Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 2000Trade payables Current Liabilities Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 4000Sales revenue Revenue Previously reviewed On this company's reviewed mapping; not confirmed again in this run"
+    ],
+    "layout": []
+  },
+  "390-1-review-first": {
+    "save": "Confirm 4 classifications and reprocess",
+    "status": "4 pre-selected suggestions not yet checked. Saving records them as your decisions.",
+    "marks": [
+      "1000: Suggested — not yet confirmed",
+      "1100: Suggested — not yet confirmed",
+      "2000: Suggested — not yet confirmed",
+      "4000: Suggested — not yet confirmed"
+    ],
+    "rows": 0,
+    "layout": []
+  },
+  "390-2-record-first": {
+    "summary": "4 accounts confirmed in this review by you (owner), 18 Oct 2026, 17:35.",
+    "role": "status",
+    "rows": [
+      "confirmed_here | 1000Cash at bank Current Assets Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35",
+      "confirmed_here | 1100Trade receivables Current Assets Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35",
+      "confirmed_here | 2000Trade payables Current Liabilities Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35",
+      "confirmed_here | 4000Sales revenue Revenue Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35"
+    ],
+    "layout": []
+  },
+  "390-3-review-second": {
+    "save": "Confirm 2 classifications and reprocess",
+    "status": "2 pre-selected suggestions not yet checked. Saving records them as your decisions.",
+    "marks": [
+      "1200: Suggested — not yet confirmed",
+      "4100: Suggested — not yet confirmed"
+    ],
+    "rows": 0,
+    "layout": []
+  },
+  "390-4-record-second": {
+    "summary": "2 accounts confirmed in this review by you (owner), 18 Oct 2026, 17:35. 4 accounts stood on a previously reviewed mapping.",
+    "role": "status",
+    "rows": [
+      "confirmed_here | 1200Prepaid rent Operating Expenses Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35",
+      "confirmed_here | 4100Service income Revenue Confirmed in this review Suggestion confirmed by you (owner) · 18 Oct 2026, 17:35",
+      "previously_reviewed | 1000Cash at bank Current Assets Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 1100Trade receivables Current Assets Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 2000Trade payables Current Liabilities Previously reviewed On this company's reviewed mapping; not confirmed again in this run",
+      "previously_reviewed | 4000Sales revenue Revenue Previously reviewed On this company's reviewed mapping; not confirmed again in this run"
+    ],
+    "layout": []
+  }
+}
