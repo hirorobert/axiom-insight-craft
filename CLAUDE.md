@@ -370,6 +370,7 @@ src/
       certificationRevalidationGuard.ts ← Certification revalidation guard
       computeCertificationReadiness.ts  ← Certification readiness (pure)
       computePreflight.ts     ← Preflight checks (pure)
+      reviewConfirmation.ts   ← Account review: row confirmation marks, the counted save action, and the post-save record (pure)
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing

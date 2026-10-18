@@ -27,6 +27,7 @@ import { BalanceSheetEquationCard } from "@/components/certification/BalanceShee
 import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
+import { ClassificationRecord } from "@/components/workspace/ClassificationRecord";
 import {
   applyDiscardSuppression,
   suppressUpload,
@@ -741,6 +742,17 @@ export default function PrepareWorkspace() {
                     }}
                   />
                 </div>
+              )}
+
+              {/* After the review: what was confirmed for this trial balance, by whom, and what stood on earlier reviews. */}
+              {!showReviewPanel && upload.company_id && (
+                <ClassificationRecord
+                  uploadId={upload.id}
+                  companyId={upload.company_id}
+                  currentUserId={user?.id ?? null}
+                  processingResult={upload.processing_result}
+                  refreshKey={`${upload.status}|${upload.processed_at ?? ""}`}
+                />
               )}
 
               {/* Engine telemetry for auditors, collapsed. The result itself is stated once, above. */}

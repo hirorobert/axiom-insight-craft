@@ -17,6 +17,7 @@ import { buildBatchDecisions, isTreatmentReasonValid, KEEP_AS_MAPPED_CHOICE, typ
 import { supabase } from "@/integrations/supabase/client";
 import { requestReprocess, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 import { deriveReviewSubmission, type ActionEmphasis, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
+import { ROW_CONFIRMATION_LABEL, confirmActionLabel, rowConfirmation, type RowConfirmation } from "@/lib/workspace/reviewConfirmation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -76,6 +77,20 @@ function AssessmentHelp() {
         </p>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * ConfirmationMark — whether a row's classification is still only a suggestion, or the reviewer's own choice; none is
+ * saved until "Confirm … and reprocess" (DEFECT-UX-TB-REVIEW-CONFIRMATION-VISIBILITY-001). Presentation only.
+ */
+function ConfirmationMark({ state, rowKey: key }: { state: RowConfirmation; rowKey: string }) {
+  if (!state) return null;
+  const tone = state === "suggested_unconfirmed" ? "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300" : "border-border bg-muted/40 text-foreground";
+  return (
+    <p className={`mt-1.5 block w-fit border px-1.5 py-0.5 text-[11px] font-medium leading-snug ${tone}`} data-testid={`row-confirmation-${key}`} data-state={state}>
+      {ROW_CONFIRMATION_LABEL[state]}
+    </p>
   );
 }
 
@@ -742,6 +757,7 @@ export function AccountReviewPanel({
                       tone={a.resolved ? "active" : "warn"}
                       label={a.headline}
                     />
+                    <ConfirmationMark state={rowConfirmation({ suggested: account.suggested_classification, choice, excluded: isExcluded, keepChoice: KEEP_AS_MAPPED })} rowKey={key} />
                     {a.note && (
                       <p className="mt-1 text-[11px] text-muted-foreground/80 leading-snug">
                         {a.note}
@@ -783,6 +799,7 @@ export function AccountReviewPanel({
               </div>
               <div className="mt-3">
                 <StatusMark tone={a.resolved ? "active" : "warn"} label={a.headline} />
+                <ConfirmationMark state={rowConfirmation({ suggested: account.suggested_classification, choice, excluded: isExcluded, keepChoice: KEEP_AS_MAPPED })} rowKey={key} />
                 {a.note && (
                   <p className="mt-1 text-[11px] text-muted-foreground/80 leading-snug">
                     {a.note}
@@ -835,7 +852,7 @@ export function AccountReviewPanel({
           ) : (
             <>
               <CheckCircle className="w-4 h-4" />
-              Save &amp; reprocess
+              {confirmActionLabel({ classifications: pendingRows.length, excluded: excluded.size })}
             </>
           )}
         </Button>

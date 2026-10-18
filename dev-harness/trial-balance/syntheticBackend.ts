@@ -35,6 +35,9 @@ export const tb = {
     statement_sign_offs: [] as Row[],
     filing_obligations: [] as Row[],
     audit_logs: [] as Row[],
+    // The account review's append-only record and the deciding member (resolve_account_review_batch writes both).
+    account_review_decisions: [] as Row[],
+    firm_members: [{ id: "ffffffff-ffff-4fff-8fff-ffffffffffff", user_id: HARNESS_USER.id, role: "owner", invited_email: null, company_id: COMPANY }] as Row[],
   } as Record<string, Row[]>,
   blobs: {} as Record<string, Uint8Array>,
   /** Who the page reads as: the owner, or a Prepare-only grant holder (reconciliation rows are not visible to them). */
@@ -173,7 +176,15 @@ async function runCheck(uploadId: string): Promise<string> {
     cert(false, true, [...review.values()].map((r) => ({ code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: r.account_code, message: r.reason })));
     return "needs_review";
   }
-  Object.assign(upload, { status: "complete", is_valid: true, accounting_errors: [], validation_report: base.validation_report, processing_result: { status: "valid", ...base }, processed_at: new Date().toISOString(), lifecycle_state: "active_processed" });
+  const BS = new Set(["current_assets", "non_current_assets", "current_liabilities", "non_current_liabilities", "equity"]);
+  const statements: Record<string, Record<string, { accounts: Row[]; total: number }>> = { balance_sheet: {}, income_statement: {} };
+  for (const a of ingest.accounts) {
+    const m = tb.tables.account_mappings.find((x) => x.account_code === a.accountCode);
+    const cls = String(m?.classification ?? "operating_expenses");
+    const sheet = BS.has(cls) ? "balance_sheet" : "income_statement";
+    (statements[sheet][cls] ??= { accounts: [], total: 0 }).accounts.push({ account_code: a.accountCode, account_name: a.accountName });
+  }
+  Object.assign(upload, { status: "complete", is_valid: true, accounting_errors: [], validation_report: base.validation_report, processing_result: { status: "valid", statements, ...base }, processed_at: new Date().toISOString(), lifecycle_state: "active_processed" });
   cert(false, false, []);
   return "complete";
 }
@@ -250,11 +261,22 @@ const rpcs: Record<string, (a: Row) => Answer | Promise<Answer>> = {
     const last = certs[certs.length - 1];
     return { data: last && !last.is_blocking && !last.requires_review ? [clone(last)] : [], error: null };
   },
+  // As the server's reprocess request: accepted for the active upload, with an operation id the check then runs under.
+  tbu_request_reprocess: (a) => ({ data: { outcome: "accepted", code: "ACCEPTED", upload_id: a.p_upload_id, operation_id: crypto.randomUUID(), invalidated_certification_id: null }, error: null }),
   resolve_account_review_batch: (a) => {
     for (const d of a.p_decisions as Row[]) {
-      if (!tb.tables.account_mappings.some((m) => m.account_code === d.account_code)) {
-        tb.tables.account_mappings.push({ company_id: COMPANY, account_code: d.account_code, classification: d.classification, statement: d.statement });
-      }
+      const decisionId = id("ardx");
+      const norm = String(d.account_name ?? "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+      tb.tables.account_review_decisions.push({
+        id: decisionId, upload_id: a.p_upload_id, company_id: COMPANY, firm_member_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        account_code: d.account_code ?? null, normalized_account_name: norm, review_account_key: d.account_code ?? norm,
+        decision_action: d.decision_action, new_value: d.decision_action === "MARK_NON_REPORTING_ACCOUNT" ? null : d,
+        created_at: new Date().toISOString(), sequence_no: tb.tables.account_review_decisions.length + 1,
+      });
+      if (d.decision_action === "MARK_NON_REPORTING_ACCOUNT") continue;
+      const existing = tb.tables.account_mappings.find((m) => m.account_code === d.account_code);
+      if (existing) Object.assign(existing, { classification: d.classification, statement: d.statement, review_decision_id: decisionId });
+      else tb.tables.account_mappings.push({ company_id: COMPANY, account_code: d.account_code, account_name: d.account_name, normalized_account_name: norm, classification: d.classification, statement: d.statement, review_decision_id: decisionId });
     }
     return { data: { ok: true }, error: null };
   },
