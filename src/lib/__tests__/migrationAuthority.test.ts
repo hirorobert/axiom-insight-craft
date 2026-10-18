@@ -49,7 +49,8 @@ describe("migration authority parity", () => {
     // 51: 0053, the sandbox isolation correction (commercial-p3, 20261031110000), the registered wrapper form (hosted 54).
     // 52: 0054, payment reversal authority (commercial-p4, 20261101100000), the registered wrapper form (hosted 55).
     // 53: 0055, verified charge outcomes (commercial-p5, 20261102100000), the registered wrapper form (hosted 56).
-    expect(r.mirrored.length).toBe(55);
+    // 59: 0058–0061, the trial balance release (tb-release-r1), the registered wrapper form (hosted 59–62).
+    expect(r.mirrored.length).toBe(59);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -68,8 +69,8 @@ describe("migration authority parity", () => {
     // ...and 20261018100000–20261022100000 as 0040–0044 (hosted 41–45). Nothing is pending.
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
-    // 20261106100000 (trial balance drafts, Phase 2 P2-2) is authored and PENDING hosted application: listed, never an error.
-    expect(r.pending).toEqual(["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql", "20261109100000_refused_replacement_restore.sql"]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
+    // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
+    expect(r.pending).toEqual([]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

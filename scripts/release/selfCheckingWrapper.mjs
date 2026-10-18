@@ -99,8 +99,8 @@ export const ACCESS_WRAPPED_SOURCES = Object.freeze([
   "20261104100000_platform_owner_access_and_entity_allowance.sql",
 ]);
 /** Trial balance release (PR #151 + correction #153, release 365b370): drafts, certification capacity, account identity by
- * definition, refused-replacement restore. The commit holding the four reviewed, BLACK-accepted source bytes. Authored,
- * PENDING hosted application. */
+ * definition, refused-replacement restore. The commit holding the four reviewed, BLACK-accepted source bytes. Applied
+ * 2026-10-18 as hosted 59–62. */
 export const TB_RELEASE_SOURCE_COMMIT = "365b3704b484527dde0bad52b5748bd7df3b739f";
 export const TB_RELEASE_WRAPPED_SOURCES = Object.freeze([
   "20261106100000_trial_balance_drafts.sql",

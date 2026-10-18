@@ -313,6 +313,24 @@ export const RELEASE_JOURNAL = {
   "0056_platform_owner_access_and_entity_allowance_wrapper": { kind: "release_self_checking_wrapper", source: "20261104100000_platform_owner_access_and_entity_allowance.sql",
     bytes: 38630, digest: "1cf1dd3264fbc87ee850104028c760b24d1d0269b3addaefbae25ed505b2fb62",
     form: "wrapper", submittedBytes: 40236, sha256: "b14ba1cc83320bc14e658edc6b3ff5d5ec6cc2f21b4ff057e3915d7e82565d7a" },
+  // Trial balance release (batch tb-release-r1; main 5f7a8fd, PRs #151 #153 #154 #157), applied 2026-10-18 by Lovable's hosted
+  // migrator through its SELF-CHECKING WRAPPERS, byte for byte (mirrors identical to release/wrappers/). Nothing is pending.
+  // hosted id 59; journal "when" 1792300021059 = 2026-10-18T05:07:01.059Z.
+  "0058_trial_balance_drafts": { kind: "release_self_checking_wrapper", source: "20261106100000_trial_balance_drafts.sql",
+    bytes: 48210, digest: "ec9c0fa7c18f797cc38991ee87ff80a14649d0207d737b3d1a7bd06838e3464d",
+    form: "wrapper", submittedBytes: 49772, sha256: "ea99a5858ddf1aaae99c04ee732dee7a4e0d799ca10f39c8e61c81abdcf4f87f" },
+  // hosted id 60; journal "when" 1792300154288 = 2026-10-18T05:09:14.288Z.
+  "0059_certification_findings_capacity": { kind: "release_self_checking_wrapper", source: "20261107100000_certification_findings_capacity.sql",
+    bytes: 34711, digest: "23d1286be5b9a28cc99a24c5b2f459acfd5c7784307e8c312805828a7f891be5",
+    form: "wrapper", submittedBytes: 36295, sha256: "d76f6fa2a816e1907640e0ba5177feed2e93ec27ccd8ffa9499aacf9697b8bbb" },
+  // hosted id 61; journal "when" 1792300217247 = 2026-10-18T05:10:17.247Z.
+  "0060_account_identity_codeless_name": { kind: "release_self_checking_wrapper", source: "20261108100000_account_identity_codeless_name.sql",
+    bytes: 12319, digest: "b443ea8cf8c440f8e08aca437f67cfb5e4a31b0908025c37c4ecdcd513d553c7",
+    form: "wrapper", submittedBytes: 13901, sha256: "74bad382fefb611358214e541c9adf65f9e158d6bba5613adc3089eab8b55195" },
+  // hosted id 62; journal "when" 1792300304995 = 2026-10-18T05:11:44.995Z.
+  "0061_refused_replacement_restore": { kind: "release_self_checking_wrapper", source: "20261109100000_refused_replacement_restore.sql",
+    bytes: 18790, digest: "ed189bfd036aaf173e952271516fb6482c0b84802cf7ca4b2e33d1121fff5d8c",
+    form: "wrapper", submittedBytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" },
 };
 
 /**
