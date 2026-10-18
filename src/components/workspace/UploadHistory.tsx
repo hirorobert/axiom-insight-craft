@@ -1,28 +1,41 @@
 /**
  * UploadHistory — every trial balance uploaded for this period, read-only. Each row states its lifecycle (Current,
  * Replaced, Removed from active use) and its recorded result, and can be opened. There is no delete or retry here:
- * history is evidence. The current trial balance is managed from its own card.
+ * history is evidence. The current trial balance is managed from its own card, whose "File options" can open this
+ * section (`openRequest` changes → expanded, scrolled into view and focused).
  */
 
-import { useState } from "react";
+const UPLOAD_HISTORY_ANCHOR = "upload-history";
+
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { lifecycleLabel, resultLabel } from "@/lib/workspace/trialBalanceVerdict";
 
 import type { HistoryUpload } from "@/lib/workspace/trialBalanceVerdict";
 
-export function UploadHistory({ uploads, currentId, viewingId, onOpen }: {
+export function UploadHistory({ uploads, currentId, viewingId, onOpen, openRequest = 0 }: {
   uploads: HistoryUpload[];
   currentId: string | null;
   /** The upload on screen (may be an earlier one opened from here). */
   viewingId: string | null;
   onOpen: (u: HistoryUpload) => void;
+  /** Increments each time another control asks to show the history. */
+  openRequest?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!openRequest) return;
+    setOpen(true);
+    const el = toggle.current;
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start", behavior: "smooth" });
+    el?.focus({ preventScroll: true });
+  }, [openRequest]);
   const rows = [...uploads].sort((a, b) => (a.uploaded_at < b.uploaded_at ? 1 : -1));
   return (
-    <section className="border border-border bg-card" data-testid="upload-history">
-      <Button type="button" variant="ghost" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="h-auto w-full justify-between rounded-none px-5 py-3.5 sm:px-7">
+    <section id={UPLOAD_HISTORY_ANCHOR} className="border border-border bg-card" data-testid="upload-history">
+      <Button ref={toggle} type="button" variant="ghost" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="h-auto w-full justify-between rounded-none px-5 py-3.5 sm:px-7">
         <span className="text-[13px] font-semibold text-foreground">Upload history <span className="font-normal text-muted-foreground">· {rows.length}</span></span>
         <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </Button>

@@ -21,7 +21,8 @@ import {
   type Tone,
 } from "@/components/workspace/ui/Surface";
 
-type StepState = "pending" | "running" | "done" | "failed" | "attention";
+/** not_applicable: the stage was not executed for this recorded outcome — never "done" (done means it ran). */
+type StepState = "pending" | "running" | "done" | "failed" | "attention" | "not_applicable";
 
 export interface LedgerStep {
   key: string;
@@ -30,7 +31,9 @@ export interface LedgerStep {
   state: StepState;
 }
 
-const PROCESSING_STATES = ["processing", "queued", "pending", "needs_review"];
+const PROCESSING_STATES = ["processing", "queued", "pending"];
+/** The check finished and recorded accounts needing a professional decision: terminal, not still processing. */
+const NEEDS_REVIEW_STATES = ["needs_review"];
 const FAILED_STATES = ["blocked", "error", "failed"];
 const DONE_STATES = ["complete", "valid"];
 
@@ -73,6 +76,7 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
   const isFailed = FAILED_STATES.includes(status);
   const isDone = DONE_STATES.includes(status);
   const isProcessing = PROCESSING_STATES.includes(status);
+  const isNeedsReview = NEEDS_REVIEW_STATES.includes(status);
 
   const pr = (upload.processing_result ?? null) as
     | { summary?: Record<string, unknown>; statements?: unknown; validation_report?: Record<string, unknown> }
@@ -151,6 +155,9 @@ export function deriveTrialBalanceSteps(upload: WorkspaceUpload | null, opts: { 
   } else if (isProcessing) {
     const firstOpen = steps.findIndex((s) => s.state === "pending");
     if (firstOpen >= 0) steps[firstOpen].state = "running";
+  } else if (isNeedsReview) {
+    // The run has ended: whatever it did not execute for this outcome is not applicable, never waiting or running.
+    for (const step of steps) if (step.state === "pending") { step.state = "not_applicable"; step.detail = undefined; }
   }
 
   return steps;
@@ -162,6 +169,7 @@ const ICONS: Record<StepState, JSX.Element> = {
   running: <Loader2 className="w-3 h-3 text-primary animate-spin" />,
   pending: <Minus className="w-3 h-3 text-muted-foreground/40" />,
   attention: <AlertTriangle className="w-3 h-3 text-amber-600" />,
+  not_applicable: <Minus className="w-3 h-3 text-muted-foreground" />,
 };
 
 const STATE_LABEL: Record<StepState, string> = {
@@ -170,6 +178,7 @@ const STATE_LABEL: Record<StepState, string> = {
   running: "Running",
   pending: "Waiting",
   attention: "Needs review",
+  not_applicable: "Not applicable",
 };
 
 const STATE_TONE: Record<StepState, Tone> = {
@@ -178,6 +187,7 @@ const STATE_TONE: Record<StepState, Tone> = {
   running: "active",
   pending: "muted",
   attention: "warn",
+  not_applicable: "muted",
 };
 
 function formatElapsed(ms: number): string {
@@ -198,6 +208,9 @@ export default function TrialBalanceProgressLedger({
 }) {
   const steps = deriveTrialBalanceSteps(upload, { failedCheckId });
   const doneCount = steps.filter((s) => s.state === "done").length;
+  // Stages that do not apply to the recorded outcome are neither done nor outstanding: they leave the count and the bar.
+  const applicable = steps.filter((s) => s.state !== "not_applicable").length;
+  const needsReview = (upload?.status ?? "").toLowerCase() === "needs_review";
   const failed = steps.some((s) => s.state === "failed");
   const running = steps.some((s) => s.state === "running");
   const attention = steps.some((s) => s.state === "attention");
@@ -215,7 +228,7 @@ export default function TrialBalanceProgressLedger({
   const elapsedMs = running && startedAt ? now - startedAt : null;
   const slow = elapsedMs !== null && elapsedMs > 120_000;
 
-  const phase = failed ? "Failed" : doneCount === steps.length ? "Completed" : running ? "Processing" : "Uploaded";
+  const phase = failed ? "Failed" : needsReview ? "Needs review" : doneCount === steps.length ? "Completed" : running ? "Processing" : "Uploaded";
 
   return (
     <section className="mb-10" aria-live="polite">
@@ -225,7 +238,7 @@ export default function TrialBalanceProgressLedger({
         meta={
           <>
             {/* Processing checks, not journey steps: the journey's steps are the header's "Step x of 3". */}
-            {phase} · {doneCount} of {steps.length} processing checks
+            {phase} · {doneCount} of {applicable} processing checks
             {elapsedMs !== null && <span> · {formatElapsed(elapsedMs)} elapsed</span>}
           </>
         }
@@ -235,7 +248,7 @@ export default function TrialBalanceProgressLedger({
       <div className="h-px w-full bg-border">
         <div
           className={`h-px transition-all duration-500 ${failed ? "bg-destructive" : attention ? "bg-amber-500" : doneCount === steps.length ? "bg-success" : "bg-primary"}`}
-          style={{ width: `${(doneCount / steps.length) * 100}%` }}
+          style={{ width: `${applicable ? (doneCount / applicable) * 100 : 0}%` }}
         />
       </div>
 
@@ -256,7 +269,7 @@ export default function TrialBalanceProgressLedger({
               stepTone={STATE_TONE[s.state]}
               icon={ICONS[s.state]}
               title={s.label}
-              titleMuted={s.state === "pending"}
+              titleMuted={s.state === "pending" || s.state === "not_applicable"}
               note={s.detail}
               status={<StatusMark tone={STATE_TONE[s.state]} label={STATE_LABEL[s.state]} />}
             />

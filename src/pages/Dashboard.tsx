@@ -38,6 +38,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
 import { decideReturningUserRoute, applyForceHub } from "@/lib/workspace/resolveReturningUserRoute";
+import { engagementNextAction, firstUploadResultRoute } from "@/lib/workspace/engagementNextAction";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import EngagementHub from "@/pages/workspace/EngagementHub";
@@ -178,8 +179,10 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stageSuffix, route?.kind, route?.kind === "resume" ? route.entry.companyId : null, route?.kind === "start_single_company" ? route.company.id : null, route?.kind === "open_shared" ? route.workspace.id : null]);
 
+  // An engagement's button names and opens its actual next step on the trial balance page (engagementNextAction),
+  // for the same entity, period and current upload.
   const resumeEntry = (entry: ActiveEngagementEntry) => {
-    navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
+    navigate(engagementNextAction(entry.workspaceState).href);
   };
 
   // Starting a service for a DIFFERENT company (or one with no open engagement) never touches an
@@ -282,7 +285,9 @@ export default function Dashboard() {
         onRetry: () => { retryBilling(); retryCapacity(); },
         onSignOut: signOutHome,
         onCompanyCreated: (companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true }),
-        onOpenTrialBalance: (companyId, year) => navigate(`/workspace/${companyId}/${year}/prepare`, { replace: true }),
+        // A history entry of its own (not a replace): Back returns to the account home, which routes on from the
+        // re-read engagements; the upload id in the URL keeps this exact result on refresh.
+        onOpenTrialBalance: (companyId, year, uploadId) => navigate(firstUploadResultRoute(companyId, year, uploadId)),
         initialAddOpen: firstRun && companyCreation({
           billing: { loading: billingLoading, error: !!billingError, summary: billing },
           capacity: { loading: capacityLoading, error: !!capacityError, answer: capacity },

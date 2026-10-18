@@ -77,6 +77,9 @@ export const TrialBalanceUpload = ({
   flowRef.current = flow;
   const fileRef = useRef<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // A synchronous guard: the flow state only reaches flowRef on the next render, so clicks (or a held Enter) landing in
+  // the same tick would each start a submission. Set before the first await, cleared when the attempt settles.
+  const submittingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const { user } = useAuth();
   const { logAction } = useAuditLog();
@@ -188,24 +191,34 @@ export const TrialBalanceUpload = ({
       toast.error("Please sign in to upload a trial balance.");
       return;
     }
-    if (!lockedCompanyId || flowRef.current.phase !== "selected") return;
-    // One request id for this check, created once and reused by every retry of the same step.
-    const clientRequestId = crypto.randomUUID();
-    dispatch({ type: "START", clientRequestId });
-    await runUpload(clientRequestId);
+    if (!lockedCompanyId || flowRef.current.phase !== "selected" || submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      // One request id for this check, created once and reused by every retry of the same step.
+      const clientRequestId = crypto.randomUUID();
+      dispatch({ type: "START", clientRequestId });
+      await runUpload(clientRequestId);
+    } finally {
+      submittingRef.current = false;
+    }
   };
 
   const retry = async () => {
     const before = flowRef.current;
-    if (before.phase !== "failed" || !before.failure) return;
-    // The same request id unless the server said it is spent (reduceFlow applies the same rule to the state).
-    const fresh = crypto.randomUUID();
-    const clientRequestId = before.failure.retry === "new_request" || !before.clientRequestId ? fresh : before.clientRequestId;
-    dispatch({ type: "RETRY", newClientRequestId: fresh });
-    const step = before.failure.step;
-    if (step === "upload" || before.failure.retry === "start_over") await runUpload(clientRequestId);
-    else if (step === "register" && before.reservationId) await runRegister(before.reservationId, clientRequestId);
-    else if (step === "check" && before.uploadId) await runCheck(before.uploadId, clientRequestId);
+    if (before.phase !== "failed" || !before.failure || submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      // The same request id unless the server said it is spent (reduceFlow applies the same rule to the state).
+      const fresh = crypto.randomUUID();
+      const clientRequestId = before.failure.retry === "new_request" || !before.clientRequestId ? fresh : before.clientRequestId;
+      dispatch({ type: "RETRY", newClientRequestId: fresh });
+      const step = before.failure.step;
+      if (step === "upload" || before.failure.retry === "start_over") await runUpload(clientRequestId);
+      else if (step === "register" && before.reservationId) await runRegister(before.reservationId, clientRequestId);
+      else if (step === "check" && before.uploadId) await runCheck(before.uploadId, clientRequestId);
+    } finally {
+      submittingRef.current = false;
+    }
   };
 
   const onAction = (id: FlowActionId) => {
@@ -306,6 +319,13 @@ export const TrialBalanceUpload = ({
         </p>
       )}
 
+      {/* The step in progress (or where it stopped), announced once per change; the list below stays the visual record. */}
+      <p className="sr-only" role="status" aria-live="polite" data-testid="trial-balance-upload-announcement">
+        {(() => {
+          const now = steps.find((x) => x.status === "active") ?? steps.find((x) => x.status === "failed");
+          return now ? `${now.label}: ${STEP_WORD[now.status]}` : "";
+        })()}
+      </p>
       {steps.length > 0 && (
         <ol className="border border-border" aria-label="Upload progress" data-testid="trial-balance-upload-steps">
           {steps.map((s) => (
