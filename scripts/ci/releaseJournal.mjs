@@ -331,6 +331,12 @@ export const RELEASE_JOURNAL = {
   "0061_refused_replacement_restore": { kind: "release_self_checking_wrapper", source: "20261109100000_refused_replacement_restore.sql",
     bytes: 18790, digest: "ed189bfd036aaf173e952271516fb6482c0b84802cf7ca4b2e33d1121fff5d8c",
     form: "wrapper", submittedBytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" },
+  // Unlimited team members (batch pricing-p1; main 100d43d, PR #175), applied 2026-10-18 by Lovable's hosted migrator
+  // through its SELF-CHECKING WRAPPER, byte for byte (mirror identical to release/wrappers/). Nothing is pending.
+  // hosted id 63; journal "when" 1792341986524 = 2026-10-18T16:46:26.524Z.
+  "0062_unlimited_team_members_wrapper": { kind: "release_self_checking_wrapper", source: "20261110100000_unlimited_team_members.sql",
+    bytes: 37312, digest: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009",
+    form: "wrapper", submittedBytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" },
 };
 
 /**

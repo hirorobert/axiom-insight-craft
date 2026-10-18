@@ -19,8 +19,8 @@ export interface ProposedPlan {
   readonly bestFor: string;
   /** "1", "25" — or "Negotiated" (Enterprise). */
   readonly entities: string;
-  /** "1", "1 included · more available", or "Negotiated". */
-  readonly namedUsers: string;
+  /** "Unlimited" (Solo, Practice, Firm) or "By agreement" (Enterprise). */
+  readonly teamMembers: string;
   /** Contact-sales plans get "Talk to sales"; self-serve plans get "Choose <plan>". */
   readonly contactSales: boolean;
 }
@@ -33,13 +33,11 @@ export const PROPOSED_PLANS: readonly ProposedPlan[] = PRICING_CATALOGUE.map((p)
   // One 12-month term (20261001120000): annual pricing only; no monthly figure is published.
   proposedAmount: p.annualMinor === null ? "Proposed: terms agreed separately" : `Proposed: USD ${(p.annualMinor / 100).toLocaleString("en-US")} per year`,
   proposedEntities: p.entityCapacity === null ? "Proposed: capacity agreed separately" : `Proposed: ${count(p.entityCapacity, "entity", "entities")}`,
-  proposedUsers: p.includedSeats === null
-    ? "Proposed: capacity agreed separately"
-    : `Proposed: ${count(p.includedSeats, "named user", "named users")}${p.additionalSeat ? " included" : ""}`,
+  proposedUsers: p.membersUnlimited ? "Unlimited team members" : "Proposed: team members agreed separately",
   proposedCapabilities: PUBLIC_CAPABILITIES,
   code: p.code,
   bestFor: p.tagline,
   entities: p.entityCapacity === null ? "Negotiated" : String(p.entityCapacity),
-  namedUsers: p.includedSeats === null ? "Negotiated" : `${p.includedSeats}${p.additionalSeat ? " included · more available" : ""}`,
+  teamMembers: p.membersUnlimited ? "Unlimited" : "By agreement",
   contactSales: p.salesMode === "contact_sales",
 }));
