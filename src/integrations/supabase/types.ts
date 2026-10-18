@@ -2270,6 +2270,7 @@ export type Database = {
           included_seats: number | null
           is_active: boolean
           is_public: boolean
+          members_unlimited: boolean
           name: string
           product_id: string
           sales_mode: string
@@ -2285,6 +2286,7 @@ export type Database = {
           included_seats?: number | null
           is_active?: boolean
           is_public?: boolean
+          members_unlimited?: boolean
           name: string
           product_id: string
           sales_mode?: string
@@ -2300,6 +2302,7 @@ export type Database = {
           included_seats?: number | null
           is_active?: boolean
           is_public?: boolean
+          members_unlimited?: boolean
           name?: string
           product_id?: string
           sales_mode?: string
@@ -9801,6 +9804,10 @@ export type Database = {
           actor_type: string
           firm_member_id: string
         }[]
+      }
+      _lift_named_user_suspensions_unlimited: {
+        Args: { p_account: string; p_keep: string[]; p_roster_version: string }
+        Returns: Json
       }
       _member_capability_lock: {
         Args: { p_company_id: string; p_user: string }
