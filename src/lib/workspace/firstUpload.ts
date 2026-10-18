@@ -54,6 +54,8 @@ export interface StartDeps {
 
 export type StartResult =
   | { kind: "checked"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
+  /** The file is added and its check is already running (another request owns it): open that upload to follow it. */
+  | { kind: "running"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
   | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" | "replace"; commitId?: string };
 
 const msg = (e: unknown, fallback: string) => {
@@ -143,7 +145,7 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
     if (k.kind === "failed") {
       return fail("check", k.failure.message, k.failure.retry !== "none", k.failure.needsPlan ? "choose_plan" : undefined);
     }
-    if (k.kind === "wait") return fail("check", "The check is still running. Check again in a moment; it will not be counted twice.", true);
+    if (k.kind === "wait") return { kind: "running", progress: { ...progress, companyId: progress.companyId, uploadId: progress.uploadId }, periodYear: c.period.year };
     progress.checked = true;
   }
   return { kind: "checked", progress: { ...progress, companyId: progress.companyId, uploadId: progress.uploadId }, periodYear: c.period.year };

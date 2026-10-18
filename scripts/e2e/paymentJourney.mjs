@@ -369,8 +369,11 @@ async function main() {
     await page.click('[data-testid="add-company"]');
     await page.waitForSelector('[data-testid="add-company-form"]');
     await page.fill("#fr-org", `Fresh Co ${run}`);
-    await page.click("#fr-currency");
-    await page.click({ text: "USD — US Dollar", within: '[role="listbox"]' });
+    // The searchable currency selector (an ARIA combobox): type the code, then Enter on the highlighted match.
+    await page.evaluate(() => { const el = document.getElementById("fr-currency"); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "USD"); el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await sleep(150);
+    await page.evaluate(() => document.getElementById("fr-currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    await page.waitFor(() => document.getElementById("fr-currency")?.dataset.value === "USD", [], { label: "USD chosen", timeout: 5000 });
     await page.click({ text: "Create workspace" });
     await page.waitFor(() => location.pathname.startsWith("/workspace/"), [], { label: "opened the new workspace", timeout: 30000 });
     const api = await apiAs(U.fresh);

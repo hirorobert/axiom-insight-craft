@@ -10,6 +10,9 @@
 export type WorkspacePurpose = "client" | "test" | "training";
 
 export const PURPOSE_WORDS: Readonly<Record<WorkspacePurpose, string>> = { client: "Client work", test: "Test workspace", training: "Training workspace" };
+/** What the purpose means, said where it is edited (EngagementHub › Company options). It gates nothing (20261027100000). */
+export const PURPOSE_EXPLANATION =
+  "The purpose is a label for this account home: test and training workspaces are listed apart from client work. It changes no accounting, records, access or billing. Only the company's owner can record it, with a reason, and every change is kept in its history.";
 
 export interface GroupableEngagement {
   readonly engagementId: string;

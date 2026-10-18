@@ -25,9 +25,28 @@ function task(step: 1 | 2 | 3, instruction: string): TrialBalanceTask {
   return { service: TRIAL_BALANCE_REVIEW.title, step, of: 3, label: STEP_LABELS[step - 1], instruction };
 }
 
+/**
+ * The classification step for someone whose access does not include account review (a Prepare-only grant): the review
+ * list is not on their page, so "the accounts listed below" would point at nothing. The step says what blocks it and who
+ * can resolve it; access itself is unchanged.
+ */
+export const CLASSIFICATION_NEEDS_REVIEW_ACCESS =
+  "Some accounts need a classification decision. Account review requires separate access to this workspace, so a workspace member with review access needs to confirm them.";
+
+/**
+ * The card's verdict as a viewer can act on it: without review access the account review is not on the page, so the
+ * "Resolve account classifications" action would lead nowhere and is withdrawn. The step text explains instead
+ * (CLASSIFICATION_NEEDS_REVIEW_ACCESS). Nothing about the server's gate changes.
+ */
+export function cardVerdictForAccess<V extends { primaryAction: { kind: string } | null }>(verdict: V, reviewAccess: boolean): V {
+  return !reviewAccess && verdict.primaryAction?.kind === "review_classifications" ? { ...verdict, primaryAction: null } : verdict;
+}
+
 export function currentTrialBalanceTask(
   verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues"> & { equationExact?: boolean },
+  options: { reviewAccess?: boolean } = {},
 ): TrialBalanceTask {
+  const classify = options.reviewAccess === false ? CLASSIFICATION_NEEDS_REVIEW_ACCESS : "Confirm the classification of the accounts listed below.";
   switch (verdict.status) {
     case "none":
       return task(1, "Upload the trial balance for this period.");
@@ -49,7 +68,7 @@ export function currentTrialBalanceTask(
       return task(1, "The result could not be confirmed. The reason is shown below.");
     case "blocked":
       return verdict.failedCheckId === "l4_classification"
-        ? task(2, "Confirm the classification of the accounts listed below.")
+        ? task(2, classify)
         : task(1, verdict.issues.length > 0
           ? `Correct ${verdict.issues.length === 1 ? "the issue" : `the ${verdict.issues.length} issues`} shown below in your file, then replace it.`
           : "Correct the file, then replace it.");
@@ -57,7 +76,7 @@ export function currentTrialBalanceTask(
       // Held by an arithmetic check (debits/credits, statement equation or an unknown check), not a classification.
       return verdict.failedCheckId === "l3_arithmetic"
         ? task(1, "An arithmetic check needs attention before this trial balance can be reviewed. See the checks below.")
-        : task(2, "Confirm the classification of the accounts listed below.");
+        : task(2, classify);
     case "accepted":
       return task(3, `${TRIAL_BALANCE_REVIEW.ready}. ${reviewedScope(verdict.equationExact === true)} ${TRIAL_BALANCE_REVIEW.notApproval}`);
   }

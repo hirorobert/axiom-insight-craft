@@ -154,7 +154,7 @@ describe("intake: the real page, end to end against the server contracts", () =>
 
     // 1. Reporting period: explicit dates, BHD, and the adjacent prior period. No default currency.
     expect(field("Reporting currency").value).toBe("");
-    set(field("Start date"), "2024-07-01"); set(field("End date"), "2025-06-30"); set(field("Reporting currency"), "BHD");
+    set(field("Start date"), "2024-07-01"); set(field("End date"), "2025-06-30"); set(field("Reporting currency"), "BHD"); act(() => { field("Reporting currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); }); // the searchable selector: an explicit choice of the highlighted match
     click(document.getElementById(field("Also set up the prior period (for comparatives)").id)!);
     set(field("Prior start date"), "2023-07-01"); set(field("Prior end date"), "2024-06-30");
     click(byText(/Set up the period/)); await flush();

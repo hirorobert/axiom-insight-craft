@@ -27,6 +27,7 @@ import { BalanceSheetEquationCard } from "@/components/certification/BalanceShee
 import { ClassificationBreakdown } from "@/components/certification/ClassificationBreakdown";
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
+import { ClassificationRecord } from "@/components/workspace/ClassificationRecord";
 import {
   applyDiscardSuppression,
   suppressUpload,
@@ -76,7 +77,7 @@ import { AccountMappingModal } from "@/components/AccountMappingModal";
 import type { WorkspaceUpload } from "@/hooks/useWorkspaceData";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
-import { currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
+import { cardVerdictForAccess, currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
@@ -144,6 +145,11 @@ export default function PrepareWorkspace() {
   const { state: commercialState } = useWorkspaceCommercialState(companyId);
   const sourceMode = decideSourceManagementMode(access, capabilityState);
   const focusManage = searchParams.get(MANAGE_TRIAL_BALANCE_PARAM) === "source";
+  // "File options" › Upload history: each request opens, scrolls to and focuses the history section.
+  const [historyRequest, setHistoryRequest] = useState(0);
+  // A replacement file refused before upload (too large, wrong type, empty): said next to Replace and kept until another
+  // file is picked or the user dismisses it (DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001; a toast could be missed).
+  const [replaceRefusal, setReplaceRefusal] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const [eligibility, setEligibility] = useState<{ key: string; value: RemovalEligibility } | null>(null);
   const eligibilityKey = upload ? `${upload.id}:${upload.version ?? ""}:${upload.lifecycle_state ?? ""}` : null;
@@ -169,7 +175,8 @@ export default function PrepareWorkspace() {
       // A busy refusal (one check per processing worker) is retried as the same request, bounded (processingInvoke).
       const { error } = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId, clientRequestId: crypto.randomUUID() });
       if (error) throw error;
-      toast.success(`Processing ${fileName}. The result appears on this page.`);
+      // Started, not finished: neutral, never a success mark before the check has answered.
+      toast(`Processing ${fileName}. The result appears on this page.`);
     } catch (err) {
       console.error("[processReplacement]", err);
       // A 403 means the caller lacks validation authority (owner or explicit grant); a retry cannot succeed.
@@ -206,9 +213,10 @@ export default function PrepareWorkspace() {
     if (!file || !upload) return;
     const invalid = validateReplacementFile(file);
     if (invalid) {
-      toast.error(`${invalid} The current Trial Balance was not changed.`);
+      setReplaceRefusal(`${invalid} The current Trial Balance was not changed.`);
       return;
     }
+    setReplaceRefusal(null);
     setPendingFile(file);
     setReplacing(true);
     try {
@@ -443,7 +451,7 @@ export default function PrepareWorkspace() {
   // neutrally from their structured severity (certificationCheckPresentation.ts).
   const verdict = deriveTrialBalanceVerdict({ upload: upload ?? null, readiness, readinessSubject: certReadiness.subjectKey, canRetry: canReprocessUpload(upload) });
   // The service, the step and the one thing to do now — from the same verdict as the card below, never re-derived.
-  const task = currentTrialBalanceTask(verdict);
+  const task = currentTrialBalanceTask(verdict, { reviewAccess: !prepareOnly });
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
@@ -453,7 +461,7 @@ export default function PrepareWorkspace() {
     try {
       // Through the one reprocess path (E1: the engine refuses a direct re-run of an upload with a recorded result).
       await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
-      toast.success("Processing started. The result appears on this page.");
+      toast("Processing started. The result appears on this page.");
     } catch (err) {
       console.error("[handleRetry]", err);
       toast.error("Processing did not start. Please try again.");
@@ -546,6 +554,9 @@ export default function PrepareWorkspace() {
     !!user;
   const reviewPanelShown = !prepareOnly && showReviewPanel;
   const actionHierarchy = reviewActionHierarchy(verdict.primaryAction?.kind ?? null, reviewPanelShown ? reviewSubmission : null);
+  // Without review access the account review is not on this page, so "Resolve account classifications" would lead
+  // nowhere: the card offers no action and the step states what blocks progress (the server gate is unchanged).
+  const cardVerdict = cardVerdictForAccess(verdict, !prepareOnly);
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -591,7 +602,7 @@ export default function PrepareWorkspace() {
                 fileName={upload.file_name}
                 uploadedAt={upload.uploaded_at}
                 fileSize={upload.file_size}
-                verdict={verdict}
+                verdict={cardVerdict}
                 busy={replacing || retryingProcess}
                 onPrimary={onPrimary}
                 primaryEmphasis={actionHierarchy.card}
@@ -608,6 +619,11 @@ export default function PrepareWorkspace() {
                     onRemove={handleRemove}
                   />
                 }
+                fileOptionsOpen={focusManage}
+                onShowHistory={rawUploads.length > 0 ? () => setHistoryRequest((n) => n + 1) : undefined}
+                historyCount={rawUploads.length}
+                replaceRefusal={replaceRefusal}
+                onDismissReplaceRefusal={() => setReplaceRefusal(null)}
               />
               {/* F2: what the database says about this result beyond the verdict — Needs re-check, Processing stopped,
                   Checking, New check requested — with at most one action, and the processing history. */}
@@ -743,6 +759,17 @@ export default function PrepareWorkspace() {
                 </div>
               )}
 
+              {/* After the review: what was confirmed for this trial balance, by whom, and what stood on earlier reviews. */}
+              {!showReviewPanel && upload.company_id && (
+                <ClassificationRecord
+                  uploadId={upload.id}
+                  companyId={upload.company_id}
+                  currentUserId={user?.id ?? null}
+                  processingResult={upload.processing_result}
+                  refreshKey={`${upload.status}|${upload.processed_at ?? ""}`}
+                />
+              )}
+
               {/* Engine telemetry for auditors, collapsed. The result itself is stated once, above. */}
               <SurfaceCard>
                 <Button
@@ -773,9 +800,16 @@ export default function PrepareWorkspace() {
                       onUploadNew={() => navigate(`/workspace/${companyId}/${periodYear}/prepare`)}
                     />
                     {mapping && (
-                      <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)}>
-                        View mapped accounts
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <Button variant="outline" size="sm" disabled={prepareOnly} onClick={() => setMappingModalOpen(true)} aria-describedby={prepareOnly ? "mapped-accounts-access" : undefined}>
+                          View mapped accounts
+                        </Button>
+                        {prepareOnly && (
+                          <span id="mapped-accounts-access" className="text-[12px] text-muted-foreground" data-testid="mapped-accounts-access">
+                            Viewing mapped accounts requires separate access to this workspace.
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -785,6 +819,7 @@ export default function PrepareWorkspace() {
                 uploads={rawUploads}
                 currentId={rawUpload?.id ?? null}
                 viewingId={upload.id}
+                openRequest={historyRequest}
                 onOpen={(u) => {
                   const selected = u as WorkspaceUpload;
                   const { periodYear: newPY } = deriveFiscalPeriod(selected, company?.fiscal_year_end ?? null);

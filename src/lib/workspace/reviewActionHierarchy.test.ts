@@ -28,11 +28,11 @@ describe("deriveReviewSubmission — the panel's own review state", () => {
 describe("reviewActionHierarchy — exactly one action leads", () => {
   const one = (h: { card: string; save: string }) => [h.card, h.save].filter((e) => e === "primary").length;
 
-  it("incomplete: Resolve leads, Save is secondary", () => {
+  it("incomplete: Review leads, Save is secondary", () => {
     expect(reviewActionHierarchy("review_classifications", "incomplete")).toEqual({ card: "primary", save: "secondary" });
   });
-  it("ready to submit: Save & reprocess leads, Resolve is secondary", () => {
-    expect(reviewActionHierarchy("review_classifications", "ready")).toEqual({ card: "secondary", save: "primary" });
+  it("ready but not saved: the classifications still block completion, so Review keeps the lead", () => {
+    expect(reviewActionHierarchy("review_classifications", "ready")).toEqual({ card: "primary", save: "secondary" });
   });
   it("after a failed save: Save & reprocess leads again (retry)", () => {
     expect(reviewActionHierarchy("review_classifications", "failed")).toEqual({ card: "secondary", save: "primary" });

@@ -63,6 +63,7 @@ describe("the header follows the actual processing state", () => {
     }
     const ledger = fs.readFileSync(path.join(ROOT, "src/components/workspace/TrialBalanceProgressLedger.tsx"), "utf8");
     expect(ledger).toContain('label="Processing checks (technical)"');
-    expect(ledger).toContain("{doneCount} of {steps.length} processing checks");
+    // Not-applicable stages leave the denominator (DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001); still processing checks, not journey steps.
+    expect(ledger).toContain("{doneCount} of {applicable} processing checks");
   });
 });

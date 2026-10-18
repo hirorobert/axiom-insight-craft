@@ -228,8 +228,11 @@ async function journeys(browser) {
     if (await op.evaluate(() => !document.querySelector('#fr-org') && !!document.querySelector('[data-testid="add-company"]'))) await op.click('[data-testid="add-company"]')
     await op.waitForText('Add the entity you are reporting on')
     await op.fill('#fr-org', `Browser Acceptance ${TS}`)
-    await op.click('#fr-currency')
-    await op.click({ text: 'TZS — Tanzanian Shilling' })
+    // The searchable currency selector (an ARIA combobox): type the code, then Enter on the highlighted match.
+    await op.evaluate(() => { const el = document.getElementById('fr-currency'); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'TZS'); el.dispatchEvent(new Event('input', { bubbles: true })) })
+    await new Promise((r) => setTimeout(r, 150))
+    await op.evaluate(() => document.getElementById('fr-currency').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    await op.waitFor(() => document.getElementById('fr-currency')?.dataset.value === 'TZS', [], { label: 'TZS chosen', timeout: 5000 })
     await op.click({ text: 'Create workspace' })
     const href = await op.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/\d{4}/)
     const m = href.match(/\/workspace\/([0-9a-f-]{36})\/(\d{4})/)

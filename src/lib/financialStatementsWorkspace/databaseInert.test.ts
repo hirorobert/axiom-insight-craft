@@ -40,6 +40,12 @@ const workspaceSources = [
   path.join(ROOT, "src/hooks/useFinancialStatementsWorkspace.ts"),
 ];
 
+/**
+ * The trial-balance journey harness answers its calls from an in-memory synthetic backend (the trial-balance harness's
+ * syntheticBackend.ts, extended); it has no client, credentials or network. Audited below instead of by call shape.
+ */
+const SYNTHETIC_JOURNEY_HARNESS = new Set(["dev-harness/journey/main.tsx", "dev-harness/journey/syntheticClient.ts"]);
+
 const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const gitOut = (args: string): string | null => {
@@ -701,10 +707,22 @@ describe("database inertness — the workspace code cannot mutate a database", (
     for (const f of workspaceSources) {
       if (TRANSPORT_FILES.has(rel(f))) continue; // audited separately below
       if (rel(f) === "dev-harness/bridgeBackend.ts" || rel(f) === "dev-harness/reporting/bridgeDb.ts") continue; // loopback-only dev tools, audited below
+      if (SYNTHETIC_JOURNEY_HARNESS.has(rel(f))) continue; // in-memory synthetic backend, audited below
       const src = stripComments(fs.readFileSync(f, "utf8"));
       for (const [re, what] of forbidden) if (re.test(src)) offenders.push(`${rel(f)}: ${what}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("the trial-balance journey harness is dev-only and talks only to the in-memory synthetic backend", () => {
+    for (const f of SYNTHETIC_JOURNEY_HARNESS) {
+      const src = stripComments(fs.readFileSync(path.join(ROOT, f), "utf8"));
+      expect(src, f).not.toMatch(/@supabase\/supabase-js|createClient|integrations\/supabase|\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|service_role|VITE_/i);
+      expect(src, f).toMatch(/from "\.\.\/trial-balance\/syntheticBackend"/);
+    }
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/journey/main.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    // The Supabase client the harness's real components import is replaced by the synthetic client, never the real one.
+    expect(fs.readFileSync(path.join(ROOT, "dev-harness/journey/vite.config.ts"), "utf8")).toMatch(/integrations\\\/supabase\\\/client\$\/, replacement: path\.resolve\(__dirname, "syntheticClient\.ts"\)/);
   });
 
   it("the transport modules hold no service-role reference, no actor argument and no deploy command; only the adapter imports the Supabase client", () => {
