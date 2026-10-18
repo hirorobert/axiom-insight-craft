@@ -346,6 +346,12 @@ describe("database inertness — schema and functions", () => {
       // with marked branches only; no table, column, index or policy changes. Proven on PostgreSQL by certificationCapacity.mjs.
       "supabase/migrations/20261109100000_refused_replacement_restore.sql",
       "supabase/functions/_shared/accountNameMatch.ts",
+      // Publication controls of the first complete IFRS for SMEs reporting slice (20261111100000): a NEW forward-only
+      // migration — nine pack 1.2.0 requirement rows, fs_evidence_statements and its helpers, and the existing
+      // fs_decide_requirement / fs_notes_status / fs_reporting_dependencies / fs_publication_blockers / fs_bind_publication
+      // redefined with marked changes only; no table, column, index, policy or grant of an existing object changes. Proven on
+      // PostgreSQL by publicationControls.mjs (37/37; the same cases fail without the migration).
+      "supabase/migrations/20261111100000_fs_publication_controls.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -614,6 +620,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/cashPerimeterScope.mjs",
       // The loopback-only sign-off policy proof.
       "scripts/db-proof/signoffPolicy.mjs",
+      // Publication controls (20261111100000): the loopback-only disposable-database proof of acceptance cases A–L, and its
+      // regression mode (PUBLICATION_CONTROLS_ABSENT=1 replays the chain without the migration and must fail). No deploy behaviour.
+      "scripts/db-proof/publicationControls.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
