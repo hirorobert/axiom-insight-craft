@@ -17,6 +17,12 @@
 //   C  SCF/SOCIE evidence replaced after REVIEWED → EVIDENCE_SUPERSEDED + REPORTING_DEPENDENCIES_STALE; FINAL refused
 //   J  roll-forward opening checks              → a seeded prior-closing discrepancy blocks by name (never absorbed)
 //   L  evidence-backed ties                     → an equity movement that no longer ties to the composed statements blocks by name
+//   L2 adjustment → every dependent statement   → an approved Close Review adjustment after REVIEWED makes the version stale; the
+//                                                 next version carries the recomposed SFP/SCI and the equity statement is refused
+//                                                 until its evidence agrees; then it signs
+//   ED edition                                  → a period under the third edition (early-application election) is refused by name
+//   J2 roll-forward                             → the next period's comparative, as reported, must equal the prior year's issued
+//                                                 FINAL; a prior-year adjustment approved after issue is preserved and blocks
 //   I  issued history unchanged                 → the FINAL version's document and bindings are byte-identical after everything above
 //
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/publicationControls.mjs
@@ -24,7 +30,7 @@
 //   PUBLICATION_CONTROLS_ABSENT=1 applies the chain WITHOUT 20261111100000: the regression run. It MUST fail — its
 //   failures are exactly the cases the control exists for (E, A, B, D, J, L). Its output is evidence, not a pass.
 import crypto from "node:crypto";
-import { applyChain, applyChainBefore, certifier, chainFiles, clientDb, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, uuid, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
+import { applyChain, applyChainBefore, certifier, chainFiles, clientDb, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, uuid, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
@@ -328,6 +334,111 @@ async function main() {
     const v = await latest(rid);
     const rd = await readiness(rid, v);
     return r.outcome === "saved" && rd.blockers.includes("CASHFLOW_LEDGER_ACCOUNT_NOT_CASH:1100") && rd.blockers.includes("CASHFLOW_ACCOUNT_ROLLFORWARD:1000:60000") ? true : { r: r.outcome, b: rd.blockers };
+  });
+
+  // ── ED ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  group("ED. The supported edition: a period under the third edition is refused by name");
+  await check("the owner elects early application of the third edition: the composition resolves to ifrs-for-smes/2025, a new version is FRAMEWORK_EDITION_UNSUPPORTED, REVIEWED refused, a direct publication refused by the trigger; withdrawing the election restores the 2015 edition", async () => {
+    const rid = `rpt-edition-${uuid()}`;
+    const elect = (on) => asU(U.owner, "SELECT public.fs_elect_early_application($1,$2,$3,'NBAA-2026-TEST-CONFIRMATION','Edition refusal case') r", [A, Y, on]).then((r) => r.r);
+    const e1 = await elect(true);
+    const r = await attempt(pre, rid);
+    const v = await latest(rid);
+    const d = await deps();
+    const rd = await readiness(rid, v);
+    const ref = await refusal(() => partner.c.setState(A, rid, v, "REVIEWED", "Attempted review under the third edition"));
+    await saveDoc(rid, v + 1, { ...(await stored(rid, v)).report_document }, (await stored(rid, v)).evidence_batch_ids);
+    const direct = await refusal(() => db.admin.query("INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id) VALUES ($1,$2,$3,'REVIEWED','bypass attempt',$4)", [rid, v + 1, A, partnerMember]));
+    const e2 = await elect(false);
+    const d2 = await deps();
+    return e1.outcome === "recorded" && r.outcome === "saved" && d.packId === "ifrs-for-smes/2025" && rd.blockers.includes("FRAMEWORK_EDITION_UNSUPPORTED:ifrs-for-smes/2025") && /PT409/.test(ref ?? "")
+      && /PT409:(FRAMEWORK_EDITION_UNSUPPORTED|BINDING_STALE)/.test(direct ?? "") && e2.outcome === "recorded" && d2.packId === "ifrs-for-smes/2015" ? true : { e1, r: r.outcome, pack: d.packId, b: rd.blockers, ref, direct, e2, pack2: d2.packId };
+  });
+
+  // ── L2 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  group("L2. An approved adjustment after REVIEWED reaches every dependent statement consistently");
+  const ridAdj = `rpt-adjust-${uuid()}`;
+  let vAdj, adjustmentId;
+  // The cases above left the company's latest evidence deliberately wrong (an orphan ledger account, an equity movement
+  // that does not tie, a restated prior opening). Identical content replays the old batch instead of superseding it, so a
+  // clean world is restored the way a preparer would: the same figures and identities, re-described, as new versions.
+  const RESTORED = [
+    parse("TRANSACTION_LEDGER", "CURRENT", EVIDENCE_FY2026.TRANSACTION_LEDGER.replace("Receipts from customers,28700.00", "Receipts from customers (final ledger),28700.00")),
+    parse("EQUITY_MOVEMENTS", "CURRENT", EVIDENCE_FY2026.EQUITY_MOVEMENTS.replace("Share capital,OPENING_BALANCE,10000.00,", "Share capital,OPENING_BALANCE,10000.00,Brought forward (final)")),
+    parse("PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE_FY2025_COMPARATIVE.PRIOR_PERIOD_STATEMENTS.replace("Cash and cash equivalents at 1 January 2025,", "Cash and cash equivalents at 1 January 2025 (signed),")),
+  ];
+  await check("the company's evidence is restored to agreeing figures by re-described replacement files: a fresh version is ready", async () => {
+    const r = await attempt(pre, ridAdj, RESTORED);
+    const rd = await readiness(ridAdj, await latest(ridAdj));
+    return r.outcome === "saved" && rd.ready === true ? true : { r: r.outcome, b: rd.blockers };
+  });
+  await check("REVIEWED; then a balanced adjustment (rent 5.00 to payables) is proposed and approved: the reviewed version is stale (REPORTING_INPUT_STALE, REPORTING_DEPENDENCIES_STALE); FINAL refused", async () => {
+    vAdj = await latest(ridAdj);
+    await partner.c.setState(A, ridAdj, vAdj, "REVIEWED", "Reviewed before the adjustment");
+    const prop = (await asU(U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Rent invoice received after the trial balance',NULL,$3::jsonb,'{}'::uuid[],$4,NULL) r",
+      [A, Y, JSON.stringify([{ accountKey: "6100", debitMinor: "500", creditMinor: "0" }, { accountKey: "2000", debitMinor: "0", creditMinor: "500" }]), uuid()])).r;
+    adjustmentId = prop.adjustmentId;
+    const dec = (await asU(U.partner, "SELECT public.close_review_decide_adjustment($1,'approve','Agreed to the invoice',NULL,$2) r", [adjustmentId, uuid()])).r;
+    const rd = await readiness(ridAdj, vAdj);
+    const fin = await refusal(() => owner.c.setState(A, ridAdj, vAdj, "FINAL", "Approving a review that predates the adjustment"));
+    return prop.adjustmentId && dec.outcome === "recorded" && rd.blockers.includes("REPORTING_INPUT_STALE") && rd.blockers.includes("REPORTING_DEPENDENCIES_STALE") && /PT409/.test(fin ?? "") ? true : { prop, dec, b: rd.blockers, fin };
+  });
+  await check("the next version carries the recomposed figures (profit 5,095.00; payables 3,105.00) and is refused until the equity evidence agrees: SOCIE_PROFIT_TIE and SOCIE_CLOSING_EQUITY_TIE of 5.00", async () => {
+    const r = await attempt(pre, ridAdj);
+    const v = await latest(ridAdj);
+    const d = await deps();
+    const f = Object.fromEntries(d.figures.map((x) => [x.factId, x.amountMinor]));
+    const rd = await readiness(ridAdj, v);
+    const doc = (await stored(ridAdj, v)).report_document;
+    const docFacts = new Map(doc.facts.map((x) => [x.factId, x.value.minorUnits.__bigint__]));
+    return r.outcome === "saved" && f["fact:current:total:profitOrLossMinor"] === "509500" && f["fact:current:current_liabilities:sfp.trade_and_other_payables"] === "310500"
+      && docFacts.get("fact:current:total:profitOrLossMinor") === "509500" && docFacts.get("fact:current:current_liabilities:sfp.trade_and_other_payables") === "310500"
+      && f["fact:current:account:6100"] === "240500" && rd.blockers.includes("SOCIE_PROFIT_TIE:CURRENT:500") && rd.blockers.includes("SOCIE_CLOSING_EQUITY_TIE:CURRENT:500")
+      ? true : { r: r.outcome, profit: f["fact:current:total:profitOrLossMinor"], payables: f["fact:current:current_liabilities:sfp.trade_and_other_payables"], b: rd.blockers };
+  });
+  await check("re-supplied equity movements (result 5,095.00; closing 10,995.00): the next version ties everywhere, is ready, REVIEWED and FINAL", async () => {
+    const eq = parse("EQUITY_MOVEMENTS", "CURRENT", EVIDENCE_FY2026.EQUITY_MOVEMENTS.replace("PROFIT_OR_LOSS,5100.00", "PROFIT_OR_LOSS,5095.00").replace("CLOSING_BALANCE,11000.00", "CLOSING_BALANCE,10995.00"));
+    const r = await attempt(pre, ridAdj, [eq]);
+    const v = await latest(ridAdj);
+    const d = await deps();
+    const f = Object.fromEntries(d.figures.map((x) => [x.factId, x.amountMinor]));
+    const rd = await readiness(ridAdj, v);
+    const rv = await partner.c.setState(A, ridAdj, v, "REVIEWED", "Reviewed on the adjusted figures");
+    const fin = await owner.c.setState(A, ridAdj, v, "FINAL", "Approved");
+    return r.outcome === "saved" && f["fact:line:eq:total-closing:CURRENT"] === "2099500" && f["fact:line:eq:total-profit:CURRENT"] === "509500" && f["fact:current:total:totalEquityMinor"] === "2099500"
+      && rd.ready === true && rv.state === "REVIEWED" && fin.state === "FINAL" ? true : { r: r.outcome, closing: f["fact:line:eq:total-closing:CURRENT"], equity: f["fact:current:total:totalEquityMinor"], b: rd.blockers };
+  });
+
+  // ── J2 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  group("J2. Roll-forward: the next period's comparative, as reported, against the prior year's issued FINAL");
+  let vIssued;
+  await check("a second adjustment (rent 2.00 to payables) is approved AFTER FY2026 was issued: the issued version is unchanged but FY2026's authority has moved", async () => {
+    vIssued = await latest(ridAdj);
+    const prop = (await asU(U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,'Late rent invoice found after issue',NULL,$3::jsonb,'{}'::uuid[],$4,NULL) r",
+      [A, Y, JSON.stringify([{ accountKey: "6100", debitMinor: "200", creditMinor: "0" }, { accountKey: "2000", debitMinor: "0", creditMinor: "200" }]), uuid()])).r;
+    const dec = (await asU(U.partner, "SELECT public.close_review_decide_adjustment($1,'approve','Agreed',NULL,$2) r", [prop.adjustmentId, uuid()])).r;
+    const pub = (await db.admin.query("SELECT state FROM public.financial_statement_publications WHERE report_id=$1 AND report_version=$2 ORDER BY seq", [ridAdj, vIssued])).rows.map((x) => x.state);
+    const rd = await readiness(ridAdj, vIssued);
+    return dec.outcome === "recorded" && pub.join(",") === "REVIEWED,FINAL" && rd.blockers.includes("REPORTING_INPUT_STALE") ? true : { dec, pub, b: rd.blockers };
+  });
+  await check("FY2027 certified (the same balances): its comparative is FY2026 as it now stands; the latest issued FY2026 FINAL predates the second adjustment, so the difference is preserved and named for exactly the two lines it moved", async () => {
+    const c = await k.upload(A, Y + 1, csv(FY2026)); await k.certify(A, c);
+    const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, Y + 1])).r;
+    const open = (await db.admin.query("SELECT f.id FROM public.close_review_findings f WHERE f.run_id=$1", [run.runId])).rows;
+    for (const f of open) await asU(U.preparer, "SELECT public.close_review_finding_action($1,'explain','Accumulated depreciation is a contra-asset by design','Fixed asset register 2027',$2) r", [f.id, uuid()]);
+    const pf = (await asU(U.owner, "SELECT public.fs_prior_final_reconciliation($1,$2) r", [A, Y + 1])).r;
+    const d = (await asU(U.owner, "SELECT public.fs_reporting_dependencies($1,$2) r", [A, Y + 1])).r;
+    const want = ["COMPARATIVE_NOT_AS_ISSUED:fact:comparative:current_liabilities:sfp.trade_and_other_payables:200", "COMPARATIVE_NOT_AS_ISSUED:fact:comparative:sci:sci.operating_expenses_by_function:200"];
+    const got = d.blockers.filter((b) => b.startsWith("COMPARATIVE_NOT_AS_ISSUED"));
+    return pf.state === "differences" && pf.priorFinal.reportId === ridAdj && pf.priorFinal.reportVersion === vIssued && JSON.stringify(got) === JSON.stringify(want) && d.state === "current"
+      ? true : { pf: { state: pf.state, prior: pf.priorFinal, diffs: pf.differences }, got };
+  });
+  await check("the issued documents are untouched; a period with no issued prior year has nothing to reconcile to (no_prior_final)", async () => {
+    const pf = (await asU(U.owner, "SELECT public.fs_prior_final_reconciliation($1,$2) r", [A, Y])).r;
+    const now = await stored(rid1, vFinal);
+    const issued = await stored(ridAdj, vIssued);
+    const b = (await db.admin.query("SELECT document_sha256 FROM public.fs_publication_bindings WHERE report_id=$1 AND report_version=$2 AND state='FINAL'", [ridAdj, vIssued])).rows[0];
+    return pf.state === "no_prior_final" && now.doc_sha === storedFinal.doc_sha && b?.document_sha256 === issued.doc_sha ? true : { pf: pf.state };
   });
 
   // ── I ──────────────────────────────────────────────────────────────────────────────────────────────────────────────

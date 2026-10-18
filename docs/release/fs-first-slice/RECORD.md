@@ -19,7 +19,7 @@ CI-PROVEN / HOSTED-VERIFIED / UNKNOWN. A green suite, filename or source module 
 |---|---|
 | Entity type | one standalone for-profit entity with share capital; no parent/subsidiaries, no associates, no groups |
 | Framework | IFRS for SMEs only (`framework.kind = IFRS_FOR_SMES`); `framework.version` must equal the server-resolved pack id |
-| Edition | resolved from the period START by `fs_ifrs_for_smes_edition` (2015 edition for periods beginning 2017-01-01..2026-12-31; third edition 2025 for periods beginning on/after 2027-01-01 or by recorded early-application election). The requirement set implemented is pack **1.2.0**, identical in kind/applicability for both editions; citations are per edition |
+| Edition | **IFRS for SMEs 2015 edition only** (`ifrs-for-smes/2015`): the only edition whose requirement texts are verified against the pinned standard. The edition is still resolved from the period START by `fs_ifrs_for_smes_edition`; a period the policy resolves to the third edition (beginning on/after 2027-01-01, or a recorded early-application election) composes as before but is **refused at sign-off by name** (`FRAMEWORK_EDITION_UNSUPPORTED:ifrs-for-smes/2025`, blockers and binding trigger). Nothing older is presented as verified third-edition support. Pack **1.2.0** |
 | Reporting period | one annual period (12 months, `smes.period.annual`); period dates from the company's authoritative reporting input |
 | Provenance | `TRIAL_BALANCE_DERIVED` only: the authoritative certified trial balance of the period with approved Close Review adjustments (`fs_reporting_input`) |
 | Comparative | exactly one prior period, authoritative (certified) or the approved first-period declaration; comparative approval bound to its identity |
@@ -89,9 +89,17 @@ Nothing was replaced. No parallel engine, no new prototype.
    `evidence_batch_ids` (`EVIDENCE_NOT_BOUND`); a superseded batch is already `EVIDENCE_SUPERSEDED`; two usable
    series of one family/role is `EVIDENCE_SERIES_AMBIGUOUS`; a batch in another currency or scale is
    `EVIDENCE_DENOMINATION_MISMATCH`.
-8. **Roll-forward** — only the opening-to-prior-closing checks above are in this slice. Carry-forward of
-   decisions/elections into a new period and the opening-reconciliation worklist (design doc 11 §B.4) are **not**
-   built here (OPEN, separately scoped).
+8. **Roll-forward** — implemented in this candidate: `fs_prior_final_reconciliation` compares every comparative line
+   AS REPORTED (the prior year's current authority) with the figure the prior year's latest issued FINAL version carries
+   for that line; any difference (a prior-year adjustment approved after issue, a changed mapping, a line issued but no
+   longer presented) is preserved and named `COMPARATIVE_NOT_AS_ISSUED:<factId>:<difference>` and blocks the new period;
+   governed resolutions are a restatement of the comparative or a new issued prior-year version. A company with no issued
+   prior year has nothing to reconcile to (`no_prior_final`). Together with the SOCIE/SCF opening-to-prior-closing ties
+   this is the "reconcile, never silently carry" rule of design doc 11 §B.4. **Not built:** the carry-forward of
+   presentation assignments, policy wording and applicability decisions into the new period with a "carried — re-confirm"
+   marker, and the roll-forward worklist UI. Those remain part of the full reporting journey (§9).
+9. **Edition** — the 2015 edition is the supported edition; the third edition is refused by name (decision taken
+   2026-10-18 after the owner's instruction not to present older requirement texts as verified 2025 support).
 
 ## 5. Implementation status (2026-10-18)
 
@@ -117,9 +125,11 @@ Nothing was replaced. No parallel engine, no new prototype.
 | G dependency change | stale approval; old binding never authorises the changed report | §7 |
 | H happy path | figures reconcile to hand-computed values; REVIEWED → FINAL; bindings carry document and dependencies hashes | §7 |
 | I issued history unchanged | FINAL document hash and bindings unchanged after later versions; bindings immutable | §7 |
-| J roll forward | opening = prior closing checks; seeded discrepancy blocks by name; decision carry-forward NOT built | §7 |
+| J roll forward | opening = prior closing checks (SCF, SOCIE) and the comparative-as-issued reconciliation to the prior FINAL (J2: a prior-year adjustment approved after issue is preserved and named for exactly the two lines it moved); decision carry-forward NOT built | §7 |
 | K tenant isolation | company-B owner refused on every RPC and read for company A | §7 |
-| L adjustments affect every dependent statement | see §7 | §7 |
+| L adjustments affect every dependent statement consistently | L2: an approved adjustment after REVIEWED makes the version stale; the next version carries the recomposed SFP/SCI (profit 5,095.00, payables 3,105.00); the equity statement is refused (`SOCIE_PROFIT_TIE`, `SOCIE_CLOSING_EQUITY_TIE`) until its evidence agrees; then it signs | §7 |
+| ED unsupported edition | an early-application election resolves the period to the third edition: `FRAMEWORK_EDITION_UNSUPPORTED`; REVIEWED refused; trigger refuses a direct insert; withdrawing the election restores the 2015 edition | §7 |
+| Browser journey | `scripts/browser-acceptance/reportingJourney.mjs` (headless Chrome over the loopback bridge to a disposable database): happy path through statements, notes, schedules, comparatives approval, evidence intake, save, REVIEWED, FINAL, export and PDF; missing-evidence recovery; changed-input recovery; viewer and other-workspace refusals | §7 |
 
 ## 7. Execution log
 
@@ -156,6 +166,17 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 | guards after the merge (`databaseInert`, `inertBase`, `atomicEnvelope`, `migrationAuthority`) | 90/90 PASS | |
 | full `bun run test` on the final merged head (`--testTimeout=600000`) | **5907 passed, 2 failed** — `atomicEnvelope.test.ts` (its own 120 s limit) and `migrationAuthority.test.ts` "0023 … any mutation fails closed" (its own 60 s limit): both copy the whole repository per fixture and exceed their hard-coded timeouts only under full-suite load on this Windows machine; both pass in isolation (90/90 with the other guards). No assertion failure anywhere. Release Gate on clean Linux CI is the authoritative run | EXECUTED-LOCAL |
 | `RELEASE_BATCH=fs-controls-r1 selfCheckingWrappers.mjs` on the merged tree | **32/32 PASS** | |
+
+### 7.1 Second pass (2026-10-18, after the owner's instruction: edition, adjustment-to-sign-off, roll-forward, browser)
+
+| Run | Result | What it establishes |
+|---|---|---|
+| `publicationControls.mjs` (extended: ED, L2, J2) | **45/45 PASS** | ED: an early-application election resolves the period to `ifrs-for-smes/2025`; the new version is `FRAMEWORK_EDITION_UNSUPPORTED:ifrs-for-smes/2025`, REVIEWED refused, a direct publication refused by the trigger; withdrawing the election restores 2015. L2: after REVIEWED, a balanced rent-to-payables adjustment (5.00) is proposed and approved; the reviewed version is `REPORTING_INPUT_STALE` + `REPORTING_DEPENDENCIES_STALE` and FINAL is refused; the next version carries the recomposed figures (profit 5,095.00, payables 3,105.00, account 6100 2,405.00) and is refused `SOCIE_PROFIT_TIE:CURRENT:500` / `SOCIE_CLOSING_EQUITY_TIE:CURRENT:500` until re-supplied equity movements agree; then total equity 20,995.00 ties, ready, REVIEWED, FINAL. J2: a second adjustment (2.00) approved after that issue leaves the issued version unchanged; FY2027 certified; `fs_prior_final_reconciliation` names the latest issued FY2026 version and exactly the two moved lines (`COMPARATIVE_NOT_AS_ISSUED:…sfp.trade_and_other_payables:200`, `…sci.operating_expenses_by_function:200`); FY2026 itself has `no_prior_final` |
+| `scripts/browser-acceptance/reportingJourney.mjs` (headless Chrome 1280×900, real pages over the loopback bridge, three simulated people) | **20/20 PASS** — evidence in `browser-evidence/` (11 screenshots, draft and sealed packs as PDF, the Exports page print, `results.json`) | statements with composed figures and keyboard lineage; notes recorded through the form; schedule reconciled; preparer cannot approve or sign; reviewer approves comparatives with a reason; **missing-evidence recovery** (the next action asks for the cash-flow and equity evidence; six files validated in the browser, stored as versions 1 and 2, no blocker); REVIEWED then FINAL; sealed pack with approver and binding hashes printed to PDF; draft watermark; **changed-input recovery** (the signed version stays FINAL, the next action asks for a new version and names the stale dependency); viewer read-only; other workspace refused; every request on loopback |
+| journey step 7 (reviewer returns comments to the figure) | NOT exercised — the product has no persisted reviewer-comment store (design doc 11 §B.3c); listed in §9 |
+| `publicationControls.mjs` with `PUBLICATION_CONTROLS_ABSENT=1` (extended proof) | __ABSENT__ | |
+| dependent reporting proofs on the changed migration | __STREAM__ | |
+| wrapper batch re-registered from the new committed bytes | __WRAPPER__ | |
 | CI on PR #176 | the first push failed only `databaseInert.test.ts` (the new migration and proof were not yet registered as reviewed) and then went CONFLICTING when #175 merged; both addressed by the merge commit `e408f04`. CI on the final head: see the PR | CI-PROVEN pending |
 
 Decision taken during execution: `run.mjs` replays the chain only up to the sign-off completion requirements
@@ -175,18 +196,38 @@ Decision taken during execution: `run.mjs` replays the chain only up to the sign
 - No Edge Function changes. No feature-gate change: `FINANCIAL_STATEMENTS_WORKSPACE_ENABLED` and the company
   rollout allow-list are untouched.
 
-## 9. Open blockers / questions for the owner and BLACK
+## 9. Classification and remaining kickoff requirements
 
-- **QUESTION (BLACK, accounting):** the 1.2.0 citations were verified against the pinned 2015 text (SHA-256
-  `acc6500e…`, downloaded and text-extracted in this session): 3.8, 3.9, 7.20, 23.30, 29.39, 32.9, 32.10, 32.11, 33.5,
-  33.7, 33.9 all read as cited (PRIMARY_TEXT). For the third edition (2025) only 3.8, 3.9 and 7.20 could be read from
-  the IFRS Foundation HTML (the fetch truncated after Section 23's opening); the 2025 pack therefore cites the 2015
-  text for 23.30, 29.39, 32.x and 33.x (`cx()` in `ifrsForSmes.ts`). Please verify those paragraph numbers in the
-  third edition's Sections 23, 29, 32 and 33 and confirm whether 33.7A (key management services from a separate
-  management entity) should be added for 2025 periods.
+**Classification: control-repair candidate with the first reporting slice's server controls complete; the full
+reporting journey is unfinished.** Every kickoff requirement is listed below with its status, so nothing is hidden.
+
+| Kickoff requirement | Status |
+|---|---|
+| Authoritative figures across every supported statement (SFP, SCI, SOCIE, SCF) | DONE — server recomposition and binding; A, B, H, L, L2 executed |
+| Dependency binding and stale approval (inputs, mappings, adjustments, evidence, allocations, framework/edition/rules, statements, disclosures) | DONE — C, G, L2 executed; edition bound |
+| Fail closed for unsupported paths | DONE — D executed (blockers and trigger) |
+| Authorised sign-off and separation of duties | UNCHANGED and re-proven — F |
+| Applicable disclosures, versioned, with recorded applicability | DONE for the 2015 edition (pack 1.2.0) — E; the third edition is not verified and is refused |
+| Cash flows and equity: indirect method | ASSESSED, not implemented — the direct method is the supported route (§2) |
+| Comparatives: signed prior-year cash-flow comparatives, prior-closing reconciliation | DONE — J, J2 |
+| Roll-forward: compatible treatment reused, period evidence refreshed | PARTIAL — opening/comparative reconciliation done (J2); carry-forward of decisions/wording with re-confirmation and the worklist UI NOT built |
+| Customer journey steps 1–10 | PARTIAL — steps 1–6 and 9 exercised in the browser journey (happy path, missing evidence, changed input); step 7 "return reviewer comments to the affected figure" has no persisted reviewer-comment store in the product (design doc 11 §B.3c) and is NOT built; step 8 re-review of changed content is the stale-version path; step 10 roll-forward partial |
+| Rendering, exports, reproduction | UNCHANGED from the reporting release (sealed pack, PDF, lineage-tagged exports; the browser journey prints the sealed pack); byte-identical independently generated formats not promised |
+| AI and server exposure | no model call anywhere in this slice; the `policy-compass` / MAONO findings of doc 12 untouched (separate track) |
+| Privacy cleanup (#171) | separate track; synthetic data only here |
+| Hosted application, activation, merge | NOT authorised; nothing applied |
+
+## 9a. Open blockers / questions for the owner and BLACK
+
+- **RESOLVED (edition):** the 1.2.0 citations are verified against the pinned 2015 text (SHA-256 `acc6500e…`): 3.8,
+  3.9, 7.20, 23.30, 29.39, 32.9, 32.10, 32.11, 33.5, 33.7, 33.9 all read as cited (PRIMARY_TEXT). The third edition's
+  text was reachable only through Section 7, so the third edition is **not** a supported edition of this slice: a report
+  composed under it is refused by name. Supporting the third edition is a later item that needs its Sections 23, 29,
+  32 and 33 verified (including 33.7A).
+- **OPEN (owner):** the decision carry-forward and the roll-forward worklist UI; the persisted reviewer-comment store
+  for journey step 7.
 - **NON-BLOCKING (design):** the refusal `PUBLICATION_PATH_UNSUPPORTED` is appended to the blocker list rather than
   returned early, so a generic document still sees every other gap; it can never be signed either way (the trigger
   refuses too). Confirm this presentation choice.
-- **OPEN (owner):** roll-forward carry-forward and opening-reconciliation worklist (decision 8).
-- **OPEN (owner):** browser happy-path verification against a hosted or local Supabase stack — no such stack is
-  available in this environment; see §7 for what was and was not exercised in a browser.
+- **NOTE:** the browser journey runs the real workbench pages against a disposable PostgreSQL through a loopback bridge
+  with a simulated identity header (not GoTrue); hosted/staging browser acceptance remains a separate owner-run step.

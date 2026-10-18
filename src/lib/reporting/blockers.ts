@@ -26,6 +26,8 @@ const EXACT: Readonly<Record<string, string>> = {
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
   // 20261111100000 — the publication controls.
   ["PUBLICATION_PATH_UNSUPPORTED", (r) => `Only an IFRS for SMEs report derived from the authoritative trial balance can be reviewed or finalised (${r.replace(/:/g, " / ")}).`],
+  ["FRAMEWORK_EDITION_UNSUPPORTED", (r) => `Only the IFRS for SMEs 2015 edition can be reviewed or finalised in this release; this period resolves to ${r}.`],
+  ["COMPARATIVE_NOT_AS_ISSUED", (r) => `A comparative figure, as reported, differs from the prior year's issued statements (${r.replace(/:(-?\d+|not_issued|not_presented)$/, ", difference $1")}). Restate it, or issue a new prior-year version.`],
   ["FRAMEWORK_EDITION_MISMATCH", (r) => `The version records an edition the server does not resolve for this period (${r.replace(/:/g, " vs ")}). Save a new version.`],
   ["EVIDENCE_SERIES_AMBIGUOUS", (r) => `Two usable evidence series exist for one family and period (${r.replace(/:/g, " ")}); withdraw one.`],
   ["EVIDENCE_DENOMINATION_MISMATCH", (r) => `An evidence file is stated in another currency or scale than the statements (${r.replace(/:/g, " ")}); re-state it.`],

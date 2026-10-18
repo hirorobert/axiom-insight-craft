@@ -1,0 +1,85 @@
+{
+  "when": "2026-10-18T17:01:22.219Z",
+  "results": [
+    {
+      "name": "the statements show the composed figures (total assets 33,000.00; profit 5,100.00) and the next action names the comparatives as a reviewer's step",
+      "ok": true
+    },
+    {
+      "name": "keyboard: arrow keys move through the rows, Enter opens the lineage panel (accounts, certification, assignment), Escape closes it and returns focus",
+      "ok": true
+    },
+    {
+      "name": "notes: every requirement with the server's status; recording wording through the form is accepted by the server",
+      "ok": true
+    },
+    {
+      "name": "schedules: the property, plant and equipment schedule is reconciled to the statements by the server",
+      "ok": true
+    },
+    {
+      "name": "a preparer cannot approve (no control; the next action says it is a reviewer's)",
+      "ok": true
+    },
+    {
+      "name": "the reviewer approves through the confirmation (reason required); the server's state becomes Approved",
+      "ok": true
+    },
+    {
+      "name": "the next action asks for the cash-flow and equity evidence on the Statements page, in readable words",
+      "ok": true
+    },
+    {
+      "name": "six evidence files are validated in the browser and shown as not stored; one save stores them with version 1 and re-saves version 2; each file then shows as in version 2, which has no blocker",
+      "ok": true
+    },
+    {
+      "name": "a preparer cannot sign: no sign-off control, the page says who does",
+      "ok": true
+    },
+    {
+      "name": "the reviewer marks version 2 REVIEWED (confirmation with reason)",
+      "ok": true
+    },
+    {
+      "name": "the owner approves version 2 as FINAL; the version is sealed",
+      "ok": true
+    },
+    {
+      "name": "the FINAL pack carries the seal with the recorded approver, the server binding's hashes and the composed figures; printed to PDF",
+      "ok": true
+    },
+    {
+      "name": "printing the Exports PAGE yields only the sealed pack, in full: no navigation, controls or next action; the page PDF has the pack's page count",
+      "ok": true
+    },
+    {
+      "name": "leaving Exports removes the print host: printing any other page is unaffected",
+      "ok": true
+    },
+    {
+      "name": "the draft (version 1) renders through the same pack with the DRAFT watermark; printed to PDF",
+      "ok": true
+    },
+    {
+      "name": "context is preserved: navigating from Exports v2 to Statements keeps v=2 on the link",
+      "ok": true
+    },
+    {
+      "name": "a later change: the signed version stays FINAL but the next action asks for a new version and names the stale dependency",
+      "ok": true
+    },
+    {
+      "name": "a viewer sees the statements but has no write control anywhere on the sign-off page",
+      "ok": true
+    },
+    {
+      "name": "another workspace's owner is refused by the server; the page shows the error with a retry, not data",
+      "ok": true
+    },
+    {
+      "name": "every data request of every page stayed on loopback (the app stylesheet's web font is the only other host)",
+      "ok": true
+    }
+  ]
+}

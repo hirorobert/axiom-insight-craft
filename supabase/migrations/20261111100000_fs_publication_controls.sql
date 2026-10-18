@@ -41,6 +41,18 @@
 --      notes status (REQUIRED_DISCLOSURE_MISSING:<id>, REQUIREMENT_UNDECIDED:<id>); a data-decided requirement cannot be
 --      decided by hand (not_decidable). Rows introduced earlier keep pack_version 1.1.0: the version records when a
 --      requirement entered the pack; the pack in force is max(pack_version).
+--   5. The supported edition is the IFRS for SMEs 2015 edition (pack ifrs-for-smes/2015), the only one whose requirement
+--      texts are verified against the pinned standard. A period the edition policy resolves to the third edition (a period
+--      beginning on or after 2027-01-01, or a recorded early-application election) composes as before but cannot be
+--      REVIEWED or FINAL: FRAMEWORK_EDITION_UNSUPPORTED:<packId>, from the blockers and from the binding trigger. Nothing
+--      older is presented as verified third-edition support.
+--   6. Roll-forward: fs_prior_final_reconciliation compares every comparative line AS REPORTED (the prior year's current
+--      authority, before any restatement of this year) with the figure the prior year's latest FINAL version issued for
+--      that line. A difference — a prior-year adjustment approved after issue, a changed mapping, a line issued but no
+--      longer presented — is preserved and named (COMPARATIVE_NOT_AS_ISSUED:<factId>:<difference>), never absorbed; the
+--      governed paths are a restatement of this year's comparative or a new issued version of the prior year. A company
+--      with no FINAL prior year has nothing to reconcile to (state no_prior_final) and the comparative approval rules alone
+--      apply. Bound through fs_reporting_dependencies/3 like every other dependency.
 --
 -- Sign-off authority is unchanged (REVIEWED needs review_close, FINAL needs approve_certification — 20260925140000;
 -- separate approvers unless the recorded solo_owner policy — 20261024100000). Function texts are the 20261022100000 /
@@ -49,7 +61,7 @@
 
 DO $preflight$
 BEGIN
-  IF to_regprocedure('public.fs_evidence_statements(uuid, integer)') IS NOT NULL
+  IF to_regprocedure('public.fs_evidence_statements(uuid, integer)') IS NOT NULL OR to_regprocedure('public.fs_prior_final_reconciliation(uuid, integer)') IS NOT NULL
      OR EXISTS (SELECT 1 FROM public.fs_pack_requirements r WHERE r.requirement_id = 'smes.note.going_concern') THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: the publication controls already exist; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
@@ -653,7 +665,59 @@ BEGIN
 END;
 $$;
 
--- ── 6. Reporting dependencies v3: the evidence statements are bound ─────────────────────────────────────────────────
+-- ── 5b. Roll-forward: the comparative, as reported, against the prior year's issued FINAL version ──────────────────
+-- VOLATILE because it reads the composition (a transaction-local working table); writes nothing persistent.
+CREATE OR REPLACE FUNCTION public.fs_prior_final_reconciliation(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_comp jsonb;
+  v_prior record;
+  v_diffs jsonb;
+  v_blockers text[] := '{}';
+  v_body jsonb;
+BEGIN
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  IF v_comp ->> 'state' IS DISTINCT FROM 'composed' THEN RETURN jsonb_build_object('state', coalesce(v_comp ->> 'state', 'unavailable'), 'reason', v_comp ->> 'reason'); END IF;
+  -- The prior year's latest issued version: the FINAL publication with the highest sequence for this company and that period.
+  SELECT r.report_id, r.report_version, r.report_document, encode(sha256(convert_to(r.report_document::text, 'UTF8')), 'hex') AS doc_sha, p.created_at
+    INTO v_prior
+    FROM public.financial_statement_publications p
+    JOIN public.financial_statement_reports r ON r.report_id = p.report_id AND r.report_version = p.report_version
+   WHERE p.company_id = p_company_id AND r.company_id = p_company_id AND r.period_year = p_period_year - 1 AND p.state = 'FINAL'
+     AND r.provenance_origin = 'TRIAL_BALANCE_DERIVED' AND r.report_document #>> '{framework,kind}' = 'IFRS_FOR_SMES'
+   ORDER BY p.seq DESC LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('state', 'no_prior_final', 'periodYear', p_period_year, 'priorPeriodYear', p_period_year - 1);
+  END IF;
+  IF v_comp -> 'comparative' ->> 'state' IS DISTINCT FROM 'available' OR (v_comp -> 'comparative' ->> 'periodYear')::integer IS DISTINCT FROM p_period_year - 1 THEN
+    RETURN jsonb_build_object('state', 'comparative_unavailable', 'periodYear', p_period_year,
+      'priorFinal', jsonb_build_object('reportId', v_prior.report_id, 'reportVersion', v_prior.report_version, 'documentSha256', v_prior.doc_sha, 'issuedAt', v_prior.created_at));
+  END IF;
+  -- Every composed comparative line AS REPORTED against the figure issued for that line (fact:current:<section>:<lineId> in
+  -- the prior FINAL document); a line present on only one side is a difference too. Accounts, totals and restatement facts
+  -- are not lines and are not compared here (totals follow their lines).
+  SELECT coalesce(jsonb_agg(d ORDER BY d ->> 'factId'), '[]'::jsonb) INTO v_diffs FROM (
+    SELECT jsonb_build_object('factId', coalesce(c.fid, f.fid), 'issuedMinor', f.issued, 'comparativeAsReportedMinor', c.rep,
+             'differenceMinor', CASE WHEN c.rep IS NOT NULL AND f.issued IS NOT NULL THEN (c.rep::numeric - f.issued::numeric)::text END) AS d
+      FROM (SELECT 'fact:comparative:' || (l ->> 'section') || ':' || (l ->> 'lineId') AS fid, l -> 'comparative' ->> 'asReportedMinor' AS rep
+              FROM jsonb_array_elements(v_comp -> 'lines') l WHERE jsonb_typeof(l -> 'comparative') = 'object') c
+      FULL JOIN (SELECT replace(x ->> 'factId', 'fact:current:', 'fact:comparative:') AS fid, x #>> '{value,minorUnits,__bigint__}' AS issued
+                   FROM jsonb_array_elements(v_prior.report_document -> 'facts') x
+                  WHERE x ->> 'factId' LIKE 'fact:current:%' AND x ->> 'factId' NOT LIKE 'fact:current:account:%' AND x ->> 'factId' NOT LIKE 'fact:current:total:%') f
+        ON f.fid = c.fid
+     WHERE c.rep IS DISTINCT FROM f.issued) s;
+  SELECT coalesce(array_agg('COMPARATIVE_NOT_AS_ISSUED:' || (d ->> 'factId') || ':' || coalesce(d ->> 'differenceMinor', CASE WHEN d ->> 'issuedMinor' IS NULL THEN 'not_issued' ELSE 'not_presented' END) ORDER BY d ->> 'factId'), '{}')
+    INTO v_blockers FROM jsonb_array_elements(v_diffs) d;
+  v_body := jsonb_build_object('contract', 'fs-prior-final-reconciliation/1', 'periodYear', p_period_year,
+    'priorFinal', jsonb_build_object('reportId', v_prior.report_id, 'reportVersion', v_prior.report_version, 'documentSha256', v_prior.doc_sha, 'issuedAt', v_prior.created_at),
+    'comparativeCertificationId', v_comp -> 'comparative' ->> 'certificationId', 'differences', v_diffs, 'blockers', to_jsonb(v_blockers));
+  RETURN jsonb_build_object('state', CASE WHEN v_blockers = '{}' THEN 'reconciled' ELSE 'differences' END) || v_body
+         || jsonb_build_object('reconciliationSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+-- ── 6. Reporting dependencies v3: the evidence statements and the prior-FINAL reconciliation are bound ───────────────
 CREATE OR REPLACE FUNCTION public.fs_reporting_dependencies(p_company_id uuid, p_period_year integer)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -661,6 +725,7 @@ DECLARE
   v_notes jsonb;
   v_cmp jsonb;
   v_ev jsonb;
+  v_pf jsonb;
   v_figures jsonb;
   v_body jsonb;
 BEGIN
@@ -670,6 +735,7 @@ BEGIN
   v_notes := public.fs_notes_status(p_company_id, p_period_year);
   v_cmp := public.fs_comparatives_status(p_company_id, p_period_year);
   v_ev := public.fs_evidence_statements(p_company_id, p_period_year);
+  v_pf := public.fs_prior_final_reconciliation(p_company_id, p_period_year);
   -- Every composed figure under its fixed fact identity: lines per period, and the totals of every complete period.
   SELECT coalesce(jsonb_agg(x ORDER BY x ->> 'factId'), '[]'::jsonb) INTO v_figures FROM (
     SELECT jsonb_build_object('factId', 'fact:' || p.period || ':' || (l ->> 'section') || ':' || (l ->> 'lineId'), 'amountMinor', l -> p.period ->> 'amountMinor') AS x
@@ -702,13 +768,15 @@ BEGIN
     'notesStatusSha256', v_notes ->> 'statusSha256', 'comparativeStatusSha256', v_cmp ->> 'statusSha256',
     'comparativeState', v_cmp -> 'comparative' ->> 'state', 'comparativeSha256', v_cmp -> 'comparative' ->> 'comparativeSha256',
     'evidenceStatementsSha256', v_ev ->> 'statementsSha256', 'evidenceStatements', v_ev -> 'statements', 'evidenceBatches', coalesce(v_ev -> 'evidenceBatches', '[]'::jsonb),
+    'priorFinalReconciliation', jsonb_build_object('state', v_pf ->> 'state', 'priorFinal', v_pf -> 'priorFinal', 'reconciliationSha256', v_pf ->> 'reconciliationSha256'),
     'figures', v_figures,
     'blockers', (SELECT coalesce(jsonb_agg(b), '[]'::jsonb) FROM (
                    SELECT jsonb_array_elements_text(v_comp -> 'blockers') b
                    UNION ALL SELECT jsonb_array_elements_text(coalesce(v_notes -> 'blockers', '[]'::jsonb))
                    UNION ALL SELECT jsonb_array_elements_text(coalesce(v_cmp -> 'comparative' -> 'blockers', '[]'::jsonb))
                    UNION ALL SELECT jsonb_array_elements_text(coalesce(v_ev -> 'blockers', '[]'::jsonb))
-                   UNION ALL SELECT 'EVIDENCE_STATEMENTS_UNAVAILABLE:' || coalesce(v_ev ->> 'state', 'unknown') WHERE v_ev ->> 'state' IS DISTINCT FROM 'composed') bl));
+                   UNION ALL SELECT 'EVIDENCE_STATEMENTS_UNAVAILABLE:' || coalesce(v_ev ->> 'state', 'unknown') WHERE v_ev ->> 'state' IS DISTINCT FROM 'composed'
+                   UNION ALL SELECT jsonb_array_elements_text(coalesce(v_pf -> 'blockers', '[]'::jsonb))) bl));
   RETURN jsonb_build_object('state', 'current') || v_body || jsonb_build_object('dependenciesSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
 END;
 $$;
@@ -907,6 +975,11 @@ BEGIN
       ELSIF v_doc #>> '{framework,version}' IS DISTINCT FROM v_deps ->> 'packId' THEN
         v_out := v_out || ('FRAMEWORK_EDITION_MISMATCH:' || (v_doc #>> '{framework,version}') || ':' || (v_deps ->> 'packId'));
       END IF;
+      -- [20261111100000] Only the 2015 edition's requirement texts are verified; a report composed under the third edition
+      -- (a period beginning on or after 2027-01-01, or an early-application election) is refused by name.
+      IF v_deps ->> 'packId' IS DISTINCT FROM 'ifrs-for-smes/2015' THEN
+        v_out := v_out || ('FRAMEWORK_EDITION_UNSUPPORTED:' || coalesce(v_deps ->> 'packId', 'unknown'));
+      END IF;
       v_out := v_out || ARRAY(SELECT jsonb_array_elements_text(v_deps -> 'blockers'));
       -- [20261111100000] Every evidence batch a server figure rests on is bound to this version.
       FOR v_rec IN SELECT b FROM jsonb_array_elements(coalesce(v_deps -> 'evidenceBatches', '[]'::jsonb)) b LOOP
@@ -966,6 +1039,10 @@ BEGIN
   IF v_deps ->> 'state' IS DISTINCT FROM 'current' OR v_report.report_document #>> '{reportingDependencies,dependenciesSha256}' IS DISTINCT FROM v_deps ->> 'dependenciesSha256' THEN
     RAISE EXCEPTION 'BINDING_STALE: the report is not bound to its current reporting dependencies; save a new version' USING ERRCODE = 'PT409';
   END IF;
+  -- [20261111100000] The supported edition only (the 2015 edition's verified requirement texts).
+  IF v_deps ->> 'packId' IS DISTINCT FROM 'ifrs-for-smes/2015' THEN
+    RAISE EXCEPTION 'FRAMEWORK_EDITION_UNSUPPORTED: only a report under the IFRS for SMEs 2015 edition can be reviewed or finalised (this period resolves to %)', coalesce(v_deps ->> 'packId', 'unknown') USING ERRCODE = 'PT409';
+  END IF;
   -- The approver is the AUTHENTICATED caller, and the publication's actor must be that caller's own membership of this
   -- company (20261022100000). A publication written without a session, or naming another member, is refused.
   SELECT * INTO v_member FROM public.firm_members m WHERE m.id = NEW.actor_firm_member_id;
@@ -1008,6 +1085,8 @@ REVOKE ALL ON FUNCTION public._fs_ev_minor(text, integer) FROM PUBLIC, anon, aut
 REVOKE ALL ON FUNCTION public._fs_ev_pick(uuid, integer, text, text, text, integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fs_evidence_statements(uuid, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_evidence_statements(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_prior_final_reconciliation(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_prior_final_reconciliation(uuid, integer) TO authenticated;
 REVOKE ALL ON FUNCTION public.fs_bind_publication() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fs_decide_requirement(uuid, integer, text, text, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fs_decide_requirement(uuid, integer, text, text, text, uuid) TO authenticated;
@@ -1023,6 +1102,9 @@ BEGIN
      OR (SELECT max(r.pack_version) FROM public.fs_pack_requirements r WHERE r.pack_family = 'ifrs-for-smes') <> '1.2.0'
      OR position('PUBLICATION_PATH_UNSUPPORTED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('PUBLICATION_PATH_UNSUPPORTED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0
+     OR position('FRAMEWORK_EDITION_UNSUPPORTED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0
+     OR to_regprocedure('public.fs_prior_final_reconciliation(uuid, integer)') IS NULL
+     OR has_function_privilege('anon', 'public.fs_prior_final_reconciliation(uuid, integer)', 'EXECUTE')
      OR position('SIGNOFF_SEPARATE_APPROVERS_REQUIRED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0
      OR has_function_privilege('anon', 'public.fs_evidence_statements(uuid, integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE') THEN

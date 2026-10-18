@@ -141,7 +141,9 @@ function requirements(ed: Edition): PackRequirement[] {
       applicability: "CONDITIONAL", condition: "The edition is applied before its effective date (recorded early-application election).", blocking: true },
     // 1.2.0 — the applicable disclosures of the first complete reporting slice (20261111100000). Paragraph numbers verified
     // against the pinned 2015 text on 2026-10-18 (PRIMARY_TEXT). The third edition's published text was reachable only
-    // through Section 7 that day (3.8, 3.9 and 7.20 confirmed there); its later paragraphs cite the 2015 text until verified.
+    // through Section 7 that day (3.8, 3.9 and 7.20 confirmed there); its later paragraphs cite the 2015 text and are NOT
+    // verified third-edition requirements. For that reason the server refuses to review or finalise a report composed under
+    // the third edition (FRAMEWORK_EDITION_UNSUPPORTED, 20261111100000): the 2015 edition is the supported edition of this slice.
     { id: "smes.note.going_concern", kind: "DISCLOSURE", statement: "NOTES", label: "Going concern: management's assessment, any material uncertainties, or the basis used when not a going concern",
       citations: [...c("3.8"), ...c("3.9")], applicability: "ALWAYS", blocking: true },
     { id: "smes.note.authorisation", kind: "DISCLOSURE", statement: "NOTES", label: "Date the financial statements were authorised for issue and who gave that authorisation", citations: cx("32.9"),
