@@ -334,6 +334,18 @@ async function main() {
       try { await c.query(fs.readFileSync(path.join(REPO, BATCH.postcondition), "utf8")); } finally { await c.query("ROLLBACK"); c.off("notice", on); }
       return notices.includes("POSTCONDITION OK.") ? true : notices;
     });
+    if (BATCH.id === "tb-release-r1") {
+      // The hosted verifier has only a read-only, non-owner role: the postcondition must pass there too. It is run here as
+      // `authenticated` (no table, function or schema privilege beyond the defaults) — catalog reads only.
+      await check("postcondition.sql passes READ ONLY as the unprivileged role `authenticated` (catalog only, no privileged invocation)", async () => {
+        const notices = []; const on = (m) => notices.push(m.message); c.on("notice", on);
+        await c.query("BEGIN READ ONLY"); await c.query("SET LOCAL ROLE authenticated");
+        try { await c.query(fs.readFileSync(path.join(REPO, BATCH.postcondition), "utf8")); }
+        catch (e) { notices.push(`ERROR ${e.code}: ${e.message}`); }
+        finally { await c.query("ROLLBACK"); c.off("notice", on); }
+        return notices.includes("POSTCONDITION OK.") ? true : notices;
+      });
+    }
     await check(`the journal holds exactly its head plus ${N} rows, one per wrapper, in order`, async () => {
       const j = await journalRows(c);
       return j.length === 1 + WRAPPED_SOURCES.length ? true : j.length;
