@@ -862,6 +862,14 @@ jobs:
           createdb closure_proof
           bun scripts/db-proof/reportingClosure.mjs
 
+      - name: Publication controls proof (20261111100000; the executed acceptance cases of the first complete IFRS for SMEs slice - a missing applicable disclosure refused; every cash-flow, equity, perimeter and ledger figure recomposed by the server and bound; a tampered cash-flow or equity figure, an invented line, every unsupported framework or provenance, an unauthorised or same-person approval, a cross-tenant call, a changed dependency, replaced evidence, a seeded prior-closing discrepancy and an equity movement that no longer ties each refused by name; the FINAL version byte-identical afterwards; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pubctl_proof
+        run: |
+          createdb pubctl_proof
+          bun scripts/db-proof/publicationControls.mjs
+
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:
           DB_PROOF_MODE: external

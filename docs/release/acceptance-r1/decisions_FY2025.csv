@@ -3,3 +3,6 @@ smes.note.share_capital,Applicable,The synthetic entity has share capital
 smes.sci.5_5_e,Not applicable,No discontinued operation in the synthetic periods
 smes.sci.5_5_g,Not applicable,No item of 5.4(b) other comprehensive income in the synthetic periods
 smes.sci.5_5_h,Not applicable,No equity-accounted investee in the synthetic periods
+smes.note.events_after,Not applicable,No non-adjusting event after the synthetic period
+smes.note.related_party_control,Not applicable,The synthetic entity has no parent or controlling party
+smes.note.related_party_transactions,Not applicable,No related party transaction in the synthetic periods

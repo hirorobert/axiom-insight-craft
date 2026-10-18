@@ -44,6 +44,10 @@ const TEXT = [NOTES("FUNCTION public.fs_record_disclosure"), NOTES("REQUIRED_DIS
 const CLOSURE_SQL = "supabase/migrations/20261022100000_fs_reporting_closure.sql";
 const CLOSURE = (literal: string) => ({ file: CLOSURE_SQL, symbol: literal });
 const WORDING = "Tracked per requirement by the database: the preparer's own wording, verbatim with its source; missing blocks. Nothing is generated.";
+const CONTROLS_SQL = "supabase/migrations/20261111100000_fs_publication_controls.sql";
+/** The publication controls (20261111100000): pack 1.2.0 requirements, the evidence statements and their ties. */
+const CONTROLS = (literal: string) => ({ file: CONTROLS_SQL, symbol: literal });
+const DECIDED = `Applicability decided by the preparer with a reason (undecided blocks). ${WORDING}`;
 const READINESS = (code: string) => ({ file: "supabase/migrations/20261017100000_signoff_completion_requirements.sql", symbol: code });
 
 /** IFRS for SMEs (both editions share requirement ids). */
@@ -52,10 +56,10 @@ export const IFRS_FOR_SMES_COVERAGE: Readonly<Record<string, CoverageEntry>> = {
     note: "Composed by the database from the authoritative reporting input and reviewed presentation assignments (pack lines, current/non-current sections); totals only for a fully presented period. The earlier client adapter remains for the legacy workspace." },
   "smes.set.sci": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [COMPOSED("FUNCTION public.fs_statement_composition"), VIEW],
     note: "Profit or loss composed by the database (income lines less expense lines, profit before tax, tax). No other comprehensive income." },
-  "smes.set.socie": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/equityStatement.ts", symbol: "buildEquityStatement" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.socie")],
-    note: "Only from preparer-supplied EQUITY_MOVEMENTS evidence; never derived from a closing trial balance. The 3.18 alternative is not offered." },
+  "smes.set.socie": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/equityStatement.ts", symbol: "buildEquityStatement" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.socie"), CONTROLS("FUNCTION public.fs_evidence_statements"), CONTROLS("SOCIE_CLOSING_EQUITY_TIE")],
+    note: "Only from preparer-supplied EQUITY_MOVEMENTS evidence; never derived from a closing trial balance. The 3.18 alternative is not offered. The database recomposes every figure from the same evidence and binds it at sign-off; a stated closing that does not cast, a closing total that differs from the statement of financial position, a result that differs from profit or loss, or an opening that differs from the prior closing is refused by name." },
   "smes.set.scf": { status: "IMPLEMENTED_NOT_VALIDATED",
-    implementedBy: [{ file: "src/lib/financialGeneration/cashFlowDirect.ts", symbol: "buildDirectCashFlow" }, { file: "src/lib/financialGeneration/cashLedgerAuthority.ts", symbol: "establishCashLedgerAuthority" }, { file: "src/lib/financialGeneration/applyEvidence.ts", symbol: "PRIOR_OPENING_CASH_LINE_KEY" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.scf")],
+    implementedBy: [{ file: "src/lib/financialGeneration/cashFlowDirect.ts", symbol: "buildDirectCashFlow" }, { file: "src/lib/financialGeneration/cashLedgerAuthority.ts", symbol: "establishCashLedgerAuthority" }, { file: "src/lib/financialGeneration/applyEvidence.ts", symbol: "PRIOR_OPENING_CASH_LINE_KEY" }, NOTES("STATEMENT_EVIDENCE_MISSING:smes.set.scf"), CONTROLS("FUNCTION public.fs_evidence_statements"), CONTROLS("CASHFLOW_CLOSING_CASH_TIE")],
     note: "Direct method only, from a TRANSACTION_LEDGER evidence batch reconciled account by account to the trial-balance cash movement. Never manufactured from a closing trial balance. The comparative year needs its own ledger and its opening cash from the signed prior-year statement of cash flows (PRIOR_PERIOD_STATEMENTS); its closing cash is then tested against the approved comparative position, never derived backwards." },
   "smes.set.notes": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [{ file: "src/lib/financialGeneration/notesAndSchedules.ts", symbol: "assembleNotes" }],
     note: "Preparer-supplied wording kept verbatim; nothing is generated." },
@@ -100,6 +104,19 @@ export const IFRS_FOR_SMES_COVERAGE: Readonly<Record<string, CoverageEntry>> = {
     note: `Applicability decided by the preparer with a reason (undecided blocks). ${WORDING}` },
   "smes.note.early_application": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: TEXT,
     note: "Applicable exactly when the edition is applied early (decided by the edition policy, never by hand); then the preparer's wording is required." },
+  // 1.2.0 (20261111100000): the applicable disclosures of the first complete reporting slice.
+  "smes.note.going_concern": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.going_concern'")], note: WORDING },
+  "smes.note.authorisation": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.authorisation'")], note: WORDING },
+  "smes.note.kmp_compensation": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.kmp_compensation'")], note: WORDING },
+  "smes.note.cash_components": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.cash_components'"), CONTROLS("fact:cashperim:")],
+    note: `${WORDING} The components themselves are composed by the database from the cash account map and the statement of financial position (fact:cashperim:*) and bound at sign-off.` },
+  "smes.note.income_tax": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.income_tax'")],
+    note: `Applicable when the composed tax expense line carries an amount at either date (decided by the data, never by hand). ${WORDING}` },
+  "smes.note.revenue": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.revenue'")],
+    note: `Applicable when the composed revenue line carries an amount at either date (decided by the data, never by hand). ${WORDING}` },
+  "smes.note.events_after": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.events_after'"), NOTES("FUNCTION public.fs_decide_requirement")], note: DECIDED },
+  "smes.note.related_party_control": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.related_party_control'"), NOTES("FUNCTION public.fs_decide_requirement")], note: DECIDED },
+  "smes.note.related_party_transactions": { status: "IMPLEMENTED_NOT_VALIDATED", implementedBy: [...TEXT, CONTROLS("'smes.note.related_party_transactions'"), NOTES("FUNCTION public.fs_decide_requirement")], note: DECIDED },
   ...Object.fromEntries((["ppe", "investment_property_cost", "investment_property_fair_value", "intangibles", "provisions"] as const).map((id) =>
     [`smes.schedule.${id}`, { status: "IMPLEMENTED_NOT_VALIDATED" as const, implementedBy: [NOTES("FUNCTION public.fs_record_schedule"), NOTES("SCHEDULE_CLOSING_MISMATCH:")],
       note: "Structured classes with the cited movements; the server validates every amount, sign and class total, and reconciles closing to the composed line and opening to the composed prior-year line (unverified without an authoritative comparative). Applicable when the line has a carrying amount." }])),

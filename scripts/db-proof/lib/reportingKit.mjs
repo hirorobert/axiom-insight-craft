@@ -295,8 +295,20 @@ export const EVIDENCE_FY2025_COMPARATIVE = {
 /** The three comprehensive-income line items a preparer decides (5.5(e), (g), (h)). */
 export const COMPREHENSIVE_INCOME_DECISIONS = ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"];
 
+/** Pack 1.2.0 (20261111100000): the applicable disclosures of the first complete reporting slice, with synthetic wording. */
+export const WORDS_1_2_0 = Object.freeze({
+  "smes.note.going_concern": "Management assessed the entity's ability to continue as a going concern for at least twelve months from the authorisation date and identified no material uncertainties.",
+  "smes.note.authorisation": "These financial statements were authorised for issue by the board of directors on 28 February 2027.",
+  "smes.note.kmp_compensation": "Key management personnel compensation for the year totalled TZS 1,800.00 (2025: TZS 1,700.00), all short-term employee benefits.",
+  "smes.note.cash_components": "Cash and cash equivalents comprise the balance at Synthetic Bank; there are no restricted balances or overdrafts.",
+  "smes.note.income_tax": "Tax expense of TZS 900.00 (2025: TZS 700.00) is current tax at the statutory rate; there is no deferred tax.",
+  "smes.note.revenue": "Revenue is recognised when goods are delivered; all revenue is from the sale of goods: TZS 30,000.00 (2025: TZS 25,000.00).",
+});
+/** The 1.2.0 requirements a preparer decides (recorded not applicable for the synthetic entity). */
+export const DECISIONS_1_2_0 = Object.freeze(["smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions"]);
+
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
-export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true } = {}) {
+export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true } = {}) {
   const { U, A } = W;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   const p = await k.upload(A, year - 1, csv(FY2025)); await k.review(A, p); await k.certify(A, p);
@@ -312,6 +324,12 @@ export async function prepareReporting(db, W, k, { year = 2026, comparativesAppr
   // Section 5: no discontinued operation and no other comprehensive income in either period presented (20261022100000).
   for (const id of COMPREHENSIVE_INCOME_DECISIONS) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented',$4)", [A, year, id, uuid()]);
   for (const [id, text] of Object.entries(WORDS)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
+  // Pack 1.2.0 (20261111100000). On a chain without that migration the server answers not_a_disclosure / not_decidable;
+  // nothing here asserts, so an earlier-schema proof keeps working.
+  if (pack120) {
+    for (const [id, text] of Object.entries(WORDS_1_2_0)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
+    for (const id of DECISIONS_1_2_0) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented; no parent or controlling party',$4)", [A, year, id, uuid()]);
+  }
   await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
     JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);
   if (comparativesApproved) await asU(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed to the signed 2025 statements',$3) r", [A, year, uuid()]);

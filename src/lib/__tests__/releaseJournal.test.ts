@@ -47,6 +47,8 @@ const PAYMENTS = ["20261029100000_payment_provider_routes.sql", "20261030100000_
 const ACCESS = ["20261104100000_platform_owner_access_and_entity_allowance.sql"].map((name) => ({ name }));
 // Trial balance release (batch tb-release-r1): all four forms registered BEFORE application; applied as hosted 59–62.
 const TB_RELEASE = ["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql", "20261109100000_refused_replacement_restore.sql"].map((name) => ({ name }));
+// Source migrations newer than the last hosted entry: authored, PENDING hosted application (the migration-authority guard lists them).
+const PENDING_SOURCES = ["20261111100000_fs_publication_controls.sql"];
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
   { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
@@ -96,7 +98,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual([]); // tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
+    expect(r.pending).toEqual(PENDING_SOURCES); // tb-release-r1 applied as hosted 59–62; 20261111100000 (fs-controls-r1) authored, PENDING hosted application
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === "0028_apply_20261006100000_mapping_and_processing_authority")).toEqual({
@@ -482,7 +484,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
+    expect(r.pending).toEqual(PENDING_SOURCES); // tb-release-r1 applied as hosted 59–62; 20261111100000 (fs-controls-r1) authored, PENDING hosted application
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
       { tag: "0032_layout_templates_and_confirmations", source: I1A_A2, how: "release_verbatim" },
@@ -604,7 +606,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
+    expect(r.pending).toEqual(PENDING_SOURCES); // tb-release-r1 applied as hosted 59–62; 20261111100000 (fs-controls-r1) authored, PENDING hosted application
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
       "0039_i1b_w7_signoff_completion_requirements"];
