@@ -1,14 +1,13 @@
 /**
  * The pricing catalogue is ONE source, mirrored exactly by 20260925100000 and 20260925130000 (plans, capacities,
- * included seats, base offers, additional-seat prices and the plan x capability matrix). There is no free plan and no
- * trial; prices never decide authorization; Enterprise is contact-sales; every plan includes exactly one named user;
- * and no component carries a price of its own.
+ * included seats, base offers and the plan x capability matrix) as changed by 20261110100000 (unlimited team members on
+ * Solo, Practice and Firm; no seat sales; the proposed seat price retired). There is no free plan and no trial; prices
+ * never decide authorization; Enterprise is contact-sales with agreed team members; no component carries a price.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  ADDITIONAL_SEAT_PRICE,
   ENTRY_PAID_PLAN,
   MATRIX_CAPABILITIES,
   PLAN_FEATURE_MATRIX,
@@ -24,6 +23,10 @@ import {
 const ROOT = path.join(__dirname, "../../..");
 const MIGRATION = fs.readFileSync(path.join(ROOT, "supabase/migrations/20260925100000_global_capabilities_entitlements_pricing.sql"), "utf8");
 const CATALOGUE_MIGRATION = fs.readFileSync(path.join(ROOT, "supabase/migrations/20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql"), "utf8");
+const UNLIMITED_MIGRATION = fs.readFileSync(path.join(ROOT, "supabase/migrations/20261110100000_unlimited_team_members.sql"), "utf8");
+/** The plans 20261110100000 gives unlimited team members (and stops selling seats on). */
+const UNLIMITED_PLANS = /UPDATE public\.commercial_plans SET members_unlimited = true, additional_seats_purchasable = false\s+WHERE code IN \(([^)]*)\)/
+  .exec(UNLIMITED_MIGRATION)?.[1].split(",").map((c) => c.trim().replace(/'/g, "")) ?? [];
 
 describe("the catalogue", () => {
   it("is exactly Solo, Practice, Firm and Enterprise, in that order — no free plan, no trial", () => {
@@ -35,22 +38,25 @@ describe("the catalogue", () => {
     const text = PRICING_CATALOGUE.flatMap((p) => [p.name, p.tagline, ...p.highlights]).join(" | ");
     expect(text).not.toMatch(/\bfree\b|\btrial\b/i);
   });
-  it("Solo $49 / $490 · 1 active entity · 1 named user · no additional seats", () => {
+  it("Solo $49 / $490 · 1 active entity · unlimited team members", () => {
     const p = planByCode("SOLO")!;
-    expect([p.monthlyMinor, p.annualMinor, p.entityCapacity, p.includedSeats, p.additionalSeat]).toEqual([4900, 49000, 1, 1, null]);
+    expect([p.monthlyMinor, p.annualMinor, p.entityCapacity, p.membersUnlimited]).toEqual([4900, 49000, 1, true]);
   });
-  it("Practice $99 / $990 · 5 entities; Firm $299 / $2,990 · 25 entities; each 1 included named user, seats $20 / $200", () => {
+  it("Practice $99 / $990 · 5 entities; Firm $299 / $2,990 · 25 entities; both unlimited team members; no seat price anywhere", () => {
     const pr = planByCode("PRACTICE")!;
     const fi = planByCode("FIRM")!;
-    expect([pr.monthlyMinor, pr.annualMinor, pr.entityCapacity, pr.includedSeats]).toEqual([9900, 99000, 5, 1]);
-    expect([fi.monthlyMinor, fi.annualMinor, fi.entityCapacity, fi.includedSeats]).toEqual([29900, 299000, 25, 1]);
-    expect(ADDITIONAL_SEAT_PRICE).toEqual({ monthlyMinor: 2000, annualMinor: 20000 });
-    expect(pr.additionalSeat).toEqual(ADDITIONAL_SEAT_PRICE);
-    expect(fi.additionalSeat).toEqual(ADDITIONAL_SEAT_PRICE);
+    expect([pr.monthlyMinor, pr.annualMinor, pr.entityCapacity, pr.membersUnlimited]).toEqual([9900, 99000, 5, true]);
+    expect([fi.monthlyMinor, fi.annualMinor, fi.entityCapacity, fi.membersUnlimited]).toEqual([29900, 299000, 25, true]);
+    for (const p of PRICING_CATALOGUE) expect(p).not.toHaveProperty("additionalSeat");
   });
-  it("Enterprise is contact-sales: no price, contract capacity, negotiated named users", () => {
+  it("Enterprise is contact-sales: no price, contract capacity, team members by agreement", () => {
     const p = planByCode("ENTERPRISE")!;
-    expect([p.salesMode, p.monthlyMinor, p.annualMinor, p.entityCapacity, p.includedSeats, p.additionalSeat]).toEqual(["contact_sales", null, null, null, null, null]);
+    expect([p.salesMode, p.monthlyMinor, p.annualMinor, p.entityCapacity, p.includedSeats, p.membersUnlimited]).toEqual(["contact_sales", null, null, null, null, false]);
+  });
+  it("every self-serve plan says 'Unlimited team members'; nothing mentions a named-user count or an additional-user price", () => {
+    for (const p of PRICING_CATALOGUE.filter((x) => x.salesMode === "self_serve")) expect(p.highlights).toContain("Unlimited team members");
+    const text = PRICING_CATALOGUE.flatMap((p) => [p.tagline, ...p.highlights]).join(" | ");
+    expect(text).not.toMatch(/named user|additional user|per seat|USD 200|\$200/i);
   });
   it("comparative reporting is in every plan (never separately paywalled)", () => {
     for (const p of PRICING_CATALOGUE) expect(p.capabilities).toContain("COMPARATIVE_REPORTING");
@@ -97,25 +103,18 @@ describe("the plan x capability matrix", () => {
 });
 
 describe("named users: allowed = included + purchased", () => {
-  it("every plan includes exactly one named user (Enterprise negotiated)", () => {
+  it("the recorded included seats are kept as the database holds them (history on unlimited plans; Enterprise negotiated)", () => {
     expect(PRICING_CATALOGUE.map((p) => p.includedSeats)).toEqual([1, 1, 1, null]);
   });
-  it("Solo is always exactly one; a Solo quantity other than zero is malformed and fails closed", () => {
-    expect(allowedNamedUsers(planByCode("SOLO"), 0)).toBe(1);
-    for (const q of [1, 5, -1, null, "3"]) expect(allowedNamedUsers(planByCode("SOLO"), q)).toBeNull();
+  it("Solo, Practice and Firm resolve to an explicit 'unlimited' whatever seats a licence records — never a number", () => {
+    for (const code of ["SOLO", "PRACTICE", "FIRM"]) for (const q of [0, 4, 12]) expect(allowedNamedUsers(planByCode(code), q)).toBe("unlimited");
   });
-  it("Practice and Firm add the purchased quantity", () => {
-    expect(allowedNamedUsers(planByCode("PRACTICE"), 0)).toBe(1);
-    expect(allowedNamedUsers(planByCode("PRACTICE"), 4)).toBe(5);
-    expect(allowedNamedUsers(planByCode("FIRM"), 12)).toBe(13);
-  });
-  it("unknown, negative, fractional, missing or malformed quantities fail closed", () => {
-    for (const q of [undefined, null, -1, 1.5, "2", Number.NaN, Number.POSITIVE_INFINITY, {}]) expect(allowedNamedUsers(planByCode("PRACTICE"), q)).toBeNull();
-    expect(allowedNamedUsers(null, 1)).toBeNull();
-  });
-  it("Enterprise needs its negotiated seats; without them it is undetermined", () => {
+  it("Enterprise needs its negotiated seats; without them, or with malformed quantities, it is undetermined", () => {
     expect(allowedNamedUsers(planByCode("ENTERPRISE"), 0)).toBeNull();
     expect(allowedNamedUsers(planByCode("ENTERPRISE"), 0, 40)).toBe(40);
+    expect(allowedNamedUsers(planByCode("ENTERPRISE"), 2, 40)).toBe(42);
+    for (const q of [undefined, null, -1, 1.5, "2", Number.NaN, Number.POSITIVE_INFINITY, {}]) expect(allowedNamedUsers(planByCode("ENTERPRISE"), q, 40)).toBeNull();
+    expect(allowedNamedUsers(null, 1)).toBeNull();
   });
   it("no plan claims bundled user counts, assignment or review workflows", () => {
     const text = PRICING_CATALOGUE.flatMap((p) => [p.tagline, ...p.highlights]).join(" | ");
@@ -130,8 +129,11 @@ describe("the catalogue mirrors the migrations exactly", () => {
       .map((m) => [m[1], m[2], m[3] === "NULL" ? null : Number(m[3]), m[4] === "NULL" ? null : Number(m[4]), m[5] === "true", m[7]]);
     const solo = /SELECT p\.id, 'SOLO', '([^']+)',[\s\S]*?\n\s*(\d+), (\d+), (true|false), true, 1, '([a-z_]+)'/.exec(CATALOGUE_MIGRATION);
     const all = [["SOLO", solo?.[1], Number(solo?.[2]), Number(solo?.[3]), solo?.[4] === "true", solo?.[5]], ...rows];
-    const expected = PRICING_CATALOGUE.map((p) => [p.code, p.name, p.entityCapacity, p.includedSeats, p.additionalSeat !== null, p.salesMode]);
-    expect(all).toEqual(expected);
+    // 20261110100000 stops seat sales on the plans it gives unlimited team members.
+    const current = all.map(([code, name, entities, seats, buySeats, mode]) => [code, name, entities, seats, UNLIMITED_PLANS.includes(code as string) ? false : buySeats, mode]);
+    const expected = PRICING_CATALOGUE.map((p) => [p.code, p.name, p.entityCapacity, p.includedSeats, false, p.salesMode]);
+    expect(current).toEqual(expected);
+    expect([...UNLIMITED_PLANS].sort()).toEqual(PRICING_CATALOGUE.filter((p) => p.membersUnlimited).map((p) => p.code).sort());
     // The Free plan is retired (kept for history, never offered) and no plan can be offered free again.
     expect(CATALOGUE_MIGRATION).toMatch(/SET is_active = false, is_public = false, display_order = NULL, sales_mode = 'retired'/);
     expect(CATALOGUE_MIGRATION).toMatch(/ADD CONSTRAINT chk_cp_no_free_sales CHECK \(sales_mode <> 'free'\)/);
@@ -146,13 +148,11 @@ describe("the catalogue mirrors the migrations exactly", () => {
       expect(m).not.toMatch(/is_purchasable\s*=\s*true/i);
     }
   });
-  it("additional-seat prices (separate table, per seat, Practice and Firm only, non-purchasable)", () => {
-    const rows = [...MIGRATION.matchAll(/\('(PRACTICE|FIRM)',\s*'CFOCLOSE_(?:PRACTICE|FIRM)_SEAT_GLOBAL_USD_\w+',\s*(\d+)::bigint,\s*'(MONTHLY|ANNUAL)'\)/g)].map((m) => `${m[1]}:${m[3]}:${m[2]}`).sort();
-    const expected = PRICING_CATALOGUE.flatMap((p) => (p.additionalSeat ? [`${p.code}:MONTHLY:${p.additionalSeat.monthlyMinor}`, `${p.code}:ANNUAL:${p.additionalSeat.annualMinor}`] : [])).sort();
-    expect(rows).toEqual(expected);
+  it("the proposed additional-seat prices (never purchasable) are retired by 20261110100000 — inactive, never deleted", () => {
     expect(MIGRATION).toMatch(/INSERT INTO public\.commercial_additional_seat_prices/);
     expect(MIGRATION).toMatch(/is_purchasable\s+BOOLEAN\s+NOT NULL DEFAULT false/);
-    expect(CATALOGUE_MIGRATION).not.toMatch(/commercial_additional_seat_prices/);
+    expect(UNLIMITED_MIGRATION).toMatch(/UPDATE public\.commercial_additional_seat_prices SET is_active = false\s+WHERE is_active AND plan_id IN \(SELECT cp\.id FROM public\.commercial_plans cp JOIN public\.commercial_products p ON p\.id = cp\.product_id\s+WHERE p\.code = 'CFOCLOSE' AND cp\.code IN \('PRACTICE','FIRM'\)\)/);
+    expect(UNLIMITED_MIGRATION).not.toMatch(/DELETE FROM public\.commercial_additional_seat_prices/);
   });
 });
 

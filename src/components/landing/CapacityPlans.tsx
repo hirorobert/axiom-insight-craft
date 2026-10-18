@@ -1,5 +1,5 @@
 /**
- * CapacityPlans — the CAPACITY decision. Entities, named users and additional users come from the reviewed catalogue
+ * CapacityPlans — the CAPACITY decision. Entities and team members come from the reviewed catalogue
  * (PROPOSED_PLANS / PRICING_CATALOGUE). What a row says about price and payment comes from planPurchaseView() over the
  * server's public prices, passed in by the page (this component reads nothing itself):
  *   - an approved price with online payment open → that price and "Choose <plan>" (the signed-in checkout);
@@ -13,7 +13,7 @@ import { Link } from "react-router-dom";
 import { LANDING_PLANS_COPY } from "@/content/landing/landingContent";
 import { PROPOSED_PLANS } from "@/content/landing/proposedPlans";
 import { PRICING_CATALOGUE } from "@/lib/commercial/pricingCatalogue";
-import { additionalUserLine, planPurchaseView, type PublicPrices } from "@/lib/commercial/planOffers";
+import { planPurchaseView, type PublicPrices } from "@/lib/commercial/planOffers";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 
 const C = LANDING_PLANS_COPY.columns;
@@ -23,7 +23,7 @@ const MOBILE_LABEL = "md:hidden block text-[10px] font-mono uppercase tracking-[
 export function CapacityPlans({ prices = null }: { prices?: PublicPrices | null } = {}) {
   const rows = PROPOSED_PLANS.map((p) => {
     const plan = PRICING_CATALOGUE.find((c) => c.code === p.code)!;
-    return { p, view: planPurchaseView(plan, prices, "landing_plans"), extraUsers: additionalUserLine(plan) };
+    return { p, view: planPurchaseView(plan, prices, "landing_plans") };
   });
   const anyOnline = rows.some((r) => r.view.mode === "online");
   const anyProposed = rows.some((r) => r.view.priceLines.some((l) => l.startsWith("Proposed")));
@@ -49,14 +49,13 @@ export function CapacityPlans({ prices = null }: { prices?: PublicPrices | null 
             </div>
           </div>
           <div role="rowgroup" className="divide-y divide-border">
-            {rows.map(({ p, view, extraUsers }) => (
+            {rows.map(({ p, view }) => (
               <div key={p.code} role="row" data-testid={`plan-${p.name}`} data-mode={view.mode} className="grid grid-cols-2 py-3 md:grid-cols-12 md:items-center md:py-0">
                 <span role="cell" className={`${CELL} col-span-2 text-[15px] font-semibold text-foreground md:col-span-2 md:text-[14px]`}>{p.name}</span>
                 <span role="cell" className={`${CELL} col-span-2 text-muted-foreground md:col-span-3`}>{p.bestFor}</span>
                 <span role="cell" className={`${CELL} text-foreground md:col-span-1`}><span className={MOBILE_LABEL}>{C.entities}</span>{p.entities}</span>
                 <span role="cell" className={`${CELL} text-foreground md:col-span-2`}>
-                  <span className={MOBILE_LABEL}>{C.users}</span>{p.namedUsers}
-                  {extraUsers && <span className="mt-1 block text-[11px] leading-4 text-muted-foreground" data-testid={`plan-extra-users-${p.name}`}>{extraUsers}</span>}
+                  <span className={MOBILE_LABEL}>{C.users}</span><span data-testid={`plan-team-members-${p.name}`}>{p.teamMembers}</span>
                 </span>
                 <span role="cell" className={`${CELL} col-span-2 text-foreground md:col-span-2`} data-testid={`plan-price-${p.name}`}>
                   <span className={MOBILE_LABEL}>{C.price}</span>

@@ -11,7 +11,7 @@
 //   Pending members have accepted_at = null. When an invited user
 //   signs in, Dashboard.tsx accepts through accept_workspace_invitations.
 //
-// Named-user seats (20260925100000): every plan includes one named user;
+// Named-user seats (20260925100000; unlimited on Solo, Practice and Firm since 20261110100000): every plan includes one named user;
 // Practice and Firm add purchased seats. A pending invitation holds a seat.
 // The database seat wall decides; this panel shows the structured state
 // (get_workspace_seat_capacity) and never offers an invitation that the
@@ -424,18 +424,20 @@ export function FirmManagementPanel() {
           <div className="mb-3 space-y-2" data-testid="named-user-seats">
             {seats && (
               <p className="text-xs text-muted-foreground">
-                Named users: {seats.activeNamedUsers} active
+                {seats.unlimited ? "Team members" : "Named users"}: {seats.activeNamedUsers} active
                 {seats.reservedNamedUsers > seats.activeNamedUsers ? `, ${seats.reservedNamedUsers - seats.activeNamedUsers} invited` : ""}
-                {seats.allowedNamedUsers !== null ? ` of ${seats.allowedNamedUsers}` : ""}. Each person signs in with their own account.
+                {seats.unlimited ? " · unlimited on your plan" : seats.allowedNamedUsers !== null ? ` of ${seats.allowedNamedUsers}` : ""}. Each person signs in with their own account.
               </p>
             )}
             {seatCopy(seats) && <PaidActionNotice copy={seatCopy(seats)!} testId="named-user-seats-locked" />}
             {roster && seats?.isAccountHolder && (roster.overAllowance || roster.people.some((p) => p.state === "suspended")) && (
               <div className="border border-border p-3" data-testid="named-user-selection">
-                <p className="text-xs font-semibold text-foreground">Choose who is active</p>
+                <p className="text-xs font-semibold text-foreground">{roster.unlimited ? "Reactivate team members" : "Choose who is active"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Select up to {selectableSeats(roster).max} {selectableSeats(roster).max === 1 ? "person" : "people"} besides you. Everyone else keeps their
-                  membership and history but has no access until you select them.
+                  {roster.unlimited
+                    ? "Your plan includes unlimited team members. Select the people to reactivate; nobody else is affected."
+                    : <>Select up to {selectableSeats(roster).max} {selectableSeats(roster).max === 1 ? "person" : "people"} besides you. Everyone else keeps their
+                  membership and history but has no access until you select them.</>}
                 </p>
                 <ul className="mt-2 space-y-1">
                   {selectableSeats(roster).choices.map((id) => {

@@ -27,6 +27,11 @@ const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const MIGRATION = "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql";
+// This proof's P-03/P-04 fixtures are Practice and Firm accounts with a NUMERIC seat allowance. From
+// 20261110100000_unlimited_team_members.sql those plans have unlimited team members, so the chain stops before it: this
+// proof keeps proving the numeric model it was written for (which still governs Enterprise and the no-plan fallback).
+// scripts/db-proof/unlimitedTeamMembers.mjs proves the current model over the full chain, including those cases.
+const SEAT_MODEL_END = "20261110100000_unlimited_team_members.sql";
 const MODE = process.env.DB_PROOF_MODE ?? "embedded";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const CONCURRENCY = 12;
@@ -182,11 +187,11 @@ async function main() {
     return true;
   });
   const after110 = {};
-  await check(`${MIGRATION} and every later migration apply`, async () => {
+  await check(`${MIGRATION} and every later migration up to ${SEAT_MODEL_END} apply`, async () => {
     await applyMigration(MIGRATION);
     // Captured before the later migrations (20260925140000 replaces title checks in some of these with capability checks).
     for (const sig of PATCHED) after110[sig] = await defOf(sig);
-    for (const f of files.slice(cut + 1)) await applyMigration(f);
+    for (const f of files.slice(cut + 1).filter((x) => x < SEAT_MODEL_END)) await applyMigration(f);
     return true;
   });
   await check("each of the 19 redefined access functions equals its previous definition once the single activity conjunct is removed (no other logic changed)", async () => {

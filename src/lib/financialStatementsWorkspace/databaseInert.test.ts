@@ -346,6 +346,10 @@ describe("database inertness — schema and functions", () => {
       // with marked branches only; no table, column, index or policy changes. Proven on PostgreSQL by certificationCapacity.mjs.
       "supabase/migrations/20261109100000_refused_replacement_restore.sql",
       "supabase/functions/_shared/accountNameMatch.ts",
+      // Unlimited team members (owner decision 2026-10-18, 20261110100000): a NEW forward-only migration — one plan column,
+      // the named-user capacity functions redefined from their current definitions with marked unlimited branches, the
+      // proposed seat price retired (rows kept). No row deleted. Proven on PostgreSQL by unlimitedTeamMembers.mjs.
+      "supabase/migrations/20261110100000_unlimited_team_members.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -640,6 +644,9 @@ describe("database inertness — schema and functions", () => {
       // Account identity (repair B): the loopback-only real-PostgreSQL proof (reproduces the raw unique violation on the
       // chain without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/accountIdentity.mjs",
+      // Unlimited team members: the loopback-only real-PostgreSQL proof of 20261110100000 (over the full chain, with
+      // customers created under the former seat model). No deploy behaviour.
+      "scripts/db-proof/unlimitedTeamMembers.mjs",
       // The owner's READ-ONLY impact-detection queries for repairs A, B and C (SELECTs only; run in a read-only
       // transaction by accountIdentity.mjs). No deploy behaviour.
       "scripts/db-preflight/processingIntegrityImpact.sql",

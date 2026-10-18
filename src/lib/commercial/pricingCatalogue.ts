@@ -2,19 +2,20 @@
  * CFO Close pricing catalogue — the ONE place plan names, capacities, prices and the plan x capability matrix live
  * in the frontend.
  *
- * It mirrors, exactly, the plans, offers, additional-seat prices and the plan / capability matrix seeded by
+ * It mirrors, exactly, the plans, offers and the plan / capability matrix seeded by
  * 20260925100000_global_capabilities_entitlements_pricing.sql and
- * 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql (src/lib/commercial/pricingCatalogue.test.ts
- * parses both migrations and fails on any drift). The database matrix (commercial_plan_features) is what enforcement
+ * 20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql, as changed by
+ * 20261110100000_unlimited_team_members.sql (src/lib/commercial/pricingCatalogue.test.ts parses them and fails on any
+ * drift). The database matrix (commercial_plan_features) is what enforcement
  * reads; the pricing page renders this mirror of it. Every component reads prices from here.
  *
  * There is no free plan and no trial. The catalogue keeps five things separate:
  *   base-plan price        monthlyMinor / annualMinor
  *   entity capacity        entityCapacity
- *   included seats         includedSeats (exactly one named user on every plan; Enterprise negotiated)
- *   additional-seat price  additionalSeat (Practice and Firm only; null = cannot be bought)
- *   purchased quantity     NOT catalogue data: it belongs to an account's licence and is read from the server
- *                          (get_workspace_seat_capacity); allowedNamedUsers() combines it with the included seats.
+ *   team members           membersUnlimited (Solo, Practice and Firm: unlimited team members, owner decision
+ *                          2026-10-18). Enterprise: agreed per contract. No plan sells additional seats.
+ *   included seats         includedSeats: the database's recorded number. It bounds membership only on a plan WITHOUT
+ *                          unlimited team members (Enterprise and the legacy plans); elsewhere it is history.
  *
  * Prices are marketing and catalogue data. They never decide authorization: the database authority checks the
  * capabilities and capacity attached to the purchased plan (authorize_paid_action, the walls). Whether a plan can be
@@ -39,12 +40,6 @@ export const NO_CHECKOUT_NOTICE = "Online payment is not available yet. No plan 
 export type PlanCode = "SOLO" | "PRACTICE" | "FIRM" | "ENTERPRISE";
 export type SalesMode = "self_serve" | "contact_sales";
 
-export interface AdditionalSeatPrice {
-  /** USD minor units per additional named user. */
-  readonly monthlyMinor: number;
-  readonly annualMinor: number;
-}
-
 export interface CataloguePlan {
   readonly code: PlanCode;
   readonly name: string;
@@ -52,10 +47,10 @@ export interface CataloguePlan {
   readonly salesMode: SalesMode;
   /** Active entities included; null = agreed in the Enterprise contract. */
   readonly entityCapacity: number | null;
-  /** Named users included in the base price; null = negotiated in the Enterprise contract. */
+  /** Unlimited team members (an explicit flag, never a large number). false = agreed in the Enterprise contract. */
+  readonly membersUnlimited: boolean;
+  /** The recorded included named users (history on an unlimited-members plan); null = negotiated (Enterprise). */
   readonly includedSeats: number | null;
-  /** Price of each separately purchased additional named user; null = the plan cannot buy seats. */
-  readonly additionalSeat: AdditionalSeatPrice | null;
   /** Base-plan price, USD minor units (cents). null for Enterprise (contact sales). */
   readonly monthlyMinor: number | null;
   readonly annualMinor: number | null;
@@ -67,17 +62,14 @@ const EVERY_PLAN: readonly CapabilityCode[] = [
   "CLOSE_ASSURANCE", "COMPARATIVE_REPORTING", "ENTITY_CAPACITY", "NAMED_USER_SEATS", "STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS",
 ];
 
-/** One additional named user on Practice or Firm: $20 per month or $200 per year. */
-export const ADDITIONAL_SEAT_PRICE: AdditionalSeatPrice = { monthlyMinor: 2000, annualMinor: 20000 };
-
 export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
   {
     code: "SOLO", name: "Solo", tagline: "For one entity.",
-    salesMode: "self_serve", entityCapacity: 1, includedSeats: 1, additionalSeat: null, monthlyMinor: 4900, annualMinor: 49000,
+    salesMode: "self_serve", entityCapacity: 1, membersUnlimited: true, includedSeats: 1, monthlyMinor: 4900, annualMinor: 49000,
     capabilities: EVERY_PLAN,
     highlights: [
       "1 active entity",
-      "1 named user (no additional users)",
+      "Unlimited team members",
       "Close Assurance and comparative reporting",
       "Close Certification",
       "Reporting Pack",
@@ -86,11 +78,11 @@ export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
   },
   {
     code: "PRACTICE", name: "Practice", tagline: "For a small portfolio of entities.",
-    salesMode: "self_serve", entityCapacity: 5, includedSeats: 1, additionalSeat: ADDITIONAL_SEAT_PRICE, monthlyMinor: 9900, annualMinor: 99000,
+    salesMode: "self_serve", entityCapacity: 5, membersUnlimited: true, includedSeats: 1, monthlyMinor: 9900, annualMinor: 99000,
     capabilities: EVERY_PLAN,
     highlights: [
       "Up to 5 active entities",
-      "1 named user included; add named users separately",
+      "Unlimited team members",
       "Everything in Solo",
       "Multi-entity reporting",
       "Standard support",
@@ -98,22 +90,22 @@ export const PRICING_CATALOGUE: readonly CataloguePlan[] = [
   },
   {
     code: "FIRM", name: "Firm", tagline: "For a firm-wide portfolio of entities.",
-    salesMode: "self_serve", entityCapacity: 25, includedSeats: 1, additionalSeat: ADDITIONAL_SEAT_PRICE, monthlyMinor: 29900, annualMinor: 299000,
+    salesMode: "self_serve", entityCapacity: 25, membersUnlimited: true, includedSeats: 1, monthlyMinor: 29900, annualMinor: 299000,
     capabilities: EVERY_PLAN,
     highlights: [
       "Up to 25 active entities",
-      "1 named user included; add named users separately",
+      "Unlimited team members",
       "Everything in Practice",
       "Priority support",
     ],
   },
   {
     code: "ENTERPRISE", name: "Enterprise", tagline: "For larger practices with contractual requirements.",
-    salesMode: "contact_sales", entityCapacity: null, includedSeats: null, additionalSeat: null, monthlyMinor: null, annualMinor: null,
+    salesMode: "contact_sales", entityCapacity: null, membersUnlimited: false, includedSeats: null, monthlyMinor: null, annualMinor: null,
     capabilities: EVERY_PLAN,
     highlights: [
       "More than 25 entities",
-      "Negotiated named users",
+      "Team members by agreement",
       "Implementation assistance",
       "Contractual support, custom invoicing and annual terms",
     ],
@@ -176,17 +168,17 @@ export function annualSavingMinor(plan: CataloguePlan): number | null {
 }
 
 /**
- * allowed_named_users = included_seats + purchased_additional_seats — the same formula the database resolves
- * (_seat_capacity_for_account). Solo is always exactly one: a Solo licence recording purchased seats is malformed and
- * fails closed, exactly as the database does. Anything unknown, negative, fractional or malformed fails closed
+ * The named-user allowance, resolved the way the database does (_seat_capacity_for_account): "unlimited" on a plan with
+ * unlimited team members (Solo, Practice, Firm — recorded seats are history there); otherwise included_seats + purchased
+ * additional seats (Enterprise: its negotiated seats). Anything unknown, negative, fractional or malformed fails closed
  * (null = undetermined: no new person may be added).
  */
-export function allowedNamedUsers(plan: CataloguePlan | null, purchasedAdditionalSeats: unknown, negotiatedIncludedSeats: number | null = null): number | null {
+export function allowedNamedUsers(plan: CataloguePlan | null, purchasedAdditionalSeats: unknown, negotiatedIncludedSeats: number | null = null): number | "unlimited" | null {
   if (!plan) return null;
+  if (plan.membersUnlimited) return "unlimited";
   const included = plan.includedSeats ?? negotiatedIncludedSeats;
   if (typeof included !== "number" || !Number.isInteger(included) || included < 1) return null;
   if (typeof purchasedAdditionalSeats !== "number" || !Number.isInteger(purchasedAdditionalSeats) || purchasedAdditionalSeats < 0) return null;
-  if (plan.code === "SOLO" && purchasedAdditionalSeats !== 0) return null;
   return included + purchasedAdditionalSeats;
 }
 
