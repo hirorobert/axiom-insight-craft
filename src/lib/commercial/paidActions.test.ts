@@ -187,14 +187,21 @@ describe("named-user seats in the UI (structured state only)", () => {
     expect(c.history).toBe("Nobody is ever reactivated automatically.");
     expect(Object.values(c).join(" ")).not.toMatch(/keeps? (their )?access/i);
   });
-  it("Solo: one named user, inviting is available with Practice or Firm, seat price from the catalogue, memberships never deleted", () => {
-    const c = seatCopy(parseSeatCapacity(raw({ plan_code: "SOLO", included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
-    expect(c.title).toBe("Available with Practice or Firm");
-    expect(c.unavailable).toMatch(/one named user: you/);
-    expect(c.remains).toContain("$200 / year");
-    expect(c.remains).not.toMatch(/month/i);
-    expect(c.history).toMatch(/never deleted/);
-    expect(c.history).not.toMatch(/keeps? access/i);
+  it("unlimited team members (Solo, Practice, Firm): an explicit flag, no number; another person can always be invited; no seat notice or price", () => {
+    for (const plan_code of ["SOLO", "PRACTICE", "FIRM"]) {
+      const s = parseSeatCapacity(raw({ plan_code, unlimited: true, allowed_named_users: null, additional_seats_purchasable: false, active_named_users: 40, reserved_named_users: 55 }))!;
+      expect(s).toMatchObject({ determined: true, unlimited: true, allowedNamedUsers: null });
+      expect(canInviteAnother(s)).toBe(true);
+      expect(seatCopy(s)).toBeNull();
+    }
+    // "unlimited" never comes from a missing number: without the flag a null allowance is undetermined (fail closed).
+    const noFlag = parseSeatCapacity(raw({ plan_code: "SOLO", allowed_named_users: null }))!;
+    expect(noFlag).toMatchObject({ determined: false, unlimited: false });
+    expect(canInviteAnother(noFlag)).toBe(false);
+    // An undetermined answer is never read as unlimited, even if the flag is present.
+    expect(parseSeatCapacity(raw({ determined: false, unlimited: true, allowed_named_users: null }))!.unlimited).toBe(false);
+    // The over-allowance flag still wins (fail closed).
+    expect(canInviteAnother(parseSeatCapacity(raw({ unlimited: true, allowed_named_users: null, over_allowance: true })))).toBe(false);
   });
   it("no current plan: only the account holder, read-only; nobody can be invited", () => {
     const c = seatCopy(parseSeatCapacity(raw({ plan_code: null, included_seats: 1, additional_seats: 0, allowed_named_users: 1, additional_seats_purchasable: false, active_named_users: 1, reserved_named_users: 1 })))!;
@@ -202,11 +209,12 @@ describe("named-user seats in the UI (structured state only)", () => {
     expect(c.unavailable).toMatch(/only the account holder can use the workspace \(read-only\)/);
     expect(Object.values(c).join(" ")).not.toMatch(/\bfree\b|trial/i);
   });
-  it("Practice at its allowance: states the formula and how to add seats; no checkout, no hostile wording", () => {
-    const c = seatCopy(parseSeatCapacity(raw({ active_named_users: 3, reserved_named_users: 3 })))!;
+  it("Enterprise (an agreed numeric allowance) at its allowance: states the formula and how to change it; no checkout, no seat price, no hostile wording", () => {
+    const c = seatCopy(parseSeatCapacity(raw({ plan_code: "ENTERPRISE", included_seats: 3, additional_seats: 0, allowed_named_users: 3, additional_seats_purchasable: false, active_named_users: 3, reserved_named_users: 3 })))!;
     expect(c.title).toBe("All named-user seats are in use");
-    expect(c.unavailable).toBe("Your Practice plan has 3 named users (1 included + 2 additional), and every seat is in use or held by a pending invitation.");
-    expect(c.remains).toMatch(/Contact us to add seats/);
+    expect(c.unavailable).toBe("Your Enterprise plan has 3 named users (3 included + 0 additional), and every seat is in use or held by a pending invitation.");
+    expect(c.remains).toBe("Contact us to change the named users in your agreement.");
+    expect(Object.values(c).join(" ")).not.toMatch(/\$\d|USD|per seat/);
     const text = Object.values(c).join(" ");
     expect(text).not.toMatch(/payment required|pay now|checkout|shared (login|account|password)|owner|partner|manager/i);
   });
@@ -326,5 +334,19 @@ describe("Reporting Pack: browser-rendered files are issued working copies (only
     const mark = read("src/components/commercial/DraftPrintMark.tsx");
     expect(mark).toMatch(/paidActionState\(state, "REPORTING_PACK_EXPORT", loading\)\.status === "allowed"\) return null;/);
     expect(read("src/components/maono/BoardPackGenerator.tsx")).toMatch(/mark\.textContent = DRAFT_PRINT_MARK;/);
+  });
+});
+
+describe("named-user roster under unlimited team members", () => {
+  const people = [{ user_id: "a", state: "active_candidate" }, { user_id: "b", state: "suspended" }, { user_id: "c", state: "suspended" }, { user_id: "d", state: "pending" }];
+  it("an unlimited roster is never over its allowance and lets the account holder reactivate any suspended person (never a number)", () => {
+    const r = parseNamedUserRoster({ outcome: "ok", unlimited: true, allowed_named_users: null, over_allowance: false, roster_version: "v2", people })!;
+    expect(r).toMatchObject({ unlimited: true, allowedNamedUsers: null, overAllowance: false });
+    expect(selectableSeats(r)).toEqual({ choices: ["a", "b", "c"], max: 3 });
+  });
+  it("without the flag, a null allowance still means nothing can be chosen (fail closed)", () => {
+    const r = parseNamedUserRoster({ outcome: "ok", allowed_named_users: null, over_allowance: true, roster_version: "v3", people })!;
+    expect(r.unlimited).toBe(false);
+    expect(selectableSeats(r)).toEqual({ choices: [], max: 0 });
   });
 });
