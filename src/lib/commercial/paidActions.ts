@@ -7,7 +7,7 @@
  * never parsed.
  */
 import { CAPABILITIES, canonicalCapability, type CapabilityCode } from "./featureRegistry";
-import { ADDITIONAL_SEAT_PRICE, ENTRY_PAID_PLAN, displayCataloguePlanName, formatCatalogueAmount, planByCode } from "./pricingCatalogue";
+import { ENTRY_PAID_PLAN, displayCataloguePlanName, planByCode } from "./pricingCatalogue";
 
 export type PaidCapabilityCode = "STATEMENT_CERTIFICATION" | "REPORTING_PACK_EXPORT" | "CLOSE_INSIGHTS";
 export const PAID_ACTIONS: readonly PaidCapabilityCode[] = ["STATEMENT_CERTIFICATION", "REPORTING_PACK_EXPORT", "CLOSE_INSIGHTS"];
@@ -170,12 +170,14 @@ export async function functionEntitlementRefusal(error: unknown): Promise<Capabi
 }
 
 // ── Named-user seats ──────────────────────────────────────────────────────────────────────────────────────────
-// Every plan includes one named user; Practice and Firm add purchased seats; Solo cannot. No plan: the holder only. The database seat wall decides
+// Solo, Practice and Firm include unlimited team members (20261110100000); Enterprise has its agreed number; no plan: the holder only. The database seat wall decides
 // (named_user_seat_wall); these helpers only explain its structured state (get_workspace_seat_capacity,
 // accept_workspace_invitations, the invitation function's 402 body). No message text is read.
 
 export interface SeatCapacityState {
   readonly determined: boolean;
+  /** Unlimited team members (an explicit server flag): no seat count applies; allowedNamedUsers is null. */
+  readonly unlimited: boolean;
   readonly planCode: string | null;
   readonly includedSeats: number | null;
   readonly additionalSeats: number | null;
@@ -201,12 +203,14 @@ export function parseSeatCapacity(raw: unknown): SeatCapacityState | null {
   const reserved = nonNegInt(r.reserved_named_users);
   if (active === null || reserved === null) return null;
   const allowed = nonNegInt(r.allowed_named_users);
+  const unlimited = r.determined === true && r.unlimited === true;
   return {
-    determined: r.determined && allowed !== null,
+    determined: r.determined && (unlimited || allowed !== null),
+    unlimited,
     planCode: typeof r.plan_code === "string" ? r.plan_code : null,
     includedSeats: nonNegInt(r.included_seats),
     additionalSeats: nonNegInt(r.additional_seats),
-    allowedNamedUsers: r.determined ? allowed : null,
+    allowedNamedUsers: r.determined && !unlimited ? allowed : null,
     activeNamedUsers: active,
     reservedNamedUsers: reserved,
     additionalSeatsPurchasable: r.additional_seats_purchasable === true,
@@ -218,15 +222,13 @@ export function parseSeatCapacity(raw: unknown): SeatCapacityState | null {
 
 /** Whether one more person could be invited now. Unknown or over the allowance → false. */
 export function canInviteAnother(state: SeatCapacityState | null): boolean {
-  return !!state && state.determined && !state.overAllowance && state.allowedNamedUsers !== null && state.reservedNamedUsers < state.allowedNamedUsers;
+  if (!state || !state.determined || state.overAllowance) return false;
+  return state.unlimited || (state.allowedNamedUsers !== null && state.reservedNamedUsers < state.allowedNamedUsers);
 }
 
 /** Customer copy when no one else can be invited (null when an invitation is possible). */
 export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
   if (canInviteAnother(state)) return null;
-  const seat = ADDITIONAL_SEAT_PRICE;
-  // One 12-month term (20261001120000): seats are priced per year only, like the plans.
-  const seatPrice = `${formatCatalogueAmount(seat.annualMinor)} / year`;
   if (!state || !state.determined) {
     return {
       title: "Named-user seats need confirming",
@@ -239,15 +241,7 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
     return {
       title: "A current plan is needed",
       unavailable: "This account has no current plan, so only the account holder can use the workspace (read-only) and no one can be invited.",
-      remains: `Practice and Firm include one named user and can add more at ${seatPrice} each.`,
-      history: "Memberships and their history are never deleted; people beyond the plan's named users are suspended until a seat is available and you choose them.",
-    };
-  }
-  if (state.planCode === "SOLO") {
-    return {
-      title: "Available with Practice or Firm",
-      unavailable: "The Solo plan includes one named user: you. Inviting other people is available with Practice or Firm.",
-      remains: `On Practice and Firm, each additional named user is ${seatPrice}.`,
+      remains: "Solo, Practice and Firm include unlimited team members.",
       history: "Memberships and their history are never deleted; people beyond the plan's named users are suspended until a seat is available and you choose them.",
     };
   }
@@ -266,9 +260,7 @@ export function seatCopy(state: SeatCapacityState | null): LockedCopy | null {
     unavailable: `Your ${plan} plan has ${n} named ${n === 1 ? "user" : "users"}${
       state.includedSeats !== null && state.additionalSeats !== null ? ` (${state.includedSeats} included + ${state.additionalSeats} additional)` : ""
     }, and every seat is in use or held by a pending invitation.`,
-    remains: state.additionalSeatsPurchasable
-      ? `Additional named users are ${seatPrice} each. Contact us to add seats.`
-      : "Contact us to change the named users in your agreement.",
+    remains: "Contact us to change the named users in your agreement.",
     history: "Removing a member, cancelling a pending invitation or letting it expire frees a seat.",
   };
 }
@@ -299,6 +291,8 @@ export function parseAcceptInvitations(raw: unknown): AcceptInvitationsResult | 
 export type RosterState = "active_candidate" | "suspended" | "pending" | "inactive";
 export interface NamedUserRoster {
   readonly allowedNamedUsers: number | null;
+  /** Unlimited team members: a selection only reactivates the people it names; nobody is suspended for capacity. */
+  readonly unlimited: boolean;
   readonly overAllowance: boolean;
   readonly rosterVersion: string;
   readonly people: readonly { readonly userId: string; readonly state: RosterState; readonly invitedEmail: string | null }[];
@@ -316,16 +310,15 @@ export function parseNamedUserRoster(raw: unknown): NamedUserRoster | null {
     if (typeof o.user_id !== "string" || !states.includes(o.state as RosterState)) return null;
     people.push({ userId: o.user_id, state: o.state as RosterState, invitedEmail: typeof o.invited_email === "string" ? o.invited_email : null });
   }
-  return { allowedNamedUsers: nonNegInt(r.allowed_named_users), overAllowance: r.over_allowance !== false, rosterVersion: r.roster_version, people };
+  const unlimited = r.unlimited === true;
+  return { allowedNamedUsers: unlimited ? null : nonNegInt(r.allowed_named_users), unlimited, overAllowance: r.over_allowance !== false, rosterVersion: r.roster_version, people };
 }
 
 /** The people the account holder may choose among, and how many they may choose (the holder takes one seat). */
 export function selectableSeats(roster: NamedUserRoster | null): { readonly choices: readonly string[]; readonly max: number } {
-  if (!roster || roster.allowedNamedUsers === null) return { choices: [], max: 0 };
-  return {
-    choices: roster.people.filter((p) => p.state === "active_candidate" || p.state === "suspended").map((p) => p.userId),
-    max: Math.max(0, roster.allowedNamedUsers - 1),
-  };
+  if (!roster || (!roster.unlimited && roster.allowedNamedUsers === null)) return { choices: [], max: 0 };
+  const choices = roster.people.filter((p) => p.state === "active_candidate" || p.state === "suspended").map((p) => p.userId);
+  return { choices, max: roster.unlimited ? choices.length : Math.max(0, roster.allowedNamedUsers! - 1) };
 }
 
 export type SelectionOutcome = "applied" | "stale_selection" | "selection_required" | "invalid_selection" | "selection_exceeds_allowance" | "capacity_undetermined" | "unauthenticated";
