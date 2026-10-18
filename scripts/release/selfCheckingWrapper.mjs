@@ -98,6 +98,16 @@ export const ACCESS_SOURCE_COMMIT = "8a5c0e13caabfd4499301cc85cff09eb21261cb2";
 export const ACCESS_WRAPPED_SOURCES = Object.freeze([
   "20261104100000_platform_owner_access_and_entity_allowance.sql",
 ]);
+/** Trial balance release (PR #151 + correction #153, release 365b370): drafts, certification capacity, account identity by
+ * definition, refused-replacement restore. The commit holding the four reviewed, BLACK-accepted source bytes. Authored,
+ * PENDING hosted application. */
+export const TB_RELEASE_SOURCE_COMMIT = "365b3704b484527dde0bad52b5748bd7df3b739f";
+export const TB_RELEASE_WRAPPED_SOURCES = Object.freeze([
+  "20261106100000_trial_balance_drafts.sql",
+  "20261107100000_certification_findings_capacity.sql",
+  "20261108100000_account_identity_codeless_name.sql",
+  "20261109100000_refused_replacement_restore.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -111,6 +121,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "commercial-p4", commit: REVERSAL_SOURCE_COMMIT, sources: REVERSAL_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p4/postcondition.sql" }),
   Object.freeze({ id: "commercial-p5", commit: CHARGE_OUTCOMES_SOURCE_COMMIT, sources: CHARGE_OUTCOMES_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p5/postcondition.sql" }),
   Object.freeze({ id: "access-a1", commit: ACCESS_SOURCE_COMMIT, sources: ACCESS_WRAPPED_SOURCES, postcondition: "docs/release/access-a1/postcondition.sql" }),
+  Object.freeze({ id: "tb-release-r1", commit: TB_RELEASE_SOURCE_COMMIT, sources: TB_RELEASE_WRAPPED_SOURCES, postcondition: "docs/release/tb-release-r1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

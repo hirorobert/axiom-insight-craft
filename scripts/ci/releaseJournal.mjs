@@ -547,6 +547,32 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 40236, sha256: "b14ba1cc83320bc14e658edc6b3ff5d5ec6cc2f21b4ff057e3915d7e82565d7a" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 40235, sha256: "163a61cabf1fcf11c5d07f4e4f7e9581ac3e2fb8d7db4da54c59cd20d18a246a" }),
   }),
+  // Trial balance release (batch tb-release-r1; main 365b370, PRs #151 + #153): all four forms of each source registered
+  // BEFORE application, from the reviewed bytes at 365b370. Authored, PENDING hosted application.
+  "20261106100000_trial_balance_drafts.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 48210, sha256: "ec9c0fa7c18f797cc38991ee87ff80a14649d0207d737b3d1a7bd06838e3464d" }),
+    finalLfRemoved: Object.freeze({ bytes: 48209, sha256: "e7710cf2362b922846bad1ff0c7f48865d7384f96a5dde8c19d3a3ac596fa930" }),
+    wrapper: Object.freeze({ bytes: 49772, sha256: "ea99a5858ddf1aaae99c04ee732dee7a4e0d799ca10f39c8e61c81abdcf4f87f" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 49771, sha256: "0e09d77e7baaa8669e337d32b9dc001ddc269e35ccc34df7cdd306649c81800d" }),
+  }),
+  "20261107100000_certification_findings_capacity.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 34711, sha256: "23d1286be5b9a28cc99a24c5b2f459acfd5c7784307e8c312805828a7f891be5" }),
+    finalLfRemoved: Object.freeze({ bytes: 34710, sha256: "7c710c4baa659ec91f24513e823fe04e9485bf8f8756617dab604922491b657c" }),
+    wrapper: Object.freeze({ bytes: 36295, sha256: "d76f6fa2a816e1907640e0ba5177feed2e93ec27ccd8ffa9499aacf9697b8bbb" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 36294, sha256: "ddfb8f28317a9f5ef287a64809f3f760b0494751f905f158963ca1d55a7b9566" }),
+  }),
+  "20261108100000_account_identity_codeless_name.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 12319, sha256: "b443ea8cf8c440f8e08aca437f67cfb5e4a31b0908025c37c4ecdcd513d553c7" }),
+    finalLfRemoved: Object.freeze({ bytes: 12318, sha256: "69e4b1d2e09167b90503a1d1932f853fe8fb250edb337f77a0977c9a48991d3c" }),
+    wrapper: Object.freeze({ bytes: 13901, sha256: "74bad382fefb611358214e541c9adf65f9e158d6bba5613adc3089eab8b55195" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 13900, sha256: "220c1aace654da12798e9dc6b33e1b4169f8569e47ae44040032207f760068df" }),
+  }),
+  "20261109100000_refused_replacement_restore.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 18790, sha256: "ed189bfd036aaf173e952271516fb6482c0b84802cf7ca4b2e33d1121fff5d8c" }),
+    finalLfRemoved: Object.freeze({ bytes: 18789, sha256: "ac02313ae78031d683b53e6133e689ee99e9de5abe0f939a58e1aecadff85b52" }),
+    wrapper: Object.freeze({ bytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 20365, sha256: "6b36347081f7e154ce1ddcdfb0179e782c7441b27162165698c83e78ca3231bd" }),
+  }),
 });
 
 /**
