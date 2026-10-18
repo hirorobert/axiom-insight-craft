@@ -407,6 +407,34 @@
       "when": 1792074400607,
       "tag": "0057_checkout_open_session_conflict",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1792300021059,
+      "tag": "0058_trial_balance_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792300154288,
+      "tag": "0059_certification_findings_capacity",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792300217247,
+      "tag": "0060_account_identity_codeless_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792300304995,
+      "tag": "0061_refused_replacement_restore",
+      "breakpoints": true
     }
   ]
 }
