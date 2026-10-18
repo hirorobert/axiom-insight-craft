@@ -11,7 +11,7 @@ CI-PROVEN / HOSTED-VERIFIED / UNKNOWN. A green suite, filename or source module 
 | Baseline (`origin/main`) | `29b0d945c1cbbd58bdca2314b48742c9b474c240` (merge of #169) | git |
 | Diff `18bff84..29b0d94` outside `docs/` and `*.md` | **empty** — the FS implementation audited at `02c516a`/`18bff84` is byte-identical here | `git diff --stat 18bff84 origin/main -- . ':!docs' ':!*.md'` |
 | Branch / worktree | `feat/fs-first-slice-20261018` at `D:/DevStorage/Temp/claude/fs-slice-20261018` | git worktree |
-| Candidate head | `c0fc16e` implementation; `65914ff` release packaging (wrapper batch `fs-controls-r1`); record commits follow | git |
+| Candidate head | `c0fc16e` implementation; `65914ff` release packaging (wrapper batch `fs-controls-r1`); `a6e8c69` and `e408f04` merge `origin/main` (#173 TB UX release, #175 pricing-p1 with migration 20261110100000) — both pending migrations carried in every registry and pinned list; the final head is the PR's | git; PR #176 (draft) |
 
 ## 2. Supported first slice (pinned)
 
@@ -152,14 +152,18 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 | `releaseJournal.test.ts` + `selfCheckingWrappers.test.ts` | 160/160 PASS (the source registered as PENDING hosted application) | |
 | control-byte scan of every changed file | clean | |
 | full `bun run test` (first run, concurrent with two database proofs) | 25 failures: vitest worker RPC timeouts and 5 s test timeouts under load, plus two deterministic ones — `serviceEnquiryMigrationContract.test.ts` and `activationReadinessMigration.test.ts` pin the exact migration list and needed the new file added (done) | |
-| full `bun run test` (clean re-run, idle machine) | see §7 addendum | |
+| full `bun run test`, generous per-test timeout, before the main merges (`bunx vitest run --testTimeout=120000`) | 5899 passed, 5 failed: 4 × the inertness guard's "base is not an ancestor" (main had moved under the branch — resolved by merging main) and the envelope-guard test, which collects nothing while merge conflict markers are in the tree; every migration-list pin (`persistenceMigrationContract`, `billingTriggerRepairMigration`, `migrationAuthority`, `migrationReplayCompatibilityGuard`, `omega3CheckoutIntervalAuthority`, the two service-enquiry hygiene tests, `databaseInert`) now carries the new file | |
+| guards after the merge (`databaseInert`, `inertBase`, `atomicEnvelope`, `migrationAuthority`) | 90/90 PASS | |
+| full `bun run test` on the final merged head (`--testTimeout=600000`) | **5907 passed, 2 failed** — `atomicEnvelope.test.ts` (its own 120 s limit) and `migrationAuthority.test.ts` "0023 … any mutation fails closed" (its own 60 s limit): both copy the whole repository per fixture and exceed their hard-coded timeouts only under full-suite load on this Windows machine; both pass in isolation (90/90 with the other guards). No assertion failure anywhere. Release Gate on clean Linux CI is the authoritative run | EXECUTED-LOCAL |
+| `RELEASE_BATCH=fs-controls-r1 selfCheckingWrappers.mjs` on the merged tree | **32/32 PASS** | |
+| CI on PR #176 | the first push failed only `databaseInert.test.ts` (the new migration and proof were not yet registered as reviewed) and then went CONFLICTING when #175 merged; both addressed by the merge commit `e408f04`. CI on the final head: see the PR | CI-PROVEN pending |
 
 Decision taken during execution: `run.mjs` replays the chain only up to the sign-off completion requirements
 (20261017100000) by design, so the control is not present there and the file is unchanged.
 
 ## 8. Migration and deployment requirements
 
-- Apply order: after `20261109100000` (and after #161's `20261110100000` if that lands first — no object overlap).
+- Apply order: after `20261110100000` (pricing-p1, merged to main as #175 while this candidate was open; no object overlap — the two batches are independent and both PENDING hosted application).
 - Hosted apply only through the self-checking wrapper of the committed bytes, by the owner, with
   `docs/release/fs-controls-r1/preflight.sql` before and `postcondition.sql` after. **Not authorised by this kickoff.**
 - Batch `fs-controls-r1` registered in `scripts/release/selfCheckingWrapper.mjs` at the implementation commit
