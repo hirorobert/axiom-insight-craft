@@ -16,7 +16,7 @@ if (!import.meta.env.DEV) {
   throw new Error("dev-harness is a non-production tool and cannot run in a production build.");
 }
 
-const UNAVAILABLE: UnavailableServiceEngagement[] = [{ engagementId: "e1", companyId: "c1", companyName: "Synthetic Arusha", periodYear: 2025 }];
+const UNAVAILABLE: UnavailableServiceEngagement[] = [{ engagementId: "e1", companyId: "c1", companyName: "Synthetic Mfano Council", periodYear: 2025 }];
 const outcomes: AddReviewOutcome[] = [];
 (window as unknown as { __outcomes: AddReviewOutcome[] }).__outcomes = outcomes;
 

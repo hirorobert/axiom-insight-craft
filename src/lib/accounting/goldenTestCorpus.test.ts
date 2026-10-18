@@ -34,9 +34,9 @@ import {
 // 1. GOLDEN TEST CORPUS (Section XXII)
 // ════════════════════════════════════════════════════════════════════════
 
-describe("Golden Test Corpus — A. LGA IPSAS (real Arusha DC data, Slice 4)", () => {
-  // Section XXII.A's named required cases, each mapped to the real natural
-  // account code that actually produced it in the Arusha DC MUSE export.
+describe("Golden Test Corpus — A. LGA IPSAS (MUSE rule pack, Slice 4)", () => {
+  // Section XXII.A's named required cases, each mapped to the MUSE natural
+  // account code the rule pack classifies for it.
   const required: Array<[label: string, code: string, expectNature: string]> = [
     ["Service levy", "11640172", "REVENUE"],
     ["user fee", "12120107", "REVENUE"],
@@ -54,7 +54,7 @@ describe("Golden Test Corpus — A. LGA IPSAS (real Arusha DC data, Slice 4)", (
     ["social benefits", "27210104", "EXPENSE"],
   ];
 
-  it.each(required)("%s (%s) is classified with real evidence, nature=%s", (_label, code, expectNature) => {
+  it.each(required)("%s (%s) is classified with rule-pack evidence, nature=%s", (_label, code, expectNature) => {
     const rule = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === code);
     expect(rule).toBeDefined();
     expect(rule!.accountNature).toBe(expectNature);
@@ -71,7 +71,7 @@ describe("Golden Test Corpus — A. LGA IPSAS (real Arusha DC data, Slice 4)", (
 describe("Golden Test Corpus — B. Public Agency IPSAS (context-detection layer only — no real agency account data)", () => {
   it("an agency-scoped company (reporting_framework=ipsas_accrual) is detected as IPSAS without needing any LGA-specific content", () => {
     // Deliberately does NOT touch museClassifier/museIpsasRulePack — those
-    // are LOCAL_GOVERNMENT/Arusha-DC-scoped by evidence (Slice 4 header).
+    // are LOCAL_GOVERNMENT-scoped by evidence (Slice 4 header).
     // Framework detection (Slice 2) is entity-class-agnostic: it never
     // reads entityClass to decide reportingFramework (see C1 proof below),
     // so an agency and an LGA on the same DB value detect identically —
@@ -134,7 +134,7 @@ describe("Golden Test Corpus — D. NGO/QuickBooks", () => {
   it("no false IPSAS inference: every rule in the MUSE pack is sourceSystem=MUSE — a QuickBooks account can never match one", () => {
     const nonMuse = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.filter((r) => r.sourceSystem !== "MUSE");
     expect(nonMuse).toHaveLength(0);
-    // And directly: an account explicitly NOT from the Arusha MUSE corpus
+    // And directly: an account explicitly NOT from the MUSE rule-pack corpus
     // (arbitrary QuickBooks-style code) resolves UNRESOLVED, never IPSAS.
     const outcome = classifyMuseAccount({
       naturalAccountCode: "4000", // plausible QuickBooks default COA revenue code — not in the MUSE pack
@@ -150,7 +150,7 @@ describe("Golden Test Corpus — D. NGO/QuickBooks", () => {
 // ════════════════════════════════════════════════════════════════════════
 
 describe("Section XXVI acceptance scenarios — certification status", () => {
-  it("Scenario 1 — PROVEN: Arusha DC MUSE accounts no longer fall into NO_MATCH unnecessarily; genuine ambiguity remains for review", () => {
+  it("Scenario 1 — PROVEN: MUSE rule-pack accounts no longer fall into NO_MATCH unnecessarily; genuine ambiguity remains for review", () => {
     const accounts = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => ({
       naturalAccountCode: r.naturalAccountCode,
       accountName: r.observedAccountName,
@@ -164,7 +164,7 @@ describe("Section XXVI acceptance scenarios — certification status", () => {
   it("Scenario 2 — PARTIAL: architecture supports agency IPSAS without LGA-forced presentation, but no real TCU rule content exists to prove exchange/non-exchange family coverage end-to-end", () => {
     // See "Golden Test Corpus — B" above for the structural proof. A full
     // PROVEN status needs a real TCU/agency MUSE export, same as Slice 4
-    // needed the real Arusha export — not available today.
+    // needed its reference LGA export — not available today.
     expect(true).toBe(true); // status marker; real assertions live in section B above
   });
 
@@ -182,10 +182,9 @@ describe("Section XXVI acceptance scenarios — certification status", () => {
     expect(classifyConfirmationPosture(ctx.reportingFramework)).toBe("EXPLICIT_ASK");
   });
 
-  it("Scenario 6 — PROVEN (Slice 7): a real Arusha DC account absent from the comparative-source period resolves MISSING, never a fabricated zero", () => {
-    const lookup: ComparativeLineLookup = { find: (code) => (code === "11640172" ? 1467620521.27 : undefined) };
-    // '13465101 Subvention Capital' is real: present in FY2025, absent from FY2026
-    // (verified directly against both raw exports — see comparativeEvidence.test.ts).
+  it("Scenario 6 — PROVEN (Slice 7): an account absent from the comparative-source period resolves MISSING, never a fabricated zero", () => {
+    const lookup: ComparativeLineLookup = { find: (code) => (code === "11640172" ? 1_104_996_250.4 : undefined) };
+    // '13465101 Subvention Capital' is not in this comparative source (see comparativeEvidence.test.ts).
     const amt = resolveComparativeAmount("13465101", "PRIOR_TB_WITH_CONFIRMED_MAPPING", lookup, "upload-fy2025");
     expect(amt.state).toBe("MISSING");
     expect("value" in amt).toBe(false);
@@ -195,7 +194,7 @@ describe("Section XXVI acceptance scenarios — certification status", () => {
   });
 
   it("Scenario 7 — PROVEN (Slice 7): a resolved comparative amount carries evidence/source fields only — no 'approved' field exists to be mistaken for professional sign-off", () => {
-    const lookup: ComparativeLineLookup = { find: () => 1467620521.27 };
+    const lookup: ComparativeLineLookup = { find: () => 1_104_996_250.4 };
     const amt = resolveComparativeAmount("11640172", "PRIOR_TB_WITH_CONFIRMED_MAPPING", lookup, "upload-fy2025");
     expect(amt.state).toBe("KNOWN");
     expect(Object.keys(amt)).not.toContain("approved");
@@ -212,7 +211,7 @@ describe("Section XXVI acceptance scenarios — certification status", () => {
     expect(true).toBe(true);
   });
 
-  it("Scenario 9 — PROVEN (Slice 10): primary operating cash flow reconciles to the reconciliation engine, using real Arusha DC FY2026 investing figures", () => {
+  it("Scenario 9 — PROVEN (Slice 10): primary operating cash flow reconciles to the reconciliation engine, using the synthetic LGA FY2026 investing figures", () => {
     // Full assertions live in cashFlowEngines.test.ts, including an
     // adversarial case proving the cross-check actually fails (does not
     // silently pass) when the two engines are fed inconsistent inputs.

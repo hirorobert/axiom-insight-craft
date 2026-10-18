@@ -40,14 +40,14 @@ Deno.test("break-even: zero net income leaves equity unchanged", () => {
 
 Deno.test("large TZS values: whole-shilling amounts still balance", () => {
   const r = checkBalanceSheetEquation({
-    assets: 17_371_317_215,
+    assets: 23_846_250_415,
     liabilities: 6_000_000_000,
     equity: 8_000_000_000,
     revenue: 12_000_000_000,
-    expenses: 8_628_682_785,
+    expenses: 2_153_749_585,
   });
-  assertEquals(r.netIncome, 3_371_317_215);
-  assertEquals(r.closingEquity, 11_371_317_215);
+  assertEquals(r.netIncome, 9_846_250_415); // 12,000,000,000 - 2,153,749,585
+  assertEquals(r.closingEquity, 17_846_250_415); // 8,000,000,000 + 9,846,250,415; + liabilities = assets
   assert(r.passed, `diff=${r.difference}`);
 });
 

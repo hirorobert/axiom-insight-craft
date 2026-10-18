@@ -109,10 +109,11 @@ const rpc = async (who, name, args) => {
 }
 
 const FIXTURES = fs.mkdtempSync(path.join(os.tmpdir(), 'cfoclose-tb-'))
-const VALID_TB = fs.readFileSync(new URL('../KAMANGA_MEDICS_TB_2025.csv', import.meta.url), 'utf8')
+// Independently invented, balanced SME trial balance (scripts/fixtures/synthetic-sme-tb-2025.csv).
+const VALID_TB = fs.readFileSync(new URL('./fixtures/synthetic-sme-tb-2025.csv', import.meta.url), 'utf8')
 const IMBALANCE = 12345
 // The same trial balance with ONE debit raised by exactly IMBALANCE: debits exceed credits by 12,345.00.
-const UNBALANCED_TB = VALID_TB.replace(/^A002,([^,]*),(\d+),(\r?)$/m, (_m, name, dr, cr) => `A002,${name},${Number(dr) + IMBALANCE},${cr}`)
+const UNBALANCED_TB = VALID_TB.replace(/^S002,([^,]*),(\d+),(\r?)$/m, (_m, name, dr, cr) => `S002,${name},${Number(dr) + IMBALANCE},${cr}`)
 if (UNBALANCED_TB === VALID_TB) throw new Error('could not derive the unbalanced fixture')
 let fileSeq = 0
 function fixture(kind) {

@@ -137,7 +137,7 @@ async function main() {
     const bc = (await admin.query("INSERT INTO public.billing_customers (owner_user_id, product_id) VALUES ($1,$2) RETURNING id", [uid, prod])).rows[0].id;
     lic[uid] = (await admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', $3 FROM public.commercial_plans WHERE product_id=$2 AND code=$4 RETURNING id", [bc, prod, plan === "PRACTICE" ? 4 : 0, plan])).rows[0].id;
   }
-  const A = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Synthetic Arusha') RETURNING id", [U.owner])).rows[0].id;
+  const A = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Synthetic Mfano Council') RETURNING id", [U.owner])).rows[0].id;
   const L = (await admin.query("INSERT INTO public.companies (user_id,name) VALUES ($1,'Synthetic Lapsed') RETURNING id", [U.lapsed])).rows[0].id;
   await admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [A, U.preparer]);
   const open = async (uid, c, y, caps) => (await asUser(uid, async (x) => (await x.query("SELECT public.open_engagement_with_scope($1,$2,$3,'composite') r", [c, y, caps])).rows[0].r)).engagementId;
@@ -154,7 +154,7 @@ async function main() {
   console.log("\n== Discovery: the withheld-only engagement is an existing engagement whose service is unavailable");
   await check("the hub's partition lists it as unavailable (not visible, not 'no engagement')", async () => {
     const caps = await fold(U.owner, E25);
-    const r = partitionEngagements([{ engagementId: E25, companyId: A, companyName: "Synthetic Arusha", periodYear: 2025, capabilities: caps }]);
+    const r = partitionEngagements([{ engagementId: E25, companyId: A, companyName: "Synthetic Mfano Council", periodYear: 2025, capabilities: caps }]);
     return JSON.stringify(caps) === '["TAX_COMPUTATION"]' && r.visible.length === 0 && r.unavailable.length === 1 ? true : { caps, r };
   });
 

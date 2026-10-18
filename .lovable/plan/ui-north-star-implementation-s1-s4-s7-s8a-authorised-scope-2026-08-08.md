@@ -7,7 +7,7 @@ UI and presentation only. No database change, no Edge Function change, no engine
 `src/pages/workspace/WorkspaceOverview.tsx` is rebuilt into three zones and nothing else.
 
 ```text
-Arusha DC · FY2025                                   (quiet identity line)
+Mfano DC · FY2025                                    (quiet identity line)
 
 PREPARE DATA
 105 accounts require review
@@ -65,6 +65,6 @@ Not touched: `deriveWorkspaceState.ts`, `stageMetadata.ts`, `computePreflight.ts
 - **B1 — HARD for S6.** `account_classification` is simultaneously the account nature and the financial-statement presentation key (`processing_result.statements.<statement>.<classification>`), consumed by exports, compliance scoring, KINGA findings, the management letter and MAONO. The agreed fix is decoupling into account nature → framework presentation mapping (`presentation_code`, `presentation_label`, `standard_basis`) → statement line, with tax treatment and cash-flow classification as separate dimensions. The existing enum is preserved, not destroyed.
 - **B2 — HARD for `AUTO_MAPPED_RULE`.** No authoritative sector. Minimum authoritative model when authorised: `sector`, `sector_source`, `sector_confirmed_at`, `sector_confirmed_by`, reusing existing `reporting_framework`; `entity_type` deferred until it earns its place; no `jurisdiction` column added for completeness alone.
 - **B3 — MEDIUM/HARD for the global standards engine.** No early-adoption configuration, so IPSAS 47/48 early application cannot be established. FY2025 defaults to the pre-IPSAS-47 basis with early adoption treated as unsupported until explicitly configured. Not a blocker for S1–S4.
-- **B5 — verification only.** Authenticated preview screenshots of the Arusha DC workspace need a signed-in Lovable preview session.
+- **B5 — verification only.** Authenticated preview screenshots of the demo workspace need a signed-in Lovable preview session.
 
 When S6 is authorised it starts with a **dry-run classifier simulator** over the current 105 accounts — no writes, printing outcome and reason per account for inspection — before any auto-mapping is enabled, and rules live in a versioned registry with explicit `ruleId`, `version`, `effectiveFrom`, `sector`, `phraseSignals`, `exclusions`, `standardBasis` and `outcomeAuthority`, never scattered branches. No target review count is optimised toward.

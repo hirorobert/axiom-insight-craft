@@ -208,7 +208,7 @@ STEP 4  ENTITY CONFIRMATION
 
         ┌────────────────────────────────────────────┐
         │ Detected:                                   │
-        │   Arusha District Council                   │
+        │   Mfano District Council                    │
         │   Framework:   IPSAS Accrual                │
         │   Jurisdiction: Tanzania                    │
         │   Fiscal year:  Not determined              │
@@ -512,7 +512,7 @@ Upgrades SAFISHA L4 from current classifier to full auditable tiered classificat
 | Tier | Authority | Status | Implementation status (reconciled 2026-09-03) |
 |------|-----------|--------|------|
 | 1 | Statutory code (ITA s.34, MUSE CHART) | Auto — 0.99 | MISSING — none registered yet, none claimed |
-| 2 | Exact source-system code match | Auto — HIGH confidence | **EXACT_IMPLEMENTATION** — `src/lib/accounting/museIpsasRulePack.ts` (`TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1`, 294 rules, one per literally-observed MUSE code from real Arusha DC trial-balance data) + `museClassifier.ts` (`classifyMuseAccount`). **Dormant — zero references from `process-trial-balance/index.ts`; dry-run only, per its own docstring.** |
+| 2 | Exact source-system code match | Auto — HIGH confidence | **EXACT_IMPLEMENTATION** — `src/lib/accounting/museIpsasRulePack.ts` (`TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1`, 294 rules, one per literally-observed MUSE code in reference LGA trial-balance exports) + `museClassifier.ts` (`classifyMuseAccount`). **Dormant — zero references from `process-trial-balance/index.ts`; dry-run only, per its own docstring.** |
 | 3 | Source-system code **range**/prefix match | Auto — 0.93 | **SUPERSEDED.** The real Tier-2 implementation is deliberately exact-code-only, never range/prefix-based — its own header states *"nothing here is a guessed prefix pattern extrapolated beyond what was actually observed... a code NOT in this list resolves to UNRESOLVED, never a guess."* Do not build a range-matching tier; it was considered and rejected. |
 | 4 | IFAC standard name exact match | Auto — 0.92 | MISSING — no name-keyed matching path exists anywhere in the current rule pack |
 | 5 | Industry keyword match | Auto — 0.85–0.92 | **SUPERSEDED.** `museClassifier.ts`'s own docstring: *"no lexical fallback rules beyond the exact-code rule pack (deliberately: PHASE-0 confirmed no authoritative GFS lookup table exists to build a safe lexical/fuzzy tier from — inventing one would be exactly the fabricated-certainty failure mode Section XVIII prohibits)."* Do not build a keyword tier without first establishing that lookup table as real evidence. |

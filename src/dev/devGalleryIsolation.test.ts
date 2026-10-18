@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { scanFiles } from "../../scripts/ci/clientDataGuard.mjs";
 
 const ROOT = path.join(__dirname, "../..");
 const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
@@ -25,8 +26,9 @@ describe("development gallery isolation", () => {
     expect(fs.readFileSync(path.join(ROOT, "dev/trial-balance-states.html"), "utf8")).toMatch(/src="\/src\/dev\/trialBalanceStatesEntry\.tsx"/);
   });
   it("neutral synthetic data only: no customer names or figures", () => {
-    for (const f of walk(path.join(ROOT, "src/dev")).filter((p) => !p.endsWith(".test.ts"))) {
-      expect(fs.readFileSync(f, "utf8"), f).not.toMatch(/arusha|kamanga|174,?776,?903|99,?647,?448/i);
-    }
+    // The repository's client-data guard (hashed denylist of identifiers and amounts; scripts/ci/clientDataGuard.mjs).
+    const files = walk(path.join(ROOT, "src/dev")).filter((p) => !p.endsWith(".test.ts")).map((p) => path.relative(ROOT, p));
+    expect(files.length).toBeGreaterThan(0);
+    expect(scanFiles(files, ROOT)).toEqual([]);
   });
 });

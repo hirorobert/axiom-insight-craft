@@ -21,25 +21,25 @@ const read = (tb: unknown) => readTrialBalanceTotals(pr(tb));
 
 describe("above TZS 100 billion with cents", () => {
   it("exact balance", () => {
-    const t = read({ total_debits: 174776903504.08, total_credits: 174776903504.08, difference: 0 });
-    expect(t).toEqual({ debitCents: 17_477_690_350_408, creditCents: 17_477_690_350_408, differenceCents: 0 });
+    const t = read({ total_debits: 238415672019.36, total_credits: 238415672019.36, difference: 0 });
+    expect(t).toEqual({ debitCents: 23_841_567_201_936, creditCents: 23_841_567_201_936, differenceCents: 0 });
     expect(isOutOfBalance(t)).toBe(false);
   });
   it("debit excess", () => {
-    const t = read({ total_debits: 174776903504.08, total_credits: 174677256055.37, difference: 99647448.71 });
-    expect(t).toEqual({ debitCents: 17_477_690_350_408, creditCents: 17_467_725_605_537, differenceCents: 9_964_744_871 });
+    const t = read({ total_debits: 238415672019.36, total_credits: 238308904113.59, difference: 106767905.77 });
+    expect(t).toEqual({ debitCents: 23_841_567_201_936, creditCents: 23_830_890_411_359, differenceCents: 10_676_790_577 });
     expect(isOutOfBalance(t)).toBe(true);
-    expect(plainBlockReason({ blocker: null, totals: t })).toBe("Debits exceed credits by 99,647,448.71. Correct the file and replace it.");
+    expect(plainBlockReason({ blocker: null, totals: t })).toBe("Debits exceed credits by 106,767,905.77. Correct the file and replace it.");
   });
   it("credit excess", () => {
-    const t = read({ total_debits: 174677256055.37, total_credits: 174776903504.08, difference: 99647448.71 });
-    expect(t?.differenceCents).toBe(-9_964_744_871);
+    const t = read({ total_debits: 238308904113.59, total_credits: 238415672019.36, difference: 106767905.77 });
+    expect(t?.differenceCents).toBe(-10_676_790_577);
     expect(isOutOfBalance(t)).toBe(true);
-    expect(plainBlockReason({ blocker: null, totals: t })).toBe("Credits exceed debits by 99,647,448.71. Correct the file and replace it.");
+    expect(plainBlockReason({ blocker: null, totals: t })).toBe("Credits exceed debits by 106,767,905.77. Correct the file and replace it.");
   });
   it("formats the large totals exactly from cents", () => {
-    expect(formatCents(17_477_690_350_408)).toBe("174,776,903,504.08");
-    expect(formatCents(17_467_725_605_537)).toBe("174,677,256,055.37");
+    expect(formatCents(23_841_567_201_936)).toBe("238,415,672,019.36");
+    expect(formatCents(23_830_890_411_359)).toBe("238,308,904,113.59");
     expect(formatCents(-5)).toBe("-0.05");
     expect(formatCents(0)).toBe("0.00");
     expect(() => formatCents(0.5)).toThrow(RangeError);
@@ -65,7 +65,7 @@ describe("floating-point representation", () => {
     expect(read({ total_debits: 0.1 + 0.2, total_credits: 0.3, difference: Math.abs(0.1 + 0.2 - 0.3) })).toEqual({ debitCents: 30, creditCents: 30, differenceCents: 0 });
   });
   it("engine-style float sums of many cent lines", () => {
-    const lines = Array.from({ length: 1000 }, (_, i) => 174776903.5 + (i % 7) * 0.01);
+    const lines = Array.from({ length: 1000 }, (_, i) => 238415672.5 + (i % 7) * 0.01);
     const d = lines.reduce((s, x) => s + x, 0);
     const c = [...lines].reverse().reduce((s, x) => s + x, 0);
     const t = read({ total_debits: d, total_credits: c, difference: Math.abs(d - c) });
@@ -90,7 +90,7 @@ describe("refused inputs → NOT COMPUTED (null), never zero", () => {
     ["negative", { total_debits: -0.01, total_credits: 1 }],
     ["NaN", { total_debits: Number.NaN, total_credits: 1 }],
     ["Infinity", { total_debits: 1, total_credits: Number.POSITIVE_INFINITY }],
-    ["numeric string", { total_debits: "174776903504.08", total_credits: "174677256055.37" }],
+    ["numeric string", { total_debits: "238415672019.36", total_credits: "238308904113.59" }],
     ["numeric-string difference", { total_debits: 10, total_credits: 8, difference: "2" }],
     ["non-finite difference", { total_debits: 10, total_credits: 8, difference: Number.NaN }],
     ["boolean", { total_debits: true, total_credits: 1 }],
@@ -142,8 +142,8 @@ describe("accepted-within-tolerance normalisation (the engine records difference
     expect(read({ total_debits: 1001.01, total_credits: 1000, difference: 0 })).toBeNull();
   });
   it("above TZS 100 billion: a recorded 0 within the tolerance is valid, beyond it is refused", () => {
-    expect(read({ total_debits: 174776903504.68, total_credits: 174776903504.08, difference: 0 })?.differenceCents).toBe(60);
-    expect(read({ total_debits: 174776903505.09, total_credits: 174776903504.08, difference: 0 })).toBeNull();
+    expect(read({ total_debits: 238415672019.96, total_credits: 238415672019.36, difference: 0 })?.differenceCents).toBe(60);
+    expect(read({ total_debits: 238415672020.37, total_credits: 238415672019.36, difference: 0 })).toBeNull();
   });
   it("a non-zero recorded difference still has to agree within one cent (the normalisation is only for 0)", () => {
     expect(read({ total_debits: 1000.6, total_credits: 1000, difference: 0.3 })).toBeNull();

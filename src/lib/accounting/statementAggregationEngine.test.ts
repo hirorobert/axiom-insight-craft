@@ -1,25 +1,24 @@
 /**
  * statementAggregationEngine.test.ts
  *
- * Slice 9 — proves the accounting equation against the REAL, complete
- * Arusha District Council FY2026 trial balance (237 accounts, all real
- * classifications from Slice 4, all real balances from the actual MUSE
- * export). This is not a synthetic example: it is the actual government
- * financial data reconciling to the actual government-reported result.
+ * Slice 9 — proves the accounting equation against a complete, balanced
+ * trial balance: the independently invented synthetic LGA FY2026 fixture
+ * (50 accounts), classified through the real rule pack. Every expected
+ * figure below was computed by hand from the fixture, outside this code.
  */
 
 import { describe, it, expect } from "vitest";
 import { aggregateStatementPresentation, assessStatementReadiness, type ClassifiedBalance } from "./statementAggregationEngine";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
 import { classifyMuseAccount } from "./museClassifier";
-import { ARUSHA_FY2026_BALANCES } from "./arushaFy2026Balances.fixture";
+import { SYNTHETIC_LGA_FY2026_BALANCES } from "./syntheticLgaFy2026Balances.fixture";
 
 const RULE_BY_CODE = new Map(TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => [r.naturalAccountCode, r]));
 
-function buildRealClassifiedBalances(): ClassifiedBalance[] {
-  return ARUSHA_FY2026_BALANCES.map((b) => {
+function buildClassifiedBalances(): ClassifiedBalance[] {
+  return SYNTHETIC_LGA_FY2026_BALANCES.map((b) => {
     const rule = RULE_BY_CODE.get(b.code);
-    if (!rule) throw new Error(`No rule for real code ${b.code} — fixture/rule-pack drift`);
+    if (!rule) throw new Error(`No rule for code ${b.code} — fixture/rule-pack drift`);
     return {
       naturalAccountCode: b.code,
       accountNature: rule.accountNature,
@@ -30,40 +29,43 @@ function buildRealClassifiedBalances(): ClassifiedBalance[] {
   });
 }
 
-describe("aggregateStatementPresentation — real Arusha DC FY2026 (all 237 accounts)", () => {
-  const balances = buildRealClassifiedBalances();
+describe("aggregateStatementPresentation — synthetic LGA FY2026 (all 50 accounts)", () => {
+  const balances = buildClassifiedBalances();
   const result = aggregateStatementPresentation(balances);
 
-  it("every real account was classified — fixture and rule pack agree on all 237 codes", () => {
-    expect(balances).toHaveLength(237);
+  it("every account was classified — fixture and rule pack agree on all 50 codes", () => {
+    expect(balances).toHaveLength(50);
   });
 
-  it("the accounting equation holds within tolerance against real government financial data", () => {
-    // Independently computed in Python against the same source data before
-    // this engine was written: variance ≈ -0.00 (floating-point rounding).
+  it("the accounting equation holds exactly on a balanced trial balance", () => {
+    // Hand-computed: assets 29,536,000,000 - liabilities 2,230,640,000 - net assets 20,646,310,000
+    // - surplus 6,659,050,000 = 0.
     expect(result.accountingEquationHolds).toBe(true);
-    expect(Math.abs(result.accountingEquationVariance)).toBeLessThan(1);
+    expect(result.accountingEquationVariance).toBe(0);
   });
 
-  it("the computed surplus/(deficit) matches the REAL government-reported figure in the Statement of Changes in Net Assets and Equity", () => {
-    // The actual FinalAccountEquityRPT (1).xls reports "Surplus/ Deficit for
-    // the Year" = -234,109,973 for FY2026 (see PHASE-0/Slice 4 source
-    // material). This engine, built independently from the raw TB, computes
-    // essentially the same number — real cross-validation, not a fixture
-    // rigged to pass.
-    expect(result.surplusForPeriod).toBeCloseTo(-234109972.56, 0);
+  it("the computed surplus/(deficit) equals revenue less expenses computed independently from the fixture", () => {
+    // Revenue 26,097,800,000 - expenses 19,438,750,000 = 6,659,050,000.
+    expect(result.surplusForPeriod).toBe(6_659_050_000);
   });
 
-  it("section totals are all real, non-trivial magnitudes — not zeroed-out or degenerate", () => {
-    expect(result.sectionTotals.ASSET).toBeGreaterThan(80_000_000_000);
-    expect(result.sectionTotals.LIABILITY).toBeGreaterThan(6_000_000_000);
-    expect(result.sectionTotals.NET_ASSETS).toBeGreaterThan(80_000_000_000);
-    expect(result.sectionTotals.REVENUE).toBeGreaterThan(70_000_000_000);
-    expect(result.sectionTotals.EXPENSE).toBeGreaterThan(70_000_000_000);
+  it("section totals equal the hand-computed, normal-balance-signed totals (contra accounts net against their section)", () => {
+    expect(result.sectionTotals).toEqual({
+      ASSET: 29_536_000_000,
+      LIABILITY: 2_230_640_000,
+      NET_ASSETS: 20_646_310_000,
+      REVENUE: 26_097_800_000,
+      EXPENSE: 19_438_750_000,
+    });
   });
 
-  it("line items aggregate to more than a handful of distinct presentation codes, proving real granularity, not one bucket", () => {
-    expect(result.lineItems.length).toBeGreaterThan(15);
+  it("line items aggregate per presentation code — 28 distinct codes, with accounts counted per line", () => {
+    expect(result.lineItems).toHaveLength(28);
+    const ppeOpening = result.lineItems.find((l) => l.presentationCode === "PROPERTY_PLANT_EQUIPMENT_OPENING")!;
+    expect(ppeOpening.accountCount).toBe(4);
+    expect(ppeOpening.netAmount).toBe(31_500_000_000); // 9.6bn + 14.2bn + 5.3bn + 2.4bn
+    const contra = result.lineItems.find((l) => l.presentationCode === "PPE_ACCUMULATED_DEPRECIATION_CONTRA")!;
+    expect(contra.netAmount).toBe(-9_810_000_000); // credit-side contra reduces assets
   });
 });
 
@@ -103,8 +105,8 @@ describe("assessStatementReadiness — Section XII: never mark ready over a mate
     expect(readiness.blockingReason).toBeUndefined();
   });
 
-  it("all real Arusha accounts resolved (0 UNRESOLVED) means readiness is trivially true regardless of threshold", () => {
-    const outcomes = ARUSHA_FY2026_BALANCES.map((b) =>
+  it("all fixture accounts resolved (0 UNRESOLVED) means readiness is trivially true regardless of threshold", () => {
+    const outcomes = SYNTHETIC_LGA_FY2026_BALANCES.map((b) =>
       classifyMuseAccount({ naturalAccountCode: b.code, accountName: "", balance: 0 }),
     );
     const readiness = assessStatementReadiness(outcomes, new Map(), 0);

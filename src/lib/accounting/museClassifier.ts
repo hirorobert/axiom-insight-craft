@@ -112,7 +112,7 @@ export function classifyMuseAccount(account: AccountToClassify): ClassificationO
       confidence: "NONE",
       confidenceSource: "UNKNOWN",
       evidence: [],
-      reason: `No rule in TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 matches natural account code '${account.naturalAccountCode}'. Not previously observed in the Arusha DC MUSE reference data this rule pack was built from.`,
+      reason: `No rule in TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 matches natural account code '${account.naturalAccountCode}'. Not previously observed in the reference MUSE data this rule pack was built from.`,
       conflicts: [],
     };
   }

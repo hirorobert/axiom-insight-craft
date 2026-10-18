@@ -187,9 +187,9 @@ export interface PrimaryCashFlowStatement {
 /**
  * Investing activities: a debit-normal (ASSET) addition to PPE/WIP/
  * investment-property is a cash OUTFLOW. No real financing-activity
- * presentationCode exists in TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 (Arusha DC,
- * an LGA, shows zero borrowings/financing-classified accounts in either
- * real period observed) — this only covers investing.
+ * presentationCode exists in TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 (the
+ * reference LGA chart shows zero borrowings/financing-classified accounts in
+ * either period observed) — this only covers investing.
  */
 export function buildInvestingActivities(balances: ClassifiedBalance[]): CashFlowSectionTotal {
   const lineItems: CashFlowLineItem[] = balances
@@ -206,7 +206,7 @@ export function buildInvestingActivities(balances: ClassifiedBalance[]): CashFlo
  * Financing activities: generic over whatever presentationCodes the caller
  * designates as financing (e.g. borrowings drawn/repaid, capital
  * contributions) — no such codes exist in today's real rule pack, so this
- * legitimately returns an empty, zero-total section for any Arusha DC input.
+ * legitimately returns an empty, zero-total section for any input classified by it.
  */
 export function buildFinancingActivities(
   balances: ClassifiedBalance[],

@@ -126,7 +126,7 @@ function AddPaymentModal({
                 <label className="text-xs font-medium text-muted-foreground">Amount Paid (TZS)</label>
                 <input
                   className="w-full mt-1 border rounded-md px-3 py-2 text-sm font-mono"
-                  placeholder="e.g. 61930070"
+                  placeholder="e.g. 14445000"
                   value={form.amount_paid_tzs}
                   onChange={e => setForm(f => ({ ...f, amount_paid_tzs: e.target.value }))}
                 />
@@ -280,10 +280,10 @@ WHERE table_schema = 'public' AND table_name = 'account_mappings'
   AND column_name = 'is_payroll_account';
 -- Expected: 1 row, column_default = false
 
--- V5: Kamanga SDL payment seed exists
+-- V5: sample SDL payment seed exists
 SELECT company_id, tax_category, amount_paid_tzs, payment_source
 FROM public.tax_payments LIMIT 5;
--- Expected: 1 row, sdl, 61930070, preparer_declared
+-- Expected: 1 row, sdl, <declared amount>, preparer_declared
 ```
 
 ### Code Verifications:

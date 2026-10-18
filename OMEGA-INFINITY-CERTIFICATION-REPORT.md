@@ -31,7 +31,7 @@ Per [PHASE-0-PUBLIC-SECTOR-REALITY-AUDIT.md](PHASE-0-PUBLIC-SECTOR-REALITY-AUDIT
 - `detectEntityContext.ts` — read-only framework detection, evidence-graded, zero I/O.
 - `confirmationPosture.ts` — confidence → UX posture mapping (Section XVII).
 - `frameworkPresentationRegistry.ts` — replaces `ExportStatements.tsx`'s hardcoded if/else (its own comment invited this exact refactor).
-- `museIpsasRulePack.ts` — `TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1`, 294 rules, every one grounded in a real Arusha District Council MUSE export.
+- `museIpsasRulePack.ts` — `TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1`, 294 rules, every one grounded in reference MUSE standard trial balance exports of a Tanzanian LGA.
 - `museClassifier.ts` — evidence-ladder classifier over the rule pack.
 - `goldenTestCorpus.test.ts` — Section XXII fixtures + Section XXVI scenario certification status.
 - `comparativeEvidence.ts` — source-tier hierarchy, C4-compliant explicit states, mapping-drift detection.
@@ -58,7 +58,7 @@ Implemented tiers (Slice 2): prior professional confirmation (HIGH) > non-defaul
 
 ## F. Tanzania IPSAS common core
 
-31 `IpsasPresentationCode` values spanning all five `AccountNature` buckets (ASSET, LIABILITY, NET_ASSETS, REVENUE, EXPENSE), derived entirely from the real Arusha DC chart — not a pre-conceived taxonomy imposed on the data.
+31 `IpsasPresentationCode` values spanning all five `AccountNature` buckets (ASSET, LIABILITY, NET_ASSETS, REVENUE, EXPENSE), derived entirely from the reference MUSE chart — not a pre-conceived taxonomy imposed on the data.
 
 ## G. LGA profile
 
@@ -78,7 +78,7 @@ Implemented tiers (Slice 2): prior professional confirmation (HIGH) > non-defaul
 
 ## K. MUSE rule registry
 
-`TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1` — 294 exact-code rules, each with `ruleId`, `version`, `evidenceDetail` citing the real source (Arusha DC, entity 00703099, FY2025/FY2026). Three documented real exclusions proven in tests: a `63xxxxxx` code that's a liability despite the prefix meaning net assets elsewhere in the same chart; a `61xxxxxx` accumulated-depreciation code with opposite treatment from its same-prefix sibling; `31xxxxxx` inventory codes distinguished from PPE additions sharing the same prefix.
+`TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1` — 294 exact-code rules, each with `ruleId`, `version`, `evidenceDetail` citing its evidence source (reference MUSE exports, two consecutive annual periods). Three documented real exclusions proven in tests: a `63xxxxxx` code that's a liability despite the prefix meaning net assets elsewhere in the same chart; a `61xxxxxx` accumulated-depreciation code with opposite treatment from its same-prefix sibling; `31xxxxxx` inventory codes distinguished from PPE additions sharing the same prefix.
 
 ## L. Comparative engine
 
@@ -94,7 +94,7 @@ Five decision states derived (never redundantly stored) from existing draft data
 
 ## O. Statement engine
 
-`aggregateStatementPresentation` proven against the **complete, real** 237-account Arusha FY2026 trial balance: the accounting equation (`Assets = Liabilities + NetAssets + Surplus`) holds to sub-cent tolerance, and the independently-computed surplus (-234,109,972.56 TZS) matches the real government-reported figure (-234,109,973 TZS) in the actual Statement of Changes in Net Assets and Equity.
+`aggregateStatementPresentation` proven against a complete, balanced trial balance: the accounting equation (`Assets = Liabilities + NetAssets + Surplus`) holds, and the surplus equals revenue less expenses computed independently. (Correction, 2026-10-18: the tests now run on independently invented synthetic LGA trial balances, `syntheticLgaFy2025/2026Balances.fixture.ts`; no source figure is held in this repository.)
 
 ## P. Cash-flow engines
 
@@ -104,7 +104,7 @@ Two distinct products (`buildOperatingCashFlowReconciliation`, `buildPrimaryCash
 
 One fully-real, fully-computed engine (PPE roll-forward) — built only after an initial roll-forward hypothesis was checked against real data and found **false** (Opening balances are static, not rolled forward; the real mechanic uses cumulative-to-date addition deltas instead). 12 named schedule types modeled as pure contracts with a materiality-based requirement assessment; only PPE has real computation logic behind it — the rest are honestly `NOT_APPLICABLE` or `UNASSESSABLE_FROM_TB`, never fabricated.
 
-## R. Dry-run results for Arusha unresolved accounts
+## R. Dry-run results for the rule-pack source accounts
 
 | Outcome | Count |
 |---|---|

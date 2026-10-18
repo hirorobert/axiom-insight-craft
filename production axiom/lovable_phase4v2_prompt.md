@@ -14,9 +14,9 @@ This second push adds three things:
 2. **process-trial-balance v2.1** — 13 missing auto-classification patterns added
    + account_code fallback bug fixed + AuditedAccountsAdapter wired in
 
-3. **KAMANGA_MEDICS_TB_2025.csv** — clean trial balance extracted from the
-   client's audited accounts; will be uploaded manually after deploy to do the
-   first real dry run
+3. **A sample trial balance** for the first dry run (historical note, 2026-10-18:
+   the file originally named here was removed from the repository; the invented
+   replacement is `scripts/fixtures/synthetic-sme-tb-2025.csv`)
 
 ---
 
@@ -125,48 +125,19 @@ ORDER BY tablename;
 
 ---
 
-## TASK 5 — First Live Dry Run (Kamanga Medics)
+## TASK 5 — First Live Dry Run
 
-The file `KAMANGA_MEDICS_TB_2025.csv` in the workspace folder is a clean trial
-balance extracted from Kamanga's audited accounts. It has 46 accounts, perfectly
-balanced at TZS 17,371,317,215 Dr = Cr.
+Historical note (2026-10-18): this task originally named a real client's trial
+balance and listed its figures and expected tax results. Those have been removed
+from the repository. Use the invented, balanced sample
+`scripts/fixtures/synthetic-sme-tb-2025.csv` for any dry run.
 
 **Upload steps:**
-1. Log into the Axiom dashboard → select Kamanga Medics Limited
-2. Upload `KAMANGA_MEDICS_TB_2025.csv` as the trial balance
+1. Log into the dashboard → select the sample company
+2. Upload `scripts/fixtures/synthetic-sme-tb-2025.csv` as the trial balance
 3. System should return status = "valid" (no BLOCKED / UNMAPPED_ACCOUNTS errors)
-4. Open **Kinga — Corporate Tax** panel
-5. Add capital allowances from the PPE schedule:
-
-| Asset | Cost (TZS) | ITA Class | WDV Opening |
-|-------|-----------|-----------|-------------|
-| Motor Vehicles | 17,029,235 | 1 (37.5% RB) | 17,029,235 |
-| Buildings | 1,072,835,042 | 6 (5% SL) | 1,072,835,042 |
-| Water Well | 27,075,000 | 6 (5% SL) | 27,075,000 |
-| Machine & Equipment | 489,854,570 | 3 (12.5% RB) | 489,854,570 |
-| Computers | 59,916,456 | 1 (37.5% RB) | 59,916,456 |
-| Furniture | 110,576,604 | 3 (12.5% RB) | 110,576,604 |
-
-Note: Buildings WIP (TZS 824,597,643) — no wear & tear (WIP, not in use).
-Note: Land (TZS 916,240,250) — NOT depreciable, do not add as capital allowance.
-
-6. Set months_overdue = 0
-7. Click **Run Tax Analysis**
-
-**Expected results:**
-- PBT: ~TZS 181,066,763
-- Depreciation add-back: TZS 158,904,033
-- ITA wear & tear: TZS 158,904,033 (same — accountant uses ITA rates)
-- Taxable income: ~TZS 181,066,763 (depreciation add-back nets to zero)
-- CIT (30%): ~TZS 54,320,029
-- Existing provision: TZS 54,320,029
-- Gap: TZS 0 (accounts already correctly provisioned)
-- AMT indicator: TZS 93,966,389 (1% × 9,396,638,868) — NOT applied (CPA to confirm no 3-year loss history)
-- Thin cap: TZS 0 disallowed (all loans from NBC, CRDB, TIB are resident banks — excluded from thin cap under ITA s.12(5))
-
-**Key finding to flag (separate from tax engine):**
-- TRA 2024 Assessment outstanding: TZS 162,250,852 (in Other Payables)
-  This is a prior-year TRA assessment, not yet settled. Should generate a finding.
+4. Open the corporate tax panel and add capital allowances from a PPE schedule
+5. Set months_overdue = 0 and run the tax analysis
 
 ---
 

@@ -355,7 +355,7 @@ describe("Total score arithmetic", () => {
 
 describe("FA2026 Golden Fixtures", () => {
 
-  it("GF-1: Kamanga Normal — profitable, zero findings, locked period → Compliant 100", () => {
+  it("GF-1: Normal SME — profitable, zero findings, locked period → Compliant 100", () => {
     const result = scoreFromData({
       openFindings: [],
       taxCompWarnings: [],

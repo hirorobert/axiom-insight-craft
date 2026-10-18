@@ -11,7 +11,7 @@ import EngagementHub, { type AccountHome } from "./EngagementHub";
 import type { UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
 
 const account: AccountHome = { billing: null, billingLoading: false, billingError: false, capacity: null, capacityLoading: false, capacityError: false, onRetry: () => {}, onSignOut: () => {} };
-const U: UnavailableServiceEngagement = { engagementId: "e1", companyId: "c1", companyName: "Arusha Dc", periodYear: 2025 };
+const U: UnavailableServiceEngagement = { engagementId: "e1", companyId: "c1", companyName: "Mfano District Council", periodYear: 2025 };
 const company = { id: "c2", name: "Other Co" } as never;
 const shared = { id: "s1", name: "Shared Co", capabilities: ["manage_source_files"], fiscal_year_end: null, reporting_framework: null, currency: null, created_at: null } as never;
 
@@ -27,7 +27,7 @@ const primaries = (h: string) => (h.match(/data-testid="next-action-primary"/g) 
 describe("EngagementHub — one primary next action, every instruction actionable", () => {
   it("withheld-only with a plan and permission: lists the company and makes starting the review the one primary action", () => {
     const h = html({ account: withPlan, unavailableEngagements: [U], onAddTrialBalanceReview: async () => ({ ok: true }), reviewGates: { c1: { state: "allowed" } } });
-    expect(h).toContain("Arusha Dc");
+    expect(h).toContain("Mfano District Council");
     expect(h).toContain("Your existing service is currently unavailable");
     expect(h).toContain('data-kind="start_review"');
     expect(h).toContain('data-testid="add-review-e1"');
@@ -72,7 +72,7 @@ describe("EngagementHub — permission-aware row action (never a disabled button
   const add = async () => ({ ok: true as const });
   it("no access answer yet → the row says 'checking' and offers no action (loading never implies permission)", () => {
     const h = html({ unavailableEngagements: [U], onAddTrialBalanceReview: add });
-    expect(h).toContain("Arusha Dc");
+    expect(h).toContain("Mfano District Council");
     expect(h).not.toContain('data-testid="add-review-e1"');
     expect(h).toMatch(/data-testid="review-gate-e1"[^>]*data-gate="checking"/);
     expect(h).toContain("Checking your access");
