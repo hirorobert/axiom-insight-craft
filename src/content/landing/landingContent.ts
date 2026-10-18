@@ -189,7 +189,7 @@ export const LANDING_PILOT = {
 export const LANDING_PLANS_COPY = {
   eyebrow: "Plans",
   heading: "Choose your capacity.",
-  intro: "Plans differ in how many active entities they cover. Every plan includes unlimited team members, is a 12-month term and does not renew automatically.",
+  intro: "Plans differ in how many active entities they cover. Solo, Practice and Firm include unlimited team members; Enterprise is agreed per contract. Every plan is a 12-month term and does not renew automatically.",
   columns: { plan: "Plan", bestFor: "Best for", entities: "Entities", users: "Team members", price: "Price per year", action: "Action" },
   /** Stated once, under the table, when a plan is shown with a proposed price. */
   activationNote: "A price marked Proposed is not yet open for online purchase.",

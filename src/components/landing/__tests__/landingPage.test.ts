@@ -189,7 +189,7 @@ describe("plans", () => {
     expect(plans).toMatch(/Price per year/);
     // Unlimited team members on Solo, Practice and Firm; Enterprise by agreement; no additional-user charge anywhere.
     expect(plans).toContain("Team members");
-    expect(plans).toContain("Every plan includes unlimited team members");
+    expect(plans).toContain("Solo, Practice and Firm include unlimited team members; Enterprise is agreed per contract.");
     expect(plans.match(/Team members Unlimited/g)?.length).toBe(3);
     expect(plans).toContain("Team members By agreement");
     expect(plans).not.toMatch(/Additional named users|USD 200|named user/i);
