@@ -141,6 +141,29 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
 }, label, value);
+/**
+ * Chooses a currency in the searchable selector (CurrencySelect, an ARIA combobox) found by its label: types the code,
+ * then presses Enter on the highlighted match — an explicit choice, as a person makes it. True when it took.
+ */
+const chooseCurrency = async (label, code) => {
+  const typed = await page.evaluate((lab, val) => {
+    const l = [...document.querySelectorAll("label")].find((x) => x.textContent.trim().toLowerCase().startsWith(lab.toLowerCase()));
+    const el = l && (l.control ?? document.getElementById(l.htmlFor));
+    if (!el || el.getAttribute("role") !== "combobox") return false;
+    el.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, val);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }, label, code);
+  if (!typed) return false;
+  await sleep(150);
+  return page.evaluate((lab, val) => {
+    const l = [...document.querySelectorAll("label")].find((x) => x.textContent.trim().toLowerCase().startsWith(lab.toLowerCase()));
+    const el = l && (l.control ?? document.getElementById(l.htmlFor));
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    return el.dataset.value === val || new Promise((r) => setTimeout(() => r(el.dataset.value === val), 150));
+  }, label, code);
+};
 async function pickRadix(triggerSelector, optionText) {
   await page.click(triggerSelector);
   await page.waitForSelector("[role=option]");
@@ -228,7 +251,7 @@ async function main() {
     await page.fill("#fr-org", "Mto Holdings Limited");
     await pickRadix("#fr-year", "2026");
     await pickRadix("#fr-fye", "30 June");
-    await pickRadix("#fr-currency", "TZS — Tanzanian Shilling");
+    if (!(await chooseCurrency("Functional currency", "TZS"))) return "the currency could not be chosen";
     await pickRadix("#fr-framework", "IFRS for SMEs");
     await page.click('form[aria-label="Add an entity"] button[type=submit]');
     const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026/, { timeout: 45000 });
@@ -249,7 +272,7 @@ async function main() {
   await check("Trial Balance › Intake sets 1 Jul 2025 – 30 Jun 2026 and the prior period 1 Jul 2024 – 30 Jun 2025 (TZS)", async () => {
     await go(`${base}/trial-balance/intake`, "Start date");
     await setByLabel("Start date", PERIODS.current.start); await setByLabel("End date", PERIODS.current.end);
-    await setByLabel("Reporting currency", "TZS");
+    if (!(await chooseCurrency("Reporting currency", "TZS"))) return "the reporting currency could not be chosen";
     await setByLabel("Also set up the prior period", true);
     await sleep(300);
     await setByLabel("Prior start date", PERIODS.prior.start); await setByLabel("Prior end date", PERIODS.prior.end);
@@ -316,9 +339,9 @@ async function main() {
     if (year === 2026) {
       try { await go(`/workspace/${A}/${year}/trial-balance/review`, ""); await sleep(2500); await shot("05a-account-review-pending"); }
       catch (e) { log(`        (account-review screenshot not captured: ${String(e?.message ?? e).slice(0, 120)})`); }
-      // ...and the list itself: "Resolve account classifications" opens the accounts awaiting a mapping decision.
+      // ...and the list itself: "Review account classifications" opens the accounts awaiting a mapping decision.
       try {
-        await page.click({ text: "Resolve account classifications" });
+        await page.click({ text: "Review account classifications" });
         await page.waitForSelector('[data-testid="account-review-workbench"]', { timeout: 30000 });
         await sleep(2000); // the button's own smooth scroll must finish first, or it overrides the jump below
         // The panel opens one account at a time; every account already carries a suggestion, so show the full list.
@@ -584,33 +607,40 @@ async function main() {
     await page.click('[data-testid="confirm-period-year"]');
     await sleep(200);
     await setByLabel("Ends on", "2026-06-30");
-    await setByLabel("Trial balance currency", "TZS");
+    if (!(await chooseCurrency("Trial balance currency", "TZS"))) return "the currency could not be chosen";
     await sleep(300);
     const d = await page.evaluate(() => document.querySelector('[data-testid="confirm-period-derived"]')?.textContent ?? "");
     await widths("18-first-upload-confirm");
     return /Year ended 30 June 2026/.test(d) && /1 Jul 2025 – 30 Jun 2026/.test(d) ? true : d;
   });
-  await check("'Start trial balance check' saves the entity, the dated period and the file, and the server's check runs on the same page", async () => {
+  let resultUrl = null;
+  await check("'Start trial balance check' saves the entity, the dated period and the file, runs the server's check, and opens THAT upload's result", async () => {
     await page.click('[data-testid="first-upload-start"]');
-    await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+    await page.waitFor(() => /\/trial-balance\/review\?upload=/.test(location.pathname + location.search) || !!document.querySelector('[data-testid="first-upload-failure"]'), [], { timeout: 180000, label: "the result or a refusal" });
     const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
     if (failure) return { failure };
-    const stages = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="first-upload-stage-"]')].map((e) => e.textContent));
-    await widths("19-first-upload-checked");
+    resultUrl = await page.evaluate(() => location.pathname + location.search);
+    await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
+    await widths("19-first-upload-result");
     const co = (await ownerBApi.from("companies").select("id, name")).data ?? [];
     B = co[0]?.id ?? null;
     const period = (await admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("company_id", B)).data ?? [];
     const ups = (await admin.from("trial_balance_uploads").select("id, file_path, period_year, period_id, status").eq("company_id", B)).data ?? [];
     const draft = (await admin.from("trial_balance_drafts").select("state, committed_upload_id").eq("owner_ref", U.ownerB.id)).data ?? [];
-    return co.length === 1 && co[0].name === "Kilima Invented Traders Ltd" && stages.length === 3 && /^File read\s*·\s*Done$/.test(stages[0].trim())
+    return co.length === 1 && co[0].name === "Kilima Invented Traders Ltd" && resultUrl === `/workspace/${B}/2026/trial-balance/review?upload=${ups[0]?.id}`
       && period.length === 1 && period[0].reporting_start === "2025-07-01" && period[0].reporting_end === "2026-06-30" && period[0].reporting_currency === "TZS"
       && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
-      && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, stages, period, ups, draft };
+      && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, resultUrl, period, ups, draft };
   });
-  await check("'See the result' opens the entity's trial balance page for FY2026", async () => {
-    await page.click('[data-testid="first-upload-open-result"]');
-    const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026\/prepare/, { timeout: 45000 });
-    return url.includes(B) ? true : url;
+  await check("refresh keeps that exact upload; Back returns to the account home, which continues to the same entity and period", async () => {
+    await page.evaluate(() => location.reload()); // a refresh, not a new history entry
+    await sleep(1500);
+    await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
+    const afterRefresh = await page.evaluate(() => location.pathname + location.search);
+    await page.evaluate(() => history.back());
+    await page.waitFor((b) => location.pathname.startsWith(`/workspace/${b}/2026`) && !location.search.includes("upload="), [B], { timeout: 45000, label: "back to the same entity and period" });
+    const afterBack = await page.evaluate(() => location.pathname);
+    return afterRefresh === resultUrl ? true : { resultUrl, afterRefresh, afterBack };
   });
 
   startGroup("Purchase required: the draft is kept and the customer continues after choosing a plan (Phase 2 P2-4)");
@@ -631,7 +661,7 @@ async function main() {
     await setByLabel("Entity name", "Pwani Invented Supplies Ltd");
     await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
     await setByLabel("Ends on", "2026-06-30");
-    await setByLabel("Trial balance currency", "TZS");
+    if (!(await chooseCurrency("Trial balance currency", "TZS"))) return "the currency could not be chosen";
     await sleep(300);
     await page.click('[data-testid="first-upload-start"]');
     await page.waitForSelector('[data-testid="first-upload-failure"]', { timeout: 60000 });
@@ -641,15 +671,15 @@ async function main() {
     const ups = ((await admin.from("trial_balance_uploads").select("id").eq("user_id", U.noPlan.id)).data ?? []).length;
     return /needs a plan/.test(t) && plan && companies === 0 && ups === 0 ? true : { t, plan, companies, ups };
   });
-  await check("after a plan exists, the home offers 'Continue with' the same draft, with the card as it was; the check completes", async () => {
+  await check("after a plan exists, the home offers 'Continue saved upload' for the same draft, with the card as it was; the check completes", async () => {
     await grantPlan(U.noPlan.id);
     await go("/dashboard", "Check your trial balance");
-    await page.waitForSelector('[data-testid="first-upload-resume"]', { timeout: 30000 });
-    await page.click('[data-testid="first-upload-resume"]');
+    await page.waitForSelector('[data-testid="first-upload-continue-draft"]', { timeout: 30000 });
+    await page.click('[data-testid="first-upload-continue-draft"]');
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 30000 });
-    const kept = await page.evaluate(() => [document.querySelector('[data-testid="confirm-entity"]')?.value, document.querySelector('[data-testid="confirm-currency"]')?.value]);
+    const kept = await page.evaluate(() => [document.querySelector('[data-testid="confirm-entity"]')?.value, document.querySelector('[data-testid="confirm-currency"]')?.dataset.value]);
     await page.click('[data-testid="first-upload-start"]');
-    await page.waitForSelector('[data-testid="first-upload-checked"], [data-testid="first-upload-failure"]', { timeout: 180000 });
+    await page.waitFor(() => /\/trial-balance\/review\?upload=/.test(location.pathname + location.search) || !!document.querySelector('[data-testid="first-upload-failure"]'), [], { timeout: 180000, label: "the result or a refusal" });
     const failure = await page.evaluate(() => document.querySelector('[data-testid="first-upload-failure"]')?.textContent ?? null);
     const drafts = (await admin.from("trial_balance_drafts").select("state").eq("owner_ref", U.noPlan.id)).data ?? [];
     const co = (await noPlanApi.from("companies").select("name")).data ?? [];

@@ -7,7 +7,7 @@
  *     choice (or none) is kept.
  *   · Keyboard: ArrowDown/ArrowUp move through the matches, Enter chooses, Escape closes, Home/End jump.
  *
- * The caller renders the visible <label htmlFor={id}>. Options come from the caller (the server's registry, the ISO
+ * The popup (listbox) is in the document only while open. The caller renders the visible <label htmlFor={id}>. Options come from the caller (the server's registry, the ISO
  * registry or a fixed list); nothing is ordered by presumed geography. `noneOption` adds one explicit choice meaning
  * "no separate currency" (value ""), e.g. a prior period that uses this period's currency.
  */
@@ -103,9 +103,10 @@ export function CurrencySelect({ id, value, onChange, options: currencyOptions, 
         />
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       </div>
-      <div hidden={!open} className="absolute left-0 right-0 z-50 mt-1 border border-border bg-white shadow-md" data-testid={testId ? `${testId}-popup` : undefined}>
+      {open && (
+      <div className="absolute left-0 right-0 z-50 mt-1 border border-border bg-white shadow-md" data-testid={testId ? `${testId}-popup` : undefined}>
         <ul id={listId} ref={listRef} role="listbox" aria-label="Currencies" className="max-h-60 overflow-auto py-1" data-testid={testId ? `${testId}-list` : undefined}>
-          {open && matches.map((o, i) => (
+          {matches.map((o, i) => (
             <li
               key={o.code || "none"}
               id={optionId(i)}
@@ -124,10 +125,11 @@ export function CurrencySelect({ id, value, onChange, options: currencyOptions, 
             </li>
           ))}
         </ul>
-        {open && matches.length === 0 && (
+        {matches.length === 0 && (
           <p className="px-3 py-2 text-[14px] text-muted-foreground" data-testid={testId ? `${testId}-none` : undefined}>{CURRENCY_SELECT_COPY.none}</p>
         )}
       </div>
+      )}
       <span id={statusId} role="status" aria-live="polite" className="sr-only">
         {open ? (matches.length === 0 ? CURRENCY_SELECT_COPY.none : `${matches.length} ${matches.length === 1 ? "currency" : "currencies"} found`) : ""}
       </span>

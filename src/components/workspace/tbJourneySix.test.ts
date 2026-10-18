@@ -217,9 +217,9 @@ describe("4. one searchable currency selector", () => {
     const c = mounted!.container;
     return {
       input: c.querySelector<HTMLInputElement>("#cur")!,
-      options: () => [...c.querySelectorAll<HTMLElement>('[role="option"]')].filter((o) => !o.closest("[hidden]")).map((o) => o.textContent),
+      options: () => [...c.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => o.textContent),
       none: () => c.querySelector('[data-testid="cur-none"]'),
-      popupHidden: () => c.querySelector('[data-testid="cur-popup"]')!.hasAttribute("hidden"),
+      popupHidden: () => !c.querySelector('[data-testid="cur-popup"]'),
       status: () => c.querySelector('[role="status"]')!.textContent,
     };
   };
