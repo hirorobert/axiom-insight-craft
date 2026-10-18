@@ -244,8 +244,10 @@ describe("migration directory integrity", () => {
     // 177 -> 178: 20261107100000_certification_findings_capacity.sql (every finding of a certification kept durably; bounded summary; bounded dependency locks — repair A), a NEW forward-only migration pending hosted application.
     // 178 -> 179: 20261108100000_account_identity_codeless_name.sql (accounts with different codes may share a name; name uniqueness only for codeless accounts — repair B), a NEW forward-only migration pending hosted application.
     // 179 -> 180: 20261109100000_refused_replacement_restore.sql (a refused replacement can be withdrawn and the trial balance it replaced restored), a NEW forward-only migration pending hosted application.
-    // 180 -> 181: 20261111100000_fs_publication_controls.sql (publication controls of the first IFRS for SMEs reporting slice: server-recomposed cash-flow/equity figures bound at sign-off, unsupported paths refused by name, pack 1.2.0 disclosures), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(181);
+    // 180 -> 181: 20261110100000_unlimited_team_members.sql (unlimited team members on Solo, Practice and Firm: an explicit plan flag; the named-user
+    // functions honour it; history kept), a NEW forward-only migration pending hosted application.
+    // 181 -> 182: 20261111100000_fs_publication_controls.sql (publication controls of the first IFRS for SMEs reporting slice: server-recomposed cash-flow/equity figures bound at sign-off, unsupported paths refused by name, pack 1.2.0 disclosures), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(182);
   });
 });
 

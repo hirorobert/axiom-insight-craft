@@ -352,6 +352,10 @@ describe("database inertness — schema and functions", () => {
       // with marked branches only; no table, column, index or policy changes. Proven on PostgreSQL by certificationCapacity.mjs.
       "supabase/migrations/20261109100000_refused_replacement_restore.sql",
       "supabase/functions/_shared/accountNameMatch.ts",
+      // Unlimited team members (owner decision 2026-10-18, 20261110100000): a NEW forward-only migration — one plan column,
+      // the named-user capacity functions redefined from their current definitions with marked unlimited branches, the
+      // proposed seat price retired (rows kept). No row deleted. Proven on PostgreSQL by unlimitedTeamMembers.mjs.
+      "supabase/migrations/20261110100000_unlimited_team_members.sql",
       // Publication controls of the first complete IFRS for SMEs reporting slice (20261111100000): a NEW forward-only
       // migration — nine pack 1.2.0 requirement rows, fs_evidence_statements and its helpers, and the existing
       // fs_decide_requirement / fs_notes_status / fs_reporting_dependencies / fs_publication_blockers / fs_bind_publication
@@ -655,6 +659,9 @@ describe("database inertness — schema and functions", () => {
       // Account identity (repair B): the loopback-only real-PostgreSQL proof (reproduces the raw unique violation on the
       // chain without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/accountIdentity.mjs",
+      // Unlimited team members: the loopback-only real-PostgreSQL proof of 20261110100000 (over the full chain, with
+      // customers created under the former seat model). No deploy behaviour.
+      "scripts/db-proof/unlimitedTeamMembers.mjs",
       // The owner's READ-ONLY impact-detection queries for repairs A, B and C (SELECTs only; run in a read-only
       // transaction by accountIdentity.mjs). No deploy behaviour.
       "scripts/db-preflight/processingIntegrityImpact.sql",

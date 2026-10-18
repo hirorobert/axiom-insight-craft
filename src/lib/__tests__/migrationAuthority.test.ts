@@ -70,8 +70,8 @@ describe("migration authority parity", () => {
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
-    // 20261111100000 (fs-controls-r1, publication controls) is authored and PENDING hosted application (listed, never an error).
-    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql"]); // the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
+    expect(r.pending).toEqual(["20261110100000_unlimited_team_members.sql", "20261111100000_fs_publication_controls.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/unlimited-team-members)
+    // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
   it("0023 is mapped to its canonical source only by exact SHA-256 of both files and a structural check — any mutation fails closed", () => {

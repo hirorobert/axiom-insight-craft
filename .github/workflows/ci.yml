@@ -574,6 +574,14 @@ jobs:
           createdb account_identity_proof
           bun scripts/db-proof/accountIdentity.mjs
 
+      - name: Unlimited team members proof (20261110100000 — Solo, Practice and Firm answer an explicit unlimited flag; a second member and members far past the former seat boundary join and stay active, including 12 concurrent invitations and acceptances; ordinary members cannot invite, retitle or grant themselves anything and get no review or approval capability; cross-tenant invitations refused; revoked members lose access; invitation expiry, billing suspension, loss of plan, entity limits and the Enterprise numeric allowance unchanged; licences, purchased-seat records, overrides and audit kept; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/unlimited_members_proof
+        run: |
+          createdb unlimited_members_proof
+          node scripts/db-proof/unlimitedTeamMembers.mjs
+
       - name: I1-C layout-assist controls proof (the real layout-assist function refuses before any read while no provider is wired; provider disabled with both approval gates required; versioned, revocable, append-only workspace consent by manage_members; daily quota and monthly cost cap reserved pessimistically under 12-way concurrency; idempotent runs completed once; a test provider injected into the real function sees only the minimized sample, the suggestion is validated against the whole file and confirmed only through the existing layout function; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -796,6 +804,15 @@ jobs:
           RELEASE_BATCH: tb-release-r1
         run: |
           createdb tb_release_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Unlimited team members wrapper proof (the same reviewed apply-and-register proof for the pricing-p1 wrapper, 20261110100000 at PR 161 head 4fba8c5; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pricing_p1_wrappers_proof
+          RELEASE_BATCH: pricing-p1
+        run: |
+          createdb pricing_p1_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Publication controls wrapper proof (the same reviewed apply-and-register proof for the fs-controls-r1 wrapper - 20261111100000, the publication controls of the first IFRS for SMEs reporting slice at c0fc16e; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
