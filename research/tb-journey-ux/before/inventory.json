@@ -1,0 +1,1434 @@
+{
+  "1280:01-empty": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Choose trial balance file",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE Upload the trial balance for this period One file · .xlsx, .xls or .csv · or drag it here Choose trial balance file Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "1280:02-file-chosen": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Remove unbalanced.csv",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "Upload and check",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Choose a different file",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE unbalanced.csv 94 B · for FY2025 Upload and check Choose a different file Remove Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "1280:03-submitting": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE unbalanced.csv 94 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance In progress Reading every row, checking amounts and balance, classifying accounts. Usually under a minute. Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "1280:04-blocked": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Correct the issue shown below in your file, then replace it.",
+    "status": "BLOCKED — SEE THE CHECKS",
+    "primary": "Replace with corrected Trial Balance",
+    "reason": "Debits exceed credits by 100.00. Correct the file and replace it.",
+    "actions": [
+      {
+        "label": "BLOCKED — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Replace with corrected Trial Balance",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [
+      "BLOCKED — SEE THE CHECKS",
+      "100.00",
+      "Remove Trial Balance",
+      "Failed"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Correct the issue shown below in your file, then replace it. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE unbalanced.csv Uploaded 18 Oct 2026, 12:35 · 1 KB BLOCKED — SEE THE CHECKS Debits exceed credits by 100.00. Correct the file and replace it. WHAT TO CORRECT IN THE FILE Debits (1500.00) do not equal credits (1400.00); the difference is 100.00. Correct the trial balance in your accounting system and upload it again. TOTAL DEBITS (TZS) 1,500.00 TOTAL CREDITS (TZS) 1,400.00 DIFFERENCE 100.00 Replace with corrected Trial Balance Manage Trial Balance Remove Trial Balance Trial balance checks 2 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Failed Debits 1,500.00 and credits 1,400.00 differ by 100.00. Every account classified Not evaluated Not completed: an earlier processing step failed, did not run, or has no readable result. Processing detail WHAT THE LAST CHECK DID File read Done 3 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 2 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Stopped here Accounts classified Not reached Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Bank and mobile-money evidence Not checked yet Not required for a reviewed trial balance. Comparison with the prior year Not evaluated No accepted prior-y",
+    "layout": []
+  },
+  "1280:05-needs-review": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 2",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 2 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE new-account.csv Uploaded 18 Oct 2026, 12:35 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,100.00 TOTAL CREDITS (TZS) 2,100.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 7 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 5 accounts, 0 total rows, 0 headings, 1 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2100.00 = 2100.00 Accounts classified Needs review 5 of 5 accounts need a reviewer's confirmation R",
+    "layout": []
+  },
+  "1280:06-review-open": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 2",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 2 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE new-account.csv Uploaded 18 Oct 2026, 12:35 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,100.00 TOTAL CREDITS (TZS) 2,100.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 7 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 5 accounts, 0 total rows, 0 headings, 1 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2100.00 = 2100.00 Accounts classified Needs review 5 of 5 accounts need a reviewer's confirmation R",
+    "layout": []
+  },
+  "1280:07-after-balanced": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE balanced.csv Uploaded 18 Oct 2026, 12:35 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,000.00 TOTAL CREDITS (TZS) 2,000.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 5 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 4 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2000.00 = 2000.00 Accounts classified Needs review 4 of 4 accounts need a reviewer's confirmation Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Statement equation",
+    "layout": []
+  },
+  "1280:08-server_error": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Check again",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was "
+    ],
+    "reds": [
+      "The file is saved, but the check could not be completed — th"
+    ],
+    "text": "next check: server_error drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE server_error.csv 153 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance Stopped The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counted twice. Check again Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "1280:08-drop_after": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Check again",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was "
+    ],
+    "reds": [
+      "The file is saved, but the check could not be completed — th"
+    ],
+    "text": "next check: drop_after drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE drop_after.csv 153 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance Stopped The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counted twice. Check again Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "1280:08-in_progress": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE in_progress.csv Uploaded 18 Oct 2026, 12:36 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,000.00 TOTAL CREDITS (TZS) 2,000.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 5 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 4 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2000.00 = 2000.00 Accounts classified Needs review 4 of 4 accounts need a reviewer's confirmation Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Statement equat",
+    "layout": []
+  },
+  "390:01-empty": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Choose trial balance file",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE Upload the trial balance for this period One file · .xlsx, .xls or .csv · or drag it here Choose trial balance file Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "390:02-file-chosen": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Remove unbalanced.csv",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "Upload and check",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Choose a different file",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE unbalanced.csv 94 B · for FY2025 Upload and check Choose a different file Remove Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "390:03-submitting": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE unbalanced.csv 94 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance In progress Reading every row, checking amounts and balance, classifying accounts. Usually under a minute. Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "390:04-blocked": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Correct the issue shown below in your file, then replace it.",
+    "status": "BLOCKED — SEE THE CHECKS",
+    "primary": "Replace with corrected Trial Balance",
+    "reason": "Debits exceed credits by 100.00. Correct the file and replace it.",
+    "actions": [
+      {
+        "label": "BLOCKED — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Replace with corrected Trial Balance",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [],
+    "reds": [
+      "BLOCKED — SEE THE CHECKS",
+      "100.00",
+      "Remove Trial Balance",
+      "Failed"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Correct the issue shown below in your file, then replace it. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE unbalanced.csv Uploaded 18 Oct 2026, 12:36 · 1 KB BLOCKED — SEE THE CHECKS Debits exceed credits by 100.00. Correct the file and replace it. WHAT TO CORRECT IN THE FILE Debits (1500.00) do not equal credits (1400.00); the difference is 100.00. Correct the trial balance in your accounting system and upload it again. TOTAL DEBITS (TZS) 1,500.00 TOTAL CREDITS (TZS) 1,400.00 DIFFERENCE 100.00 Replace with corrected Trial Balance Manage Trial Balance Remove Trial Balance Trial balance checks 2 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Failed Debits 1,500.00 and credits 1,400.00 differ by 100.00. Every account classified Not evaluated Not completed: an earlier processing step failed, did not run, or has no readable result. Processing detail WHAT THE LAST CHECK DID File read Done 3 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 2 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Stopped here Accounts classified Not reached Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Bank and mobile-money evidence Not checked yet Not required for a reviewed trial balance. Comparison with the prior year Not evaluated No accepted prior-y",
+    "layout": []
+  },
+  "390:05-needs-review": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 2",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 2 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE new-account.csv Uploaded 18 Oct 2026, 12:36 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,100.00 TOTAL CREDITS (TZS) 2,100.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 7 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 5 accounts, 0 total rows, 0 headings, 1 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2100.00 = 2100.00 Accounts classified Needs review 5 of 5 accounts need a reviewer's confirmation R",
+    "layout": []
+  },
+  "390:06-review-open": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 2",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 2 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE new-account.csv Uploaded 18 Oct 2026, 12:36 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,100.00 TOTAL CREDITS (TZS) 2,100.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 7 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 5 accounts, 0 total rows, 0 headings, 1 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2100.00 = 2100.00 Accounts classified Needs review 5 of 5 accounts need a reviewer's confirmation R",
+    "layout": []
+  },
+  "390:07-after-balanced": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE balanced.csv Uploaded 18 Oct 2026, 12:36 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,000.00 TOTAL CREDITS (TZS) 2,000.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 5 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 4 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2000.00 = 2000.00 Accounts classified Needs review 4 of 4 accounts need a reviewer's confirmation Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Statement equation",
+    "layout": []
+  },
+  "390:08-server_error": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Check again",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was "
+    ],
+    "reds": [
+      "The file is saved, but the check could not be completed — th"
+    ],
+    "text": "next check: server_error drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE server_error.csv 153 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance Stopped The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counted twice. Check again Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "390:08-drop_after": {
+    "task": "Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period.",
+    "status": null,
+    "primary": null,
+    "reason": null,
+    "actions": [
+      {
+        "label": "Check again",
+        "tag": "button",
+        "testid": "trial-balance-upload-primary",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "CSV template",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Example",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Full specification",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "alert:The file is saved, but the check could not be completed — the connection dropped or the service was "
+    ],
+    "reds": [
+      "The file is saved, but the check could not be completed — th"
+    ],
+    "text": "next check: drop_after drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 0 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 1 of 3 · Upload and validate trial balance. Upload the trial balance for this period. Reporting framework: Full IFRS (set by preparer) UPLOAD TRIAL BALANCE drop_after.csv 153 B · for FY2025 Upload the file Done Save it to this period Done Check the trial balance Stopped The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counted twice. Check again Stored in this workspace only · never shared FILE REQUIREMENTS One row per ledger account. CSV, XLSX or XLS. ACCOUNT CODE ACCOUNT NAME DEBIT CREDIT Header names are matched automatically — an export from your accounting system usually needs no editing. CSV template Example Full specification",
+    "layout": []
+  },
+  "390:08-in_progress": {
+    "task": "Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below.",
+    "status": "NEEDS REVIEW — SEE THE CHECKS",
+    "primary": "Resolve account classifications",
+    "reason": "Suggested from the account name — confirm before the trial balance is accepted.",
+    "actions": [
+      {
+        "label": "NEEDS REVIEW — SEE THE CHECKS",
+        "tag": "button",
+        "testid": "trial-balance-status",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Resolve account classifications",
+        "tag": "button",
+        "testid": "trial-balance-primary-action",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Replace Trial Balance",
+        "tag": "button",
+        "testid": "replace-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Remove Trial Balance",
+        "tag": "button",
+        "testid": "remove-trial-balance",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline text-destructive bg-destructive text-destructive"
+      },
+      {
+        "label": "Show the full list",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": ""
+      },
+      {
+        "label": "What these assessments mean",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": "What these assessments mean",
+        "variantHint": "outline"
+      },
+      {
+        "label": "Save & reprocess",
+        "tag": "button",
+        "testid": "account-review-save",
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline bg-primary bg-primary"
+      },
+      {
+        "label": "Technical processing details",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      },
+      {
+        "label": "Upload history · 1",
+        "tag": "button",
+        "testid": null,
+        "disabled": false,
+        "describedBy": null,
+        "title": null,
+        "variantHint": "outline"
+      }
+    ],
+    "live": [
+      "status:All decisions recorded. Save and reprocess to apply them."
+    ],
+    "reds": [
+      "Remove Trial Balance"
+    ],
+    "text": "next check: normal drop_before drop_after server_error in_progress upload_fails · viewer: owner prepare-only · reconciliation: none running open rejected partial escalated complete · runs: 1 TRIAL BALANCE REVIEW · FY2025 Trial balance Step 2 of 3 · Review and confirm account classifications. Confirm the classification of the accounts listed below. Reporting framework: Full IFRS (set by preparer) CURRENT TRIAL BALANCE in_progress.csv Uploaded 18 Oct 2026, 12:37 · 1 KB NEEDS REVIEW — SEE THE CHECKS Suggested from the account name — confirm before the trial balance is accepted. TOTAL DEBITS (TZS) 2,000.00 TOTAL CREDITS (TZS) 2,000.00 DIFFERENCE 0.00 Balanced Resolve account classifications Manage Trial Balance Replace Trial Balance Remove Trial Balance Trial balance checks 3 of 4 passed File read Passed The file was read successfully. Amounts are valid Passed Every amount is a valid number. Debits equal credits Passed Total debits equal total credits. Every account classified Needs review Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Suggested from the account name — confirm before the trial balance is accepted. Processing detail WHAT THE LAST CHECK DID File read Done 5 rows Columns identified Done Debit, Credit, Account Code, Account Name Every row accounted for Done 4 accounts, 0 total rows, 0 headings, 0 zero-balance, 0 other Amounts checked Done exact to 2 decimal places (TZS) Debits equal credits Done 2000.00 = 2000.00 Accounts classified Needs review 4 of 4 accounts need a reviewer's confirmation Result recorded Done FOR INFORMATION — DOES NOT DECIDE ACCEPTANCE Statement equat",
+    "layout": []
+  }
+}
