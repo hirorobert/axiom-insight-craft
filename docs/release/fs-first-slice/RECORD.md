@@ -140,7 +140,7 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 | `cashPerimeterScope.mjs` | **12/12 PASS** | per-period cash scope (DEFECT D-3) |
 | `statementComposition.mjs`, `comparatives.mjs` | **37/37, 28/28 PASS** | composition and comparatives unchanged |
 | `run.mjs` (persistence proof; its chain stops before 20261017 by design, unchanged file) | **279/279 PASS** | |
-| `signoffPolicy.mjs` | see §7 addendum | the statement sign-off policy on the new chain |
+| `signoffPolicy.mjs` | **24/24 PASS** | the statement sign-off policy on the new chain (its own setup extended with the 1.2.0 wording) |
 | `bunx tsc --noEmit -p tsconfig.app.json` | clean | |
 | `bun run lint` | 0 errors, 153 warnings (the pre-existing baseline) | |
 | `node scripts/audit_migrations.mjs --strict` | VERDICT: CLEAN (last: `20261111100000_fs_publication_controls.sql`) | |
@@ -148,7 +148,8 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 | focused vitest (`src/lib/frameworkPacks src/lib/notes src/lib/reporting src/lib/financialGeneration src/lib/statements`) | 163 passed; one 5 s timeout in `activation.test.ts` while two database proofs ran concurrently (worker RPC timeout, not an assertion) — see the full-suite run below | |
 | `bun run build` + `node scripts/ci/assertPackIsolation.mjs dist` | built in 1m 42s; PACK_ISOLATION: OK | |
 | `node scripts/ci/assertMigrationAuthority.mjs` | OK; `PENDING_HOSTED_APPLY: 20261111100000_fs_publication_controls.sql` (expected: authored, not applied) | |
-| full `bun run test` | see §7 addendum | |
+| full `bun run test` (first run, concurrent with two database proofs) | 25 failures: vitest worker RPC timeouts and 5 s test timeouts under load, plus two deterministic ones — `serviceEnquiryMigrationContract.test.ts` and `activationReadinessMigration.test.ts` pin the exact migration list and needed the new file added (done) | |
+| full `bun run test` (clean re-run, idle machine) | see §7 addendum | |
 
 Decision taken during execution: `run.mjs` replays the chain only up to the sign-off completion requirements
 (20261017100000) by design, so the control is not present there and the file is unchanged.
@@ -156,8 +157,14 @@ Decision taken during execution: `run.mjs` replays the chain only up to the sign
 ## 8. Migration and deployment requirements
 
 - Apply order: after `20261109100000` (and after #161's `20261110100000` if that lands first — no object overlap).
-- Hosted apply only through the self-checking wrapper of the final committed bytes (`release/wrappers/`), with a
-  drizzle journal entry, by the owner. **Not authorised by this kickoff.**
+- Hosted apply only through the self-checking wrapper of the committed bytes, by the owner, with
+  `docs/release/fs-controls-r1/preflight.sql` before and `postcondition.sql` after. **Not authorised by this kickoff.**
+- Batch `fs-controls-r1` registered in `scripts/release/selfCheckingWrapper.mjs` at the implementation commit
+  `c0fc16e92ccd83e4c94957dc63e683f2d3796eff`: source 79,456 B SHA-256 `a75787e7…`, wrapper
+  `release/wrappers/20261111100000_fs_publication_controls.wrapper.sql` 81,024 B SHA-256 `40832c6a…`; all four submission
+  forms in `scripts/ci/releaseJournal.mjs`; `selfCheckingWrapper.mjs --check` clean; the migration-authority guard lists
+  the source as `PENDING_HOSTED_APPLY` (expected until the owner applies it; the drizzle journal entry is written by the
+  apply tool, never here).
 - No Edge Function changes. No feature-gate change: `FINANCIAL_STATEMENTS_WORKSPACE_ENABLED` and the company
   rollout allow-list are untouched.
 

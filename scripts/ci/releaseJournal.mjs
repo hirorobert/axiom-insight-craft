@@ -591,6 +591,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 20365, sha256: "6b36347081f7e154ce1ddcdfb0179e782c7441b27162165698c83e78ca3231bd" }),
   }),
+  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; c0fc16e): all four forms
+  // registered BEFORE application, from the reviewed bytes at that commit. Authored, PENDING hosted application.
+  "20261111100000_fs_publication_controls.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 79456, sha256: "a75787e753a1a5c3d23fbdcf7d522c5fc42f0dab4a15d28fa85caab5c7eaffa7" }),
+    finalLfRemoved: Object.freeze({ bytes: 79455, sha256: "cac202be512ac94f9e93fe27ca07063ce54346ad3ef12172d46637bf71b5ee70" }),
+    wrapper: Object.freeze({ bytes: 81024, sha256: "40832c6ae6d7f97a9b841f69dee9b596a99243518f1f1805743fbcc24fdfeda5" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 81023, sha256: "7406248b89f44cc9cea326d82573c67fde7fcc10456809c0df34b2e0b8278dfc" }),
+  }),
 });
 
 /**

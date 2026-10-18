@@ -47,6 +47,8 @@ const PAYMENTS = ["20261029100000_payment_provider_routes.sql", "20261030100000_
 const ACCESS = ["20261104100000_platform_owner_access_and_entity_allowance.sql"].map((name) => ({ name }));
 // Trial balance release (batch tb-release-r1): all four forms registered BEFORE application; applied as hosted 59–62.
 const TB_RELEASE = ["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql", "20261109100000_refused_replacement_restore.sql"].map((name) => ({ name }));
+// Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1): all four forms registered BEFORE application; PENDING hosted application.
+const FS_CONTROLS = ["20261111100000_fs_publication_controls.sql"].map((name) => ({ name }));
 // Source migrations newer than the last hosted entry: authored, PENDING hosted application (the migration-authority guard lists them).
 const PENDING_SOURCES = ["20261111100000_fs_publication_controls.sql"];
 const MILESTONE = [
@@ -366,7 +368,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name)].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -528,7 +530,7 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
 describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
   it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length;
+    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + FS_CONTROLS.length;
     expect(keys.slice(-(MILESTONE.length + after), -after)).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
@@ -618,9 +620,9 @@ describe("the milestone's seven migrations: both submission forms registered ahe
 describe("the reporting release: all four forms of each source registered ahead of application (nothing applied)", () => {
   it("registers exactly the five, then the readiness correction last, in release order; each form recomputed here from the repository bytes", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length;
+    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + FS_CONTROLS.length;
     expect(keys.slice(-(REPORTING.length + tail), -tail)).toEqual(REPORTING.map((m) => m.name));
-    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE].map((m) => m.name));
+    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE, ...FS_CONTROLS].map((m) => m.name));
     for (const { name } of [...REPORTING, ...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS]) {
       const src = fs.readFileSync(path.join(ROOT, "supabase/migrations", name));
       const w = fs.readFileSync(path.join(ROOT, "release/wrappers", name.replace(/\.sql$/, ".wrapper.sql")));

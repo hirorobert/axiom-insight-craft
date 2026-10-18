@@ -108,6 +108,11 @@ export const TB_RELEASE_WRAPPED_SOURCES = Object.freeze([
   "20261108100000_account_identity_codeless_name.sql",
   "20261109100000_refused_replacement_restore.sql",
 ]);
+/** The publication controls of the first complete IFRS for SMEs reporting slice (fs-controls-r1): one source at the commit holding its reviewed bytes. */
+export const FS_CONTROLS_SOURCE_COMMIT = "c0fc16e92ccd83e4c94957dc63e683f2d3796eff";
+export const FS_CONTROLS_WRAPPED_SOURCES = Object.freeze([
+  "20261111100000_fs_publication_controls.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -122,6 +127,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "commercial-p5", commit: CHARGE_OUTCOMES_SOURCE_COMMIT, sources: CHARGE_OUTCOMES_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p5/postcondition.sql" }),
   Object.freeze({ id: "access-a1", commit: ACCESS_SOURCE_COMMIT, sources: ACCESS_WRAPPED_SOURCES, postcondition: "docs/release/access-a1/postcondition.sql" }),
   Object.freeze({ id: "tb-release-r1", commit: TB_RELEASE_SOURCE_COMMIT, sources: TB_RELEASE_WRAPPED_SOURCES, postcondition: "docs/release/tb-release-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-controls-r1", commit: FS_CONTROLS_SOURCE_COMMIT, sources: FS_CONTROLS_WRAPPED_SOURCES, postcondition: "docs/release/fs-controls-r1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

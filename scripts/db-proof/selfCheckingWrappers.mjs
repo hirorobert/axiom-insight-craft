@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "tb-release-r1"
+const DRIZZLE_FAILURE = BATCH.id === "fs-controls-r1"
+  ? { object: "public.fs_evidence_statements(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_evidence_statements(uuid,integer)') IS NULL AND NOT EXISTS (SELECT 1 FROM public.fs_pack_requirements WHERE requirement_id = 'smes.note.going_concern') AND position('PUBLICATION_PATH_UNSUPPORTED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "tb-release-r1"
   ? { object: "public.uq_acct_map_company_codeless_name", rolledBack: "SELECT to_regclass('public.trial_balance_drafts') IS NULL AND to_regclass('public.tb_certification_findings') IS NULL AND to_regclass('public.uq_acct_map_company_codeless_name') IS NULL AND to_regclass('public.uq_acct_map_company_norm_name') IS NOT NULL AS ok" }
   : BATCH.id === "access-a1"
   ? { object: "public.get_access_overview()", rolledBack: "SELECT to_regclass('public.access_grant_events') IS NULL AND to_regclass('public.privileged_reauth') IS NULL AND to_regprocedure('public.is_platform_owner(uuid)') IS NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_admins' AND column_name='authority') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='entitlement_overrides' AND column_name='unlimited') AS ok" }
