@@ -7753,6 +7753,32 @@ export type Database = {
           },
         ]
       }
+      tb_certification_findings: {
+        Row: {
+          certification_id: string
+          finding: Json
+          ordinal: number
+        }
+        Insert: {
+          certification_id: string
+          finding: Json
+          ordinal: number
+        }
+        Update: {
+          certification_id?: string
+          finding?: Json
+          ordinal?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tb_certification_findings_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tb_certification_invalidations: {
         Row: {
           actor_user_id: string
@@ -7801,6 +7827,9 @@ export type Database = {
           created_at: string
           engine_run_id: string
           exceptions: Json
+          findings_count: number | null
+          findings_sha256: string | null
+          findings_summarized: boolean | null
           id: string
           is_blocking: boolean
           normalized_input_hash: string
@@ -7817,6 +7846,9 @@ export type Database = {
           created_at?: string
           engine_run_id: string
           exceptions?: Json
+          findings_count?: number | null
+          findings_sha256?: string | null
+          findings_summarized?: boolean | null
           id?: string
           is_blocking: boolean
           normalized_input_hash: string
@@ -7833,6 +7865,9 @@ export type Database = {
           created_at?: string
           engine_run_id?: string
           exceptions?: Json
+          findings_count?: number | null
+          findings_sha256?: string | null
+          findings_summarized?: boolean | null
           id?: string
           is_blocking?: boolean
           normalized_input_hash?: string
@@ -11034,6 +11069,9 @@ export type Database = {
           created_at: string
           engine_run_id: string
           exceptions: Json
+          findings_count: number | null
+          findings_sha256: string | null
+          findings_summarized: boolean | null
           id: string
           is_blocking: boolean
           normalized_input_hash: string
@@ -11797,6 +11835,9 @@ export type Database = {
         }
         Returns: Json
       }
+      tb_certification_findings_limit: { Args: never; Returns: number }
+      tb_certification_findings_supported: { Args: never; Returns: boolean }
+      tb_dependency_lock_limit: { Args: never; Returns: number }
       tb_expire_attempts: { Args: never; Returns: number }
       tb_finalize_attempt: {
         Args: { p_engine_run_id: string; p_result: Json }
