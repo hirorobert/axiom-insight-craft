@@ -66,35 +66,48 @@ Lovable reported seeing `Shutdown` events with `execution_id` and `cpu_time_used
 
 If that read access cannot return them, there is **no supported access route**, and the gate is decided by the recommendation below. It is never waived, and never marked PASS by default.
 
-### Recommendation if no access route exists (pending the owner's explicit decision)
-**Revise the resource acceptance policy, from "measured CPU ≤ 1,500 ms" to "no CPU-limit termination at the account bound, under the enforced hard limit".**
-- **Evidence it would rest on:**
-  - **How the limit is enforced** (`strategy_per_worker.rs` / `strategy_per_request.rs`): the supervisor terminates a worker whose CPU reaches `cpu_time_hard_limit_ms`. The request is then answered 546, with a CPU-related shutdown reason.
-  - **What runs 1 and 2 must show:** both are 2,000-account checks (the account bound). Each must have `edge_logs` HTTP 200 for its request, a persisted generation-6 certification (R1–R4 PASS) and no CPU-limit event. Together these bound each run's CPU strictly below the hosted hard limit.
-  - **What has to be cited:** the hosted hard limit itself, as Supabase's documented "2 s CPU time per request", from provider documentation.
-- **Residual risk, stated:**
-  - The headroom between real CPU and the hard limit is **unknown**. This revision proves "below the limit", not "≤ 1,500 ms".
-  - A denser file at the bound could still be terminated. That failure is explicit (546; nothing certified; the attempt is recovered after its 600 s lease).
-  - The provisional upload limits (`tb-upload-policy-3`) stay provisional, to be revisited after a week of hosted runs.
-- **Decision:** the owner either approves this revision in writing (recorded here with the date), or keeps the gate BLOCKED. A separately reviewed measurement change is not offered, because none is possible on this runtime (see above).
-To be recorded verbatim from provider logs:
-- `execution_id` and function version;
-- the `[PTB] worker=… check=1 http=200 …` line and its timestamp;
-- the `Boot` timestamp and `boot_time`;
-- the `Shutdown` timestamp, `cpu_time_used` and `reason`;
-- no other `[PTB]` line for that `execution_id`;
-- no 546 or CPU-limit line.
+### If the lookup is unavailable
+The measured-CPU gate (HANDOFF §6.3, ≤ 1,500 ms) stays **BLOCKED**. It is neither waived, revised nor marked PASS.
 
-**Run-2 file:** `resource-2000-accounts-run2.csv`: 2,000 invented accounts, balanced, 78,930 B, SHA-256 `88cb10d1e1cf536e0e76cb217868ebc05f7e3e8174ff40833c786d07988d2020`. Its bytes differ from run 1 so that it is a new source.
+### Separate decision: provisional pilot acceptance (pending the owner's explicit, written decision)
+This is a decision distinct from the measured-CPU gate, which stays BLOCKED. It would allow the generation floor and Publish for a **pilot**, without claiming the gate passed. Successful tested files do not prove CPU headroom across every allowed input (up to 2,000 accounts, 10,000 rows, 120,000 cells, 10 MiB).
 
-Raw log records are preserved privately by the owner (this repository is public). Only the fields above are transcribed here.
+**Evidence required before the decision (still to be recorded):**
+1. Runs 1 and 2, both at the account bound: the `edge_logs` HTTP status for each request is 200, and no CPU-limit or `WorkerLimit` shutdown appears for their executions, as far as the logs show.
+2. The hosted CPU hard limit, cited from Supabase's documentation ("2 s CPU time per request"). Plus the source fact that the supervisor terminates at the hard limit, answering 546 (`strategy_per_worker.rs` / `strategy_per_request.rs`).
+3. The refusal, restore and account-identity checks below: PASS.
 
-**Decision:** PASS if `cpu_time_used` ≤ 1,500 ms and every condition holds; otherwise BLOCKED.
+**Monitoring during the pilot** (read-only, daily by the named operator; records kept private):
+
+```sql
+SELECT count(*) FILTER (WHERE status IN ('failed','abandoned')) AS failed_or_abandoned,
+       count(*) FILTER (WHERE error_code = 'LEASE_EXPIRED') AS lease_expired,
+       count(*) AS runs
+  FROM public.engine_runs
+ WHERE function_name = 'process-trial-balance' AND engine_generation = 6 AND started_at >= now() - interval '1 day';
+```
+
+Also record `edge_logs` 546 responses for `process-trial-balance`, and the largest `accounts_read` processed each day.
+
+**Stop conditions.** On any one of these, apply the processing hold (`admin_set_processing_control(true, …)`) and reopen the decision:
+- any 546 or CPU-limit shutdown on `process-trial-balance`;
+- an abandoned (`LEASE_EXPIRED`) generation-6 run on an upload of more than 1,000 accounts;
+- a certification refused for a capacity reason other than the designed refusals (`TOO_MANY_ACCOUNTS`, `TOO_MANY_ROWS`, `TOO_MANY_CELLS`, file size).
+
+Lowering the upload bounds would be a new reviewed policy change, never an ad-hoc edit.
+
+**Review date: 2026-10-25.** On that date, the pilot is either confirmed on a week of hosted evidence or ended. The upload limits (`tb-upload-policy-3`) stay provisional until then.
+
+**Residual risk accepted by this decision:**
+- CPU headroom below the hard limit is unknown.
+- A dense file at the bound could be terminated mid-check. That failure is explicit: a 546, nothing certified, and the attempt recovered after its 600 s lease.
 
 ## Remaining hosted checks: open
-- Refusal: 2,001 accounts → `TOO_MANY_ACCOUNTS`, 0 certifications.
+- **Refusal and restore**, one combined test, done as a replacement of the certified trial balance with `refusal-2001-accounts.csv`. The implemented contract (`20261109100000`): registering a replacement supersedes the predecessor. A refused replacement stays the period's current active upload, in state `blocked`. The predecessor is `superseded` until the explicit **Restore the previous trial balance**. Nothing preserves it automatically. Record:
+  - before: the active upload id and its certification ids (`id`, `normalized_input_hash`, `certified_at`);
+  - after the check: `TOO_MANY_ACCOUNTS`, 0 certifications for the refused upload, the active upload id (the refused one) and the predecessor's `lifecycle_state` (`superseded`);
+  - after Restore: the exact predecessor is the active upload again, its certifications are byte-identical to "before", and the refused upload is `retired`.
 - Replacement over 10 MB, refused in the page.
-- Replacement → restore, with the predecessor's certifications unchanged.
 - Account identity: 4000 / 4100 "Sales" both kept.
 - Busy/retry: PASS, or recorded **not triggered**. Accepting "not triggered" is the owner's decision; it is never marked PASS.
 - Reporting Pack seal: **not exercised**. The official pack is unreachable in production builds (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`). Accepting that is the owner's decision; it is never marked PASS.
