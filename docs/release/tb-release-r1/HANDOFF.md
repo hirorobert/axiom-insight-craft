@@ -80,17 +80,46 @@ Run `docs/release/tb-release-r1/impactDisposition.sql` in `BEGIN TRANSACTION REA
 - Every other class is dispositioned by its recorded evidence and needs no action.
 - Records name company and upload ids: keep them private. This repository is public.
 
-## Permission checks — how they execute
+## Verification — two separate records; the release gate needs BOTH
 
-The three outstanding permission checks, plus every other post-migration check, are in `docs/release/tb-release-r1/postcondition.sql`. It is read-only and runs in `BEGIN TRANSACTION READ ONLY; … ROLLBACK;`. The three:
-1. the internal helpers `tbu_refused_replacement_block(uuid)` and `tbu_upload_dependent_evidence(uuid)` are not executable by `authenticated` or `anon`;
-2. `tb_certification_findings_supported()` is present and true, and only `service_role` may call it;
-3. clients have no write privilege on `tb_certification_findings` or the draft tables.
+The available hosted role is read-only and is not the owner. `tb_certification_findings_supported()` is executable only by `service_role` (by design: the processing engine asks it). Calling it as the read-only role correctly answers `42501`. Verification is therefore split into two records, and neither substitutes for the other:
 
-Each check is a catalog `has_function_privilege`/`has_table_privilege` evaluation, so it needs no role switch and no signed-in user. The file raises on the first violation and ends with `NOTICE 'POSTCONDITION OK.'`. It also verifies:
-- the account-identity end state, by definition;
-- the restore branches;
-- the client RPC grants.
+### A. Catalog verification — `docs/release/tb-release-r1/postcondition.sql`
+Run it read-only (`BEGIN TRANSACTION READ ONLY; … ROLLBACK;`) as the available role. It only reads `pg_catalog` and `has_*_privilege`, and invokes no application function. It is proven to pass as the unprivileged `authenticated` role (`scripts/db-proof/selfCheckingWrappers.mjs`, tb-release-r1).
+
+**Record:** `POSTCONDITION OK.`, or the error. It covers:
+1. **The internal helpers:** `tbu_refused_replacement_block(uuid)` and `tbu_upload_dependent_evidence(uuid)` cannot be executed by `authenticated` or `anon`.
+2. **The findings-store probe, from the catalog only.** `tb_certification_findings_supported()`:
+   - exists and takes no arguments;
+   - returns boolean;
+   - is IMMUTABLE SQL whose whole body is `SELECT true`;
+   - is executable by `service_role` and by neither `authenticated` nor `anon`.
+
+   It is **not invoked** here.
+3. **Client writes:** clients have no write privilege on `tb_certification_findings` or the draft tables.
+4. **The rest:**
+   - the account-identity end state, by definition;
+   - the restore branches;
+   - the client RPC grants;
+   - RLS and the append-only trigger.
+
+### B. Runtime verification — `docs/release/tb-release-r1/runtimeEvidence.sql`
+Run it read-only after the owner's hosted 2,000-account check (step 6, `resource-2000-accounts.csv`). The probe's runtime answer is obtained through the existing authorised path:
+- **The call.** `process-trial-balance` (generation 6) calls the probe with its service-role client whenever a check's findings exceed the 32 KiB summary budget. If the call fails, it refuses the certification (`FINDINGS_STORE_UNAVAILABLE`).
+- **Why a 2,000-account check exercises it.** An invented 2,000-account file produces about one finding per account. In CI that was 2,003 findings, summarised.
+- **The evidence.** A generation-6 certification with `findings_summarized = true` therefore exists only if the probe was called and answered true.
+
+No permission is changed, no endpoint is added, and nothing is reapplied.
+
+**Record, for that upload's row:**
+- **R1:** `engine_generation = 6` and the certification exists.
+- **R2:** `findings_summarized = true`.
+- **R3:** `stored = findings_count` and `recomputed_sha256 = findings_sha256`.
+- **R4:** `findings_store_refusals = 0`.
+
+If R2 is false, that check did not exercise the probe. The runtime record stays **INCOMPLETE**; it is never inferred from the catalog. The query is proven on real PostgreSQL (`scripts/db-proof/certificationCapacity.mjs`).
+
+**Gate.** The release gate is incomplete until **both** A and B are evidenced, together with the other step-6 checks.
 
 ## Hosted synthetic checks — how they execute
 
@@ -132,7 +161,7 @@ Each check is a catalog `has_function_privilege`/`has_table_privilege` evaluatio
 >    4. `release/wrappers/20261109100000_refused_replacement_restore.wrapper.sql`
 >
 >    After each, read the new `drizzle.__drizzle_migrations` row: its hash must equal that wrapper's registered SHA-256 (or its final-LF-removed form) in `docs/release/tb-release-r1/HANDOFF.md`. Stop on `RELEASE_PAYLOAD_MISMATCH`, `PREFLIGHT_REFUSED`, `POSTCONDITION_FAILED`, any error or any other hash.
-> 4. Run `docs/release/tb-release-r1/postcondition.sql` read-only. It must end with `POSTCONDITION OK.`. Re-run the account-mapping index query from handoff v2 step 3c and record it.
+> 4. Catalog verification: run `docs/release/tb-release-r1/postcondition.sql` read-only as the available role. It must end with `POSTCONDITION OK.`; record it as record A. Re-run the account-mapping index query from handoff v2 step 3c and record it. Runtime verification (record B, `runtimeEvidence.sql`) follows the step-6 2,000-account check.
 > 5. Deploy exactly these FOUR Edge Functions from the same main, in order:
 >    1. `trial-balance-draft`
 >    2. `process-trial-balance`

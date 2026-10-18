@@ -1,7 +1,8 @@
 -- READ-ONLY HOSTED POSTCONDITION for the trial balance release (batch tb-release-r1; main 365b370, PRs #151 + #153).
 -- Run AFTER the four wrappers, in BEGIN TRANSACTION READ ONLY; … ROLLBACK;. Writes nothing; raises on the first violated
--- expectation and ends with NOTICE 'POSTCONDITION OK.'. Every permission check reads the catalog (has_*_privilege), so
--- it needs no role switch and no signed-in user.
+-- expectation and ends with NOTICE 'POSTCONDITION OK.'. CATALOG ONLY: it reads pg_catalog and has_*_privilege and invokes
+-- no application function, so any role that can connect can run it, including a read-only one (proven as `authenticated`
+-- by scripts/db-proof/selfCheckingWrappers.mjs). Runtime behaviour is evidenced separately (runtimeEvidence.sql).
 DO $$
 DECLARE v_def text; v_n integer;
 BEGIN
@@ -39,9 +40,18 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_tbcf_append_only' AND tgrelid = 'public.tb_certification_findings'::regclass AND tgenabled = 'O') THEN
     RAISE EXCEPTION 'POSTCONDITION: the findings append-only trigger is missing or disabled';
   END IF;
-  IF to_regprocedure('public.tb_certification_findings_supported()') IS NULL OR public.tb_certification_findings_supported() IS NOT TRUE
-     OR has_function_privilege('authenticated', 'public.tb_certification_findings_supported()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'POSTCONDITION: tb_certification_findings_supported() is missing, not true, or callable by authenticated';
+  -- The findings-store probe is service_role-only, so it is verified here from the CATALOG (never invoked): it exists, takes
+  -- no arguments, returns boolean, is IMMUTABLE SQL whose whole body is SELECT true, and only service_role may execute it.
+  -- Its RUNTIME answer is evidenced separately, through the processing path that calls it (runtimeEvidence.sql).
+  IF to_regprocedure('public.tb_certification_findings_supported()') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+                     WHERE p.oid = 'public.tb_certification_findings_supported()'::regprocedure
+                       AND p.prorettype = 'boolean'::regtype AND p.provolatile = 'i' AND l.lanname = 'sql' AND NOT p.proretset
+                       AND regexp_replace(p.prosrc, '\s+', ' ', 'g') ~* '^ ?select true ?;? ?$')
+     OR has_function_privilege('authenticated', 'public.tb_certification_findings_supported()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.tb_certification_findings_supported()', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.tb_certification_findings_supported()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: tb_certification_findings_supported() is missing, not the reviewed definition, or not service_role-only';
   END IF;
   IF has_function_privilege('authenticated', 'public.tb_finalize_attempt(uuid,jsonb)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.tb_snapshot_dependencies(uuid,jsonb)', 'EXECUTE') THEN

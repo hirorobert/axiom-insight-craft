@@ -219,6 +219,22 @@ async function main() {
   });
   await check("the stored findings are exactly the findings sent, in order", async () =>
     (await one("SELECT (SELECT jsonb_agg(finding ORDER BY ordinal) FROM public.tb_certification_findings WHERE certification_id=$1) = $2::jsonb ok", [bigCert, JSON.stringify(big)])).ok === true);
+  await check("docs/release/tb-release-r1/runtimeEvidence.sql (the hosted runtime evidence) runs READ ONLY and, for a summarized certification, shows R2 summarized and R3 stored = findings_count and recomputed_sha256 = findings_sha256; R4 counts 0", async () => {
+    // The file filters generation 6 (the hosted engine); this proof's certification was written as generation 5, so the one
+    // generation literal is substituted — every column, join and the hash recomputation are the file's own text.
+    const text = fs.readFileSync(path.join(REPO, "docs/release/tb-release-r1/runtimeEvidence.sql"), "utf8").replace(/engine_generation = 6/g, "engine_generation = 5");
+    const statements = text.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n").split(/;\s*\n/).map((x) => x.trim()).filter(Boolean);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN TRANSACTION READ ONLY");
+      const rows = (await c.query(statements[0])).rows;
+      const refusals = Number((await c.query(statements[1])).rows[0].findings_store_refusals);
+      await c.query("ROLLBACK");
+      const r = rows.find((x) => x.certification_id === bigCert);
+      return statements.length === 2 && r && r.findings_summarized === true && Number(r.stored) === r.findings_count && r.recomputed_sha256 === r.findings_sha256 && refusals === 0
+        ? true : { n: statements.length, r, refusals };
+    } finally { c.release(); }
+  });
   await check("findings_sha256 binds the COMPLETE findings: recomputed from the stored rows it matches; from the summary it does not", async () => {
     const r = await one(`SELECT c.findings_sha256 h,
         (SELECT encode(sha256(convert_to(string_agg(finding::text, E'\\n' ORDER BY ordinal), 'UTF8')), 'hex') FROM public.tb_certification_findings WHERE certification_id=c.id) full_h,
