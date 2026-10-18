@@ -71,37 +71,71 @@ saved DRAFT revision; nothing is lost on leave.
    **Decisions** (the applicability/classification/adjustment decisions and professional-judgement
    notes, with any **AI suggestion shown as a distinct, unapproved chip**).
 
-### B.3 Lifecycle state machine (server-authoritative; client never stamps a state)
-```
- DRAFT ──(zero blockers + reviewer requested)──▶ IN_REVIEW
-   ▲  │                                             │
-   │  └─(edit evidence/adjustment/decision)         ├─(reviewer rejects → reasons on items)─▶ DRAFT
-   │                                                 └─(reviewer accepts, role=review_close)─▶ REVIEWED
-   │                                                                                            │
-   └───────────(any bound input changes: TB recert / evidence / adjustment / mapping /          │
-                edition / comparative)  INVALIDATES approval, reverts to DRAFT, history kept ◀──┤
-                                                                                                │
- REVIEWED ──(role=approve_certification, SoD: approver≠preparer≠reviewer)──▶ FINAL (immutable)  │
- FINAL ──(issue Official Reporting Pack: server renders canonical bytes, seals own hash)──▶ ISSUED
-```
-- REVIEWED/FINAL require **zero publication blockers** and are decided by `fs_set_publication_state`;
-  the client cannot stamp them (`fs_commit_revision` writes DRAFT only, recomputes its own hash).
-- **Relevant-change invalidation** is by dependency identity (`dependenciesSha256` + composition/
-  notes/comparative SHAs): a changed bound input makes the approval stale and reverts to DRAFT
-  **without rewriting the prior immutable version** — history is append-only.
-- **Correction/restatement/withdrawal:** a FINAL version is never edited; a correction is a **new
-  version** (new content hash) that supersedes; a published pack is never deleted (per #157 — issuance
-  holds no delete capability; conflicts refuse, a new issuance recovers, orphans expire).
+### B.3 Two distinct state machines — approval vs issuance (do not conflate)
 
-### B.4 Rollover (next year)
-From a FINAL/ISSUED prior year, "Start next period" reuses company/framework/currency and **carries
-forward**: prior **closing balances → opening balances**, the **mapping decisions**, the
-**accounting-policy elections** and the **answered requirement applicabilities** — each marked
-*carried, re-confirm if changed*. It does **not** carry forward period-specific **evidence** (a new
-transaction ledger, equity movements, schedules, budget) or **judgements**; those reopen as worklist
-items. Edition is re-resolved from the **new period's start date** (so a 2027+ period re-evaluates
-the IFRS-for-SMEs third edition — currently **GAP/UNSUPPORTED**, refused by name until that pack
-exists).
+**(a) APPROVAL state — implemented server-authoritative publication state** (`fs_set_publication_state`,
+`fs_commit_revision`, migration `20260919110000`). The persisted states are exactly **`DRAFT` →
+`REVIEWED` → `FINAL`** (existing code; CI-exercised on the allow-listed demo, not GA). The client
+cannot stamp them — `fs_commit_revision` writes DRAFT only and recomputes its own content hash;
+REVIEWED/FINAL require zero publication blockers; FINAL requires `approve_certification` with SoD
+(approver≠preparer≠reviewer, CI-proven #151) and is immutable.
+```
+ DRAFT ──(zero blockers; reviewer accepts, review_close)──▶ REVIEWED ──(approve_certification, SoD)──▶ FINAL (immutable)
+   ▲                                                            │
+   └──(any bound input changes — TB recert / evidence / adjustment / mapping / edition / comparative:
+       dependency identity differs → approval goes stale, server refuses it, state is DRAFT; the prior
+       REVIEWED/FINAL version stays immutable, history append-only)
+```
+*Invalidation is existing server behaviour* — dependency identity (`dependenciesSha256` +
+composition/notes/comparative SHAs) must match or the sign-off is refused. Correction after FINAL is a
+**new version** (new content hash) that supersedes; the prior version is never rewritten.
+
+**(b) ISSUANCE state — a SEPARATE implemented machine** for the Official Reporting Pack
+(`seal-reporting-pack`, `reporting_pack_issuances`, `reporting_pack_sealed_object`; CI-proven #157).
+An issuance is **UNISSUED → SEALED(/ISSUED) → VERIFIABLE(intact|substituted|…)** and binds to one
+FINAL version. It is **not** an approval state: issuing or verifying a pack never makes a report
+reviewed/approved, and a payment/entitlement never does either. Issuance holds **no delete
+capability** — a byte conflict refuses (`object_conflict`), recovery is a new issuance, unsealed
+orphans expire.
+
+**(c) PROPOSED UX states (this design — not server states).** The workspace surfaces a thin workflow
+overlay the server does **not** persist: `IN_PREPARATION`, `IN_REVIEW`, `RETURNED_BY_REVIEWER`,
+`READY_TO_SIGN`. These are **derived** from the server approval state + `nextAction` + review events
+for display/routing only; they must never be treated as, or substituted for, the persisted
+DRAFT/REVIEWED/FINAL. *Proposed work: the derivation + review-event surface (reviewer rejection with
+per-item reasons is a UX overlay over a DRAFT approval state; the rejection reasons themselves need a
+small persisted review-comment store — identify whether `signoff`/review events already carry them or
+a thin addition is required, as a Slice-0 verification item).*
+
+### B.4 Rollover (next year) — reconcile, never silently carry
+From a FINAL prior year, "Start next period" reuses company/framework/currency and carries forward the
+**mapping decisions**, **accounting-policy elections** and **answered requirement applicabilities**
+(each marked *carried, re-confirm if changed*). Opening balances are **not** blindly copied:
+
+- **Reconcile imported openings to the authoritative prior closing.** The new period's opening
+  balances are reconciled, per account, against the prior year's **authoritative FINAL closing** (the
+  immutable sealed version). The reconciliation is surfaced as a worklist item; equality clears it.
+- **Preserve discrepancies — never overwrite.** If an imported opening (e.g. a re-imported TB, a
+  migrated ledger) differs from the authoritative prior closing, the **difference is preserved and
+  shown** (which source, which account, the delta); it is never silently reconciled away, and the
+  approved source data is never modified in place. An unexplained opening difference is a blocker.
+- **Governed restatement for legitimate prior-figure changes.** A change to the comparative/opening
+  figures is recorded as a **governed restatement** — the existing `fs_comparative_restatements` /
+  `fs_comparative_restatement_decisions` / `fs_comparative_approvals` authority (migration
+  `20261020100000`, existing code): a balanced set of line deltas with a reason + reference,
+  two-person approved; the **as-reported figure is kept** and the restated figure applies alongside
+  it. History is not rewritten.
+
+Period-specific **evidence** (new transaction ledger, equity movements, schedules, budget) and
+**judgements** do **not** carry forward; they reopen as worklist items. Edition is re-resolved from the
+**new period's start date** — a period beginning on/after 1 Jan 2027 re-evaluates the IFRS-for-SMEs
+third edition, which is currently **GAP/UNSUPPORTED** and refused by name until that pack exists (a
+later slice, below).
+
+*Existing code:* the restatement/bridge authority (`fs_comparatives`) and the immutable prior FINAL
+version. *Proposed work:* the rollover reconcile-and-preserve worklist step and the opening-difference
+blocker. *Executed evidence:* none yet for the rollover path specifically — it is a Slice-1 proof
+(opening = prior authoritative closing; a seeded discrepancy is preserved and blocks, not absorbed).
 
 ---
 
@@ -130,53 +164,96 @@ Format: trigger → expected state → proof. "Proof" = the executed check kind;
 7. **Publication.** Issue Official Reporting Pack: server renders canonical bytes, stores no-overwrite,
    seals its own hash; a byte conflict refuses (`object_conflict`), recovery is a new issuance; verify
    route re-hashes stored bytes → `intact`. *Proof:* #157 P-05 real-PG (CI-proven, run 39058033407).
-8. **Rollover.** Next period reuses company/framework/currency, carries opening balances + mappings +
-   elections (re-confirm chips), reopens period-specific evidence/judgements; edition re-resolved from
-   new period start. *Proof:* opening = prior closing; carried decisions flagged; a 2027 period →
-   edition `UNSUPPORTED` refused by name.
+8. **Rollover.** Next period reuses company/framework/currency, carries mappings + elections
+   (re-confirm chips), reopens period-specific evidence/judgements; edition re-resolved from new period
+   start. Opening balances are **reconciled to the authoritative prior FINAL closing** — a matching
+   opening clears; a **seeded discrepancy is preserved and surfaced (never overwritten) and blocks**;
+   a legitimate prior-figure change applies as a **governed restatement** (`fs_comparative_restatements`,
+   balanced, two-person, reason+reference) alongside the as-reported figure. *Proof:* opening reconciles
+   to prior authoritative closing; discrepancy preserved + blocking; restatement applied without
+   rewriting history; a 2027 period → edition `UNSUPPORTED` refused by name.
 9. **Unsupported treatment (honesty).** A revenue/lease/ECL recognition question → `UNSUPPORTED`,
    escalated to a qualified person, **never** auto-composed. *Proof:* `REPORTING_CASE_UNSUPPORTED:`.
 
 ---
 
-## E. Sequenced implementation plan
+## E. Supported statement set + sequenced plan
 
-**Guiding principle:** the first complete framework-specific reporting slice is **IFRS-for-SMEs
-(2015 edition), single entity**, because that pack is the one already built — so the work is
-*activate → complete → prove → stage rollout*, not build a new engine. Each slice is independently
-verifiable and does not enable anything beyond its proof.
+### E.0 Complete supported statement set — first IFRS-for-SMEs slice (2015 ed., single entity)
+The first slice must satisfy the IFRS-for-SMEs **complete set (3.17)**. The pack already **models**
+the full set and its permitted alternatives; the honest gap is **face composition** for SOCIE/SCF on
+the reporting layer (today `fs_statement_composition` composes SFP+SCI faces; SOCIE/SCF are required
+and evidence-gated but their face assembly lives in the **disabled** canonical generation engine).
+Code = `ifrsForSmes.ts` + `fs_statement_composition`/`fs_notes_status` (`20261018/19100000`),
+`fs_comparatives` (`20261020100000`). Executed evidence = demo/allow-list + CI proofs only.
 
-- **Slice 0 — Journey wiring (no capability change).** Compose the three existing views
-  (`StatementsView`+`NotesView` as one preview, `ReportingWorkbench` worklist from `nextAction`,
-  drill drawer over `composition`/`fs_schedule_submissions`/`close_review_adjustments`). *Proof:*
-  component + interaction tests; the prototype (deliverable C) is the spec. No gate change.
-- **Slice 1 — First framework-specific reporting slice: IFRS-for-SMEs end-to-end on a disposable
-  stack.** Reviewed TB → evidence intake → composition (SFP+SCI) → notes/disclosure checklist →
-  balanced adjustments → comparatives → REVIEWED/FINAL under capability+SoD → sealed Official Pack →
-  verify `intact`. *Proof requirements (all executed, not code-only):* (a) composition totals =
-  adjusted reviewed TB with independently-reviewed expected numbers; (b) every publication blocker
-  fires on its missing input and FINAL is refused; (c) `UNSUPPORTED` cases refuse by name; (d) SoD +
-  stale-approval invalidation; (e) sealed pack byte-reproducible + verify route; (f) rollover opening=
-  prior closing. Only after this evidence exists does an **owner** decide the gate/allow-list rollout
-  — this slice does **not** flip `FINANCIAL_STATEMENTS_WORKSPACE_ENABLED`.
-- **Slice 2 — Fence the divergent export.** Make the legacy `ExportStatements` XLSX either reconcile
-  to the sealed model or be disabled for FS, so there is one approved model (gap 5). *Proof:* a test
-  that no FS export path can diverge from `sealedPack`.
-- **Slice 3+ (separately approved, later):** DOCX/native-XLSX; then — as distinct, product-owned
-  decisions — additional frameworks (IFRS-full/IFRS 18, IPSAS-accrual/IPSAS 47, IPSAS-cash), the
-  transition/IAS-8 constructs, and any first recognition/measurement domain (PPE depreciation +
-  comparative restatement are the nearest evidence-backed candidates). None of these are promised by
-  this design; each needs its own scope + proof.
+| Statement (3.17) | Existing code | Executed evidence | Proposed work for the slice | Honest gap |
+|---|---|---|---|---|
+| **SFP** (3.17a) + 4.2 lines, 4.4 current/non-current | **Yes** — composed face | demo/CI | drill + presentation | — |
+| **SCI** (3.17b) + 5.5 lines, 5.11 by-nature/by-function | **Yes** — composed face | demo/CI | drill + presentation | — |
+| **SOCIE** (3.17c) | requirement **modelled**, evidence-gated (`EQUITY_MOVEMENTS`; `STATEMENT_EVIDENCE_MISSING:smes.set.socie`) | gate only | **compose the SOCIE face** from equity-movements evidence on the reporting layer | face composition not confirmed on reporting layer (canonical generator is disabled) — **must complete + prove** |
+| **SCF** (3.17d, Section 7) — direct method | requirement **modelled**, evidence-gated (classified cash-movement ledger) | gate only | **compose the SCF face**; opening+movement=closing tie to SFP cash | face composition to complete; `DEFECT-SAFISHA` — ledger is preparer-supplied, **not bank-independent** (disclosed, no dual-derived CF) |
+| **Comparatives** (one prior period) | **Yes** — bridges + balanced two-person restatements into the comparative column | partial (restatement authority CI-adjacent) | wire restatement UX; reconcile openings (§B.4) | **one comparative only**; a comparative SCF needs prior-prior opening cash |
+| **Notes** (3.17e) + disclosure checklist (3.3/3.23/8.x) | **Yes** — `fs_pack_requirements` DISCLOSURE + `fs_disclosure_texts`, blocking at sign-off | demo/CI | numbering + cross-refs to faces | content is preparer text (no auto-derivation of TB-undetectable disclosures) |
+| **Permitted alternative presentations** — single vs two-statement SCI (3.17b); **single statement of income & retained earnings in lieu of SCI+SOCIE (3.18)** as a recorded decision; current/non-current vs liquidity (4.4); expenses by nature vs function (5.11) | **Modelled** (requirement ids + conditions in `ifrsForSmes.ts`) | — | **verify each alternative renders a correct face** and the 3.18 election suppresses SOCIE correctly | rendering of each alternative face must be verified/completed |
 
-**Material tradeoffs (stated, not hidden):** (1) We ship presentation/disclosure/adjustment
-governance **without** a measurement engine — correct for trust, but it means the product assists a
-qualified preparer, it does not replace one; the UI must say so. (2) Single-framework first trades
-breadth for a provable release boundary. (3) Reusing the gated reporting layer avoids a parallel
-engine but inherits its allow-list rollout — GA remains an explicit owner gate, not a side effect.
+**Honest set-level gaps:** SOCIE/SCF face composition on the reporting layer; no bank-independent cash
+flow (DEFECT-SAFISHA); one comparative only; no recognition/measurement (unsupported, refused by name);
+DOCX/native-XLSX export (below). None of these are hidden by an aggregate score.
+
+### E.1 Boundary note
+The **first Phase 6 slice (account-meaning review: grouped review → authorised versioned decisions →
+traceable TB summary → compatible reuse/reopening)** is **unchanged and upstream** of all FS work
+below; FS is a strictly **separate, downstream set of slices** and does not expand the Phase 6 scope.
+
+### E.2 Sequenced plan — per-capability verify → complete → separately authorised rollout
+Not "reuse-and-activate". Each capability is **(V) verified** against its proof, **(C) completed**
+where code is partial, and **rolled out only by a separate owner authorisation** — no slice flips
+`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED` or widens the `financial_statements_workspace_access`
+allow-list; that is an explicit owner act after the evidence exists.
+
+- **Slice 0 — Journey wiring (no capability change, no gate change).** Compose the existing views
+  (`StatementsView`+`NotesView` one preview, `ReportingWorkbench` worklist from `nextAction`, drill
+  drawer over `composition`/`fs_schedule_submissions`/`close_review_adjustments`); derive the proposed
+  UX overlay states (§B.3c) and confirm where reviewer-rejection reasons persist. *Proof:* component +
+  interaction tests; the prototype is the spec.
+- **Slice 1a — Divergent-export containment (PRECEDES any customer rollout).** Make the legacy
+  `ExportStatements` XLSX **reconcile to `sealedPack` or be disabled for FS**, so no FS output can
+  diverge from the one approved model (gap 5). *Existing code:* `sealedPack`/`fs_commit_revision`
+  (sealed model) + `ExportStatements.tsx` (divergent surface). *Proposed:* the fence/reconcile.
+  *Proof:* a test that **no** FS export path produces bytes outside the sealed model. **This is a
+  precondition of Slice 1's rollout gate — not a later slice.**
+- **Slice 1 — IFRS-for-SMEs end-to-end, verify + complete, on a disposable stack.** Per-capability:
+  **(V)** SFP/SCI faces, adjustments, capability+SoD sign-off, sealed pack+verify, publication
+  blockers, `UNSUPPORTED` refusal, stale-approval invalidation — each already coded, **prove executed**.
+  **(C)** compose + prove the **SOCIE** and **SCF** faces and each **permitted alternative** (incl. the
+  3.18 election suppressing SOCIE), the **rollover reconcile-and-preserve** step (§B.4), and note
+  numbering/cross-refs. *Proof requirements (all executed, not code-only):* (a) SFP/SCI/SOCIE/SCF +
+  chosen alternative faces reconcile to the adjusted reviewed TB and tie to each other, with
+  independently-reviewed expected numbers; (b) every publication blocker fires on its missing input
+  and FINAL is refused; (c) `UNSUPPORTED` refuses by name; (d) SoD + stale-approval invalidation; (e)
+  sealed pack byte-reproducible + verify `intact`, and (1a) no divergent export; (f) rollover opening
+  reconciles to the authoritative prior FINAL closing and a **seeded discrepancy is preserved and
+  blocks**, a governed restatement applies alongside the as-reported figure. **Rollout is a separate
+  owner decision after this evidence**, capability by capability.
+- **Slice 2+ (separately authorised, later, each own scope+proof):** DOCX / native-XLSX export; then
+  additional frameworks (IFRS-full incl. **IFRS 18**; IPSAS-accrual incl. **IPSAS 47**; IPSAS-cash) —
+  each a distinct pack; the transition / IAS-8 & Section-10 constructs; and any first
+  recognition/measurement domain (PPE depreciation + comparative restatement are the nearest
+  evidence-backed candidates). None promised by this design.
+
+**Material tradeoffs (stated, not hidden):** (1) presentation/disclosure/adjustment governance ships
+**without** a measurement engine — correct for trust, so the product assists a qualified preparer and
+the UI says so. (2) Single-framework-first trades breadth for a provable release boundary. (3)
+Verifying-and-completing the gated layer (not "activating" it) keeps GA an explicit, capability-by-
+capability owner gate, never a side effect. (4) SOCIE/SCF face composition is real completion work,
+not a flip — the slice is honest that two of the four faces still need building+proving on the
+reporting layer.
 
 **Unsupported — do not claim:** performing accounting treatment (recognition/measurement); IFRS-full/
-IPSAS/public-sector; IFRS 18 / IPSAS 47; transition/first-time adoption; TB-undetectable treatment
-disclosures derived automatically; "compliance" with any framework or award checklist.
+IPSAS/public-sector; IFRS 18 / IPSAS 47; transition/first-time adoption; a bank-independent or
+dual-derived cash flow; more than one comparative; TB-undetectable disclosures derived automatically;
+"compliance" with any framework or award checklist.
 
 Prototype (deliverable C): see the published artifact — the happy path and the four recovery paths
 (missing evidence, changed-input invalidation, reviewer rejection, unsupported-refusal) with
