@@ -14,10 +14,8 @@ This is the tracked record of hosted verification for main `02c516a` (the releas
 | Processing control | Floor 3, version 5, unchanged. |
 | Publication | **Open finding.** `cfoclose.com` serves `/assets/index-CvSeSTte.js`, which contains this release's frontend (restore control, draft flow), although Publish was to be held. The runtime app code is identical from `96305da` through `02c516a`. The publisher and time are not recorded in GitHub; the owner to confirm. |
 
-## Record A: catalog verification (`postcondition.sql`)
-- **Status: open.** The original file stopped with `42501` (it invoked the service-role-only probe).
-- **Corrected by #159 (`3422002`):** the file is now catalog-only, proven as the unprivileged `authenticated` role.
-- **Result:** `POSTCONDITION OK.` from the read-only role is **not yet reported**.
+## Record A: catalog verification (`postcondition.sql`): evidenced
+`postcondition.sql` at `3422002` (catalog-only, #159) was run verbatim, read-only, by the hosted read-only role and returned **`POSTCONDITION OK.`** (Lovable report, 2026-10-18). The original version stopped with `42501` because it invoked the service-role-only probe; that version is superseded.
 
 ## Record B: runtime verification (`runtimeEvidence.sql`): evidenced (Lovable report)
 Upload `f0d5e808-7837-456e-8eeb-13081406868d` (the owner's hosted 2,000-account check, invented data):
@@ -47,7 +45,10 @@ Conclusion: `cpu_time_used` is the isolate's cumulative CPU time in milliseconds
 ### Coverage: evidenced
 The `process-trial-balance` closure at `3422002` has no child workers, no `waitUntil` and no subprocess. Its only timer is the in-isolate admission queue.
 
-### Correlated run: open
+### Original upload `f0d5e808…`: CPU BLOCKED
+Its runtime and storage evidence (Record B) stands. Its CPU telemetry is unavailable: the `[PTB]` line reports `cpu_ms=unavailable`, and no correlated `Shutdown` was captured. A completed status establishes neither CPU usage nor the absence of a provider-level 546. So its CPU gate is **BLOCKED** and is not carried forward.
+
+### Correlated run (fresh run 2): open
 To be recorded verbatim from provider logs:
 - `execution_id` and function version;
 - the `[PTB] worker=… check=1 http=200 …` line and its timestamp;
@@ -55,6 +56,10 @@ To be recorded verbatim from provider logs:
 - the `Shutdown` timestamp, `cpu_time_used` and `reason`;
 - no other `[PTB]` line for that `execution_id`;
 - no 546 or CPU-limit line.
+
+**Run-2 file:** `resource-2000-accounts-run2.csv`: 2,000 invented accounts, balanced, 78,930 B, SHA-256 `88cb10d1e1cf536e0e76cb217868ebc05f7e3e8174ff40833c786d07988d2020`. Its bytes differ from run 1 so that it is a new source.
+
+Raw log records are preserved privately by the owner (this repository is public). Only the fields above are transcribed here.
 
 **Decision:** PASS if `cpu_time_used` ≤ 1,500 ms and every condition holds; otherwise BLOCKED.
 
@@ -67,4 +72,4 @@ To be recorded verbatim from provider logs:
 - Reporting Pack seal: **not exercised**. The official pack is unreachable in production builds (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`). Accepting that is the owner's decision; it is never marked PASS.
 
 ## Not release evidence
-DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 (the progress ledger keeps spinning on "Needs review"; unexecuted stages show "Done") is handed to the public website review session, which owns trial balance UX cleanup. It is display only and does not block this release.
+DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 (the progress ledger keeps spinning on "Needs review"; unexecuted stages show "Done") is handed to the public website review session, which owns trial balance UX cleanup. It is fixed, display only, in draft PR #164 (head `31b2b9d`), which is not merged or published. It is not part of this release and does not block it.
