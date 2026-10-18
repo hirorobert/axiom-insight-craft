@@ -11,7 +11,7 @@ CI-PROVEN / HOSTED-VERIFIED / UNKNOWN. A green suite, filename or source module 
 | Baseline (`origin/main`) | `29b0d945c1cbbd58bdca2314b48742c9b474c240` (merge of #169) | git |
 | Diff `18bff84..29b0d94` outside `docs/` and `*.md` | **empty** — the FS implementation audited at `02c516a`/`18bff84` is byte-identical here | `git diff --stat 18bff84 origin/main -- . ':!docs' ':!*.md'` |
 | Branch / worktree | `feat/fs-first-slice-20261018` at `D:/DevStorage/Temp/claude/fs-slice-20261018` | git worktree |
-| Candidate head | see §7 (updated per commit) | |
+| Candidate head | `c0fc16e` implementation; `65914ff` release packaging (wrapper batch `fs-controls-r1`); record commits follow | git |
 
 ## 2. Supported first slice (pinned)
 
@@ -148,6 +148,9 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 | focused vitest (`src/lib/frameworkPacks src/lib/notes src/lib/reporting src/lib/financialGeneration src/lib/statements`) | 163 passed; one 5 s timeout in `activation.test.ts` while two database proofs ran concurrently (worker RPC timeout, not an assertion) — see the full-suite run below | |
 | `bun run build` + `node scripts/ci/assertPackIsolation.mjs dist` | built in 1m 42s; PACK_ISOLATION: OK | |
 | `node scripts/ci/assertMigrationAuthority.mjs` | OK; `PENDING_HOSTED_APPLY: 20261111100000_fs_publication_controls.sql` (expected: authored, not applied) | |
+| `RELEASE_BATCH=fs-controls-r1 node scripts/db-proof/selfCheckingWrappers.mjs` | **32/32 PASS** — refusals before any statement, injected failures rolled back, hosted-executor model, re-application refused, postcondition, drizzle-orm migrate() | |
+| `releaseJournal.test.ts` + `selfCheckingWrappers.test.ts` | 160/160 PASS (the source registered as PENDING hosted application) | |
+| control-byte scan of every changed file | clean | |
 | full `bun run test` (first run, concurrent with two database proofs) | 25 failures: vitest worker RPC timeouts and 5 s test timeouts under load, plus two deterministic ones — `serviceEnquiryMigrationContract.test.ts` and `activationReadinessMigration.test.ts` pin the exact migration list and needed the new file added (done) | |
 | full `bun run test` (clean re-run, idle machine) | see §7 addendum | |
 
