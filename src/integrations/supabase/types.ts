@@ -8081,6 +8081,151 @@ export type Database = {
         }
         Relationships: []
       }
+      trial_balance_draft_commits: {
+        Row: {
+          commit_key: string
+          company_id: string | null
+          confirmation: Json
+          copy_verified_at: string | null
+          created_at: string
+          draft_id: string
+          engagement_id: string | null
+          id: string
+          owner_ref: string
+          period_id: string | null
+          period_year: number
+          replaces_upload_id: string | null
+          request_hash: string
+          reservation_id: string | null
+          settled_at: string | null
+          state: string
+          target_company_ref: string
+          upload_id: string | null
+        }
+        Insert: {
+          commit_key: string
+          company_id?: string | null
+          confirmation: Json
+          copy_verified_at?: string | null
+          created_at?: string
+          draft_id: string
+          engagement_id?: string | null
+          id?: string
+          owner_ref: string
+          period_id?: string | null
+          period_year: number
+          replaces_upload_id?: string | null
+          request_hash: string
+          reservation_id?: string | null
+          settled_at?: string | null
+          state?: string
+          target_company_ref: string
+          upload_id?: string | null
+        }
+        Update: {
+          commit_key?: string
+          company_id?: string | null
+          confirmation?: Json
+          copy_verified_at?: string | null
+          created_at?: string
+          draft_id?: string
+          engagement_id?: string | null
+          id?: string
+          owner_ref?: string
+          period_id?: string | null
+          period_year?: number
+          replaces_upload_id?: string | null
+          request_hash?: string
+          reservation_id?: string | null
+          settled_at?: string | null
+          state?: string
+          target_company_ref?: string
+          upload_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_balance_draft_commits_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_draft_commits_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_balance_draft_commits_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_source_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trial_balance_drafts: {
+        Row: {
+          committed_at: string | null
+          committed_upload_id: string | null
+          content_sha256: string
+          created_at: string
+          deleted_at: string | null
+          expires_at: string
+          file_name: string
+          file_size: number
+          id: string
+          idempotency_key: string
+          object_path: string
+          owner_ref: string
+          owner_user_id: string | null
+          rejected_reason: string | null
+          request_hash: string
+          state: string
+          swept_at: string | null
+        }
+        Insert: {
+          committed_at?: string | null
+          committed_upload_id?: string | null
+          content_sha256: string
+          created_at?: string
+          deleted_at?: string | null
+          expires_at: string
+          file_name: string
+          file_size: number
+          id?: string
+          idempotency_key: string
+          object_path: string
+          owner_ref: string
+          owner_user_id?: string | null
+          rejected_reason?: string | null
+          request_hash: string
+          state?: string
+          swept_at?: string | null
+        }
+        Update: {
+          committed_at?: string | null
+          committed_upload_id?: string | null
+          content_sha256?: string
+          created_at?: string
+          deleted_at?: string | null
+          expires_at?: string
+          file_name?: string
+          file_size?: number
+          id?: string
+          idempotency_key?: string
+          object_path?: string
+          owner_ref?: string
+          owner_user_id?: string | null
+          rejected_reason?: string | null
+          request_hash?: string
+          state?: string
+          swept_at?: string | null
+        }
+        Relationships: []
+      }
       trial_balance_source_reservations: {
         Row: {
           actor_user_id: string
@@ -10335,6 +10480,10 @@ export type Database = {
         Returns: Json
       }
       current_platform_staff_role: { Args: never; Returns: string }
+      delete_trial_balance_draft: {
+        Args: { p_draft_id: string }
+        Returns: string
+      }
       discard_trial_balance_upload: {
         Args: { p_expected_version: number; p_upload_id: string }
         Returns: {
@@ -10938,6 +11087,18 @@ export type Database = {
       }
       get_named_user_roster: { Args: never; Returns: Json }
       get_public_plan_prices: { Args: never; Returns: Json }
+      get_trial_balance_draft: {
+        Args: { p_draft_id: string }
+        Returns: {
+          committed_upload_id: string
+          draft_id: string
+          expires_at: string
+          file_name: string
+          file_size: number
+          state: string
+          stored: boolean
+        }[]
+      }
       get_trial_balance_removal_eligibility: {
         Args: { p_upload_id: string }
         Returns: Json
@@ -11142,6 +11303,18 @@ export type Database = {
           fiscal_year_end: string
           name: string
           reporting_framework: string
+        }[]
+      }
+      list_trial_balance_drafts: {
+        Args: never
+        Returns: {
+          created_at: string
+          draft_id: string
+          expires_at: string
+          file_name: string
+          file_size: number
+          state: string
+          stored: boolean
         }[]
       }
       maono_check_safisha_gate: {
@@ -11385,6 +11558,20 @@ export type Database = {
         }[]
       }
       reporting_period_max_months: { Args: never; Returns: number }
+      reserve_trial_balance_draft: {
+        Args: {
+          p_content_sha256: string
+          p_file_name: string
+          p_file_size: number
+          p_idempotency_key: string
+        }
+        Returns: {
+          draft_id: string
+          expires_at: string
+          object_path: string
+          outcome: string
+        }[]
+      }
       reserve_trial_balance_source: {
         Args: { p_company_id: string; p_file_name: string }
         Returns: {
@@ -11638,6 +11825,87 @@ export type Database = {
       }
       tb_upload_attempts: { Args: { p_upload_id: string }; Returns: Json }
       tb_upload_authority: { Args: { p_upload_id: string }; Returns: Json }
+      tbd_begin_commit: {
+        Args: {
+          p_commit_key: string
+          p_company_id: string
+          p_confirmation: Json
+          p_draft_id: string
+          p_engagement_id: string
+          p_period_id: string
+          p_period_year: number
+          p_replaces_upload_id?: string
+          p_user_id: string
+        }
+        Returns: {
+          commit_id: string
+          content_sha256: string
+          copy_verified: boolean
+          file_name: string
+          file_size: number
+          object_path: string
+          outcome: string
+          reservation_id: string
+          reservation_state: string
+          upload_id: string
+        }[]
+      }
+      tbd_cancel_commit: {
+        Args: { p_commit_id: string; p_user_id: string }
+        Returns: string
+      }
+      tbd_commit_abandoned: { Args: { p_draft_id: string }; Returns: boolean }
+      tbd_commit_hash: {
+        Args: {
+          p_company: string
+          p_confirmation: Json
+          p_draft: string
+          p_engagement: string
+          p_period: string
+          p_replaces: string
+          p_sha: string
+          p_year: number
+        }
+        Returns: string
+      }
+      tbd_confirmation_valid: { Args: { p: Json }; Returns: boolean }
+      tbd_finish_commit: {
+        Args: { p_commit_id: string; p_upload_id: string; p_user_id: string }
+        Returns: string
+      }
+      tbd_record_commit_reservation: {
+        Args: {
+          p_commit_id: string
+          p_reservation_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      tbd_record_copy_verified: {
+        Args: {
+          p_commit_id: string
+          p_copy_sha256: string
+          p_copy_size: number
+          p_user_id: string
+        }
+        Returns: string
+      }
+      tbd_reject_draft: {
+        Args: { p_draft_id: string; p_user_id: string }
+        Returns: string
+      }
+      tbd_reserve_hash: {
+        Args: { p_name: string; p_owner: string; p_sha: string; p_size: number }
+        Returns: string
+      }
+      tbd_sign_target: {
+        Args: { p_draft_id: string; p_user_id: string }
+        Returns: {
+          object_path: string
+          signable: boolean
+          stored: boolean
+        }[]
+      }
       tbu_abort_discard: {
         Args: {
           p_actor: string
@@ -11808,6 +12076,7 @@ export type Database = {
         Returns: boolean
       }
       treatment_request_id: { Args: { p_req: Json }; Returns: string }
+      trial_balance_draft_retention: { Args: never; Returns: string }
       workspace_authority_basis: {
         Args: { p_capability: string; p_company_id: string; p_user_id: string }
         Returns: string
