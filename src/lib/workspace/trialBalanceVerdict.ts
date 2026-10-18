@@ -399,6 +399,8 @@ export interface TrialBalanceVerdictInput {
 }
 
 const RUNNING = new Set(["pending", "processing", "queued", "validating"]);
+/** What resolves an open classification: a decision per account, saved by the reviewer (nothing is accepted on its own). */
+export const CLASSIFICATION_NEXT = "Confirm or change the classification of each account in the account review, then save.";
 
 const CHECK_TEXT: Record<string, { label: string; passed: string }> = {
   l1_structure: { label: "File read", passed: "The file was read successfully." },
@@ -448,6 +450,23 @@ function plainCheck(c: PreflightCheck, totals: TrialBalanceTotals | null): Trial
   return { id: c.id, label, state: unevaluatedEvidence ? "pending" : c.state, detail };
 }
 
+/**
+ * The trial-balance-level classification summary the check recorded ("3 of 5 accounts need a reviewer's confirmation"),
+ * or null when the stored result carries no such milestone (an earlier engine). Presentation only: it is the server's
+ * own wording for the whole file, shown instead of one account's suggestion text.
+ */
+export function classificationSummary(milestones: TrialBalanceMilestone[]): string | null {
+  const m = milestones.find((x) => x.id === "classification" && x.status !== "passed" && x.status !== "not_reached");
+  const detail = m?.detail?.trim();
+  return detail ? detail.replace(/\.?$/, ".") : null;
+}
+
+/** The same sentence recorded once per account reads as noise; each distinct sentence is kept once, in order. */
+export function distinctSentences(text: string): string {
+  const parts = text.split(/(?<=\.)\s+/).map((t) => t.trim()).filter(Boolean);
+  return [...new Set(parts)].join(" ");
+}
+
 export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): TrialBalanceVerdict {
   const upload = input.upload;
   const totals = upload ? readTrialBalanceTotals(upload.processing_result) : null;
@@ -459,10 +478,16 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   // the result even where the certification carries no layer-3 exception: the layer-3 row shows it, never reviewed. The
   // same reading feeds the Overview and hub (fetchWorkspaceSnapshot → computeCertificationReadiness), so they agree.
   const recordedEquation = readRecordedEquation(upload?.processing_result);
+  const milestones = upload ? readMilestones(upload.processing_result) : [];
+  const classificationText = classificationSummary(milestones);
   const storedEquationHold = recordedEquationHold(recordedEquation);
   const checks = CHECK_PRECEDENCE.flatMap((id) => layerChecks.filter((c) => c.id === id)).map((c) => plainCheck(c, totals))
     .map((c) => (c.id === "l3_arithmetic" && c.state === "passed" && storedEquationHold
       ? { ...c, label: LAYER3_LABEL.equation, state: "review" as const, detail: storedEquationHold }
+      : c))
+    // The classification check names the file-level count, never one account's suggestion repeated per account.
+    .map((c) => (c.id === "l4_classification" && (c.state === "review" || c.state === "failed")
+      ? { ...c, detail: classificationText ?? distinctSentences(c.detail) }
       : c));
   const l3 = checks.find((c) => c.id === "l3_arithmetic") ?? null;
   // The statement equation, when nothing recorded it as failed: proven exactly by the stored result's exact amounts, or
@@ -478,7 +503,6 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
   const l3Passed = !!l3 && (l3.state === "passed" || l3.label === LAYER3_LABEL.equation);
   const classificationOpen = checks.some((c) => c.id === "l4_classification" && (c.state === "review" || c.state === "failed"));
   const issues = upload ? readIngestionIssues(upload.processing_result) : [];
-  const milestones = upload ? readMilestones(upload.processing_result) : [];
   const base = { totals, checks, informational, failedCheckId: failed?.id ?? null, equationExact: recordedEquation === "exact", balanceStatement: l3Passed ? balanceStatement(totals) : null, issues: [] as TrialBalanceIssue[], milestones };
 
   if (!upload) {
@@ -536,7 +560,9 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       if (failed) {
         return {
           ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
-          reason: failed.id === "l3_arithmetic" ? failed.detail : `${failed.label}: ${failed.detail}`,
+          reason: failed.id === "l3_arithmetic" ? failed.detail
+            : failed.id === "l4_classification" && classificationText ? `${classificationText} ${CLASSIFICATION_NEXT}`
+            : `${failed.label}: ${failed.detail}`,
           primaryAction: classificationOpen ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
         };
       }
@@ -571,7 +597,10 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
     case "review":
       return {
         ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
-        reason: stripEngineCode(input.readiness?.blocker ?? "Some accounts need a classification decision."),
+        // The file-level count when the check recorded one; the stored blocker can be a single account's suggestion.
+        reason: classificationOpen && classificationText
+          ? `${classificationText} ${CLASSIFICATION_NEXT}`
+          : stripEngineCode(input.readiness?.blocker ?? "Some accounts need a classification decision."),
         // Classification decisions are offered when a classification needs one, or when nothing else is named; a review
         // held only by an arithmetic check is not resolved by classifying accounts that need no decision.
         primaryAction: classificationOpen || failed?.id !== "l3_arithmetic" ? { kind: "review_classifications", label: "Resolve account classifications" } : null,

@@ -280,9 +280,15 @@ export function AccountReviewPanel({
   const [reprocessing, setReprocessing] = useState(false);
   /** The last save was refused: nothing was saved, the decisions on screen are kept, and the reason is shown inline. */
   const [saveFailed,   setSaveFailed]   = useState(false);
-  const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved);
+  // Rows with no pre-selected suggestion are the only ones the one-at-a-time queue can show. When every row starts on a
+  // suggestion, the list opens in full, so the reviewer sees what "Save & reprocess" will record. Presentation only.
+  const startsUndecided = needsReviewAccounts.some((a) => !initialChoices[rowKey(a)]);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(focusUnresolved && startsUndecided);
   /** Focus mode: one undecided account on screen at a time. Presentation only. */
-  const [focusMode, setFocusMode] = useState(true);
+  const [focusMode, setFocusMode] = useState(startsUndecided);
+  /** Rows the reviewer has acted on (chosen, excluded or flagged). A pre-selected suggestion is not yet their decision. */
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const touch = useCallback((key: string) => setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key))), []);
   const [skipped, setSkipped] = useState<string[]>([]);
 
   // PPG-1R: guards the reprocess poll's async callbacks against firing
@@ -304,14 +310,17 @@ export function AccountReviewPanel({
 
   const setChoice = useCallback((key: string, val: string) => {
     setChoices((prev) => ({ ...prev, [key]: val }));
-  }, []);
+    touch(key);
+  }, [touch]);
 
   /** Toggling a flag control is itself the professional decision — set, not merely touched. */
   const setFlag = useCallback((key: string, flag: keyof ReviewFlagDecisions, val: boolean) => {
     setFlagChoices((prev) => ({ ...prev, [key]: { ...prev[key], [flag]: val } }));
-  }, []);
+    touch(key);
+  }, [touch]);
 
   const toggleExclude = useCallback((key: string) => {
+    touch(key);
     setExcluded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -327,9 +336,14 @@ export function AccountReviewPanel({
       }
       return next;
     });
-  }, []);
+  }, [touch]);
 
   const pendingRows   = needsReviewAccounts.filter((a) => !excluded.has(rowKey(a)));
+  /** Still on the suggestion it started with, untouched: saving records it as the reviewer's decision. */
+  const presetUnreviewed = pendingRows.filter((a) => {
+    const key = rowKey(a);
+    return !!initialChoices[key] && choices[key] === initialChoices[key] && !touched.has(key);
+  }).length;
   // A row is decided when it has a classification, or — for a treatment row — "keep as mapped" with a valid reason.
   const isDecided = (a: NeedsReviewAccount) => {
     const c = choices[rowKey(a)];
@@ -529,7 +543,7 @@ export function AccountReviewPanel({
         onValueChange={(val) => setChoice(key, val)}
         disabled={isExcluded || isWorking}
       >
-        <SelectTrigger className="w-full md:w-[13.5rem] h-9 text-[13px] rounded-none">
+        <SelectTrigger className="w-full md:w-[13.5rem] h-9 text-[13px] rounded-none" aria-label={`Classification for ${account.account_name}${account.account_code ? ` (${account.account_code})` : ""}`}>
           <SelectValue placeholder={treatmentRow ? "Keep as mapped or reclassify…" : "Classify…"} />
         </SelectTrigger>
         <SelectContent>
@@ -630,6 +644,7 @@ export function AccountReviewPanel({
         meta={
           <>
             {remaining} of {needsReviewAccounts.length} undecided
+            {presetUnreviewed > 0 && <span> · {presetUnreviewed} suggested, not yet checked</span>}
             {excluded.size > 0 && <span> · {excluded.size} excluded</span>}
           </>
         }
@@ -796,9 +811,20 @@ export function AccountReviewPanel({
       </div>
 
       {displayed.length === 0 && (
-        <p className="px-5 py-6 text-[13px] text-muted-foreground">
-          Every account has a decision. Save and reprocess to save your classifications and recheck the trial balance.
-        </p>
+        <div className="px-5 py-6 text-[13px] text-muted-foreground" data-testid="account-review-empty">
+          {presetUnreviewed > 0 ? (
+            <>
+              <p>
+                {presetUnreviewed} suggested classification{presetUnreviewed === 1 ? " is" : "s are"} pre-selected and not yet checked. Check them before you save.
+              </p>
+              <Button type="button" variant="outline" size="sm" className="mt-3 rounded-none" onClick={() => { setFocusMode(false); setUnresolvedOnly(false); }} data-testid="account-review-show-presets">
+                Show the accounts to check
+              </Button>
+            </>
+          ) : (
+            <p>Every account has a decision. Save &amp; reprocess records them and rechecks the trial balance.</p>
+          )}
+        </div>
       )}
 
       {/* Footer — the one action on this panel */}
@@ -810,7 +836,9 @@ export function AccountReviewPanel({
               ? (saving ? "Saving your decisions…" : "Decisions saved. Rechecking the trial balance…")
               : remaining > 0
                 ? `${remaining} account${remaining === 1 ? "" : "s"} still need a decision`
-                : "All decisions recorded. Save and reprocess to apply them."}
+                : presetUnreviewed > 0
+                  ? `${presetUnreviewed} pre-selected suggestion${presetUnreviewed === 1 ? "" : "s"} not yet checked. Saving records ${presetUnreviewed === 1 ? "it" : "them"} as your decision${presetUnreviewed === 1 ? "" : "s"}.`
+                  : "Every account has a decision. Nothing is recorded until you save."}
           </p>
           {submission === "failed" && (
             <p role="alert" className="mt-1 text-[12px] text-destructive" data-testid="account-review-save-failed">
