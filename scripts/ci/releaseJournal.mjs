@@ -331,6 +331,11 @@ export const RELEASE_JOURNAL = {
   "0061_refused_replacement_restore": { kind: "release_self_checking_wrapper", source: "20261109100000_refused_replacement_restore.sql",
     bytes: 18790, digest: "ed189bfd036aaf173e952271516fb6482c0b84802cf7ca4b2e33d1121fff5d8c",
     form: "wrapper", submittedBytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" },
+  // Unlimited team members (pricing-p1, PR #161 / #175): applied 2026-10-18 as hosted entry 0062 through its self-checking
+  // wrapper, byte for byte (the wrapper form). Registered here when main carried the drizzle entry (dd2a29c).
+  "0062_unlimited_team_members_wrapper": { kind: "release_self_checking_wrapper", source: "20261110100000_unlimited_team_members.sql",
+    bytes: 37312, digest: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009",
+    form: "wrapper", submittedBytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" },
 };
 
 /**
@@ -599,13 +604,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 38877, sha256: "1fbcccc09d4fdcf1dff67045fc42515a5c0f7c93de246cd3301779a9b67d7a42" }),
   }),
-  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; c0fc16e): all four forms
+  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; 453aeca): all four forms
   // registered BEFORE application, from the reviewed bytes at that commit. Authored, PENDING hosted application.
   "20261111100000_fs_publication_controls.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 79456, sha256: "a75787e753a1a5c3d23fbdcf7d522c5fc42f0dab4a15d28fa85caab5c7eaffa7" }),
-    finalLfRemoved: Object.freeze({ bytes: 79455, sha256: "cac202be512ac94f9e93fe27ca07063ce54346ad3ef12172d46637bf71b5ee70" }),
-    wrapper: Object.freeze({ bytes: 81024, sha256: "40832c6ae6d7f97a9b841f69dee9b596a99243518f1f1805743fbcc24fdfeda5" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 81023, sha256: "7406248b89f44cc9cea326d82573c67fde7fcc10456809c0df34b2e0b8278dfc" }),
+    identical: Object.freeze({ bytes: 87201, sha256: "42edba2be32aff4e84698c4d268b095a920bf601b2a305bab15eda95814212b1" }),
+    finalLfRemoved: Object.freeze({ bytes: 87200, sha256: "d0e8eac75268a995a4cbe8d5e33da047b56d511ae69ea2517cc48e8f1dc26d0b" }),
+    wrapper: Object.freeze({ bytes: 88769, sha256: "06e2dbb29b0b1a08627be3da0b36a76f6ab54d885ea95db6a557483514f6e703" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 88768, sha256: "c381c30978eb0cf7340da42ee52edef36246773b46fc7a66cfdca900418d5604" }),
   }),
 });
 

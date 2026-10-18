@@ -50,7 +50,8 @@ describe("migration authority parity", () => {
     // 52: 0054, payment reversal authority (commercial-p4, 20261101100000), the registered wrapper form (hosted 55).
     // 53: 0055, verified charge outcomes (commercial-p5, 20261102100000), the registered wrapper form (hosted 56).
     // 59: 0058–0061, the trial balance release (tb-release-r1), the registered wrapper form (hosted 59–62).
-    expect(r.mirrored.length).toBe(59);
+    // 60: 0062, the pricing-p1 wrapper (20261110100000) applied as hosted 0062 (main dd2a29c).
+    expect(r.mirrored.length).toBe(60);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -70,7 +71,7 @@ describe("migration authority parity", () => {
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
-    expect(r.pending).toEqual(["20261110100000_unlimited_team_members.sql", "20261111100000_fs_publication_controls.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/unlimited-team-members)
+    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/unlimited-team-members)
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });

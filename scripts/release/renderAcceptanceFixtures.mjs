@@ -48,6 +48,13 @@ put("notes_wording_FY2025.csv", [
   "smes.note.estimates,Useful lives of equipment (acceptance placeholder).,Acceptance fixture r1",
   "smes.note.subclassifications,All receivables from third parties (acceptance placeholder).,Acceptance fixture r1",
   "smes.note.share_capital,10000 ordinary shares fully paid (acceptance placeholder).,Acceptance fixture r1",
+  // Pack 1.2.0 (20261111100000): the applicable disclosures of the first reporting slice (acceptance placeholders; no commas in a cell).
+  "smes.note.going_concern,Management assessed going concern for twelve months from authorisation and found no material uncertainty (acceptance placeholder).,Acceptance fixture r1",
+  "smes.note.authorisation,Authorised for issue by the directors on 28 February 2026 (acceptance placeholder).,Acceptance fixture r1",
+  "smes.note.kmp_compensation,Key management personnel compensation in total: synthetic amount (acceptance placeholder).,Acceptance fixture r1",
+  "smes.note.cash_components,Cash and cash equivalents comprise the mapped bank accounts; no restricted balances (acceptance placeholder).,Acceptance fixture r1",
+  "smes.note.income_tax,Tax expense is current tax at the statutory rate; no deferred tax (acceptance placeholder).,Acceptance fixture r1",
+  "smes.note.revenue,Revenue is recognised on delivery; all revenue is sale of goods (acceptance placeholder).,Acceptance fixture r1",
 ].join("\n"));
 put("decisions_FY2025.csv", [
   "Requirement,Decision,Reason",
@@ -55,6 +62,9 @@ put("decisions_FY2025.csv", [
   "smes.sci.5_5_e,Not applicable,No discontinued operation in the synthetic periods",
   "smes.sci.5_5_g,Not applicable,No item of 5.4(b) other comprehensive income in the synthetic periods",
   "smes.sci.5_5_h,Not applicable,No equity-accounted investee in the synthetic periods",
+  "smes.note.events_after,Not applicable,No non-adjusting event after the synthetic period",
+  "smes.note.related_party_control,Not applicable,The synthetic entity has no parent or controlling party",
+  "smes.note.related_party_transactions,Not applicable,No related party transaction in the synthetic periods",
 ].join("\n"));
 // Totals computed BY HAND for the review package (docs/reporting/review-package/SEALED_AUTHOR_EXPECTED.csv), restated for
 // the shifted years. AUTHOR-PREPARED, NOT INDEPENDENTLY VALIDATED.
