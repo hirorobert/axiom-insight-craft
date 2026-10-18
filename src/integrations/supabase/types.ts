@@ -12021,6 +12021,10 @@ export type Database = {
         Args: { p_token: string }
         Returns: boolean
       }
+      tbu_refused_replacement_block: {
+        Args: { p_upload_id: string }
+        Returns: string
+      }
       tbu_request_reprocess: {
         Args: {
           p_expected_source_hash: string
@@ -12104,6 +12108,10 @@ export type Database = {
         Returns: string
       }
       tbu_undo_window: { Args: never; Returns: string }
+      tbu_upload_dependent_evidence: {
+        Args: { p_upload_id: string }
+        Returns: string
+      }
       tbu_upload_evidence: {
         Args: { p_expected_predecessor?: string; p_upload_id: string }
         Returns: string
