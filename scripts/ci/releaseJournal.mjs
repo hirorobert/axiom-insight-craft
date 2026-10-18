@@ -591,6 +591,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 20366, sha256: "ae02220e26c08042cb0cd08aa27bdbfdf2274bb1f5af9e53fc21d05bc027fdab" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 20365, sha256: "6b36347081f7e154ce1ddcdfb0179e782c7441b27162165698c83e78ca3231bd" }),
   }),
+  // Unlimited team members (batch pricing-p1; PR #161 at 4fba8c5): all four forms registered BEFORE application.
+  // Authored, PENDING hosted application.
+  "20261110100000_unlimited_team_members.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 37312, sha256: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009" }),
+    finalLfRemoved: Object.freeze({ bytes: 37311, sha256: "0a58d3dab14d3c233c1a08668b78971ce7f7eb8b5bad66bd526706c0c64388b3" }),
+    wrapper: Object.freeze({ bytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 38877, sha256: "1fbcccc09d4fdcf1dff67045fc42515a5c0f7c93de246cd3301779a9b67d7a42" }),
+  }),
 });
 
 /**

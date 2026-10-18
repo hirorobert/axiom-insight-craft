@@ -108,6 +108,12 @@ export const TB_RELEASE_WRAPPED_SOURCES = Object.freeze([
   "20261108100000_account_identity_codeless_name.sql",
   "20261109100000_refused_replacement_restore.sql",
 ]);
+/** Unlimited team members (pricing-p1, PR #161): one source at the commit holding its reviewed bytes. Authored, PENDING
+ * hosted application. */
+export const PRICING_P1_SOURCE_COMMIT = "4fba8c5efe1824dec5d4bdf0b261c385263f7628";
+export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
+  "20261110100000_unlimited_team_members.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -122,6 +128,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "commercial-p5", commit: CHARGE_OUTCOMES_SOURCE_COMMIT, sources: CHARGE_OUTCOMES_WRAPPED_SOURCES, postcondition: "docs/release/commercial-p5/postcondition.sql" }),
   Object.freeze({ id: "access-a1", commit: ACCESS_SOURCE_COMMIT, sources: ACCESS_WRAPPED_SOURCES, postcondition: "docs/release/access-a1/postcondition.sql" }),
   Object.freeze({ id: "tb-release-r1", commit: TB_RELEASE_SOURCE_COMMIT, sources: TB_RELEASE_WRAPPED_SOURCES, postcondition: "docs/release/tb-release-r1/postcondition.sql" }),
+  Object.freeze({ id: "pricing-p1", commit: PRICING_P1_SOURCE_COMMIT, sources: PRICING_P1_WRAPPED_SOURCES, postcondition: "docs/release/unlimited-team-members/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

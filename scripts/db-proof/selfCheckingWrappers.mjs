@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "tb-release-r1"
+const DRIZZLE_FAILURE = BATCH.id === "pricing-p1"
+  ? { object: "public.get_workspace_seat_capacity(pg_catalog.uuid)", rolledBack: "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_plans' AND column_name='members_unlimited') AND to_regprocedure('public._lift_named_user_suspensions_unlimited(uuid,uuid[],text)') IS NULL AS ok" }
+  : BATCH.id === "tb-release-r1"
   ? { object: "public.uq_acct_map_company_codeless_name", rolledBack: "SELECT to_regclass('public.trial_balance_drafts') IS NULL AND to_regclass('public.tb_certification_findings') IS NULL AND to_regclass('public.uq_acct_map_company_codeless_name') IS NULL AND to_regclass('public.uq_acct_map_company_norm_name') IS NOT NULL AS ok" }
   : BATCH.id === "access-a1"
   ? { object: "public.get_access_overview()", rolledBack: "SELECT to_regclass('public.access_grant_events') IS NULL AND to_regclass('public.privileged_reauth') IS NULL AND to_regprocedure('public.is_platform_owner(uuid)') IS NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_admins' AND column_name='authority') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='entitlement_overrides' AND column_name='unlimited') AS ok" }
@@ -80,7 +82,9 @@ const SHAPE = BATCH.id === "reporting-r2" ? { earlyAt: 1, lateTag: "ALTER FUNCTI
   // The trial balance release: the account-identity source grants nothing (its last DDL is COMMENT); the restore source
   // only revokes. The late point is the first GRANT, REVOKE or COMMENT, reached after at least two DDL commands (the
   // certification-capacity source comments its new table second).
-  : BATCH.id === "tb-release-r1" ? { earlyAt: 3, lateTag: "GRANT','REVOKE','COMMENT", minDdl: 2 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
+  : BATCH.id === "tb-release-r1" ? { earlyAt: 3, lateTag: "GRANT','REVOKE','COMMENT", minDdl: 2 }
+  // Unlimited team members grants nothing; its last statement is the one REVOKE, reached after every redefinition.
+  : BATCH.id === "pricing-p1" ? { earlyAt: 3, lateTag: "REVOKE", minDdl: 3 } : { earlyAt: 3, lateTag: "GRANT", minDdl: 3 };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
