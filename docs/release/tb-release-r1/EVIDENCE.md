@@ -103,11 +103,20 @@ Lowering the upload bounds would be a new reviewed policy change, never an ad-ho
 - A dense file at the bound could be terminated mid-check. That failure is explicit: a 546, nothing certified, and the attempt recovered after its 600 s lease.
 
 ## Remaining hosted checks: open
-- **Refusal and restore**, one combined test, done as a replacement of the certified trial balance with `refusal-2001-accounts.csv`. The implemented contract (`20261109100000`): registering a replacement supersedes the predecessor. A refused replacement stays the period's current active upload, in state `blocked`. The predecessor is `superseded` until the explicit **Restore the previous trial balance**. Nothing preserves it automatically. Record:
-  - before: the active upload id and its certification ids (`id`, `normalized_input_hash`, `certified_at`);
-  - after the check: `TOO_MANY_ACCOUNTS`, 0 certifications for the refused upload, the active upload id (the refused one) and the predecessor's `lifecycle_state` (`superseded`);
-  - after Restore: the exact predecessor is the active upload again, its certifications are byte-identical to "before", and the refused upload is `retired`.
-- Replacement over 10 MB, refused in the page.
+- **Refusal and restore (FY2027 demo period): PASS.** Source: Lovable's read-only report and the owner's browser screenshots, 2026-10-18. Contract followed: `20261109100000`.
+
+  **The refused upload:** `091ad003-d203-43dd-8e32-1ed7c2172564` (`refusal-2001-accounts.csv`).
+  - It was refused with `TOO_MANY_ACCOUNTS` and has 0 certifications.
+  - It superseded the run-2 upload while refused. After the explicit browser **Restore the previous trial balance** (the owner completed the confirmation dialog), it is `retired`.
+
+  **The restored predecessor:** `d54f3df1-a02c-4c68-a05a-6b7ea34d557a` (run 2, `resource-2000-accounts-run2.csv`).
+  - It is the sole active upload, `active_processed`, with `superseded_by` NULL.
+  - Its certification is unchanged and an exact match to the pre-replacement baseline: `03ba950c-be43-42c0-96da-d266aa479290`, sequence 76, engine run `1a7dbf0e-f56f-41a3-ac87-07abd0c91162`, certified 2026-10-18 10:59:38.980108+00, full-row SHA-256 `7941016d1676816cda78b001ded7606a484228417821b6a3d6669af5ac05268f`.
+  - The restoration created no new engine run; the processing attempt remains 1.
+- **Replacement over 10 MB** (`replacement-over-10mb.csv`, 12,000,039 B, SHA-256 `68fcd4851afb1f2c70ee6f19a36b7c93a72b4c4b4248f0c0f1ea028a4783e1e8`): open. Expected:
+  - the page refuses the file before anything is uploaded ("larger than 10 MB");
+  - no new `trial_balance_uploads` row exists;
+  - the active upload stays `d54f3df1…`, its certification `03ba950c…` unchanged.
 - Account identity: 4000 / 4100 "Sales" both kept.
 - Busy/retry: PASS, or recorded **not triggered**. Accepting "not triggered" is the owner's decision; it is never marked PASS.
 - Reporting Pack seal: **not exercised**. The official pack is unreachable in production builds (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`). Accepting that is the owner's decision; it is never marked PASS.
