@@ -1,8 +1,99 @@
 # Trial balance release tb-release-r1: hosted evidence record
 
-This is the tracked record of hosted verification for main `02c516a` (the release); the application runtime is identical from `96305da`. Each entry is either **evidenced** (with its source) or **open**. Nothing is inferred, and no entry is marked PASS without its own evidence.
+This is the tracked record of hosted verification for the release (application identical from `96305da` through the current main); the application runtime is identical from `96305da`. Every check has a final status in the close-out table below. Nothing is inferred, and no entry is marked PASS without its own evidence.
 
 **Repository rule:** this repository is public, so no company names, user identities or client data are recorded here. Upload and execution ids are synthetic-run identifiers.
+
+## Close-out (consolidated, 2026-10-18)
+
+**Implementation milestone: COMPLETED.** Installed and verified on hosted. The detail is in the sections below.
+
+**Acceptance checks:**
+
+| # | Check | Result | Source |
+|---|---|---|---|
+| 1 | Installation: journal rows 59–62 match the wrapper hashes; the five functions' fingerprints match | **PASS** | Lovable read-only report |
+| 2 | Catalog postcondition (Record A) | **PASS**: `POSTCONDITION OK.` | Lovable, verbatim and read-only |
+| 3 | Generation-6 runtime: summarised findings, count and SHA-256 (Record B, R1–R4) on runs 1 and 2 | **PASS** | Lovable, `runtimeEvidence.sql` |
+| 4 | Refused replacement (`TOO_MANY_ACCOUNTS`) and explicit restore: the exact predecessor and its certification byte-identical, no new run | **PASS** | Lovable, plus the owner's screenshots |
+| 5 | Over-10 MB replacement: data preservation (no upload, object or run; predecessor and certification unchanged) | **PASS** | Lovable read-only report |
+| 5b | Over-10 MB replacement: a visible refusal message | **FAILED**: no message observed (a transient toast only). Display defect, see below. | The owner's observation |
+| 6 | Same-name / different-code identity: 4000 and 4100 "Sales" stay distinct after review | **PASS** | Lovable read-only report |
+| 7 | Review lineage: every account was cleared by an explicit, authorised confirmation | **PASS** | Lovable read-only report |
+| 8 | Processing-control enforcement (catalog): the three triggers enabled; `processing_control_allows()` as reviewed | **PASS** | Lovable read-only report |
+| 9 | Numeric CPU and headroom (HANDOFF §6.3) | **BLOCKED**: no correlated hosted CPU value; never waived | See "Hosted CPU" |
+| 10 | Busy/retry (503 `PROCESSING_BUSY` and a successful retry) | **NOT EXERCISED** on hosted; covered in CI only | — |
+| 11 | Reporting Pack seal and verify | **NOT EXERCISED**. Reachability is unresolved, pending the separate FS-lane gate reconciliation. The #157 repair is proven in CI only (63/63, real PostgreSQL). | — |
+
+**Checks 6–8, in detail** (demo company `596d264c-db15-4e71-8d71-0d1d55d004af`, invented data):
+
+**The same-name upload:** `1a5626c3-2a85-4294-980b-90f7a3509805` (`same-name-two-codes.csv`, SHA-256 `749eb246…`). It is `active_processed`, status `complete`, and it superseded `d54f3df1…`. Certification `03ba950c…` (sequence 76) is unchanged; its full-row SHA-256 is `7941016d…5ac05268f`.
+
+**Its two runs**, both generation 6, completed, with no `error_code`:
+
+| | Engine run | Started | Certification | Sequence | `requires_review` |
+|---|---|---|---|---|---|
+| First check | `acaa0cde-fd62-45ff-8109-a48083226071` | 13:10:57Z | `390021b2…` | 77 | **true** |
+| After review | `29a53d1a-b9ec-40a0-b9a4-d0e4d11f7fa3` | 13:13:49Z | `c5ebf2d8-a70c-4219-8471-a6074f1bb6a1` | 78 | **false** |
+
+**What cleared review:**
+- **One authorised batch.** Batch `875128e0-6516-49e9-8236-150ef84a673b`, written at 2026-10-18 13:13:45.395932Z (**Save & reprocess**) by the firm member with role **owner** (id kept in the private record), recorded three decisions for this upload: 4000, 4100 and 1000.
+- **Each decision:** `proposal_type MACHINE_SUGGESTION`, `decision_action USER_ACCEPTED_SUGGESTION`.
+  - 4000 → revenue (`d3cee73d…`);
+  - 4100 → revenue (`6bc25bc5…`);
+  - 1000 → current_assets (`c68e0127…`).
+- **No earlier decisions.** None predate this upload.
+- **The result:** `decisions_logged: 3`, `mappings_written: 3`. There were no 23505 errors and no refusals.
+
+**The mappings:** `account_mappings` holds three rows, keys `4000`, `4100` and `1000`. 4000 and 4100 are **distinct rows**, both named "sales", each linked to its own decision. The latest certification shows all three at `evidenceTier 1`: the company's own reviewed mapping, matched by exact code, written by that batch.
+
+**Processing control:**
+- `trg_er_processing_control` (`engine_runs`), `trg_tbu_processing_control` (`trial_balance_uploads`) and `trg_tbc_processing_control` (`tb_certifications`) are present and enabled (`O`).
+- `processing_control_allows(p)` = `NOT hold OR p = ANY(canary_company_ids)`.
+- The current row is `hold false`, `canary_company_ids []`, `min_engine_generation 3`, `version 5`.
+
+**Outstanding defects, owners and boundaries** (none blocks this milestone):
+
+| Defect | Owner lane | Status |
+|---|---|---|
+| DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 | Website review (TB UX) | Fixed in draft #164; unmerged and unpublished |
+| DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001: a replaced over-limit file gets only a transient toast (`PrepareWorkspace.handleReplacePicked`) | Website review (TB UX) | Separate follow-up |
+| DEFECT-UX-TB-REVIEW-CONFIRMATION-VISIBILITY-001: the accounts awaiting confirmation, and what **Save & reprocess** confirms, are not clear on screen | Website review (TB UX) | Open |
+| Publication outside the hold: `cfoclose.com` serves this release's frontend; the publisher and time are unrecorded | Owner | Open finding |
+| CPU observability (a hosted CPU value correlatable per check) | Carried forward; required before broad rollout or any raise of the upload bounds | Open |
+| Orphan cleanup #149 | Separate; weekly read-only inventory | Deferred |
+
+The review-confirmation defect is display only. The database shows the confirmation was explicit and authorised, by the owner.
+
+Kept separate, each under its own hold: FS reconciliation (including Reporting Pack reachability), privacy containment, pricing #161 and TB UX.
+
+## Proposed disposition: demo-only restricted processing (pending ONE owner approval)
+
+- **The change:** one call by a commercial administrator, signed in as themselves. First re-read `processing_release_control`; it is expected to be `hold false`, `[]`, `3`, `version 5`. If anything differs, stop and use the current values.
+  `admin_set_processing_control(true, '{596d264c-db15-4e71-8d71-0d1d55d004af}', 6, 'tb-release-r1 restricted processing: demo company only, generation 6', 5)`
+  - **Expected result:** hold true, canary `{596d264c…}`, floor 6, version 6.
+  - **On `CONTROL_VERSION_CONFLICT`:** stop and re-read.
+- **What it enforces:** the database (check 8) refuses every other company's trial balance checks with `PT503 PROCESSING_HELD`. That covers new runs, processing updates and certifications, on the live site, the preview and direct calls alike. Only the demo company processes, and only at generation 6.
+- **What it does not restrict:** sign-up, sign-in, the website and uploading itself.
+- **The generation floor is not an audience restriction.** It only retires engines older than generation 6.
+- **Emergency stop:** the same day, on any stop condition.
+  `admin_set_processing_control(true, '{}', 6, 'tb-release-r1 processing stopped: <reason>', <current version>)`
+  It clears the canary list, so all processing stops, the demo company's included. The floor stays at 6.
+- **Publish:** no further publish. The live frontend already serves this release.
+- **Residual risks accepted by this approval:**
+  - **CPU headroom is unknown.** Check 9 stays BLOCKED, and passing test files prove nothing about dense inputs within the bounds (2,000 accounts, 10,000 rows, 120,000 cells, 10 MiB). A dense file could be terminated mid-check: a visible 546, nothing certified, recovered after the 600 s lease.
+  - **An inaccurate message.** Non-demo customers would see *"Processing is paused for a short system update. Try again in a few minutes."* This is a known limitation, not fixed in this release.
+  - **Monitoring limitations:**
+    - *Durable* (database): interrupted or expired processing attempts (`abandoned`/`LEASE_EXPIRED`, or `running` past `lease_expires_at`), failed generation-6 runs, refusals by code, the largest `accounts_read`. These identify that an attempt did not finish, **not why**.
+    - *Supplementary* (provider logs, whose retention and access are unverified): `edge_logs` 546s and CPU-limit lines. A missing log is a gap, never "no events".
+    - There is no alerting.
+  - **Stop conditions:** an interrupted or expired attempt on an upload over 1,000 accounts; any 546 seen; an unexpected capacity refusal.
+  - **Review date: 2026-10-25.**
+- **Responsibilities for explicit acceptance** (none assigned):
+  1. the daily monitoring operator (durable query, plus the supplementary logs where available; records kept private);
+  2. the commercial administrator who applies the emergency stop the same day;
+  3. the owner of the 2026-10-25 decision;
+  4. the operator of the weekly orphan inventory.
 
 ## Installation (evidenced; Lovable report, 2026-10-18)
 
@@ -58,68 +149,17 @@ Its runtime and storage evidence (Record B) stands. Its CPU telemetry is unavail
 - **No other CPU source.** `ext/runtime/js/namespaces.js` exposes `EdgeRuntime.getRuntimeMetrics()` only to the MAIN worker, never to a user worker. Its `RuntimeMetrics` (`types/global.d.ts`) holds heap and request counts and no CPU field.
 - **Result:** no in-function measurement change can produce CPU time on this runtime. The only CPU figure is the supervisor's `Shutdown.cpu_time_used`, which is reachable only through the provider's log channel. Source support for that field is not proof that our hosted channel exposes it for a given run.
 
-### Open: retrieve run 2's Shutdown from the existing log channel (no new upload)
-Lovable reported seeing `Shutdown` events with `execution_id` and `cpu_time_used` in `function_logs` for another function. If the same read access returns them for `process-trial-balance`, §6.3 is evaluated **unchanged** on run 2, by its `execution_id`:
-- the `Boot`, `[PTB] check=1` and `Shutdown` events correlate;
-- `edge_logs` shows HTTP 200, with no 546;
-- `cpu_time_used` ≤ 1,500 ms.
+### Telemetry lookup: no correlated value; the gate stays BLOCKED
+The final read-only lookup produced no correlated numeric `cpu_time_used` for either run. The measured-CPU gate (≤ 1,500 ms) stays **BLOCKED**; it is not waived or revised. The disposition is the separate demo-only restricted processing in the close-out above, which supersedes the earlier "provisional pilot acceptance" draft.
 
-If that read access cannot return them, there is **no supported access route**, and the gate is decided by the recommendation below. It is never waived, and never marked PASS by default.
-
-### If the lookup is unavailable
-The measured-CPU gate (HANDOFF §6.3, ≤ 1,500 ms) stays **BLOCKED**. It is neither waived, revised nor marked PASS.
-
-### Separate decision: provisional pilot acceptance (pending the owner's explicit, written decision)
-This is a decision distinct from the measured-CPU gate, which stays BLOCKED. It would allow the generation floor and Publish for a **pilot**, without claiming the gate passed. Successful tested files do not prove CPU headroom across every allowed input (up to 2,000 accounts, 10,000 rows, 120,000 cells, 10 MiB).
-
-**Evidence required before the decision (still to be recorded):**
-1. Runs 1 and 2, both at the account bound: the `edge_logs` HTTP status for each request is 200, and no CPU-limit or `WorkerLimit` shutdown appears for their executions, as far as the logs show.
-2. The hosted CPU hard limit, cited from Supabase's documentation ("2 s CPU time per request"). Plus the source fact that the supervisor terminates at the hard limit, answering 546 (`strategy_per_worker.rs` / `strategy_per_request.rs`).
-3. The refusal, restore and account-identity checks below: PASS.
-
-**Monitoring during the pilot** (read-only, daily by the named operator; records kept private):
-
-```sql
-SELECT count(*) FILTER (WHERE status IN ('failed','abandoned')) AS failed_or_abandoned,
-       count(*) FILTER (WHERE error_code = 'LEASE_EXPIRED') AS lease_expired,
-       count(*) AS runs
-  FROM public.engine_runs
- WHERE function_name = 'process-trial-balance' AND engine_generation = 6 AND started_at >= now() - interval '1 day';
-```
-
-Also record `edge_logs` 546 responses for `process-trial-balance`, and the largest `accounts_read` processed each day.
-
-**Stop conditions.** On any one of these, apply the processing hold (`admin_set_processing_control(true, …)`) and reopen the decision:
-- any 546 or CPU-limit shutdown on `process-trial-balance`;
-- an abandoned (`LEASE_EXPIRED`) generation-6 run on an upload of more than 1,000 accounts;
-- a certification refused for a capacity reason other than the designed refusals (`TOO_MANY_ACCOUNTS`, `TOO_MANY_ROWS`, `TOO_MANY_CELLS`, file size).
-
-Lowering the upload bounds would be a new reviewed policy change, never an ad-hoc edit.
-
-**Review date: 2026-10-25.** On that date, the pilot is either confirmed on a week of hosted evidence or ended. The upload limits (`tb-upload-policy-3`) stay provisional until then.
-
-**Residual risk accepted by this decision:**
-- CPU headroom below the hard limit is unknown.
-- A dense file at the bound could be terminated mid-check. That failure is explicit: a 546, nothing certified, and the attempt recovered after its 600 s lease.
-
-## Remaining hosted checks: open
-- **Refusal and restore (FY2027 demo period): PASS.** Source: Lovable's read-only report and the owner's browser screenshots, 2026-10-18. Contract followed: `20261109100000`.
-
-  **The refused upload:** `091ad003-d203-43dd-8e32-1ed7c2172564` (`refusal-2001-accounts.csv`).
-  - It was refused with `TOO_MANY_ACCOUNTS` and has 0 certifications.
-  - It superseded the run-2 upload while refused. After the explicit browser **Restore the previous trial balance** (the owner completed the confirmation dialog), it is `retired`.
-
-  **The restored predecessor:** `d54f3df1-a02c-4c68-a05a-6b7ea34d557a` (run 2, `resource-2000-accounts-run2.csv`).
-  - It is the sole active upload, `active_processed`, with `superseded_by` NULL.
-  - Its certification is unchanged and an exact match to the pre-replacement baseline: `03ba950c-be43-42c0-96da-d266aa479290`, sequence 76, engine run `1a7dbf0e-f56f-41a3-ac87-07abd0c91162`, certified 2026-10-18 10:59:38.980108+00, full-row SHA-256 `7941016d1676816cda78b001ded7606a484228417821b6a3d6669af5ac05268f`.
-  - The restoration created no new engine run; the processing attempt remains 1.
-- **Replacement over 10 MB** (`replacement-over-10mb.csv`, 12,000,039 B, SHA-256 `68fcd4851afb1f2c70ee6f19a36b7c93a72b4c4b4248f0c0f1ea028a4783e1e8`): open. Expected:
-  - the page refuses the file before anything is uploaded ("larger than 10 MB");
-  - no new `trial_balance_uploads` row exists;
-  - the active upload stays `d54f3df1…`, its certification `03ba950c…` unchanged.
-- Account identity: 4000 / 4100 "Sales" both kept.
-- Busy/retry: PASS, or recorded **not triggered**. Accepting "not triggered" is the owner's decision; it is never marked PASS.
-- Reporting Pack seal: **not exercised**. The official pack is unreachable in production builds (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`). Accepting that is the owner's decision; it is never marked PASS.
+## Functional checks: final
+- **Refusal and restore: PASS.** Refused upload `091ad003-d203-43dd-8e32-1ed7c2172564` (`TOO_MANY_ACCOUNTS`, 0 certifications, later `retired`); restored `d54f3df1-a02c-4c68-a05a-6b7ea34d557a`; certification `03ba950c-be43-42c0-96da-d266aa479290` (sequence 76) byte-identical (`7941016d…5ac05268f`); no new run. Source: Lovable plus the owner's screenshots.
+- **Over-10 MB replacement** (`replacement-over-10mb.csv`, 12,000,039 B, SHA-256 `68fcd485…`):
+  - data preservation **PASS**: no upload, object or engine run; predecessor and certification unchanged;
+  - visible message **FAILED** (DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001).
+- **Same-name identity and review lineage: PASS.** See the close-out.
+- **Busy/retry: NOT EXERCISED** on hosted.
+- **Reporting Pack seal: NOT EXERCISED.** Reachability unresolved in the FS lane.
 
 ## Not release evidence
-DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 (the progress ledger keeps spinning on "Needs review"; unexecuted stages show "Done") is handed to the public website review session, which owns trial balance UX cleanup. It is fixed, display only, in draft PR #164 (head `31b2b9d`), which is not merged or published. It is not part of this release and does not block it.
+The UX defects are listed in the close-out table, owned by the website review (TB UX) lane, and are display only. DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 is fixed in draft #164, unmerged and unpublished.
