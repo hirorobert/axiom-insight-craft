@@ -49,6 +49,15 @@ export const tb = {
 (window as unknown as { __tb: typeof tb }).__tb = tb;
 
 let seq = 1;
+/** For harnesses that keep the synthetic state across a page reload (dev-harness/journey): tables, files and the id sequence. */
+export function harnessSnapshot(): string {
+  return JSON.stringify({ tables: tb.tables, blobs: Object.fromEntries(Object.entries(tb.blobs).map(([k, v]) => [k, Array.from(v)])), seq, requests: tb.requests });
+}
+export function harnessRestore(json: string): void {
+  const s = JSON.parse(json) as { tables: Record<string, Row[]>; blobs: Record<string, number[]>; seq: number; requests: typeof tb.requests };
+  tb.tables = s.tables; tb.requests = s.requests ?? {}; seq = s.seq;
+  tb.blobs = Object.fromEntries(Object.entries(s.blobs).map(([k, v]) => [k, new Uint8Array(v)]));
+}
 const id = (prefix: string) => `${prefix}-${String(seq++).padStart(4, "0")}-0000-4000-8000-000000000000`.slice(0, 36);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const clone = <T,>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));

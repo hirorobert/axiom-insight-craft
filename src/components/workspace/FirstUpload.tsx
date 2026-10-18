@@ -9,7 +9,11 @@
  *     pre-fills the currency from its CONFIRMED period, labelled with that source, and offers the following year as a
  *     suggestion (never pre-selected). Nothing is ever attached by name similarity or file hash.
  *   · No plan: the file can still be stored as a draft; "Start" explains that a plan is needed and leads to the plans
- *     page. On return the stored draft is offered again with what was entered (this browser only).
+ *     page. On return the stored draft is offered again — a "Continue saved upload" card with its filename and saved
+ *     status, choosing another file being the secondary action — with what was entered (this browser only).
+ *   · Once the check has finished (or is already running elsewhere), the result of THAT upload opens directly
+ *     (`onOpenResult` with its upload id). A refusal or a failed check stays here, stated in words with its one next
+ *     action.
  *
  * Every write goes through an existing authority (src/lib/workspace/firstUpload.ts). The stages File read → Columns
  * confirmed → Checks completed are the SERVER's recorded milestones; nothing here reads the trial balance or shows a total.
@@ -20,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
+import { CurrencySelect } from "@/components/currency/CurrencySelect";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { ACCEPTED_EXTENSIONS, classifyCheckAnswer, validateFileChoice } from "@/lib/ingestion/uploadFlow";
@@ -42,6 +47,13 @@ export const FIRST_UPLOAD_COPY = {
   needsPlan: "Checking a trial balance needs a plan. You can upload now: the file is kept privately as a draft while you choose one.",
   confirmHeading: "Confirm what this trial balance is for",
   start: "Start trial balance check",
+  savedHeading: "Saved upload",
+  savedStatus: "Saved privately as a draft. Not yet added to an entity.",
+  continueSaved: "Continue saved upload",
+  chooseAnother: "Choose another file",
+  viewResults: "View results",
+  viewProgress: "View check progress",
+  running: "The file is added and its check is running.",
 } as const;
 
 const PRESETS: { id: PeriodPreset; label: string }[] = [
@@ -58,7 +70,7 @@ type Phase =
   | { kind: "stored"; file: FileMeta; draft: Draft }
   | { kind: "starting"; file: FileMeta; draft: Draft; step: StartStep }
   | { kind: "failed"; file: FileMeta; draft: Draft; result: Extract<StartResult, { kind: "failed" }> }
-  | { kind: "checked"; file: FileMeta; draft: Draft; companyId: string; periodYear: number; stages: Record<"read" | "columns" | "checks", StageStatus> };
+  | { kind: "checked"; file: FileMeta; draft: Draft; companyId: string; periodYear: number; uploadId: string; running: boolean; stages: Record<"read" | "columns" | "checks", StageStatus> };
 
 export interface UploadEntity { id: string; name: string }
 interface ConfirmedPeriod { start: string; end: string; currency: string | null }
@@ -74,7 +86,8 @@ const loadCard = (draftId: string): CardInput | null => {
 
 export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [], canCreateEntity = true, needsPlan = false, compact = false }: {
   onChoosePlan: () => void;
-  onOpenResult: (companyId: string, periodYear: number) => void;
+  /** Opens the result of exactly this upload (entity, period and upload id travel in the destination URL). */
+  onOpenResult: (companyId: string, periodYear: number, uploadId: string) => void;
   /** Entities this user can see (the server re-checks every authority). */
   entities?: readonly UploadEntity[];
   /** False when the plan's entity capacity is in use: only an existing entity can be chosen. */
@@ -85,7 +98,6 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "empty" });
   const [input, setInput] = useState<CardInput>({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" });
-  const [currencyFilter, setCurrencyFilter] = useState("");
   const [currencies, setCurrencies] = useState<{ code: string; name: string }[] | null>(null);
   const [confirmedPeriods, setConfirmedPeriods] = useState<ConfirmedPeriod[] | null>(null);
   const [currencySource, setCurrencySource] = useState<string | null>(null);
@@ -94,7 +106,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
   const fileInput = useRef<HTMLInputElement>(null);
   const keys = useRef<StartKeys | null>(null);
   const progress = useRef<StartProgress>({});
-  const ids = { entity: useId(), existing: useId(), currency: useId(), filter: useId(), end: useId(), start: useId(), problems: useId() };
+  const ids = { entity: useId(), existing: useId(), currency: useId(), currencyHelp: useId(), end: useId(), start: useId(), problems: useId() };
   // The card locks only once something durable exists for this attempt: a NEW entity created, or the period opened (the
   // commit comes after it). Before that, any change starts a fresh attempt: nothing recorded is bound to the old inputs.
   const durable = () => !!progress.current.periodId || (input.mode === "new" && !!progress.current.companyId);
@@ -249,13 +261,14 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     try { sessionStorage.removeItem(CARD_KEY(draft.draftId)); } catch { /* */ }
     const { data } = await supabase.from("trial_balance_uploads").select("processing_result").eq("id", r.progress.uploadId).maybeSingle();
     const stages = stagesFromMilestones(readMilestones((data as { processing_result?: unknown } | null)?.processing_result));
-    setPhase({ kind: "checked", file, draft, companyId: r.progress.companyId, periodYear: r.periodYear, stages });
+    setPhase({ kind: "checked", file, draft, companyId: r.progress.companyId, periodYear: r.periodYear, uploadId: r.progress.uploadId, running: r.kind === "running", stages });
+    // The result of this exact upload opens directly; the panel below stays as the way there if it does not.
+    onOpenResult(r.progress.companyId, r.periodYear, r.progress.uploadId);
   };
 
   const reset = () => { keys.current = null; progress.current = {}; replaces.current = null; setInput({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" }); setPhase({ kind: "empty" }); };
 
   // ── Render ────────────────────────────────────────────────────────────────────────────────────────────────────────
-  const filtered = (currencies ?? []).filter((c) => !currencyFilter || `${c.code} ${c.name}`.toLowerCase().includes(currencyFilter.toLowerCase()) || c.code === input.currency);
   const file = phase.kind === "empty" ? null : phase.file;
 
   return (
@@ -271,6 +284,22 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
         </p>
       )}
 
+      {phase.kind === "empty" && resumable && (
+        <div className={compact ? "mt-3 border border-border bg-background px-4 py-3" : "mt-6 border border-border bg-background px-4 py-4"} data-testid="first-upload-saved-draft">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{FIRST_UPLOAD_COPY.savedHeading}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <FileSpreadsheet className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="break-all text-[14px] font-medium text-foreground" data-testid="first-upload-saved-name">{resumable.file.name}</p>
+              <p className="text-[13px] text-muted-foreground" data-testid="first-upload-saved-status">{sizeWords(resumable.file.size)} · {FIRST_UPLOAD_COPY.savedStatus}</p>
+            </div>
+            <Button variant={compact ? "outline" : "default"} onClick={resume} className="w-full sm:w-auto" data-testid="first-upload-continue-draft">
+              {FIRST_UPLOAD_COPY.continueSaved}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {(phase.kind === "empty" || phase.kind === "storing") && (
         <div
           className={compact ? "mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border border-dashed border-border bg-background px-4 py-3" : "mt-6 border-2 border-dashed border-border bg-background px-5 py-8 text-center"}
@@ -282,19 +311,11 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
           <p className={compact ? "text-[14px] text-foreground" : "mt-2 text-[14px] text-foreground"}>Drop the file here, or</p>
           <input ref={fileInput} type="file" accept={ACCEPTED_EXTENSIONS.join(",")} className="sr-only" id="first-upload-file" aria-label="Choose a trial balance file" tabIndex={-1}
             onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ""; }} data-testid="first-upload-input" />
-          <Button variant={compact ? "outline" : "default"} className={compact ? "" : "mt-3"} onClick={() => fileInput.current?.click()} disabled={phase.kind === "storing"} data-testid="first-upload-choose">
+          <Button variant={compact || resumable ? "outline" : "default"} className={compact ? "" : "mt-3"} onClick={() => fileInput.current?.click()} disabled={phase.kind === "storing"} data-testid="first-upload-choose">
             {phase.kind === "storing" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-            {phase.kind === "storing" ? FIRST_UPLOAD_COPY.storing : FIRST_UPLOAD_COPY.choose}
+            {phase.kind === "storing" ? FIRST_UPLOAD_COPY.storing : resumable ? FIRST_UPLOAD_COPY.chooseAnother : FIRST_UPLOAD_COPY.choose}
           </Button>
           <p className={compact ? "text-[13px] text-muted-foreground" : "mt-3 text-[13px] text-muted-foreground"} data-testid="first-upload-limits">{FIRST_UPLOAD_COPY.limits}</p>
-          {phase.kind === "empty" && resumable && (
-            <p className={compact ? "basis-full text-[14px]" : "mt-3 text-[14px]"}>
-              <button type="button" onClick={resume} className="underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="first-upload-resume">
-                Continue with “{resumable.file.name}”
-              </button>{" "}
-              <span className="text-muted-foreground">(saved privately as a draft)</span>
-            </p>
-          )}
           {phase.kind === "empty" && phase.error && (
             <p role="alert" className={compact ? "basis-full text-[14px] text-destructive" : "mt-3 text-[14px] text-destructive"} data-testid="first-upload-error">{phase.error}</p>
           )}
@@ -401,16 +422,9 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
 
           <div>
             <Label htmlFor={ids.currency}>Trial balance currency</Label>
-            <div className="mt-1 grid gap-2 sm:grid-cols-2">
-              <Input id={ids.filter} aria-label="Search currencies" placeholder="Search by code or name" value={currencyFilter} disabled={locked}
-                onChange={(e) => setCurrencyFilter(e.target.value)} className="bg-white" data-testid="confirm-currency-search" />
-              <select id={ids.currency} value={input.currency} onChange={(e) => { set({ currency: e.target.value }); setCurrencySource(null); }} disabled={locked || currencies === null}
-                className="h-10 border border-input bg-white px-3 text-[14px]" data-testid="confirm-currency">
-                <option value="">{currencies === null ? "Loading currencies…" : "Choose the currency"}</option>
-                {filtered.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
-              </select>
-            </div>
-            <p className="mt-1 text-[13px] text-muted-foreground" data-testid="confirm-currency-source">
+            <CurrencySelect id={ids.currency} value={input.currency} options={currencies ?? []} loading={currencies === null} disabled={locked}
+              onChange={(code) => { set({ currency: code }); setCurrencySource(null); }} describedBy={ids.currencyHelp} required className="mt-1 sm:max-w-md" testId="confirm-currency" />
+            <p id={ids.currencyHelp} className="mt-1 text-[13px] text-muted-foreground" data-testid="confirm-currency-source">
               {currencySource && input.currency ? currencySource : "The currency the trial balance amounts are in. Nothing is assumed from the entity's country."}
             </p>
           </div>
@@ -450,7 +464,10 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
               </li>
             ))}
           </ol>
-          <Button className="mt-5" onClick={() => onOpenResult(phase.companyId, phase.periodYear)} data-testid="first-upload-open-result">See the result</Button>
+          {phase.running && <p className="mt-3 text-[14px] text-foreground" role="status" data-testid="first-upload-running">{FIRST_UPLOAD_COPY.running}</p>}
+          <Button className="mt-5" onClick={() => onOpenResult(phase.companyId, phase.periodYear, phase.uploadId)} data-testid="first-upload-open-result">
+            {phase.running ? FIRST_UPLOAD_COPY.viewProgress : FIRST_UPLOAD_COPY.viewResults}
+          </Button>
         </div>
       )}
     </SurfaceCard>

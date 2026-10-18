@@ -4,10 +4,15 @@
  * (the certification ledger), the same model the checks, the technical ledger and the Overview read.
  *
  * The status is a control: it takes the user straight to the checks that decided it.
+ *
+ * Two distinct destinations: the verdict's action (e.g. "Review account classifications", which opens and focuses the
+ * account review) leads; "File options" is a secondary disclosure for the FILE itself — replace or remove it
+ * (ManageTrialBalance) and open its upload history. It opens on arrival when the page was asked to show the file's
+ * options (`?manage=source`).
  */
 
-import type { ReactNode } from "react";
-import { ArrowRight, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
+import { ArrowRight, ChevronDown, ChevronRight, History, Loader2, RefreshCw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import { FINDING_HEADING, FINDING_ORDER } from "@/lib/workspace/resultStatus";
@@ -28,6 +33,12 @@ const ACTION_ICON: Record<NonNullable<TrialBalanceVerdict["primaryAction"]>["kin
   review_classifications: <ArrowRight className="mr-2 h-4 w-4" />,
 };
 
+/** What the card's button says. The account review is a review, so its action says so (the verdict keeps its kind). */
+const CARD_ACTION_LABEL: Partial<Record<NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"], string>> = {
+  review_classifications: "Review account classifications",
+};
+const FILE_OPTIONS_LABEL = "File options";
+
 function uploadedLine(uploadedAt: string, fileSize: number): string {
   const d = new Date(uploadedAt);
   const when = Number.isNaN(d.getTime()) ? null : d.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
@@ -44,6 +55,9 @@ export function CurrentTrialBalanceCard({
   onPrimary,
   management,
   primaryEmphasis = "primary",
+  fileOptionsOpen = false,
+  onShowHistory,
+  historyCount,
 }: {
   fileName: string;
   uploadedAt: string;
@@ -54,10 +68,18 @@ export function CurrentTrialBalanceCard({
   onPrimary: (kind: NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"]) => void;
   /** Replace / Remove as quiet secondary actions (ManageTrialBalance, inline variant). */
   management?: ReactNode;
-  /** Whether the verdict's action leads the page (reviewActionHierarchy): secondary while review decisions are ready to save. */
+  /** Whether the verdict's action leads the page (reviewActionHierarchy). */
   primaryEmphasis?: "primary" | "secondary";
+  /** Open "File options" on arrival (the page was asked to show the file's options). */
+  fileOptionsOpen?: boolean;
+  /** Opens and focuses the upload history section. Absent: no history control. */
+  onShowHistory?: () => void;
+  historyCount?: number;
 }) {
   const tone = TONE[verdict.tone];
+  const [optionsOpen, setOptionsOpen] = useState(fileOptionsOpen);
+  const optionsId = useId();
+  const hasOptions = !!management || !!onShowHistory;
   const totals = verdict.totals;
   const outOfBalance = isOutOfBalance(totals);
   // Row-level corrections the server recorded; the one already stated as the reason is not repeated.
@@ -144,7 +166,7 @@ export function CurrentTrialBalanceCard({
         </dl>
       )}
 
-      {(verdict.primaryAction || management) && (
+      {(verdict.primaryAction || hasOptions) && (
         <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:px-7">
           {verdict.primaryAction && (
             <Button
@@ -157,10 +179,34 @@ export function CurrentTrialBalanceCard({
               className="h-auto min-h-11 w-full whitespace-normal rounded-none px-5 py-2.5 text-left text-[14px] font-semibold leading-snug shadow-none sm:w-auto"
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : ACTION_ICON[verdict.primaryAction.kind]}
-              {verdict.primaryAction.label}
+              {CARD_ACTION_LABEL[verdict.primaryAction.kind] ?? verdict.primaryAction.label}
             </Button>
           )}
-          {management}
+          {hasOptions && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOptionsOpen((o) => !o)}
+              aria-expanded={optionsOpen}
+              aria-controls={optionsId}
+              data-testid="trial-balance-file-options"
+              className="h-11 w-full justify-between rounded-none px-3 text-[13px] font-medium text-foreground sm:w-auto sm:justify-center"
+            >
+              {FILE_OPTIONS_LABEL}
+              <ChevronDown className={`ml-2 h-4 w-4 text-muted-foreground transition-transform ${optionsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </Button>
+          )}
+          {hasOptions && optionsOpen && (
+            <div id={optionsId} role="group" aria-label={FILE_OPTIONS_LABEL} className="flex basis-full flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:flex-wrap sm:items-center" data-testid="trial-balance-file-options-panel">
+              {management}
+              {onShowHistory && (
+                <Button type="button" variant="outline" size="sm" onClick={onShowHistory} className="h-9 rounded-none text-[13px] shadow-none" data-testid="trial-balance-show-history">
+                  <History className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Upload history{typeof historyCount === "number" ? ` · ${historyCount}` : ""}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>
