@@ -67,33 +67,70 @@ The review-confirmation defect is display only. The database shows the confirmat
 
 Kept separate, each under its own hold: FS reconciliation (including Reporting Pack reachability), privacy containment, pricing #161 and TB UX.
 
-## Proposed disposition: demo-only restricted processing (pending ONE owner approval)
+## Disposition (owner decision, 2026-10-18): continued public processing with accepted residual risk
 
-- **The change:** one call by a commercial administrator, signed in as themselves. First re-read `processing_release_control`; it is expected to be `hold false`, `[]`, `3`, `version 5`. If anything differs, stop and use the current values.
-  `admin_set_processing_control(true, '{596d264c-db15-4e71-8d71-0d1d55d004af}', 6, 'tb-release-r1 restricted processing: demo company only, generation 6', 5)`
-  - **Expected result:** hold true, canary `{596d264c…}`, floor 6, version 6.
-  - **On `CONTROL_VERSION_CONFLICT`:** stop and re-read.
-- **What it enforces:** the database (check 8) refuses every other company's trial balance checks with `PT503 PROCESSING_HELD`. That covers new runs, processing updates and certifications, on the live site, the preview and direct calls alike. Only the demo company processes, and only at generation 6.
-- **What it does not restrict:** sign-up, sign-in, the website and uploading itself.
-- **The generation floor is not an audience restriction.** It only retires engines older than generation 6.
-- **Emergency stop:** the same day, on any stop condition.
-  `admin_set_processing_control(true, '{}', 6, 'tb-release-r1 processing stopped: <reason>', <current version>)`
-  It clears the canary list, so all processing stops, the demo company's included. The floor stays at 6.
-- **Publish:** no further publish. The live frontend already serves this release.
-- **Residual risks accepted by this approval:**
-  - **CPU headroom is unknown.** Check 9 stays BLOCKED, and passing test files prove nothing about dense inputs within the bounds (2,000 accounts, 10,000 rows, 120,000 cells, 10 MiB). A dense file could be terminated mid-check: a visible 546, nothing certified, recovered after the 600 s lease.
-  - **An inaccurate message.** Non-demo customers would see *"Processing is paused for a short system update. Try again in a few minutes."* This is a known limitation, not fixed in this release.
-  - **Monitoring limitations:**
-    - *Durable* (database): interrupted or expired processing attempts (`abandoned`/`LEASE_EXPIRED`, or `running` past `lease_expires_at`), failed generation-6 runs, refusals by code, the largest `accounts_read`. These identify that an attempt did not finish, **not why**.
-    - *Supplementary* (provider logs, whose retention and access are unverified): `edge_logs` 546s and CPU-limit lines. A missing log is a gap, never "no events".
-    - There is no alerting.
-  - **Stop conditions:** an interrupted or expired attempt on an upload over 1,000 accounts; any 546 seen; an unexpected capacity refusal.
-  - **Review date: 2026-10-25.**
-- **Responsibilities for explicit acceptance** (none assigned):
-  1. the daily monitoring operator (durable query, plus the supplementary logs where available; records kept private);
-  2. the commercial administrator who applies the emergency stop the same day;
-  3. the owner of the 2026-10-25 decision;
-  4. the operator of the weekly orphan inventory.
+The owner chose continued public trial balance processing with accepted residual risk. It is **not** a controlled pilot, and no demo-only restriction is applied.
+- `hold` stays **false** and `canary_company_ids` stays **empty**.
+- The current upload limits (`tb-upload-policy-3`) are retained.
+- Numeric CPU measurement stays **BLOCKED**; it is not labelled PASS.
+
+**Prepared (not applied): the generation-6 floor update.** A commercial administrator applies it, signed in as themselves.
+1. Re-read the control row: `SELECT hold, canary_company_ids, min_engine_generation, version FROM public.processing_release_control;`. It is expected to be `false`, `{}`, `3`, `5`; use the version actually read.
+2. Call: `admin_set_processing_control(false, '{}', 6, 'tb-release-r1: generation 6 floor; continued public processing, residual risk accepted', <version read in step 1>)`
+3. Expected: `hold false`, canary `{}`, `min_engine_generation 6`, version + 1. On `CONTROL_VERSION_CONFLICT`, stop and re-read. The floor can only rise, so it cannot be undone. Only generation 6 is deployed, so no deployed engine is retired.
+
+**Emergency hold (available at any time, the same day on a stop condition):**
+`admin_set_processing_control(true, '{}', 6, 'tb-release-r1 emergency hold: <reason>', <current version>)`
+- The database then refuses every new check, everywhere, with `PT503 PROCESSING_HELD`.
+- Release it with the same call with `hold` false, after the cause is understood and recorded.
+
+**Failure and retry behaviour, as customers see it** (`src/lib/ingestion/uploadFlow.ts`, `process-trial-balance`):
+- **Over a bound** (file > 10 MB in the browser; more than 2,000 accounts, 10,000 rows or 120,000 cells on the server): an explicit refusal naming the limit. Nothing is certified and the file stays saved.
+  - Over 10 MB on the replace path: only a transient toast (DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001).
+  - A refused replacement supersedes the previous trial balance until **Restore the previous trial balance** (verified).
+- **Busy** (`503 PROCESSING_BUSY` with `Retry-After`), a dropped connection, or a 5xx including a CPU-limit **546**: *"The file is saved, but the check could not be completed — the connection dropped or the service was busy. Check again; it will not be counted twice."* The retry reuses the same request.
+- **A killed or interrupted attempt:**
+  - While its 600 s lease runs, a retry is answered "in progress" and the page waits.
+  - After the lease, the retry abandons the attempt (`LEASE_EXPIRED`) and answers *"The earlier check of this file did not finish. Check it again."*. The next check is a new request.
+  - A failed attempt never certifies anything, and a late finish by a stale worker is refused.
+- **During an emergency hold:**
+  - an upload's check shows the generic "service was busy … Check again" message above;
+  - a reprocess shows *"Checking is paused briefly for a system update. Try again in a few minutes."*
+
+  Neither says how long the hold lasts; this is a known limitation.
+
+**Residual risks accepted by this decision:**
+- **Unknown CPU headroom** for dense inputs within the limits. Successful test files do not prove headroom across all allowed inputs. A file could be terminated mid-check, with the 546 → "did not finish" path above. It is visible to the customer, and nothing is certified.
+- **Monitoring is manual, without alerting.**
+  - *Durable* (database): interrupted or expired processing attempts (`abandoned`/`LEASE_EXPIRED`, or `running` past `lease_expires_at`), failed generation-6 runs, refusals by code, the largest `accounts_read`. These show that an attempt did not finish, **not why**.
+  - *Supplementary* (provider logs, retention and access unverified): `edge_logs` 546s and CPU-limit lines. A missing log is a gap, not "no events".
+- **Stop conditions** (apply the emergency hold the same day):
+  - an interrupted or expired attempt on an upload over 1,000 accounts;
+  - any observed 546 or CPU-limit line;
+  - an unexpected capacity refusal.
+- **Review date: 2026-10-25.** Continue, lower the limits through a reviewed policy change, or hold.
+
+**Daily durable check** (read-only):
+
+```sql
+SELECT count(*) FILTER (WHERE status = 'failed') AS failed,
+       count(*) FILTER (WHERE status = 'abandoned' AND error_code = 'LEASE_EXPIRED') AS expired,
+       count(*) FILTER (WHERE status = 'running' AND lease_expires_at < now()) AS running_past_lease,
+       count(*) AS runs
+  FROM public.engine_runs
+ WHERE function_name = 'process-trial-balance' AND engine_generation = 6 AND started_at >= now() - interval '1 day';
+```
+
+**Responsibilities for explicit acceptance** (none assigned):
+1. the daily monitoring operator;
+2. the commercial administrator who applies the floor update, and the emergency hold when needed;
+3. the owner of the 2026-10-25 review;
+4. the weekly orphan-inventory operator.
+
+**Outstanding UX defects** (website review / TB UX lane, display only, not blocking):
+- DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 (fixed in draft #164, unmerged);
+- DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001;
+- DEFECT-UX-TB-REVIEW-CONFIRMATION-VISIBILITY-001.
 
 ## Installation (evidenced; Lovable report, 2026-10-18)
 
@@ -150,7 +187,7 @@ Its runtime and storage evidence (Record B) stands. Its CPU telemetry is unavail
 - **Result:** no in-function measurement change can produce CPU time on this runtime. The only CPU figure is the supervisor's `Shutdown.cpu_time_used`, which is reachable only through the provider's log channel. Source support for that field is not proof that our hosted channel exposes it for a given run.
 
 ### Telemetry lookup: no correlated value; the gate stays BLOCKED
-The final read-only lookup produced no correlated numeric `cpu_time_used` for either run. The measured-CPU gate (≤ 1,500 ms) stays **BLOCKED**; it is not waived or revised. The disposition is the separate demo-only restricted processing in the close-out above, which supersedes the earlier "provisional pilot acceptance" draft.
+The final read-only lookup produced no correlated numeric `cpu_time_used` for either run. The measured-CPU gate (≤ 1,500 ms) stays **BLOCKED**; it is not waived or revised. The disposition is the owner's decision above (continued public processing with accepted residual risk), which supersedes the earlier "provisional pilot acceptance" draft.
 
 ## Functional checks: final
 - **Refusal and restore: PASS.** Refused upload `091ad003-d203-43dd-8e32-1ed7c2172564` (`TOO_MANY_ACCOUNTS`, 0 certifications, later `retired`); restored `d54f3df1-a02c-4c68-a05a-6b7ea34d557a`; certification `03ba950c-be43-42c0-96da-d266aa479290` (sequence 76) byte-identical (`7941016d…5ac05268f`); no new run. Source: Lovable plus the owner's screenshots.
