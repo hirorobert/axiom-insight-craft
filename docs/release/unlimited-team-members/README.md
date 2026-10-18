@@ -63,7 +63,7 @@ All of this is local. Nothing ran against a hosted environment.
 
 | Check | Result |
 |---|---|
-| `scripts/db-proof/unlimitedTeamMembers.mjs` (embedded PostgreSQL 16, full chain, fixtures created under the old model) | **28/28** |
+| `scripts/db-proof/unlimitedTeamMembers.mjs` (embedded PostgreSQL 16, full chain, fixtures created under the old model) | **37/37** |
 | Seat, commercial and authority proofs over the chain including the migration: `entitlements` 67, `planCapabilities` 112, `paidTermPreservation` 18, `paymentProviders` 47, `annualTerm` 91, `sandboxLicenceIsolation` 45, `snippeLedger` 30, `verifiedChargeOutcomes` 28, `paymentReversalAuthority` 38, `setupAuthority` 63, `serviceEnquiries` 274, `serviceWithholding`, `uploadLifecycle` 207, `run` 279, and the trial-balance, reconciliation, close-review, statement and sign-off proofs | all pass |
 | `billingSuspension.mjs` | **63/63.** It now stops before this migration, because its fixtures are Practice and Firm accounts with a numeric allowance. It still proves the numeric model, which governs Enterprise and the no-plan fallback, and the new proof re-proves those cases after the change. |
 | Vitest (catalogue mirror, seat state, roster, landing, plans, payment screens, migration registries, `databaseInert`) | pass. See the PR for the full-suite run. |
@@ -88,6 +88,53 @@ All of this is local. Nothing ran against a hosted environment.
 - `before-landing-plans-*.png` and `after-landing-plans-*.png`: the landing capacity table.
 
 Prices, entities and actions are identical. Only the team-member wording changes, and there is no horizontal scroll at 375 px.
+
+### 5a. Coverage map: suspension, revocation and reactivation after the migration
+
+Every row is proved by `scripts/db-proof/unlimitedTeamMembers.mjs` on the full chain, so **after** `20261110100000`. That proof passes 37/37, and it runs as its own CI step. `billingSuspension.mjs` (63/63) still proves the numeric model before it.
+
+| Behaviour | Proved after the migration by (check name, abridged) |
+|---|---|
+| A suspended person has no access (RLS activity predicate) | "a person suspended before the change stays suspended…"; "restoring an unlimited plan reactivates NOBODY by itself" |
+| A suspended person gets exactly an outsider's answer: paid-action authority, seat state, workspace access, member rows | "a suspended person gets exactly an outsider's answer…" |
+| A suspended person cannot be re-invited (`named_user_suspended`, pre-check `NAMED_USER_SUSPENDED`) | "re-inviting a suspended person is refused…" |
+| Suspension history is append-only: no client write, no delete, no rewrite; changes only by a single lift | "suspension history stays append-only on the new chain…" |
+| Loss of the plan suspends everyone but the holder; the holder keeps access | "losing the plan still falls back to the account holder only…" |
+| Restoring an unlimited plan reactivates nobody automatically | "restoring an unlimited plan reactivates NOBODY by itself…" |
+| Reactivation only by the account holder, version-checked: stale version, unrelated person and self refused | "the holder's reactivation is version-checked…" |
+| 12 simultaneous reactivations from one roster version: exactly one applies; only the chosen people are reactivated | "12 simultaneous reactivations from one roster version…" |
+| Reactivation under unlimited never suspends anyone else, and is audited once with the people it lifted | "a reactivation under unlimited never suspends anyone else…" |
+| Revocation ends access at once, ends capabilities, hides member rows; suspension history is kept | "a revoked member loses access at once…"; "revoking a reactivated member ends their access…" |
+| Invitation expiry and cancellation | "invitation lifecycle: an expired invitation cannot be accepted; a cancelled one cannot be accepted" |
+| Enterprise (numeric): a reduced allowance suspends all but the holder; reactivation within the allowance, never beyond | "Enterprise (numeric allowance) keeps the original rule…"; "Enterprise keeps its agreed numeric allowance…" |
+| Membership never confers authority: no self-retitle, no self-grant, no review or approval capability on joining | "a member cannot change their own title…"; "joining as a preparer or viewer confers no review or approval capability" |
+
+### 5b. Read-only hosted query: existing paid-seat licences
+
+`hosted_paid_seat_licences.sql` runs one `READ ONLY` transaction and then `ROLLBACK`. It returns ids and counts only. It lists:
+- every licence recording purchased seats, and whether it is current;
+- how each quantity was recorded (the audited administrator action);
+- whether any seat price was ever purchasable, and any payment naming seats (expected: none);
+- agreed `NAMED_USER_SEATS` overrides in force;
+- open suspensions by reason and plan;
+- a one-line summary.
+
+It works on today's hosted schema. It was validated read-only on staging, where it reported 0 licences with seats and 38 open test suspensions; that is staging data, not production.
+
+**Run it before applying the migration.** Its answers decide §6 items 1–3.
+
+### 5c. Customer-facing wording checklist (outside this repository, or conditional)
+
+| # | Where | Today | Change to |
+|---|---|---|---|
+| 1 | Polar product descriptions: Solo, Practice and Firm, in both the production and sandbox organizations | Any "1 named user", "additional users", seat price | "Unlimited team members". Keep entities, term and price. Do not mention seats. |
+| 2 | Polar checkout and receipt or invoice line text, if a custom description is set | Same | Same |
+| 3 | `/terms` (`src/pages/Terms.tsx`) | No seat or named-user wording (checked) | No change needed. If the legal review adds plan limits, state "unlimited team members on Solo, Practice and Firm; Enterprise as agreed". |
+| 4 | Order-confirmation and billing emails (provider or SMTP templates, not in this repository) | Check for seat wording | Remove any seat or additional-user reference |
+| 5 | Sales and Enterprise materials, `billing@` replies | "USD 200 per additional user" | Withdrawn. Enterprise team members stay "as agreed". |
+| 6 | In-app copy kept on purpose, now shown only for Enterprise or no-plan accounts: "No named-user seat is free", "An invitation is waiting for a seat", "Suspended: no named-user seat" (`FirmManagementPanel.tsx`, `Dashboard.tsx`) | Accurate for a numeric allowance | No change |
+| 7 | Checkout text about an existing term's "additional named users" (`Checkout.tsx`, placement `BLOCKED_SEATS`) | Shown only for a licence recording paid seats | Pending §6 decisions 1–2 |
+| 8 | Public structured data and SEO (`publicPages.json`) | Updated in this PR | Done |
 
 ## 6. Remaining commercial decisions (not made here)
 

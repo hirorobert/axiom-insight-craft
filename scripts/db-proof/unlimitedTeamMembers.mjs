@@ -348,6 +348,97 @@ async function main() {
     return active.every(Boolean) ? true : active;
   });
 
+  group("Suspension, revocation and reactivation after the change (every path re-proved on the new chain)");
+  const authz = async (who, co, capCode = "COMPARATIVE_REPORTING") => (await one(user(who), "SELECT public.authorize_paid_action($1,$2) r", [co, capCode])).r;
+  const suspendAll = async (acct) => {   // loss of the plan: the account falls back to the holder; everyone else suspended
+    await admin.query("UPDATE public.commercial_licences SET status='EXPIRED', effective_end = now() - interval '1 minute' WHERE id=$1", [acct.licence]);
+    await admin.query("SELECT public.reconcile_named_user_allowance($1)", [acct.uid]);
+  };
+  const restorePlan = async (acct, code) => {   // a new current licence on an unlimited plan (renewal)
+    acct.licence = (await admin.query(`INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats)
+      VALUES ($1,$2,'ACTIVE','ADMIN_GRANT',now() - interval '1 second',0) RETURNING id`, [acct.bc, await planId(code)])).rows[0].id;
+    await admin.query("SELECT public.reconcile_named_user_allowance($1)", [acct.uid]);
+  };
+  const openSuspensions = (acct) => count("SELECT count(*) n FROM public.named_user_billing_suspensions WHERE account_user_id=$1 AND lifted_at IS NULL", [acct.uid]);
+  const lapsed = await account("PRACTICE");
+  const lapsedPeople = [];
+  for (let i = 0; i < 4; i++) lapsedPeople.push((await join(lapsed)).p);
+  await suspendAll(lapsed);
+  const S = lapsedPeople[0];
+  const sameDenial = async (fn) => JSON.stringify(await fn(S)) === JSON.stringify(await fn(U.outsider));
+  await check("a suspended person gets exactly an outsider's answer: paid-action authority, seat state, workspace access, member rows", async () =>
+    (await sameDenial((w) => authz(w, lapsed.co)))
+    && (await sameDenial(async (w) => (await one(user(w), "SELECT public.get_workspace_seat_capacity($1) r", [lapsed.co])).r))
+    && (await sameDenial(async (w) => (await q(user(w), "SELECT * FROM public.get_workspace_access($1)", [lapsed.co])).length))
+    && (await sameDenial(async (w) => (await q(user(w), "SELECT id FROM public.firm_members WHERE company_id=$1", [lapsed.co])).length))
+    ? true : "a suspended person sees more than an outsider");
+  await check("re-inviting a suspended person is refused (named_user_suspended); the pre-invitation check says NAMED_USER_SUSPENDED", async () => {
+    const r = await reserve(lapsed.co, S, lapsed.uid);
+    const pre = (await one(SERVICE, "SELECT public.seat_check_for_invitation($1,$2) r", [lapsed.co, S])).r;
+    return ["named_user_suspended", "already_member"].includes(r.outcome) && pre.allowed === false && pre.code === "NAMED_USER_SUSPENDED" ? true : { r, pre };
+  });
+  await check("suspension history stays append-only on the new chain: no client write, no delete; a suspension changes only by a single lift", async () => {
+    const del = await codeOf(() => admin.query("DELETE FROM public.named_user_billing_suspensions WHERE account_user_id=$1", [lapsed.uid]));
+    const client = await codeOf(() => q(user(lapsed.uid), "UPDATE public.named_user_billing_suspensions SET lifted_at=now() WHERE account_user_id=$1", [lapsed.uid]));
+    const rewrite = await codeOf(() => admin.query("UPDATE public.named_user_billing_suspensions SET reason='OTHER' WHERE account_user_id=$1", [lapsed.uid]));
+    return del === "P0001" && client !== "ok" && rewrite === "P0001" && (await openSuspensions(lapsed)) === 4 ? true : { del, client, rewrite, open: await openSuspensions(lapsed) };
+  });
+  await check("restoring an unlimited plan reactivates NOBODY by itself: all four stay suspended with no access", async () => {
+    await restorePlan(lapsed, "PRACTICE");
+    const c = await cap(lapsed);
+    const active = await Promise.all(lapsedPeople.map((p) => isActive(lapsed, p)));
+    return c.unlimited === true && active.every((a) => a === false) && (await openSuspensions(lapsed)) === 4 ? true : { c, active };
+  });
+  await check("the holder's reactivation is version-checked: a stale roster version and an invalid selection change nothing", async () => {
+    const stale = (await one(user(lapsed.uid), "SELECT public.choose_active_named_users($1::uuid[], 'not-the-version') r", [[S]])).r;
+    const r = await roster(lapsed);
+    const invalid = (await one(user(lapsed.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [[U.outsider], r.roster_version])).r;
+    const self = (await one(user(lapsed.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [[lapsed.uid], r.roster_version])).r;
+    return stale.outcome === "stale_selection" && invalid.outcome === "invalid_selection" && self.outcome === "invalid_selection" && (await openSuspensions(lapsed)) === 4
+      ? true : { stale, invalid, self };
+  });
+  await check(`${CONCURRENCY} simultaneous reactivations from one roster version: exactly one applies, the rest are stale; only the chosen people are reactivated`, async () => {
+    const r = await roster(lapsed);
+    const outs = await Promise.all(Array.from({ length: CONCURRENCY }, () => one(user(lapsed.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [[lapsedPeople[0], lapsedPeople[1]], r.roster_version]).then((x) => x.r.outcome)));
+    const active = await Promise.all(lapsedPeople.map((p) => isActive(lapsed, p)));
+    return outs.filter((o) => o === "applied").length === 1 && outs.filter((o) => o === "stale_selection").length === CONCURRENCY - 1
+      && JSON.stringify(active) === JSON.stringify([true, true, false, false]) && (await openSuspensions(lapsed)) === 2 ? true : { outs, active };
+  });
+  await check("a reactivation under unlimited never suspends anyone else, and is audited once with the people it lifted", async () => {
+    const r = await roster(lapsed);
+    const before = await count("SELECT count(*) n FROM public.billing_audit_events WHERE billing_customer_id=$1 AND action='NAMED_USER_SELECTION_APPLIED'", [lapsed.bc]);
+    const out = (await one(user(lapsed.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [[lapsedPeople[2]], r.roster_version])).r;
+    const active = await Promise.all(lapsedPeople.map((p) => isActive(lapsed, p)));
+    const after = await count("SELECT count(*) n FROM public.billing_audit_events WHERE billing_customer_id=$1 AND action='NAMED_USER_SELECTION_APPLIED'", [lapsed.bc]);
+    return out.outcome === "applied" && JSON.stringify(out.suspended) === "[]" && JSON.stringify(active) === JSON.stringify([true, true, true, false]) && after === before + 1
+      ? true : { out, active, before, after };
+  });
+  await check("revoking a reactivated member ends their access at once; their suspension history is kept", async () => {
+    const m = lapsedPeople[1];
+    await q(user(lapsed.uid), "DELETE FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [lapsed.co, m]);
+    const active = await isActive(lapsed, m);
+    const access = await workspaceAccess(m, lapsed.co);
+    const history = await count("SELECT count(*) n FROM public.named_user_billing_suspensions WHERE account_user_id=$1 AND user_id=$2", [lapsed.uid, m]);
+    return (await accepted(lapsed, m)) === false && (access === null || access?.access === false) && history === 1 ? true : { active, access, history };
+  });
+  await check("Enterprise (numeric allowance) keeps the original rule: a reduced allowance suspends everyone but the holder; the holder reactivates within the allowance, never beyond it", async () => {
+    const ent = await account("ENTERPRISE");
+    await admin.query(`INSERT INTO public.entitlement_overrides (billing_customer_id, feature_code, capacity_value, effective_start, granted_by, reason)
+      VALUES ($1,'NAMED_USER_SEATS',3,now() - interval '1 day',$2,'agreed Enterprise allowance')`, [ent.bc, U.admin]);
+    const people = [(await join(ent)).p, (await join(ent)).p];
+    await admin.query("UPDATE public.entitlement_overrides SET revoked_at = now(), revoked_by = $2 WHERE billing_customer_id=$1 AND feature_code='NAMED_USER_SEATS'", [ent.bc, U.admin]);
+    await admin.query(`INSERT INTO public.entitlement_overrides (billing_customer_id, feature_code, capacity_value, effective_start, granted_by, reason)
+      VALUES ($1,'NAMED_USER_SEATS',2,now() - interval '1 second',$2,'agreed reduction')`, [ent.bc, U.admin]);
+    await admin.query("SELECT public.reconcile_named_user_allowance($1)", [ent.uid]);
+    const afterReduction = await Promise.all(people.map((p) => isActive(ent, p)));
+    const r = await roster(ent);
+    const out = (await one(user(ent.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [[people[1]], r.roster_version])).r;
+    const tooMany = (await one(user(ent.uid), "SELECT public.choose_active_named_users($1::uuid[], $2) r", [people, (await roster(ent)).roster_version])).r;
+    const active = await Promise.all(people.map((p) => isActive(ent, p)));
+    return r.unlimited === false && afterReduction.every((a) => a === false) && out.outcome === "applied" && tooMany.outcome === "selection_exceeds_allowance"
+      && JSON.stringify(active) === JSON.stringify([false, true]) ? true : { r: { u: r.unlimited, o: r.over_allowance }, afterReduction, out, tooMany, active };
+  });
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\nassertions: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
   return failed.length === 0;
