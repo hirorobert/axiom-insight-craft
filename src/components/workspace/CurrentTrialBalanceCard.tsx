@@ -11,8 +11,8 @@
  * options (`?manage=source`).
  */
 
-import { useId, useState, type ReactNode } from "react";
-import { ArrowRight, ChevronDown, ChevronRight, History, Loader2, RefreshCw, Upload } from "lucide-react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { AlertCircle, ArrowRight, ChevronDown, ChevronRight, History, Loader2, RefreshCw, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import { FINDING_HEADING, FINDING_ORDER } from "@/lib/workspace/resultStatus";
@@ -58,6 +58,8 @@ export function CurrentTrialBalanceCard({
   fileOptionsOpen = false,
   onShowHistory,
   historyCount,
+  replaceRefusal = null,
+  onDismissReplaceRefusal,
 }: {
   fileName: string;
   uploadedAt: string;
@@ -75,11 +77,16 @@ export function CurrentTrialBalanceCard({
   /** Opens and focuses the upload history section. Absent: no history control. */
   onShowHistory?: () => void;
   historyCount?: number;
+  /** A replacement file refused before upload, in words; shown persistently next to Replace (role="alert"). */
+  replaceRefusal?: string | null;
+  onDismissReplaceRefusal?: () => void;
 }) {
   const tone = TONE[verdict.tone];
   const [optionsOpen, setOptionsOpen] = useState(fileOptionsOpen);
   const optionsId = useId();
   const hasOptions = !!management || !!onShowHistory;
+  // The refusal sits beside Replace: when Replace lives under File options, those options open with it.
+  useEffect(() => { if (replaceRefusal && hasOptions) setOptionsOpen(true); }, [replaceRefusal, hasOptions]);
   const totals = verdict.totals;
   const outOfBalance = isOutOfBalance(totals);
   // Row-level corrections the server recorded; the one already stated as the reason is not repeated.
@@ -166,7 +173,7 @@ export function CurrentTrialBalanceCard({
         </dl>
       )}
 
-      {(verdict.primaryAction || hasOptions) && (
+      {(verdict.primaryAction || hasOptions || replaceRefusal) && (
         <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:px-7">
           {verdict.primaryAction && (
             <Button
@@ -204,6 +211,18 @@ export function CurrentTrialBalanceCard({
                   <History className="mr-2 h-4 w-4" aria-hidden="true" />
                   Upload history{typeof historyCount === "number" ? ` · ${historyCount}` : ""}
                 </Button>
+              )}
+            </div>
+          )}
+          {replaceRefusal && (
+            <div role="alert" className="flex basis-full items-start gap-2 border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-[13px] text-foreground" data-testid="trial-balance-replace-refusal">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+              <p className="min-w-0 flex-1 break-words">{replaceRefusal}</p>
+              {onDismissReplaceRefusal && (
+                <button type="button" onClick={onDismissReplaceRefusal} aria-label="Dismiss this message"
+                  className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="trial-balance-replace-refusal-dismiss">
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
               )}
             </div>
           )}

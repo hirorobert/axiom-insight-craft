@@ -146,6 +146,9 @@ export default function PrepareWorkspace() {
   const focusManage = searchParams.get(MANAGE_TRIAL_BALANCE_PARAM) === "source";
   // "File options" › Upload history: each request opens, scrolls to and focuses the history section.
   const [historyRequest, setHistoryRequest] = useState(0);
+  // A replacement file refused before upload (too large, wrong type, empty): said next to Replace and kept until another
+  // file is picked or the user dismisses it (DEFECT-UX-TB-OVERSIZE-REPLACEMENT-FEEDBACK-001; a toast could be missed).
+  const [replaceRefusal, setReplaceRefusal] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const [eligibility, setEligibility] = useState<{ key: string; value: RemovalEligibility } | null>(null);
   const eligibilityKey = upload ? `${upload.id}:${upload.version ?? ""}:${upload.lifecycle_state ?? ""}` : null;
@@ -208,9 +211,10 @@ export default function PrepareWorkspace() {
     if (!file || !upload) return;
     const invalid = validateReplacementFile(file);
     if (invalid) {
-      toast.error(`${invalid} The current Trial Balance was not changed.`);
+      setReplaceRefusal(`${invalid} The current Trial Balance was not changed.`);
       return;
     }
+    setReplaceRefusal(null);
     setPendingFile(file);
     setReplacing(true);
     try {
@@ -613,6 +617,8 @@ export default function PrepareWorkspace() {
                 fileOptionsOpen={focusManage}
                 onShowHistory={rawUploads.length > 0 ? () => setHistoryRequest((n) => n + 1) : undefined}
                 historyCount={rawUploads.length}
+                replaceRefusal={replaceRefusal}
+                onDismissReplaceRefusal={() => setReplaceRefusal(null)}
               />
               {/* F2: what the database says about this result beyond the verdict — Needs re-check, Processing stopped,
                   Checking, New check requested — with at most one action, and the processing history. */}
