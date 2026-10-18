@@ -141,9 +141,39 @@ If R2 is false, that check did not exercise the probe. The runtime record stays 
    - replacement over 10 MB, refused in the page with no upload created;
    - over-limit replacement → **Restore the previous trial balance** → predecessor current, its certifications unchanged;
    - same-name/two-codes review: both accounts kept.
-3. **CPU.** Read from Cloud → Edge Functions → `process-trial-balance` → Logs, using the `[PTB] … cpu_ms=…` line for the 2,000-account check.
-   - **Pass:** a number ≤ 1,500 and no 546.
-   - **If `cpu_ms=unavailable` and no per-invocation CPU time is shown, the hosted CPU gate is blocked.** Stop before the floor and before Publish. Wall time does not substitute.
+3. **CPU.** The threshold is unchanged: the 2,000-account check's CPU must be ≤ 1,500 ms, with no 546 and no CPU-limit termination.
+
+   **Hosted CPU evidence: isolate upper bound** (an evidence-method clarification, 2026-10-18; no waiver).
+
+   **Why another method.** The hosted Edge Runtime does not implement `process.cpuUsage()`, so the `[PTB]` line reports `cpu_ms=unavailable`. The gateway's `execution_time_ms` is wall time and is never used as CPU evidence.
+
+   **What the runtime does record.** When it evicts an isolate, it logs a `Shutdown` event with `cpu_time_used` for that isolate's whole life. That covers boot and imports, every request it served, garbage collection and teardown.
+
+   **Why it covers the workload.** `process-trial-balance` does all its work inside its own isolate. Its closure has no child workers, no `waitUntil` background work and no subprocess; the only timer is the in-isolate admission queue.
+
+   **Upper bound.** All other contributions are non-negative, so a correlated value bounds the workload: CPU(workload) ≤ `cpu_time_used`. Nothing is subtracted, and no estimate of startup CPU is used.
+
+   **Accepted as evidence only when ALL of the following are shown from provider records** (otherwise **BLOCKED**):
+   - **Units and coverage.** Provider documentation or Edge Runtime source states that `cpu_time_used` is the isolate's cumulative CPU time in **milliseconds**, the same counter the CPU limit is enforced on. Cite it in the record. The process-trial-balance closure has no child workers (verified from source at `3422002`); if any are found, their CPU must be shown to be included.
+   - **Correlation.** All of the following share one `execution_id`:
+     - the run's `[PTB] worker=<id> check=1 http=200 …` line;
+     - its `Boot` event;
+     - its `Shutdown` event.
+
+     Those records carry the deployed `process-trial-balance` version (the one recorded at step 5). That `execution_id` has **no other `[PTB]` line**, so no other check ran on it. CORS preflights are not logged and are tiny; they only add to the bound.
+   - **Success.** The run is the owner's authenticated 2,000-account check:
+     - HTTP 200 and `engine_generation = 6`;
+     - its certification persisted, with R1–R4 of `runtimeEvidence.sql` passing for it;
+     - no 546, no "CPU time … limit reached" and no `WorkerLimit`/CPU-related shutdown reason for that `execution_id`.
+   - **No disruption.** Isolation comes only from ordinary quiet traffic: run the check when no `process-trial-balance` isolate is live (no `Boot` without a later `Shutdown`), then wait for the runtime's own eviction. Do not force restarts, redeploy, or hold back customer traffic to obtain it.
+
+   **Decision.**
+
+   | Evidence | Result |
+   |---|---|
+   | Correlated `cpu_time_used` ≤ 1,500 ms | **PASS**: workload CPU is bounded below the threshold |
+   | Correlated `cpu_time_used` > 1,500 ms | **BLOCKED**: workload-only CPU is inconclusive; the gate measures one check's CPU, not total isolate CPU, so this is not a pass and not a workload failure |
+   | Correlation, coverage or units not shown | **BLOCKED** |
 4. **Busy/retry.** Start the resource check in four preview tabs within a second of each other.
    - **Pass:** one or more answer "busy / try again" (503 `PROCESSING_BUSY` with `Retry-After` in the function log), and the same check, retried, completes.
    - **If no 503 occurs**, record it as "not triggered on hosted". Admission is per worker, so it is not a failure. The owner decides whether that suffices for the release.
