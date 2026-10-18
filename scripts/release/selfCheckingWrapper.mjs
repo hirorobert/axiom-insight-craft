@@ -108,8 +108,8 @@ export const TB_RELEASE_WRAPPED_SOURCES = Object.freeze([
   "20261108100000_account_identity_codeless_name.sql",
   "20261109100000_refused_replacement_restore.sql",
 ]);
-/** Unlimited team members (pricing-p1, PR #161): one source at the commit holding its reviewed bytes. Authored, PENDING
- * hosted application. */
+/** Unlimited team members (pricing-p1, PR #161): one source at the commit holding its reviewed bytes. Applied
+ * 2026-10-18 as hosted 63. */
 export const PRICING_P1_SOURCE_COMMIT = "4fba8c5efe1824dec5d4bdf0b261c385263f7628";
 export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
   "20261110100000_unlimited_team_members.sql",
