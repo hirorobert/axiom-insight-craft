@@ -4,10 +4,21 @@ Continues the FS evidence in this folder (`00`–`10`) and the PR reviews #150/#
 Design + prototype only. **No** capability enablement, hosted migration, merge or publish. Pricing,
 unlimited membership (#161) and TB-UX cleanup are **out of scope** and not touched here.
 
-Baseline: `origin/main` `02c516a`. The reporting layer is **merged to main but gated off**
-(`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`, `workspaceGate.ts:21`) and additionally
-per-company allow-listed (`ReportingAccessGate.tsx`, `financial_statements_workspace_access`).
-Nothing below is described as GA-runtime-verified; see the evidence-grade column.
+> **Corrections — read `12-fs-reconciliation-and-corrections.md`.** Verified against pin `02c516a`:
+> (1) the edition statements here are corrected — a period ≥2027 **resolves to the mandatory 2025
+> edition, not "refused/UNSUPPORTED"**; (2) "gated off" is a **frontend** statement — the `fs_*`
+> server RPCs are **reachable-if-deployed** by direct authenticated POST, gated only by their own
+> capability checks + RLS; (3) the FS reporting layer signs off via `financial_statement_publications`/
+> `fs_set_publication_state` (**not** `statement_sign_offs`); (4) SCF/SOCIE are evidence-gated, their
+> faces built only in disabled World B; the SCF cash tie is presence-based at sign-off, not a SQL
+> recompute. Doc 12 also records the deployed-AI-endpoint control finding and the ranked plan.
+
+Baseline: `origin/main` `02c516a`. The reporting layer is **merged to main but gated off at the
+frontend** (`FINANCIAL_STATEMENTS_WORKSPACE_ENABLED = false`, `workspaceGate.ts:21`;
+`FINANCIAL_STATEMENT_PERSISTENCE_ENABLED = false`) and route-guarded per company
+(`ReportingAccessGate.tsx`, `financial_statements_workspace_access`). **The frontend gates do not
+shield the server RPC surface** — see doc 12 §7. Nothing below is GA-runtime-verified; see the
+evidence-grade column.
 
 ---
 
@@ -128,9 +139,13 @@ From a FINAL prior year, "Start next period" reuses company/framework/currency a
 
 Period-specific **evidence** (new transaction ledger, equity movements, schedules, budget) and
 **judgements** do **not** carry forward; they reopen as worklist items. Edition is re-resolved from the
-**new period's start date** — a period beginning on/after 1 Jan 2027 re-evaluates the IFRS-for-SMEs
-third edition, which is currently **GAP/UNSUPPORTED** and refused by name until that pack exists (a
-later slice, below).
+**new period's start date** (`editionPolicy.ts`, verified against pin `02c516a`): a period beginning
+on/after **1 Jan 2027 resolves to the mandatory IFRS-for-SMEs 2025 third edition** — *resolved, not
+refused* (the 2015 and 2025 edition packs both exist); a start **before 1 Jan 2017** is
+`EDITION_UNSUPPORTED`; an unknown start is `PERIOD_START_UNKNOWN` (no default). What remains a genuine
+gap is **not** the edition selection but the **transition / first-time-adoption reliefs and Section-10
+change reconciliations** for a 2015→2025 move — a separate later slice. *(Corrected per doc 12 §6; my
+earlier "2027 → UNSUPPORTED/refused" wording was wrong.)*
 
 *Existing code:* the restatement/bridge authority (`fs_comparatives`) and the immutable prior FINAL
 version. *Proposed work:* the rollover reconcile-and-preserve worklist step and the opening-difference
@@ -171,7 +186,7 @@ Format: trigger → expected state → proof. "Proof" = the executed check kind;
    a legitimate prior-figure change applies as a **governed restatement** (`fs_comparative_restatements`,
    balanced, two-person, reason+reference) alongside the as-reported figure. *Proof:* opening reconciles
    to prior authoritative closing; discrepancy preserved + blocking; restatement applied without
-   rewriting history; a 2027 period → edition `UNSUPPORTED` refused by name.
+   rewriting history; a 2027 period → edition **resolves to the mandatory 2025 third edition** (pre-2017 → `EDITION_UNSUPPORTED`; transition reliefs are a separate gap).
 9. **Unsupported treatment (honesty).** A revenue/lease/ECL recognition question → `UNSUPPORTED`,
    escalated to a qualified person, **never** auto-composed. *Proof:* `REPORTING_CASE_UNSUPPORTED:`.
 
