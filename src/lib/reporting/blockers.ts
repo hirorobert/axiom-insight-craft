@@ -26,7 +26,7 @@ const EXACT: Readonly<Record<string, string>> = {
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
   // 20261112100000 — the reviewer workflow.
   // 20261115100000 — the account capacity (fs_account_capacity): <total>/<bound>.
-  ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; merge sub-accounts in the trial balance or wait for the capacity release.`; }],
+  ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.`; }],
   ["REVIEW_COMMENT_UNRESOLVED", (r) => `A reviewer's blocking finding is not resolved for this version (comment ${r.slice(0, 8)}…). The preparer responds and the reviewer resolves it on the Sign-off page.`],
   // 20261111100000 — the publication controls.
   ["PUBLICATION_PATH_UNSUPPORTED", (r) => `Only an IFRS for SMEs report derived from the authoritative trial balance can be reviewed or finalised (${r.replace(/:/g, " / ")}).`],

@@ -6,7 +6,7 @@ DECLARE
   v_blockers text := pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure);
 BEGIN
   IF (v_b ->> 'contract') IS DISTINCT FROM 'fs-work-bounds/2' OR (v_b ->> 'accountsReadPerComposition')::int <> 1000
-     OR (v_b ->> 'evidenceRowsPerBatch')::int <> 1000 OR (v_b ->> 'evidenceDocumentBytesPerBatch')::bigint <> 1048576 OR (v_b ->> 'evidenceRowsPerVersion')::int <> 10000
+     OR (v_b ->> 'evidenceRowsPerBatch')::int <> 1000 OR (v_b ->> 'evidenceDocumentBytesPerBatch')::bigint <> 1048576 OR (v_b ->> 'evidenceRowsPerVersion')::int <> 3000
      OR (v_b ->> 'reportDocumentBytes')::bigint <> 8388608 OR (v_b ->> 'versionsPerLineage')::int <> 1000 OR (v_b ->> 'commentsPerVersion')::int <> 500 OR (v_b ->> 'eventsPerComment')::int <> 200 THEN
     RAISE EXCEPTION 'POSTCONDITION: fs_work_bounds() does not answer the reviewed bounds at contract 2';
   END IF;

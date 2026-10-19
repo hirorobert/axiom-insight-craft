@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "fs-capacity-r1"
+const DRIZZLE_FAILURE = BATCH.id === "fs-memo-r1"
+  ? { object: "public._fs_statement_composition_compute(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public._fs_statement_composition_compute(uuid,integer)') IS NULL AND to_regprocedure('public._fs_memo_get(text)') IS NULL AND position('_fs_memo_get' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-capacity-r1"
   ? { object: "public.fs_account_capacity(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_account_capacity(uuid,integer)') IS NULL AND (public.fs_work_bounds() ->> 'contract') = 'fs-work-bounds/1' AND position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "fs-bounds-r1"
   ? { object: "public.fs_bound_report_version()", rolledBack: "SELECT to_regprocedure('public.fs_work_bounds()') IS NULL AND to_regprocedure('public.fs_bound_evidence_batch()') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_feb_work_bounds') AS ok" }

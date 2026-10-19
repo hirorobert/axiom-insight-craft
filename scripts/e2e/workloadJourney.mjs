@@ -205,15 +205,16 @@ const parseEvidence = (company, year, type, role, text, period) => {
 const save = (who, company, year, legalName, reportId, newEvidence, idempotencyKey = `attempt-${uuid()}`) =>
   prepareReportVersion(who.db, signoffClient(who.db), { companyId: company, periodYear: year, legalName, reportId, newEvidence, idempotencyKey, evaluatedAt: new Date().toISOString() });
 
-/** The fixture ledger (7 rows) padded with netting pairs on the bank account to exactly `rows` data rows. */
-const paddedLedger = (rows) => {
-  const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
+/** The fixture ledger (7 rows) padded with netting pairs on the bank account to exactly `rows` data rows (prior period: the FY2025 fixture, dated inside FY2025). */
+const paddedLedger = (rows, role = "CURRENT") => {
+  const base = (role === "CURRENT" ? EVIDENCE.current : EVIDENCE.prior).TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
+  const yearOf = (m) => (role === "CURRENT" ? (m > 12 ? 2026 : 2025) : (m > 12 ? 2025 : 2024));
   const lines = [...base];
   // Netting pairs only (each row carries exactly one of receipt/payment): an odd remainder would move the bank by 1.00 and
   // break the cash ties, so one fewer row is padded in that case (rows - 1 data rows; recorded by the caller).
   const target = (rows - (lines.length - 1)) % 2 === 0 ? rows : rows - 1;
   for (let i = lines.length - 1; i < target; i++) {
-    const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
+    const m = 7 + (i % 12); const y = yearOf(m); const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
     lines.push(`N${i},${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
   }
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
@@ -414,16 +415,30 @@ const capacityRun = async (n) => {
     }
     const ev = [parseEvidence(C, 2026, "TRANSACTION_LEDGER", "CURRENT", paddedLedger(LEDGER_ROWS), PERIODS.current), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
       parseEvidence(C, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
-      parseEvidence(C, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE.prior.TRANSACTION_LEDGER, PERIODS.prior), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
+      parseEvidence(C, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", paddedLedger(LEDGER_ROWS, "COMPARATIVE"), PERIODS.prior), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
       parseEvidence(C, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
+    out.evidenceRowsBehindVersion = ev.reduce((t, b) => t + b.document.rows.length, 0);
     const rid = `rpt-wl-cap-${n}-${uuid()}`;
-    const saved = await measure(section, "save_evidence_and_bind", () => save(preparer, C, 2026, name, rid, ev), { size: `6 batches incl. a ${LEDGER_ROWS}-row ledger` });
+    const saved = await measure(section, "save_evidence_and_bind", () => save(preparer, C, 2026, name, rid, ev), { size: `6 batches, ${out.evidenceRowsBehindVersion} evidence rows (two ledgers at the bound)` });
     if (saved?.outcome === "refused" && /accounts across the current/.test(saved.reason ?? "")) { out.overCapacity = saved.reason.slice(0, 300); log(`        [${section}] refused by the account capacity (the control, through PostgREST): ${saved.reason.slice(0, 200)}`); return; }
     if (saved?.outcome !== "saved") { out.failures.push({ step: "save", detail: JSON.stringify({ outcome: saved?.outcome, reason: saved?.reason }).slice(0, 300) }); throw new Error(`capacity ${n}: the save was not saved`); }
     let v = saved.reportVersion;
     let rd = null;
     for (let i = 0; i < 3; i++) rd = await measure(section, "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: C, p_report_id: rid, p_report_version: v }));
+    // A finding raised by the saved evidence is explained by the preparer and the version saved again (as the journey does).
+    for (let round = 0; round < 2 && rd && !rd.ready && rd.blockers.some((b) => /^BLOCKING_FINDINGS|^RECONCILIATION_UNMET/.test(b)); round++) {
+      await measure(section, "close_review_refresh_and_explain_after_save", () => explainFindings(C, 2026));
+      const again = await measure(section, "save_after_explain", () => save(preparer, C, 2026, name, rid, []));
+      if (again?.outcome === "saved") v = again.reportVersion;
+      rd = await measure(section, "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: C, p_report_id: rid, p_report_version: v }));
+    }
     out.ready = rd?.ready ?? null; out.blockers = (rd?.blockers ?? []).slice(0, 8);
+    if (!rd?.ready) {
+      const { data: evals } = await owner.c.from("financial_statement_evaluations").select("findings").eq("report_id", rid).eq("report_version", v).order("seq", { ascending: false }).limit(1);
+      const blocking = ((evals?.[0]?.findings ?? []).filter((f) => f.severity === "BLOCKING" || f.blocking === true)).slice(0, 5);
+      out.blockingFindings = blocking.map((f) => JSON.stringify(f).slice(0, 200));
+      log(`        [${section}] not ready: ${JSON.stringify(out.blockers)}; evaluation blocking findings: ${JSON.stringify(out.blockingFindings).slice(0, 600)}`);
+    }
     if (rd?.ready) {
       await measure(section, "set_state_REVIEWED", () => rpc(partner, "fs_set_publication_state", { p_report_id: rid, p_report_version: v, p_company_id: C, p_state: "REVIEWED", p_reason: "Reviewed" }));
       await measure(section, "set_state_FINAL", () => rpc(owner, "fs_set_publication_state", { p_report_id: rid, p_report_version: v, p_company_id: C, p_state: "FINAL", p_reason: "Approved for issue" }));

@@ -115,7 +115,7 @@ function writes nothing outside `pg_temp`; the save and the sign-off paths that 
 | Revision commit (`fs_commit_revision`) | at most 64 evidence batches per revision; idempotency key 8–200 chars; expected version ≥ 0 | embedded PostgreSQL: the whole browser save (two steps, ~6 server calls) 2.1 s on the journey's data; CI real stack (PostgREST, GitHub runner): the evidence save step 5.4 s wall time including page waits, REVIEWED 3.5 s, FINAL 5.7 s — within the API session's statement budget |
 | Trial balance intake | 2 MB / 20,000 rows / 40 columns CSV; workbooks 5 MB, 300 entries, 20,000 rows, 5 s budget (release package §11) | the TB CPU measurements are NOT transferred to the FS workload |
 | Evidence batch (server, `20261114100000` trigger `trg_feb_work_bounds`; the browser intake holds the SAME limit, `INTAKE_LIMITS.maxRows`, refused before upload with what to do) | ≤ **1,000 rows** (`EVIDENCE_ROWS_LIMIT`); ≤ **1,048,576 bytes** as JSON (`EVIDENCE_DOCUMENT_SIZE_LIMIT`) — the MEASURED-SAFE initial bound (§7.5: at 18 accounts a 2,000-row ledger saved in 4,253 ms through PostgREST and a 5,000-row ledger was cancelled by the 8 s statement timeout; 1,000 is half the largest size that saved, ≈ 3.8× margin). Bytes: 1,000 maximal rows ≈ 483 KB, so 1 MiB is ≥ 2.1× anything the intake lets through | `workBounds.mjs` B1/B2 (parametrised on the bounds): a 1,000-row ledger saved through the browser's save code; 1,002 rows and a 1.5 MB file refused, nothing stored. The sweep at the bound through PostgREST: §7.5 |
-| Report version (server, `trg_fsr_work_bounds`) | ≤ **10,000** evidence rows referenced by one version (`EVIDENCE_ROWS_PER_VERSION_LIMIT`: the aggregate every ledger series of both periods may put behind one version — ten files at the bound); document ≤ 8,388,608 bytes (`REPORT_DOCUMENT_SIZE_LIMIT`); ≤ 1,000 versions per lineage (`VERSION_HISTORY_LIMIT`) | `workBounds.mjs` B3/B4 (direct), B5 (the 1,000th save through the client accepted, the 1,001st refused). Measured documents: representative 157,013 B; demanding see §7.5 |
+| Report version (server, `trg_fsr_work_bounds`) | ≤ **3,000** evidence rows referenced by one version (`EVIDENCE_ROWS_PER_VERSION_LIMIT`): the browser places ONE ledger per period behind a version (one series per type and role — `seriesKey` is never set by the pages), so the reachable combination is two ledgers at the bound plus the small equity, cash-map and prior-statement files; measured at 500 accounts per year (§7.7); anything larger is a bypass and is refused; document ≤ 8,388,608 bytes (`REPORT_DOCUMENT_SIZE_LIMIT`); ≤ 1,000 versions per lineage (`VERSION_HISTORY_LIMIT`) | `workBounds.mjs` B3/B4 (direct), B5 (the 1,000th save through the client accepted, the 1,001st refused). Measured documents: representative 157,013 B; demanding see §7.5 |
 | Reviewer comments (server, `trg_fsrc_work_bounds`, `trg_fsrce_work_bounds`) | ≤ 500 comments per version (`REVIEW_COMMENTS_LIMIT`); ≤ 200 events per comment (`REVIEW_COMMENT_EVENTS_LIMIT`) | `workBounds.mjs` B6/B7 through `fs_review_comment_open/respond/resolve` |
 | Accounts read by the composition (server, `20261115100000`, `fs_account_capacity`; the browser words it) | ≤ **1,000** distinct certified account keys across the CURRENT period's authoritative certification and the COMPARATIVE period's (`accountsReadPerComposition`, fs-work-bounds/2) — refused BEFORE the expensive work: `fs_statement_composition` → `over_capacity` (notes and dependencies follow), `fs_commit_revision` → `ACCOUNT_CAPACITY_EXCEEDED` before any validation or write, `fs_publication_blockers` → `ACCOUNT_CAPACITY_EXCEEDED:<total>/<bound>` at once (readiness, REVIEWED/FINAL, the binding trigger). Saved versions, comments and issued packs stay available | §7.6: at 500 accounts per year (1,000 read) the slowest single API call was readiness at 2,262 ms (3.5× under the 8 s statement timeout) with 8 of 8 simultaneous saves answered and 8 of 8 simultaneous readiness reads served; at 1,000 per year (2,000 read) the slowest single call was 4,908 ms (1.6×) and under concurrency every one of 8 simultaneous saves and 8 readiness reads was cancelled — not a usable envelope. The readiness blockers in this run are a fixture artefact (an odd netting pair moved the bank by 1.00), fixed for the final run, which also exercises REVIEWED/FINAL and the official pack at 500. `accountCapacity.mjs` K1–K5 |
 | FS workload under load | the bounds above | MEASURED (§7.5): representative and demanding cases through the real Supabase/PostgREST path; 30-version history; 8 simultaneous saves. CPU is NOT measured (API round trips only) |
@@ -505,7 +505,7 @@ all answered (17.5 s wall); **8 simultaneous readiness reads of the same company
 per year (2,000 read) the control answered through PostgREST: `fs_statement_composition` → `over_capacity` in 30 ms, the
 browser's save refused with the exact words ("The statements would read 2,000 accounts across the current (1,000) and
 comparative (1,000) trial balances; this release supports up to 1,000. Saved versions, reviewer comments and issued packs stay
-available. To continue, merge sub-accounts…"), nothing written. Publication at 500 per year was not exercised in CI: the
+available…" — the wording has since been changed: it no longer advises merging accounts, see §7.7), nothing written. Publication at 500 per year was not exercised in CI: the
 candidate's readiness carried a Close Review finding the fixture did not explain (harness, not capacity); its cost is the
 readiness cost plus the lineage lock (`fs_set_publication_state` runs the same blockers).
 
@@ -544,6 +544,47 @@ table): the filler rows that bring a lineage, version or comment to its bound, B
 per-version bound — eleven refused), B4 (8 MiB exactly accepted / over refused), C (trigger dropped → stored; restored →
 refused). The proof is parametrised on the committed bounds. Result: CI-PROVEN 34/34 (Linux, run 39256437006); wrapper proof fs-bounds-r1 32/32 on CI and locally; locally 34/34 in the one run of six where the embedded Windows backend did not exit.
 
+### 7.7 Operational-evidence close-out (the owner's instruction after the capacity control): fan-out, the memo, the combined envelope
+
+**1. Why six of eight concurrent readiness reads timed out inside the envelope.** Profiled with `track_functions` on ONE
+`fs_report_readiness` call at 500 accounts per year through the proof kit (in process, no PostgREST): 4,352 ms, of which
+`fs_statement_composition` ran **5 times** (2,893 ms) and `fs_reporting_input` **7 times** (2,665 ms incl. children) — the same
+inputs, the same answers, recomputed — and through them `_cr_certified_accounts` expanded the certification rows **257 times**
+(1,490 ms self) and `close_review_finding_status` ran 210 times. A reporting page load (`readReportingSnapshot`) fans out
+composition, notes (which recomputes the composition), comparatives, versions and the Close Review summary in parallel and
+then readiness; the Sign-off page calls readiness again on mount. So normal browser behaviour does produce several concurrent
+composition-class transactions per load and two readiness calls per Sign-off visit — not eight simultaneous readiness
+reads of one company, but a multiple of the per-call cost, which is what a two-CPU runner could not absorb.
+
+**The smallest justified correction — duplicate recomputation eliminated, no timeout change, no admission gate:**
+`20261116100000_fs_transaction_memo.sql` (batch `fs-memo-r1`). The heavy bodies of `fs_statement_composition` (the
+20261115100000 text, capacity guard included) and `fs_reporting_input` (the 20261016100000 text) move byte for byte to
+`_fs_statement_composition_compute` / `_fs_reporting_input_compute`; the public names, signatures, volatility and grants stay
+exactly as every caller knows them and now answer from a transaction-local setting (`set_config(..., is_local = true)`: no
+table, no DDL, gone at commit) keyed by function, company and period. Safe because PostgREST runs each RPC in its own
+transaction and no FS function writes something the composition or the input depends on and then reads it again in the same
+transaction (every function body in the chain was scanned). `transactionMemo.mjs` M1–M5: one readiness call computes each
+once (before: 5 and 7); every identity and readiness answer is byte-identical with and without the memo; a presentation change
+is seen by the next call (no stale answer across transactions); the capacity guard still refuses; the compute and memo
+functions are internal. In process, the same readiness call: **1845 ms with the memo vs 6764 ms without**.
+
+**2. Publication measured at the boundary.** The capacity run's readiness blockers (`BLOCKING_FINDINGS:1`,
+`RECONCILIATION_UNMET:1`) were a fixture gap, not capacity: the saved evidence raises a Close Review finding the preparer must
+explain (the real journey explains findings again after adjustments — `localStackJourney.mjs` does it twice). The capacity
+run now explains and saves again, then measures REVIEWED, FINAL and the official pack at 500 accounts per year through
+PostgREST. Numbers: §7.7 table below (run pending, head `pending`).
+
+**3. The combined envelope.** The advertised 10,000 evidence rows per version was never reachable from the browser (one
+ledger per period); the per-version bound is now **3,000** (two ledgers at the 1,000-row bound plus the small files) and the
+capacity run exercises exactly that combination — 500 accounts per year, a 1,000-row ledger for BOTH periods (≈2,000 evidence
+rows behind the version), ten retained versions, 8 simultaneous saves and 8 simultaneous readiness reads:
+
+__CAPACITY_TABLE__
+
+**4. Wording.** The capacity refusal no longer suggests merging accounts: every account keeps its identity, nothing is merged
+or dropped to fit, and statements for a chart above the envelope are "not available in this release" until the capacity
+release widens it (`overCapacityWords`, the next action, the readiness blocker).
+
 ## 8. Migration and deployment requirements
 
 - Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. `20261111100000` is the only batch still PENDING hosted application.
@@ -581,6 +622,13 @@ refused). The proof is parametrised on the committed bounds. Result: CI-PROVEN 3
   from its committed bytes (the registry holds the identity; `--check` prints it), proven by `selfCheckingWrappers.mjs`
   (`RELEASE_BATCH=fs-capacity-r1`: injected failure at `fs_account_capacity`, rolled back with no journal row), with
   `docs/release/fs-capacity-r1/preflight.sql` before (it lists the companies over the envelope) and `postcondition.sql` after.
+- **Fifth batch `fs-memo-r1`** (`20261116100000_fs_transaction_memo.sql`): applied AFTER `fs-capacity-r1` (its preflight requires
+  the account capacity); the composition and reporting-input bodies under `_fs_*_compute` names (their latest texts, name
+  changed), the public names as transaction-local memo wrappers with unchanged signatures, volatility and grants, two internal
+  memo helpers. Registered in `scripts/release/selfCheckingWrapper.mjs` from its committed bytes, proven by
+  `selfCheckingWrappers.mjs` (`RELEASE_BATCH=fs-memo-r1`: injected failure at `_fs_statement_composition_compute`, rolled back
+  with no journal row), with `docs/release/fs-memo-r1/preflight.sql` before and `postcondition.sql` after (it asserts the
+  compute bodies still carry the capacity guard, the edition refusal and the comparative handling).
 - **The exact deployment handoff** (both earlier wrappers, this one, the seal-function deploy with its verification, the
   restricted activation and the recovery paths) is `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 - **One Edge Function change:** `seal-reporting-pack` gains the `retrieve` action (`_shared/reportingPackSeal.mjs`

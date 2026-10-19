@@ -62,7 +62,7 @@ const notComposedSchema = z.object({
 });
 /** The words for an engagement over the account envelope: the counts, the bound, what stays available and what to do. */
 export function overCapacityWords(c: AccountCapacity | undefined): string {
-  const tail = "Saved versions, reviewer comments and issued packs stay available. To continue, merge sub-accounts in the trial balance so fewer accounts are read, or wait for the capacity release.";
+  const tail = "Saved versions, reviewer comments and issued packs stay available; every account keeps its identity - nothing is merged or dropped to fit. Statements for a chart of this size are not available in this release; the capacity release will widen the envelope.";
   if (!c) return `The statements would read more accounts across the current and comparative trial balances than this release supports. ${tail}`;
   const n = (x: number) => x.toLocaleString("en-US");
   return `The statements would read ${n(c.total)} accounts across the current (${n(c.current)}) and comparative (${n(c.comparative)}) trial balances; this release supports up to ${n(c.bound)}. ${tail}`;

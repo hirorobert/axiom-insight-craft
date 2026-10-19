@@ -257,7 +257,10 @@ describe("migration directory integrity", () => {
     // 184 -> 185: 20261115100000_fs_account_capacity.sql (the account capacity of the financial-statements module: what is counted,
     // refused by name before the expensive work in composition, save, readiness and publication; fs_work_bounds contract 2),
     // a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(185);
+    // 185 -> 186: 20261116100000_fs_transaction_memo.sql (the composition and the reporting input computed once per transaction:
+    // the heavy bodies under _fs_*_compute names, the public names memoising wrappers with the same signatures and grants),
+    // a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(186);
   });
 });
 

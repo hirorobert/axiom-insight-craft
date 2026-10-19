@@ -35,7 +35,7 @@ import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts"
 
 const FILE = "20261114100000_fs_work_bounds.sql";
 /** The documented bounds (RECORD §3d). Written by hand; the proof compares the database's answer with them. */
-const BOUNDS = Object.freeze({ contract: "fs-work-bounds/2", evidenceRowsPerBatch: 1000, evidenceDocumentBytesPerBatch: 1048576, evidenceRowsPerVersion: 10000, reportDocumentBytes: 8388608, versionsPerLineage: 1000, commentsPerVersion: 500, eventsPerComment: 200, accountsReadPerComposition: 1000 });
+const BOUNDS = Object.freeze({ contract: "fs-work-bounds/2", evidenceRowsPerBatch: 1000, evidenceDocumentBytesPerBatch: 1048576, evidenceRowsPerVersion: 3000, reportDocumentBytes: 8388608, versionsPerLineage: 1000, commentsPerVersion: 500, eventsPerComment: 200, accountsReadPerComposition: 1000 });
 const { group, check, refused, finish } = reporter();
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const LF = String.fromCharCode(10);

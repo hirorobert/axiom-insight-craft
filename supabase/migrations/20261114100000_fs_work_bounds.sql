@@ -20,10 +20,13 @@
 --                                                                              a larger file is refused before upload)
 --     evidenceDocumentBytesPerBatch  1,048,576  EVIDENCE_DOCUMENT_SIZE_LIMIT    ≥ 1.8× any batch of 1,000 maximal rows
 --                                                                              the intake can produce
---     evidenceRowsPerVersion        10,000     EVIDENCE_ROWS_PER_VERSION_LIMIT the aggregate evidence one version may
---                                                                              stand on (every ledger series, both periods);
---                                                                              keeps fs_evidence_statements within the API
---                                                                              session's statement timeout with margin
+--     evidenceRowsPerVersion        3,000      EVIDENCE_ROWS_PER_VERSION_LIMIT the aggregate evidence one version may stand on:
+--                                                                              the browser places ONE ledger per period behind a
+--                                                                              version (one series per type and role), so the
+--                                                                              reachable combination is two ledgers at the bound
+--                                                                              plus the small equity, cash-map and prior-statement
+--                                                                              files — measured at 500 accounts per year (RECORD
+--                                                                              §7.7); anything larger is a bypass and is refused
 --     reportDocumentBytes            8,388,608  REPORT_DOCUMENT_SIZE_LIMIT      ≥ 8× the demanding measured document
 --     versionsPerLineage             1,000      VERSION_HISTORY_LIMIT           the measured per-version cost is flat; the
 --                                                                              lineage's history stays listable in one call
@@ -57,7 +60,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
     'contract', 'fs-work-bounds/1',
     'evidenceRowsPerBatch', 1000,
     'evidenceDocumentBytesPerBatch', 1048576,
-    'evidenceRowsPerVersion', 10000,
+    'evidenceRowsPerVersion', 3000,
     'reportDocumentBytes', 8388608,
     'versionsPerLineage', 1000,
     'commentsPerVersion', 500,

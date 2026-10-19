@@ -379,6 +379,10 @@ describe("database inertness — schema and functions", () => {
       // composition, commit and blockers functions redefined from their latest texts with exactly one marked guard block each.
       // No table, column, index, policy or grant of an existing object changes. Proven on PostgreSQL by accountCapacity.mjs.
       "supabase/migrations/20261115100000_fs_account_capacity.sql",
+      // Transaction memo (20261116100000): a NEW forward-only migration — the composition and the reporting input bodies under
+      // _fs_*_compute names (their latest texts, name changed), the public names as transaction-local memo wrappers, two
+      // internal memo helpers. No table, column, index, policy or grant of an existing object changes. Proven by transactionMemo.mjs.
+      "supabase/migrations/20261116100000_fs_transaction_memo.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -654,6 +658,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/reviewWorkflow.mjs",
       "scripts/db-proof/workBounds.mjs",
       "scripts/db-proof/accountCapacity.mjs",
+      "scripts/db-proof/transactionMemo.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.

@@ -47,7 +47,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
     'contract', 'fs-work-bounds/2',
     'evidenceRowsPerBatch', 1000,
     'evidenceDocumentBytesPerBatch', 1048576,
-    'evidenceRowsPerVersion', 10000,
+    'evidenceRowsPerVersion', 3000,
     'reportDocumentBytes', 8388608,
     'versionsPerLineage', 1000,
     'commentsPerVersion', 500,

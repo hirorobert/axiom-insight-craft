@@ -43,7 +43,7 @@ const NOT_COMPOSED: Record<string, string> = {
   currency_unknown: "The trial balance has no currency recorded.",
   edition_unresolved: "The IFRS for SMEs edition cannot be decided: the period start is unknown, or early application is not confirmed.",
   invalid_request: "The request was not valid.",
-  over_capacity: "The statements would read more accounts across the current and comparative trial balances than this release supports. Saved versions and issued packs stay available; merge sub-accounts in the trial balance or wait for the capacity release.",
+  over_capacity: "The statements would read more accounts across the current and comparative trial balances than this release supports. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.",
 };
 
 const count = (blockers: readonly string[], prefix: string) => blockers.filter((b) => b.startsWith(prefix)).reduce((n, b) => n + (Number(b.split(":")[1]) || 1), 0);
