@@ -425,6 +425,13 @@ Script notes: open_engagement_with_period answered {"created":true,"granted":["F
    which this record does not make; the remaining work is that measurement, then the bound at the largest measured-safe
    size with margin (a one-function forward migration redefining `fs_work_bounds()`, no table change).
 
+**Repairs in this increment (the owner's consolidated instruction, 2026-10-19): each measured failure → its repair → its proof.**
+
+| Measured failure (§7.5, run 39256437006) | Repair | Proof |
+|---|---|---|
+| 2,000 reviewed accounts → the re-check certified only 1,000 (`DEFECT-PTB-MAPPINGS-API-ROW-CAP-001`) | `supabase/functions/_shared/pagedSelect.ts` `selectAllRows`: the mapping read in `process-trial-balance` is `.range()` windows of at most PostgREST's max-rows, ordered by `id`, until a short page — a truncated answer is never taken as the complete set; a failed page leaves the mappings unread (every account to review) exactly as before, and is logged. One select replaced; nothing else in the function changes. New closure `85670e5a…` (`scripts/release/verifyDeployedClosure.mjs` KNOWN_CLOSURES; hosted 2026-10-18 closure `67cbf27b…` is "known older → redeploy") | `pagedSelect.test.ts` (an unpaged read of 2,000 rows yields exactly 1,000 — the defect; the paged read yields all 2,000 in order; 0/1/999/1,000/1,001/2,500 rows; a page error ends the read with no partial rows). Function-path test (the REAL handler on the in-memory double, which now caps every read at 1,000 rows and honours `.range()` like PostgREST): 1,500 reviewed mappings plus another company's reviewed mappings for the same codes → every account certified with no review, the snapshot holds each account exactly once, no income (no cross-company leakage), read in ≥ 2 pages; 1,500 accounts with one unreviewed → `needs_review` for exactly that account. Real stack (`scripts/e2e/draftJourney.mjs`, CI run 39268525095 at `43bfbdd`): the 2,000-account file reviewed in one batch (`mappings_written: 2000`) → re-check HTTP 200, status `complete`, no account needing review, a current certification — the supported 2,000-account boundary holds end to end; `workloadJourney.mjs` on the same run: FY2025 re-check `valid`, `needsReview: null` at 2,000 accounts |
+| A 20,000-row ledger did not save at 1,000 accounts (API statement timeout, nothing stored) | __BUDGET__ | __BUDGET_PROOF__ |
+
 Measured results and harness failures are reported separately:
 
 - **Measured (the product):** the table above; the representative journey reached FINAL and its official pack verified

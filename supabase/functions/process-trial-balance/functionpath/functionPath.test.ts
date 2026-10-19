@@ -127,11 +127,7 @@ Deno.test("1,500 accounts of which one has no reviewed mapping: the paged read c
   const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900));
   const total = amounts.reduce((a, b) => a + b, 0);
   const money = (m: number) => (m / 100).toFixed(2);
-  const csv = "Code,Name,Debit,Credit
-" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("
-") + `
-999999,Retained earnings,,${money(total)}
-`;
+  const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
   const unreviewed = "100500";
   const mappings = [...codes.filter((c) => c !== unreviewed).map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
   const w = setup({ csv, mappings });
