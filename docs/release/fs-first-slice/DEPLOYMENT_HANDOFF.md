@@ -15,6 +15,7 @@ machine), HOSTED-VERIFIED (none yet — every hosted step below produces its own
 | Publication controls — batch `fs-controls-r1` | `release/wrappers/20261111100000_fs_publication_controls.wrapper.sql` (source `supabase/migrations/20261111100000_fs_publication_controls.sql`) | self-checking wrapper, SQL editor, by the owner | the reporting sign-off path only (`fs_publication_blockers` v3, `fs_set_publication_state` v2, `fs_bind_publication` v4, pack 1.2.0 rows, new read-only functions). Companies without the FS rollout are untouched |
 | Reviewed reporting journey — batch `fs-journey-r1` | `release/wrappers/20261112100000_fs_review_workflow_and_rollforward.wrapper.sql` | same | four new append-only tables, the reviewer-comment, roll-forward and acceptance functions, blockers v4, `fs_prior_final_reconciliation` v2 |
 | Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` (1,000 rows / 1 MiB per evidence file, 10,000 evidence rows per version, 8 MiB per report document, 1,000 versions per lineage, 500 comments per version, 200 events per comment) and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched. The frontend's intake holds the same 1,000-row limit, so Publish and this wrapper belong to the same release |
+| Account capacity — batch `fs-capacity-r1` | `release/wrappers/20261115100000_fs_account_capacity.wrapper.sql` | same, after `fs-bounds-r1` | `fs_work_bounds` v2 (`accountsReadPerComposition` = 1,000), `fs_account_capacity`, and the composition, save and blockers functions guarded: a company whose current + comparative reviewed trial balances exceed 1,000 accounts is refused by name before any expensive work; its saved versions, comments and issued packs stay available; the pages say what to do. Preflight lists the companies over the envelope |
 | Edge Function `seal-reporting-pack` | `supabase/functions/seal-reporting-pack` (+ `_shared/reportingPackSeal.mjs`) | `supabase functions deploy seal-reporting-pack` | adds the `retrieve` action; `issue` and `verify` are unchanged in behaviour (same module, same gates). Required closure `dd4f0855…`; the hosted closure of 2026-10-18 is `095a9ed9…` (`scripts/release/verifyDeployedClosure.mjs`) |
 | Edge Function `process-trial-balance` | `supabase/functions/process-trial-balance` (+ new `_shared/pagedSelect.ts`) | `supabase functions deploy process-trial-balance` | DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the reviewed-mapping read is paged, so companies with more than 1,000 reviewed accounts certify; nothing else changes. Required closure `85670e5a…`; the hosted closure of 2026-10-18 is `67cbf27b…` |
 | Frontend (the reporting pages, the review/roll-forward/official-pack panels) | the merged `main` | Lovable Publish | only companies with `fs_set_company_rollout(..., true)` can write; everyone else keeps today's pages |
@@ -59,6 +60,13 @@ the FS wrappers' preflights do not depend on it).
 The preflight lists six counts of existing rows that already exceed a bound; **every count must be 0**. If any is not,
 stop: the triggers only judge new rows, but a lineage already at 1,000 versions or a version already at 500 comments
 would refuse its next legitimate write — that case needs the owner's decision, not a silent apply.
+
+## 4b. Apply `fs-capacity-r1` (fourth — its preflight requires 4)
+
+`docs/release/fs-capacity-r1/preflight.sql` → `release/wrappers/20261115100000_fs_account_capacity.wrapper.sql` →
+`docs/release/fs-capacity-r1/postcondition.sql` → journal row (0067 expected). The preflight lists every company whose
+current + comparative reviewed trial balances exceed 1,000 accounts: none of them may be an activated FS company at this release
+(they keep their records; the pages tell them what to do).
 
 ## 5. Deploy the two Edge Functions, then verify each closure and behaviour
 
@@ -138,10 +146,9 @@ batch is small, self-checking and preceded by a read-only preflight.
   Larger ledgers are split by month or account into separate files. This is a measured-safe INITIAL bound with ≈ 3.8× margin
   under the API statement timeout at 18 accounts; the composition path itself was not optimised (out of scope), and a stored
   large ledger slows every later save and readiness check on its period — which is why the bound is where it is.
-- The ACCOUNT dimension (`RECORD.md` §7.5): with the paged mapping read a 2,000-account company certifies, but
-  `fs_reporting_dependencies` is cancelled by the API statement timeout at 2,000 accounts and takes 3.0–5.6 s at 1,000. No
-  FS-specific account bound exists yet; activate companies in the representative range (tens to a few hundred accounts) and
-  treat 1,000 as the measured upper edge with thin margin. Closing this is a follow-up (optimise the dependency/evidence
-  recomposition or a product-owned FS account bound), not part of this candidate.
+- The ACCOUNT dimension (`RECORD.md` §7.6): the envelope is 1,000 certified accounts read across the current and comparative
+  periods, server-enforced before any expensive work (`fs-capacity-r1`) and worded on the pages. The TB processing limit
+  (2,000 accounts per trial balance) is unchanged; a company that certifies two 2,000-account years is above the FS envelope
+  and keeps its records. The composition path itself is not optimised in this release.
 - Hosted browser acceptance (owner-run; `docs/release/sql/07_acceptance_preflight.sql` decides the path).
 - The legal review of `/terms` and `/privacy`, SMTP configuration and the other commercial go-live gates in `CLAUDE.md` §9.2.

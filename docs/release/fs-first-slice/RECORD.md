@@ -117,6 +117,7 @@ function writes nothing outside `pg_temp`; the save and the sign-off paths that 
 | Evidence batch (server, `20261114100000` trigger `trg_feb_work_bounds`; the browser intake holds the SAME limit, `INTAKE_LIMITS.maxRows`, refused before upload with what to do) | ≤ **1,000 rows** (`EVIDENCE_ROWS_LIMIT`); ≤ **1,048,576 bytes** as JSON (`EVIDENCE_DOCUMENT_SIZE_LIMIT`) — the MEASURED-SAFE initial bound (§7.5: at 18 accounts a 2,000-row ledger saved in 4,253 ms through PostgREST and a 5,000-row ledger was cancelled by the 8 s statement timeout; 1,000 is half the largest size that saved, ≈ 3.8× margin). Bytes: 1,000 maximal rows ≈ 483 KB, so 1 MiB is ≥ 2.1× anything the intake lets through | `workBounds.mjs` B1/B2 (parametrised on the bounds): a 1,000-row ledger saved through the browser's save code; 1,002 rows and a 1.5 MB file refused, nothing stored. The sweep at the bound through PostgREST: §7.5 |
 | Report version (server, `trg_fsr_work_bounds`) | ≤ **10,000** evidence rows referenced by one version (`EVIDENCE_ROWS_PER_VERSION_LIMIT`: the aggregate every ledger series of both periods may put behind one version — ten files at the bound); document ≤ 8,388,608 bytes (`REPORT_DOCUMENT_SIZE_LIMIT`); ≤ 1,000 versions per lineage (`VERSION_HISTORY_LIMIT`) | `workBounds.mjs` B3/B4 (direct), B5 (the 1,000th save through the client accepted, the 1,001st refused). Measured documents: representative 157,013 B; demanding see §7.5 |
 | Reviewer comments (server, `trg_fsrc_work_bounds`, `trg_fsrce_work_bounds`) | ≤ 500 comments per version (`REVIEW_COMMENTS_LIMIT`); ≤ 200 events per comment (`REVIEW_COMMENT_EVENTS_LIMIT`) | `workBounds.mjs` B6/B7 through `fs_review_comment_open/respond/resolve` |
+| Accounts read by the composition (server, `20261115100000`, `fs_account_capacity`; the browser words it) | ≤ **1,000** distinct certified account keys across the CURRENT period's authoritative certification and the COMPARATIVE period's (`accountsReadPerComposition`, fs-work-bounds/2) — refused BEFORE the expensive work: `fs_statement_composition` → `over_capacity` (notes and dependencies follow), `fs_commit_revision` → `ACCOUNT_CAPACITY_EXCEEDED` before any validation or write, `fs_publication_blockers` → `ACCOUNT_CAPACITY_EXCEEDED:<total>/<bound>` at once (readiness, REVIEWED/FINAL, the binding trigger). Saved versions, comments and issued packs stay available | §7.6: at 500 accounts per year (1,000 read) the slowest single API call was readiness at 2,262 ms (3.5× under the 8 s statement timeout) with 8 of 8 simultaneous saves answered and 8 of 8 simultaneous readiness reads served; at 1,000 per year (2,000 read) the slowest single call was 4,908 ms (1.6×) and under concurrency every one of 8 simultaneous saves and 8 readiness reads was cancelled — not a usable envelope. The readiness blockers in this run are a fixture artefact (an odd netting pair moved the bank by 1.00), fixed for the final run, which also exercises REVIEWED/FINAL and the official pack at 500. `accountCapacity.mjs` K1–K5 |
 | FS workload under load | the bounds above | MEASURED (§7.5): representative and demanding cases through the real Supabase/PostgREST path; 30-version history; 8 simultaneous saves. CPU is NOT measured (API round trips only) |
 
 
@@ -469,6 +470,38 @@ be in the representative range. Closing this needs either an optimisation of `fs
 `fs_evidence_statements` / `fs_report_readiness` (each recomposes from the account set and the latest evidence on every
 call) or a product-owned FS account bound — neither is in this increment.
 
+**Account-capacity measurement (the owner's instruction to close the account gap; CI run 39291284391 on `666006c`, the real
+Supabase/PostgREST path; each candidate is a fresh company with the scaled chart in BOTH years, so the composition reads twice
+the per-year count):**
+
+| Call (client-observed round trip, ms; median and max) | 500 accounts per year (1000 read) | 1000 accounts per year (2000 read) |
+|---|---|---|
+| review batch (resolve_account_review_batch) | 258 ms (max 258) | 525 ms (max 525) |
+| re-check after review | 175 ms (max 175) | 263 ms (max 263) |
+| fs_statement_composition | 242 ms (max 245) | 562 ms (max 567) |
+| fs_notes_status | 225 ms (max 239) | 539 ms (max 554) |
+| fs_reporting_dependencies | 1242 ms (max 1255) | 2995 ms (max 3028) |
+| Close Review refresh + explain (several calls) | 729 ms (max 729) | 2373 ms (max 2373) |
+| fs_approve_comparatives | 230 ms (max 230) | 535 ms (max 535) |
+| save: evidence step + bind, 6 files incl. a 1,000-row ledger (several calls) | 6906 ms (max 6906) | 14445 ms (max 14445) |
+| fs_report_readiness | 2154 ms (max 2262) | 4865 ms (max 4901) |
+| fs_set_publication_state REVIEWED / FINAL | — / — | — / — |
+| official pack issue (several calls) / verify | — / — | — / — |
+| history save ×10 (several calls) | 4639 ms (max 4695) | 9413 ms (max 9528) |
+| history readiness ×10 | 2172 ms (max 2199) | 4801 ms (max 4908) |
+| fs_list_saved_versions | 18 ms (max 18) | 23 ms (max 23) |
+| ready after the save; blockers | False; 4 | False; 4 |
+| official pack | None | None |
+| 8 simultaneous saves of one attempt | 15263 ms wall, 8 answered | 8062 ms wall, 0 answered |
+| 8 simultaneous readiness reads | 7285 ms wall, 8/8 ok | 8026 ms wall, 0/8 ok |
+| slowest single call → margin under 8 s | fs_report_readiness 2262 ms → **3.54×** | history_readiness 4908 ms → **1.63×** |
+| cancelled statements / failures | 0; 0 | 0; 0 |
+
+Decision: `accountsReadPerComposition` = **1,000** — at 500 accounts per year (1,000 read) the slowest single API call was readiness at 2,262 ms (3.5× under the 8 s statement timeout) with 8 of 8 simultaneous saves answered and 8 of 8 simultaneous readiness reads served; at 1,000 per year (2,000 read) the slowest single call was 4,908 ms (1.6×) and under concurrency every one of 8 simultaneous saves and 8 readiness reads was cancelled — not a usable envelope. The readiness blockers in this run are a fixture artefact (an odd netting pair moved the bank by 1.00), fixed for the final run, which also exercises REVIEWED/FINAL and the official pack at 500. The envelope is on what the composition READS (current + comparative
+certified accounts), not on a single trial balance; a company whose two reviewed years total more is refused by name before
+any expensive work, on every path, and keeps every saved version and issued pack. Companies above the envelope are listed by
+`docs/release/fs-capacity-r1/preflight.sql` for the record before the wrapper is applied.
+
 Measured results and harness failures are reported separately:
 
 - **Measured (the product):** the table above; the representative journey reached FINAL and its official pack verified
@@ -523,6 +556,13 @@ refused). The proof is parametrised on the committed bounds. Result: CI-PROVEN 3
   failure at `fs_bound_report_version`, rolled back with no journal row), with `docs/release/fs-bounds-r1/preflight.sql`
   before (it also lists six counts of existing rows already over a bound — all must be 0) and `postcondition.sql` after.
   DDL only: no accepted function is redefined; no existing table, column, index, policy or grant changes.
+- **Fourth batch `fs-capacity-r1`** (`20261115100000_fs_account_capacity.sql`): applied AFTER `fs-bounds-r1` (its preflight requires
+  fs-work-bounds/1); `fs_work_bounds` v2 (adds `accountsReadPerComposition` = 1,000), `fs_account_capacity`, and
+  `fs_statement_composition` / `fs_commit_revision` / `fs_publication_blockers` redefined from their latest committed texts
+  with exactly one marked guard block each (generated; the diff is the guard). Registered in `scripts/release/selfCheckingWrapper.mjs`
+  from its committed bytes (the registry holds the identity; `--check` prints it), proven by `selfCheckingWrappers.mjs`
+  (`RELEASE_BATCH=fs-capacity-r1`: injected failure at `fs_account_capacity`, rolled back with no journal row), with
+  `docs/release/fs-capacity-r1/preflight.sql` before (it lists the companies over the envelope) and `postcondition.sql` after.
 - **The exact deployment handoff** (both earlier wrappers, this one, the seal-function deploy with its verification, the
   restricted activation and the recovery paths) is `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 - **One Edge Function change:** `seal-reporting-pack` gains the `retrieve` action (`_shared/reportingPackSeal.mjs`
@@ -583,8 +623,10 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
   (`draftJourney.mjs` 43/43); the `process-trial-balance` closure changes and is deployed with this release. (2) The
   evidence work budget — measured by the sweep, the envelope is 1,000 rows and 1 MiB per file and 10,000 rows per version,
   the same on the server and in the intake, with persistent actionable refusals. Still OPEN and stated: the composition
-  path (`fs_evidence_statements`) was not optimised; the account-count dimension of the envelope is bounded by the TB
-  policy (2,000) and measured at the bound in the final sweep, not beyond it.
+  path (`fs_evidence_statements`) was not optimised. **The account dimension is now bounded and enforced** (§7.6,
+  `fs-capacity-r1`): 1,000 certified accounts read across the current and comparative periods, refused by name before any
+  expensive work; the TB processing limit (2,000 accounts per trial balance) stays, and a company whose two reviewed years
+  exceed the FS envelope keeps its records and is told what to do.
 - **CHECKPOINT (readiness pass, 2026-10-19):** code head `dcc7f79` (CI green on every job; `workBounds.mjs` 34/34 and the
   `fs-bounds-r1` wrapper proof 32/32 CI-PROVEN; the workload step COMPLETE with its three assertions passing and its
   failures recorded as measurements); the record and the handoff are in the commit after it.

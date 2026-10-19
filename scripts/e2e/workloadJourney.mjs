@@ -209,7 +209,10 @@ const save = (who, company, year, legalName, reportId, newEvidence, idempotencyK
 const paddedLedger = (rows) => {
   const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
   const lines = [...base];
-  for (let i = lines.length - 1; i < rows; i++) {
+  // Netting pairs only (each row carries exactly one of receipt/payment): an odd remainder would move the bank by 1.00 and
+  // break the cash ties, so one fewer row is padded in that case (rows - 1 data rows; recorded by the caller).
+  const target = (rows - (lines.length - 1)) % 2 === 0 ? rows : rows - 1;
+  for (let i = lines.length - 1; i < target; i++) {
     const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
     lines.push(`N${i},${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
   }
@@ -415,6 +418,7 @@ const capacityRun = async (n) => {
       parseEvidence(C, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
     const rid = `rpt-wl-cap-${n}-${uuid()}`;
     const saved = await measure(section, "save_evidence_and_bind", () => save(preparer, C, 2026, name, rid, ev), { size: `6 batches incl. a ${LEDGER_ROWS}-row ledger` });
+    if (saved?.outcome === "refused" && /accounts across the current/.test(saved.reason ?? "")) { out.overCapacity = saved.reason.slice(0, 300); log(`        [${section}] refused by the account capacity (the control, through PostgREST): ${saved.reason.slice(0, 200)}`); return; }
     if (saved?.outcome !== "saved") { out.failures.push({ step: "save", detail: JSON.stringify({ outcome: saved?.outcome, reason: saved?.reason }).slice(0, 300) }); throw new Error(`capacity ${n}: the save was not saved`); }
     let v = saved.reportVersion;
     let rd = null;

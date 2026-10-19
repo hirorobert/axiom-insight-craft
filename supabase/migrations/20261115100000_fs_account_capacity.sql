@@ -7,7 +7,7 @@
 --   the authoritative certification of the CURRENT period plus the authoritative certification of the COMPARATIVE period
 --   (p_period_year - 1), exactly the two account sets fs_reporting_input assembles. Adjustments never add accounts; the
 --   comparative counts 0 when that period has no certification. Compared with fs_work_bounds().accountsReadPerComposition
---   (= 2000, the measured envelope; fs-work-bounds/2).
+--   (= 1000, the measured envelope; fs-work-bounds/2).
 --
 --   WHERE IT IS ENFORCED, consistently, before any expensive work:
 --     · fs_statement_composition — returns state 'over_capacity' with the counts before the reporting input is computed;
@@ -52,7 +52,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
     'versionsPerLineage', 1000,
     'commentsPerVersion', 500,
     'eventsPerComment', 200,
-    'accountsReadPerComposition', 2000
+    'accountsReadPerComposition', 1000
   );
 $$;
 REVOKE ALL ON FUNCTION public.fs_work_bounds() FROM PUBLIC, anon;
@@ -657,7 +657,7 @@ $$;
 DO $postcondition$
 BEGIN
   IF (public.fs_work_bounds() ->> 'contract') IS DISTINCT FROM 'fs-work-bounds/2'
-     OR (public.fs_work_bounds() ->> 'accountsReadPerComposition')::integer <> 2000
+     OR (public.fs_work_bounds() ->> 'accountsReadPerComposition')::integer <> 1000
      OR to_regprocedure('public.fs_account_capacity(uuid, integer)') IS NULL
      OR position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid, integer)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0
