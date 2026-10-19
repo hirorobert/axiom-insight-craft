@@ -281,7 +281,10 @@ async function main() {
   await check("Trial Balance › Intake sets 1 Jul 2025 – 30 Jun 2026 and the prior period 1 Jul 2024 – 30 Jun 2025 (TZS)", async () => {
     await go(`${base}/trial-balance/intake`, "Start date");
     await setByLabel("Start date", PERIODS.current.start); await setByLabel("End date", PERIODS.current.end);
-    if (!(await chooseCurrency("Reporting currency", "TZS"))) return "the reporting currency could not be chosen";
+    // The period already exists (first run, TZS): its currency is shown read-only with the server's rule, never editable.
+    const readOnly = await page.evaluate(() => document.querySelector('[data-testid="period-currency-readonly"]')?.textContent ?? null);
+    if (readOnly !== null) { if (readOnly.trim() !== "TZS") return { readOnlyCurrency: readOnly }; }
+    else if (!(await chooseCurrency("Reporting currency", "TZS"))) return "the reporting currency could not be chosen";
     await setByLabel("Also set up the prior period", true);
     await sleep(300);
     await setByLabel("Prior start date", PERIODS.prior.start); await setByLabel("Prior end date", PERIODS.prior.end);

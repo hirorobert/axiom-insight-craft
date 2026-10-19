@@ -112,11 +112,13 @@ describe("the panel (real component)", () => {
       ReprocessRefusedError: class extends Error {},
     }));
     const { PeriodCurrencyCorrection } = await import("@/components/workspace/PeriodCurrencyCorrection");
-    const onChanged = vi.fn();
-    mounted = mount(createElement(PeriodCurrencyCorrection, { periodId: P, uploadId: U, processingResult: mismatchResult("USD", ["TZS"]), ensureFreshSession: async () => undefined, onChanged }));
+    const onChanged = vi.fn(), onEngaged = vi.fn();
+    const props = { periodId: P, uploadId: U, processingResult: mismatchResult("USD", ["TZS"]) as unknown, ensureFreshSession: async () => undefined, onChanged, onEngaged };
+    mounted = mount(createElement(PeriodCurrencyCorrection, props));
+    const rerender = (patch: Partial<typeof props>) => mounted!.rerender(createElement(PeriodCurrencyCorrection, { ...props, ...patch }));
     await flush();
     const q = (id: string) => mounted!.container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
-    return { corrections, reprocess, ids, onChanged, q };
+    return { corrections, reprocess, ids, onChanged, onEngaged, rerender, q };
   }
 
   it("states both currencies, requires a reason, and three quick clicks make one correction with one request id", async () => {
@@ -133,6 +135,11 @@ describe("the panel (real component)", () => {
     expect(s.ids).toEqual([OP]);
     expect(s.q("currency-correction-done")?.textContent).toMatch(/now reports in TZS/);
     expect(s.onChanged).toHaveBeenCalled();
+    expect(s.onEngaged).toHaveBeenCalled();
+    // The re-check replaces the refused result: the panel keeps showing its own outcome (the page keeps it mounted).
+    await act(async () => { s.rerender({ processingResult: { ingestion: { currency: "TZS", issues: [] } } }); });
+    await flush();
+    expect(s.q("currency-correction-done")?.textContent).toMatch(/now reports in TZS/);
   });
 
   it("a re-check that does not start shows the saved currency and retries with the same deterministic id", async () => {

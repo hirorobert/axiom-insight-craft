@@ -32,7 +32,7 @@ type Step =
   | { kind: "recheck_failed"; currency: string; message: string; recheck: Recheck }
   | { kind: "error"; message: string };
 
-export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult, ensureFreshSession, onChanged, onLeadsChange }: {
+export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult, ensureFreshSession, onChanged, onLeadsChange, onEngaged }: {
   periodId: string;
   uploadId: string;
   processingResult: unknown;
@@ -41,6 +41,9 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
   onChanged: () => void;
   /** Whether this panel currently holds the card's leading action (so the card's own action steps back: one CTA). */
   onLeadsChange?: (leads: boolean) => void;
+  /** The panel has started a correction or a re-check: the page keeps it mounted so its outcome stays visible after the
+   *  trial balance's result changes (a re-check replaces the refused result). */
+  onEngaged?: () => void;
 }) {
   const mismatch = readCurrencyMismatch(processingResult);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
@@ -62,11 +65,13 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
   const leads = view.kind === "offer" || view.kind === "recheck" || step.kind === "recheck_failed";
   useEffect(() => { onLeadsChange?.(leads); }, [leads, onLeadsChange]);
   useEffect(() => () => onLeadsChange?.(false), [onLeadsChange]);
-  if (!mismatch) return null;
+  // Without a refused-currency result there is nothing to offer; this panel's own outcome is still shown.
+  if (!mismatch && (step.kind === "idle" || step.kind === "confirming" || step.kind === "error")) return null;
 
   const recheck = async (r: Recheck, currency: string) => {
     if (inFlight.current) return;
     inFlight.current = true;
+    onEngaged?.();
     setStep({ kind: "rechecking", currency });
     try {
       const [out] = await runRechecks(supabase as unknown as ReprocessClient, [r], ensureFreshSession);
@@ -86,6 +91,7 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
     if (trimmed.length < 3) return;
     inFlight.current = true;
     requestId.current ??= crypto.randomUUID();
+    onEngaged?.();
     setStep({ kind: "saving" });
     let rechecks: Recheck[] = [];
     try {

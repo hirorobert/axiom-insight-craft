@@ -594,6 +594,8 @@ export default function PrepareWorkspace() {
   const currencyMismatch = readCurrencyMismatch(upload?.processing_result);
   const periodIdForCurrency = engagement?.fiscal_period_id ?? null;
   const [currencyLeads, setCurrencyLeads] = useState(false);
+  // The upload whose correction panel has acted: it stays mounted (showing its outcome) while that upload is re-checked.
+  const [currencyEngagedFor, setCurrencyEngagedFor] = useState<string | null>(null);
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -654,7 +656,7 @@ export default function PrepareWorkspace() {
                       <Button type="button" variant="outline" className="h-10 rounded-none" onClick={() => setReplaceCurrencyConfirm(null)} data-testid="replace-currency-cancel">Keep the current file</Button>
                     </div>
                   </div>
-                ) : currencyMismatch && periodIdForCurrency && !prepareOnly ? (
+                ) : (currencyMismatch || currencyEngagedFor === upload.id) && periodIdForCurrency && !prepareOnly ? (
                   <PeriodCurrencyCorrection
                     periodId={periodIdForCurrency}
                     uploadId={upload.id}
@@ -662,6 +664,7 @@ export default function PrepareWorkspace() {
                     ensureFreshSession={ensureFreshSession}
                     onChanged={() => { refreshUpload(); certReadiness.refetch(); }}
                     onLeadsChange={setCurrencyLeads}
+                    onEngaged={() => setCurrencyEngagedFor(upload.id)}
                   />
                 ) : undefined}
                 management={
