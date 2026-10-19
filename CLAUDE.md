@@ -888,6 +888,18 @@ API or event; Polar's merchant-of-record arrangements do not cover Snippe sales.
 confirmations in `docs/release/SNIPPE_TZ_READINESS.md` §4, owner-approved explicit TZS prices (never derived from USD)
 and a reviewed release. Proof: `scripts/db-proof/snippeLedger.mjs`.
 
+**DEFECT-PTB-MAPPINGS-API-ROW-CAP-001** — Severity: HIGH — Status: OPEN / MEASURED (2026-10-19, PR #176 readiness pass)
+
+`supabase/functions/process-trial-balance/index.ts` loads a company's reviewed mappings with
+`.from("account_mappings").select("*").or(...)` and no `.range()`/pagination. PostgREST answers at most its `max-rows`
+(1,000 by default, locally and on Supabase hosted), so a company with more than 1,000 reviewed mappings never sees the
+rest: in the CI real-stack measurement (`scripts/e2e/workloadJourney.mjs`, run 39256437006) a 2,000-account trial
+balance had all 2,000 review decisions recorded (`resolve_account_review_batch`, one call) and the re-check still
+reported `needs_review` for exactly 1,000 accounts; in-process (the proof kit, no PostgREST) the same file certifies.
+Consequence: the upload policy's `maxAccounts = 2,000` is not an end-to-end supported size; the measured supported size
+is 1,000 reviewed accounts per company. Fix (own task, own test): page the select in `max-rows` steps or read through an
+RPC; do not lower `maxAccounts` instead. Not fixed in PR #176 (scope: the FS readiness increment).
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code

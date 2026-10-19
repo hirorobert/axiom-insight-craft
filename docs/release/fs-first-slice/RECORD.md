@@ -11,6 +11,7 @@ CI-PROVEN / HOSTED-VERIFIED / UNKNOWN. A green suite, filename or source module 
 | Baseline (`origin/main`) | `29b0d945c1cbbd58bdca2314b48742c9b474c240` (merge of #169) | git |
 | Diff `18bff84..29b0d94` outside `docs/` and `*.md` | **empty** — the FS implementation audited at `02c516a`/`18bff84` is byte-identical here | `git diff --stat 18bff84 origin/main -- . ':!docs' ':!*.md'` |
 | Branch / worktree | `feat/fs-first-slice-20261018` at `D:/DevStorage/Temp/claude/fs-slice-20261018` | git worktree |
+| Accepted journey checkpoint | `abc11a0db0a14c0d3977b6152514e8dfac0128d0` (BLACK accepted, incl. decision 15) — untouched by the readiness pass; everything after it is additive (measurement script, bounds migration + proof, pins, docs) | PR #176 comments |
 | Candidate head | `c0fc16e` first implementation; `65914ff` release packaging (wrapper batch `fs-controls-r1`); `a6e8c69`, `e408f04`, `f4acc2f` merge `origin/main` (#173 TB UX release; #175 pricing-p1 with migration 20261110100000; `dd2a29c` its hosted application as drizzle entry 0062); `453aeca` second pass (2015 edition only, adjustment-to-sign-off, prior-FINAL reconciliation, browser journey); `44fd72c` wrapper batch re-registered from those bytes; `a5de686` merges `origin/main` `50282a3` (#177, pricing-p1 journal close-out, hosted id 63) — registry comments and the pending list were the only conflicts; `ed09267` the safeupdate fix found by CI (every temp-table DELETE carries a WHERE clause) and `f3925d0` its repackaging — CI green on that head; `8bbb022` the Architectural Hardening Addendum pass (lineage lock in `fs_set_publication_state` v2, `publicationConcurrency.mjs`, architecture map) with the wrapper batch re-registered from its committed bytes; `origin/main` `c046c80` (#178, one release document, no overlap) merged after it; then the journey pass (2026-10-19, the owner's "complete the financial-statements customer journey" instruction): migration `20261112100000_fs_review_workflow_and_rollforward.sql` (reviewer workflow, prior-FINAL acceptance, roll-forward carry), the pages, `reviewWorkflow.mjs`, both journeys extended, batch `fs-journey-r1`; `20261111100000` and `20261112100000` are the two `PENDING_HOSTED_APPLY`; the control-repair checkpoint `3637d6a` is preserved untouched; the final head is the PR's | git; PR #176 (draft) |
 
 ## 2. Supported first slice (pinned)
@@ -112,7 +113,10 @@ function writes nothing outside `pg_temp`; the save and the sign-off paths that 
 | Evidence CSV intake (browser, `financialEvidence/intake.ts`) | comma-delimited only; `INTAKE_LIMITS.maxRows`; amounts must declare a currency and scale | six files of 7–8 rows: validated in the browser in the journeys |
 | Revision commit (`fs_commit_revision`) | at most 64 evidence batches per revision; idempotency key 8–200 chars; expected version ≥ 0 | embedded PostgreSQL: the whole browser save (two steps, ~6 server calls) 2.1 s on the journey's data; CI real stack (PostgREST, GitHub runner): the evidence save step 5.4 s wall time including page waits, REVIEWED 3.5 s, FINAL 5.7 s — within the API session's statement budget |
 | Trial balance intake | 2 MB / 20,000 rows / 40 columns CSV; workbooks 5 MB, 300 entries, 20,000 rows, 5 s budget (release package §11) | the TB CPU measurements are NOT transferred to the FS workload |
-| FS workload under load | — | GAP: no representative or demanding FS case (many accounts, many evidence rows, many versions) has been measured; `fs_evidence_statements` cost grows with evidence rows and versions are unbounded per lineage |
+| Evidence batch (server, `20261113100000` trigger `trg_feb_work_bounds`) | ≤ 20,000 rows (`EVIDENCE_ROWS_LIMIT`); ≤ 4,194,304 bytes as JSON (`EVIDENCE_DOCUMENT_SIZE_LIMIT`) — the intake's own limits, now held by the server on every write path | `workBounds.mjs` B1/B2: a 20,000-row ledger saved through the browser's save code; 20,002 rows and a 6 MB file refused, nothing stored. Sizes: 20,000 rows → 2,218,178 B; a 2,000,000-character file of maximal rows → 2,067,494 B (the bound is ≥ 1.8× anything the intake lets through) |
+| Report version (server, `trg_fsr_work_bounds`) | ≤ 200,000 evidence rows referenced by one version (`EVIDENCE_ROWS_PER_VERSION_LIMIT`, 10× the demanding case); document ≤ 8,388,608 bytes (`REPORT_DOCUMENT_SIZE_LIMIT`); ≤ 1,000 versions per lineage (`VERSION_HISTORY_LIMIT`) | `workBounds.mjs` B3/B4 (direct), B5 (the 1,000th save through the client accepted, the 1,001st refused). Measured documents: representative 157,013 B; demanding see §7.5 |
+| Reviewer comments (server, `trg_fsrc_work_bounds`, `trg_fsrce_work_bounds`) | ≤ 500 comments per version (`REVIEW_COMMENTS_LIMIT`); ≤ 200 events per comment (`REVIEW_COMMENT_EVENTS_LIMIT`) | `workBounds.mjs` B6/B7 through `fs_review_comment_open/respond/resolve` |
+| FS workload under load | the bounds above | MEASURED (§7.5): representative and demanding cases through the real Supabase/PostgREST path; 30-version history; 8 simultaneous saves. CPU is NOT measured (API round trips only) |
 
 
 ## 4. Decisions (agreed unless marked OPEN)
@@ -349,6 +353,101 @@ API-session guards (`safeupdate`), RLS as the API sees it, Storage and the Edge 
 and retrieve), the trial-balance processing function. What neither proves: hosted behaviour (no hosted run was made; the
 hosted browser acceptance stays an owner-run step), and CPU cost (§7.5 measures API round trips only).
 
+### 7.5 Readiness pass: the workload measured through the real stack, and the work bounds proven
+
+Source: CI job "Real application end to end (local Supabase stack)", step "Workload measurement through the real stack",
+artifact `real-app-evidence/workload/measurements.json` + `workload.log` (run 39256437006 on head dcc7f79).
+**Every figure is the client-observed API round trip of one call (supabase-js → PostgREST/Edge Function on the GitHub
+runner, loopback), in milliseconds. It is wall time of a request, NOT server CPU; CPU is not measurable from this path and
+is recorded as unmeasured. The completed TB CPU investigation is not repeated.** Invented companies and data.
+
+| Case | Call | Client-observed round trip |
+|---|---|---|
+| representative | trial balance first check (FY2025, 18 accounts, drafts → process-trial-balance) | 73 ms (n=1, max 73) |
+| representative | review batch (18 decisions, resolve_account_review_batch) | 20 ms (n=1, max 20) |
+| representative | re-check after review (FY2025) | 71 ms (n=1, max 71) |
+| representative | first check FY2026 (certified by the company mapping) | 68 ms (n=1, max 68) |
+| representative | fs_assign_presentation (18) | 21 ms (n=1, max 21) |
+| representative | fs_approve_comparatives | 46 ms (n=1, max 46) |
+| representative | fs_statement_composition | 33 ms (n=3, max 43) |
+| representative | fs_notes_status | 30 ms (n=3, max 31) |
+| representative | fs_reporting_dependencies | 142 ms (n=3, max 143) |
+| representative | the browser's save: evidence step + bind (6 batches, 7+7 ledger rows, ~6 server calls) | 904 ms (n=1, max 904) |
+| representative | fs_report_readiness | 173 ms (n=1, max 173) |
+| representative | fs_set_publication_state REVIEWED | 326 ms (n=1, max 326) |
+| representative | fs_set_publication_state FINAL | 312 ms (n=1, max 312) |
+| representative | official pack: issue RPC + Edge Function store + seal | 120 ms (n=1, max 120) |
+| representative | official pack: verify (Edge Function re-reads Storage) | 27 ms (n=1, max 27) |
+| representative | official pack: retrieve | 49 ms (n=1, max 49) |
+| representative | second issuance | 74 ms (n=1, max 74) |
+| demanding (1000 accounts) | trial balance first check FY2025 (1000 accounts, 33601 B CSV) | 698 ms (n=2, max 698) |
+| demanding (1000 accounts) | review batch (1000 decisions in ONE call) | 1136 ms (n=2, max 1136) |
+| demanding (1000 accounts) | re-check after review (FY2025) | 589 ms (n=2, max 589) |
+| demanding (1000 accounts) | first check FY2026 (certified by the mapping) | 266 ms (n=1, max 266) |
+| demanding (1000 accounts) | fs_assign_presentation per 500-account chunk | 27 ms (n=2, max 27) |
+| demanding (1000 accounts) | Close Review refresh + explain | 2441 ms (n=1, max 2441) |
+| demanding (1000 accounts) | fs_approve_comparatives | 518 ms (n=1, max 518) |
+| demanding (1000 accounts) | fs_statement_composition | 541 ms (n=3, max 545) |
+| demanding (1000 accounts) | fs_notes_status | 521 ms (n=3, max 539) |
+| demanding (1000 accounts) | fs_reporting_dependencies (before evidence) | 3065 ms (n=3, max 3073) |
+| demanding (1000 accounts) | the browser's save: evidence step + bind (20000-row ledger = 1837836 B CSV / 2198144 B batch document, 50 equity rows + comparative files) | None ms (n=1, max 16979, failures 1) |
+| demanding (1000 accounts) | fs_report_readiness (evaluates fs_evidence_statements over the 20,000-row ledger) | — |
+| demanding (1000 accounts) | fs_reporting_dependencies (after evidence) | — |
+| demanding (1000 accounts) | fs_list_saved_versions | — |
+| demanding | document | version ?, ? B, ? facts; readiness ready=None blockers=None  |
+| concurrency | 8 simultaneous saves of ONE attempt (representative lineage) | 1776 ms wall for all eight; 8 answered, 0 refused; versions after: 3 |
+| concurrency | 8 simultaneous fs_statement_composition | 90 ms wall, 8/8 ok |
+| history | 30 further versions on one lineage (a disclosure changes before each save) | save 488 → 491 ms (min 458, max 518); fs_list_saved_versions 3 → 3 ms over 4 → 33 versions; readiness 165 → 164 ms; comments 6 → 6 ms; document 157009 → 157013 B; errors: 0 |
+| environment | GitHub runner | linux 6.17.0-1022-azure, 4 CPUs (AMD EPYC 9V74 80-Core Processor), 17 GB; Supabase local stack in Docker on loopback |
+| failures recorded by the script | 3 | demanding/tb_certification_2025: not_certified — {"http":200,"outcome":"needs_review","code":null,"uploadStatus":"needs_review","resultStatus":"needs_review","errors":[],"needsReview":1000}; demanding/save_evidence_and_bind: statement_timeout — canceling statement due to statement timeout; demanding/save: refused — {"outcome":null,"reason":null,"diagnostics":[]} |
+
+Script notes: open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"8ff97962-6b57-4e30-907a-4ee19a99807f","periodYear":2025,"engagementId":"8f2755b9-de2e-48d3-91d8-c6ab9dc400d9","priorPe · open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"6e9b77c6-0b67-4cdf-b82f-d410d179bddc","periodYear":2026,"engagementId":"10888de3-5761-4a90-94c8-3b3f377a467b","priorPe · open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"2e8d9ae1-b605-408b-b7cf-95b648735182","periodYear":2025,"engagementId":"8867f1e6-845a-444a-a2f3-4b7b2bcd85e9","priorPe · open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"651d3365-e9b7-4a9e-bf8f-5cc707a36146","periodYear":2026,"engagementId":"577ad03d-5374-4d26-aab4-079b1dff22d6","priorPe · demanding: the 2000-account trial balance was not certified on this stack; the FS workload below is measured at 1,000 accounts · open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"4c51ec8c-9097-42f7-a5bc-86cdd68edaf4","periodYear":2025,"engagementId":"43f9ff29-a9d8-4fce-b79d-4658730a22f8","priorPe · open_engagement_with_period answered {"created":true,"granted":["FINANCIAL_STATEMENTS"],"outcome":"opened","periodId":"364d278a-5aff-46ac-b3b5-c0c2b982abdd","periodYear":2026,"engagementId":"878b2483-5a15-4cca-b320-03977cb53be0","priorPe · demanding evidence parsed by the browser intake code: ledger 20000 rows (1837836 CSV bytes, 2198144 B as a batch document), equity 50 rows, plus the comparative evidence
+
+**Two measured product limits (OPEN, not repaired in this increment — scope):**
+
+1. **The 2,000-account trial balance does not certify through the deployed processing function** (`DEFECT-PTB-MAPPINGS-API-ROW-CAP-001`,
+   registered in `CLAUDE.md` §9.1). All 2,000 review decisions were recorded in one `resolve_account_review_batch` call
+   (1,136 ms; `mappings_written: 2000` in the in-process reproduction), yet the re-check reported `needs_review` for exactly
+   **1,000** accounts. Cause, SOURCE-INSPECTED: `supabase/functions/process-trial-balance/index.ts` loads the company's
+   mappings with `.from("account_mappings").select("*").or(...)` and no `.range()`; PostgREST returns at most its
+   `max-rows` (1,000 by default on the local stack and on Supabase hosted), so a company with more than 1,000 reviewed
+   mappings never sees the rest and cannot certify. In-process (the proof kit, no PostgREST) the same file certifies
+   (`cpu_ms=891`). The upload policy's `maxAccounts = 2,000` is therefore not an end-to-end supported size today; the
+   measured supported size is **1,000 reviewed accounts per company** until the loader pages. The fix is a one-function
+   change (page the select in `max-rows` steps) with its own test; it touches the processing function and is not done here.
+2. **A 20,000-row ledger does not save at 1,000 accounts within the API session:** the browser's save (evidence step)
+   was cancelled by the `statement_timeout` after 16,979 ms of client wall time and **stored nothing** (the control fails
+   closed). Before the save, `fs_reporting_dependencies` already took ~3.0 s and `fs_statement_composition` ~0.54 s at
+   1,000 accounts. The server bound of 20,000 rows per batch is the intake's limit held by the server (it defends against
+   bypass); it is **not** a measured-safe processing budget at 1,000 accounts. The measured-safe envelope is the
+   representative case (18 accounts, 7-row ledgers: save 904 ms). NOT measured: a 20,000-row ledger at 18 accounts;
+   2,000/5,000/10,000-row ledgers at 1,000 accounts. Lowering the bound without those measurements would be a guess,
+   which this record does not make; the remaining work is that measurement, then the bound at the largest measured-safe
+   size with margin (a one-function forward migration redefining `fs_work_bounds()`, no table change).
+
+Measured results and harness failures are reported separately:
+
+- **Measured (the product):** the table above; the representative journey reached FINAL and its official pack verified
+  and retrieved through the real Edge Function and Storage; the per-version cost over 30 further versions is flat (save,
+  list, readiness, comments) and the document size constant; eight simultaneous saves of one attempt converge on one
+  lineage with no refusal surfacing to the caller.
+- **Harness failures (not the product):** (1) runs 1–3 of the measurement failed in the script itself — the companies
+  were created without a reporting framework (every `fs_*` authority answered `framework_not_ifrs_for_smes`), the
+  demanding fixture was an all-current-assets file the certification does not accept, and the processing function's HTTP
+  result was not logged; each was corrected and the run repeated. (2) `workBounds.mjs` on the developer machine: the
+  embedded Windows PostgreSQL 16 backend exited with code 143 (postmaster restart) at non-deterministic points during
+  multi-megabyte evidence statements, in five of six local runs; every case passed in at least one local run, and the
+  Linux CI run is the authority for this proof (`Disposable-DB Contract Tests` → "Work bounds proof"). The one
+  reproducible crash path (replacing `fs_work_bounds()` at run time) was removed from the proof's design: bounds are
+  reached with direct superuser rows instead, and the application path is exercised at and past each bound.
+
+`workBounds.mjs` coverage, by path: application path (the browser's `prepareReportVersion` and the `fs_review_comment_*`
+functions as `authenticated`): B1 (20,000 accepted / 20,002 refused), B2 (6 MB refused), B5 (the 1,000th version accepted,
+the 1,001st refused), B6 (the 500th comment accepted, the 501st refused), B7 (the 200th event accepted, the 201st refused);
+direct superuser path (the trigger is the control and sits on the table): the filler rows that bring a lineage, version or
+comment to its bound, B3 (200,000 accepted / 220,000 refused), B4 (8 MiB exactly accepted / over refused), C (trigger
+dropped → stored; restored → refused). Result: CI-PROVEN 34/34 (Linux, run 39256437006); wrapper proof fs-bounds-r1 32/32 on CI and locally; locally 34/34 in the one run of six where the embedded Windows backend did not exit.
+
 ## 8. Migration and deployment requirements
 
 - Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. `20261111100000` is the only batch still PENDING hosted application.
@@ -369,6 +468,16 @@ hosted browser acceptance stays an owner-run step), and CPU cost (§7.5 measures
   (`RELEASE_BATCH=fs-journey-r1`: injected failure at `fs_review_comment_states`, rolled back with no journal row), with
   `docs/release/fs-journey-r1/preflight.sql` before and `postcondition.sql` after. Both batches are PENDING hosted
   application; nothing here authorises either.
+- **Third batch `fs-bounds-r1`** (`20261113100000_fs_work_bounds.sql`): applied AFTER `fs-journey-r1` (its preflight
+  requires the reviewer workflow); registered in `scripts/release/selfCheckingWrapper.mjs` from its committed bytes at
+  `6e96660b07edfddd8bf8e691b77b4e6198e1cf7b` (source 12,720 B SHA-256 `8b337b22…`, wrapper
+  `release/wrappers/20261113100000_fs_work_bounds.wrapper.sql` 14,270 B SHA-256 `4af6b26d…`; all four submission forms
+  in `scripts/ci/releaseJournal.mjs`), proven by `selfCheckingWrappers.mjs` (`RELEASE_BATCH=fs-bounds-r1`: injected
+  failure at `fs_bound_report_version`, rolled back with no journal row), with `docs/release/fs-bounds-r1/preflight.sql`
+  before (it also lists six counts of existing rows already over a bound — all must be 0) and `postcondition.sql` after.
+  DDL only: no accepted function is redefined; no existing table, column, index, policy or grant changes.
+- **The exact deployment handoff** (both earlier wrappers, this one, the seal-function deploy with its verification, the
+  restricted activation and the recovery paths) is `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 - **One Edge Function change:** `seal-reporting-pack` gains the `retrieve` action (`_shared/reportingPackSeal.mjs`
   `retrieveOfficialPack`: the stored bytes again with the sealed digest, only when intact; the same workspace gate as
   `verify`). Deploying it is a separate step (`supabase functions deploy seal-reporting-pack`) after the owner's review; the
@@ -395,11 +504,11 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
 | Issued artifact retained with its digest and bound to the approved version (addendum §8) | DONE through the existing server-sealed official pack (decision 15): issue, verify, retrieve in the real-stack journey; the Edge Function's `retrieve` action needs its own deploy |
 | Concurrency and idempotency (addendum §3/§4) | DONE — lineage lock in `fs_set_publication_state` v2; `publicationConcurrency.mjs` C1–C6 |
 | Database and API execution parity (addendum §5) | DONE (CI-PROVEN) for the save/publication path; the harness cannot load `safeupdate` locally |
-| Operational correctness (addendum §10) | PARTIAL — failure classes and request ids exist; no correlation id across command → version → publication, no telemetry, no FS load measurement (§3d) |
+| Operational correctness (addendum §10) | PARTIAL — failure classes and request ids exist; the FS workload IS measured through the real stack (§7.5) and server-enforced work bounds exist (§3d, `fs-bounds-r1`); still no correlation id across command → version → publication and no telemetry provider |
 | Rendering, exports, reproduction | UNCHANGED from the reporting release (sealed pack, PDF, lineage-tagged exports; the browser journey prints the sealed pack); byte-identical independently generated formats not promised |
 | AI and server exposure | no model call anywhere in this slice; the `policy-compass` / MAONO findings of doc 12 untouched (separate track) |
 | Privacy cleanup (#171) | separate track; synthetic data only here |
-| Hosted application, activation, merge | NOT authorised; nothing applied |
+| Hosted application, activation, merge | NOT authorised; nothing applied. The exact handoff is `DEPLOYMENT_HANDOFF.md` |
 
 ## 9a. Open blockers / questions for the owner and BLACK
 
@@ -410,9 +519,30 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
   32 and 33 verified (including 33.7A).
 - **DONE (journey pass):** the reviewer-comment store, the roll-forward carry and worklist, the retained issued artifact
   through the existing official pack — see §7.3 and decisions 12–15.
+- **RESOLVED (Q1, BLACK — citations):** BLACK read `cx` in `src/lib/frameworkPacks/ifrsForSmes.ts` as "unverified 2015
+  refs". In the code, `cx(p)` is `ed === "2015" ? c(p) : [T("2015", p)]`: for the SUPPORTED 2015 pack it is identical to
+  `c(p)`, a `PRIMARY_TEXT` citation of the pinned 2015 standard (SHA-256 `acc6500e…`, bytes asserted by
+  `frameworkPacks.test.ts`). Only the refused third-edition pack carries 2015 text as a stand-in for its unverified
+  paragraphs, and the server refuses that edition by name. This is now pinned by three tests ("Q1 (BLACK)" in
+  `frameworkPacks.test.ts`): every 2015 citation is `smes-2015-text`/`PRIMARY_TEXT`; the 1.2.0 disclosures cite 3.8, 3.9,
+  32.9, 33.7, 29.39, 23.30, 32.10, 32.11, 33.5, 33.9 by number; the third edition's stand-ins are enumerated. No
+  user-facing text claims compliance: the pack's own header states "Nothing here asserts that a report complies", the
+  pages name the edition ("IFRS for SMEs (2015 edition)") and the official pack carries the seal, approvers and hashes,
+  never a compliance verdict. The remaining professional limitation stands and is stated: the paragraph references are
+  verified against the standard's text; whether a given entity's disclosures satisfy them is the reviewer's judgement.
+- **CLOSED (load measurement and bounds):** §7.5 and §3d; `fs-bounds-r1`.
+- **OPEN (measured, readiness pass):** (1) `DEFECT-PTB-MAPPINGS-API-ROW-CAP-001` — the processing function's mapping load
+  is capped at 1,000 rows by PostgREST, so companies above 1,000 reviewed accounts cannot certify end to end (§7.5);
+  (2) the 20,000-row ledger save at 1,000 accounts exceeds the API statement timeout and stores nothing (§7.5). Neither
+  blocks the representative release scale; both bound what "supported workload" may honestly mean today and are stated in
+  `DEPLOYMENT_HANDOFF.md` §8. Remaining work (not a redesign): page the mapping load; measure ledger sizes between 7 and
+  20,000 rows at 18 and 1,000 accounts; then set `fs_work_bounds()` at the largest measured-safe size with margin.
+- **CHECKPOINT (readiness pass, 2026-10-19):** code head `dcc7f79` (CI green on every job; `workBounds.mjs` 34/34 and the
+  `fs-bounds-r1` wrapper proof 32/32 CI-PROVEN; the workload step COMPLETE with its three assertions passing and its
+  failures recorded as measurements); the record and the handoff are in the commit after it.
 - **OPEN (owner, stated limitations):** the indirect-method cash flow (direct-method-only; see §9); comments anchored to
   evidence items in the pages; cross-format content equality is not asserted by a test; the `retrieve` action of
-  `seal-reporting-pack` needs its own deploy; the FS workload has no load measurement (§3d); correlation ids do not yet
+  `seal-reporting-pack` needs its own deploy (handoff §5); correlation ids do not yet
   thread command → version → publication → artifact (the request ids, the audit ledger's DECISION_RECORDED events with
   the exact event name, the issuance ids and the sealed digests are the chain available today).
 - **NOTE (addendum §3):** dependency writes that take no lineage lock (a disclosure, a comparatives approval, an
