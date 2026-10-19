@@ -78,6 +78,36 @@ describe("IFRS for SMEs packs: structure and citations", () => {
   });
 });
 
+describe("Q1 (BLACK): every citation of the SUPPORTED 2015 pack is verified primary text; only the refused third edition carries 2015 text for its own paragraphs", () => {
+  // The `cx` helper in ifrsForSmes.ts means "the 2015 text where the third edition's paragraph could not be reached". For
+  // the 2015 pack it is the same as `c`: a PRIMARY_TEXT citation of the pinned 2015 standard. No 2015 citation is unverified.
+  it("IFRS for SMEs 2015: every requirement cites only smes-2015-text with PRIMARY_TEXT verification", () => {
+    const cited = IFRS_FOR_SMES_2015.requirements.flatMap((r) => r.citations.map((c) => [r.id, c.source, c.verification] as const));
+    expect(cited.length).toBeGreaterThan(40);
+    expect(cited.filter(([, source, verification]) => source !== "smes-2015-text" || verification !== "PRIMARY_TEXT")).toEqual([]);
+    expect(SOURCES["smes-2015-text"].sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+  it("the 1.2.0 disclosures of the first slice cite the 2015 paragraphs by number, all PRIMARY_TEXT", () => {
+    const want: Record<string, string[]> = {
+      "smes.note.going_concern": ["3.8", "3.9"], "smes.note.authorisation": ["32.9"], "smes.note.kmp_compensation": ["33.7"],
+      "smes.note.income_tax": ["29.39"], "smes.note.revenue": ["23.30"], "smes.note.events_after": ["32.10", "32.11"],
+      "smes.note.related_party_control": ["33.5"], "smes.note.related_party_transactions": ["33.9"],
+    };
+    for (const [id, paragraphs] of Object.entries(want)) {
+      const r = IFRS_FOR_SMES_2015.requirements.find((x) => x.id === id);
+      expect(r, id).toBeDefined();
+      expect(r!.citations.map((c) => [c.paragraph, c.source, c.verification]), id).toEqual(paragraphs.map((p) => [p, "smes-2015-text", "PRIMARY_TEXT"]));
+    }
+  });
+  it("the third edition (refused by the server: FRAMEWORK_EDITION_UNSUPPORTED) is the ONLY pack with 2015 text standing in for unverified paragraphs, and those are named", () => {
+    const standIns = IFRS_FOR_SMES_2025.requirements.flatMap((r) => r.citations.filter((c) => c.source === "smes-2015-text").map((c) => `${r.id}:${c.paragraph}`)).sort();
+    expect(standIns).toEqual(["smes.note.authorisation:32.9", "smes.note.events_after:32.10", "smes.note.events_after:32.11", "smes.note.income_tax:29.39",
+      "smes.note.kmp_compensation:33.7", "smes.note.related_party_control:33.5", "smes.note.related_party_transactions:33.9", "smes.note.revenue:23.30"]);
+    // The supported pack never carries a third-edition source.
+    expect(IFRS_FOR_SMES_2015.requirements.flatMap((r) => r.citations).filter((c) => c.source.startsWith("smes-2025"))).toEqual([]);
+  });
+});
+
 describe("edition policy: the period START decides; nothing defaults", () => {
   const CONFIRMED = { edition: "2025" as const, jurisdictionConfirmation: "Regulator circular ref. X/2026" };
   // Expected outcomes written by hand from the effective dates above — not derived from the implementation.

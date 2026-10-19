@@ -22,7 +22,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { assertLocalStack, tbCsv, CURRENT, PRIOR, PERIODS, reviewDecisions, ASSIGN, EVIDENCE, NOTES, NOT_APPLICABLE, PPE_SCHEDULE, CODES } from "./localStackFixtures.mjs";
+import { assertLocalStack, tbCsv, TB, CURRENT, PRIOR, PERIODS, reviewDecisions, ASSIGN, EVIDENCE, NOTES, NOT_APPLICABLE, PPE_SCHEDULE, CODES } from "./localStackFixtures.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { supabaseReportingDb } from "../../src/lib/reporting/supabaseDb.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
@@ -99,7 +99,16 @@ const signIn = async (u) => {
   return { c, token: data.session.access_token, db: supabaseReportingDb(c) };
 };
 const owner = await signIn(U.owner), preparer = await signIn(U.preparer), partner = await signIn(U.partner);
-const rpc = async (who, fn, args) => { const { data, error } = await who.c.rpc(fn, args); if (error) throw new Error(`${fn}: ${error.message}`); return data; };
+const OK_OUTCOMES = new Set(["recorded", "generated", "accepted", "replayed", "certified", "carried", "approved", "reviewed"]);
+const rpc = async (who, fn, args) => {
+  const { data, error } = await who.c.rpc(fn, args);
+  if (error) throw new Error(`${fn}: ${error.message}`);
+  if (data && typeof data === "object" && !Array.isArray(data) && typeof data.outcome === "string" && !OK_OUTCOMES.has(data.outcome) && !/^fs_(statement_composition|notes_status|reporting_dependencies|report_readiness|reporting_input|prior_final_reconciliation|review_comments)$/.test(fn)) {
+    M.notes.push(`${fn} answered ${JSON.stringify(data).slice(0, 200)}`);
+    log(`        NOTE ${fn} answered ${JSON.stringify(data).slice(0, 200)}`);
+  }
+  return data;
+};
 const newCompany = async (name) => {
   const { data, error } = await admin.from("companies").insert({ user_id: U.owner.id, name }).select("id").single();
   if (error) throw new Error(`company: ${error.message}`);
@@ -167,8 +176,9 @@ const prepareNotes = async (company, year) => {
 };
 const explainFindings = async (company, year) => {
   await rpc(preparer, "close_review_refresh_findings", { p_company_id: company, p_period_year: year });
-  const st = await rpc(preparer, "close_review_finding_states", { p_company_id: company, p_period_year: year });
-  for (const f of (st ?? []).filter((x) => !x.resolved)) await rpc(preparer, "close_review_finding_action", { p_finding_id: f.finding_id, p_action: "explain", p_text: "Reviewed against the fixed asset register", p_evidence_ref: "FAR", p_request_id: uuid() });
+  const st0 = await rpc(preparer, "close_review_finding_states", { p_company_id: company, p_period_year: year });
+  const st = Array.isArray(st0) ? st0 : st0 ? [st0] : [];
+  for (const f of st.filter((x) => !x.resolved)) await rpc(preparer, "close_review_finding_action", { p_finding_id: f.finding_id, p_action: "explain", p_text: "Reviewed against the fixed asset register", p_evidence_ref: "FAR", p_request_id: uuid() });
 };
 const parseEvidence = (company, year, type, role, text, period) => {
   const r = ingestEvidence({ companyId: company, evidenceType: type, periodRole: role, reportingPeriodId: `FY${year}`, currency: "TZS", scale: 2, text, fileName: `${type.toLowerCase()}.csv`, mimeType: "text/csv", periodStart: period.start, periodEnd: period.end });
@@ -203,8 +213,20 @@ const evA = [
   parseEvidence(A, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior), parseEvidence(A, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior),
 ];
 const ridA = `rpt-wl-${uuid()}`;
+const statesBefore = async (company, year, who) => {
+  const comp = await rpc(who, "fs_statement_composition", { p_company_id: company, p_period_year: year });
+  const notes = await rpc(who, "fs_notes_status", { p_company_id: company, p_period_year: year });
+  const deps = await rpc(who, "fs_reporting_dependencies", { p_company_id: company, p_period_year: year });
+  const out = { composition: comp?.state, compositionBlockers: (comp?.blockers ?? []).slice(0, 10), notes: notes?.state, dependencies: deps?.state, dependencyBlockers: (deps?.blockers ?? []).slice(0, 10) };
+  log(`        states before the save: ${JSON.stringify(out)}`);
+  return out;
+};
+const saveOutcome = (label, r) => { if (!r || r.outcome !== "saved") { const d = { outcome: r?.outcome ?? null, reason: r?.reason ?? null, diagnostics: (r?.diagnostics ?? []).slice(0, 8) }; log(`        ${label}: NOT SAVED ${JSON.stringify(d).slice(0, 1500)}`); M.failures.push({ section: label, label: "save", ok: false, errorClass: "refused", message: JSON.stringify(d).slice(0, 600) }); } };
+M.representative.statesBeforeSave = await statesBefore(A, 2026, preparer);
 const savedA = await measure("representative", "save_evidence_and_bind", () => save(preparer, A, 2026, "Workload Representative Ltd", ridA, evA), { size: "6 batches, 7+7 ledger rows" });
-let vA = savedA?.reportVersion ?? 0;
+saveOutcome("representative", savedA);
+if (savedA?.outcome !== "saved") throw new Error(`the representative save was not saved: ${savedA?.reason ?? JSON.stringify(savedA).slice(0, 300)}`);
+let vA = savedA.reportVersion;
 const rdA = await measure("representative", "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: A, p_report_id: ridA, p_report_version: vA }));
 await check("the representative version is ready for review through the real stack", async () => (rdA?.ready === true ? true : rdA?.blockers ?? rdA));
 await measure("representative", "set_state_REVIEWED", () => rpc(partner, "fs_set_publication_state", { p_report_id: ridA, p_report_version: vA, p_company_id: A, p_state: "REVIEWED", p_reason: "Reviewed" }));
@@ -262,49 +284,83 @@ for (let i = 1; i <= 30; i++) {
 // ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 log("\n== DEMANDING: 2,000 accounts, a 20,000-row ledger, 50 equity rows");
 const N_ACCOUNTS = 2000, LEDGER_ROWS = 20000;
-const bigRows = (() => { const rows = []; let total = 0; for (let i = 0; i < N_ACCOUNTS - 1; i++) { const minor = 100 + ((i * 7919) % 9_999_900); rows.push([String(100000 + i), `Invented account ${i} ${["receivables", "deposits", "advances", "prepayments"][i % 4]}`, (minor / 100).toFixed(2), "0.00"]); total += minor; } rows.push(["999999", "Retained earnings and reserves", "0.00", (total / 100).toFixed(2)]); return rows; })();
-const bigCsv = Buffer.from("Account code,Account name,Debit,Credit\n" + bigRows.map((r) => r.join(",")).join("\n") + "\n");
-const bigDecisions = bigRows.map(([code, name]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
-  statement: "balance_sheet", classification: code === "999999" ? "equity" : "current_assets", normal_balance: code === "999999" ? "credit" : "debit", is_cash_account: code === "100000" }));
-const bigTotalMinor = bigRows.slice(0, -1).reduce((t, r) => t + Math.round(Number(r[2]) * 100), 0);
+const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
+const money = (m) => (m / 100).toFixed(2);
+// Split every account but the bank into parts; the parts' amounts sum exactly to the parent's in BOTH years.
+const bigRows = (() => {
+  const parents = TB.filter((r) => r[0] !== CODES.bank);
+  const nParts = N_ACCOUNTS - 1; // 1,999 parts over 17 parents
+  const base = Math.floor(nParts / parents.length), extra = nParts - base * parents.length;
+  const rows = [TB.find((r) => r[0] === CODES.bank)];
+  parents.forEach((r, pi) => {
+    const k = base + (pi < extra ? 1 : 0);
+    const cur = minor(r[5] || r[6]), pri = minor(r[7] || r[8]);
+    const curDebit = !!r[5], priDebit = !!r[7];
+    for (let i = 0; i < k; i++) {
+      const cm = i === k - 1 ? cur - Math.floor(cur / k) * (k - 1) : Math.floor(cur / k);
+      const pm = i === k - 1 ? pri - Math.floor(pri / k) * (k - 1) : Math.floor(pri / k);
+      rows.push([`${r[0]}${String(i).padStart(3, "0")}`, `${r[1]} ${i + 1}`, r[2], r[3], r[4], curDebit ? money(cm) : "", curDebit ? "" : money(cm), priDebit ? money(pm) : "", priDebit ? "" : money(pm)]);
+    }
+  });
+  return rows;
+})();
+const bigTbCsv = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + bigRows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
+const bigDecisions = bigRows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === CODES.bank }));
+const parentOf = (code) => (code === CODES.bank ? code : code.slice(0, -3));
+const bigAssign = bigRows.map(([code]) => ({ accountKey: code, lineId: ASSIGN[parentOf(code)] }));
+M.demanding.fixture = { accounts: bigRows.length, csvBytesCurrent: Buffer.byteLength(bigTbCsv(CURRENT)), csvBytesPrior: Buffer.byteLength(bigTbCsv(PRIOR)), ledgerRows: LEDGER_ROWS, equityRows: 50 };
 const D = await newCompany("Workload Demanding Ltd");
-// Two years of the same 2,000-account file: FY2025 is reviewed once (2,000 decisions in ONE batch call); FY2026 is then
-// certified by the company-wide mapping on its first check, exactly as a second year is in the product.
 const pD25 = await openPeriod(D, 2025, PERIODS.prior.start, PERIODS.prior.end);
 const pD26 = await openPeriod(D, 2026, PERIODS.current.start, PERIODS.current.end);
-await uploadReviewCertify(D, "Workload Demanding Ltd", 2025, "1 Jul 2024 – 30 Jun 2025", pD25, bigCsv, bigDecisions, "demanding");
-await uploadReviewCertify(D, "Workload Demanding Ltd", 2026, "1 Jul 2025 – 30 Jun 2026", pD26, bigCsv, bigDecisions, "demanding");
-const bigAssign = bigRows.map(([code]) => ({ accountKey: code, lineId: code === "100000" ? "sfp.cash_and_cash_equivalents" : code === "999999" ? "sfp.equity_attributable_to_owners" : "sfp.trade_and_other_receivables" }));
+await uploadReviewCertify(D, "Workload Demanding Ltd", 2025, "1 Jul 2024 - 30 Jun 2025", pD25, Buffer.from(bigTbCsv(PRIOR)), bigDecisions, "demanding");
+await uploadReviewCertify(D, "Workload Demanding Ltd", 2026, "1 Jul 2025 - 30 Jun 2026", pD26, Buffer.from(bigTbCsv(CURRENT)), bigDecisions, "demanding");
 for (let i = 0; i < bigAssign.length; i += 500) {
   await measure("demanding", "assign_presentation_chunk_500", () => rpc(preparer, "fs_assign_presentation", { p_company_id: D, p_assignments: bigAssign.slice(i, i + 500), p_reason: "Presentation per the chart of accounts", p_request_id: uuid() }), { size: `${Math.min(500, bigAssign.length - i)} assignments` });
 }
 await measure("demanding", "close_review_refresh_and_explain", () => explainFindings(D, 2026), { size: `${N_ACCOUNTS} accounts` });
 await prepareNotes(D, 2026);
+await rpc(preparer, "fs_record_schedule", { p_company_id: D, p_period_year: 2026, p_schedule_id: "ppe", p_rows: PPE_SCHEDULE, p_source_ref: "Fixed asset register FY2026", p_request_id: uuid() });
 await measure("demanding", "approve_comparatives", () => rpc(partner, "fs_approve_comparatives", { p_company_id: D, p_period_year: 2026, p_approve: true, p_reason: "Agreed to the FY2025 statements", p_request_id: uuid() }));
 for (let i = 0; i < 3; i++) {
   await measure("demanding", "fs_statement_composition", () => rpc(preparer, "fs_statement_composition", { p_company_id: D, p_period_year: 2026 }), { size: `${N_ACCOUNTS} accounts` });
   await measure("demanding", "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: D, p_period_year: 2026 }));
   await measure("demanding", "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: D, p_period_year: 2026 }));
 }
-// A 20,000-row ledger on the one cash account (10,000 receipts of 1.00, 10,000 payments of 1.00: its movement is the trial
-// balance's, zero), 50 equity rows, the prior year's opening cash. Invented, at the intake limit.
-const bigLedger = (() => { const lines = ["transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line"]; for (let i = 0; i < LEDGER_ROWS; i++) { const day = 1 + (i % 28), month = 7 + (i % 12); const y = month > 12 ? 2026 : 2025; const m = ((month - 1) % 12) + 1; lines.push(`L${i},${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")},100000,Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`); } return lines.join("\n") + "\n"; })();
-const eq = (bigTotalMinor / 100).toFixed(2);
-const bigEquity = (() => { const lines = ["component,movement_type,amount,description", `Retained earnings and reserves,OPENING_BALANCE,${eq},`]; for (let i = 0; i < 48; i++) lines.push(`Retained earnings and reserves,${i % 2 ? "DIVIDENDS_OR_DISTRIBUTIONS" : "PROFIT_OR_LOSS"},${i % 2 ? "-1.00" : "1.00"},Movement ${i}`); lines.push(`Retained earnings and reserves,CLOSING_BALANCE,${eq},`); return lines.join("\n") + "\n"; })();
-const priorLedger = "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line\nP1,2024-09-30,100000,Invented receipt,1.00,,OPERATING,Receipts from customers\nP2,2025-03-31,100000,Invented payment,,1.00,OPERATING,Payments to suppliers and employees\n";
-const priorEquity = `component,movement_type,amount,description\nRetained earnings and reserves,OPENING_BALANCE,${eq},\nRetained earnings and reserves,CLOSING_BALANCE,${eq},\n`;
-const priorStatements = "statement_type,line_key,line_label,amount\nCASH_FLOWS,cash_and_cash_equivalents_opening_cf,Cash and cash equivalents at 1 July 2024,1.00\n";
+// The fixture ledger (7 rows that tie to the bank account's movement) padded to 20,000 rows with netting pairs on the same
+// account (a 1.00 receipt and a 1.00 payment, both operating): the movement, and every tie, is unchanged. 50 equity rows:
+// the fixture's 6 plus 22 netting pairs inside PROFIT_OR_LOSS. Invented, at the intake limit.
+const bigLedger = (() => {
+  const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
+  const lines = [...base];
+  for (let i = lines.length - 1; i < LEDGER_ROWS; i++) {
+    const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
+    const date = `${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    lines.push(`N${i},${date},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
+  }
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+})();
+const bigEquity = (() => {
+  const lines = EVIDENCE.current.EQUITY_MOVEMENTS.trimEnd().split(String.fromCharCode(10));
+  for (let i = 0; lines.length < 51; i++) lines.push(`Retained earnings,PROFIT_OR_LOSS,${i % 2 ? "-1.00" : "1.00"},Netting movement ${i}`);
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+})();
+M.demanding.fixture.ledgerRows = bigLedger.trimEnd().split(String.fromCharCode(10)).length - 1;
+M.demanding.fixture.equityRows = bigEquity.trimEnd().split(String.fromCharCode(10)).length - 1;
 let evD = [];
 try {
   evD = [parseEvidence(D, 2026, "TRANSACTION_LEDGER", "CURRENT", bigLedger, PERIODS.current), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
-    parseEvidence(D, 2026, "CASH_ACCOUNT_MAP", "CURRENT", "account_key,category,effect,include_in_cash_flow,note\n100000,BANK_ACCOUNT,ADD,Y,Main account\n", PERIODS.current),
-    parseEvidence(D, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", priorLedger, PERIODS.prior), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", priorEquity, PERIODS.prior),
-    parseEvidence(D, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", priorStatements, PERIODS.prior)];
-  M.notes.push(`demanding evidence parsed by the browser intake code: ledger ${LEDGER_ROWS} rows (${Buffer.byteLength(bigLedger)} bytes), equity 50 rows, plus comparative evidence`);
+    parseEvidence(D, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
+    parseEvidence(D, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE.prior.TRANSACTION_LEDGER, PERIODS.prior), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
+    parseEvidence(D, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
+  M.demanding.fixture.ledgerCsvBytes = Buffer.byteLength(bigLedger);
+  M.demanding.fixture.ledgerBatchDocumentBytes = Buffer.byteLength(JSON.stringify(evD[0].document));
+  M.notes.push(`demanding evidence parsed by the browser intake code: ledger ${M.demanding.fixture.ledgerRows} rows (${M.demanding.fixture.ledgerCsvBytes} CSV bytes, ${M.demanding.fixture.ledgerBatchDocumentBytes} B as a batch document), equity ${M.demanding.fixture.equityRows} rows, plus the comparative evidence`);
 } catch (e) { M.failures.push({ section: "demanding", label: "evidence_parse", ok: false, errorClass: "intake_refusal", message: String(e.message).slice(0, 200) }); log(`        [demanding] evidence parse: ${String(e.message).slice(0, 200)}`); }
+M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer);
 const ridD = `rpt-wl-big-${uuid()}`;
 const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, "Workload Demanding Ltd", ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
-const vD = savedD?.reportVersion ?? 0;
+if (evD.length) saveOutcome("demanding", savedD);
+const vD = savedD?.outcome === "saved" ? savedD.reportVersion : 0;
 if (vD) {
   for (let i = 0; i < 3; i++) {
     const rd = await measure("demanding", "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: D, p_report_id: ridD, p_report_version: vD }));
@@ -320,15 +376,21 @@ if (vD) {
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+writeSummary();
+process.on("exit", () => { try { writeSummary(); } catch { /* */ } });
+function writeSummary() {
 const med = (xs) => { const s = xs.filter((x) => x.ok).map((x) => x.ms).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const summary = {};
 for (const section of ["representative", "demanding"]) for (const [label, xs] of Object.entries(M[section])) if (Array.isArray(xs)) summary[`${section}.${label}`] = { n: xs.length, medianMs: med(xs), maxMs: Math.max(...xs.map((x) => x.ms)), failures: xs.filter((x) => !x.ok).length };
 M.summary = summary;
+if (writeSummary.done) { fs.writeFileSync(path.join(OUT, "measurements.json"), JSON.stringify({ ...M, checks: results }, null, 2)); return; }
+writeSummary.done = true;
 fs.writeFileSync(path.join(OUT, "measurements.json"), JSON.stringify({ ...M, checks: results }, null, 2));
 log("\n== Summary (median ms of client-observed API round trips; not CPU)");
 for (const [k, v] of Object.entries(summary)) log(`  ${k.padEnd(58)} n=${v.n} median=${v.medianMs} max=${v.maxMs}${v.failures ? ` FAILURES=${v.failures}` : ""}`);
 log(`  history: save ${M.history[0]?.saveMs}→${M.history.at(-1)?.saveMs} ms, list ${M.history[0]?.listVersionsMs}→${M.history.at(-1)?.listVersionsMs} ms over ${M.history.length} versions; document ${M.history.at(-1)?.documentBytes} B`);
 log(`  failures recorded: ${M.failures.length}`);
+}
 const failed = results.filter((r) => !r.ok);
 console.log(`\nchecks: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
 console.log(failed.length === 0 && results.length > 0 ? "WORKLOAD_MEASUREMENT: COMPLETE" : "WORKLOAD_MEASUREMENT: INCOMPLETE");

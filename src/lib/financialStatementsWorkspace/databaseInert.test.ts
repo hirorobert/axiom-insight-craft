@@ -660,6 +660,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
       "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
+      // FS workload measurement on the same local stack (invented companies; client-observed API round trips recorded, no
+      // assertion on timing; loopback only, no secret, no deploy behaviour).
+      "scripts/e2e/workloadJourney.mjs",
       // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
       // without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/certificationCapacity.mjs",
