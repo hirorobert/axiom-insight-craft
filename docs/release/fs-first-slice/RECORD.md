@@ -415,15 +415,15 @@ Script notes: open_engagement_with_period answered {"created":true,"granted":["F
    (`cpu_ms=891`). The upload policy's `maxAccounts = 2,000` is therefore not an end-to-end supported size today; the
    measured supported size is **1,000 reviewed accounts per company** until the loader pages. The fix is a one-function
    change (page the select in `max-rows` steps) with its own test; it touches the processing function and is not done here.
-2. **A 20,000-row ledger does not save at 1,000 accounts within the API session:** the browser's save (evidence step)
+2. **(REPAIRED below — kept as the measurement that forced the repair.)** A 20,000-row ledger did not save at 1,000 accounts within the API session: the browser's save (evidence step)
    was cancelled by the `statement_timeout` after 16,979 ms of client wall time and **stored nothing** (the control fails
    closed). Before the save, `fs_reporting_dependencies` already took ~3.0 s and `fs_statement_composition` ~0.54 s at
    1,000 accounts. The server bound of 20,000 rows per batch is the intake's limit held by the server (it defends against
    bypass); it is **not** a measured-safe processing budget at 1,000 accounts. The measured-safe envelope is the
    representative case (18 accounts, 7-row ledgers: save 904 ms). NOT measured: a 20,000-row ledger at 18 accounts;
    2,000/5,000/10,000-row ledgers at 1,000 accounts. Lowering the bound without those measurements would be a guess,
-   which this record does not make; the remaining work is that measurement, then the bound at the largest measured-safe
-   size with margin (a one-function forward migration redefining `fs_work_bounds()`, no table change).
+   which this record did not make. The measurement was then made (the sweep below) and the bound set from it: 1,000 rows
+   per file (the repairs table).
 
 **Repairs in this increment (the owner's consolidated instruction, 2026-10-19): each measured failure → its repair → its proof.**
 
@@ -464,11 +464,12 @@ Measured results and harness failures are reported separately:
   reached with direct superuser rows instead, and the application path is exercised at and past each bound.
 
 `workBounds.mjs` coverage, by path: application path (the browser's `prepareReportVersion` and the `fs_review_comment_*`
-functions as `authenticated`): B1 (20,000 accepted / 20,002 refused), B2 (6 MB refused), B5 (the 1,000th version accepted,
-the 1,001st refused), B6 (the 500th comment accepted, the 501st refused), B7 (the 200th event accepted, the 201st refused);
-direct superuser path (the trigger is the control and sits on the table): the filler rows that bring a lineage, version or
-comment to its bound, B3 (200,000 accepted / 220,000 refused), B4 (8 MiB exactly accepted / over refused), C (trigger
-dropped → stored; restored → refused). Result: CI-PROVEN 34/34 (Linux, run 39256437006); wrapper proof fs-bounds-r1 32/32 on CI and locally; locally 34/34 in the one run of six where the embedded Windows backend did not exit.
+functions as `authenticated`): B1 (at the row bound accepted / two over refused — 1,000 / 1,002 at the final values), B2 (over
+the byte bound refused), B5 (the 1,000th version accepted, the 1,001st refused), B6 (the 500th comment accepted, the 501st
+refused), B7 (the 200th event accepted, the 201st refused); direct superuser path (the trigger is the control and sits on the
+table): the filler rows that bring a lineage, version or comment to its bound, B3 (ten files at the row bound accepted — the
+per-version bound — eleven refused), B4 (8 MiB exactly accepted / over refused), C (trigger dropped → stored; restored →
+refused). The proof is parametrised on the committed bounds. Result: CI-PROVEN 34/34 (Linux, run 39256437006); wrapper proof fs-bounds-r1 32/32 on CI and locally; locally 34/34 in the one run of six where the embedded Windows backend did not exit.
 
 ## 8. Migration and deployment requirements
 
@@ -555,12 +556,13 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
   never a compliance verdict. The remaining professional limitation stands and is stated: the paragraph references are
   verified against the standard's text; whether a given entity's disclosures satisfy them is the reviewer's judgement.
 - **CLOSED (load measurement and bounds):** §7.5 and §3d; `fs-bounds-r1`.
-- **OPEN (measured, readiness pass):** (1) `DEFECT-PTB-MAPPINGS-API-ROW-CAP-001` — the processing function's mapping load
-  is capped at 1,000 rows by PostgREST, so companies above 1,000 reviewed accounts cannot certify end to end (§7.5);
-  (2) the 20,000-row ledger save at 1,000 accounts exceeds the API statement timeout and stores nothing (§7.5). Neither
-  blocks the representative release scale; both bound what "supported workload" may honestly mean today and are stated in
-  `DEPLOYMENT_HANDOFF.md` §8. Remaining work (not a redesign): page the mapping load; measure ledger sizes between 7 and
-  20,000 rows at 18 and 1,000 accounts; then set `fs_work_bounds()` at the largest measured-safe size with margin.
+- **REPAIRED (the owner's consolidated instruction, 2026-10-19; §7.5 repairs table):** (1) `DEFECT-PTB-MAPPINGS-API-ROW-CAP-001`
+  — the mapping read is paged (`_shared/pagedSelect.ts`); 2,000 reviewed accounts certify end to end on the real stack
+  (`draftJourney.mjs` 43/43); the `process-trial-balance` closure changes and is deployed with this release. (2) The
+  evidence work budget — measured by the sweep, the envelope is 1,000 rows and 1 MiB per file and 10,000 rows per version,
+  the same on the server and in the intake, with persistent actionable refusals. Still OPEN and stated: the composition
+  path (`fs_evidence_statements`) was not optimised; the account-count dimension of the envelope is bounded by the TB
+  policy (2,000) and measured at the bound in the final sweep, not beyond it.
 - **CHECKPOINT (readiness pass, 2026-10-19):** code head `dcc7f79` (CI green on every job; `workBounds.mjs` 34/34 and the
   `fs-bounds-r1` wrapper proof 32/32 CI-PROVEN; the workload step COMPLETE with its three assertions passing and its
   failures recorded as measurements); the record and the handoff are in the commit after it.

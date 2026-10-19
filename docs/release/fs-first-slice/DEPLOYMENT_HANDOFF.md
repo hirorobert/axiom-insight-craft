@@ -107,8 +107,8 @@ the panel words its absence; `issue`/`verify` come from the previously deployed 
 2. Smoke run on that company, in the product, with invented data (the sequence of `scripts/e2e/localStackJourney.mjs`):
    upload FY(n−1) and FY(n) trial balances → review → presentation → notes → comparatives approval → evidence files → save
    → readiness `ready` → REVIEWED (reviewer) → FINAL (owner) → Exports: issue → verify → retrieve. Expected refusals to
-   try on purpose: a preparer approving (no control, server refuses), a save with a 20,001-row ledger (the intake refuses
-   it at 20,000 before the server sees it; the server would refuse it too: `EVIDENCE_ROWS_LIMIT`).
+   try on purpose: a preparer approving (no control, server refuses), a save with a 1,001-row ledger (the intake refuses
+   it at 1,000 rows before the server sees it with what to do; sent past the intake, the server refuses it too: `EVIDENCE_ROWS_LIMIT`, nothing stored).
 3. Record HOSTED-VERIFIED outcomes in `RECORD.md` §7.6 (a new table: step, who, outcome, time).
 4. Only then widen the rollout, company by company, each with its reason. Publish (frontend) can precede or follow step
    6.1 — until a company is activated the new pages refuse every write (`feature_disabled`), so Publish alone changes
