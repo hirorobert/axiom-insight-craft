@@ -98,7 +98,7 @@ async function main() {
   });
 
   // ── B1/B2 through the client at the committed values ───────────────────────────────────────────────────────────────────
-  group("B1  evidence rows per batch: 20,000 accepted, 20,002 refused by name");
+  group(`B1  evidence rows per batch: ${BOUNDS.evidenceRowsPerBatch.toLocaleString("en-US")} accepted, ${(BOUNDS.evidenceRowsPerBatch + 2).toLocaleString("en-US")} refused by name`);
   // The fixture ledger (7 rows that tie to the bank account) padded to 20,000 rows with netting pairs on the same account.
   const padded = (() => {
     const lines = EVIDENCE_FY2026.TRANSACTION_LEDGER.trimEnd().split(LF);
@@ -109,11 +109,11 @@ async function main() {
     return lines.join(LF) + LF;
   })();
   let ledger20k;
-  await check("a 20,000-row ledger parsed by the browser intake is saved (its batch holds exactly 20,000 rows, under 4 MiB)", async () => {
+  await check(`a ${BOUNDS.evidenceRowsPerBatch.toLocaleString("en-US")}-row ledger parsed by the browser intake is saved (its batch holds exactly that many rows, under the byte bound)`, async () => {
     ledger20k = parse("TRANSACTION_LEDGER", "CURRENT", padded);
     const r = await save([ledger20k]);
     const n = await db.one("SELECT jsonb_array_length(batch_document->'rows') n, octet_length(batch_document::text) bytes FROM public.financial_evidence_batches WHERE evidence_batch_id=$1", [ledger20k.evidenceBatchId]);
-    return r.outcome === "saved" && Number(n?.n) === 20000 && Number(n.bytes) < BOUNDS.evidenceDocumentBytesPerBatch ? true : { r: r.outcome, reason: r.reason, n };
+    return r.outcome === "saved" && Number(n?.n) === BOUNDS.evidenceRowsPerBatch && Number(n.bytes) < BOUNDS.evidenceDocumentBytesPerBatch ? true : { r: r.outcome, reason: r.reason, n };
   });
   /** A batch the browser never produces: the parsed 20,000-row batch with rows added past the intake limit (a netting pair, so every tie holds). */
   const overRows = (extraRows) => {
@@ -123,16 +123,18 @@ async function main() {
   const cols = ledger20k.document.columns;
   const row = (id, receipt, payment, description = `Netting ${id}`) => cols.map((c) => ({ transaction_id: id, date: `${Y}-06-30`, cash_account_code: "1000", description, receipt, payment, activity: "OPERATING", cash_flow_line: receipt ? "Receipts from customers" : "Payments to suppliers and employees" })[c] ?? "");
   let vBefore, bBefore;
-  await refused("a 20,002-row file sent past the intake is refused EVIDENCE_ROWS_LIMIT", "22023", async () => { vBefore = await latest(); bBefore = await batches(); await save([overRows([row("X1", "1.00", ""), row("X2", "", "1.00")])]); }, "EVIDENCE_ROWS_LIMIT");
+  await refused(`a ${(BOUNDS.evidenceRowsPerBatch + 2).toLocaleString("en-US")}-row file sent past the intake is refused EVIDENCE_ROWS_LIMIT`, "22023", async () => { vBefore = await latest(); bBefore = await batches(); await save([overRows([row("X1", "1.00", ""), row("X2", "", "1.00")])]); }, "EVIDENCE_ROWS_LIMIT");
   await check("nothing was stored by the refused save: no version, no batch", async () => ((await latest()) === vBefore && (await batches()) === bBefore ? true : { v: await latest(), vBefore, b: await batches(), bBefore }));
 
-  group("B2  evidence bytes per batch: a 20,000-row file with 250-character descriptions is refused by name");
+  group(`B2  evidence bytes per batch: a ${BOUNDS.evidenceRowsPerBatch.toLocaleString("en-US")}-row file with long descriptions is refused by name`);
   const fat = (() => {
     const d = cols.indexOf("description");
-    const rows = ledger20k.document.rows.map((r) => r.map((c, i) => (i === d ? "D".repeat(250) : c)));
+    // Long enough that the file is over the byte bound while it is under the row bound (the intake would refuse it at 2,000,000 characters).
+    const pad = Math.ceil((BOUNDS.evidenceDocumentBytesPerBatch * 1.5) / BOUNDS.evidenceRowsPerBatch);
+    const rows = ledger20k.document.rows.map((r) => r.map((c, i) => (i === d ? "D".repeat(pad) : c)));
     return { ...ledger20k, evidenceBatchId: `eb-proof-${uuid()}`, contentHash: sha(JSON.stringify(rows)), document: { ...ledger20k.document, rows } };
   })();
-  await check("the file is over 4 MiB as evidence and under the row limit (the intake would have refused it at 2,000,000 characters)", async () =>
+  await check("the file is over the byte bound as evidence and under the row bound", async () =>
     (Buffer.byteLength(JSON.stringify(fat.document)) > BOUNDS.evidenceDocumentBytesPerBatch && fat.document.rows.length === BOUNDS.evidenceRowsPerBatch ? true : Buffer.byteLength(JSON.stringify(fat.document))));
   await refused("refused EVIDENCE_DOCUMENT_SIZE_LIMIT", "22023", async () => { vBefore = await latest(); bBefore = await batches(); await save([fat]); }, "EVIDENCE_DOCUMENT_SIZE_LIMIT");
   await check("nothing was stored by the refused save", async () => ((await latest()) === vBefore && (await batches()) === bBefore ? true : { v: await latest(), b: await batches() }));
@@ -142,7 +144,7 @@ async function main() {
   //      the embedded Windows PostgreSQL backend exit (code 143) in every attempt, with the trigger absent only; that is a
   //      harness fact recorded in RECORD §7.5, not a product result. The trigger is the control and sits on the table, so
   //      the direct insert exercises exactly the statement every writer reaches. ──────────────────────────────────────────
-  group("C  CONTROL REMOVED: without the batch trigger a 20,002-row batch is stored (the regression); restored: refused");
+  group(`C  CONTROL REMOVED: without the batch trigger a ${(BOUNDS.evidenceRowsPerBatch + 2).toLocaleString("en-US")}-row batch is stored (the regression); restored: refused`);
   const trigger = migrationText(FILE).match(/CREATE TRIGGER trg_feb_work_bounds[\s\S]*?;\n/)[0];
   const insertOver = (id) => db.admin.query(`INSERT INTO public.financial_evidence_batches (evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role, series_key, schema_version,
       source_file_name, content_hash, document_hash, replay_identity, currency, scale, batch_document, diagnostics, validation_status, version, supersedes_batch_id, uploaded_by_firm_member_id)
@@ -154,16 +156,16 @@ async function main() {
   await refused("with the control: the direct 20,002-row insert is refused EVIDENCE_ROWS_LIMIT (the trigger, not the function, is the control)", "22023", () => insertOver(`eb-over-${uuid()}`), "EVIDENCE_ROWS_LIMIT");
   await db.admin.query("DROP TRIGGER trg_feb_work_bounds ON public.financial_evidence_batches");
   const overId = `eb-over-${uuid()}`;
-  await check("control removed: the same insert is stored (20,002 rows in one batch)", async () => {
+  await check("control removed: the same insert is stored (two rows over the bound in one batch)", async () => {
     await insertOver(overId);
     const n = await db.one("SELECT jsonb_array_length(batch_document->'rows') n FROM public.financial_evidence_batches WHERE evidence_batch_id=$1", [overId]);
-    return Number(n?.n) === 20002 ? true : n;
+    return Number(n?.n) === BOUNDS.evidenceRowsPerBatch + 2 ? true : n;
   });
   await db.admin.query(trigger);
   await refused("control restored: refused EVIDENCE_ROWS_LIMIT again", "22023", () => insertOver(`eb-over-${uuid()}`), "EVIDENCE_ROWS_LIMIT");
 
   // ── B3/B4 on a synthetic lineage written directly (the trigger is the control; its path is every writer's) ────────────────
-  group("B3  evidence rows per version: ten 20,000-row batches (200,000) accepted, eleven (220,000) refused");
+  group(`B3  evidence rows per version: ${BOUNDS.evidenceRowsPerVersion / BOUNDS.evidenceRowsPerBatch} batches at the row bound (${BOUNDS.evidenceRowsPerVersion.toLocaleString("en-US")} rows) accepted, one more refused`);
   const synth = `rpt-synthetic-${uuid()}`;
   const copyBatch = (i) => db.admin.query(`INSERT INTO public.financial_evidence_batches (evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role, series_key, schema_version,
       source_file_name, content_hash, document_hash, replay_identity, currency, scale, batch_document, diagnostics, validation_status, version, supersedes_batch_id, uploaded_by_firm_member_id)
@@ -174,15 +176,16 @@ async function main() {
     SELECT $1, $2, company_id, period_year, provenance_origin, ${docSql}, content_hash, document_hash, $3::text[], created_by_firm_member_id
     FROM public.financial_statement_reports WHERE report_id = $4 ORDER BY report_version DESC LIMIT 1`, [synth, version, ids, rid]);
   const synthIds = [];
-  for (let i = 0; i < 11; i++) { const id = `eb-synthetic-${uuid()}`; synthIds.push(id); await db.admin.query(`INSERT INTO public.financial_evidence_batches (evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role, series_key, schema_version,
+  const K = BOUNDS.evidenceRowsPerVersion / BOUNDS.evidenceRowsPerBatch; // the per-version bound is a whole number of full batches
+  for (let i = 0; i < K + 1; i++) { const id = `eb-synthetic-${uuid()}`; synthIds.push(id); await db.admin.query(`INSERT INTO public.financial_evidence_batches (evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role, series_key, schema_version,
       source_file_name, content_hash, document_hash, replay_identity, currency, scale, batch_document, diagnostics, validation_status, version, supersedes_batch_id, uploaded_by_firm_member_id)
     SELECT $2, company_id, reporting_period_id, evidence_type, period_role, 'synthetic-' || $3, schema_version, source_file_name, encode(sha256(($2 || 'c')::bytea), 'hex'), encode(sha256(($2 || 'd')::bytea), 'hex'),
       encode(sha256(($2 || 'r')::bytea), 'hex'), currency, scale, batch_document, diagnostics, validation_status, 1, NULL, uploaded_by_firm_member_id
     FROM public.financial_evidence_batches WHERE evidence_batch_id = $1`, [ledger20k.evidenceBatchId, id, String(i)]); }
   void copyBatch;
-  await check("eleven 20,000-row batches exist (each accepted: at the per-batch bound)", async () => ((await db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE evidence_batch_id = ANY($1::text[]) AND jsonb_array_length(batch_document->'rows') = 20000", [synthIds])) === 11 ? true : "count differs"));
-  await check("a version referencing ten of them (200,000 rows) is accepted", async () => { await copyVersion(1, synthIds.slice(0, 10)); return (await latest(synth)) === 1 ? true : await latest(synth); });
-  await refused("a version referencing eleven (220,000 rows) is refused EVIDENCE_ROWS_PER_VERSION_LIMIT", "22023", () => copyVersion(2, synthIds), "EVIDENCE_ROWS_PER_VERSION_LIMIT");
+  await check(`${K + 1} batches at the row bound exist (each accepted: at the per-batch bound)`, async () => ((await db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE evidence_batch_id = ANY($1::text[]) AND jsonb_array_length(batch_document->'rows') = $2", [synthIds, BOUNDS.evidenceRowsPerBatch])) === K + 1 ? true : "count differs"));
+  await check(`a version referencing ${K} of them (${BOUNDS.evidenceRowsPerVersion.toLocaleString("en-US")} rows) is accepted`, async () => { await copyVersion(1, synthIds.slice(0, K)); return (await latest(synth)) === 1 ? true : await latest(synth); });
+  await refused(`a version referencing ${K + 1} (${((K + 1) * BOUNDS.evidenceRowsPerBatch).toLocaleString("en-US")} rows) is refused EVIDENCE_ROWS_PER_VERSION_LIMIT`, "22023", () => copyVersion(2, synthIds), "EVIDENCE_ROWS_PER_VERSION_LIMIT");
   await check("nothing was stored: the synthetic lineage still ends at version 1", async () => ((await latest(synth)) === 1 ? true : await latest(synth)));
 
   group("B4  report document bytes: just under 8 MiB accepted, over refused");

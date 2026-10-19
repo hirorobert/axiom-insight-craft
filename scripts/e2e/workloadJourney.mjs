@@ -45,6 +45,7 @@ async function check(name, fn) {
 }
 /** One measured call: ms, outcome, error class (never financial content). */
 const M = { environment: {}, representative: {}, demanding: {}, history: [], concurrency: {}, failures: [], notes: [] };
+process.on("exit", () => { try { writeSummary(); } catch { /* */ } });
 async function measure(section, label, fn, meta = {}) {
   const t0 = performance.now();
   try {
@@ -204,6 +205,57 @@ const parseEvidence = (company, year, type, role, text, period) => {
 const save = (who, company, year, legalName, reportId, newEvidence, idempotencyKey = `attempt-${uuid()}`) =>
   prepareReportVersion(who.db, signoffClient(who.db), { companyId: company, periodYear: year, legalName, reportId, newEvidence, idempotencyKey, evaluatedAt: new Date().toISOString() });
 
+/** The fixture ledger (7 rows) padded with netting pairs on the bank account to exactly `rows` data rows. */
+const paddedLedger = (rows) => {
+  const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
+  const lines = [...base];
+  for (let i = lines.length - 1; i < rows; i++) {
+    const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
+    lines.push(`N${i},${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
+  }
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+};
+/**
+ * The ledger-size sweep on one company whose other evidence is already stored: for each size, a new ledger version of
+ * `rows` rows is saved through the browser's save code (evidence step + bind) and timed; after a successful save,
+ * readiness and dependencies are timed on the new version. Every outcome is recorded (ok / statement_timeout / other);
+ * nothing is asserted, so the bound can be set from the numbers.
+ */
+const ledgerSweep = async (section, company, legalName, reportId, sizes) => {
+  M.sweep ??= [];
+  for (const rows of sizes) {
+    const text = paddedLedger(rows);
+    let batch = null;
+    try { batch = parseEvidence(company, 2026, "TRANSACTION_LEDGER", "CURRENT", text, PERIODS.current); }
+    catch (e) { M.sweep.push({ section, rows, parsed: false, message: String(e.message).slice(0, 160) }); log(`        [sweep ${section}] ${rows} rows: intake refused (${String(e.message).slice(0, 100)})`); continue; }
+    const bytes = Buffer.byteLength(JSON.stringify(batch.document));
+    const t0 = performance.now();
+    let outcome = "ok", message = null, version = null;
+    try {
+      const r = await save(preparer, company, 2026, legalName, reportId, [batch]);
+      if (r.outcome !== "saved") { outcome = "refused"; message = String(r.reason).slice(0, 160); } else version = r.reportVersion;
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      outcome = /statement timeout|canceling statement/i.test(msg) ? "statement_timeout" : /_LIMIT/.test(msg) ? "refused_by_bound" : "error";
+      message = msg.slice(0, 160);
+    }
+    const saveMs = Math.round(performance.now() - t0);
+    const entry = { section, rows, csvBytes: Buffer.byteLength(text), batchDocumentBytes: bytes, saveMs, outcome, message, version };
+    if (version) {
+      const t1 = performance.now();
+      try { const rd = await rpc(partner, "fs_report_readiness", { p_company_id: company, p_report_id: reportId, p_report_version: version }); entry.readinessMs = Math.round(performance.now() - t1); entry.ready = rd?.ready ?? null; entry.blockerCount = rd?.blockers?.length ?? null; }
+      catch (e) { entry.readinessMs = Math.round(performance.now() - t1); entry.readinessError = String(e.message).slice(0, 120); }
+      const t2 = performance.now();
+      try { await rpc(preparer, "fs_reporting_dependencies", { p_company_id: company, p_period_year: 2026 }); entry.dependenciesMs = Math.round(performance.now() - t2); }
+      catch (e) { entry.dependenciesMs = Math.round(performance.now() - t2); entry.dependenciesError = String(e.message).slice(0, 120); }
+    }
+    M.sweep.push(entry);
+    log(`        [sweep ${section}] ${rows} rows (${bytes} B): save ${saveMs} ms ${outcome}${message ? ` (${message})` : ""}${version ? `; readiness ${entry.readinessMs} ms ready=${entry.ready}; dependencies ${entry.dependenciesMs} ms` : ""}`);
+    if (outcome === "statement_timeout") { log(`        [sweep ${section}] stopping at ${rows} rows: the API session cancelled the save`); break; }
+  }
+};
+
+
 // ═══ REPRESENTATIVE ═══════════════════════════════════════════════════════════════════════════════════════════════════
 log("\n== REPRESENTATIVE: 18 accounts, two years, the full journey to FINAL and the official pack");
 const A = await newCompany("Workload Representative Ltd");
@@ -361,56 +413,6 @@ for (let i = 0; i < 3; i++) {
   await measure("demanding", "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: D, p_period_year: 2026 }));
   await measure("demanding", "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: D, p_period_year: 2026 }));
 }
-/** The fixture ledger (7 rows) padded with netting pairs on the bank account to exactly `rows` data rows. */
-const paddedLedger = (rows) => {
-  const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
-  const lines = [...base];
-  for (let i = lines.length - 1; i < rows; i++) {
-    const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
-    lines.push(`N${i},${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
-  }
-  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
-};
-/**
- * The ledger-size sweep on one company whose other evidence is already stored: for each size, a new ledger version of
- * `rows` rows is saved through the browser's save code (evidence step + bind) and timed; after a successful save,
- * readiness and dependencies are timed on the new version. Every outcome is recorded (ok / statement_timeout / other);
- * nothing is asserted, so the bound can be set from the numbers.
- */
-const ledgerSweep = async (section, company, legalName, reportId, sizes) => {
-  M.sweep ??= [];
-  for (const rows of sizes) {
-    const text = paddedLedger(rows);
-    let batch = null;
-    try { batch = parseEvidence(company, 2026, "TRANSACTION_LEDGER", "CURRENT", text, PERIODS.current); }
-    catch (e) { M.sweep.push({ section, rows, parsed: false, message: String(e.message).slice(0, 160) }); log(`        [sweep ${section}] ${rows} rows: intake refused (${String(e.message).slice(0, 100)})`); continue; }
-    const bytes = Buffer.byteLength(JSON.stringify(batch.document));
-    const t0 = performance.now();
-    let outcome = "ok", message = null, version = null;
-    try {
-      const r = await save(preparer, company, 2026, legalName, reportId, [batch]);
-      if (r.outcome !== "saved") { outcome = "refused"; message = String(r.reason).slice(0, 160); } else version = r.reportVersion;
-    } catch (e) {
-      const msg = String(e?.message ?? e);
-      outcome = /statement timeout|canceling statement/i.test(msg) ? "statement_timeout" : /_LIMIT/.test(msg) ? "refused_by_bound" : "error";
-      message = msg.slice(0, 160);
-    }
-    const saveMs = Math.round(performance.now() - t0);
-    const entry = { section, rows, csvBytes: Buffer.byteLength(text), batchDocumentBytes: bytes, saveMs, outcome, message, version };
-    if (version) {
-      const t1 = performance.now();
-      try { const rd = await rpc(partner, "fs_report_readiness", { p_company_id: company, p_report_id: reportId, p_report_version: version }); entry.readinessMs = Math.round(performance.now() - t1); entry.ready = rd?.ready ?? null; entry.blockerCount = rd?.blockers?.length ?? null; }
-      catch (e) { entry.readinessMs = Math.round(performance.now() - t1); entry.readinessError = String(e.message).slice(0, 120); }
-      const t2 = performance.now();
-      try { await rpc(preparer, "fs_reporting_dependencies", { p_company_id: company, p_period_year: 2026 }); entry.dependenciesMs = Math.round(performance.now() - t2); }
-      catch (e) { entry.dependenciesMs = Math.round(performance.now() - t2); entry.dependenciesError = String(e.message).slice(0, 120); }
-    }
-    M.sweep.push(entry);
-    log(`        [sweep ${section}] ${rows} rows (${bytes} B): save ${saveMs} ms ${outcome}${message ? ` (${message})` : ""}${version ? `; readiness ${entry.readinessMs} ms ready=${entry.ready}; dependencies ${entry.dependenciesMs} ms` : ""}`);
-    if (outcome === "statement_timeout") { log(`        [sweep ${section}] stopping at ${rows} rows: the API session cancelled the save`); break; }
-  }
-};
-
 // The fixture ledger (7 rows that tie to the bank account's movement) padded to 20,000 rows with netting pairs on the same
 // account (a 1.00 receipt and a 1.00 payment, both operating): the movement, and every tie, is unchanged. 50 equity rows:
 // the fixture's 6 plus 22 netting pairs inside PROFIT_OR_LOSS. Invented, at the intake limit.
@@ -477,7 +479,6 @@ if (vD) {
 
 // ── Summary ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 writeSummary();
-process.on("exit", () => { try { writeSummary(); } catch { /* */ } });
 function writeSummary() {
 const med = (xs) => { const s = xs.filter((x) => x.ok).map((x) => x.ms).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const summary = {};
