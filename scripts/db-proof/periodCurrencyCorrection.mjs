@@ -191,8 +191,9 @@ async function main() {
         has_function_privilege('anon','public.correct_period_currency(uuid,text,text,text,uuid)','EXECUTE') b,
         has_function_privilege('authenticated','public.get_period_currency_correction(uuid)','EXECUTE') c,
         has_function_privilege('authenticated','public._period_currency_correction_block(uuid)','EXECUTE') d,
-        has_function_privilege('authenticated','public._period_currency_actor(uuid,uuid)','EXECUTE') e`);
-    return r.a && !r.b && r.c && !r.d && !r.e ? true : r;
+        has_function_privilege('authenticated','public._period_currency_actor(uuid,uuid)','EXECUTE') e,
+        has_function_privilege('authenticated','public._period_currency_dependent_relations()','EXECUTE') f`);
+    return r.a && !r.b && r.c && !r.d && !r.e && !r.f ? true : r;
   });
 
   group("Eligibility — the refused-currency period is correctable; the rule's records are named exactly");
@@ -363,6 +364,100 @@ async function main() {
     const state = await waitsFor(p);
     await c.commit(); await p;
     return c.r.r.outcome === "corrected" && state === "waiting" ? true : { corr: c.r.r, state };
+  });
+  // Writers keyed only by company and period (no foreign key to the upload or the period): financial-statement evidence
+  // is the representative one (its writer is a SECURITY DEFINER RPC that never locks the upload or the period).
+  const memberA = (await one("SELECT id FROM public.firm_members WHERE company_id=$1 AND user_id=$2", [A, U.owner])).id;
+  const EVIDENCE_SQL = `INSERT INTO public.financial_evidence_batches (evidence_batch_id, company_id, reporting_period_id, evidence_type, period_role,
+      schema_version, content_hash, document_hash, replay_identity, currency, scale, batch_document, diagnostics, validation_status, version, uploaded_by_firm_member_id)
+    VALUES ($1,$2,$3,'TRANSACTION_LEDGER','CURRENT','1',$4,$4,$4,'USD',2,'{}','[]','VALID',1,$5)`;
+  const evidenceArgs = (t) => [`ev-${uuid()}`, A, `FY${t.year}`, crypto.randomBytes(32).toString("hex"), memberA];
+  async function heldAdmin(sql, params) {
+    const c = await pool.connect();
+    await c.query("BEGIN"); await c.query(sql, params);
+    return { commit: async () => { await c.query("COMMIT"); c.release(); }, rollback: async () => { await c.query("ROLLBACK"); c.release(); } };
+  }
+  const events = (period) => count("SELECT count(*) n FROM public.fiscal_period_events WHERE period_id=$1 AND action='currency_corrected'", [period]);
+
+  await check("no-FK writer, BEFORE: committed evidence for the period makes the correction refuse, naming it; nothing changed", async () => {
+    const t = await blockedPeriod();
+    await admin.query(EVIDENCE_SQL, evidenceArgs(t));
+    const r = await correct(U.owner, t.period, "TZS", "USD");
+    return r.outcome === "not_eligible" && r.block.relation === "public.financial_evidence_batches" && (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0 ? true : r;
+  });
+  await check("no-FK writer IN FLIGHT when the correction starts: the correction waits for it, then sees it and refuses (never commits past it)", async () => {
+    const t = await blockedPeriod();
+    const w = await heldAdmin(EVIDENCE_SQL, evidenceArgs(t));
+    const p = correct(U.owner, t.period, "TZS", "USD");
+    const state = await waitsFor(p);
+    await w.commit();
+    const r = await p;
+    return state === "waiting" && r.outcome === "not_eligible" && r.block.relation === "public.financial_evidence_batches"
+      && (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0 ? true : { state, r };
+  });
+  await check("no-FK writer that begins DURING an open correction waits; it commits only after, against the corrected period, where no accepted trial balance exists (the statements' authority is empty)", async () => {
+    const t = await blockedPeriod();
+    const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','race check reason',$2) r", [t.period, uuid()]);
+    const p = admin.query(EVIDENCE_SQL, evidenceArgs(t));
+    const state = await waitsFor(p);
+    await c.commit(); await p;
+    // fs_reporting_input starts from get_authoritative_certification and answers no_authority without one.
+    const authority = await count("SELECT count(*) n FROM public.get_authoritative_certification($1,$2)", [A, t.year]);
+    return c.r.r.outcome === "corrected" && state === "waiting" && (await currencyOf(t.period)) === "TZS" && authority === 0 ? true : { corr: c.r.r, state, authority };
+  });
+  await check("AFTER: the next correction of that period sees the USD-declared evidence and refuses; the statements' only authority (after the normal re-check) reports in the period's TZS", async () => {
+    const t = await blockedPeriod();
+    const c1r = await correct(U.owner, t.period, "TZS", "USD");
+    await admin.query(EVIDENCE_SQL, evidenceArgs(t));
+    const back = await correct(U.owner, t.period, "USD", "TZS");
+    // The normal re-check certifies under the corrected currency; the statements read their currency from the period.
+    const op = c1r.rechecks[0].operation_id;
+    const rq = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [t.up, op, SRC])).r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [t.up, op, SRC, U.owner]))[0].r;
+    await snapshot(b.engine_run_id, A);
+    const f = await finalize(b.engine_run_id, acceptedResult(false));
+    const meta = (await one("SELECT public._fs_period_meta($1,$2) m", [A, f.certification_id])).m;
+    return c1r.outcome === "corrected" && back.outcome === "not_eligible" && back.block.relation === "public.financial_evidence_batches"
+      && rq.outcome === "accepted" && f.outcome === "certified" && meta.currency === "TZS" ? true : { c1r, back, rq, f, meta };
+  });
+  await check("a dependent table held by another writer past the bound: 'busy' within the lock timeout, nothing changed, no event; the same request then corrects", async () => {
+    const t = await blockedPeriod();
+    const other = await heldAdmin("LOCK TABLE public.financial_statement_reports IN ROW EXCLUSIVE MODE", []);
+    const id = uuid();
+    const started = Date.now();
+    const r1 = await correct(U.owner, t.period, "TZS", "USD", id);
+    const waited = Date.now() - started;
+    const unchanged = (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0;
+    await other.rollback();
+    const r2 = await correct(U.owner, t.period, "TZS", "USD", id);
+    return r1.outcome === "busy" && waited >= 4500 && waited < 15000 && unchanged && r2.outcome === "corrected" ? true : { r1, waited, unchanged, r2 };
+  });
+  await check("the identity sweep's flags are preserved by a correction (rows byte-identical) and the sweep still writes during and after it", async () => {
+    const t = await blockedPeriod();
+    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_PERIOD_MISMATCH')", [t.up, A]);
+    const before = (await one("SELECT md5(string_agg(to_jsonb(f)::text, ',' ORDER BY f.id)) h FROM public.upload_integrity_findings f WHERE f.upload_id=$1", [t.up])).h;
+    const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','race check reason',$2) r", [t.period, uuid()]);
+    const p = admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_COMPANY_MISMATCH')", [t.up, A]);
+    const state = await waitsFor(p);
+    await c.commit(); await p;
+    const after = (await one("SELECT md5(string_agg(to_jsonb(f)::text, ',' ORDER BY f.id)) h FROM public.upload_integrity_findings f WHERE f.upload_id=$1 AND f.issue_type='ENGAGEMENT_PERIOD_MISMATCH'", [t.up])).h;
+    const n = await count("SELECT count(*) n FROM public.upload_integrity_findings WHERE upload_id=$1", [t.up]);
+    // The flag's FK takes KEY SHARE on the upload, so a flag written during the correction waits for it, as every FK writer does.
+    return c.r.r.outcome === "corrected" && before === after && n === 2 && state === "waiting" ? true : { corr: c.r.r, before, after, n, state };
+  });
+  await check("the exemption does not reach any other table: the bookkeeping list is exactly the reviewed fourteen", async () => {
+    const allow = (await one("SELECT public._period_currency_bookkeeping() a")).a;
+    const expected = ["public.engagements", "public.engine_runs", "public.fiscal_period_events", "public.fiscal_periods", "public.layout_confirmations",
+      "public.onboarding_progress", "public.tb_certification_findings", "public.tb_certification_invalidations", "public.tb_certifications",
+      "public.trial_balance_draft_commits", "public.trial_balance_upload_lifecycle_events", "public.trial_balance_upload_operations",
+      "public.trial_balance_uploads", "public.upload_integrity_findings"];
+    return JSON.stringify([...allow].sort()) === JSON.stringify(expected) ? true : allow;
+  });
+  await check("the processing lock and the setup fence still refuse every other path after the repair (no marker: refused; client role: fenced)", async () => {
+    const t = await blockedPeriod();
+    const a = await admin.query("UPDATE public.fiscal_periods SET reporting_currency='TZS' WHERE id=$1", [t.period]).then(() => "ran", (e) => e.code);
+    const b = await asUser(U.owner, "UPDATE public.fiscal_periods SET reporting_currency='TZS' WHERE id=$1 RETURNING id", [t.period]).then(() => "ran", (e) => e.code);
+    return a === "55000" && b !== "ran" && (await currencyOf(t.period)) === "USD" ? true : { a, b };
   });
   await check("two different requests at once: exactly one corrects; the other is stale (no lost update)", async () => {
     const t = await blockedPeriod();
