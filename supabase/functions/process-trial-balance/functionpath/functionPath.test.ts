@@ -114,9 +114,8 @@ Deno.test("1,500 reviewed mappings (more than one PostgREST answer holds): every
   assertEquals(snapshot.length, n); // no omitted account …
   assertEquals(new Set(snapshot.map((x) => x.accountCode)).size, n); // … and none twice
   // No cross-company leakage: every debit account is an asset, nothing is income; the equation balances on this company's mappings alone.
-  const classes = (ingestion(w) as Record<string, unknown>).amounts as Record<string, Record<string, string>> | undefined;
-  const amounts = classes ?? ((upload(w).processing_result as Record<string, unknown>).amounts as Record<string, Record<string, string>>);
-  assertEquals([amounts.classes.income_minor, amounts.classes.assets_minor, amounts.classes.equity_minor, amounts.equation.status], ["0", String(total), String(total), "balanced"]);
+  const tbAmounts = (upload(w).processing_result as Record<string, unknown>).amounts as Record<string, Record<string, string>>;
+  assertEquals([tbAmounts.classes.income_minor, tbAmounts.classes.assets_minor, tbAmounts.classes.equity_minor, tbAmounts.equation.status], ["0", String(total), String(total), "balanced"]);
   const mappingReads = w.calls.filter((c) => c.kind === "select" && c.target === "account_mappings").length;
   assert(mappingReads >= 2, `expected the mappings to be read in at least two pages, saw ${mappingReads} read(s)`);
 });
