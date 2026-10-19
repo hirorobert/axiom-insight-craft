@@ -115,7 +115,7 @@ export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
   "20261110100000_unlimited_team_members.sql",
 ]);
 /** The publication controls of the first complete IFRS for SMEs reporting slice (fs-controls-r1): one source at the commit holding its reviewed bytes. */
-export const FS_CONTROLS_SOURCE_COMMIT = "ed09267223e09e8c1554030390ce0c93ea25dea3";
+export const FS_CONTROLS_SOURCE_COMMIT = "8bbb0223cdc88636302cf33ef637fcb7c1f261a5";
 export const FS_CONTROLS_WRAPPED_SOURCES = Object.freeze([
   "20261111100000_fs_publication_controls.sql",
 ]);

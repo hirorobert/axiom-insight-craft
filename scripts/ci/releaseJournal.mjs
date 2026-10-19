@@ -605,13 +605,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 38877, sha256: "1fbcccc09d4fdcf1dff67045fc42515a5c0f7c93de246cd3301779a9b67d7a42" }),
   }),
-  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; ed09267): all four forms
+  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; 8bbb022): all four forms
   // registered BEFORE application, from the reviewed bytes at that commit. Authored, PENDING hosted application.
   "20261111100000_fs_publication_controls.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 87576, sha256: "33392f8680bc04f4a69c03bf66d3155002c1c4ac5673de1c5a23bc771c60d185" }),
-    finalLfRemoved: Object.freeze({ bytes: 87575, sha256: "f5ca41da384e3c3c4d73d079aa1ba0911fa66c870c3737e869cefddb3327432d" }),
-    wrapper: Object.freeze({ bytes: 89144, sha256: "869d4ccad1329ac824880a151615117ec03ef6728798a5a0d4ead73e0f23a021" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 89143, sha256: "6e340d79c652a65541393e05c25dd44664da9ebcdadacefe0602f8970d5ebd4d" }),
+    identical: Object.freeze({ bytes: 93290, sha256: "b8b8bef6a9de61829f4a28269f63e9abef9c081666106c46723c69abdacfc95a" }),
+    finalLfRemoved: Object.freeze({ bytes: 93289, sha256: "f1337535a75bb5c111ea591452a2edcfcc95b166c3e4771ddf0a87f7951453d0" }),
+    wrapper: Object.freeze({ bytes: 94858, sha256: "7c3c0b0d9cd456f07a88da1c0930fb5e4a9c4bdeead6ea068008eca939470d56" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 94857, sha256: "acd55ee6fa3b3961c3bd10e14f65d705782db7b77cf777c759388e3172f13ce2" }),
   }),
 });
 
