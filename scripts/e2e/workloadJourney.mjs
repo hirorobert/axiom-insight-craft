@@ -110,7 +110,9 @@ const rpc = async (who, fn, args) => {
   return data;
 };
 const newCompany = async (name) => {
-  const { data, error } = await admin.from("companies").insert({ user_id: U.owner.id, name }).select("id").single();
+  // The reporting framework is chosen at first run in the product (the kit's makeWorld sets it the same way); without it
+  // every fs_* authority answers framework_not_ifrs_for_smes and nothing composes.
+  const { data, error } = await admin.from("companies").insert({ user_id: U.owner.id, name, reporting_framework: "ifrs_for_smes" }).select("id").single();
   if (error) throw new Error(`company: ${error.message}`);
   for (const [who, role] of [["preparer", "preparer"], ["partner", "partner"]]) {
     const r = await admin.from("firm_members").insert({ company_id: data.id, user_id: U[who].id, role, accepted_at: new Date().toISOString() });
@@ -371,7 +373,7 @@ if (vD) {
   const { data: docD } = await owner.c.from("financial_statement_reports").select("report_document").eq("report_id", ridD).eq("report_version", vD).single();
   M.demanding.document = { version: vD, documentBytes: docD ? Buffer.byteLength(JSON.stringify(docD.report_document)) : null, facts: docD?.report_document?.facts?.length ?? null };
   log(`        [demanding] document: version ${vD}, ${M.demanding.document.documentBytes} B, ${M.demanding.document.facts} facts`);
-  const { data: batches } = await owner.c.from("financial_evidence_batches").select("evidence_type, row_count").eq("company_id", D);
+  const { data: batches } = await owner.c.from("financial_evidence_batches").select("evidence_type, period_role, version, validation_status").eq("company_id", D);
   M.demanding.evidenceBatches = batches ?? null;
 }
 
