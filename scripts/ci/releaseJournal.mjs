@@ -620,6 +620,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 73127, sha256: "8f7a1a98a0c34a250dbeb2c94a5c6f4f6d9528a0bf4509e8b1ee89649e135fcd" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 73126, sha256: "615b597594b99ad44c0037f6f17bcb845fa3bb08c1a1a66649cae481f0619c77" }),
   }),
+  // The work bounds (batch fs-bounds-r1): all four forms registered BEFORE application; applied after fs-journey-r1.
+  "20261113100000_fs_work_bounds.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 12720, sha256: "8b337b224fc20ec1e83d2eeb5203214a0fb7d48d2ed421a2d0d454707444c150" }),
+    finalLfRemoved: Object.freeze({ bytes: 12719, sha256: "888d0dbaaa07859abb3692bf0b8ad716555ca645ce088e196b1ab4da1c42aeee" }),
+    wrapper: Object.freeze({ bytes: 14270, sha256: "4af6b26d84bdabc207a5109dd6b8385630839a568b84db9023c1c5ec73b29cc9" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 14269, sha256: "c871ee305da9856fa67a1f8697d46ca7e8b549ba398b9bac042226e5eb3a2e9f" }),
+  }),
 });
 
 /**
