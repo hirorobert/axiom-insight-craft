@@ -138,5 +138,10 @@ batch is small, self-checking and preceded by a read-only preflight.
   Larger ledgers are split by month or account into separate files. This is a measured-safe INITIAL bound with ≈ 3.8× margin
   under the API statement timeout at 18 accounts; the composition path itself was not optimised (out of scope), and a stored
   large ledger slows every later save and readiness check on its period — which is why the bound is where it is.
+- The ACCOUNT dimension (`RECORD.md` §7.5): with the paged mapping read a 2,000-account company certifies, but
+  `fs_reporting_dependencies` is cancelled by the API statement timeout at 2,000 accounts and takes 3.0–5.6 s at 1,000. No
+  FS-specific account bound exists yet; activate companies in the representative range (tens to a few hundred accounts) and
+  treat 1,000 as the measured upper edge with thin margin. Closing this is a follow-up (optimise the dependency/evidence
+  recomposition or a product-owned FS account bound), not part of this candidate.
 - Hosted browser acceptance (owner-run; `docs/release/sql/07_acceptance_preflight.sql` decides the path).
 - The legal review of `/terms` and `/privacy`, SMTP configuration and the other commercial go-live gates in `CLAUDE.md` §9.2.

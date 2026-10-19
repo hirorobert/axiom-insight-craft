@@ -444,8 +444,9 @@ try {
   M.demanding.fixture.ledgerBatchDocumentBytes = Buffer.byteLength(JSON.stringify(evD[0].document));
   M.notes.push(`demanding evidence parsed by the browser intake code: ledger ${M.demanding.fixture.ledgerRows} rows (${M.demanding.fixture.ledgerCsvBytes} CSV bytes, ${M.demanding.fixture.ledgerBatchDocumentBytes} B as a batch document), equity ${M.demanding.fixture.equityRows} rows, plus the comparative evidence`);
 } catch (e) { M.failures.push({ section: "demanding", label: "evidence_parse", ok: false, errorClass: "intake_refusal", message: String(e.message).slice(0, 200) }); log(`        [demanding] evidence parse: ${String(e.message).slice(0, 200)}`); }
-M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer);
+try { M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer); } catch (e) { M.demanding.statesBeforeSave = { error: String(e.message).slice(0, 200) }; M.failures.push({ section: "demanding", label: "states_before_save", ok: false, errorClass: /statement timeout/i.test(String(e.message)) ? "statement_timeout" : "error", message: String(e.message).slice(0, 200), accounts: N_ACCOUNTS }); log(`        [demanding] states before the save: ${String(e.message).slice(0, 200)}`); }
 const ridD = `rpt-wl-big-${uuid()}`;
+try {
 // The demanding sweep first stores the small fixture evidence (so composition has every statement), then grows the ledger.
 log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 500 / 1,000 (the bound) / 2,000 (over the bound)`);
 {
@@ -460,6 +461,10 @@ log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 500 / 1,000 (the bound) 
     for (let i = 0; i < 2; i++) await measure("demanding", "fs_report_readiness_small_evidence", () => rpc(partner, "fs_report_readiness", { p_company_id: D, p_report_id: ridS, p_report_version: base.reportVersion }));
     await ledgerSweep(`demanding-${N_ACCOUNTS}`, D, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridS, [500, 1000, 2000]);
   } else saveOutcome("demanding-small", base);
+}
+} catch (e) {
+  M.failures.push({ section: "demanding", label: "fs_workload_at_account_count", ok: false, errorClass: /statement timeout/i.test(String(e.message)) ? "statement_timeout" : "error", message: String(e.message).slice(0, 200), accounts: N_ACCOUNTS });
+  log(`        [demanding] the FS workload at ${N_ACCOUNTS} accounts stopped: ${String(e.message).slice(0, 200)} (recorded as a measurement)`);
 }
 const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
 if (evD.length) saveOutcome("demanding", savedD);
