@@ -717,6 +717,15 @@ async function main() {
     await page.setFiles('[data-testid="first-upload-input"]', [file]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
   };
+  /** Waits until `cond` (evaluated in the page) has held continuously for `holdMs`; throws after `timeout`. */
+  const waitSteady = async (cond, holdMs, timeout) => {
+    const end = Date.now() + timeout; let since = null;
+    while (Date.now() < end) {
+      if (await page.evaluate(cond)) { since ??= Date.now(); if (Date.now() - since >= holdMs) return; } else since = null;
+      await sleep(100);
+    }
+    throw new Error(`condition did not hold steadily for ${holdMs} ms within ${timeout} ms`);
+  };
   const text = (id) => page.evaluate((i) => document.querySelector(`[data-testid="${i}"]`)?.textContent ?? null, id);
   const reviewC = () => `/workspace/${C}/2026/trial-balance/review`;
   const reloadCard = async () => { await go(reviewC(), ""); await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 }); await sleep(1200); };
@@ -801,6 +810,11 @@ async function main() {
   await check("the original dead end: the check is refused for the currency, and no pre-existing path can change the period's currency", async () => {
     await page.click('[data-testid="replace-currency-anyway"]');
     await page.waitForSelector('[data-testid="currency-correction-offer"]', { timeout: 180000 });
+    // The page refreshes the card while the replacement's check finishes (run 39267740177 read it mid-refresh: offer and
+    // the card's own action briefly absent, both present in the screenshot taken just after). Read only once the server's
+    // result is final AND the offer and the card's action have both been on screen continuously for a full second.
+    for (let i = 0; i < 90; i++) { const u = await latestUpload(); if (u?.processing_result?.ingestion && u.status !== "processing") break; await sleep(1000); }
+    await waitSteady(() => !!document.querySelector('[data-testid="currency-correction-offer"]') && !!document.querySelector('[data-testid="trial-balance-primary-action"]'), 1000, 60000);
     upC = (await latestUpload())?.id;
     const codes = ((await latestUpload())?.processing_result?.ingestion?.issues ?? []).map((x) => x.code);
     // The paths that existed before this repair: a direct change of the period (the processing lock and the fence refuse it).
