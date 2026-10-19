@@ -845,7 +845,7 @@ jobs:
           createdb fs_bounds_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1)
+      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at c746682)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_capacity_wrappers_proof

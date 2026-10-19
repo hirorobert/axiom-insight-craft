@@ -132,7 +132,7 @@ export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Account capacity of the financial-statements module (fs-capacity-r1): one source at the commit holding its reviewed bytes;
  * applied after fs-bounds-r1 (its preflight requires fs-work-bounds/1). */
-export const FS_CAPACITY_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
+export const FS_CAPACITY_SOURCE_COMMIT = "c7466829d771788af4d37c47c8f0ef6751d3c7b8";
 export const FS_CAPACITY_WRAPPED_SOURCES = Object.freeze([
   "20261115100000_fs_account_capacity.sql",
 ]);

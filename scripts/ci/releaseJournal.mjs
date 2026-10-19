@@ -627,6 +627,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 14677, sha256: "622be9f449504c603a7dfd3ae33fad8a1aa413d7e41142fd5545d72a10769c25" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 14676, sha256: "aa562788436878feb4f05b868070887e235adccafcbbf2053cd90f60bd81a2ac" }),
   }),
+  // The account capacity (batch fs-capacity-r1): all four forms registered BEFORE application; applied after fs-bounds-r1.
+  "20261115100000_fs_account_capacity.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 48997, sha256: "0393422afb0fd3134676cc26f7126ee2faa07e7312911222e1b9f8f005f5525a" }),
+    finalLfRemoved: Object.freeze({ bytes: 48996, sha256: "6b6ae3057d3430c645d663ab5a59e4cc132b9b2a9c1d7207aacb8962fb210bc9" }),
+    wrapper: Object.freeze({ bytes: 50557, sha256: "fcc3f30ccbf2acac9c87f1f27abb8b86df8f6cef3c463be22aad5454af4909a4" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 50556, sha256: "98c5edf06f0cb31bdc167f5d1751e7538607945e5db94e7ad661673156375dfd" }),
+  }),
 });
 
 /**
