@@ -79,6 +79,9 @@ import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processi
 import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { cardVerdictForAccess, currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
+import { PeriodCurrencyCorrection } from "@/components/workspace/PeriodCurrencyCorrection";
+import { explainBlock, getCorrectionEligibility, readCurrencyMismatch } from "@/lib/workspace/periodCurrency";
+import { checkFileCurrency, describeEvidence } from "@/lib/ingestion/fileCurrencyCheck";
 
 // ── deriveFiscalPeriod (local copy — same logic as Dashboard) ────────────────
 function deriveFiscalPeriod(
@@ -209,7 +212,34 @@ export default function PrepareWorkspace() {
    * single active upload. If the check, the upload or the swap fails, nothing changed and the current Trial Balance
    * stays active. An unprocessed replacement can still be cancelled afterwards, which restores the prior one.
    */
-  const handleReplacePicked = async (file: File | undefined) => {
+  // A replacement whose amounts are labelled in another currency than the period's: stated before anything runs, with
+  // the route the server supports. Never a silent change, never a conversion.
+  const [replaceCurrencyConfirm, setReplaceCurrencyConfirm] = useState<{ file: File; code: string; period: string; where: string } | null>(null);
+  const replacementCurrencyStop = async (file: File): Promise<boolean> => {
+    const periodId = engagement?.fiscal_period_id ?? null;
+    if (!periodId) return false;
+    const rpc = (fn: string, args: Record<string, unknown>) => (supabase.rpc as unknown as (f: string, a: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>)(fn, args);
+    const { data } = await (supabase.from("fiscal_periods" as never) as unknown as { select(c: string): { eq(c: string, v: string): { maybeSingle(): PromiseLike<{ data: { reporting_currency: string | null } | null }> } } })
+      .select("reporting_currency").eq("id", periodId).maybeSingle();
+    const period = data?.reporting_currency ?? null;
+    if (!period) return false;
+    const read = await checkFileCurrency(file, period, periodYear);
+    if (read.kind === "mixed") {
+      setReplaceRefusal(`This file labels its amounts in more than one currency (${read.codes.join(", ")}, ${describeEvidence(read.evidence)}). A trial balance has one currency: correct the file, then replace again. The current Trial Balance was not changed.`);
+      return true;
+    }
+    if (read.kind !== "conflict") return false;
+    const where = describeEvidence(read.evidence);
+    const rule = await getCorrectionEligibility(rpc, periodId);
+    if (rule.kind === "eligible") { setReplaceCurrencyConfirm({ file, code: read.code, period, where }); return true; }
+    const why = rule.kind === "not_eligible" ? ` ${explainBlock(rule.block, rule.currency).reason}`
+      : rule.reason === "not_authorised" ? " Only someone who can prepare this workspace's close can change the period's currency."
+      : " Whether the period's currency can change could not be read right now.";
+    setReplaceRefusal(`This file's amounts are labelled ${read.code} (${where}); the period reports in ${period}.${why} Choose a file whose amounts are in ${period}. The current Trial Balance was not changed.`);
+    return true;
+  };
+
+  const handleReplacePicked = async (file: File | undefined, currencyAcknowledged = false) => {
     if (!file || !upload) return;
     const invalid = validateReplacementFile(file);
     if (invalid) {
@@ -217,6 +247,8 @@ export default function PrepareWorkspace() {
       return;
     }
     setReplaceRefusal(null);
+    setReplaceCurrencyConfirm(null);
+    if (!currencyAcknowledged && await replacementCurrencyStop(file).catch(() => false)) return;
     setPendingFile(file);
     setReplacing(true);
     try {
@@ -557,6 +589,11 @@ export default function PrepareWorkspace() {
   // Without review access the account review is not on this page, so "Resolve account classifications" would lead
   // nowhere: the card offers no action and the step states what blocks progress (the server gate is unchanged).
   const cardVerdict = cardVerdictForAccess(verdict, !prepareOnly);
+  // A check refused for a currency label: the period's currency may be correctable (server-decided). While that panel
+  // holds the leading action, the card's own action (Replace) steps back, so the card keeps one primary action.
+  const currencyMismatch = readCurrencyMismatch(upload?.processing_result);
+  const periodIdForCurrency = engagement?.fiscal_period_id ?? null;
+  const [currencyLeads, setCurrencyLeads] = useState(false);
   useEffect(() => {
     if (!focusUnresolved || !showReviewPanel) return;
     const t = window.setTimeout(() => {
@@ -592,6 +629,7 @@ export default function PrepareWorkspace() {
                 type="file"
                 accept=".csv,.xlsx,.xls"
                 className="hidden"
+                data-testid="trial-balance-replace-input"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = "";
@@ -605,7 +643,27 @@ export default function PrepareWorkspace() {
                 verdict={cardVerdict}
                 busy={replacing || retryingProcess}
                 onPrimary={onPrimary}
-                primaryEmphasis={actionHierarchy.card}
+                primaryEmphasis={currencyLeads || replaceCurrencyConfirm ? "secondary" : actionHierarchy.card}
+                resolution={replaceCurrencyConfirm ? (
+                  <div className="space-y-3 text-[13px]" role="alert" data-testid="replace-currency-confirm">
+                    <p>The file <strong>{replaceCurrencyConfirm.file.name}</strong> labels its amounts in <strong>{replaceCurrencyConfirm.code}</strong> ({replaceCurrencyConfirm.where}); this period reports in <strong>{replaceCurrencyConfirm.period}</strong>. No amount is converted.</p>
+                    <p>If the amounts are in {replaceCurrencyConfirm.period}, choose another file. If they really are in {replaceCurrencyConfirm.code}: replace anyway — its check will be refused for the currency, and this card will then offer to change the period's currency to {replaceCurrencyConfirm.code} (recorded, with your reason) and check the file again.</p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button type="button" className="h-10 rounded-none" disabled={replacing} onClick={() => { const f = replaceCurrencyConfirm.file; void handleReplacePicked(f, true); }} data-testid="replace-currency-anyway">
+                        Replace anyway (amounts in {replaceCurrencyConfirm.code})</Button>
+                      <Button type="button" variant="outline" className="h-10 rounded-none" onClick={() => setReplaceCurrencyConfirm(null)} data-testid="replace-currency-cancel">Keep the current file</Button>
+                    </div>
+                  </div>
+                ) : currencyMismatch && periodIdForCurrency && !prepareOnly ? (
+                  <PeriodCurrencyCorrection
+                    periodId={periodIdForCurrency}
+                    uploadId={upload.id}
+                    processingResult={upload.processing_result}
+                    ensureFreshSession={ensureFreshSession}
+                    onChanged={() => { refreshUpload(); certReadiness.refetch(); }}
+                    onLeadsChange={setCurrencyLeads}
+                  />
+                ) : undefined}
                 management={
                   <ManageTrialBalance
                     variant="inline"

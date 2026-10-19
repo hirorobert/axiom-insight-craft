@@ -399,7 +399,8 @@ describe("an over-limit replacement is refused visibly and persistently, next to
     expect(handler).toMatch(/if \(invalid\) \{\n\s*setReplaceRefusal\(`\$\{invalid\} The current Trial Balance was not changed\.`\);\n\s*return;\n\s*\}/);
     expect(handler).not.toMatch(/toast/);
     expect(handler).not.toMatch(/retireAndProcess/);
-    expect(handler).toMatch(/setReplaceRefusal\(null\);\s*$/);
+    // A valid file clears the refusal; then the currency pre-check (20261113100000) may stop before anything uploads.
+    expect(handler).toMatch(/setReplaceRefusal\(null\);\s*setReplaceCurrencyConfirm\(null\);\s*if \(!currencyAcknowledged && await replacementCurrencyStop\(file\)\.catch\(\(\) => false\)\) return;\s*$/);
     expect(prep).toMatch(/replaceRefusal=\{replaceRefusal\}/);
     expect(prep).toMatch(/onDismissReplaceRefusal=\{\(\) => setReplaceRefusal\(null\)\}/);
   });
