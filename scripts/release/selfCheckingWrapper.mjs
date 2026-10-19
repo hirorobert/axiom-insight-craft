@@ -126,7 +126,7 @@ export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Server-enforced work bounds of the financial-statements module (fs-bounds-r1): one source at the commit holding its reviewed
  * bytes; applied after fs-journey-r1 (its preflight requires the reviewer workflow). */
-export const FS_BOUNDS_SOURCE_COMMIT = "bbb9ad2bf92b6c23552a444a1792f153f3209cb3";
+export const FS_BOUNDS_SOURCE_COMMIT = "18d4c41c9c6517ce325d7ddffeba19a03b10bdb4";
 export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
   "20261114100000_fs_work_bounds.sql",
 ]);

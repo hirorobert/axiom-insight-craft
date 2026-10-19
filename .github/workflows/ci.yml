@@ -836,7 +836,7 @@ jobs:
           createdb fs_journey_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at bbb9ad2)
+      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at 18d4c41)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_bounds_wrappers_proof
