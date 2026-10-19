@@ -613,6 +613,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 94858, sha256: "7c3c0b0d9cd456f07a88da1c0930fb5e4a9c4bdeead6ea068008eca939470d56" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 94857, sha256: "acd55ee6fa3b3961c3bd10e14f65d705782db7b77cf777c759388e3172f13ce2" }),
   }),
+  // The reviewed reporting journey (batch fs-journey-r1): all four forms registered BEFORE application; applied after fs-controls-r1.
+  "20261112100000_fs_review_workflow_and_rollforward.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 71537, sha256: "e499ef6983ae9fd1ebd1063d9f2defe5d66e8c9c7d6d01fb497221fa4132a893" }),
+    finalLfRemoved: Object.freeze({ bytes: 71536, sha256: "721e0461d3e8ea6c91a75ae5d02c4a9691331d4d1fc2939d84530d8ae5575823" }),
+    wrapper: Object.freeze({ bytes: 73127, sha256: "8f7a1a98a0c34a250dbeb2c94a5c6f4f6d9528a0bf4509e8b1ee89649e135fcd" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 73126, sha256: "615b597594b99ad44c0037f6f17bcb845fa3bb08c1a1a66649cae481f0619c77" }),
+  }),
 });
 
 /**

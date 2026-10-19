@@ -120,7 +120,7 @@ export const FS_CONTROLS_WRAPPED_SOURCES = Object.freeze([
   "20261111100000_fs_publication_controls.sql",
 ]);
 /** The reviewed reporting journey (fs-journey-r1): one source at the commit holding its reviewed bytes; applied after fs-controls-r1. */
-export const FS_JOURNEY_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
+export const FS_JOURNEY_SOURCE_COMMIT = "fe17272b3395446932941d9589343d9339a81034";
 export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
   "20261112100000_fs_review_workflow_and_rollforward.sql",
 ]);

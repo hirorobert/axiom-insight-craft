@@ -824,7 +824,7 @@ jobs:
           createdb fs_controls_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Reviewed reporting journey wrapper proof (the same reviewed apply-and-register proof for the fs-journey-r1 wrapper - 20261112100000, the persisted reviewer workflow, prior-FINAL acceptance and roll-forward carry of the first IFRS for SMEs reporting slice; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Reviewed reporting journey wrapper proof (the same reviewed apply-and-register proof for the fs-journey-r1 wrapper - 20261112100000, the persisted reviewer workflow, prior-FINAL acceptance and roll-forward carry of the first IFRS for SMEs reporting slice at fe17272; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_journey_wrappers_proof

@@ -336,7 +336,9 @@ Decision taken during execution: `run.mjs` replays the chain only up to the sign
   apply tool, never here).
 - **Second batch `fs-journey-r1`** (`20261112100000_fs_review_workflow_and_rollforward.sql`): applied AFTER `fs-controls-r1`
   (its preflight requires the lineage lock of 20261111100000); registered in `scripts/release/selfCheckingWrapper.mjs`
-  from its committed bytes (identity in `scripts/ci/releaseJournal.mjs`), proven by `selfCheckingWrappers.mjs`
+  from its committed bytes at `fe17272b3395446932941d9589343d9339a81034` (source 71,537 B SHA-256 `e499ef69…`, wrapper
+  `release/wrappers/20261112100000_fs_review_workflow_and_rollforward.wrapper.sql` 73,127 B SHA-256 `8f7a1a98…`; all four
+  submission forms in `scripts/ci/releaseJournal.mjs`), proven by `selfCheckingWrappers.mjs`
   (`RELEASE_BATCH=fs-journey-r1`: injected failure at `fs_review_comment_states`, rolled back with no journal row), with
   `docs/release/fs-journey-r1/preflight.sql` before and `postcondition.sql` after. Both batches are PENDING hosted
   application; nothing here authorises either.
