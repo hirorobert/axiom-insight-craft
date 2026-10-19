@@ -192,8 +192,9 @@ async function main() {
         has_function_privilege('authenticated','public.get_period_currency_correction(uuid)','EXECUTE') c,
         has_function_privilege('authenticated','public._period_currency_correction_block(uuid)','EXECUTE') d,
         has_function_privilege('authenticated','public._period_currency_actor(uuid,uuid)','EXECUTE') e,
-        has_function_privilege('authenticated','public._period_currency_dependent_relations()','EXECUTE') f`);
-    return r.a && !r.b && r.c && !r.d && !r.e && !r.f ? true : r;
+        has_function_privilege('authenticated','public._period_currency_dependent_relations()','EXECUTE') f,
+        has_function_privilege('authenticated','public._period_currency_dependencies(oid)','EXECUTE') g`);
+    return r.a && !r.b && r.c && !r.d && !r.e && !r.f && !r.g ? true : r;
   });
 
   group("Eligibility — the refused-currency period is correctable; the rule's records are named exactly");
@@ -434,7 +435,7 @@ async function main() {
   });
   // ── Table-lock impact ──────────────────────────────────────────────────────────────────────────────────────────────
   const deps = (await admin.query("SELECT r::text AS rel FROM public._period_currency_dependent_relations() r")).rows.map((x) => x.rel);
-  await check(`deterministic acquisition: the ${deps.length} dependent tables in ascending schema-qualified order; an open correction holds exactly those, in SHARE mode`, async () => {
+  await check(`an open correction holds exactly the ${deps.length} dependent tables, in SHARE mode`, async () => {
     const qualified = (await admin.query(`SELECT format('%I.%I', n.nspname, c.relname) q FROM public._period_currency_dependent_relations() r
         JOIN pg_class c ON c.oid = r JOIN pg_namespace n ON n.oid = c.relnamespace`)).rows.map((x) => x.q);
     const sorted = [...qualified].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -515,6 +516,148 @@ async function main() {
   await check("no storage, network or edge-function call inside the locked transaction (the operation's definition)", async () => {
     const def = (await one("SELECT pg_get_functiondef('public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure) d")).d;
     return !/\b(net\.|http_|storage\.|extensions\.http|pg_net|dblink)/i.test(def) ? true : "found a remote call";
+  });
+  // ── Review findings (Codex, 2026-10-19) ─────────────────────────────────────────────────────────────────────────────
+  await check("[1] the request-id lock is inside the budget: the matching request id held elsewhere answers 'busy' within ~5s; no event, no change, no lock left; the same id then corrects", async () => {
+    const t = await blockedPeriod();
+    const id = uuid();
+    const h = await heldAdmin("SELECT pg_advisory_xact_lock(hashtext('correct_period_currency'), hashtext($1))", [id]);
+    const t0 = Date.now();
+    const r1 = await correct(U.owner, t.period, "TZS", "USD", id);
+    const waited = Date.now() - t0;
+    const unchanged = (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0;
+    const lingering = await count("SELECT count(*) n FROM pg_locks WHERE locktype = 'relation' AND mode = 'ShareLock' AND pid <> pg_backend_pid()");
+    await h.rollback();
+    const r2 = await correct(U.owner, t.period, "TZS", "USD", id);
+    return r1.outcome === "busy" && waited >= 4500 && waited < 6800 && unchanged && lingering === 0 && r2.outcome === "corrected" && (await events(t.period)) === 1
+      ? true : { r1, waited, unchanged, lingering, r2 };
+  });
+  await check("[4] acquisition ORDER itself: with every dependent table held by its own session, the correction waits on them one by one in ascending schema-qualified order", async () => {
+    const t = await blockedPeriod();
+    const expected = (await admin.query(`SELECT format('%I.%I', n.nspname, c.relname) q FROM public._period_currency_dependent_relations() r
+        JOIN pg_class c ON c.oid = r JOIN pg_namespace n ON n.oid = c.relnamespace`)).rows.map((x) => x.q);
+    const holders = new Map();
+    for (const q of expected) {
+      const c = new Client({ connectionString: url });
+      await c.connect(); await c.query("BEGIN"); await c.query(`LOCK TABLE ${q} IN ROW EXCLUSIVE MODE`);
+      holders.set(q, c);
+    }
+    const p = correct(U.owner, t.period, "TZS", "USD");
+    const seen = [];
+    const deadline = Date.now() + 4500;
+    while (seen.length < expected.length && Date.now() < deadline) {
+      const w = (await admin.query(`SELECT format('%I.%I', n.nspname, c.relname) q FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+          JOIN pg_class c ON c.oid = l.relation JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE NOT l.granted AND l.locktype = 'relation' AND l.mode = 'ShareLock' AND a.query LIKE '%correct_period_currency%'`)).rows[0]?.q;
+      if (w && seen[seen.length - 1] !== w) { seen.push(w); const c = holders.get(w); holders.delete(w); await c.query("COMMIT"); await c.end(); }
+      else await new Promise((r) => setTimeout(r, 15));
+    }
+    for (const c of holders.values()) { await c.query("ROLLBACK").catch(() => {}); await c.end(); }
+    const r = await p;
+    return JSON.stringify(seen) === JSON.stringify(expected) && r.outcome === "corrected" ? true : { seen: seen.slice(0, 6), expected: expected.slice(0, 6), n: seen.length, of: expected.length, r };
+  });
+  await check("[2] a COMPOSITE foreign key (upload_id, company_id) is classified, matched on both columns, locked, and refuses the correction; other periods are unaffected", async () => {
+    await admin.query(`ALTER TABLE public.trial_balance_uploads ADD CONSTRAINT proof_uq_tbu_id_company UNIQUE (id, company_id);
+      CREATE TABLE public.proof_composite_dep (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), upload_id uuid, company_id uuid,
+        CONSTRAINT proof_composite_fk FOREIGN KEY (upload_id, company_id) REFERENCES public.trial_balance_uploads (id, company_id))`);
+    try {
+      const cls = (await admin.query("SELECT kind, child_cols, parent_cols, problem FROM public._period_currency_dependencies() WHERE qualified = 'public.proof_composite_dep'")).rows;
+      const t = await blockedPeriod(), other = await blockedPeriod();
+      await admin.query("INSERT INTO public.proof_composite_dep (upload_id, company_id) VALUES ($1,$2)", [t.up, A]);
+      const r = await correct(U.owner, t.period, "TZS", "USD");
+      const o = await correct(U.owner, other.period, "TZS", "USD");
+      return cls.length === 1 && cls[0].kind === "foreign_key" && JSON.stringify(cls[0].child_cols) === '["upload_id","company_id"]' && JSON.stringify(cls[0].parent_cols) === '["id","company_id"]' && cls[0].problem === null
+        && r.outcome === "not_eligible" && r.block.code === "DOWNSTREAM_RECORD" && r.block.relation === "public.proof_composite_dep" && r.block.constraint === "proof_composite_fk"
+        && (await currencyOf(t.period)) === "USD" && o.outcome === "corrected" ? true : { cls, r, o };
+    } finally { /* kept for the concurrency check below */ }
+  });
+  await check("[2] composite FK concurrency: an in-flight composite write makes the correction wait then refuse; one that starts during an open correction waits until after it", async () => {
+    try {
+      const t = await blockedPeriod();
+      const w = await heldAdmin("INSERT INTO public.proof_composite_dep (upload_id, company_id) VALUES ($1,$2)", [t.up, A]);
+      const p = correct(U.owner, t.period, "TZS", "USD");
+      const s1 = await waitsFor(p);
+      await w.commit();
+      const r = await p;
+      const u = await blockedPeriod();
+      const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','composite race',$2) r", [u.period, uuid()]);
+      const ins = admin.query("INSERT INTO public.proof_composite_dep (upload_id, company_id) VALUES ($1,$2)", [u.up, A]);
+      const s2 = await waitsFor(ins);
+      await c.commit(); await ins;
+      return s1 === "waiting" && r.outcome === "not_eligible" && r.block.relation === "public.proof_composite_dep" && s2 === "waiting" && c.r.r.outcome === "corrected" ? true : { s1, r, s2, corr: c.r.r };
+    } finally {
+      await admin.query("DROP TABLE public.proof_composite_dep; ALTER TABLE public.trial_balance_uploads DROP CONSTRAINT proof_uq_tbu_id_company");
+    }
+  });
+  await check("[2] an UNSUPPORTED dependency shape (company_id + a text period_year) refuses every correction by name, before any lock; removing it restores correction", async () => {
+    await admin.query("CREATE TABLE public.proof_unsupported_dep (company_id uuid, period_year text)");
+    let r, e;
+    const t = await blockedPeriod();
+    try {
+      r = await correct(U.owner, t.period, "TZS", "USD");
+      e = await eligibility(U.owner, t.period);
+    } finally { await admin.query("DROP TABLE public.proof_unsupported_dep"); }
+    const after = await correct(U.owner, t.period, "TZS", "USD");
+    return r.outcome === "not_eligible" && r.block.code === "DEPENDENCY_UNSUPPORTED" && r.block.relation === "public.proof_unsupported_dep"
+      && e.block?.code === "DEPENDENCY_UNSUPPORTED" && after.outcome === "corrected" ? true : { r, e, after };
+  });
+  await check("[3] row visibility under RLS: with the SECURITY DEFINER functions owned by a role row-level security applies to, a hidden downstream row (invisible to that owner) refuses the correction (DEPENDENCY_NOT_VISIBLE); nothing changes", async () => {
+    const t = await blockedPeriod();
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(`CREATE ROLE proof_definer_owner NOSUPERUSER NOBYPASSRLS NOLOGIN;
+        GRANT USAGE ON SCHEMA public, auth TO proof_definer_owner;
+        GRANT ALL ON ALL TABLES IN SCHEMA public TO proof_definer_owner;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public, auth TO proof_definer_owner;
+        ALTER FUNCTION public.get_period_currency_correction(uuid) OWNER TO proof_definer_owner;
+        ALTER FUNCTION public._period_currency_correction_block(uuid) OWNER TO proof_definer_owner;
+        ALTER FUNCTION public._period_currency_actor(uuid, uuid) OWNER TO proof_definer_owner;
+        ALTER FUNCTION public.correct_period_currency(uuid, text, text, text, uuid) OWNER TO proof_definer_owner;
+        CREATE TABLE public.proof_hidden_dep (upload_id uuid REFERENCES public.trial_balance_uploads (id));
+        ALTER TABLE public.proof_hidden_dep ENABLE ROW LEVEL SECURITY;
+        GRANT ALL ON public.proof_hidden_dep TO proof_definer_owner;
+        -- As on the hosted database, the functions' owner owns the application's tables (owners are exempt from their
+        -- tables' row-level security unless FORCEd); the fixture alone is owned by another role, with RLS and no policy.
+        DO $o$ DECLARE t text; BEGIN
+          FOR t IN SELECT format('%I.%I', n.nspname, c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND c.relname <> 'proof_hidden_dep' AND NOT c.relispartition LOOP
+            EXECUTE 'ALTER TABLE ' || t || ' OWNER TO proof_definer_owner';
+          END LOOP;
+        END $o$;`);
+      await c.query("INSERT INTO public.proof_hidden_dep (upload_id) VALUES ($1)", [t.up]);
+      await c.query("SET LOCAL ROLE proof_definer_owner");
+      const seenByOwner = (await c.query("SELECT count(*)::int n FROM public.proof_hidden_dep")).rows[0].n;
+      await c.query("RESET ROLE");
+      const cls = (await c.query("SELECT problem FROM public._period_currency_dependencies((SELECT oid FROM pg_roles WHERE rolname = 'proof_definer_owner')) WHERE qualified = 'public.proof_hidden_dep'")).rows;
+      await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [U.owner]);
+      const e = (await c.query("SELECT public.get_period_currency_correction($1) r", [t.period])).rows[0].r;
+      const r = (await c.query("SELECT public.correct_period_currency($1,'TZS','USD','hidden dependency',$2) r", [t.period, uuid()])).rows[0].r;
+      await c.query("RESET ROLE");
+      const cur = (await c.query("SELECT reporting_currency c FROM public.fiscal_periods WHERE id = $1", [t.period])).rows[0].c;
+      await c.query("ROLLBACK");
+      return seenByOwner === 0 && cls[0]?.problem === "DEPENDENCY_NOT_VISIBLE"
+        && e.block?.code === "DEPENDENCY_NOT_VISIBLE" && e.block?.relation === "public.proof_hidden_dep"
+        && r.outcome === "not_eligible" && r.block.code === "DEPENDENCY_NOT_VISIBLE" && r.block.relation === "public.proof_hidden_dep" && cur === "USD"
+        ? true : { seenByOwner, cls, e, r, cur };
+    } catch (err) { await c.query("ROLLBACK").catch(() => {}); return { error: String(err?.message ?? err) }; }
+    finally { c.release(); }
+  });
+  await check("[3] control: the same RLS-protected table (FORCE) seen by an owner that bypasses row-level security is matched normally (DOWNSTREAM_RECORD, not hidden)", async () => {
+    const t = await blockedPeriod();
+    await admin.query(`CREATE TABLE public.proof_hidden_dep (upload_id uuid REFERENCES public.trial_balance_uploads (id));
+      ALTER TABLE public.proof_hidden_dep ENABLE ROW LEVEL SECURITY; ALTER TABLE public.proof_hidden_dep FORCE ROW LEVEL SECURITY;`);
+    try {
+      await admin.query("INSERT INTO public.proof_hidden_dep (upload_id) VALUES ($1)", [t.up]);
+      const r = await correct(U.owner, t.period, "TZS", "USD");
+      return r.outcome === "not_eligible" && r.block.code === "DOWNSTREAM_RECORD" && r.block.relation === "public.proof_hidden_dep" ? true : r;
+    } finally { await admin.query("DROP TABLE public.proof_hidden_dep"); }
+  });
+  await check("[3] deployment check: on this chain every dependency is matchable, visible and lockable for the functions' real owner", async () => {
+    const owner = (await one("SELECT proowner FROM pg_proc WHERE oid = 'public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure")).proowner;
+    const bad = (await admin.query("SELECT qualified, problem FROM public._period_currency_dependencies($1) WHERE problem IS NOT NULL", [owner])).rows;
+    return bad.length === 0 ? true : bad;
   });
   await check("the identity sweep's flags are preserved by a correction (rows byte-identical) and the sweep still writes during and after it", async () => {
     const t = await blockedPeriod();

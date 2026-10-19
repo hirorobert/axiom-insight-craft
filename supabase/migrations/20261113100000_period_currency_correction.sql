@@ -33,15 +33,19 @@
 --     with every INSERT/UPDATE/DELETE: a dependent write that began earlier commits first and is then SEEN by the
 --     eligibility scan (refused); one that begins later waits until the correction's transaction ends. No dependent
 --     record can commit unseen in between, whether or not it has a foreign key.
---   * LOCK BUDGET: acquiring ALL locks (the table locks, then the row locks) shares ONE 5-second budget, enforced by
---     setting lock_timeout to the remaining budget before each acquisition. It bounds lock WAITING only — not the
---     transaction. Once every lock is held, the rest is a fixed handful of statements on this one period (the
---     eligibility scan, one UPDATE, one INSERT) with no storage, network or edge-function call; the re-checks run
---     afterwards, from the browser, in their own transactions. The caller's statement_timeout (PostgREST's role
---     setting) still bounds the whole call.
---   * Budget exhausted, or a deadlock detected (deadlock_timeout), at ANY point after the request-id lock: everything
---     the operation did is rolled back (one subtransaction) and the answer is 'busy'; nothing changed and the same
---     request id may be retried. Locks taken before the failure are released then.
+--   * LOCK BUDGET: every lock acquisition — the request-id advisory lock FIRST, then the table locks, then the row locks
+--     — shares ONE 5-second budget, enforced by setting lock_timeout to the remaining budget before each acquisition.
+--     It bounds lock WAITING only — not the transaction. Once every lock is held, the rest is a fixed handful of
+--     statements on this one period (the eligibility scan, one UPDATE, one INSERT) with no storage, network or
+--     edge-function call; the re-checks run afterwards, from the browser, in their own transactions. The caller's
+--     statement_timeout (PostgREST's role setting) still bounds the whole call.
+--   * Budget exhausted, or a deadlock detected (deadlock_timeout), at ANY acquisition (the request-id lock included):
+--     everything the operation did is rolled back (one subtransaction) and the answer is 'busy'; nothing changed, and
+--     every lock taken in it is released at once. The same request id may be retried.
+--   * ONE classification (_period_currency_dependencies) drives both eligibility and locking: every foreign key of ANY
+--     arity into the uploads, the period or its certifications (matched on every column pair), and every company+period
+--     keyed table. A relation the operation cannot match, fully SEE (row-level security included) or LOCK refuses the
+--     correction (fail closed) — never silently omitted.
 --   * Cross-company effect: a table lock is table-wide, so a write to a dependent table by ANY company waits while a
 --     correction holds its locks (from acquisition to commit: the few statements above). Corrections are rare,
 --     explicit, member-initiated operations on refused-currency periods.
@@ -77,6 +81,13 @@ ALTER TABLE public.fiscal_period_events ADD CONSTRAINT chk_fpe_action
   CHECK (action IN ('created', 'dates_confirmed', 'prior_linked', 'legacy_dates_completed', 'currency_corrected'));
 CREATE UNIQUE INDEX uq_fpe_currency_request ON public.fiscal_period_events ((detail->>'request_id'))
   WHERE action = 'currency_corrected';
+
+-- ── TRUST BOUNDARY ───────────────────────────────────────────────────────────────────────────────────────────────────
+-- The transaction-local marker below (axiom.period_currency_correction) separates the APPLICATION's paths: clients
+-- (anon, authenticated) cannot run SQL or set it, and the setup fence refuses their direct period changes. It does NOT
+-- protect against database-capable actors: the service role, table owners, superusers and anyone able to run SQL can set
+-- a transaction-local setting or bypass triggers. Those roles are TRUSTED by design (as for every other guard here);
+-- this repair adds no protection against them and claims none.
 
 -- ── The processing lock admits exactly the correction ───────────────────────────────────────────────────────────────
 -- Unchanged except one marked branch: the currency (never the dates) may change after processing when, and only when,
@@ -137,6 +148,73 @@ RETURNS text[] LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
 $$;
 REVOKE ALL ON FUNCTION public._period_currency_bookkeeping() FROM PUBLIC, anon, authenticated;
 
+-- ── The dependency classification (ONE source for eligibility AND locking) ────────────────────────────────────────────
+-- Every relation that could hold work built on the period's amounts, outside the bookkeeping list, one row per way it
+-- depends on the period:
+--   foreign_key               any foreign key (ANY number of columns) into the uploads, the period or its certifications;
+--                             matched by joining on EVERY column pair of the constraint (composite keys included);
+--   company_period_year       company_id + period_year;
+--   company_reporting_period  company_id + reporting_period_id ('FY' || year).
+-- problem is NULL when the row can be matched AND fully seen AND locked by p_role (default: current_user — inside the
+-- SECURITY DEFINER callers, the functions' owner); otherwise the correction is refused, naming it (fail closed):
+--   DEPENDENCY_UNSUPPORTED     a company/period key whose column types this rule cannot match exactly;
+--   DEPENDENCY_NOT_VISIBLE     no SELECT, or row-level security applies to p_role (not superuser, no BYPASSRLS, and not
+--                              the table's owner, or the owner under FORCE ROW LEVEL SECURITY): rows could be hidden;
+--   DEPENDENCY_NOT_LOCKABLE    p_role cannot take SHARE on it (LOCK TABLE needs UPDATE, DELETE or TRUNCATE).
+-- Read from the catalogue at call time: a table or key added later is classified without a change here.
+CREATE OR REPLACE FUNCTION public._period_currency_dependencies(p_role oid DEFAULT NULL)
+RETURNS TABLE (qualified text, rel regclass, kind text, constraint_name text, target regclass,
+               child_cols text[], parent_cols text[], problem text)
+LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
+  WITH me AS (
+    SELECT r.oid, r.rolsuper, r.rolbypassrls FROM pg_catalog.pg_roles r
+     WHERE r.oid = coalesce(p_role, (SELECT x.oid FROM pg_catalog.pg_roles x WHERE x.rolname = current_user))
+  ),
+  fk AS (
+    SELECT format('%I.%I', n.nspname, cl.relname) AS qualified, c.conrelid AS reloid, 'foreign_key'::text AS kind,
+           c.conname::text AS constraint_name, c.confrelid::regclass AS target,
+           ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(attnum, i)
+                   JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum ORDER BY k.i) AS child_cols,
+           ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY k(attnum, i)
+                   JOIN pg_catalog.pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum ORDER BY k.i) AS parent_cols,
+           NULL::text AS shape_problem
+      FROM pg_catalog.pg_constraint c
+      JOIN pg_catalog.pg_class cl ON cl.oid = c.conrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace
+     WHERE c.contype = 'f'
+       AND c.confrelid IN ('public.trial_balance_uploads'::regclass, 'public.fiscal_periods'::regclass, 'public.tb_certifications'::regclass)
+  ),
+  keyed AS (
+    SELECT format('%I.%I', n.nspname, cl.relname), cl.oid,
+           CASE WHEN k.attname = 'period_year' THEN 'company_period_year' ELSE 'company_reporting_period' END,
+           NULL::text, NULL::regclass, ARRAY['company_id', k.attname::text], NULL::text[],
+           CASE WHEN ci.atttypid <> 'uuid'::regtype THEN 'DEPENDENCY_UNSUPPORTED'
+                WHEN k.attname = 'period_year' AND k.atttypid NOT IN ('int2'::regtype, 'int4'::regtype, 'int8'::regtype) THEN 'DEPENDENCY_UNSUPPORTED'
+                WHEN k.attname = 'reporting_period_id' AND k.atttypid NOT IN ('text'::regtype, 'varchar'::regtype) THEN 'DEPENDENCY_UNSUPPORTED'
+           END
+      FROM pg_catalog.pg_class cl
+      JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace AND n.nspname = 'public'
+      JOIN pg_catalog.pg_attribute ci ON ci.attrelid = cl.oid AND ci.attname = 'company_id' AND NOT ci.attisdropped
+      JOIN pg_catalog.pg_attribute k ON k.attrelid = cl.oid AND k.attname IN ('period_year', 'reporting_period_id') AND NOT k.attisdropped
+     WHERE cl.relkind IN ('r', 'p')
+  ),
+  deps AS (SELECT * FROM fk UNION ALL SELECT * FROM keyed)
+  SELECT d.qualified, d.reloid::regclass, d.kind, d.constraint_name, d.target, d.child_cols, d.parent_cols,
+         coalesce(d.shape_problem,
+           CASE WHEN NOT has_table_privilege(me.oid, d.reloid, 'SELECT') THEN 'DEPENDENCY_NOT_VISIBLE'
+                WHEN NOT (me.rolsuper OR me.rolbypassrls OR NOT cl.relrowsecurity
+                          OR (cl.relowner = me.oid AND NOT cl.relforcerowsecurity)) THEN 'DEPENDENCY_NOT_VISIBLE'
+                WHEN NOT (has_table_privilege(me.oid, d.reloid, 'UPDATE') OR has_table_privilege(me.oid, d.reloid, 'DELETE')
+                          OR has_table_privilege(me.oid, d.reloid, 'TRUNCATE')) THEN 'DEPENDENCY_NOT_LOCKABLE'
+           END)
+    FROM deps d
+    JOIN pg_catalog.pg_class cl ON cl.oid = d.reloid
+    CROSS JOIN me
+   WHERE d.qualified <> ALL (public._period_currency_bookkeeping())
+   ORDER BY d.qualified, d.kind, d.constraint_name;
+$$;
+REVOKE ALL ON FUNCTION public._period_currency_dependencies(oid) FROM PUBLIC, anon, authenticated;
+
 CREATE OR REPLACE FUNCTION public._period_currency_correction_block(p_period_id uuid)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -147,7 +225,7 @@ DECLARE
   v_cert record;
   r record;
   v_found boolean;
-  v_allow text[] := public._period_currency_bookkeeping();
+  v_pred text;
 BEGIN
   SELECT * INTO v_p FROM public.fiscal_periods p WHERE p.id = p_period_id;
   IF v_p.id IS NULL THEN
@@ -177,57 +255,31 @@ BEGIN
     RETURN jsonb_build_object('code', 'PROCESSING_IN_PROGRESS', 'relation', 'public.engine_runs', 'record_id', r.id, 'upload_id', r.source_record_id);
   END IF;
 
-  -- 2. Downstream: every foreign key into the uploads, the period or its certifications …
-  FOR r IN
-    SELECT c.confrelid AS target, format('%I.%I', n.nspname, cl.relname) AS rel, n.nspname AS sch, cl.relname AS tbl, a.attname AS col
-      FROM pg_catalog.pg_constraint c
-      JOIN pg_catalog.pg_class cl ON cl.oid = c.conrelid
-      JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace
-      JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-     WHERE c.contype = 'f' AND array_length(c.conkey, 1) = 1
-       AND c.confrelid IN ('public.trial_balance_uploads'::regclass, 'public.fiscal_periods'::regclass, 'public.tb_certifications'::regclass)
-     ORDER BY 2, 5
-  LOOP
-    CONTINUE WHEN r.rel = ANY (v_allow);
-    IF r.target = 'public.trial_balance_uploads'::regclass THEN
-      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE %I = ANY ($1))', r.sch, r.tbl, r.col) INTO v_found USING v_uploads;
-    ELSIF r.target = 'public.fiscal_periods'::regclass THEN
-      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE %I = $1)', r.sch, r.tbl, r.col) INTO v_found USING v_p.id;
+  -- 2. Downstream, from the ONE classification the lock uses. A relation that cannot be matched, fully seen or locked
+  --    refuses the correction (fail closed), before any data is read.
+  SELECT d.qualified, d.problem, d.constraint_name INTO r FROM public._period_currency_dependencies() d
+   WHERE d.problem IS NOT NULL ORDER BY d.qualified LIMIT 1;
+  IF r.qualified IS NOT NULL THEN
+    RETURN jsonb_build_object('code', r.problem, 'relation', r.qualified, 'constraint', r.constraint_name);
+  END IF;
+  FOR r IN SELECT * FROM public._period_currency_dependencies() d ORDER BY d.qualified, d.kind, d.constraint_name LOOP
+    IF r.kind = 'foreign_key' THEN
+      -- Every column pair of the constraint (composite keys included), joined to the referenced rows of THIS period.
+      v_pred := (SELECT string_agg(format('c.%I = p.%I', cc, pc), ' AND ' ORDER BY i)
+                   FROM unnest(r.child_cols, r.parent_cols) WITH ORDINALITY u(cc, pc, i));
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s c JOIN %s p ON %s WHERE p.id = ANY ($1))', r.rel, r.target, v_pred)
+        INTO v_found
+        USING CASE WHEN r.target = 'public.trial_balance_uploads'::regclass THEN v_uploads
+                   WHEN r.target = 'public.fiscal_periods'::regclass THEN ARRAY[v_p.id]
+                   ELSE v_certs END;
+    ELSIF r.kind = 'company_period_year' THEN
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE company_id = $1 AND period_year = $2)', r.rel) INTO v_found USING v_p.company_id, v_year;
     ELSE
-      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE %I = ANY ($1))', r.sch, r.tbl, r.col) INTO v_found USING v_certs;
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %s WHERE company_id = $1 AND reporting_period_id = $2)', r.rel) INTO v_found USING v_p.company_id, 'FY' || v_year::text;
     END IF;
     IF v_found THEN
-      RETURN jsonb_build_object('code', 'DOWNSTREAM_RECORD', 'relation', r.rel, 'column', r.col);
-    END IF;
-  END LOOP;
-  -- … and every table keyed by the period's company and year.
-  FOR r IN
-    SELECT format('%I.%I', t.table_schema, t.table_name) AS rel, t.table_schema AS sch, t.table_name AS tbl
-      FROM information_schema.tables t
-     WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'company_id')
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'period_year')
-     ORDER BY 1
-  LOOP
-    CONTINUE WHEN r.rel = ANY (v_allow);
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE company_id = $1 AND period_year = $2)', r.sch, r.tbl) INTO v_found USING v_p.company_id, v_year;
-    IF v_found THEN
-      RETURN jsonb_build_object('code', 'DOWNSTREAM_RECORD', 'relation', r.rel, 'column', 'company_id, period_year');
-    END IF;
-  END LOOP;
-  -- … and every table keyed by the company and the text reporting period id the financial statements use ('FY' || year).
-  FOR r IN
-    SELECT format('%I.%I', t.table_schema, t.table_name) AS rel, t.table_schema AS sch, t.table_name AS tbl
-      FROM information_schema.tables t
-     WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'company_id')
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'reporting_period_id' AND k.data_type = 'text')
-     ORDER BY 1
-  LOOP
-    CONTINUE WHEN r.rel = ANY (v_allow);
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE company_id = $1 AND reporting_period_id = $2)', r.sch, r.tbl) INTO v_found USING v_p.company_id, 'FY' || v_year::text;
-    IF v_found THEN
-      RETURN jsonb_build_object('code', 'DOWNSTREAM_RECORD', 'relation', r.rel, 'column', 'company_id, reporting_period_id');
+      RETURN jsonb_build_object('code', 'DOWNSTREAM_RECORD', 'relation', r.qualified, 'constraint', r.constraint_name,
+                                'column', array_to_string(r.child_cols, ', '));
     END IF;
   END LOOP;
   RETURN NULL;
@@ -278,27 +330,11 @@ $$;
 REVOKE ALL ON FUNCTION public.get_period_currency_correction(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_period_currency_correction(uuid) TO authenticated;
 
--- Every dependent table (see CONCURRENCY), each once, in a stable order: the tables the eligibility scan reads, outside
--- the bookkeeping list. Read from the catalogue at call time, so a table added later is covered without a change here.
+-- Every dependent table (see CONCURRENCY), each once: the relations of _period_currency_dependencies() (the SAME
+-- classification eligibility reads), in ascending schema-qualified name order.
 CREATE OR REPLACE FUNCTION public._period_currency_dependent_relations()
 RETURNS SETOF regclass LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
-  SELECT d.qualified::regclass FROM (
-    SELECT format('%I.%I', n.nspname, cl.relname) AS qualified
-      FROM pg_catalog.pg_constraint c
-      JOIN pg_catalog.pg_class cl ON cl.oid = c.conrelid
-      JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace
-     WHERE c.contype = 'f' AND array_length(c.conkey, 1) = 1
-       AND c.confrelid IN ('public.trial_balance_uploads'::regclass, 'public.fiscal_periods'::regclass, 'public.tb_certifications'::regclass)
-    UNION
-    SELECT format('%I.%I', t.table_schema, t.table_name)
-      FROM information_schema.tables t
-     WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'company_id')
-       AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name
-                    AND (k.column_name = 'period_year' OR (k.column_name = 'reporting_period_id' AND k.data_type = 'text')))
-  ) d
-  WHERE d.qualified <> ALL (public._period_currency_bookkeeping())
-  ORDER BY d.qualified;
+  SELECT d.rel FROM (SELECT DISTINCT x.qualified, x.rel FROM public._period_currency_dependencies() x) d ORDER BY d.qualified;
 $$;
 REVOKE ALL ON FUNCTION public._period_currency_dependent_relations() FROM PUBLIC, anon, authenticated;
 
@@ -334,31 +370,44 @@ BEGIN
     RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'UNKNOWN_CURRENCY');
   END IF;
 
-  -- One decision per request id at a time; a retry of an applied request answers the same event.
-  PERFORM pg_advisory_xact_lock(hashtext('correct_period_currency'), hashtext(p_request_id::text));
-  SELECT * INTO v_prior FROM public.fiscal_period_events e
-   WHERE e.action = 'currency_corrected' AND e.detail->>'request_id' = p_request_id::text;
-  IF v_prior.id IS NOT NULL THEN
-    IF v_prior.period_id <> p_period_id OR v_prior.detail->>'to' <> v_new OR v_prior.detail->>'from' <> v_expected OR v_prior.actor_user_id IS DISTINCT FROM v_uid THEN
-      RETURN jsonb_build_object('outcome', 'request_conflict');
-    END IF;
-    RETURN jsonb_build_object('outcome', 'already_corrected', 'event_id', v_prior.id, 'period_id', v_prior.period_id,
-                              'from', v_prior.detail->>'from', 'to', v_prior.detail->>'to', 'rechecks', v_prior.detail->'rechecks');
-  END IF;
-
-  -- Authority (read without locks first: a caller without it never holds a lock).
-  SELECT * INTO v_p FROM public.fiscal_periods p WHERE p.id = p_period_id;
-  IF v_p.id IS NULL THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
-  v_member := public._period_currency_actor(v_p.company_id, v_uid);
-  IF v_member IS NULL THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
-
-  -- Every lock below shares one 5-second acquisition budget (see CONCURRENCY); a lock wait past it, or a deadlock, rolls
-  -- this whole block back and answers 'busy'. lock_timeout is set to the REMAINING budget before each acquisition.
+  -- Every lock below — the request-id lock first, then the dependent tables, then the rows — shares ONE 5-second
+  -- lock-WAIT budget (see CONCURRENCY): lock_timeout is set to the remaining budget before each acquisition. A wait past
+  -- it, or a deadlock, rolls this whole block back (nothing written; every lock taken in it released) and answers
+  -- 'busy'. The budget bounds lock waiting only, never the transaction.
   v_timeout := current_setting('lock_timeout');
   v_deadline := clock_timestamp() + interval '5 seconds';
   BEGIN
-    -- Serialise with every dependent writer first: SHARE on each dependent table, in ascending name order.
-    FOR v_rel IN SELECT r FROM public._period_currency_dependent_relations() r LOOP
+    -- One decision per request id at a time; a retry of an applied request answers the same event.
+    PERFORM set_config('lock_timeout', greatest(1, floor(extract(epoch FROM (v_deadline - clock_timestamp())) * 1000))::bigint || 'ms', true);
+    PERFORM pg_advisory_xact_lock(hashtext('correct_period_currency'), hashtext(p_request_id::text));
+    PERFORM set_config('lock_timeout', v_timeout, true);
+    SELECT * INTO v_prior FROM public.fiscal_period_events e
+     WHERE e.action = 'currency_corrected' AND e.detail->>'request_id' = p_request_id::text;
+    IF v_prior.id IS NOT NULL THEN
+      IF v_prior.period_id <> p_period_id OR v_prior.detail->>'to' <> v_new OR v_prior.detail->>'from' <> v_expected OR v_prior.actor_user_id IS DISTINCT FROM v_uid THEN
+        RETURN jsonb_build_object('outcome', 'request_conflict');
+      END IF;
+      RETURN jsonb_build_object('outcome', 'already_corrected', 'event_id', v_prior.id, 'period_id', v_prior.period_id,
+                                'from', v_prior.detail->>'from', 'to', v_prior.detail->>'to', 'rechecks', v_prior.detail->'rechecks');
+    END IF;
+
+    -- Authority (read without table or row locks: a caller without it takes none).
+    SELECT * INTO v_p FROM public.fiscal_periods p WHERE p.id = p_period_id;
+    IF v_p.id IS NULL THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+    v_member := public._period_currency_actor(v_p.company_id, v_uid);
+    IF v_member IS NULL THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+
+    -- A dependency that cannot be matched, seen or locked refuses before any lock (fail closed).
+    SELECT jsonb_build_object('code', d.problem, 'relation', d.qualified, 'constraint', d.constraint_name) INTO v_block
+      FROM public._period_currency_dependencies() d WHERE d.problem IS NOT NULL ORDER BY d.qualified LIMIT 1;
+    IF v_block IS NOT NULL THEN
+      RETURN jsonb_build_object('outcome', 'not_eligible', 'currency', v_p.reporting_currency, 'block', v_block);
+    END IF;
+
+    -- Serialise with every dependent writer: SHARE on each dependent table, acquired in ascending schema-qualified name
+    -- order (the ORDER BY is on THIS loop, the acquisition itself).
+    FOR v_rel IN SELECT d.rel FROM (SELECT DISTINCT x.qualified, x.rel FROM public._period_currency_dependencies() x) d
+                  ORDER BY d.qualified LOOP
       IF clock_timestamp() >= v_deadline THEN RAISE EXCEPTION 'lock budget exhausted' USING ERRCODE = 'lock_not_available'; END IF;
       PERFORM set_config('lock_timeout', greatest(1, floor(extract(epoch FROM (v_deadline - clock_timestamp())) * 1000))::bigint || 'ms', true);
       EXECUTE format('LOCK TABLE %s IN SHARE MODE', v_rel);
