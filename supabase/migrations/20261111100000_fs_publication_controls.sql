@@ -192,8 +192,10 @@ BEGIN
   CREATE TEMP TABLE IF NOT EXISTS fs_ev_lin (pid text, account_key text, amount numeric) ON COMMIT DROP;
   CREATE TEMP TABLE IF NOT EXISTS fs_ev_scope (pid text, account_key text, is_cash boolean, zero boolean) ON COMMIT DROP;
   CREATE TEMP TABLE IF NOT EXISTS fs_ev_code (code text, amount numeric) ON COMMIT DROP;
-  DELETE FROM pg_temp.fs_ev_fig; DELETE FROM pg_temp.fs_ev_cf; DELETE FROM pg_temp.fs_ev_eq; DELETE FROM pg_temp.fs_ev_map;
-  DELETE FROM pg_temp.fs_ev_lin; DELETE FROM pg_temp.fs_ev_scope; DELETE FROM pg_temp.fs_ev_code;
+  -- Every DELETE carries a WHERE clause: Supabase's API sessions (PostgREST's authenticator role) load the safeupdate guard,
+  -- which refuses a DELETE or UPDATE without one even inside a SECURITY DEFINER function (found by the real-stack CI journey).
+  DELETE FROM pg_temp.fs_ev_fig WHERE true; DELETE FROM pg_temp.fs_ev_cf WHERE true; DELETE FROM pg_temp.fs_ev_eq WHERE true; DELETE FROM pg_temp.fs_ev_map WHERE true;
+  DELETE FROM pg_temp.fs_ev_lin WHERE true; DELETE FROM pg_temp.fs_ev_scope WHERE true; DELETE FROM pg_temp.fs_ev_code WHERE true;
 
   -- The statement of financial position's account figures per period (the browser's line:detail:sfp:<account> facts).
   INSERT INTO pg_temp.fs_ev_lin
@@ -249,8 +251,8 @@ BEGIN
   v_prior := public._fs_ev_pick(p_company_id, p_period_year, 'PRIOR_PERIOD_STATEMENTS', 'COMPARATIVE', v_currency, v_scale);
   IF coalesce((v_prior ->> 'present')::boolean, false) AND NOT coalesce((v_prior ->> 'usable')::boolean, false) THEN v_blockers := v_blockers || (v_prior ->> 'blocker'); END IF;
   -- Without a current-period ledger or equity batch there is no statement at all (the generators report a gap).
-  IF NOT EXISTS (SELECT 1 FROM pg_temp.fs_ev_cf WHERE pid = 'CURRENT') THEN DELETE FROM pg_temp.fs_ev_cf; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_temp.fs_ev_eq WHERE pid = 'CURRENT') THEN DELETE FROM pg_temp.fs_ev_eq; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_temp.fs_ev_cf WHERE pid = 'CURRENT') THEN DELETE FROM pg_temp.fs_ev_cf WHERE true; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_temp.fs_ev_eq WHERE pid = 'CURRENT') THEN DELETE FROM pg_temp.fs_ev_eq WHERE true; END IF;
 
   -- ── Cash flows: lines, activity subtotals, net movement ──
   IF EXISTS (SELECT 1 FROM pg_temp.fs_ev_cf) THEN
@@ -276,7 +278,7 @@ BEGIN
            upper(public._fs_ev_cell(d.doc, x, 'include_in_cash_flow')) LIKE 'Y%', o::integer
       FROM (SELECT v_map -> 'doc' AS doc) d CROSS JOIN LATERAL jsonb_array_elements(d.doc -> 'rows') WITH ORDINALITY t(x, o);
     IF EXISTS (SELECT 1 FROM pg_temp.fs_ev_map m WHERE m.account_key = '' OR m.category = '' OR m.effect = '') THEN
-      DELETE FROM pg_temp.fs_ev_map;
+      DELETE FROM pg_temp.fs_ev_map WHERE true;
       v_reasons := v_reasons || 'EVIDENCE_ROWS_UNREADABLE:CASH_ACCOUNT_MAP:CURRENT'::text;
     END IF;
     -- Every account reviewed as cash in a period must be in the map: the current period refuses, a comparative is skipped.
@@ -424,7 +426,7 @@ BEGIN
     IF v_missing IS NOT NULL THEN
       -- Opening equity is never inferred: no statement (the generator reports a gap).
       v_blockers := v_blockers || ('SOCIE_OPENING_MISSING:' || array_to_string(v_missing, ';'));
-      DELETE FROM pg_temp.fs_ev_eq;
+      DELETE FROM pg_temp.fs_ev_eq WHERE true;
     ELSE
       INSERT INTO pg_temp.fs_ev_fig
       SELECT 'fact:line:eq:' || public._fs_slug(e.component) || ':opening:' || e.pid, e.amount FROM pg_temp.fs_ev_eq e WHERE e.mtype = 'OPENING_BALANCE';

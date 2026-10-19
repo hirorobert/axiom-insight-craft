@@ -52,6 +52,11 @@ async function main() {
     await check(`${FILE} is in the chain and the whole chain applies`, async () => (!chainFiles().includes(FILE) ? `${FILE} missing` : (await applyChain(db)) ?? true));
     await refused("re-applying is refused by its preflight", "P0001", () => db.admin.query(migrationText(FILE)), "PREFLIGHT_REFUSED");
   }
+  await check("static contract: no DELETE or UPDATE without a WHERE clause anywhere in the migration (Supabase API sessions load safeupdate, which refuses them inside SECURITY DEFINER functions too; a direct-connection proof cannot see that)", async () => {
+    const code = migrationText(FILE).replace(/--[^\n]*/g, "");
+    const bare = [...code.matchAll(/\bDELETE\s+FROM\s+[\w.]+\s*;/gi), ...code.matchAll(/\bUPDATE\s+[\w.]+\s+SET\b(?:(?!\bWHERE\b)[^;])*;/gi)].map((m) => m[0].slice(0, 60));
+    return bare.length === 0 ? true : bare;
+  });
 
   const W = await makeWorld(db);
   const { U, A, B } = W;
