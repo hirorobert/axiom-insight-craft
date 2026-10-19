@@ -52,6 +52,60 @@ DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001). Decision: keep direct; reconsider on
 
 Nothing was replaced. No parallel engine, no new prototype.
 
+### 3a. Architecture map (Architectural Hardening Addendum, 2026-10-19): requirement → component → gap
+
+One record, one report model. Each addendum section is mapped to the existing component that fulfils it, with the
+material gap named where one remains. Labels: DONE (executed evidence in §7), PARTIAL, GAP (unfinished requirement).
+
+| Addendum | Component that fulfils it | Status / material gap |
+|---|---|---|
+| §1 One authoritative report version | `financial_statement_reports` (one row per `report_id` lineage + `report_version`; `report_document` JSONB is the server-authoritative model the workspace, review, readiness and exports all read). The document identifies tenant (`company_id`), period (`period_year`, reporting dates), currency and exponent (from `fs_statement_composition`), framework/edition/rule pack (`reportingDependencies.packId`, pack version, rule-pack version in `financial_statement_evaluations`), source certifications and comparative authority, presentation/mapping, treatment and adjustment identities, evidence batches and disclosure decisions (all inside `reportingDependencies`, bound by `dependenciesSha256`), composition (`compositionSha256`), approvals (`financial_statement_publications` + `fs_publication_bindings`: document SHA-256, dependencies SHA-256, approver) | DONE. Allocation versions: presentation assignments are bound; there is no separate "allocation engine" in this product (a line is one account's assignment) — not a gap, a scope statement. Issued-artifact identity: the sealed pack prints the document and dependencies identities, but no artifact bytes/digest are retained server-side → see §8 |
+| §2 Exact accounting and evidence | Browser generators and the server composition work in integer minor units (`bigint` in `canonicalStringify`, `numeric` in SQL; `_fs_ev_minor` parses to minor units with the composition's exponent); no binary float anywhere on the figure path. Every displayed amount is a `fact:…` id with lineage (`Trace`), the server recomputes every SCF/SOCIE/perimeter/roll-forward figure (`fs_evidence_statements`) and refuses any difference (`STATEMENT_FIGURE_MISMATCH`/`_NOT_COMPOSED`); source imbalance is preserved by the trial-balance review (statement equation) and the cash ledger reconciles account by account (`CASHFLOW_ACCOUNT_ROLLFORWARD`); two trial balances never establish cash movements — the ledger is evidence, missing evidence is `STATEMENT_EVIDENCE_MISSING` | DONE for the supported statements. Rounding policy: amounts are exact minor units; presentation rounding to thousands is NOT offered (no rounding rule to state) |
+| §3 Server-enforced lifecycle | States and transitions: §3b below. `fs_set_publication_state` (v2 here: lineage lock + per-version lock, expected current version for FINAL, capability check after the locks, blockers re-evaluated under the lock, append-only publication row); `fs_bind_publication` (v4: dependencies re-check `BINDING_STALE`, path, edition, approver identity, separation of duties); FINAL immutable; a correction is a new version of the same lineage (successor with lineage by `report_version`) | DONE; concurrency proven by `publicationConcurrency.mjs` (§7.2). Gap: no explicit "superseded" marker on an earlier FINAL beyond the lineage order and `fs_prior_final_reconciliation` naming the latest issued version |
+| §4 Consistent commands, concurrent users | `fs_commit_revision`: lineage advisory lock, `expected_report_version` (STALE_REPORT_VERSION on conflict), idempotency key with replay/REPLAY_CONFLICT; `prepareReportVersion`: resumable two-step save; `fs_set_publication_state`: exact replay on the same state, lineage + version locks; decisions/adjustments carry `request_id` replays (Close Review proofs) | DONE and proven (C1 duplicates, C2 concurrent edits, C3/C4 approval vs replacement, C5 revoked approver). No new orchestration added |
+| §5 Database and API execution parity | CI "Real application end to end" (local Supabase stack: PostgREST, GoTrue, RLS, Edge Functions, production build in headless Chrome) runs the save and the REVIEWED → FINAL path with the API session's `safeupdate` guard; passed on `f3925d0` (§7.1) after the WHERE-clause fix. The proof refuses any bare DELETE/UPDATE statically. Temp-table cleanup vs authoritative tables: §3c | DONE for the save/publication path. Partial: the proof harness itself cannot load `safeupdate` (not shipped with the embedded PostgreSQL); the API path is CI-proven, not locally re-runnable |
+| §6 Framework and edition support | `fs_ifrs_for_smes_edition` (edition from the period start or a recorded election), pack `ifrs-for-smes/2015` 1.2.0 (`fs_pack_requirements`), `PUBLICATION_PATH_UNSUPPORTED`, `FRAMEWORK_EDITION_UNSUPPORTED`; drafts compose and save under an unsupported edition (limited preparation allowed), only REVIEWED/FINAL are withheld | DONE for 2015-only. Structured list of remaining treatment/framework domains: §2 of this record (supported slice) and §9 — the presentation engine does not implement recognition and measurement rules; this is stated, not implied otherwise |
+| §7 Complete preparer–reviewer experience | Readiness names the blocker by requirement/figure/evidence (`blockers.ts` texts; `EvidenceUi`); journey steps 1–6 and 9 exercised in the browser (§7.1); step 8 is the stale-version path | GAP: persisted reviewer comments with resolution history and reopening on content change (step 7) do not exist; roll-forward carries no decisions/wording with provenance and has no worklist UI (step 10 partial: opening/comparative reconciliation only). Both remain unfinished requirements (§9) |
+| §8 Deterministic output and artifact safety | Draft and final share one rendering from the stored document (`ExportsView`, print/PDF); the seal prints the document and dependencies identities; editable exports carry no integrity claim | GAP: the exact issued artifact bytes and their digest are not retained server-side, so "retain, bind, verify the issued artifact" is not met; storage-failure states for issuance do not exist because nothing is stored. Cross-format equality of content is not asserted by a test |
+| §9 Security and data handling | RLS + `assertCompanyMembership`-style checks in every RPC (SECURITY DEFINER with explicit company/actor checks); capabilities per member (`workspace_capability_allowed`); tenant isolation proven (K; e2e two-account isolation); synthetic data only; no model call anywhere in the slice | DONE; no change to the client-data guard |
+| §10 Operational correctness | Failure classes by SQLSTATE and name: `22023 INVALID` (validation), `42501 FORBIDDEN` (permission), `PT409 STALE_REPORT_VERSION / BINDING_STALE / BLOCKED / CONFLICT / REPLAY_CONFLICT` (stale, blocked), `P0002 NOT_FOUND`, `PUBLICATION_PATH_UNSUPPORTED` / `FRAMEWORK_EDITION_UNSUPPORTED` (unsupported scope), missing evidence as a named blocker; `request_id`/idempotency keys on every command; `fs_audit_event` rows | PARTIAL: no correlation id threads a command through the report version and the publication attempt (the billing `correlationId` helper is not wired here); transient failures are not classified; no telemetry/monitoring, retention or operational ownership defined for the FS workload. Bounds and measurements: §3d |
+| §11 Migration and release safety | Self-checking wrapper from committed bytes (`fs-controls-r1`), preflight/postcondition, drizzle mirror reconciliation (`RELEASE_JOURNAL`, hosted ids vs mirror tags: 0062 ↔ hosted 63), migration-authority guard; forward changes only; main merged into the candidate before every CI run | DONE for the candidate; hosted application and activation are separate decisions (B–D not established by A) |
+| §12 Acceptance | `publicationControls.mjs` (A–L, J2, L2, ED, static contracts), `publicationConcurrency.mjs` (C1–C6), browser journeys (loopback and CI real stack) | DONE for the listed boundaries except reviewer return/resolution and rollover with carried treatment (GAP, §7 row) |
+| §13 Finishing contract | this record | the candidate is a control-repair candidate (A); B–D not established |
+
+### 3b. Lifecycle: states and allowed transitions (as enforced on the server today)
+
+| From | To | Command | Server checks (all inside one transaction, under the lineage lock) |
+|---|---|---|---|
+| (no version) / version N | version N+1 saved (unsigned) | `fs_commit_revision` via `prepareReportVersion` | expected version = latest (else `STALE_REPORT_VERSION`), idempotency key (replay returns the same version; a different payload under the same key is `REPLAY_CONFLICT`), referenced evidence batches exist and are current, evaluation supplied; the two-step save (evidence, then bind) is resumable |
+| version N (unsigned) | REVIEWED | `fs_set_publication_state(…,'REVIEWED')` | lineage lock then version lock; version exists for the company; exact replay returns the existing publication; `review_close` capability (checked after the locks — a revocation in flight is seen); an evaluation exists; `fs_publication_blockers` empty (figures, evidence, disclosures, comparatives, edition, path, prior-FINAL reconciliation); binding trigger: dependencies current and equal to the document's `dependenciesSha256` (`BINDING_STALE`), supported path and edition, approver identity recorded |
+| REVIEWED | FINAL | `fs_set_publication_state(…,'FINAL')` | as above plus `approve_certification`, the version is the latest of its lineage (`STALE_REPORT_VERSION`), it is REVIEWED, separate approver unless the solo-owner policy (`SIGNOFF_SEPARATE_APPROVERS_REQUIRED`) |
+| FINAL | (nothing) | — | immutable: any further state is `CONFLICT`; a correction is version N+1 of the same lineage (successor with lineage); `fs_prior_final_reconciliation` names the latest FINAL for the next period |
+| any | direct table write | — | `fs_bind_publication` runs on every insert into `financial_statement_publications`, including a direct insert (case D); bindings and publications are append-only |
+
+Not present (gaps, §9): a REVIEWED version returned to the preparer with persisted comments; an explicit WITHDRAWN/SUPERSEDED
+state on an issued version; an ISSUED state distinct from FINAL (the sealed export is produced from the FINAL version but
+not retained).
+
+### 3c. Temporary-table cleanup versus authoritative tables (addendum §5)
+
+`fs_evidence_statements` composes the evidence statements in session temporary tables (`pg_temp.fs_ev_*`, `ON COMMIT
+DROP`). Each call resets them with `DELETE FROM pg_temp.fs_ev_* WHERE true` — intentionally every row of a scratch table
+that belongs to this transaction only. No authoritative table is touched by a DELETE or UPDATE anywhere in the migration
+(the proof's static contract refuses any DELETE/UPDATE without a WHERE clause; the only predicates are `WHERE true` on the
+seven `pg_temp` tables and keyed predicates on them). Retries and errors leave no partial authoritative state: the
+function writes nothing outside `pg_temp`; the save and the sign-off paths that call it are single transactions.
+
+### 3d. Input bounds and measured cases (addendum §10)
+
+| Surface | Bound (enforced) | Measured |
+|---|---|---|
+| Evidence CSV intake (browser, `financialEvidence/intake.ts`) | comma-delimited only; `INTAKE_LIMITS.maxRows`; amounts must declare a currency and scale | six files of 7–8 rows: validated in the browser in the journeys |
+| Revision commit (`fs_commit_revision`) | at most 64 evidence batches per revision; idempotency key 8–200 chars; expected version ≥ 0 | embedded PostgreSQL: the whole browser save (two steps, ~6 server calls) 2.1 s on the journey's data; CI real stack (PostgREST, GitHub runner): the evidence save step 5.4 s wall time including page waits, REVIEWED 3.5 s, FINAL 5.7 s — within the API session's statement budget |
+| Trial balance intake | 2 MB / 20,000 rows / 40 columns CSV; workbooks 5 MB, 300 entries, 20,000 rows, 5 s budget (release package §11) | the TB CPU measurements are NOT transferred to the FS workload |
+| FS workload under load | — | GAP: no representative or demanding FS case (many accounts, many evidence rows, many versions) has been measured; `fs_evidence_statements` cost grows with evidence rows and versions are unbounded per lineage |
+
+
 ## 4. Decisions (agreed unless marked OPEN)
 
 1. **Figure authority for SCF and SOCIE** — the server recomputes, from the latest valid evidence batches and the
@@ -100,6 +154,21 @@ Nothing was replaced. No parallel engine, no new prototype.
    marker, and the roll-forward worklist UI. Those remain part of the full reporting journey (§9).
 9. **Edition** — the 2015 edition is the supported edition; the third edition is refused by name (decision taken
    2026-10-18 after the owner's instruction not to present older requirement texts as verified 2025 support).
+10. **One order for approvals and version commits (addendum §3/§4, 2026-10-19)** — `fs_set_publication_state` v2 takes
+    the report lineage's advisory lock (the one `fs_commit_revision` has always taken) before its per-version lock and
+    before any check. An approval and a version commit of the same lineage never interleave: a replacement committed first
+    makes the approval refuse (`BINDING_STALE`; `STALE_REPORT_VERSION` for FINAL), an approval committed first leaves the
+    replacement as the next unsigned version, and a capability revoked while an approval waits is seen by it. Without the
+    lock (the 20260925140000 text, re-installed for the proof's control-removed case) a FINAL approval held open while
+    evidence is replaced commits a FINAL on a version that is no longer the latest — the regression the lock closes.
+    Changes between a dependency write that takes no lineage lock (a disclosure, an adjustment) and an approval are
+    bounded by the binding's point-in-time dependency identity: the version shows stale on the next read and FINAL
+    re-checks it under the lock (case G); this is documented in §3b, not papered over.
+11. **Addendum classification (2026-10-19)** — the candidate remains a control-repair candidate (addendum §11 A). The
+    supported customer journey (B) is unfinished: persisted reviewer comments with resolution and reopening, roll-forward
+    carry of decisions/wording with provenance and its worklist, and server-retained issued artifacts are GAPS named in
+    §3a and §9, not cosmetic follow-ups. C (hosted deployment verification) and D (customer activation) are not
+    established by anything here.
 
 ## 5. Implementation status (2026-10-18)
 
@@ -129,6 +198,11 @@ Nothing was replaced. No parallel engine, no new prototype.
 | K tenant isolation | company-B owner refused on every RPC and read for company A | §7 |
 | L adjustments affect every dependent statement consistently | L2: an approved adjustment after REVIEWED makes the version stale; the next version carries the recomposed SFP/SCI (profit 5,095.00, payables 3,105.00); the equity statement is refused (`SOCIE_PROFIT_TIE`, `SOCIE_CLOSING_EQUITY_TIE`) until its evidence agrees; then it signs | §7 |
 | ED unsupported edition | an early-application election resolves the period to the third edition: `FRAMEWORK_EDITION_UNSUPPORTED`; REVIEWED refused; trigger refuses a direct insert; withdrawing the election restores the 2015 edition | §7 |
+| C1 repeated commands produce one effect | eight simultaneous saves of one attempt: two versions, every batch once; a copy refused `REPLAY_CONFLICT` converges on retry without writing | §7.2 |
+| C2 concurrent edits cannot silently overwrite | two replacements released together: one wins, the other `STALE_REPORT_VERSION`, stores nothing; its retry builds on the winner | §7.2 |
+| C3/C4 concurrent change vs approval | approval and evidence replacement wait on the lineage lock; FINAL held open while evidence is replaced: control removed → FINAL on a non-latest version (regression shown); control restored → the replacement waits, the FINAL was the latest at its commit | §7.2 |
+| C5 revoked actor cannot complete a queued action | `review_close` revoked while the approval waits: refused 42501; restored: accepted | §7.2 |
+| PostgREST path with guards enabled | CI real-stack journey on `f3925d0`: save, REVIEWED, FINAL through PostgREST with `safeupdate` | §7.1 (CI-PROVEN) |
 | Browser journey | `scripts/browser-acceptance/reportingJourney.mjs` (headless Chrome over the loopback bridge to a disposable database): happy path through statements, notes, schedules, comparatives approval, evidence intake, save, REVIEWED, FINAL, export and PDF; missing-evidence recovery; changed-input recovery; viewer and other-workspace refusals | §7 |
 
 ## 7. Execution log
@@ -187,6 +261,15 @@ All runs: embedded PostgreSQL 16, the whole migration chain replayed from zero, 
 Decision taken during execution: `run.mjs` replays the chain only up to the sign-off completion requirements
 (20261017100000) by design, so the control is not present there and the file is unchanged.
 
+### 7.2 Third pass (2026-10-19, Architectural Hardening Addendum): concurrency, parity, architecture map
+
+| Run | Result | What it establishes |
+|---|---|---|
+| `scripts/db-proof/publicationConcurrency.mjs` (new; embedded PostgreSQL 16, whole chain, the browser's own save code, a second connection holding the lineage lock to order the interleavings) | **__CONC__ PASS** | C1 eight simultaneous saves of one attempt → exactly two versions (evidence, bind), six batches once; a copy that read the store after another copy's evidence step is refused `REPLAY_CONFLICT` (its idempotency payload names a different "replaces" batch) and its retry of the same attempt converges on the bound version writing nothing. C2 two people replacing the ledger at once, released together from the lineage lock → one wins, the other `STALE_REPORT_VERSION` with nothing stored; the loser's retry builds on the winner's version. C3 REVIEWED and a replacement released together → both wait on the lineage lock; whichever commits first, the other cannot approve replaced content (`BINDING_STALE`, or FINAL refused `STALE_REPORT_VERSION`). C4 a FINAL approval transaction held open after `fs_set_publication_state` ran while a replacement starts: CONTROL REMOVED (the 20260925140000 function text installed) → the replacement is not held back and a FINAL stands on a version that is no longer the latest; CONTROL RESTORED → the replacement waits for the commit and the FINAL was the latest at its commit, its binding carrying the version's own dependencies. C5 `review_close` revoked while the approval waits → 42501; restored → accepted. C6 every binding equals its version's bound dependencies; no FINAL was ever published again |
+| `publicationControls.mjs` on the migration with §9 (lineage lock) | **__PC2__ PASS** | the lock changes no outcome of A–L, J2, L2, ED |
+| CI real-stack journey on `f3925d0` | PASS (§7.1) | the save and REVIEWED → FINAL through PostgREST with `safeupdate` enabled: the formerly failing save succeeds (addendum §5); the timings are in §3d |
+| Architecture map, lifecycle, temp-table cleanup, bounds | §3a–§3d | requirement → component → gap, with every unfinished requirement named |
+
 ## 8. Migration and deployment requirements
 
 - Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. `20261111100000` is the only batch still PENDING hosted application.
@@ -218,6 +301,11 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
 | Comparatives: signed prior-year cash-flow comparatives, prior-closing reconciliation | DONE — J, J2 |
 | Roll-forward: compatible treatment reused, period evidence refreshed | PARTIAL — opening/comparative reconciliation done (J2); carry-forward of decisions/wording with re-confirmation and the worklist UI NOT built |
 | Customer journey steps 1–10 | PARTIAL — steps 1–6 and 9 exercised in the browser journey (happy path, missing evidence, changed input); step 7 "return reviewer comments to the affected figure" has no persisted reviewer-comment store in the product (design doc 11 §B.3c) and is NOT built; step 8 re-review of changed content is the stale-version path; step 10 roll-forward partial |
+| Reviewer comments persisted against exact versions and items, with resolution history and reopening (addendum §7) | GAP — not built; an unfinished requirement of the supported journey, not a cosmetic follow-up |
+| Issued artifact retained with its digest and bound to the approved version (addendum §8) | GAP — exports are rendered from the stored document; no artifact bytes or digest are retained server-side |
+| Concurrency and idempotency (addendum §3/§4) | DONE — lineage lock in `fs_set_publication_state` v2; `publicationConcurrency.mjs` C1–C6 |
+| Database and API execution parity (addendum §5) | DONE (CI-PROVEN) for the save/publication path; the harness cannot load `safeupdate` locally |
+| Operational correctness (addendum §10) | PARTIAL — failure classes and request ids exist; no correlation id across command → version → publication, no telemetry, no FS load measurement (§3d) |
 | Rendering, exports, reproduction | UNCHANGED from the reporting release (sealed pack, PDF, lineage-tagged exports; the browser journey prints the sealed pack); byte-identical independently generated formats not promised |
 | AI and server exposure | no model call anywhere in this slice; the `policy-compass` / MAONO findings of doc 12 untouched (separate track) |
 | Privacy cleanup (#171) | separate track; synthetic data only here |
@@ -231,7 +319,13 @@ reporting journey is unfinished.** Every kickoff requirement is listed below wit
   composed under it is refused by name. Supporting the third edition is a later item that needs its Sections 23, 29,
   32 and 33 verified (including 33.7A).
 - **OPEN (owner):** the decision carry-forward and the roll-forward worklist UI; the persisted reviewer-comment store
-  for journey step 7.
+  for journey step 7; server-retained issued artifacts with digests (addendum §8). These are the next implementation
+  pieces under the same ownership (addendum §13), to be started after BLACK's verdict on the control-repair candidate.
+- **NOTE (addendum §3):** dependency writes that take no lineage lock (a disclosure, a comparatives approval, an
+  adjustment decision) can commit while an approval transaction is open; the approval binds the dependencies identity
+  it read, the version then reads as stale and FINAL re-checks under the lock. Serialising every dependency write on the
+  lineage lock would touch eight more functions and was not done in this pass — the window is one transaction wide and
+  the bound identity makes it visible, never silent.
 - **NON-BLOCKING (design):** the refusal `PUBLICATION_PATH_UNSUPPORTED` is appended to the blocker list rather than
   returned early, so a generic document still sees every other gap; it can never be signed either way (the trigger
   refuses too). Confirm this presentation choice.

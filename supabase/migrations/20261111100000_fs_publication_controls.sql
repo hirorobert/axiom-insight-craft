@@ -53,6 +53,14 @@
 --      governed paths are a restatement of this year's comparative or a new issued version of the prior year. A company
 --      with no FINAL prior year has nothing to reconcile to (state no_prior_final) and the comparative approval rules alone
 --      apply. Bound through fs_reporting_dependencies/3 like every other dependency.
+--   7. One order for approvals and version commits (Architectural Hardening Addendum §3/§4): fs_set_publication_state v2
+--      takes the report lineage's advisory lock (hashtext('financial_statement_reports:' || report_id)) — the lock
+--      fs_commit_revision has always taken — before its per-version lock and before any check. An approval and an
+--      evidence replacement (or any other new version) of the same lineage therefore run one after the other, never
+--      interleaved: a replacement committed first makes the approval refuse (BINDING_STALE, or STALE_REPORT_VERSION for
+--      FINAL); an approval committed first leaves the replacement to create the next, unsigned version. A capability
+--      revoked while an approval waits is seen by that approval. Everything else in the function is the 20260925140000
+--      text, unchanged.
 --
 -- Sign-off authority is unchanged (REVIEWED needs review_close, FINAL needs approve_certification — 20260925140000;
 -- separate approvers unless the recorded solo_owner policy — 20261024100000). Function texts are the 20261022100000 /
@@ -1080,6 +1088,81 @@ BEGIN
 END;
 $$;
 
+-- ── 9. Publication state v2: the lineage lock (addendum §3/§4) ──────────────────────────────────────────────────────
+-- The 20260925140000 text with ONE addition, marked "20261111100000": the report lineage's advisory lock, taken first.
+CREATE OR REPLACE FUNCTION public.fs_set_publication_state(p_report_id text, p_report_version integer, p_company_id uuid, p_state text, p_reason text)
+ RETURNS financial_statement_publications
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+DECLARE
+  v_actor   UUID;
+  v_current public.financial_statement_publications;
+  v_latest_version INTEGER;
+  v_row     public.financial_statement_publications;
+  v_blockers TEXT[];
+BEGIN
+  v_actor := public.fs_actor_member_id(p_company_id);
+
+  -- 20261111100000: approvals and version commits of one lineage are serialised on the lineage lock fs_commit_revision
+  -- and fs_save_report_version take; the per-version lock below keeps its own ordering of replays and conflicts.
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_publications:' || p_report_id || ':' || p_report_version::text));
+
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_reports r WHERE r.report_id = p_report_id AND r.report_version = p_report_version AND r.company_id = p_company_id) THEN
+    RAISE EXCEPTION 'NOT_FOUND: no report % version % for this company', p_report_id, p_report_version USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT * INTO v_current FROM public.financial_statement_publications
+   WHERE report_id = p_report_id AND report_version = p_report_version ORDER BY seq DESC LIMIT 1;
+
+  IF FOUND AND v_current.state = p_state THEN
+    RETURN v_current; -- exact replay
+  END IF;
+  IF FOUND AND v_current.state = 'FINAL' THEN
+    RAISE EXCEPTION 'CONFLICT: a FINAL report version is immutable; create a new version instead' USING ERRCODE = 'PT409';
+  END IF;
+
+  IF (p_state = 'REVIEWED' AND NOT public.workspace_capability_allowed(p_company_id, auth.uid(), 'review_close'))
+     OR (p_state = 'FINAL' AND NOT public.workspace_capability_allowed(p_company_id, auth.uid(), 'approve_certification')) THEN
+    RAISE EXCEPTION 'FORBIDDEN: REVIEWED needs the review_close capability and FINAL needs approve_certification' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_state IN ('REVIEWED', 'FINAL') THEN
+    IF NOT EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.report_id = p_report_id AND e.report_version = p_report_version) THEN
+      RAISE EXCEPTION 'NOT_EVALUATED: this report version has no evaluation; validate it before marking it %', p_state USING ERRCODE = 'PT409';
+    END IF;
+    IF p_state = 'FINAL' THEN
+      SELECT max(r.report_version) INTO v_latest_version FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+      IF v_latest_version <> p_report_version THEN
+        RAISE EXCEPTION 'STALE_REPORT_VERSION: only the latest version can be FINAL' USING ERRCODE = 'PT409';
+      END IF;
+    END IF;
+    v_blockers := public.fs_publication_blockers(p_company_id, p_report_id, p_report_version);
+    IF coalesce(array_length(v_blockers, 1), 0) > 0 THEN
+      RAISE EXCEPTION 'BLOCKED: % requirement(s) unmet, the report cannot be marked %: %', array_length(v_blockers, 1), p_state, array_to_string(v_blockers, '; ') USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+
+  IF p_state = 'FINAL' THEN
+    IF v_current.id IS NULL OR v_current.state <> 'REVIEWED' THEN
+      RAISE EXCEPTION 'CONFLICT: a report must be REVIEWED before it can be FINAL' USING ERRCODE = 'PT409';
+    END IF;
+    SELECT max(r.report_version) INTO v_latest_version FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+    IF v_latest_version <> p_report_version THEN
+      RAISE EXCEPTION 'STALE_REPORT_VERSION: only the latest version can be FINAL' USING ERRCODE = 'PT409';
+    END IF;
+  END IF;
+
+  INSERT INTO public.financial_statement_publications (report_id, report_version, company_id, state, reason, actor_firm_member_id)
+       VALUES (p_report_id, p_report_version, p_company_id, p_state, p_reason, v_actor)
+    RETURNING * INTO v_row;
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'PUBLICATION_STATE_SET', jsonb_build_object('reportVersion', p_report_version::text, 'state', p_state, 'reason', p_reason), v_actor);
+  RETURN v_row;
+END;
+$function$;
+
 -- ── Access ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 REVOKE ALL ON FUNCTION public._fs_slug(text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public._fs_ev_cell(jsonb, jsonb, text) FROM PUBLIC, anon, authenticated, service_role;
@@ -1109,7 +1192,9 @@ BEGIN
      OR has_function_privilege('anon', 'public.fs_prior_final_reconciliation(uuid, integer)', 'EXECUTE')
      OR position('SIGNOFF_SEPARATE_APPROVERS_REQUIRED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0
      OR has_function_privilege('anon', 'public.fs_evidence_statements(uuid, integer)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE') THEN
+     OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE')
+     OR position('financial_statement_reports:'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0
+     OR NOT has_function_privilege('authenticated', 'public.fs_set_publication_state(text, integer, uuid, text, text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'POSTCONDITION_FAILED: the publication controls are not in their reviewed state' USING ERRCODE = 'P0001';
   END IF;
 END;

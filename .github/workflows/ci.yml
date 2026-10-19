@@ -896,6 +896,14 @@ jobs:
           createdb pubctl_proof
           bun scripts/db-proof/publicationControls.mjs
 
+      - name: Publication concurrency proof (addendum sections 3, 4 and 12 - eight simultaneous saves of one attempt, two people replacing the ledger at once, an approval and an evidence replacement released together, a FINAL approval held open while evidence is replaced with the lineage lock removed and restored, an approver revoked while the approval waits)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pubconc_proof
+        run: |
+          createdb pubconc_proof
+          bun scripts/db-proof/publicationConcurrency.mjs
+
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:
           DB_PROOF_MODE: external

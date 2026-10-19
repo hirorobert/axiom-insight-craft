@@ -633,6 +633,7 @@ describe("database inertness — schema and functions", () => {
       // Publication controls (20261111100000): the loopback-only disposable-database proof of acceptance cases A–L, and its
       // regression mode (PUBLICATION_CONTROLS_ABSENT=1 replays the chain without the migration and must fail). No deploy behaviour.
       "scripts/db-proof/publicationControls.mjs",
+      "scripts/db-proof/publicationConcurrency.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
