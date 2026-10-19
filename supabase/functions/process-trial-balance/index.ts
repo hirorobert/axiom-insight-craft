@@ -1753,7 +1753,9 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     // (ordered by id so consecutive windows are disjoint); a failed page leaves the mappings unread, exactly as a failed
     // unpaged read did before (every account then goes to review), and is logged.
     const mappingFilter = companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null";
-    const mappingsRead = await selectAllRows<Record<string, unknown>>((from, to) =>
+    // The rows are the untyped `select("*")` rows the loop below has always consumed.
+    // deno-lint-ignore no-explicit-any
+    const mappingsRead = await selectAllRows<any>((from, to) =>
       supabase.from("account_mappings").select("*").or(mappingFilter).order("id", { ascending: true }).range(from, to));
     if (mappingsRead.error) console.log(`[PTB] account_mappings read failed on page ${mappingsRead.pages}: ${mappingsRead.error.message}`);
     const rawMappings = mappingsRead.data;

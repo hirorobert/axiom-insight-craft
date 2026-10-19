@@ -468,7 +468,9 @@ dropped → stored; restored → refused). Result: CI-PROVEN 34/34 (Linux, run 3
   (`RELEASE_BATCH=fs-journey-r1`: injected failure at `fs_review_comment_states`, rolled back with no journal row), with
   `docs/release/fs-journey-r1/preflight.sql` before and `postcondition.sql` after. Both batches are PENDING hosted
   application; nothing here authorises either.
-- **Third batch `fs-bounds-r1`** (`20261114100000_fs_work_bounds.sql`): applied AFTER `fs-journey-r1` (its preflight
+- **Third batch `fs-bounds-r1`** (`20261114100000_fs_work_bounds.sql`; it was `20261113100000` until 2026-10-19 — PR #179's
+  period-currency correction, unmerged, uses that timestamp, so this migration moved; both are unapplied, nothing applied
+  was edited, and every pin, registry, proof, CI step and document followed): applied AFTER `fs-journey-r1` (its preflight
   requires the reviewer workflow); registered in `scripts/release/selfCheckingWrapper.mjs` from its committed bytes at
   `6e96660b07edfddd8bf8e691b77b4e6198e1cf7b` (source 12,720 B SHA-256 `8b337b22…`, wrapper
   `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` 14,270 B SHA-256 `4af6b26d…`; all four submission forms

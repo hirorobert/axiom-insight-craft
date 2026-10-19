@@ -147,6 +147,8 @@ export function makeClient(pool, role, uid) {
         },
         order(col, opts) { q.order = ` ORDER BY ${ident(col)} ${opts?.ascending === false ? "DESC" : "ASC"}`; return b; },
         limit(n) { q.limit = ` LIMIT ${Number(n)}`; return b; },
+        // PostgREST's window: rows from..to inclusive (the paged mapping read, DEFECT-PTB-MAPPINGS-API-ROW-CAP-001).
+        range(from, to) { q.limit = ` LIMIT ${Number(to) - Number(from) + 1} OFFSET ${Number(from)}`; return b; },
         single() { q.single = true; return exec(); },
         maybeSingle() { q.maybe = true; return exec(); },
         then(ok, bad) { return exec().then(ok, bad); },
