@@ -39,7 +39,7 @@ judgement, or that rule 2 considers explicitly:
 `trial_balance_uploads`, `fiscal_periods`, `fiscal_period_events`, `engagements`, `tb_certifications` (rule 2),
 `tb_certification_findings`, `tb_certification_invalidations`, `layout_confirmations`, `engine_runs`,
 `trial_balance_draft_commits`, `trial_balance_upload_lifecycle_events`, `trial_balance_upload_operations`,
-`onboarding_progress`, `upload_integrity_findings` (flags from the scheduled identity sweep).
+`onboarding_progress`, `upload_integrity_findings` (flags from the scheduled identity sweep; see below).
 
 The proof prints the complete classification on the real chain: every foreign key, and every company+period table,
 each marked bookkeeping or BLOCKS. Blocking tables include account review decisions and batches, adjusting journal
@@ -79,19 +79,56 @@ not start.
 
 ## Concurrency (one lock protocol)
 
-| Race | Result (proven) |
+The operation serialises with every writer that could build on the period's amounts. It does so in two steps, both
+before it evaluates eligibility:
+
+1. **Table locks.** It takes a `SHARE` lock on every dependent table, as listed by
+   `_period_currency_dependent_relations()`: the eligibility scan's tables outside the bookkeeping list, whether they
+   are linked by foreign key or keyed by company and period.
+   * `SHARE` conflicts with every `INSERT`, `UPDATE` and `DELETE`.
+   * A dependent write that began earlier commits first, and the scan then sees it.
+   * A write that begins later waits until the correction has committed.
+   * No dependent record can commit unseen in between, whether or not it has a foreign key.
+2. **Row locks.** It then locks the period's uploads `FOR UPDATE`, then the period, in the global order
+   `tb_finalize_attempt` uses.
+
+The table-lock wait is bounded at 5 seconds (`lock_timeout`), and deadlocks are detected. If the bound is hit, the
+answer is `busy`: nothing changed, and the same request id may be retried. The lock lasts only for the correction's
+own few statements.
+
+| Race (real database, proof) | Result |
 |---|---|
-| finalize holds the upload, then correction | correction waits, then sees the accepted certification and refuses |
+| finalize holds the upload, then correction starts | correction waits, then sees the accepted certification and refuses |
 | a check is running | refused outright (`PROCESSING_IN_PROGRESS`) |
 | correction open, then a re-check starts | the re-check waits, then records the new currency revision |
-| correction open, then a downstream write referencing the upload | waits (KEY SHARE vs FOR UPDATE) |
-| two different requests | one corrected, one stale |
+| correction open, then a write to a table linked to the upload by foreign key | the write waits |
+| **no-FK writer, before:** financial-statement evidence committed earlier | refused, naming `financial_evidence_batches`; nothing changed |
+| **no-FK writer in flight** when the correction starts | the correction waits for it, then sees it and refuses |
+| **no-FK writer that starts during** an open correction | waits; commits only after, against the corrected period, where no accepted trial balance exists (the statements' authority, `get_authoritative_certification`, is empty) |
+| **after** the correction | the next correction sees that evidence and refuses. Once the normal re-check certifies, the statements' authority reports in the period's corrected currency (`_fs_period_meta` reads the period). The statement builder excludes evidence stated in another currency, with `EVIDENCE_DENOMINATION_MISMATCH` and the instruction to re-state it (`applyEvidence.ts`; tested in `cashPerimeter.test.ts`) |
+| a dependent table held past the bound | `busy` within 5 seconds; nothing changed and no event; the same request then corrects |
+| two different requests | one corrects, the other is `stale` |
 | 12 duplicate clicks (one id) | one correction, 11 `already_corrected`, one event |
 
-Known limit: tables keyed only by company and period (no foreign key) take no row lock on the upload or the period.
-A write to one of those concurrent with a correction is not serialised by the lock. Such rows (for example
-financial-statement evidence) carry their own declared currency and are matched by currency, so a race leaves them
-unmatched (fail-closed), never mislabelled. The next correction attempt sees them and refuses.
+Why nothing incompatible can be consumed, certified, included or signed off:
+* Every statement, sign-off and Reporting Pack path starts from `get_authoritative_certification` (`fs_reporting_input`).
+* In a period whose currency can be corrected, no accepted certification exists (rule 2).
+* After the correction, a certification can only be accepted through the normal re-check, under the new `'#currency'`
+  revision. A check that read the old currency is refused (`DEPENDENCY_CHANGED`).
+
+## The integrity-flag exemption (exactly one non-processing table)
+
+`upload_integrity_findings` is bookkeeping for this rule only, for these reasons:
+
+* **Writer.** Only the scheduled identity sweep (`20260810044930`) writes it.
+* **Content.** It records engagement/company or engagement/period *identity* mismatches of an upload. It holds no
+  amount and no currency, and nothing reads it to compute or present a figure.
+* **Effect of a correction.** A correction does not touch it. The proof shows:
+  * existing flags stay byte-identical;
+  * a flag written during a correction waits, through its foreign key's `KEY SHARE`, and then lands;
+  * the processing lock and the setup fence refuse every other currency change exactly as before.
+* **Scope.** The exemption is pinned: the proof asserts that the bookkeeping list is exactly the reviewed fourteen
+  tables. No other table is exempt.
 
 ## Browser
 
@@ -115,7 +152,7 @@ unmatched (fail-closed), never mislabelled. The next correction attempt sees the
 
 | Proof | Where | Result |
 |---|---|---|
-| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 39/39 |
+| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 47/47 |
 | `scripts/db-proof/selfCheckingWrappers.mjs` with `RELEASE_BATCH=currency-c1` | local PG16; CI step *Period currency correction wrapper proof* | 32/32 |
 | `src/lib/ingestion/fileCurrencyCheck.test.ts` (browser and server read parity) | unit tests | 24 |
 | `src/lib/workspace/periodCurrency.test.ts` (rules and real panel: duplicate clicks, failure recovery) | unit tests | 11 |

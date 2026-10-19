@@ -34,6 +34,8 @@ export type CorrectionResult =
   | { kind: "stale"; currency: string }
   | { kind: "unchanged"; currency: string }
   | { kind: "not_eligible"; currency: string; block: CorrectionBlock }
+  /** Other work in the workspace was being saved; nothing changed and the same request may be retried. */
+  | { kind: "busy" }
   | { kind: "refused"; code: string };
 
 type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
@@ -81,6 +83,7 @@ export async function correctPeriodCurrency(rpc: Rpc, input: { periodId: string;
     case "stale": return { kind: "stale", currency: str(d.currency) ?? "" };
     case "unchanged": return { kind: "unchanged", currency: str(d.currency) ?? input.to };
     case "not_eligible": return { kind: "not_eligible", currency: str(d.currency) ?? input.from, block: parseBlock(d.block) };
+    case "busy": return { kind: "busy" };
     default: return { kind: "refused", code: typeof d.outcome === "string" ? d.outcome : "unknown" };
   }
 }
@@ -109,8 +112,6 @@ const RELATION_LABELS: Record<string, string> = {
   "public.close_review_adjustments": "close review adjustments",
   "public.close_review_finding_runs": "close review findings",
   "public.statement_sign_offs": "statement sign-offs",
-  "public.financial_statement_reports": "saved financial statements",
-  "public.financial_statement_documents": "saved financial statements",
   "public.reporting_pack_issuances": "issued Reporting Packs",
   "public.tax_computations": "tax computations",
   "public.period_closing_balances": "closing balances",
@@ -122,9 +123,19 @@ const RELATION_LABELS: Record<string, string> = {
   "public.tax_losses": "tax losses",
   "public.tax_payments": "tax payments",
   "public.xbrl_instance_documents": "filing packs",
-  "public.financial_evidence_batches": "financial statement evidence",
-  "public.fs_prior_final_acceptances": "accepted prior-period differences",
 };
+
+/**
+ * The relation in words. Financial-statement tables are named by family, never by table name: their names must not
+ * enter the entry chunk (harnessIsolation.test.ts keeps the reporting workspace's markers in its own chunks).
+ */
+function relationLabel(relation: string | null): string {
+  if (!relation) return "records in another part of the workspace";
+  if (RELATION_LABELS[relation]) return RELATION_LABELS[relation];
+  const table = relation.replace(/^public\./, "");
+  if (/^(fs|financial)_/.test(table)) return "financial statements work";
+  return `records in ${relation}`;
+}
 
 /** The exact reason and the route that still works, for a period whose currency cannot be corrected. */
 export function explainBlock(block: CorrectionBlock, currency: string): { reason: string; route: string } {
@@ -137,7 +148,7 @@ export function explainBlock(block: CorrectionBlock, currency: string): { reason
       };
     }
     case "DOWNSTREAM_RECORD": {
-      const what = (block.relation && RELATION_LABELS[block.relation]) || `records in ${block.relation ?? "another part of the workspace"}`;
+      const what = relationLabel(block.relation);
       return { reason: `This period already has ${what} built on its ${currency} amounts, so its currency is fixed.`,
         route: `Replace the file with one whose amounts are in ${currency}.` };
     }

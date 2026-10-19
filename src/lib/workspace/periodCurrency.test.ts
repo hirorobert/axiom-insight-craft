@@ -42,6 +42,7 @@ describe("reading the server", () => {
       .toEqual({ kind: "corrected", eventId: "e", from: "USD", to: "TZS", rechecks: [{ uploadId: U, operationId: OP }], replayed: true });
     expect(await correctPeriodCurrency(rpcAnswer({ outcome: "stale", currency: "EUR" }), input)).toEqual({ kind: "stale", currency: "EUR" });
     expect(await correctPeriodCurrency(rpcAnswer({ outcome: "not_found" }), input)).toEqual({ kind: "refused", code: "not_found" });
+    expect(await correctPeriodCurrency(rpcAnswer({ outcome: "busy" }), input)).toEqual({ kind: "busy" });
     await expect(correctPeriodCurrency(rpcAnswer(null, { message: "network" }), input)).rejects.toBeTruthy();
   });
   it("the mismatch is read only from a recorded CURRENCY_MISMATCH check", () => {
@@ -76,6 +77,10 @@ describe("what the card offers (server-decided; never a control the server refus
   it("explanations name the record: an accepted certification awaiting review is still a certification", () => {
     const e = explainBlock({ code: "ACCEPTED_CERTIFICATION", relation: "public.tb_certifications", recordId: "c", requiresReview: true, certifiedAt: "2026-10-01T00:00:00Z" }, "USD");
     expect(e.reason).toMatch(/already accepted in USD on 1 Oct 2026 \(it is awaiting account review\)/);
+    // Financial-statement tables are named by family, never by table name (kept out of the entry chunk).
+    const fs = explainBlock({ code: "DOWNSTREAM_RECORD", relation: "public.financial_evidence_batches", recordId: null, requiresReview: null, certifiedAt: null }, "USD");
+    expect(fs.reason).toContain("financial statements work");
+    expect(fs.reason).not.toContain("financial_evidence_batches");
     expect(explainBlock({ code: "PROCESSING_IN_PROGRESS", relation: null, recordId: null, requiresReview: null, certifiedAt: null }, "USD").route).toMatch(/Wait/);
   });
 });

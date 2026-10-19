@@ -93,6 +93,11 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
       const result = await correctPeriodCurrency(rpc, { periodId, from, to, reason: trimmed, requestId: requestId.current });
       if (result.kind === "corrected") {
         rechecks = result.rechecks.filter((r) => r.uploadId === uploadId);
+      } else if (result.kind === "busy") {
+        // Nothing changed; the same request id is kept, so trying again can never make a second change.
+        setStep({ kind: "error", message: "Other work in this workspace was being saved at that moment, so nothing was changed. Try again." });
+        inFlight.current = false;
+        return;
       } else {
         requestId.current = null;
         const message = result.kind === "stale" ? `The period's currency was changed meanwhile; it now reports in ${result.currency}.`
