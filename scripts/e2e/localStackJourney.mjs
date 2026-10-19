@@ -602,13 +602,17 @@ async function main() {
     await shot("14c-official-pack-verified");
     return /matches the seal recorded at issue/.test(t) && !/WARNING/.test(t) ? true : t;
   });
-  await check("issuing again does not duplicate or overwrite the retained artifact: a second issuance is a second sealed row with its own digest; the first row and its digest are unchanged", async () => {
+  await check("issuing again does not duplicate or overwrite the retained artifact: a second issuance is a second sealed artifact (its canonical document names its own issuance, so its digest differs); the first row, its digest and its stored bytes are unchanged and still verify intact", async () => {
     const before = await owner.api.from("reporting_pack_issuances").select("id, content_sha256").eq("company_id", A).not("content_sha256", "is", null);
     await page.click('[data-testid="issue-official"]');
     await page.waitFor((n) => document.querySelectorAll('[data-testid="official-issuance"]').length >= n, [before.data.length + 1], { label: "second issuance", timeout: 90000 });
     const after = await owner.api.from("reporting_pack_issuances").select("id, content_sha256").eq("company_id", A).not("content_sha256", "is", null);
     const firstKept = before.data.every((b) => after.data.some((a) => a.id === b.id && a.content_sha256 === b.content_sha256));
-    return firstKept && after.data.length === before.data.length + 1 && after.data.every((a) => a.content_sha256 === officialSha) ? true : { before: before.data, after: after.data };
+    // The first artifact, verified again on the server after the second issuance: still intact, same digest.
+    await page.click(`[data-testid="official-issuance"][data-sha="${officialSha}"] [data-testid="verify-official"]`);
+    await page.waitFor((sha) => (document.querySelector(`[data-testid="official-issuance"][data-sha="${sha}"] [data-testid="official-verdict"]`)?.textContent ?? "").startsWith("Verified:"), [officialSha], { label: "first artifact verified", timeout: 60000 });
+    const digests = new Set(after.data.map((a) => a.content_sha256));
+    return firstKept && after.data.length === before.data.length + 1 && digests.size === after.data.length && after.data.every((a) => /^[0-9a-f]{64}$/.test(a.content_sha256)) ? true : { before: before.data, after: after.data };
   });
 
   startGroup("Next-period roll-forward: FY2027 from the issued FY2026 (carried decisions with provenance; evidence never carried)");
