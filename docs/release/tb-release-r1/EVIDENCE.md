@@ -200,3 +200,31 @@ The final read-only lookup produced no correlated numeric `cpu_time_used` for ei
 
 ## Not release evidence
 The UX defects are listed in the close-out table, owned by the website review (TB UX) lane, and are display only. DEFECT-UX-TB-LEDGER-NEEDS-REVIEW-SPINNER-001 is fixed in draft #164, unmerged and unpublished.
+
+## Follow-up releases and scope closure (2026-10-19)
+
+The releases below were owner-authorised. The release review was performed by the author; independent review was not performed.
+
+| Release | Merged | Hosted | Published bundle | Verification |
+|---|---|---|---|---|
+| TB UX: #164, #168, #170 and #172, integrated as #173 | `07b44e5` (required CI green) | none (frontend only) | `index-BobKt_0o.js`, then carried into `index-7gPZbnny.js` | **DEPLOYED, NOT EXERCISED** in a signed-in browser. The bundle contains the new interfaces, and they were verified only in the synthetic harness before merge. The signed-in smoke check is listed below. |
+| Pricing enforcement: #175 (from #161 and #174) | `100d43d` (CI green) | Migration `20261110100000` through its self-checking wrapper: journal 63, hash `d3f1ae17…`; `POSTCONDITION OK` | none | **LIVE VERIFIED** (database, Lovable read-only) |
+| Pricing wording and journal close-out: #177 | `50282a3` (CI green; mirror `0062` registered, nothing pending) | none | `index-7gPZbnny.js` | **LIVE VERIFIED** in the browser, 2026-10-19, at 1280 px and 375 px, on `/pricing` and the landing plans section. Solo, Practice and Firm read "Unlimited team members"; Enterprise reads "Team members by agreement" / "By agreement". Prices (USD 490 / 990 / 2,990) and entity capacities (1 / 5 / 25) are unchanged. No USD 200 seat price, no "named user", no horizontal overflow. |
+
+#161 and #174 are closed as superseded; their preservation was verified file by file. The publication order held: the live bundle carried no unlimited wording until enforcement passed.
+
+**Signed-in TB smoke check: PENDING** (owner, existing demo data only; no upload, nothing reprocessed). On the demo company's FY2027 trial balance page, confirm:
+1. **The progress ledger** shows the completed check with no spinner, and stages that never ran read "Not applicable".
+2. **The Classification record** lists 4000, 4100 and 1000 as confirmed by the owner at 13:13 on 18 Oct, in batch `875128e0…`.
+3. **File options, then Replace,** with `replacement-over-10mb.csv`, shows the persistent "is larger than 10 MB" alert beside Replace. It stays until dismissed. The file is refused in the browser, so nothing is uploaded.
+4. **On the account home,** the engagement's button names the actual next step, not "Resume".
+
+**This release scope is closed.** Still open, outside it:
+- CPU headroom: **BLOCKED**;
+- monitoring responsibilities: **unassigned**;
+- the generation-6 floor update: prepared, not applied;
+- busy/retry: not exercised on hosted;
+- Reporting Pack: FS lane;
+- payments: the Polar sandbox correction pending on hosted, Snippe disabled, external Polar wording;
+- privacy: `KAMANGA_MEDICS_TB_2025.csv` is tracked on `main` (#171);
+- #149: deferred, and must be renumbered.
