@@ -171,6 +171,21 @@ async function main() {
     return true;
   });
   await refused("applying it again is refused by its preflight", "P0001", () => admin.query(migrationSql(REPO, REPAIR_FILE)), "PREFLIGHT_REFUSED");
+  await check("the downstream scan is exhaustive: every foreign key into the uploads, the period or its certifications, and every company+period table, is listed here as bookkeeping or blocking", async () => {
+    const allow = (await one("SELECT public._period_currency_bookkeeping() a")).a;
+    const fks = (await admin.query(`SELECT DISTINCT format('%I.%I', n.nspname, cl.relname) rel, a.attname col, c.confrelid::regclass::text target
+        FROM pg_constraint c JOIN pg_class cl ON cl.oid = c.conrelid JOIN pg_namespace n ON n.oid = cl.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+       WHERE c.contype = 'f' AND c.confrelid IN ('public.trial_balance_uploads'::regclass, 'public.fiscal_periods'::regclass, 'public.tb_certifications'::regclass)
+       ORDER BY 1, 2`)).rows;
+    const keyed = (await admin.query(`SELECT format('%I.%I', table_schema, table_name) rel FROM information_schema.tables t WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name = 'company_id')
+        AND EXISTS (SELECT 1 FROM information_schema.columns k WHERE k.table_schema = t.table_schema AND k.table_name = t.table_name AND k.column_name IN ('period_year', 'reporting_period_id'))
+       ORDER BY 1`)).rows;
+    for (const f of fks) console.log(`        ${allow.includes(f.rel) ? "bookkeeping" : "BLOCKS     "}  ${f.rel}.${f.col} -> ${f.target}`);
+    for (const k of keyed) console.log(`        ${allow.includes(k.rel) ? "bookkeeping" : "BLOCKS     "}  ${k.rel} (company + period key)`);
+    return fks.length > 0 && keyed.length > 0 ? true : { fks, keyed };
+  });
   await check("privileges: the read and the operation for authenticated only; the internal helpers for nobody", async () => {
     const r = await one(`SELECT has_function_privilege('authenticated','public.correct_period_currency(uuid,text,text,text,uuid)','EXECUTE') a,
         has_function_privilege('anon','public.correct_period_currency(uuid,text,text,text,uuid)','EXECUTE') b,
@@ -197,11 +212,17 @@ async function main() {
     const e = await eligibility(U.owner, t.period);
     return e.block?.code === "ACCEPTED_CERTIFICATION" && e.block.requires_review === false ? true : { e, f };
   });
-  await check("a downstream record referencing the upload (upload_integrity_findings) blocks it, named by relation", async () => {
+  await check("a downstream record referencing the upload (management_inputs) blocks it, named by relation", async () => {
+    const t = await blockedPeriod();
+    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, t.up, U.owner]);
+    const e = await eligibility(U.owner, t.period);
+    return e.block?.code === "DOWNSTREAM_RECORD" && e.block.relation === "public.management_inputs" ? true : e;
+  });
+  await check("the scheduled identity sweep's flag on the upload (upload_integrity_findings: no amount, no currency) does not block it", async () => {
     const t = await blockedPeriod();
     await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_PERIOD_MISMATCH')", [t.up, A]);
     const e = await eligibility(U.owner, t.period);
-    return e.block?.code === "DOWNSTREAM_RECORD" && e.block.relation === "public.upload_integrity_findings" ? true : e;
+    return e.outcome === "eligible" ? true : e;
   });
   await check("financial statement evidence for the period (company + 'FY' reporting period id) blocks it, named by relation", async () => {
     const t = await blockedPeriod();
@@ -279,13 +300,13 @@ async function main() {
     (await asRole("anon", null, "SELECT public.correct_period_currency($1,'TZS','USD','reason here',$2) r", [R2.period, uuid()]).then(() => "ran", (e) => e.code)) === "42501" ? true : "ran");
   await check("downstream, accepted and running refusals name their record and change nothing", async () => {
     const d = await blockedPeriod();
-    await admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_COMPANY_MISMATCH')", [d.up, A]);
+    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, d.up, U.owner]);
     const x = await correct(U.owner, d.period, "TZS", "USD");
     const acc = await periodWithAttempt(); await snapshot(acc.run, A); await finalize(acc.run, acceptedResult(true));
     const y = await correct(U.owner, acc.period, "TZS", "USD");
     const run = await periodWithAttempt();
     const z = await correct(U.owner, run.period, "TZS", "USD");
-    const ok = x.outcome === "not_eligible" && x.block.relation === "public.upload_integrity_findings"
+    const ok = x.outcome === "not_eligible" && x.block.relation === "public.management_inputs"
       && y.outcome === "not_eligible" && y.block.code === "ACCEPTED_CERTIFICATION"
       && z.outcome === "not_eligible" && z.block.code === "PROCESSING_IN_PROGRESS"
       && (await currencyOf(d.period)) === "USD" && (await currencyOf(acc.period)) === "USD" && (await currencyOf(run.period)) === "USD";
@@ -338,7 +359,7 @@ async function main() {
   await check("a downstream write referencing the upload waits for an open correction (KEY SHARE vs FOR UPDATE)", async () => {
     const t = await blockedPeriod();
     const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','race check reason',$2) r", [t.period, uuid()]);
-    const p = admin.query("INSERT INTO public.upload_integrity_findings (upload_id, company_id, issue_type) VALUES ($1,$2,'ENGAGEMENT_PERIOD_MISMATCH')", [t.up, A]);
+    const p = admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, t.up, U.owner]);
     const state = await waitsFor(p);
     await c.commit(); await p;
     return c.r.r.outcome === "corrected" && state === "waiting" ? true : { corr: c.r.r, state };

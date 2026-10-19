@@ -112,7 +112,9 @@ RETURNS text[] LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
     'public.trial_balance_draft_commits',       -- draft-to-upload commits
     'public.trial_balance_upload_lifecycle_events',
     'public.trial_balance_upload_operations',
-    'public.onboarding_progress'                -- first-run guidance state (no financial content)
+    'public.onboarding_progress',               -- first-run guidance state (no financial content)
+    'public.upload_integrity_findings'          -- the scheduled identity sweep's flags (engagement/company/period
+                                                -- mismatches): no amount, no currency, nothing built on either
   ]::text[];
 $$;
 REVOKE ALL ON FUNCTION public._period_currency_bookkeeping() FROM PUBLIC, anon, authenticated;
