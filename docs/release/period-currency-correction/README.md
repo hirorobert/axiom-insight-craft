@@ -30,9 +30,11 @@ the period's year. Retired uploads are included.
 | 1 | the period is `locked` | `PERIOD_LOCKED` | a locked period never changes |
 | 2 | **any** certification of the period's uploads has `is_blocking = false`, **including one that still requires review** | `ACCEPTED_CERTIFICATION` (with `requires_review`, `certified_at`, record id) | an accepted certification recorded amounts in that currency. A screen label (`complete`, `blocked`, `requires_review`) is never consulted |
 | 3 | a `process-trial-balance` run on those uploads is still running within its lease | `PROCESSING_IN_PROGRESS` | it read the current currency |
-| 4 | any row exists in a table outside the bookkeeping list that references those uploads, the period or their certifications by foreign key, **or** is keyed by the period's company and year (`company_id` + `period_year`, or `company_id` + `reporting_period_id = 'FY'‖year`) | `DOWNSTREAM_RECORD` (with relation and column) | something was built on the period's amounts |
+| 4 | any row exists in a table outside the bookkeeping list that references those uploads, the period or their certifications by a foreign key **of any arity** (matched on every column pair), **or** is keyed by the period's company and year (`company_id` + `period_year`, or `company_id` + `reporting_period_id = 'FY'‖year`) | `DOWNSTREAM_RECORD` (with relation, constraint and columns) | something was built on the period's amounts |
+| 5 | any such relation cannot be matched exactly (an unsupported key type), fully **seen** by the functions' owner (no `SELECT`, or row-level security could hide rows from it), or **locked** by it | `DEPENDENCY_UNSUPPORTED`, `DEPENDENCY_NOT_VISIBLE`, `DEPENDENCY_NOT_LOCKABLE` (with relation) | fail closed: a dependency the server cannot prove empty is never assumed empty |
 
-The scan in rule 4 reads the catalogue at call time. A table added later is therefore covered automatically and
+Rules 4 and 5 and the locks all come from **one** classification, `_period_currency_dependencies()`. It reads the
+catalogue at call time. A table added later is therefore covered automatically and
 blocks by default. The **bookkeeping list** is the only exception: tables that carry no amount and no currency
 judgement, or that rule 2 considers explicitly:
 
@@ -83,16 +85,23 @@ The operation serialises with every writer that could build on the period's amou
 
 ### Lock impact (each point proven on PostgreSQL)
 
-* **What is locked.** `SHARE` on every dependent table listed by `_period_currency_dependent_relations()`: the
-  eligibility scan's tables outside the bookkeeping list, whether foreign-key or company+period keyed. There are 34
-  on the current chain. After those, `FOR UPDATE` on the period's uploads, then on the period row.
+* **What is locked, in order.**
+  1. The request-id advisory lock.
+  2. `SHARE` on every relation of `_period_currency_dependencies()`, the same classification eligibility reads. There
+     are 34 on the current chain.
+  3. `FOR UPDATE` on the period's uploads, then on the period row.
   * `SHARE` conflicts with `INSERT`, `UPDATE` and `DELETE` only. Reads are never blocked, and two corrections do not
     block each other on tables (they serialise on the period's rows).
-* **Deterministic order.** Tables are locked one at a time, in ascending schema-qualified name order. Rows follow the
-  existing global order: uploads by id, then the period. The proof checks that an open correction holds exactly those
-  34 `ShareLock`s.
-* **Lock budget, not a transaction bound.** All lock acquisitions share **one total 5-second budget**: `lock_timeout`
-  is set to the remaining budget before each lock.
+* **Deterministic order.** The lock loop itself is `ORDER BY` the schema-qualified relation name. Rows follow the
+  existing global order: uploads by id, then the period.
+  * The proof observes the acquisition order directly. Each of the 34 tables is held by its own session; the
+    correction waits on them one at a time, and each is released as it is reached. The wait sequence equals the
+    ascending order.
+  * An open correction holds exactly those 34 `ShareLock`s.
+* **Lock budget, not a transaction bound.** All lock acquisitions share **one total 5-second budget**: the request-id
+  lock first, then the tables, then the rows. `lock_timeout` is set to the remaining budget before each lock.
+  * The proof holds the matching request id elsewhere. The correction answers `busy` within the budget with no event,
+    no change and no lock left, and the same id then corrects.
   * The proof shows the budget is total. A first table released after 3 s, with a later table held, answers `busy` at
     about 5 s, not 8 s. A held upload row also answers `busy` within the budget.
   * The budget bounds *waiting for locks* only.
@@ -139,6 +148,16 @@ Why nothing incompatible can be consumed, certified, included or signed off:
 * After the correction, a certification can only be accepted through the normal re-check, under the new `'#currency'`
   revision. A check that read the old currency is refused (`DEPENDENCY_CHANGED`).
 
+## Trust boundary
+
+The transaction-local marker `axiom.period_currency_correction`, which admits the correction through the processing
+lock, separates the **application's** paths.
+* Clients (`anon`, `authenticated`) cannot run SQL or set it, and the setup fence refuses their direct period changes.
+* It does **not** protect against database-capable actors: the service role, table owners, superusers and anyone able
+  to run SQL can set a transaction-local setting or bypass triggers.
+* Those roles are trusted by design, as for every other guard in this schema. This repair adds no protection against
+  them and claims none.
+
 ## The integrity-flag exemption (exactly one non-processing table)
 
 `upload_integrity_findings` is bookkeeping for this rule only, for these reasons:
@@ -175,7 +194,7 @@ Why nothing incompatible can be consumed, certified, included or signed off:
 
 | Proof | Where | Result |
 |---|---|---|
-| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 54/54 |
+| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 62/62 |
 | `scripts/db-proof/selfCheckingWrappers.mjs` with `RELEASE_BATCH=currency-c1` | local PG16; CI step *Period currency correction wrapper proof* | 32/32 |
 | `src/lib/ingestion/fileCurrencyCheck.test.ts` (browser and server read parity) | unit tests | 24 |
 | `src/lib/workspace/periodCurrency.test.ts` (rules and real panel: duplicate clicks, failure recovery) | unit tests | 11 |

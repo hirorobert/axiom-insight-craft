@@ -116,7 +116,7 @@ export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Authored, PENDING
  * hosted application. */
-export const CURRENCY_C1_SOURCE_COMMIT = "7925adf47d14bb88b8da3b87c60434bdc157b3d7";
+export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc032557";
 export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
   "20261113100000_period_currency_correction.sql",
 ]);

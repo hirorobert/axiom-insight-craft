@@ -40,7 +40,7 @@ BEGIN
      OR position('stale' IN v_def) = 0 OR position('currency_corrected' IN v_def) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency is not the reviewed definition';
   END IF;
-  IF position('IN SHARE MODE' IN v_def) = 0 OR position('_period_currency_dependent_relations' IN v_def) = 0 OR position('busy' IN v_def) = 0
+  IF position('IN SHARE MODE' IN v_def) = 0 OR position('_period_currency_dependencies' IN v_def) = 0 OR position('busy' IN v_def) = 0
      OR position('v_deadline' IN v_def) = 0 OR position('deadlock_detected' IN v_def) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency does not serialise with dependent writers';
   END IF;
@@ -48,14 +48,38 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency is not SECURITY DEFINER';
   END IF;
 
-  -- 5. The operation's owner may take SHARE on every dependent table (LOCK TABLE needs UPDATE, DELETE or TRUNCATE);
-  --    otherwise every correction would fail instead of answering.
+  -- 5. Every dependency is matchable, fully VISIBLE and LOCKABLE for the functions' real owner — re-derived here from the
+  --    catalogue alone (no application function is called): every foreign key of any arity into the uploads, the period
+  --    or its certifications, and every public table with company_id + period_year / reporting_period_id, outside the
+  --    reviewed bookkeeping list. Visible = SELECT, and row-level security cannot hide rows from that owner (superuser,
+  --    BYPASSRLS, RLS off, or the table's owner without FORCE). Lockable = UPDATE, DELETE or TRUNCATE. A failure here means
+  --    every correction would be refused (fail closed) — fix ownership/grants before release, never relax RLS.
   IF EXISTS (
-    SELECT 1 FROM public._period_currency_dependent_relations() r,
-           (SELECT proowner FROM pg_proc WHERE oid = 'public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure) o
-     WHERE NOT (has_table_privilege(o.proowner, r, 'UPDATE') OR has_table_privilege(o.proowner, r, 'DELETE') OR has_table_privilege(o.proowner, r, 'TRUNCATE'))
+    WITH o AS (SELECT r.oid, r.rolsuper, r.rolbypassrls FROM pg_roles r
+                WHERE r.oid = (SELECT proowner FROM pg_proc WHERE oid = 'public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure)),
+    d AS (
+      SELECT c.conrelid AS rel FROM pg_constraint c
+       WHERE c.contype = 'f' AND c.confrelid IN ('public.trial_balance_uploads'::regclass, 'public.fiscal_periods'::regclass, 'public.tb_certifications'::regclass)
+      UNION
+      SELECT cl.oid FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace AND n.nspname = 'public'
+       WHERE cl.relkind IN ('r', 'p')
+         AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = cl.oid AND a.attname = 'company_id' AND NOT a.attisdropped)
+         AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = cl.oid AND a.attname IN ('period_year', 'reporting_period_id') AND NOT a.attisdropped)
+    )
+    SELECT 1 FROM d JOIN pg_class cl ON cl.oid = d.rel JOIN pg_namespace n ON n.oid = cl.relnamespace CROSS JOIN o
+     WHERE format('%I.%I', n.nspname, cl.relname) NOT IN ('public.trial_balance_uploads', 'public.fiscal_periods', 'public.fiscal_period_events',
+             'public.engagements', 'public.tb_certifications', 'public.tb_certification_findings', 'public.tb_certification_invalidations',
+             'public.layout_confirmations', 'public.engine_runs', 'public.trial_balance_draft_commits', 'public.trial_balance_upload_lifecycle_events',
+             'public.trial_balance_upload_operations', 'public.onboarding_progress', 'public.upload_integrity_findings')
+       AND (NOT has_table_privilege(o.oid, cl.oid, 'SELECT')
+            OR NOT (o.rolsuper OR o.rolbypassrls OR NOT cl.relrowsecurity OR (cl.relowner = o.oid AND NOT cl.relforcerowsecurity))
+            OR NOT (has_table_privilege(o.oid, cl.oid, 'UPDATE') OR has_table_privilege(o.oid, cl.oid, 'DELETE') OR has_table_privilege(o.oid, cl.oid, 'TRUNCATE')))
   ) THEN
-    RAISE EXCEPTION 'POSTCONDITION: the owner of correct_period_currency cannot lock every dependent table';
+    RAISE EXCEPTION 'POSTCONDITION: a dependency is not fully visible or lockable for the owner of correct_period_currency';
+  END IF;
+  IF to_regprocedure('public._period_currency_dependencies(oid)') IS NULL
+     OR has_function_privilege('authenticated', 'public._period_currency_dependencies(oid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: the dependency classification is missing or callable by a client';
   END IF;
 
   RAISE NOTICE 'POSTCONDITION OK.';

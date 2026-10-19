@@ -582,7 +582,7 @@ jobs:
           createdb unlimited_members_proof
           node scripts/db-proof/unlimitedTeamMembers.mjs
 
-      - name: Period currency correction proof (20261113100000 — on the chain without the repair a refused currency label locks the period for good; with it the one authorised operation corrects the currency only while nothing depends on it, naming the exact record that prevents it otherwise (an accepted certification including one awaiting review, a running check, a locked period, any downstream record); serialised with every dependent writer (before, in flight, during, after) under one total lock budget (order, timeout, deadlock, cross-company contention); records old and new currency, reason, actor and time; version-checked and idempotent; concurrency with finalize, re-check and downstream writes; 12 duplicate clicks; the re-check through the normal path as a new attempt; on the same throwaway container)
+      - name: Period currency correction proof (20261113100000 — on the chain without the repair a refused currency label locks the period for good; with it the one authorised operation corrects the currency only while nothing depends on it, naming the exact record that prevents it otherwise (an accepted certification including one awaiting review, a running check, a locked period, any downstream record); serialised with every dependent writer (before, in flight, during, after) under one total lock-wait budget including the request-id lock (order, timeout, deadlock, cross-company contention); composite foreign keys, unsupported shapes and row-level-security visibility fail closed; records old and new currency, reason, actor and time; version-checked and idempotent; concurrency with finalize, re-check and downstream writes; 12 duplicate clicks; the re-check through the normal path as a new attempt; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/period_currency_proof
@@ -823,7 +823,7 @@ jobs:
           createdb pricing_p1_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Period currency correction wrapper proof (the same reviewed apply-and-register proof for the currency-c1 wrapper, 20261113100000 at 7925adf; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Period currency correction wrapper proof (the same reviewed apply-and-register proof for the currency-c1 wrapper, 20261113100000 at 5581158; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/currency_c1_wrappers_proof

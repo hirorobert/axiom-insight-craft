@@ -12,7 +12,8 @@
  */
 import { requestReprocess, ReprocessRefusedError, type ReprocessClient } from "@/lib/workspace/requestReprocess";
 
-export type CorrectionBlockCode = "ACCEPTED_CERTIFICATION" | "DOWNSTREAM_RECORD" | "PROCESSING_IN_PROGRESS" | "PERIOD_LOCKED" | "NOT_FOUND";
+export type CorrectionBlockCode = "ACCEPTED_CERTIFICATION" | "DOWNSTREAM_RECORD" | "PROCESSING_IN_PROGRESS" | "PERIOD_LOCKED" | "NOT_FOUND"
+  | "DEPENDENCY_NOT_VISIBLE" | "DEPENDENCY_UNSUPPORTED" | "DEPENDENCY_NOT_LOCKABLE";
 export interface CorrectionBlock {
   code: CorrectionBlockCode | string;
   relation: string | null;
@@ -154,6 +155,12 @@ export function explainBlock(block: CorrectionBlock, currency: string): { reason
     }
     case "PROCESSING_IN_PROGRESS":
       return { reason: "A check of this trial balance is still running.", route: "Wait for it to finish, then change the currency." };
+    case "DEPENDENCY_NOT_VISIBLE":
+    case "DEPENDENCY_UNSUPPORTED":
+    case "DEPENDENCY_NOT_LOCKABLE":
+      // Fail closed: the server could not prove that nothing in this workspace depends on the period's amounts.
+      return { reason: `The server cannot confirm that nothing in this workspace depends on the period's ${currency} amounts, so its currency stays fixed.`,
+        route: `Replace the file with one whose amounts are in ${currency}, or contact support quoting “${block.code}”.` };
     case "PERIOD_LOCKED":
       return { reason: "This period is locked, so its currency cannot change.", route: `Replace the file with one whose amounts are in ${currency}.` };
     default:

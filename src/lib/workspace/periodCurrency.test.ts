@@ -81,6 +81,10 @@ describe("what the card offers (server-decided; never a control the server refus
     const fs = explainBlock({ code: "DOWNSTREAM_RECORD", relation: "public.financial_evidence_batches", recordId: null, requiresReview: null, certifiedAt: null }, "USD");
     expect(fs.reason).toContain("financial statements work");
     expect(fs.reason).not.toContain("financial_evidence_batches");
+    // A dependency the server cannot see, match or lock: fail closed, with the code to quote.
+    const hidden = explainBlock({ code: "DEPENDENCY_NOT_VISIBLE", relation: "public.x", recordId: null, requiresReview: null, certifiedAt: null }, "USD");
+    expect(hidden.reason).toMatch(/cannot confirm that nothing in this workspace depends/);
+    expect(hidden.route).toContain("DEPENDENCY_NOT_VISIBLE");
     expect(explainBlock({ code: "PROCESSING_IN_PROGRESS", relation: null, recordId: null, requiresReview: null, certifiedAt: null }, "USD").route).toMatch(/Wait/);
   });
 });
