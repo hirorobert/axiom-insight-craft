@@ -188,7 +188,7 @@ jobs:
         run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
       - name: Existing process-trial-balance Deno tests
-        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts
+        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts supabase/functions/_shared/pagedSelect.test.ts
 
   golden-tests:
     name: Golden Fixture Tests (vitest)
@@ -836,7 +836,7 @@ jobs:
           createdb fs_journey_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261113100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at 6e96660)
+      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at 6e96660)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_bounds_wrappers_proof
@@ -933,7 +933,7 @@ jobs:
           createdb review_proof
           bun scripts/db-proof/reviewWorkflow.mjs
 
-      - name: Work bounds proof (20261113100000 - every bound reached through the browser's own save code and refused by name with nothing stored, accepted at the bound; a 20,000-row ledger saved and a 20,002-row file refused at the committed limit; the batch trigger dropped accepts the over-limit file, restored refuses it)
+      - name: Work bounds proof (20261114100000 - every bound reached through the browser's own save code and refused by name with nothing stored, accepted at the bound; a 20,000-row ledger saved and a 20,002-row file refused at the committed limit; the batch trigger dropped accepts the over-limit file, restored refuses it)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/work_bounds_proof

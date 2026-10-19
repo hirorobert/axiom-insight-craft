@@ -113,7 +113,7 @@ function writes nothing outside `pg_temp`; the save and the sign-off paths that 
 | Evidence CSV intake (browser, `financialEvidence/intake.ts`) | comma-delimited only; `INTAKE_LIMITS.maxRows`; amounts must declare a currency and scale | six files of 7–8 rows: validated in the browser in the journeys |
 | Revision commit (`fs_commit_revision`) | at most 64 evidence batches per revision; idempotency key 8–200 chars; expected version ≥ 0 | embedded PostgreSQL: the whole browser save (two steps, ~6 server calls) 2.1 s on the journey's data; CI real stack (PostgREST, GitHub runner): the evidence save step 5.4 s wall time including page waits, REVIEWED 3.5 s, FINAL 5.7 s — within the API session's statement budget |
 | Trial balance intake | 2 MB / 20,000 rows / 40 columns CSV; workbooks 5 MB, 300 entries, 20,000 rows, 5 s budget (release package §11) | the TB CPU measurements are NOT transferred to the FS workload |
-| Evidence batch (server, `20261113100000` trigger `trg_feb_work_bounds`) | ≤ 20,000 rows (`EVIDENCE_ROWS_LIMIT`); ≤ 4,194,304 bytes as JSON (`EVIDENCE_DOCUMENT_SIZE_LIMIT`) — the intake's own limits, now held by the server on every write path | `workBounds.mjs` B1/B2: a 20,000-row ledger saved through the browser's save code; 20,002 rows and a 6 MB file refused, nothing stored. Sizes: 20,000 rows → 2,218,178 B; a 2,000,000-character file of maximal rows → 2,067,494 B (the bound is ≥ 1.8× anything the intake lets through) |
+| Evidence batch (server, `20261114100000` trigger `trg_feb_work_bounds`) | ≤ 20,000 rows (`EVIDENCE_ROWS_LIMIT`); ≤ 4,194,304 bytes as JSON (`EVIDENCE_DOCUMENT_SIZE_LIMIT`) — the intake's own limits, now held by the server on every write path | `workBounds.mjs` B1/B2: a 20,000-row ledger saved through the browser's save code; 20,002 rows and a 6 MB file refused, nothing stored. Sizes: 20,000 rows → 2,218,178 B; a 2,000,000-character file of maximal rows → 2,067,494 B (the bound is ≥ 1.8× anything the intake lets through) |
 | Report version (server, `trg_fsr_work_bounds`) | ≤ 200,000 evidence rows referenced by one version (`EVIDENCE_ROWS_PER_VERSION_LIMIT`, 10× the demanding case); document ≤ 8,388,608 bytes (`REPORT_DOCUMENT_SIZE_LIMIT`); ≤ 1,000 versions per lineage (`VERSION_HISTORY_LIMIT`) | `workBounds.mjs` B3/B4 (direct), B5 (the 1,000th save through the client accepted, the 1,001st refused). Measured documents: representative 157,013 B; demanding see §7.5 |
 | Reviewer comments (server, `trg_fsrc_work_bounds`, `trg_fsrce_work_bounds`) | ≤ 500 comments per version (`REVIEW_COMMENTS_LIMIT`); ≤ 200 events per comment (`REVIEW_COMMENT_EVENTS_LIMIT`) | `workBounds.mjs` B6/B7 through `fs_review_comment_open/respond/resolve` |
 | FS workload under load | the bounds above | MEASURED (§7.5): representative and demanding cases through the real Supabase/PostgREST path; 30-version history; 8 simultaneous saves. CPU is NOT measured (API round trips only) |
@@ -468,10 +468,10 @@ dropped → stored; restored → refused). Result: CI-PROVEN 34/34 (Linux, run 3
   (`RELEASE_BATCH=fs-journey-r1`: injected failure at `fs_review_comment_states`, rolled back with no journal row), with
   `docs/release/fs-journey-r1/preflight.sql` before and `postcondition.sql` after. Both batches are PENDING hosted
   application; nothing here authorises either.
-- **Third batch `fs-bounds-r1`** (`20261113100000_fs_work_bounds.sql`): applied AFTER `fs-journey-r1` (its preflight
+- **Third batch `fs-bounds-r1`** (`20261114100000_fs_work_bounds.sql`): applied AFTER `fs-journey-r1` (its preflight
   requires the reviewer workflow); registered in `scripts/release/selfCheckingWrapper.mjs` from its committed bytes at
   `6e96660b07edfddd8bf8e691b77b4e6198e1cf7b` (source 12,720 B SHA-256 `8b337b22…`, wrapper
-  `release/wrappers/20261113100000_fs_work_bounds.wrapper.sql` 14,270 B SHA-256 `4af6b26d…`; all four submission forms
+  `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` 14,270 B SHA-256 `4af6b26d…`; all four submission forms
   in `scripts/ci/releaseJournal.mjs`), proven by `selfCheckingWrappers.mjs` (`RELEASE_BATCH=fs-bounds-r1`: injected
   failure at `fs_bound_report_version`, rolled back with no journal row), with `docs/release/fs-bounds-r1/preflight.sql`
   before (it also lists six counts of existing rows already over a bound — all must be 0) and `postcondition.sql` after.

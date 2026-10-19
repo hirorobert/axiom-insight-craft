@@ -7,7 +7,7 @@
 //   deno test --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json \
 //     supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
+import { POSTGREST_MAX_ROWS, newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
 import { capturedHandler } from "./serverDouble.ts";
 import { installAttemptDoubles } from "./attemptDouble.ts";
 import { validateTbAmounts } from "../../_shared/tbAmounts.ts";
@@ -88,6 +88,28 @@ Deno.test("reviewed mappings + exact balance → complete, certified with rows; 
   assertEquals(milestoneStates(w), ["read:passed", "columns:passed", "rows:passed", "amounts:passed", "balance:passed", "classification:passed", "recorded:passed"]);
   const exact = ((upload(w).processing_result as Record<string, Record<string, Record<string, unknown>>>).validation_report.tb_balance_check.exact);
   assertEquals(exact, { currency: "TZS", currency_exponent: 2, total_debits: "1900.25", total_credits: "1900.25", difference: "0.00" });
+});
+
+// DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the double answers at most POSTGREST_MAX_ROWS rows per read, as PostgREST does. A
+// company with more reviewed mappings than that must still have every one applied — the handler reads them page by page.
+Deno.test("1,500 reviewed mappings (more than one PostgREST answer holds): every account is classified from its mapping, certified with no review; the mappings were read in pages", async () => {
+  const n = POSTGREST_MAX_ROWS + 500;
+  const codes = Array.from({ length: n - 1 }, (_, i) => String(100000 + i));
+  const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900)); // minor units
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const money = (m: number) => (m / 100).toFixed(2);
+  const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
+  const mappings = [...codes.map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
+  assert(mappings.length > POSTGREST_MAX_ROWS);
+  const w = setup({ csv, mappings });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "complete");
+  const cert = w.tables.tb_certifications[0];
+  assertEquals([cert.p_is_blocking, cert.p_requires_review], [false, false]);
+  assertEquals((cert.p_rows_snapshot as unknown[]).length, n);
+  const mappingReads = w.calls.filter((c) => c.kind === "select" && c.target === "account_mappings").length;
+  assert(mappingReads >= 2, `expected the mappings to be read in at least two pages, saw ${mappingReads} read(s)`);
 });
 
 Deno.test("no reviewed mapping → every machine guess goes to review; certification requires review; nothing accepted", async () => {

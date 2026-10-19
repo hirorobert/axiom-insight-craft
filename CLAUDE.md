@@ -888,7 +888,7 @@ API or event; Polar's merchant-of-record arrangements do not cover Snippe sales.
 confirmations in `docs/release/SNIPPE_TZ_READINESS.md` §4, owner-approved explicit TZS prices (never derived from USD)
 and a reviewed release. Proof: `scripts/db-proof/snippeLedger.mjs`.
 
-**DEFECT-PTB-MAPPINGS-API-ROW-CAP-001** — Severity: HIGH — Status: OPEN / MEASURED (2026-10-19, PR #176 readiness pass)
+**DEFECT-PTB-MAPPINGS-API-ROW-CAP-001** — Severity: HIGH — Status: FIXED in PR #176 (registered OPEN by its readiness pass, 2026-10-19; repaired in the same PR under the owner's consolidated instruction)
 
 `supabase/functions/process-trial-balance/index.ts` loads a company's reviewed mappings with
 `.from("account_mappings").select("*").or(...)` and no `.range()`/pagination. PostgREST answers at most its `max-rows`
@@ -897,8 +897,14 @@ rest: in the CI real-stack measurement (`scripts/e2e/workloadJourney.mjs`, run 3
 balance had all 2,000 review decisions recorded (`resolve_account_review_batch`, one call) and the re-check still
 reported `needs_review` for exactly 1,000 accounts; in-process (the proof kit, no PostgREST) the same file certifies.
 Consequence: the upload policy's `maxAccounts = 2,000` is not an end-to-end supported size; the measured supported size
-is 1,000 reviewed accounts per company. Fix (own task, own test): page the select in `max-rows` steps or read through an
-RPC; do not lower `maxAccounts` instead. Not fixed in PR #176 (scope: the FS readiness increment).
+was 1,000 reviewed accounts per company. Fix: the read goes through `supabase/functions/_shared/pagedSelect.ts`
+(`selectAllRows`: `.range()` windows of at most max-rows, ordered by `id`, until a short page; a failed page leaves the
+mappings unread exactly as a failed unpaged read did). Proven by `pagedSelect.test.ts`, the function-path test (1,500
+reviewed mappings against a double that caps every read at 1,000 rows: all applied, certified with no review, read in
+pages) and `scripts/e2e/draftJourney.mjs` (2,000 accounts reviewed in one batch → the re-check certifies the whole
+trial balance through the real function and PostgREST). `maxAccounts` was not lowered. No other unpaged select of a
+per-company table that can exceed 1,000 rows exists in this function (`keyword_dictionary` is a small shared table).
+The deployed `process-trial-balance` closure changes: see `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 
 ### 9.2 Registered Commercial Go-Live Gates
 

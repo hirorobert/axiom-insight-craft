@@ -235,6 +235,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/process-trial-balance/functionpath/import_map.json",
       // ...and the mixed-version probe (the same doubles over the release scenarios, for scripts/compat/tbMixedVersions.mjs).
       "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
+      // DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the paged PostgREST read (pure helper) and its Deno test. No schema.
+      "supabase/functions/_shared/pagedSelect.ts",
+      "supabase/functions/_shared/pagedSelect.test.ts",
       // I1-A A1 (20261009100000): currency-registry/1 and explicit reporting periods — a NEW forward-only migration pending
       // hosted application (its preflight refuses incompatible data; nothing is backfilled or repaired) — and the engine's
       // copy of the registry (generated; parity-tested with the browser copy and the migration seed).
@@ -367,11 +370,11 @@ describe("database inertness — schema and functions", () => {
       // roll-forward and acceptance functions, fs_publication_blockers v4 and fs_prior_final_reconciliation v2 redefined with
       // marked changes only; no existing table, column, index, policy or grant changes. Proven on PostgreSQL by reviewWorkflow.mjs.
       "supabase/migrations/20261112100000_fs_review_workflow_and_rollforward.sql",
-      // Work bounds (20261113100000): a NEW forward-only migration — fs_work_bounds() (constants) and four BEFORE INSERT trigger
+      // Work bounds (20261114100000): a NEW forward-only migration — fs_work_bounds() (constants) and four BEFORE INSERT trigger
       // functions on financial_evidence_batches, financial_statement_reports, fs_review_comments and fs_review_comment_events that
       // refuse over-limit rows by name; no existing function, table, column, index, policy or grant changes. Proven on PostgreSQL by
       // workBounds.mjs (each bound refused at limit+1 and accepted at the limit; the batch trigger dropped: the regression).
-      "supabase/migrations/20261113100000_fs_work_bounds.sql",
+      "supabase/migrations/20261114100000_fs_work_bounds.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity

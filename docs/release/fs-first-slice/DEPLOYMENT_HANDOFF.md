@@ -14,7 +14,7 @@ machine), HOSTED-VERIFIED (none yet — every hosted step below produces its own
 |---|---|---|---|
 | Publication controls — batch `fs-controls-r1` | `release/wrappers/20261111100000_fs_publication_controls.wrapper.sql` (source `supabase/migrations/20261111100000_fs_publication_controls.sql`) | self-checking wrapper, SQL editor, by the owner | the reporting sign-off path only (`fs_publication_blockers` v3, `fs_set_publication_state` v2, `fs_bind_publication` v4, pack 1.2.0 rows, new read-only functions). Companies without the FS rollout are untouched |
 | Reviewed reporting journey — batch `fs-journey-r1` | `release/wrappers/20261112100000_fs_review_workflow_and_rollforward.wrapper.sql` | same | four new append-only tables, the reviewer-comment, roll-forward and acceptance functions, blockers v4, `fs_prior_final_reconciliation` v2 |
-| Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261113100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched |
+| Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched |
 | Edge Function `seal-reporting-pack` | `supabase/functions/seal-reporting-pack` (+ `_shared/reportingPackSeal.mjs`) | `supabase functions deploy seal-reporting-pack` | adds the `retrieve` action; `issue` and `verify` are unchanged in behaviour (same module, same gates) |
 | Frontend (the reporting pages, the review/roll-forward/official-pack panels) | the merged `main` | Lovable Publish | only companies with `fs_set_company_rollout(..., true)` can write; everyone else keeps today's pages |
 
@@ -45,7 +45,7 @@ Same shape: `docs/release/fs-journey-r1/preflight.sql` → `release/wrappers/202
 
 ## 4. Apply `fs-bounds-r1` (third — its preflight requires 3)
 
-`docs/release/fs-bounds-r1/preflight.sql` → `release/wrappers/20261113100000_fs_work_bounds.wrapper.sql` (12,720 B /
+`docs/release/fs-bounds-r1/preflight.sql` → `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` (12,720 B /
 `8b337b22…` enclosed) → `docs/release/fs-bounds-r1/postcondition.sql` → journal row (0066 expected).
 
 The preflight lists six counts of existing rows that already exceed a bound; **every count must be 0**. If any is not,

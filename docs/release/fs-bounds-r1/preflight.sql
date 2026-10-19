@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED PREFLIGHT for the work bounds (docs/release/fs-first-slice/RECORD.md §8). Run BEFORE the wrapper of
--- 20261113100000_fs_work_bounds.sql. Writes nothing; raises on the first violated expectation.
+-- 20261114100000_fs_work_bounds.sql. Writes nothing; raises on the first violated expectation.
 DO $$
 BEGIN
   IF to_regclass('public.fs_review_comments') IS NULL OR to_regclass('public.fs_review_comment_events') IS NULL

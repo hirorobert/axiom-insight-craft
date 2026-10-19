@@ -1,5 +1,5 @@
 // Test double for https://esm.sh/@supabase/supabase-js@2, used ONLY by functionPath.test.ts through import_map.json.
-// An in-memory database with the query-builder surface process-trial-balance uses (select/eq/is/in/or/order/limit,
+// An in-memory database with the query-builder surface process-trial-balance uses (select/eq/is/in/or/order/limit/range,
 // single/maybeSingle, insert…select, update…eq), programmable RPCs, Storage downloads and auth.getClaims. Every call is
 // recorded so the test can assert what the REAL handler did. No network.
 
@@ -34,6 +34,8 @@ function world(): World {
 }
 
 type Filter = (r: Row) => boolean;
+/** PostgREST's default max-rows: every read answers at most this many rows, silently. */
+export const POSTGREST_MAX_ROWS = 1000;
 const UNIQUE: Record<string, string[]> = {
   idempotency_keys: ["company_id", "function_name", "client_request_id", "firm_member_id", "actor_user_id"],
 };
@@ -46,6 +48,7 @@ class Query implements PromiseLike<Answer> {
   private cardinality: "many" | "single" | "maybe" = "many";
   private sort: { col: string; ascending: boolean } | null = null;
   private max: number | null = null;
+  private window: { from: number; to: number } | null = null;
   constructor(private readonly table: string) {}
 
   select(_cols?: string) { this.wantRows = true; return this; }
@@ -61,6 +64,7 @@ class Query implements PromiseLike<Answer> {
   // Ordering and limits are applied to reads, as PostgREST does (the newest-row reads depend on them).
   order(col: string, opts?: { ascending?: boolean }) { this.sort = { col, ascending: opts?.ascending !== false }; return this; }
   limit(n: number) { this.max = n; return this; }
+  range(from: number, to: number) { this.window = { from, to }; return this; }
   single() { this.cardinality = "single"; return this; }
   maybeSingle() { this.cardinality = "maybe"; return this; }
   insert(p: Row | Row[]) { this.mode = "insert"; this.payload = p; this.wantRows = false; return this; }
@@ -99,7 +103,11 @@ class Query implements PromiseLike<Answer> {
       const { col, ascending } = this.sort;
       found = [...found].sort((a, b) => (a[col] === b[col] ? 0 : (a[col] as number) < (b[col] as number) ? (ascending ? -1 : 1) : (ascending ? 1 : -1)));
     }
+    // PostgREST: a `.range()` window is honoured, then EVERY answer is capped at max-rows (1,000 by default) with no
+    // indication that rows were left out — the behaviour DEFECT-PTB-MAPPINGS-API-ROW-CAP-001 ran into.
+    if (this.window) found = found.slice(this.window.from, this.window.to + 1);
     if (this.max !== null) found = found.slice(0, this.max);
+    found = found.slice(0, POSTGREST_MAX_ROWS);
     return this.shape(found);
   }
 

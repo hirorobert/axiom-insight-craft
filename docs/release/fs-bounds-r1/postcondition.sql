@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED POSTCONDITION for the work bounds (docs/release/fs-first-slice/RECORD.md §8). Run AFTER the wrapper of
--- 20261113100000_fs_work_bounds.sql. Writes nothing; raises on the first violated expectation.
+-- 20261114100000_fs_work_bounds.sql. Writes nothing; raises on the first violated expectation.
 DO $$
 DECLARE
   v_b jsonb := public.fs_work_bounds();

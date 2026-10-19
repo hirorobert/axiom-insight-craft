@@ -128,7 +128,7 @@ export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
  * bytes; applied after fs-journey-r1 (its preflight requires the reviewer workflow). */
 export const FS_BOUNDS_SOURCE_COMMIT = "6e96660b07edfddd8bf8e691b77b4e6198e1cf7b";
 export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
-  "20261113100000_fs_work_bounds.sql",
+  "20261114100000_fs_work_bounds.sql",
 ]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([

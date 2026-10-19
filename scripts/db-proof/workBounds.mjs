@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Real-PostgreSQL proof of the server-enforced work bounds (20261113100000) — through the browser's own save code
+// Real-PostgreSQL proof of the server-enforced work bounds (20261114100000) — through the browser's own save code
 // (src/lib/reporting/prepareVersion.ts) where a page would act, and through the database where a defect or an attacker
 // would. Every bound is reached AT ITS COMMITTED VALUE and refused BY NAME with nothing stored; the same operation is
 // accepted at the bound. No parameter is lowered and no function is replaced to make a bound reachable: the rows that
@@ -33,7 +33,7 @@ import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 
-const FILE = "20261113100000_fs_work_bounds.sql";
+const FILE = "20261114100000_fs_work_bounds.sql";
 /** The documented bounds (RECORD §3d). Written by hand; the proof compares the database's answer with them. */
 const BOUNDS = Object.freeze({ contract: "fs-work-bounds/1", evidenceRowsPerBatch: 20000, evidenceDocumentBytesPerBatch: 4194304, evidenceRowsPerVersion: 200000, reportDocumentBytes: 8388608, versionsPerLineage: 1000, commentsPerVersion: 500, eventsPerComment: 200 });
 const { group, check, refused, finish } = reporter();

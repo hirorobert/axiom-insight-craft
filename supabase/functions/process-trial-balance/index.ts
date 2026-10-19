@@ -42,6 +42,7 @@ import {
 } from "../_shared/tbIngestion.ts";
 import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
 import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
+import { selectAllRows } from "../_shared/pagedSelect.ts";
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
 import { createAdmission, withAdmission } from "../_shared/admission.ts";
 import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
@@ -1747,10 +1748,16 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     const reportingFramework = company?.reporting_framework ?? null;
     console.log(`[PTB] reporting_framework: ${reportingFramework ?? "not set"}`);
 
-    const { data: rawMappings } = await supabase
-      .from("account_mappings")
-      .select("*")
-      .or(companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null");
+    // DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: PostgREST answers at most max-rows (1,000) per request and says nothing about
+    // the rest, so an unpaged select applied only the first 1,000 reviewed mappings of a larger company. Read every page
+    // (ordered by id so consecutive windows are disjoint); a failed page leaves the mappings unread, exactly as a failed
+    // unpaged read did before (every account then goes to review), and is logged.
+    const mappingFilter = companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null";
+    const mappingsRead = await selectAllRows<Record<string, unknown>>((from, to) =>
+      supabase.from("account_mappings").select("*").or(mappingFilter).order("id", { ascending: true }).range(from, to));
+    if (mappingsRead.error) console.log(`[PTB] account_mappings read failed on page ${mappingsRead.pages}: ${mappingsRead.error.message}`);
+    const rawMappings = mappingsRead.data;
+    console.log(`[PTB] account_mappings: ${rawMappings?.length ?? 0} rows in ${mappingsRead.pages} page(s)`);
 
     const companyByCode = new Map<string, AccountMapping>(); // Tier 1 (codes are unique per company)
     const globalByCode  = new Map<string, AccountMapping>(); // Tier 3 (code)
