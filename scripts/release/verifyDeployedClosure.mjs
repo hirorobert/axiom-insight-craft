@@ -14,6 +14,17 @@ import { closureOf } from "./functionClosure.mjs";
 
 /** Reviewed closures: the one the current release requires, and the ones known to have been deployed before. */
 export const KNOWN_CLOSURES = Object.freeze({
+  // PR #176 (FS first slice): the mapping read is paged (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001). The closure deployed hosted on
+  // 2026-10-18 (tb-release-r1, EVIDENCE.md) read at most 1,000 mappings and must be redeployed.
+  "process-trial-balance": Object.freeze({
+    required: { sha256: "ffd3ad543d919673d478973466d8753b14675ec619e947eb1e1d043abd992b77", source: "PR #176 since bbb9ad2: account_mappings read page by page (_shared/pagedSelect.ts)" },
+    known: [{ sha256: "67cbf27b09e68fbfb70c8d1562a5fdd7063f284bf7cdda9280a81edbf25607fd", source: "main through 942764f (deployed hosted 2026-10-18, tb-release-r1): one unpaged select, at most 1,000 mappings applied" }],
+  }),
+  // PR #176: the official Reporting Pack gains the `retrieve` action; `issue` and `verify` unchanged.
+  "seal-reporting-pack": Object.freeze({
+    required: { sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0: issue, verify and retrieve" },
+    known: [{ sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
+  }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },
     known: [{ sha256: "e47b381850dc13a4101613a799233313b3400df4308a6f28f91650b23ca0d7df", source: "main before 80384d1 (PR #32 upload lifecycle): source_shared unknown — answers 500 and deletes nothing" }],
