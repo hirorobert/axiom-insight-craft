@@ -376,6 +376,9 @@ const bigEquity = (() => {
   for (let i = 0; lines.length < 51; i++) lines.push(`Retained earnings,PROFIT_OR_LOSS,${i % 2 ? "-1.00" : "1.00"},Netting movement ${i}`);
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
 })();
+const LEDGER_ROWS = 1000; // the evidence bound (fs_work_bounds evidenceRowsPerBatch = INTAKE_LIMITS.maxRows)
+const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
+const money = (m) => (m / 100).toFixed(2);
 // ═══ CAPACITY: candidate account envelopes through the real stack ═══════════════════════════════════════════════════
 // The supported account count must be VALIDATED at the candidate, with the supported evidence volume (a ledger at the
 // evidence bound), retained versions and concurrency — never inferred from the 18-account journey.
@@ -462,10 +465,7 @@ for (const n of [500, 1000]) await capacityRun(n);
 
 // ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 log("\n== DEMANDING: 2,000 accounts, a ledger at the evidence bound, 50 equity rows");
-const LEDGER_ROWS = 1000; // the evidence bound (fs_work_bounds evidenceRowsPerBatch = INTAKE_LIMITS.maxRows)
 let N_ACCOUNTS = 2000;
-const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
-const money = (m) => (m / 100).toFixed(2);
 let bigRows, bigDecisions, bigAssign, D, pD26;
 const bigTbCsv = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + bigRows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
 for (const n of [2000, 1000]) {
