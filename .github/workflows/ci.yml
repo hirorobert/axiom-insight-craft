@@ -815,7 +815,7 @@ jobs:
           createdb pricing_p1_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Publication controls wrapper proof (the same reviewed apply-and-register proof for the fs-controls-r1 wrapper - 20261111100000, the publication controls of the first IFRS for SMEs reporting slice at 453aeca; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Publication controls wrapper proof (the same reviewed apply-and-register proof for the fs-controls-r1 wrapper - 20261111100000, the publication controls of the first IFRS for SMEs reporting slice at ed09267; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_controls_wrappers_proof
