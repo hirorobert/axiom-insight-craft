@@ -375,6 +375,10 @@ describe("database inertness — schema and functions", () => {
       // refuse over-limit rows by name; no existing function, table, column, index, policy or grant changes. Proven on PostgreSQL by
       // workBounds.mjs (each bound refused at limit+1 and accepted at the limit; the batch trigger dropped: the regression).
       "supabase/migrations/20261114100000_fs_work_bounds.sql",
+      // Account capacity (20261115100000): a NEW forward-only migration — fs_work_bounds v2, fs_account_capacity, and the
+      // composition, commit and blockers functions redefined from their latest texts with exactly one marked guard block each.
+      // No table, column, index, policy or grant of an existing object changes. Proven on PostgreSQL by accountCapacity.mjs.
+      "supabase/migrations/20261115100000_fs_account_capacity.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -649,6 +653,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/publicationConcurrency.mjs",
       "scripts/db-proof/reviewWorkflow.mjs",
       "scripts/db-proof/workBounds.mjs",
+      "scripts/db-proof/accountCapacity.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.

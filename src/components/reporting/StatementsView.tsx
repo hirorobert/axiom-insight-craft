@@ -12,7 +12,7 @@ import { SecondaryPanel } from "@/components/workbench/SecondaryPanel";
 import { CommentComposer, ReviewCommentsPanel } from "./ReviewComments";
 import { presentAmount } from "@/lib/presentation/amounts";
 import { IFRS_FOR_SMES_2015 } from "@/lib/frameworkPacks/ifrsForSmes";
-import { statementViews, type Composition, type CompositionLine, type StatementRow } from "@/lib/statements/composition";
+import { statementViews, type Composition, type CompositionLine, type StatementRow, overCapacityWords } from "@/lib/statements/composition";
 import type { NotesStatus } from "@/lib/notes/notesStatus";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
 
@@ -30,6 +30,7 @@ type Row = StatementRow & { key: string };
 export function StatementsView(p: PageProps) {
   const c = p.state.composition;
   if (!c) return null;
+  if (c.state === "over_capacity") return <p role="status" data-testid="statements-not-composed" data-state="over_capacity">{overCapacityWords(c.capacity)}</p>;
   if (c.state !== "composed") return <p role="status" data-testid="statements-not-composed">{NOT_COMPOSED[c.state] ?? `Not composed (${c.state}).`}</p>;
   return <Composed {...p} c={c} />;
 }

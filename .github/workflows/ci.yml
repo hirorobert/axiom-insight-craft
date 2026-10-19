@@ -845,6 +845,15 @@ jobs:
           createdb fs_bounds_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
+      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_capacity_wrappers_proof
+          RELEASE_BATCH: fs-capacity-r1
+        run: |
+          createdb fs_capacity_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
       - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)
         env:
           DB_PROOF_MODE: external
@@ -940,6 +949,14 @@ jobs:
         run: |
           createdb work_bounds_proof
           bun scripts/db-proof/workBounds.mjs
+
+      - name: Account capacity proof (20261115100000 - what is counted; a company over the envelope is refused by name before the expensive work in composition, notes, dependencies, save, readiness and publication with nothing written; saved versions and issued packs stay available; the previous function texts re-installed accept it, restored refuse it)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/account_capacity_proof
+        run: |
+          createdb account_capacity_proof
+          bun scripts/db-proof/accountCapacity.mjs
 
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:

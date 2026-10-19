@@ -130,6 +130,12 @@ export const FS_BOUNDS_SOURCE_COMMIT = "18d4c41c9c6517ce325d7ddffeba19a03b10bdb4
 export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
   "20261114100000_fs_work_bounds.sql",
 ]);
+/** Account capacity of the financial-statements module (fs-capacity-r1): one source at the commit holding its reviewed bytes;
+ * applied after fs-bounds-r1 (its preflight requires fs-work-bounds/1). */
+export const FS_CAPACITY_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
+export const FS_CAPACITY_WRAPPED_SOURCES = Object.freeze([
+  "20261115100000_fs_account_capacity.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -148,6 +154,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "fs-controls-r1", commit: FS_CONTROLS_SOURCE_COMMIT, sources: FS_CONTROLS_WRAPPED_SOURCES, postcondition: "docs/release/fs-controls-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-journey-r1", commit: FS_JOURNEY_SOURCE_COMMIT, sources: FS_JOURNEY_WRAPPED_SOURCES, postcondition: "docs/release/fs-journey-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-bounds-r1", commit: FS_BOUNDS_SOURCE_COMMIT, sources: FS_BOUNDS_WRAPPED_SOURCES, postcondition: "docs/release/fs-bounds-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-capacity-r1", commit: FS_CAPACITY_SOURCE_COMMIT, sources: FS_CAPACITY_WRAPPED_SOURCES, postcondition: "docs/release/fs-capacity-r1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

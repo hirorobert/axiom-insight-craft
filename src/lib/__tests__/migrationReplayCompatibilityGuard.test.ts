@@ -254,7 +254,10 @@ describe("migration directory integrity", () => {
     // bytes per batch, evidence rows per version, report document bytes, versions per lineage, comments per version and events per
     // comment, each refused by name from BEFORE INSERT triggers; no accepted function redefined), a NEW forward-only migration pending
     // hosted application.
-    expect(files.length).toBe(184);
+    // 184 -> 185: 20261115100000_fs_account_capacity.sql (the account capacity of the financial-statements module: what is counted,
+    // refused by name before the expensive work in composition, save, readiness and publication; fs_work_bounds contract 2),
+    // a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(185);
   });
 });
 

@@ -85,6 +85,7 @@ describe("migration hygiene", () => {
       "20261111100000_fs_publication_controls.sql",
       "20261112100000_fs_review_workflow_and_rollforward.sql",
       "20261114100000_fs_work_bounds.sql",
+      "20261115100000_fs_account_capacity.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);
