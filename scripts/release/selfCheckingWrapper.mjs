@@ -119,6 +119,11 @@ export const FS_CONTROLS_SOURCE_COMMIT = "8bbb0223cdc88636302cf33ef637fcb7c1f261
 export const FS_CONTROLS_WRAPPED_SOURCES = Object.freeze([
   "20261111100000_fs_publication_controls.sql",
 ]);
+/** The reviewed reporting journey (fs-journey-r1): one source at the commit holding its reviewed bytes; applied after fs-controls-r1. */
+export const FS_JOURNEY_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
+export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
+  "20261112100000_fs_review_workflow_and_rollforward.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -135,6 +140,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "tb-release-r1", commit: TB_RELEASE_SOURCE_COMMIT, sources: TB_RELEASE_WRAPPED_SOURCES, postcondition: "docs/release/tb-release-r1/postcondition.sql" }),
   Object.freeze({ id: "pricing-p1", commit: PRICING_P1_SOURCE_COMMIT, sources: PRICING_P1_WRAPPED_SOURCES, postcondition: "docs/release/unlimited-team-members/postcondition.sql" }),
   Object.freeze({ id: "fs-controls-r1", commit: FS_CONTROLS_SOURCE_COMMIT, sources: FS_CONTROLS_WRAPPED_SOURCES, postcondition: "docs/release/fs-controls-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-journey-r1", commit: FS_JOURNEY_SOURCE_COMMIT, sources: FS_JOURNEY_WRAPPED_SOURCES, postcondition: "docs/release/fs-journey-r1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;

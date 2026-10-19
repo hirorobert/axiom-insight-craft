@@ -11,6 +11,7 @@ import { STATUS_WORDS, needsWork, type NotesStatus, type RequirementState } from
 import { StatusWord } from "@/components/workbench/StatusWord";
 import type { StatusTone } from "@/lib/workbench/statusWords";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
+import { CommentComposer, ReviewCommentsPanel } from "./ReviewComments";
 
 const TONE: Record<string, StatusTone> = {
   provided: "ok", satisfied: "ok", composed: "ok", evidence_present: "ok", derived: "ok", reconciled: "ok", not_applicable: "neutral",
@@ -124,6 +125,12 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
         </>
       )}
       <Notice text={notice} />
+      {(() => { const version = p.state.versions.find((v) => v.reportVersion === p.reportVersion) ?? p.state.latest?.version ?? null; return version && p.r.kind === "DISCLOSURE" ? (
+        <div className="space-y-3 border-t border-border pt-3" data-testid="note-review">
+          <ReviewCommentsPanel {...p} reportId={version.reportId} reportVersion={version.reportVersion} filter={{ itemKind: "note", itemId: p.r.requirementId }} />
+          <CommentComposer {...p} reportId={version.reportId} reportVersion={version.reportVersion} itemKind="note" itemId={p.r.requirementId} label={p.label} />
+        </div>
+      ) : null; })()}
     </aside>
   );
 }

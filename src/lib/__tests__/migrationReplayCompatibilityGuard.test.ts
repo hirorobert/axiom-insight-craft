@@ -247,7 +247,10 @@ describe("migration directory integrity", () => {
     // 180 -> 181: 20261110100000_unlimited_team_members.sql (unlimited team members on Solo, Practice and Firm: an explicit plan flag; the named-user
     // functions honour it; history kept), a NEW forward-only migration pending hosted application.
     // 181 -> 182: 20261111100000_fs_publication_controls.sql (publication controls of the first IFRS for SMEs reporting slice: server-recomposed cash-flow/equity figures bound at sign-off, unsupported paths refused by name, pack 1.2.0 disclosures), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(182);
+    // 182 -> 183: 20261112100000_fs_review_workflow_and_rollforward.sql (the reviewed reporting journey: version-bound reviewer comments
+    // with computed states and blockers v4, authorised acceptance of prior-FINAL differences, next-period roll-forward carry), a NEW
+    // forward-only migration pending hosted application.
+    expect(files.length).toBe(183);
   });
 });
 

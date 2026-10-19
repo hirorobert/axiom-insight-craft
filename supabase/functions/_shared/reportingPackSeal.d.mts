@@ -20,7 +20,8 @@ export interface IssueResult {
   };
 }
 export declare const OFFICIAL_CONTENT_TYPE: "application/json";
-export declare function parseSealRequest(contentType: string | null, body: unknown): { readonly action: "issue" | "verify"; readonly issuanceId: string } | null;
+export declare function parseSealRequest(contentType: string | null, body: unknown): { readonly action: "issue" | "verify" | "retrieve"; readonly issuanceId: string } | null;
 export declare function issueOfficialPack(deps: SealDeps, input: { readonly userId: string; readonly issuanceId: string }): Promise<IssueResult>;
 export declare function verifyOfficialPack(deps: SealDeps, userId: string, issuanceId: string): Promise<{ readonly outcome: string; readonly official: boolean }>;
 export declare function verifyStoredPack(deps: SealDeps, issuanceId: string): Promise<{ readonly outcome: string; readonly company_id?: string }>;
+export declare function retrieveOfficialPack(deps: SealDeps, userId: string, issuanceId: string): Promise<{ readonly outcome: string; readonly official: boolean; readonly document?: string; readonly content_sha256?: string; readonly file_name?: string }>;

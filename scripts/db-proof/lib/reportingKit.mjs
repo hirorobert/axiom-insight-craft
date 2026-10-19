@@ -308,11 +308,13 @@ export const WORDS_1_2_0 = Object.freeze({
 export const DECISIONS_1_2_0 = Object.freeze(["smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions"]);
 
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
-export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true } = {}) {
+export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true, uploads = true } = {}) {
   const { U, A } = W;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
-  const p = await k.upload(A, year - 1, csv(FY2025)); await k.review(A, p); await k.certify(A, p);
-  const c = await k.upload(A, year, csv(FY2026)); await k.certify(A, c);
+  if (uploads) {
+    const p = await k.upload(A, year - 1, csv(FY2025)); await k.review(A, p); await k.certify(A, p);
+    const c = await k.upload(A, year, csv(FY2026)); await k.certify(A, c);
+  }
   await asU(U.preparer, "SELECT public.fs_assign_presentation($1,$2::jsonb,'Presentation per the chart of accounts',$3)", [A, JSON.stringify(assignmentPairs(ASSIGN)), uuid()]);
   const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, year])).r;
   const open = (await db.admin.query("SELECT f.id FROM public.close_review_findings f WHERE f.run_id=$1", [run.runId])).rows;

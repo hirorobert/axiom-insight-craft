@@ -1,5 +1,5 @@
 {
-  "when": "2026-10-18T17:01:22.219Z",
+  "when": "2026-10-19T08:08:54.202Z",
   "results": [
     {
       "name": "the statements show the composed figures (total assets 33,000.00; profit 5,100.00) and the next action names the comparatives as a reviewer's step",
@@ -34,6 +34,18 @@
       "ok": true
     },
     {
+      "name": "the reviewer opens a BLOCKING finding on trade payables from the Statements page; version 2 is no longer ready and the Sign-off page names the finding in words",
+      "ok": true
+    },
+    {
+      "name": "the preparer responds on the Sign-off page and has no resolve control; the finding reads 'responded' and still blocks",
+      "ok": true
+    },
+    {
+      "name": "the reviewer resolves it with a note: version 2 is ready again and the history keeps opened, responded and resolved with their authors and versions",
+      "ok": true
+    },
+    {
       "name": "a preparer cannot sign: no sign-off control, the page says who does",
       "ok": true
     },
@@ -43,6 +55,10 @@
     },
     {
       "name": "the owner approves version 2 as FINAL; the version is sealed",
+      "ok": true
+    },
+    {
+      "name": "Exports offers the owner the server-sealed official pack of the FINAL version (the issue control; nothing issued here — the loopback harness has no Edge Function; the real-stack journey issues, verifies and retrieves it)",
       "ok": true
     },
     {
@@ -81,5 +97,12 @@
       "name": "every data request of every page stayed on loopback (the app stylesheet's web font is the only other host)",
       "ok": true
     }
-  ]
+  ],
+  "consoleErrors": {
+    "preparer": [],
+    "partner": [],
+    "owner": [],
+    "viewer": [],
+    "outsider": []
+  }
 }

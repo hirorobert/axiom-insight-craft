@@ -5,6 +5,7 @@ import type { compositionClient } from "@/lib/statements/composition";
 import type { notesClient } from "@/lib/notes/notesStatus";
 import type { comparativesClient } from "@/lib/comparatives/comparatives";
 import type { ReportingDb, signoffClient } from "@/lib/reporting/signoff";
+import type { reviewClient } from "@/lib/reporting/reviewWorkflow";
 import type { ReportingSnapshot } from "@/lib/reporting/reportingState";
 
 export type ReportingPage = Extract<WorkbenchPageId, "fs-statements" | "fs-notes" | "fs-schedules" | "fs-comparatives" | "signoff" | "exports">;
@@ -26,7 +27,7 @@ export interface ReportingProps {
 /** Every server state the pages share (src/lib/reporting/reportingState.ts reads it). */
 export type ReportingState = ReportingSnapshot;
 
-export type Clients = { composition: ReturnType<typeof compositionClient>; notes: ReturnType<typeof notesClient>; comparatives: ReturnType<typeof comparativesClient>; signoff: ReturnType<typeof signoffClient> };
+export type Clients = { composition: ReturnType<typeof compositionClient>; notes: ReturnType<typeof notesClient>; comparatives: ReturnType<typeof comparativesClient>; signoff: ReturnType<typeof signoffClient>; review: ReturnType<typeof reviewClient> };
 export type PageProps = ReportingProps & { state: ReportingState; clients: Clients; refresh: () => Promise<void> };
 
 /** A stable request id per attempt: a retry of the same attempt replays, a changed attempt gets a new id. */

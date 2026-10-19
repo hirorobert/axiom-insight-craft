@@ -824,6 +824,15 @@ jobs:
           createdb fs_controls_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
+      - name: Reviewed reporting journey wrapper proof (the same reviewed apply-and-register proof for the fs-journey-r1 wrapper - 20261112100000, the persisted reviewer workflow, prior-FINAL acceptance and roll-forward carry of the first IFRS for SMEs reporting slice; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_journey_wrappers_proof
+          RELEASE_BATCH: fs-journey-r1
+        run: |
+          createdb fs_journey_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
       - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)
         env:
           DB_PROOF_MODE: external
@@ -903,6 +912,14 @@ jobs:
         run: |
           createdb pubconc_proof
           bun scripts/db-proof/publicationConcurrency.mjs
+
+      - name: Reviewed reporting journey proof (20261112100000 - a blocking reviewer comment blocks the version by name and an advisory one never does; who may open, respond, resolve and reopen; a save never resolves; unchanged content stays resolved and changed content reopens; the control removed and restored; a prior-year adjustment approved after issue blocks the next period until a reviewer accepts exactly that set; the roll-forward carry with provenance, nothing current until confirmed, write-through on confirmation, withdrawn under another edition)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/review_proof
+        run: |
+          createdb review_proof
+          bun scripts/db-proof/reviewWorkflow.mjs
 
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:

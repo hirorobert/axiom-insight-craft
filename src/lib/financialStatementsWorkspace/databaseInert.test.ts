@@ -362,6 +362,11 @@ describe("database inertness — schema and functions", () => {
       // redefined with marked changes only; no table, column, index, policy or grant of an existing object changes. Proven on
       // PostgreSQL by publicationControls.mjs (37/37; the same cases fail without the migration).
       "supabase/migrations/20261111100000_fs_publication_controls.sql",
+      // The reviewed reporting journey (20261112100000): a NEW forward-only migration — four append-only tables (reviewer comments
+      // and their events, roll-forward carries, prior-FINAL acceptances), their read policies and guards, the reviewer-workflow,
+      // roll-forward and acceptance functions, fs_publication_blockers v4 and fs_prior_final_reconciliation v2 redefined with
+      // marked changes only; no existing table, column, index, policy or grant changes. Proven on PostgreSQL by reviewWorkflow.mjs.
+      "supabase/migrations/20261112100000_fs_review_workflow_and_rollforward.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -634,6 +639,7 @@ describe("database inertness — schema and functions", () => {
       // regression mode (PUBLICATION_CONTROLS_ABSENT=1 replays the chain without the migration and must fail). No deploy behaviour.
       "scripts/db-proof/publicationControls.mjs",
       "scripts/db-proof/publicationConcurrency.mjs",
+      "scripts/db-proof/reviewWorkflow.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
