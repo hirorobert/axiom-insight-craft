@@ -4,7 +4,7 @@ import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGat
 import { Button } from "@/components/ui/button";
 import { PRICING_CATALOGUE, planIncludes } from "@/lib/commercial/pricingCatalogue";
 import { PAYMENT_UNAVAILABLE_NOTE, type CommercialSource } from "@/lib/commercial/offerings";
-import { additionalUserLine, planPurchaseView, type PublicPrices } from "@/lib/commercial/planOffers";
+import { planPurchaseView, teamMembersLine, type PublicPrices } from "@/lib/commercial/planOffers";
 import { CUSTOMER_SERVICE_INTENT_IDS, SERVICE_INTENTS } from "@/lib/commercial/serviceIntent";
 import { WITHHELD_SERVICE_SURFACES_VISIBLE } from "@/lib/workspace/moduleAvailability";
 
@@ -29,15 +29,13 @@ export function PlanCatalogue({ contactAvailable = SERVICE_ENQUIRY_SURFACES.cont
     <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Plans">
       {PRICING_CATALOGUE.map((plan) => {
         const view = planPurchaseView(plan, prices, source);
-        const extraUsers = additionalUserLine(plan);
         const actionable = view.mode === "online" || contactAvailable;
         return <li key={plan.code} data-testid={`plan-${plan.code}`} data-mode={view.mode} className="flex min-w-0 flex-col border border-border bg-card p-5">
           <h2 className="text-lg font-semibold">{plan.name}</h2><p className="mt-1 min-h-10 text-xs leading-5 text-muted-foreground">{plan.tagline}</p>
           <div className="mt-5" data-testid={`price-${plan.code}`}>
             {view.priceLines.map((line, i) => <p key={line} className={i === 0 ? "text-lg font-semibold leading-6" : "mt-1 text-sm text-foreground"}>{line}</p>)}
           </div>
-          <p className="mt-3 text-xs text-foreground">{plan.entityCapacity === null ? "Entity capacity by agreement" : `${plan.entityCapacity} active ${plan.entityCapacity === 1 ? "entity" : "entities"}`} · {plan.includedSeats === null ? "Named users by agreement" : `${plan.includedSeats} named user included`}</p>
-          {extraUsers && <p className="mt-1 text-xs text-muted-foreground" data-testid={`seat-price-${plan.code}`}>{extraUsers}</p>}
+          <p className="mt-3 text-xs text-foreground">{plan.entityCapacity === null ? "Entity capacity by agreement" : `${plan.entityCapacity} active ${plan.entityCapacity === 1 ? "entity" : "entities"}`} · <span data-testid={`team-members-${plan.code}`}>{teamMembersLine(plan)}</span></p>
           <ul className="my-6 flex-1 space-y-2" aria-label={`${plan.name} adds`}>
             {WITHHELD_SERVICE_SURFACES_VISIBLE && planIncludes(plan.code, "MULTI_ENTITY_REPORTING") && <li className="flex gap-2 text-xs text-muted-foreground"><Check className="h-4 w-4 shrink-0" aria-hidden="true" />Multi-entity reporting</li>}
           </ul>

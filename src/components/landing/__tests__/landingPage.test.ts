@@ -187,8 +187,12 @@ describe("plans", () => {
     }
     expect(plans).toContain("Terms agreed with our team");   // Enterprise
     expect(plans).toMatch(/Price per year/);
-    // Entities, named users and the additional-user charge are stated for every plan that has them.
-    expect(plans).toContain("Additional named users: proposed USD 200 per year each, arranged with our team");
+    // Unlimited team members on Solo, Practice and Firm; Enterprise by agreement; no additional-user charge anywhere.
+    expect(plans).toContain("Team members");
+    expect(plans).toContain("Solo, Practice and Firm include unlimited team members; Enterprise is agreed per contract.");
+    expect(plans.match(/Team members Unlimited/g)?.length).toBe(3);
+    expect(plans).toContain("Team members By agreement");
+    expect(plans).not.toMatch(/Additional named users|USD 200|named user/i);
     expect(plans).toMatch(/12-month term and does not renew automatically/);
   });
 

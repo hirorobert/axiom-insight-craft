@@ -243,9 +243,8 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // access-a1 (20261104100000) is registered (wrapper + both forms) but PENDING hosted application: its wrapper exists and
     // is proven on PG17, but no RELEASE_JOURNAL/drizzle entry exists yet (nothing is marked applied before execution).
     // tb-release-r1 applied 2026-10-18 as hosted 59–62 (0058–0061). Nothing is pending.
-    // pricing-p1 (20261110100000, PR #161) is registered (wrapper + all forms) and proven, but PENDING hosted application.
-    // fs-controls-r1 (453aeca) is registered (wrapper + all forms) and proven, but PENDING hosted application as well.
-    // pricing-p1 (20261110100000) was applied as hosted 0062 on 2026-10-18; only fs-controls-r1 is still pending.
+    // pricing-p1 (20261110100000) applied 2026-10-18 as hosted 63 (0062). fs-controls-r1 (453aeca) is registered
+    // (wrapper + all forms) and proven, but PENDING hosted application.
     const PENDING: string[] = ["20261111100000_fs_publication_controls.sql"];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.

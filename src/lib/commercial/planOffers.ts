@@ -83,11 +83,9 @@ export function planPurchaseView(plan: CataloguePlan, prices: PublicPrices | nul
   return { mode: "unavailable", priceLines: [proposed], actionLabel: SUPPORT_LABEL, href: supportHref(source) };
 }
 
-/** "Additional named users: proposed USD 200 per year each, arranged with our team" — or null when the plan has none. */
-export function additionalUserLine(plan: CataloguePlan): string | null {
-  return plan.additionalSeat
-    ? `Additional named users: proposed USD ${(plan.additionalSeat.annualMinor / 100).toLocaleString("en-US")} per year each, arranged with our team`
-    : null;
+/** Team members a plan covers: "Unlimited team members" (Solo, Practice, Firm) or "Team members by agreement" (Enterprise). */
+export function teamMembersLine(plan: CataloguePlan): string {
+  return plan.membersUnlimited ? "Unlimited team members" : "Team members by agreement";
 }
 
 /** The self-serve plans a checkout may name. */

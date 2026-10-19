@@ -140,9 +140,8 @@ export default function Checkout() {
       <h1 className="mt-2 text-2xl font-semibold" data-testid="checkout-title">{catalogue.name} plan · 12 months</h1>
       <dl className="mt-6 grid gap-3 border border-border p-4 text-sm sm:grid-cols-2" data-testid="checkout-summary">
         <div><dt className="text-muted-foreground">Entities</dt><dd className="font-medium">{catalogue.entityCapacity}</dd></div>
-        <div><dt className="text-muted-foreground">Named users included</dt><dd className="font-medium">{catalogue.includedSeats}</dd></div>
+        <div><dt className="text-muted-foreground">Team members</dt><dd className="font-medium">{catalogue.membersUnlimited ? "Unlimited" : "As agreed"}</dd></div>
         <div><dt className="text-muted-foreground">Term</dt><dd className="font-medium">12 months, no automatic renewal</dd></div>
-        <div><dt className="text-muted-foreground">Additional named users</dt><dd className="font-medium">{catalogue.additionalSeat ? "Arranged with our team" : "Not available on this plan"}</dd></div>
       </dl>
 
       {sandbox && <p className="mt-4 border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note" data-testid="checkout-test-mode">Test mode: payments here use the provider's sandbox, and no real money is charged.</p>}
