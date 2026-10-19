@@ -48,5 +48,15 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency is not SECURITY DEFINER';
   END IF;
 
+  -- 5. The operation's owner may take SHARE on every dependent table (LOCK TABLE needs UPDATE, DELETE or TRUNCATE);
+  --    otherwise every correction would fail instead of answering.
+  IF EXISTS (
+    SELECT 1 FROM public._period_currency_dependent_relations() r,
+           (SELECT proowner FROM pg_proc WHERE oid = 'public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure) o
+     WHERE NOT (has_table_privilege(o.proowner, r, 'UPDATE') OR has_table_privilege(o.proowner, r, 'DELETE') OR has_table_privilege(o.proowner, r, 'TRUNCATE'))
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDITION: the owner of correct_period_currency cannot lock every dependent table';
+  END IF;
+
   RAISE NOTICE 'POSTCONDITION OK.';
 END $$;
