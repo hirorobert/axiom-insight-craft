@@ -352,12 +352,6 @@ log("\n== SWEEP at 18 accounts: ledger sizes 500 / 1,000 (the bound) / 2,000 (ov
 await ledgerSweep("representative-18", A, "Workload Representative Ltd", `rpt-wl-sweep-${uuid()}`, [500, 1000, 2000]);
 
 
-// ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-log("\n== DEMANDING: 2,000 accounts, a ledger at the evidence bound, 50 equity rows");
-const LEDGER_ROWS = 1000; // the evidence bound (fs_work_bounds evidenceRowsPerBatch = INTAKE_LIMITS.maxRows)
-let N_ACCOUNTS = 2000;
-const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
-const money = (m) => (m / 100).toFixed(2);
 // Split every account but the bank into parts; the parts' amounts sum exactly to the parent's in BOTH years.
 const scaledRows = (nAccounts) => {
   const parents = TB.filter((r) => r[0] !== CODES.bank);
@@ -377,6 +371,101 @@ const scaledRows = (nAccounts) => {
   return rows;
 };
 const parentOf = (code) => (code === CODES.bank ? code : code.slice(0, -3));
+const bigEquity = (() => {
+  const lines = EVIDENCE.current.EQUITY_MOVEMENTS.trimEnd().split(String.fromCharCode(10));
+  for (let i = 0; lines.length < 51; i++) lines.push(`Retained earnings,PROFIT_OR_LOSS,${i % 2 ? "-1.00" : "1.00"},Netting movement ${i}`);
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+})();
+// ═══ CAPACITY: candidate account envelopes through the real stack ═══════════════════════════════════════════════════
+// The supported account count must be VALIDATED at the candidate, with the supported evidence volume (a ledger at the
+// evidence bound), retained versions and concurrency — never inferred from the 18-account journey.
+const capacityRun = async (n) => {
+  const section = `capacity-${n}`;
+  M[section] = {};
+  const rows = scaledRows(n);
+  const csvOf = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + rows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
+  const decisions = rows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === CODES.bank }));
+  const assign = rows.map(([code]) => ({ accountKey: code, lineId: ASSIGN[parentOf(code)] }));
+  const name = `Workload Capacity ${n} Ltd`;
+  const C = await newCompany(name);
+  const p25 = await openPeriod(C, 2025, PERIODS.prior.start, PERIODS.prior.end);
+  const p26 = await openPeriod(C, 2026, PERIODS.current.start, PERIODS.current.end);
+  log(`${String.fromCharCode(10)}== CAPACITY candidate: ${n} accounts in each of two years (${2 * n} read by the composition), evidence at the bound`);
+  const out = { accounts: n, accountsRead: 2 * n, failures: [] };
+  M.capacity ??= []; M.capacity.push(out);
+  try {
+    await uploadReviewCertify(C, name, 2025, "1 Jul 2024 - 30 Jun 2025", p25, Buffer.from(csvOf(PRIOR)), decisions, section);
+    await uploadReviewCertify(C, name, 2026, "1 Jul 2025 - 30 Jun 2026", p26, Buffer.from(csvOf(CURRENT)), decisions, section);
+    for (let i = 0; i < assign.length; i += 500) await measure(section, "fs_assign_presentation_chunk", () => rpc(preparer, "fs_assign_presentation", { p_company_id: C, p_assignments: assign.slice(i, i + 500), p_reason: "Presentation per the chart of accounts", p_request_id: uuid() }));
+    await measure(section, "close_review_refresh_and_explain", () => explainFindings(C, 2026));
+    await prepareNotes(C, 2026);
+    await rpc(preparer, "fs_record_schedule", { p_company_id: C, p_period_year: 2026, p_schedule_id: "ppe", p_rows: PPE_SCHEDULE, p_source_ref: "Fixed asset register FY2026", p_request_id: uuid() });
+    await measure(section, "fs_approve_comparatives", () => rpc(partner, "fs_approve_comparatives", { p_company_id: C, p_period_year: 2026, p_approve: true, p_reason: "Agreed to the FY2025 statements", p_request_id: uuid() }));
+    for (let i = 0; i < 3; i++) {
+      await measure(section, "fs_statement_composition", () => rpc(preparer, "fs_statement_composition", { p_company_id: C, p_period_year: 2026 }));
+      await measure(section, "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: C, p_period_year: 2026 }));
+      await measure(section, "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: C, p_period_year: 2026 }));
+    }
+    const ev = [parseEvidence(C, 2026, "TRANSACTION_LEDGER", "CURRENT", paddedLedger(LEDGER_ROWS), PERIODS.current), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
+      parseEvidence(C, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
+      parseEvidence(C, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE.prior.TRANSACTION_LEDGER, PERIODS.prior), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
+      parseEvidence(C, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
+    const rid = `rpt-wl-cap-${n}-${uuid()}`;
+    const saved = await measure(section, "save_evidence_and_bind", () => save(preparer, C, 2026, name, rid, ev), { size: `6 batches incl. a ${LEDGER_ROWS}-row ledger` });
+    if (saved?.outcome !== "saved") { out.failures.push({ step: "save", detail: JSON.stringify({ outcome: saved?.outcome, reason: saved?.reason }).slice(0, 300) }); throw new Error(`capacity ${n}: the save was not saved`); }
+    let v = saved.reportVersion;
+    let rd = null;
+    for (let i = 0; i < 3; i++) rd = await measure(section, "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: C, p_report_id: rid, p_report_version: v }));
+    out.ready = rd?.ready ?? null; out.blockers = (rd?.blockers ?? []).slice(0, 8);
+    if (rd?.ready) {
+      await measure(section, "set_state_REVIEWED", () => rpc(partner, "fs_set_publication_state", { p_report_id: rid, p_report_version: v, p_company_id: C, p_state: "REVIEWED", p_reason: "Reviewed" }));
+      await measure(section, "set_state_FINAL", () => rpc(owner, "fs_set_publication_state", { p_report_id: rid, p_report_version: v, p_company_id: C, p_state: "FINAL", p_reason: "Approved for issue" }));
+      const rc = reviewClient(owner.db);
+      const ref = rc.outputRef(rid, v);
+      const issued = await measure(section, "issue_official_pack", () => rc.issueOfficial(C, 2026, ref, () => {}));
+      const list = issued === "delivered" ? await rc.issuances(C, ref) : [];
+      const sealed = list.find((x) => x.sealedAt);
+      if (sealed) { const vr = await measure(section, "verify_official_pack", () => rc.verify(sealed.issuanceId)); out.officialPack = vr?.outcome ?? null; }
+      else out.officialPack = `not sealed (${issued})`;
+    }
+    // Retained versions: ten further saves (a disclosure changes before each), readiness on each.
+    for (let i = 1; i <= 10; i++) {
+      await rpc(preparer, "fs_record_disclosure", { p_company_id: C, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: `Judgements, revision ${i} at ${n} accounts.`, p_source_ref: `Notes c${i}`, p_request_id: uuid() });
+      const r = await measure(section, "history_save", () => save(preparer, C, 2026, name, rid, []));
+      if (r?.outcome === "saved") { v = r.reportVersion; await measure(section, "history_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: C, p_report_id: rid, p_report_version: v })); }
+    }
+    await measure(section, "fs_list_saved_versions", () => rpc(preparer, "fs_list_saved_versions", { p_company_id: C, p_period_year: 2026 }));
+    // Concurrency: eight simultaneous saves of one attempt, then eight simultaneous readiness reads.
+    await rpc(preparer, "fs_record_disclosure", { p_company_id: C, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: `Judgements, concurrent revision at ${n} accounts.`, p_source_ref: "Notes cc", p_request_id: uuid() });
+    const k = `attempt-${uuid()}`;
+    const t0 = performance.now();
+    const rs = await Promise.all(Array.from({ length: 8 }, () => save(preparer, C, 2026, name, rid, [], k).then((x) => ({ ok: x.outcome === "saved", v: x.reportVersion }), (e) => ({ ok: false, e: String(e.message).slice(0, 100) }))));
+    out.concurrentSaves = { wallMs: Math.round(performance.now() - t0), answered: rs.filter((x) => x.ok).length, refused: rs.filter((x) => !x.ok).map((x) => x.e).slice(0, 3) };
+    const latestV = Math.max(v, ...rs.map((x) => x.v ?? 0));
+    const t1 = performance.now();
+    const reads = await Promise.all(Array.from({ length: 8 }, () => rpc(partner, "fs_report_readiness", { p_company_id: C, p_report_id: rid, p_report_version: latestV }).then(() => true, (e) => String(e.message).slice(0, 80))));
+    out.concurrentReadiness = { wallMs: Math.round(performance.now() - t1), ok: reads.filter((x) => x === true).length, errors: reads.filter((x) => x !== true).slice(0, 3) };
+    log(`        [${section}] 8 simultaneous saves ${out.concurrentSaves.wallMs} ms (${out.concurrentSaves.answered} answered); 8 simultaneous readiness ${out.concurrentReadiness.wallMs} ms (${out.concurrentReadiness.ok}/8 ok)`);
+  } catch (e) {
+    out.failures.push({ step: "run", detail: String(e.message).slice(0, 300) });
+    log(`        [${section}] stopped: ${String(e.message).slice(0, 300)} (recorded)`);
+  }
+  // The margin: the slowest single API call of this candidate against the 8 s statement timeout.
+  const calls = Object.entries(M[section]).filter(([, xs]) => Array.isArray(xs)).flatMap(([label, xs]) => xs.map((x) => ({ label, ms: x.ms, ok: x.ok })));
+  const single = calls.filter((c) => !/^(save_evidence_and_bind|history_save|close_review_refresh_and_explain|issue_official_pack)$/.test(c.label)); // multi-call steps excluded from the single-call margin
+  const slowest = single.reduce((a, c) => (c.ms > (a?.ms ?? -1) ? c : a), null);
+  out.slowestSingleCall = slowest; out.timeouts = calls.filter((c) => !c.ok).length;
+  out.marginUnder8s = slowest ? Math.round((8000 / slowest.ms) * 100) / 100 : null;
+  log(`        [${section}] slowest single call ${slowest?.label} ${slowest?.ms} ms → margin ${out.marginUnder8s}x; timeouts/failures ${out.timeouts}`);
+};
+for (const n of [500, 1000]) await capacityRun(n);
+
+// ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+log("\n== DEMANDING: 2,000 accounts, a ledger at the evidence bound, 50 equity rows");
+const LEDGER_ROWS = 1000; // the evidence bound (fs_work_bounds evidenceRowsPerBatch = INTAKE_LIMITS.maxRows)
+let N_ACCOUNTS = 2000;
+const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
+const money = (m) => (m / 100).toFixed(2);
 let bigRows, bigDecisions, bigAssign, D, pD26;
 const bigTbCsv = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + bigRows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
 for (const n of [2000, 1000]) {
@@ -425,11 +514,6 @@ const bigLedger = (() => {
     const date = `${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     lines.push(`N${i},${date},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
   }
-  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
-})();
-const bigEquity = (() => {
-  const lines = EVIDENCE.current.EQUITY_MOVEMENTS.trimEnd().split(String.fromCharCode(10));
-  for (let i = 0; lines.length < 51; i++) lines.push(`Retained earnings,PROFIT_OR_LOSS,${i % 2 ? "-1.00" : "1.00"},Netting movement ${i}`);
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
 })();
 M.demanding.fixture.ledgerRows = bigLedger.trimEnd().split(String.fromCharCode(10)).length - 1;
