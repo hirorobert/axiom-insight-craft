@@ -14,7 +14,7 @@ machine), HOSTED-VERIFIED (none yet — every hosted step below produces its own
 |---|---|---|---|
 | Publication controls — batch `fs-controls-r1` | `release/wrappers/20261111100000_fs_publication_controls.wrapper.sql` (source `supabase/migrations/20261111100000_fs_publication_controls.sql`) | self-checking wrapper, SQL editor, by the owner | the reporting sign-off path only (`fs_publication_blockers` v3, `fs_set_publication_state` v2, `fs_bind_publication` v4, pack 1.2.0 rows, new read-only functions). Companies without the FS rollout are untouched |
 | Reviewed reporting journey — batch `fs-journey-r1` | `release/wrappers/20261112100000_fs_review_workflow_and_rollforward.wrapper.sql` | same | four new append-only tables, the reviewer-comment, roll-forward and acceptance functions, blockers v4, `fs_prior_final_reconciliation` v2 |
-| Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched |
+| Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` (1,000 rows / 1 MiB per evidence file, 10,000 evidence rows per version, 8 MiB per report document, 1,000 versions per lineage, 500 comments per version, 200 events per comment) and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched. The frontend's intake holds the same 1,000-row limit, so Publish and this wrapper belong to the same release |
 | Edge Function `seal-reporting-pack` | `supabase/functions/seal-reporting-pack` (+ `_shared/reportingPackSeal.mjs`) | `supabase functions deploy seal-reporting-pack` | adds the `retrieve` action; `issue` and `verify` are unchanged in behaviour (same module, same gates). Required closure `dd4f0855…`; the hosted closure of 2026-10-18 is `095a9ed9…` (`scripts/release/verifyDeployedClosure.mjs`) |
 | Edge Function `process-trial-balance` | `supabase/functions/process-trial-balance` (+ new `_shared/pagedSelect.ts`) | `supabase functions deploy process-trial-balance` | DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the reviewed-mapping read is paged, so companies with more than 1,000 reviewed accounts certify; nothing else changes. Required closure `85670e5a…`; the hosted closure of 2026-10-18 is `67cbf27b…` |
 | Frontend (the reporting pages, the review/roll-forward/official-pack panels) | the merged `main` | Lovable Publish | only companies with `fs_set_company_rollout(..., true)` can write; everyone else keeps today's pages |
@@ -133,10 +133,10 @@ batch is small, self-checking and preceded by a read-only preflight.
 
 - CPU cost on the hosted Edge runtime: the CI measurement records HTTP outcomes and wall time only (`RECORD.md` §7.5); the
   completed TB CPU investigation is not repeated here.
-- Two measured limits, OPEN (`RECORD.md` §7.5): companies with more than 1,000 reviewed accounts do not certify through
-  the deployed processing function (`DEFECT-PTB-MAPPINGS-API-ROW-CAP-001`: the mapping load is capped by PostgREST's
-  1,000-row default); a 20,000-row ledger at 1,000 accounts does not save within the API statement timeout (fails closed,
-  nothing stored). The scale this handoff is verified for is the representative one (tens of accounts, ledgers of a few
-  hundred rows); say so to the first activated companies.
+- The supported evidence envelope (`RECORD.md` §3d/§7.5): at most 1,000 rows and 1 MiB per evidence file, 10,000 evidence rows
+  behind one version, refused identically by the browser intake (before upload) and by the server (`fs_work_bounds()`).
+  Larger ledgers are split by month or account into separate files. This is a measured-safe INITIAL bound with ≈ 3.8× margin
+  under the API statement timeout at 18 accounts; the composition path itself was not optimised (out of scope), and a stored
+  large ledger slows every later save and readiness check on its period — which is why the bound is where it is.
 - Hosted browser acceptance (owner-run; `docs/release/sql/07_acceptance_preflight.sql` decides the path).
 - The legal review of `/terms` and `/privacy`, SMTP configuration and the other commercial go-live gates in `CLAUDE.md` §9.2.
