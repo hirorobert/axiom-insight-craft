@@ -265,6 +265,7 @@ export function Header() {
                 </Button>
               </>
             )}
+            <LinkedInLink variant="button" className="justify-center" />
           </div>
         </div>
       )}
