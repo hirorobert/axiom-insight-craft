@@ -40,7 +40,8 @@ BEGIN
      OR position('stale' IN v_def) = 0 OR position('currency_corrected' IN v_def) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency is not the reviewed definition';
   END IF;
-  IF position('IN SHARE MODE' IN v_def) = 0 OR position('_period_currency_dependent_relations' IN v_def) = 0 OR position('busy' IN v_def) = 0 THEN
+  IF position('IN SHARE MODE' IN v_def) = 0 OR position('_period_currency_dependent_relations' IN v_def) = 0 OR position('busy' IN v_def) = 0
+     OR position('v_deadline' IN v_def) = 0 OR position('deadlock_detected' IN v_def) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: correct_period_currency does not serialise with dependent writers';
   END IF;
   IF (SELECT prosecdef FROM pg_proc WHERE oid = 'public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure) IS NOT TRUE THEN

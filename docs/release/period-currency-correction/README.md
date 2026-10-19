@@ -79,22 +79,45 @@ not start.
 
 ## Concurrency (one lock protocol)
 
-The operation serialises with every writer that could build on the period's amounts. It does so in two steps, both
-before it evaluates eligibility:
+The operation serialises with every writer that could build on the period's amounts, before it evaluates eligibility.
 
-1. **Table locks.** It takes a `SHARE` lock on every dependent table, as listed by
-   `_period_currency_dependent_relations()`: the eligibility scan's tables outside the bookkeeping list, whether they
-   are linked by foreign key or keyed by company and period.
-   * `SHARE` conflicts with every `INSERT`, `UPDATE` and `DELETE`.
-   * A dependent write that began earlier commits first, and the scan then sees it.
-   * A write that begins later waits until the correction has committed.
-   * No dependent record can commit unseen in between, whether or not it has a foreign key.
-2. **Row locks.** It then locks the period's uploads `FOR UPDATE`, then the period, in the global order
-   `tb_finalize_attempt` uses.
+### Lock impact (each point proven on PostgreSQL)
 
-The table-lock wait is bounded at 5 seconds (`lock_timeout`), and deadlocks are detected. If the bound is hit, the
-answer is `busy`: nothing changed, and the same request id may be retried. The lock lasts only for the correction's
-own few statements.
+* **What is locked.** `SHARE` on every dependent table listed by `_period_currency_dependent_relations()`: the
+  eligibility scan's tables outside the bookkeeping list, whether foreign-key or company+period keyed. There are 34
+  on the current chain. After those, `FOR UPDATE` on the period's uploads, then on the period row.
+  * `SHARE` conflicts with `INSERT`, `UPDATE` and `DELETE` only. Reads are never blocked, and two corrections do not
+    block each other on tables (they serialise on the period's rows).
+* **Deterministic order.** Tables are locked one at a time, in ascending schema-qualified name order. Rows follow the
+  existing global order: uploads by id, then the period. The proof checks that an open correction holds exactly those
+  34 `ShareLock`s.
+* **Lock budget, not a transaction bound.** All lock acquisitions share **one total 5-second budget**: `lock_timeout`
+  is set to the remaining budget before each lock.
+  * The proof shows the budget is total. A first table released after 3 s, with a later table held, answers `busy` at
+    about 5 s, not 8 s. A held upload row also answers `busy` within the budget.
+  * The budget bounds *waiting for locks* only.
+  * The transaction lasts from the first lock to commit:
+    * the lock acquisitions;
+    * the eligibility scan (one `EXISTS` per dependent table, on the period's keys);
+    * one `UPDATE` (with its `'#currency'` dependency trigger);
+    * one `INSERT` into the history.
+  * Uncontended, the whole call took **about 50 ms** in the proof with 34 tables. The caller's `statement_timeout` (the
+    PostgREST role setting) still bounds the call as a whole.
+* **Nothing remote inside.** The function makes no storage, network, HTTP or edge-function call; the proof checks its
+  definition. Re-checks (`tbu_request_reprocess`, then `process-trial-balance`) run afterwards, from the browser, in
+  their own transactions.
+* **Timeout and deadlock.**
+  * Everything after the request-id lock runs in one subtransaction. Budget exhaustion (`lock_not_available`) or a
+    detected deadlock (`deadlock_detected`) rolls it back and answers `busy`. Nothing changed, the same request id may
+    be retried, and every lock is released at once. The proof locks all 34 tables within 200 ms immediately after a
+    `busy`.
+  * A real deadlock: a writer holding a later table writes an earlier one while the correction waits.
+    PostgreSQL breaks it, and the proof shows both sides end consistent. Either the correction answers `busy` and the
+    writer commits, or the writer is the victim and the correction completes.
+* **Cross-company contention.** Table locks are table-wide. While a correction holds them, any company's write to a
+  dependent table waits; the proof shows another company's write waiting and then proceeding right after the commit.
+  The window is the correction's own duration, about 50 ms uncontended. Corrections are rare, explicit, member-initiated
+  operations on refused-currency periods.
 
 | Race (real database, proof) | Result |
 |---|---|
@@ -106,7 +129,7 @@ own few statements.
 | **no-FK writer in flight** when the correction starts | the correction waits for it, then sees it and refuses |
 | **no-FK writer that starts during** an open correction | waits; commits only after, against the corrected period, where no accepted trial balance exists (the statements' authority, `get_authoritative_certification`, is empty) |
 | **after** the correction | the next correction sees that evidence and refuses. Once the normal re-check certifies, the statements' authority reports in the period's corrected currency (`_fs_period_meta` reads the period). The statement builder excludes evidence stated in another currency, with `EVIDENCE_DENOMINATION_MISMATCH` and the instruction to re-state it (`applyEvidence.ts`; tested in `cashPerimeter.test.ts`) |
-| a dependent table held past the bound | `busy` within 5 seconds; nothing changed and no event; the same request then corrects |
+| a dependent table held past the budget | `busy` within the total budget; nothing changed and no event; the same request then corrects |
 | two different requests | one corrects, the other is `stale` |
 | 12 duplicate clicks (one id) | one correction, 11 `already_corrected`, one event |
 
@@ -152,7 +175,7 @@ Why nothing incompatible can be consumed, certified, included or signed off:
 
 | Proof | Where | Result |
 |---|---|---|
-| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 47/47 |
+| `scripts/db-proof/periodCurrencyCorrection.mjs` | local PG16; CI step *Period currency correction proof* | 54/54 |
 | `scripts/db-proof/selfCheckingWrappers.mjs` with `RELEASE_BATCH=currency-c1` | local PG16; CI step *Period currency correction wrapper proof* | 32/32 |
 | `src/lib/ingestion/fileCurrencyCheck.test.ts` (browser and server read parity) | unit tests | 24 |
 | `src/lib/workspace/periodCurrency.test.ts` (rules and real panel: duplicate clicks, failure recovery) | unit tests | 11 |
