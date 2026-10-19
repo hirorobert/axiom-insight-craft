@@ -215,7 +215,7 @@ async function main() {
   });
   await check("a downstream record referencing the upload (management_inputs) blocks it, named by relation", async () => {
     const t = await blockedPeriod();
-    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, t.up, U.owner]);
+    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,(SELECT period_year FROM public.trial_balance_uploads WHERE id = $2),$3)", [A, t.up, U.owner]);
     const e = await eligibility(U.owner, t.period);
     return e.block?.code === "DOWNSTREAM_RECORD" && e.block.relation === "public.management_inputs" ? true : e;
   });
@@ -301,7 +301,7 @@ async function main() {
     (await asRole("anon", null, "SELECT public.correct_period_currency($1,'TZS','USD','reason here',$2) r", [R2.period, uuid()]).then(() => "ran", (e) => e.code)) === "42501" ? true : "ran");
   await check("downstream, accepted and running refusals name their record and change nothing", async () => {
     const d = await blockedPeriod();
-    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, d.up, U.owner]);
+    await admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,(SELECT period_year FROM public.trial_balance_uploads WHERE id = $2),$3)", [A, d.up, U.owner]);
     const x = await correct(U.owner, d.period, "TZS", "USD");
     const acc = await periodWithAttempt(); await snapshot(acc.run, A); await finalize(acc.run, acceptedResult(true));
     const y = await correct(U.owner, acc.period, "TZS", "USD");
@@ -360,7 +360,7 @@ async function main() {
   await check("a downstream write referencing the upload waits for an open correction (KEY SHARE vs FOR UPDATE)", async () => {
     const t = await blockedPeriod();
     const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','race check reason',$2) r", [t.period, uuid()]);
-    const p = admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,2026,$3)", [A, t.up, U.owner]);
+    const p = admin.query("INSERT INTO public.management_inputs (company_id, upload_id, period_year, created_by) VALUES ($1,$2,(SELECT period_year FROM public.trial_balance_uploads WHERE id = $2),$3)", [A, t.up, U.owner]);
     const state = await waitsFor(p);
     await c.commit(); await p;
     return c.r.r.outcome === "corrected" && state === "waiting" ? true : { corr: c.r.r, state };
@@ -431,6 +431,90 @@ async function main() {
     await other.rollback();
     const r2 = await correct(U.owner, t.period, "TZS", "USD", id);
     return r1.outcome === "busy" && waited >= 4500 && waited < 15000 && unchanged && r2.outcome === "corrected" ? true : { r1, waited, unchanged, r2 };
+  });
+  // ── Table-lock impact ──────────────────────────────────────────────────────────────────────────────────────────────
+  const deps = (await admin.query("SELECT r::text AS rel FROM public._period_currency_dependent_relations() r")).rows.map((x) => x.rel);
+  await check(`deterministic acquisition: the ${deps.length} dependent tables in ascending schema-qualified order; an open correction holds exactly those, in SHARE mode`, async () => {
+    const qualified = (await admin.query(`SELECT format('%I.%I', n.nspname, c.relname) q FROM public._period_currency_dependent_relations() r
+        JOIN pg_class c ON c.oid = r JOIN pg_namespace n ON n.oid = c.relnamespace`)).rows.map((x) => x.q);
+    const sorted = [...qualified].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const t = await blockedPeriod();
+    const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','lock order check',$2) r", [t.period, uuid()]);
+    const held_ = (await admin.query(`SELECT format('%I.%I', n.nspname, cl.relname) q FROM pg_locks l JOIN pg_class cl ON cl.oid = l.relation
+        JOIN pg_namespace n ON n.oid = cl.relnamespace WHERE l.locktype = 'relation' AND l.mode = 'ShareLock' AND l.granted
+          AND l.pid <> pg_backend_pid() AND format('%I.%I', n.nspname, cl.relname) = ANY ($1)`, [qualified])).rows.map((x) => x.q).sort();
+    await c.commit();
+    return JSON.stringify(qualified) === JSON.stringify(sorted) && JSON.stringify(held_) === JSON.stringify(sorted) && c.r.r.outcome === "corrected"
+      ? true : { qualified, held: held_, outcome: c.r.r.outcome };
+  });
+  await check("the 5-second budget is ONE total for all lock waits, not per lock: a first table released after 3s and a later one held answer 'busy' at about 5s (not 8s)", async () => {
+    const t = await blockedPeriod();
+    const first = deps[0], later = deps[deps.length - 1];
+    const a = await heldAdmin(`LOCK TABLE ${first} IN ROW EXCLUSIVE MODE`, []);
+    const b = await heldAdmin(`LOCK TABLE ${later} IN ROW EXCLUSIVE MODE`, []);
+    setTimeout(() => { void a.commit(); }, 3000);
+    const t0 = Date.now();
+    const r = await correct(U.owner, t.period, "TZS", "USD");
+    const waited = Date.now() - t0;
+    await b.rollback();
+    return r.outcome === "busy" && waited >= 4500 && waited < 6800 && (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0 ? true : { r, waited, first, later };
+  });
+  await check("the budget also bounds the row locks: the period's upload held by another transaction answers 'busy' within the budget; nothing changed", async () => {
+    const t = await blockedPeriod();
+    const h = await heldAdmin("SELECT 1 FROM public.trial_balance_uploads WHERE id = $1 FOR UPDATE", [t.up]);
+    const t0 = Date.now();
+    const r = await correct(U.owner, t.period, "TZS", "USD");
+    const waited = Date.now() - t0;
+    await h.rollback();
+    return r.outcome === "busy" && waited >= 4500 && waited < 6800 && (await currencyOf(t.period)) === "USD" && (await events(t.period)) === 0 ? true : { r, waited };
+  });
+  await check("rollback on timeout releases every lock at once: right after 'busy', writes to every dependent table proceed without waiting", async () => {
+    const t = await blockedPeriod();
+    const b = await heldAdmin(`LOCK TABLE ${deps[deps.length - 1]} IN ROW EXCLUSIVE MODE`, []);
+    const r = await correct(U.owner, t.period, "TZS", "USD");
+    await b.rollback();
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL lock_timeout = '200ms'");
+      for (const rel of deps) await c.query(`LOCK TABLE ${rel} IN ROW EXCLUSIVE MODE`);
+      await c.query("ROLLBACK");
+    } catch (e) { await c.query("ROLLBACK").catch(() => {}); c.release(); return { r, error: e.code }; }
+    c.release();
+    const lingering = await count("SELECT count(*) n FROM pg_locks WHERE locktype = 'relation' AND mode = 'ShareLock' AND pid <> pg_backend_pid()");
+    return r.outcome === "busy" && lingering === 0 ? true : { r, lingering };
+  });
+  await check("deadlock handling: a writer holding a later table that then writes an earlier one deadlocks with the correction; PostgreSQL breaks it, and both sides end consistent", async () => {
+    const t = await blockedPeriod();
+    const w = await pool.connect();
+    await w.query("BEGIN"); await w.query(`LOCK TABLE ${deps[deps.length - 1]} IN ROW EXCLUSIVE MODE`);
+    const p = correct(U.owner, t.period, "TZS", "USD");
+    await new Promise((r) => setTimeout(r, 300));                       // the correction now holds the earlier tables and waits
+    const wr = await w.query(`LOCK TABLE ${deps[0]} IN ROW EXCLUSIVE MODE`).then(() => "ok", (e) => e.code);
+    await w.query(wr === "ok" ? "COMMIT" : "ROLLBACK"); w.release();
+    const r = await p;
+    const cur = await currencyOf(t.period), n = await events(t.period);
+    const correctionVictim = r.outcome === "busy" && wr === "ok" && cur === "USD" && n === 0;
+    const writerVictim = wr === "40P01" && r.outcome === "corrected" && cur === "TZS" && n === 1;
+    return correctionVictim || writerVictim ? true : { r, wr, cur, n };
+  });
+  await check("cross-company contention: another company's write to a dependent table waits only while a correction holds its locks, then proceeds; an uncontended correction holds them briefly", async () => {
+    const t = await blockedPeriod();
+    const c = await held("authenticated", U.owner, "SELECT public.correct_period_currency($1,'TZS','USD','contention check',$2) r", [t.period, uuid()]);
+    const other = (await admin.query("SELECT id FROM public.companies WHERE id <> $1 LIMIT 1", [A])).rows[0].id;
+    const t0 = Date.now();
+    const p = admin.query(EVIDENCE_SQL.replace("$5)", "(SELECT id FROM public.firm_members WHERE company_id = $2 LIMIT 1))").replace(",$5", ""), [`ev-${uuid()}`, other, "FY2099", crypto.randomBytes(32).toString("hex")]).then(() => "ok", (e) => e.message);
+    const state = await waitsFor(p, 400);
+    await c.commit();
+    const res = await p; const after = Date.now() - t0;
+    // Uncontended: the whole call (locks held from acquisition to commit) on a fresh period, measured end to end.
+    const u = await blockedPeriod();
+    const s0 = Date.now(); const r = await correct(U.owner, u.period, "TZS", "USD"); const holdMs = Date.now() - s0;
+    console.log(`        dependent tables locked: ${deps.length}; uncontended correction call: ${holdMs} ms`);
+    return c.r.r.outcome === "corrected" && state === "waiting" && res === "ok" && r.outcome === "corrected" && holdMs < 3000 ? true : { corr: c.r.r, state, res, after, holdMs, r };
+  });
+  await check("no storage, network or edge-function call inside the locked transaction (the operation's definition)", async () => {
+    const def = (await one("SELECT pg_get_functiondef('public.correct_period_currency(uuid,text,text,text,uuid)'::regprocedure) d")).d;
+    return !/\b(net\.|http_|storage\.|extensions\.http|pg_net|dblink)/i.test(def) ? true : "found a remote call";
   });
   await check("the identity sweep's flags are preserved by a correction (rows byte-identical) and the sweep still writes during and after it", async () => {
     const t = await blockedPeriod();
