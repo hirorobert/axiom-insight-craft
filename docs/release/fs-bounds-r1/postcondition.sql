@@ -5,8 +5,8 @@ DECLARE
   v_b jsonb := public.fs_work_bounds();
 BEGIN
   IF (v_b ->> 'contract') IS DISTINCT FROM 'fs-work-bounds/1'
-     OR (v_b ->> 'evidenceRowsPerBatch')::int <> 20000 OR (v_b ->> 'evidenceDocumentBytesPerBatch')::bigint <> 4194304
-     OR (v_b ->> 'evidenceRowsPerVersion')::int <> 200000 OR (v_b ->> 'reportDocumentBytes')::bigint <> 8388608
+     OR (v_b ->> 'evidenceRowsPerBatch')::int <> 1000 OR (v_b ->> 'evidenceDocumentBytesPerBatch')::bigint <> 1048576
+     OR (v_b ->> 'evidenceRowsPerVersion')::int <> 10000 OR (v_b ->> 'reportDocumentBytes')::bigint <> 8388608
      OR (v_b ->> 'versionsPerLineage')::int <> 1000 OR (v_b ->> 'commentsPerVersion')::int <> 500 OR (v_b ->> 'eventsPerComment')::int <> 200 THEN
     RAISE EXCEPTION 'POSTCONDITION: fs_work_bounds() does not answer the reviewed bounds';
   END IF;

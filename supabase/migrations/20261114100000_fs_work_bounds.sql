@@ -5,7 +5,7 @@
 -- justified there by a measured case and by the browser intake's own limits, which the server did not enforce until now.
 --
 --   What was unbounded before this migration (the client enforced some of it; the server none of it):
---     · evidence rows per batch — the browser intake refuses more than 20,000 data rows and 2,000,000 characters
+--     · evidence rows per batch — the browser intake refused more than 20,000 data rows and 2,000,000 characters
 --       (src/lib/financialEvidence/intake.ts INTAKE_LIMITS), but fs_commit_revision accepted a batch document of any size;
 --     · evidence rows referenced by one report version — up to 64 batches of unbounded size, all re-read by
 --       fs_evidence_statements for every readiness check and every sign-off;
@@ -15,13 +15,15 @@
 --
 --   The bounds (fs_work_bounds(), contract fs-work-bounds/1), each refused BY NAME with ERRCODE 22023 before any write of
 --   the refused row, inside the one transaction of the calling function, so nothing partial is ever stored:
---     evidenceRowsPerBatch          20,000     EVIDENCE_ROWS_LIMIT             = the intake limit, now held by the server
---     evidenceDocumentBytesPerBatch  4,194,304  EVIDENCE_DOCUMENT_SIZE_LIMIT    ≥ 1.8× any batch the intake can produce
---                                                                              (20,000 rows → 2,218,178 B; a 2,000,000-char
---                                                                              file of maximal rows → 2,067,494 B)
---     evidenceRowsPerVersion        200,000    EVIDENCE_ROWS_PER_VERSION_LIMIT 10× the demanding measured case (a 20,000-row
---                                                                              ledger); keeps fs_evidence_statements within
---                                                                              the API session's statement timeout with margin
+--     evidenceRowsPerBatch          1,000      EVIDENCE_ROWS_LIMIT             the MEASURED-SAFE size: through PostgREST at 18 accounts a 2,000-row ledger saved in 4,253 ms and a 5,000-row one was cancelled by the 8 s statement timeout; 1,000 rows is half the largest size that saved (about 3.8x margin), see RECORD 7.5
+--                                                                              (the browser intake holds the same limit, so
+--                                                                              a larger file is refused before upload)
+--     evidenceDocumentBytesPerBatch  1,048,576  EVIDENCE_DOCUMENT_SIZE_LIMIT    ≥ 1.8× any batch of 1,000 maximal rows
+--                                                                              the intake can produce
+--     evidenceRowsPerVersion        10,000     EVIDENCE_ROWS_PER_VERSION_LIMIT the aggregate evidence one version may
+--                                                                              stand on (every ledger series, both periods);
+--                                                                              keeps fs_evidence_statements within the API
+--                                                                              session's statement timeout with margin
 --     reportDocumentBytes            8,388,608  REPORT_DOCUMENT_SIZE_LIMIT      ≥ 8× the demanding measured document
 --     versionsPerLineage             1,000      VERSION_HISTORY_LIMIT           the measured per-version cost is flat; the
 --                                                                              lineage's history stays listable in one call
@@ -53,9 +55,9 @@ CREATE OR REPLACE FUNCTION public.fs_work_bounds()
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
   SELECT jsonb_build_object(
     'contract', 'fs-work-bounds/1',
-    'evidenceRowsPerBatch', 20000,
-    'evidenceDocumentBytesPerBatch', 4194304,
-    'evidenceRowsPerVersion', 200000,
+    'evidenceRowsPerBatch', 1000,
+    'evidenceDocumentBytesPerBatch', 1048576,
+    'evidenceRowsPerVersion', 10000,
     'reportDocumentBytes', 8388608,
     'versionsPerLineage', 1000,
     'commentsPerVersion', 500,

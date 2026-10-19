@@ -313,10 +313,6 @@ await check("verify is intact and retrieve returns the sealed bytes with the mat
   (verified?.outcome === "intact" && verified.official === true && retrieved?.outcome === "retrieved" && retrieved.content_sha256 === officialSha && retrieved.document.length > 0 ? true : { verified, retrieved: retrieved?.outcome }));
 await measure("representative", "issue_official_pack_second", () => review.issueOfficial(A, 2026, outputRef, () => {}));
 
-// ── Ledger-size sweep at 18 accounts (a fresh lineage: the FINAL version above is never touched) ─────────────────────
-log("\n== SWEEP at 18 accounts: ledger sizes 2,000 / 5,000 / 10,000 / 20,000 rows");
-await ledgerSweep("representative-18", A, "Workload Representative Ltd", `rpt-wl-sweep-${uuid()}`, [2000, 5000, 10000, 20000]);
-
 // ── Concurrency: 8 simultaneous saves of ONE attempt; 8 simultaneous composition reads ───────────────────────────────
 log("\n== CONCURRENCY (representative lineage)");
 await rpc(preparer, "fs_record_disclosure", { p_company_id: A, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: "None beyond estimates; reviewed again.", p_source_ref: "Notes v2", p_request_id: uuid() });
@@ -351,9 +347,14 @@ for (let i = 1; i <= 30; i++) {
   if ([1, 5, 10, 20, 30].includes(i)) log(`        [history] +${i}: version ${v}, save ${saveMs} ms, list ${listMs} ms (${list.length} versions), readiness ${readyMs} ms, comments ${commentsMs} ms, document ${docBytes} B${err ? `, error ${err}` : ""}`);
 }
 
+// ── Ledger-size sweep at 18 accounts (a fresh lineage, AFTER concurrency and history: a stored large ledger slows every later save and readiness on the period - measured in run 39273436340) ─────────────────────
+log("\n== SWEEP at 18 accounts: ledger sizes 500 / 1,000 (the bound) / 2,000 (over the bound: refused by the intake)");
+await ledgerSweep("representative-18", A, "Workload Representative Ltd", `rpt-wl-sweep-${uuid()}`, [500, 1000, 2000]);
+
+
 // ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
-log("\n== DEMANDING: 2,000 accounts, a 20,000-row ledger, 50 equity rows");
-const LEDGER_ROWS = 20000;
+log("\n== DEMANDING: 2,000 accounts, a ledger at the evidence bound, 50 equity rows");
+const LEDGER_ROWS = 1000; // the evidence bound (fs_work_bounds evidenceRowsPerBatch = INTAKE_LIMITS.maxRows)
 let N_ACCOUNTS = 2000;
 const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
 const money = (m) => (m / 100).toFixed(2);
@@ -446,7 +447,7 @@ try {
 M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer);
 const ridD = `rpt-wl-big-${uuid()}`;
 // The demanding sweep first stores the small fixture evidence (so composition has every statement), then grows the ledger.
-log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 2,000 / 5,000 / 10,000 / 20,000 rows`);
+log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 500 / 1,000 (the bound) / 2,000 (over the bound)`);
 {
   const small = [parseEvidence(D, 2026, "TRANSACTION_LEDGER", "CURRENT", EVIDENCE.current.TRANSACTION_LEDGER, PERIODS.current), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
     parseEvidence(D, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
@@ -457,7 +458,7 @@ log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 2,000 / 5,000 / 10,000 /
   if (base?.outcome === "saved") {
     M.demanding.smallSave = { version: base.reportVersion };
     for (let i = 0; i < 2; i++) await measure("demanding", "fs_report_readiness_small_evidence", () => rpc(partner, "fs_report_readiness", { p_company_id: D, p_report_id: ridS, p_report_version: base.reportVersion }));
-    await ledgerSweep(`demanding-${N_ACCOUNTS}`, D, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridS, [2000, 5000, 10000, 20000]);
+    await ledgerSweep(`demanding-${N_ACCOUNTS}`, D, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridS, [500, 1000, 2000]);
   } else saveOutcome("demanding-small", base);
 }
 const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;

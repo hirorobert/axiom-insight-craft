@@ -18,8 +18,8 @@ END;
 $$;
 -- Nothing in the live data may already exceed a bound the triggers will enforce on NEW rows only (existing rows are never
 -- touched; this listing is for the record — every count must be 0):
-SELECT 'evidence batches over 20,000 rows' AS what, count(*) FROM public.financial_evidence_batches WHERE jsonb_typeof(batch_document -> 'rows') = 'array' AND jsonb_array_length(batch_document -> 'rows') > 20000
-UNION ALL SELECT 'evidence batches over 4 MiB', count(*) FROM public.financial_evidence_batches WHERE octet_length(batch_document::text) > 4194304
+SELECT 'evidence batches over 1,000 rows' AS what, count(*) FROM public.financial_evidence_batches WHERE jsonb_typeof(batch_document -> 'rows') = 'array' AND jsonb_array_length(batch_document -> 'rows') > 1000
+UNION ALL SELECT 'evidence batches over 1,048,576 bytes', count(*) FROM public.financial_evidence_batches WHERE octet_length(batch_document::text) > 1048576
 UNION ALL SELECT 'report documents over 8 MiB', count(*) FROM public.financial_statement_reports WHERE octet_length(report_document::text) > 8388608
 UNION ALL SELECT 'lineages at or over 1,000 versions', count(*) FROM (SELECT report_id FROM public.financial_statement_reports GROUP BY report_id HAVING max(report_version) >= 1000) x
 UNION ALL SELECT 'versions at or over 500 comments', count(*) FROM (SELECT report_id, report_version FROM public.fs_review_comments GROUP BY 1, 2 HAVING count(*) >= 500) y
