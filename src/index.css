@@ -64,6 +64,8 @@
     --border: 235 12% 88%;                      /* hairline slate */
     --input: 235 12% 88%;
     --ring: 151 55% 32%;                        /* focus ring = green-700 */
+    --linkedin: 210 90% 40%;                    /* LinkedIn brand blue #0A66C2 */
+    --linkedin-foreground: 0 0% 100%;
 
     /* 2px radius + hairline borders (brief §4). */
     --radius: 0.125rem;
@@ -108,6 +110,8 @@
     --border: 235 12% 30%;
     --input: 235 12% 30%;
     --ring: 140 61% 69%;
+    --linkedin: 210 90% 40%;
+    --linkedin-foreground: 0 0% 100%;
   }
 }
 

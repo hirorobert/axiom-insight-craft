@@ -5,6 +5,7 @@ import { COMMERCIAL_NOTICE, LANDING_FOOTER_NOTE } from "@/content/landing/landin
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { ContactChannelList } from "@/components/contact/ContactChannels";
+import { LinkedInLink } from "@/components/LinkedInLink";
 
 // No price is rendered in the footer: proposed plan sizes appear in exactly one place, the service
 // chooser. The footer carries the disclosures instead (commercial status and the scope note).
@@ -36,6 +37,7 @@ export function Footer() {
             <p className="mt-4 max-w-xs text-[11px] leading-5 text-muted-foreground">
               {LANDING_FOOTER_NOTE}
             </p>
+            <LinkedInLink variant="button" className="mt-5" />
           </div>
 
           {/* Spacer */}
