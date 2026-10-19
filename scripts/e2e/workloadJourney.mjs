@@ -261,6 +261,10 @@ await check("verify is intact and retrieve returns the sealed bytes with the mat
   (verified?.outcome === "intact" && verified.official === true && retrieved?.outcome === "retrieved" && retrieved.content_sha256 === officialSha && retrieved.document.length > 0 ? true : { verified, retrieved: retrieved?.outcome }));
 await measure("representative", "issue_official_pack_second", () => review.issueOfficial(A, 2026, outputRef, () => {}));
 
+// ── Ledger-size sweep at 18 accounts (a fresh lineage: the FINAL version above is never touched) ─────────────────────
+log("\n== SWEEP at 18 accounts: ledger sizes 2,000 / 5,000 / 10,000 / 20,000 rows");
+await ledgerSweep("representative-18", A, "Workload Representative Ltd", `rpt-wl-sweep-${uuid()}`, [2000, 5000, 10000, 20000]);
+
 // ── Concurrency: 8 simultaneous saves of ONE attempt; 8 simultaneous composition reads ───────────────────────────────
 log("\n== CONCURRENCY (representative lineage)");
 await rpc(preparer, "fs_record_disclosure", { p_company_id: A, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: "None beyond estimates; reviewed again.", p_source_ref: "Notes v2", p_request_id: uuid() });
@@ -335,10 +339,12 @@ for (const n of [2000, 1000]) {
     await uploadReviewCertify(D, `Workload Demanding ${n} Ltd`, 2025, "1 Jul 2024 - 30 Jun 2025", pD25, Buffer.from(bigTbCsv(PRIOR)), bigDecisions, "demanding");
     await uploadReviewCertify(D, `Workload Demanding ${n} Ltd`, 2026, "1 Jul 2025 - 30 Jun 2026", pD26, Buffer.from(bigTbCsv(CURRENT)), bigDecisions, "demanding");
     M.demanding.fixture.certified = true;
+    if (n === 2000) { results.push({ name: "the 2,000-account trial balance (the processing limit) certifies after every account is reviewed in one batch (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001)", ok: true }); log("  PASS  the 2,000-account trial balance certifies after review"); }
     break;
   } catch (e) {
     if (!e?.notCertified || n === 1000) throw e;
-    log(`        [demanding] ${n} accounts: ${String(e.message).slice(0, 300)}`);
+    results.push({ name: "the 2,000-account trial balance (the processing limit) certifies after every account is reviewed in one batch (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001)", ok: false });
+    log(`  FAIL  the 2,000-account trial balance certifies after review: ${String(e.message).slice(0, 300)}`);
     log(`        [demanding] continuing with 1,000 accounts on a fresh company (the 2,000-account outcome is recorded above)`);
     M.notes.push(`demanding: the ${n}-account trial balance was not certified on this stack; the FS workload below is measured at 1,000 accounts`);
   }
@@ -355,6 +361,56 @@ for (let i = 0; i < 3; i++) {
   await measure("demanding", "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: D, p_period_year: 2026 }));
   await measure("demanding", "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: D, p_period_year: 2026 }));
 }
+/** The fixture ledger (7 rows) padded with netting pairs on the bank account to exactly `rows` data rows. */
+const paddedLedger = (rows) => {
+  const base = EVIDENCE.current.TRANSACTION_LEDGER.trimEnd().split(String.fromCharCode(10));
+  const lines = [...base];
+  for (let i = lines.length - 1; i < rows; i++) {
+    const m = 7 + (i % 12); const y = m > 12 ? 2026 : 2025; const mm = ((m - 1) % 12) + 1; const d = 1 + (i % 28);
+    lines.push(`N${i},${y}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")},${CODES.bank},Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`);
+  }
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+};
+/**
+ * The ledger-size sweep on one company whose other evidence is already stored: for each size, a new ledger version of
+ * `rows` rows is saved through the browser's save code (evidence step + bind) and timed; after a successful save,
+ * readiness and dependencies are timed on the new version. Every outcome is recorded (ok / statement_timeout / other);
+ * nothing is asserted, so the bound can be set from the numbers.
+ */
+const ledgerSweep = async (section, company, legalName, reportId, sizes) => {
+  M.sweep ??= [];
+  for (const rows of sizes) {
+    const text = paddedLedger(rows);
+    let batch = null;
+    try { batch = parseEvidence(company, 2026, "TRANSACTION_LEDGER", "CURRENT", text, PERIODS.current); }
+    catch (e) { M.sweep.push({ section, rows, parsed: false, message: String(e.message).slice(0, 160) }); log(`        [sweep ${section}] ${rows} rows: intake refused (${String(e.message).slice(0, 100)})`); continue; }
+    const bytes = Buffer.byteLength(JSON.stringify(batch.document));
+    const t0 = performance.now();
+    let outcome = "ok", message = null, version = null;
+    try {
+      const r = await save(preparer, company, 2026, legalName, reportId, [batch]);
+      if (r.outcome !== "saved") { outcome = "refused"; message = String(r.reason).slice(0, 160); } else version = r.reportVersion;
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      outcome = /statement timeout|canceling statement/i.test(msg) ? "statement_timeout" : /_LIMIT/.test(msg) ? "refused_by_bound" : "error";
+      message = msg.slice(0, 160);
+    }
+    const saveMs = Math.round(performance.now() - t0);
+    const entry = { section, rows, csvBytes: Buffer.byteLength(text), batchDocumentBytes: bytes, saveMs, outcome, message, version };
+    if (version) {
+      const t1 = performance.now();
+      try { const rd = await rpc(partner, "fs_report_readiness", { p_company_id: company, p_report_id: reportId, p_report_version: version }); entry.readinessMs = Math.round(performance.now() - t1); entry.ready = rd?.ready ?? null; entry.blockerCount = rd?.blockers?.length ?? null; }
+      catch (e) { entry.readinessMs = Math.round(performance.now() - t1); entry.readinessError = String(e.message).slice(0, 120); }
+      const t2 = performance.now();
+      try { await rpc(preparer, "fs_reporting_dependencies", { p_company_id: company, p_period_year: 2026 }); entry.dependenciesMs = Math.round(performance.now() - t2); }
+      catch (e) { entry.dependenciesMs = Math.round(performance.now() - t2); entry.dependenciesError = String(e.message).slice(0, 120); }
+    }
+    M.sweep.push(entry);
+    log(`        [sweep ${section}] ${rows} rows (${bytes} B): save ${saveMs} ms ${outcome}${message ? ` (${message})` : ""}${version ? `; readiness ${entry.readinessMs} ms ready=${entry.ready}; dependencies ${entry.dependenciesMs} ms` : ""}`);
+    if (outcome === "statement_timeout") { log(`        [sweep ${section}] stopping at ${rows} rows: the API session cancelled the save`); break; }
+  }
+};
+
 // The fixture ledger (7 rows that tie to the bank account's movement) padded to 20,000 rows with netting pairs on the same
 // account (a 1.00 receipt and a 1.00 payment, both operating): the movement, and every tie, is unchanged. 50 equity rows:
 // the fixture's 6 plus 22 netting pairs inside PROFIT_OR_LOSS. Invented, at the intake limit.
@@ -387,6 +443,21 @@ try {
 } catch (e) { M.failures.push({ section: "demanding", label: "evidence_parse", ok: false, errorClass: "intake_refusal", message: String(e.message).slice(0, 200) }); log(`        [demanding] evidence parse: ${String(e.message).slice(0, 200)}`); }
 M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer);
 const ridD = `rpt-wl-big-${uuid()}`;
+// The demanding sweep first stores the small fixture evidence (so composition has every statement), then grows the ledger.
+log(`\n== SWEEP at ${N_ACCOUNTS} accounts: ledger sizes 2,000 / 5,000 / 10,000 / 20,000 rows`);
+{
+  const small = [parseEvidence(D, 2026, "TRANSACTION_LEDGER", "CURRENT", EVIDENCE.current.TRANSACTION_LEDGER, PERIODS.current), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
+    parseEvidence(D, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
+    parseEvidence(D, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE.prior.TRANSACTION_LEDGER, PERIODS.prior), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
+    parseEvidence(D, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
+  const ridS = `rpt-wl-sweep-${N_ACCOUNTS}-${uuid()}`;
+  const base = await measure("demanding", "save_small_evidence_and_bind", () => save(preparer, D, 2026, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridS, small), { size: "6 small batches" });
+  if (base?.outcome === "saved") {
+    M.demanding.smallSave = { version: base.reportVersion };
+    for (let i = 0; i < 2; i++) await measure("demanding", "fs_report_readiness_small_evidence", () => rpc(partner, "fs_report_readiness", { p_company_id: D, p_report_id: ridS, p_report_version: base.reportVersion }));
+    await ledgerSweep(`demanding-${N_ACCOUNTS}`, D, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridS, [2000, 5000, 10000, 20000]);
+  } else saveOutcome("demanding-small", base);
+}
 const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
 if (evD.length) saveOutcome("demanding", savedD);
 const vD = savedD?.outcome === "saved" ? savedD.reportVersion : 0;

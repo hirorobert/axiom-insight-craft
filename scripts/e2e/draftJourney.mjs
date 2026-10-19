@@ -405,29 +405,6 @@ for (const n of [1_000, ACCOUNTS]) {
     return processedFully(x, n) && processedFully(c, n) ? true : { xlsx: x, csv: c };
   });
 }
-// DEFECT-PTB-MAPPINGS-API-ROW-CAP-001 (CI run 39256437006): with every account reviewed, the re-check certified only the
-// first 1,000 because the function's mapping read stopped at PostgREST's max-rows. At the account limit, reviewing every
-// account in one batch and re-checking must certify the whole trial balance through the REAL function and PostgREST.
-await check(`at the account limit (${ACCOUNTS}): every account reviewed in one batch → the re-check certifies the whole trial balance (no account left needing review)`, async () => {
-  const rows = balancedRows(ACCOUNTS);
-  const first = await commitAndProcess(csvOf(rows), `review-${ACCOUNTS}.csv`);
-  if (!processedFully(first, ACCOUNTS)) return { first };
-  const decisions = rows.map(([code, name]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
-    statement: "balance_sheet", classification: code === "999999" ? "equity" : "current_assets", normal_balance: code === "999999" ? "credit" : "debit", is_cash_account: code === "100000" }));
-  const batch = await owner.c.rpc("resolve_account_review_batch", { p_company_id: A, p_upload_id: first.uploadId, p_client_request_id: crypto.randomUUID(), p_decisions: decisions });
-  if (batch.error) return { batch: batch.error.message };
-  const op = crypto.randomUUID();
-  const { data: src } = await admin.from("trial_balance_uploads").select("source_file_hash").eq("id", first.uploadId).single();
-  const accepted = await owner.c.rpc("tbu_request_reprocess", { p_upload_id: first.uploadId, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
-  if (accepted.error || !["accepted", "replayed"].includes(accepted.data?.outcome)) return { accepted: accepted.error?.message ?? accepted.data };
-  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: first.uploadId, clientRequestId: op }) });
-  const row = (await admin.from("trial_balance_uploads").select("status, processing_result").eq("id", first.uploadId).single()).data;
-  const cert = await owner.c.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: first.year });
-  const certified = Array.isArray(cert.data) ? cert.data.length > 0 : !!cert.data;
-  const needsReview = Array.isArray(row?.processing_result?.needs_review_accounts) ? row.processing_result.needs_review_accounts.length : 0;
-  log(`        [review] ${ACCOUNTS} accounts: batch ${JSON.stringify(batch.data).slice(0, 120)}; re-check HTTP ${res.status}, status ${row?.status}, needing review ${needsReview}, certified ${certified}`);
-  return res.status === 200 && row?.status === "complete" && needsReview === 0 && certified ? true : { http: res.status, status: row?.status, needsReview, certified, result: JSON.stringify(row?.processing_result ?? {}).slice(0, 400) };
-});
 await check(`an .xls (BIFF8) workbook at the account limit (${ACCOUNTS}) is processed in full`, async () => {
   const r = await commitAndProcess(await workbookOf(balancedRows(ACCOUNTS), { bookType: "biff8" }), "at-limit.xls");
   return processedFully(r, ACCOUNTS) ? true : r;
@@ -604,6 +581,31 @@ await check("the owner deletes an unused draft: deleted, then removed by the nex
   const del = (await owner.c.rpc("delete_trial_balance_draft", { p_draft_id: d.draft_id })).data;
   deletions.length = 0; await sweep();
   return del === "deleted" && deletions.includes(d.object_path) ? true : { del, deletions };
+});
+
+// Runs LAST: it leaves 2,000 reviewed company mappings behind, which would certify the capacity files above without review.
+// DEFECT-PTB-MAPPINGS-API-ROW-CAP-001 (CI run 39256437006): with every account reviewed, the re-check certified only the
+// first 1,000 because the function's mapping read stopped at PostgREST's max-rows. At the account limit, reviewing every
+// account in one batch and re-checking must certify the whole trial balance through the REAL function and PostgREST.
+await check(`at the account limit (${ACCOUNTS}): every account reviewed in one batch → the re-check certifies the whole trial balance (no account left needing review)`, async () => {
+  const rows = balancedRows(ACCOUNTS);
+  const first = await commitAndProcess(csvOf(rows), `review-${ACCOUNTS}.csv`);
+  if (!processedFully(first, ACCOUNTS)) return { first };
+  const decisions = rows.map(([code, name]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
+    statement: "balance_sheet", classification: code === "999999" ? "equity" : "current_assets", normal_balance: code === "999999" ? "credit" : "debit", is_cash_account: code === "100000" }));
+  const batch = await owner.c.rpc("resolve_account_review_batch", { p_company_id: A, p_upload_id: first.uploadId, p_client_request_id: crypto.randomUUID(), p_decisions: decisions });
+  if (batch.error) return { batch: batch.error.message };
+  const op = crypto.randomUUID();
+  const { data: src } = await admin.from("trial_balance_uploads").select("source_file_hash").eq("id", first.uploadId).single();
+  const accepted = await owner.c.rpc("tbu_request_reprocess", { p_upload_id: first.uploadId, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
+  if (accepted.error || !["accepted", "replayed"].includes(accepted.data?.outcome)) return { accepted: accepted.error?.message ?? accepted.data };
+  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${owner.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId: first.uploadId, clientRequestId: op }) });
+  const row = (await admin.from("trial_balance_uploads").select("status, processing_result").eq("id", first.uploadId).single()).data;
+  const cert = await owner.c.rpc("get_authoritative_certification", { p_company_id: A, p_period_year: first.year });
+  const certified = Array.isArray(cert.data) ? cert.data.length > 0 : !!cert.data;
+  const needsReview = Array.isArray(row?.processing_result?.needs_review_accounts) ? row.processing_result.needs_review_accounts.length : 0;
+  log(`        [review] ${ACCOUNTS} accounts: batch ${JSON.stringify(batch.data).slice(0, 120)}; re-check HTTP ${res.status}, status ${row?.status}, needing review ${needsReview}, certified ${certified}`);
+  return res.status === 200 && row?.status === "complete" && needsReview === 0 && certified ? true : { http: res.status, status: row?.status, needsReview, certified, result: JSON.stringify(row?.processing_result ?? {}).slice(0, 400) };
 });
 
 const failed = results.filter((r) => !r.ok);

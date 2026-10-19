@@ -101,15 +101,46 @@ Deno.test("1,500 reviewed mappings (more than one PostgREST answer holds): every
   const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
   const mappings = [...codes.map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
   assert(mappings.length > POSTGREST_MAX_ROWS);
-  const w = setup({ csv, mappings });
+  // Another company's reviewed mappings for the SAME codes, classified as revenue: they must never be read for this company.
+  const OTHER = "99999999-9999-4999-8999-999999999999";
+  const foreign = codes.map((c) => ({ ...mapping(c, "revenue", "income_statement", "credit"), company_id: OTHER, review_decision_id: `other-${c}` }));
+  const w = setup({ csv, mappings: [...foreign, ...mappings] });
   const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   assertEquals(r.status, 200);
   assertEquals(upload(w).status, "complete");
   const cert = w.tables.tb_certifications[0];
   assertEquals([cert.p_is_blocking, cert.p_requires_review], [false, false]);
-  assertEquals((cert.p_rows_snapshot as unknown[]).length, n);
+  const snapshot = cert.p_rows_snapshot as { accountCode: string }[];
+  assertEquals(snapshot.length, n); // no omitted account …
+  assertEquals(new Set(snapshot.map((x) => x.accountCode)).size, n); // … and none twice
+  // No cross-company leakage: every debit account is an asset, nothing is income; the equation balances on this company's mappings alone.
+  const classes = (ingestion(w) as Record<string, unknown>).amounts as Record<string, Record<string, string>> | undefined;
+  const amounts = classes ?? ((upload(w).processing_result as Record<string, unknown>).amounts as Record<string, Record<string, string>>);
+  assertEquals([amounts.classes.income_minor, amounts.classes.assets_minor, amounts.classes.equity_minor, amounts.equation.status], ["0", String(total), String(total), "balanced"]);
   const mappingReads = w.calls.filter((c) => c.kind === "select" && c.target === "account_mappings").length;
   assert(mappingReads >= 2, `expected the mappings to be read in at least two pages, saw ${mappingReads} read(s)`);
+});
+
+Deno.test("1,500 accounts of which one has no reviewed mapping: the paged read changes nothing about review — exactly that account needs review, nothing is certified without it", async () => {
+  const n = POSTGREST_MAX_ROWS + 500;
+  const codes = Array.from({ length: n - 1 }, (_, i) => String(100000 + i));
+  const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900));
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const money = (m: number) => (m / 100).toFixed(2);
+  const csv = "Code,Name,Debit,Credit
+" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("
+") + `
+999999,Retained earnings,,${money(total)}
+`;
+  const unreviewed = "100500";
+  const mappings = [...codes.filter((c) => c !== unreviewed).map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
+  const w = setup({ csv, mappings });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+  const review = (upload(w).processing_result as { needs_review_accounts?: { account_code: string }[] }).needs_review_accounts ?? [];
+  assertEquals(review.map((x) => x.account_code), [unreviewed]);
 });
 
 Deno.test("no reviewed mapping → every machine guess goes to review; certification requires review; nothing accepted", async () => {
