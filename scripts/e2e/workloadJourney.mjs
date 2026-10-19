@@ -144,8 +144,13 @@ const settled = async (uploadId) => {
 };
 const processUpload = async (who, uploadId, op) => {
   const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${who.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId, clientRequestId: op }) });
-  return res.status;
+  let body = null; try { body = await res.json(); } catch { /* */ }
+  return { status: res.status, body };
 };
+/** What the processing function answered and what the upload row says, for the log and the measurement (no financial content). */
+const processingSummary = (http, up) => ({ http: http?.status ?? null, outcome: http?.body?.outcome ?? http?.body?.status ?? null, code: http?.body?.code ?? http?.body?.error ?? null,
+  uploadStatus: up?.status ?? null, resultStatus: up?.processing_result?.status ?? null, errors: (up?.processing_result?.errors ?? []).slice(0, 5).map((e) => (typeof e === "string" ? e : e?.code ?? JSON.stringify(e).slice(0, 80))),
+  needsReview: Array.isArray(up?.processing_result?.needs_review_accounts) ? up.processing_result.needs_review_accounts.length : null });
 const certified = async (company, year) => { const { data } = await owner.c.rpc("get_authoritative_certification", { p_company_id: company, p_period_year: year }); return Array.isArray(data) ? data.length > 0 : !!data; };
 /** Upload a CSV for a period (draft → sign → storage → commit → process), review every account once, re-check, return the upload id. */
 const uploadReviewCertify = async (company, entity, year, periodLabel, p, bytes, decisions, section) => {
@@ -158,15 +163,22 @@ const uploadReviewCertify = async (company, entity, year, periodLabel, p, bytes,
   const c = await fnDraft(owner, { action: "commit", draft_id: draft.draft_id, commit_key: key(), company_id: company, period_year: year, period_id: p.periodId, engagement_id: p.engagementId, confirmation: { entity, period: periodLabel, currency: "TZS" } });
   if (c.body?.outcome !== "committed") throw new Error(`commit: ${JSON.stringify(c.body)}`);
   const uploadId = c.body.upload_id;
-  await measure(section, `tb_process_first_check_${year}`, async () => { await processUpload(owner, uploadId, uuid()); return settled(uploadId); }, { size: `${decisions.length} accounts, ${bytes.length} bytes` });
+  let http = null, row = null;
+  row = await measure(section, `tb_process_first_check_${year}`, async () => { http = await processUpload(owner, uploadId, uuid()); return settled(uploadId); }, { size: `${decisions.length} accounts, ${bytes.length} bytes` });
+  log(`        [${section}] first check FY${year}: ${JSON.stringify(processingSummary(http, row))}`);
   if (!(await certified(company, year))) {
     await measure(section, `tb_review_batch_${year}`, () => rpc(owner, "resolve_account_review_batch", { p_company_id: company, p_upload_id: uploadId, p_client_request_id: uuid(), p_decisions: decisions }), { size: `${decisions.length} decisions` });
     const op = uuid();
     const { data: src } = await owner.c.from("trial_balance_uploads").select("source_file_hash").eq("id", uploadId).single();
     await rpc(owner, "tbu_request_reprocess", { p_upload_id: uploadId, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
-    await measure(section, `tb_process_recheck_${year}`, async () => { await processUpload(owner, uploadId, op); return settled(uploadId); }, { size: `${decisions.length} accounts` });
+    row = await measure(section, `tb_process_recheck_${year}`, async () => { http = await processUpload(owner, uploadId, op); return settled(uploadId); }, { size: `${decisions.length} accounts` });
+    log(`        [${section}] re-check FY${year}: ${JSON.stringify(processingSummary(http, row))}`);
   }
-  if (!(await certified(company, year))) throw new Error(`FY${year} of ${entity} is not certified after review`);
+  if (!(await certified(company, year))) {
+    const summary = processingSummary(http, row);
+    M.failures.push({ section, label: `tb_certification_${year}`, ok: false, errorClass: "not_certified", message: JSON.stringify(summary).slice(0, 400), accounts: decisions.length });
+    throw Object.assign(new Error(`FY${year} of ${entity} is not certified after review: ${JSON.stringify(summary).slice(0, 300)}`), { notCertified: true });
+  }
   return uploadId;
 };
 
@@ -285,13 +297,14 @@ for (let i = 1; i <= 30; i++) {
 
 // ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 log("\n== DEMANDING: 2,000 accounts, a 20,000-row ledger, 50 equity rows");
-const N_ACCOUNTS = 2000, LEDGER_ROWS = 20000;
+const LEDGER_ROWS = 20000;
+let N_ACCOUNTS = 2000;
 const minor = (t) => (t ? Math.round(Number(t) * 100) : 0);
 const money = (m) => (m / 100).toFixed(2);
 // Split every account but the bank into parts; the parts' amounts sum exactly to the parent's in BOTH years.
-const bigRows = (() => {
+const scaledRows = (nAccounts) => {
   const parents = TB.filter((r) => r[0] !== CODES.bank);
-  const nParts = N_ACCOUNTS - 1; // 1,999 parts over 17 parents
+  const nParts = nAccounts - 1;
   const base = Math.floor(nParts / parents.length), extra = nParts - base * parents.length;
   const rows = [TB.find((r) => r[0] === CODES.bank)];
   parents.forEach((r, pi) => {
@@ -305,17 +318,31 @@ const bigRows = (() => {
     }
   });
   return rows;
-})();
-const bigTbCsv = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + bigRows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
-const bigDecisions = bigRows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === CODES.bank }));
+};
 const parentOf = (code) => (code === CODES.bank ? code : code.slice(0, -3));
-const bigAssign = bigRows.map(([code]) => ({ accountKey: code, lineId: ASSIGN[parentOf(code)] }));
-M.demanding.fixture = { accounts: bigRows.length, csvBytesCurrent: Buffer.byteLength(bigTbCsv(CURRENT)), csvBytesPrior: Buffer.byteLength(bigTbCsv(PRIOR)), ledgerRows: LEDGER_ROWS, equityRows: 50 };
-const D = await newCompany("Workload Demanding Ltd");
-const pD25 = await openPeriod(D, 2025, PERIODS.prior.start, PERIODS.prior.end);
-const pD26 = await openPeriod(D, 2026, PERIODS.current.start, PERIODS.current.end);
-await uploadReviewCertify(D, "Workload Demanding Ltd", 2025, "1 Jul 2024 - 30 Jun 2025", pD25, Buffer.from(bigTbCsv(PRIOR)), bigDecisions, "demanding");
-await uploadReviewCertify(D, "Workload Demanding Ltd", 2026, "1 Jul 2025 - 30 Jun 2026", pD26, Buffer.from(bigTbCsv(CURRENT)), bigDecisions, "demanding");
+let bigRows, bigDecisions, bigAssign, D, pD26;
+const bigTbCsv = (col) => "Account code,Account name,Debit,Credit" + String.fromCharCode(10) + bigRows.map((r) => `${r[0]},${r[1]},${r[col]},${r[col + 1]}`).join(String.fromCharCode(10)) + String.fromCharCode(10);
+for (const n of [2000, 1000]) {
+  N_ACCOUNTS = n;
+  bigRows = scaledRows(n);
+  bigDecisions = bigRows.map(([code, name, cls, st, nb]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: st, classification: cls, normal_balance: nb, is_cash_account: code === CODES.bank }));
+  bigAssign = bigRows.map(([code]) => ({ accountKey: code, lineId: ASSIGN[parentOf(code)] }));
+  M.demanding.fixture = { accounts: bigRows.length, csvBytesCurrent: Buffer.byteLength(bigTbCsv(CURRENT)), csvBytesPrior: Buffer.byteLength(bigTbCsv(PRIOR)), ledgerRows: LEDGER_ROWS, equityRows: 50 };
+  D = await newCompany(`Workload Demanding ${n} Ltd`);
+  const pD25 = await openPeriod(D, 2025, PERIODS.prior.start, PERIODS.prior.end);
+  pD26 = await openPeriod(D, 2026, PERIODS.current.start, PERIODS.current.end);
+  try {
+    await uploadReviewCertify(D, `Workload Demanding ${n} Ltd`, 2025, "1 Jul 2024 - 30 Jun 2025", pD25, Buffer.from(bigTbCsv(PRIOR)), bigDecisions, "demanding");
+    await uploadReviewCertify(D, `Workload Demanding ${n} Ltd`, 2026, "1 Jul 2025 - 30 Jun 2026", pD26, Buffer.from(bigTbCsv(CURRENT)), bigDecisions, "demanding");
+    M.demanding.fixture.certified = true;
+    break;
+  } catch (e) {
+    if (!e?.notCertified || n === 1000) throw e;
+    log(`        [demanding] ${n} accounts: ${String(e.message).slice(0, 300)}`);
+    log(`        [demanding] continuing with 1,000 accounts on a fresh company (the 2,000-account outcome is recorded above)`);
+    M.notes.push(`demanding: the ${n}-account trial balance was not certified on this stack; the FS workload below is measured at 1,000 accounts`);
+  }
+}
 for (let i = 0; i < bigAssign.length; i += 500) {
   await measure("demanding", "assign_presentation_chunk_500", () => rpc(preparer, "fs_assign_presentation", { p_company_id: D, p_assignments: bigAssign.slice(i, i + 500), p_reason: "Presentation per the chart of accounts", p_request_id: uuid() }), { size: `${Math.min(500, bigAssign.length - i)} assignments` });
 }
@@ -360,7 +387,7 @@ try {
 } catch (e) { M.failures.push({ section: "demanding", label: "evidence_parse", ok: false, errorClass: "intake_refusal", message: String(e.message).slice(0, 200) }); log(`        [demanding] evidence parse: ${String(e.message).slice(0, 200)}`); }
 M.demanding.statesBeforeSave = await statesBefore(D, 2026, preparer);
 const ridD = `rpt-wl-big-${uuid()}`;
-const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, "Workload Demanding Ltd", ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
+const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, `Workload Demanding ${N_ACCOUNTS} Ltd`, ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
 if (evD.length) saveOutcome("demanding", savedD);
 const vD = savedD?.outcome === "saved" ? savedD.reportVersion : 0;
 if (vD) {

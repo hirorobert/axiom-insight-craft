@@ -250,7 +250,11 @@ describe("migration directory integrity", () => {
     // 182 -> 183: 20261112100000_fs_review_workflow_and_rollforward.sql (the reviewed reporting journey: version-bound reviewer comments
     // with computed states and blockers v4, authorised acceptance of prior-FINAL differences, next-period roll-forward carry), a NEW
     // forward-only migration pending hosted application.
-    expect(files.length).toBe(183);
+    // 183 -> 184: 20261113100000_fs_work_bounds.sql (server-enforced work bounds for the financial-statements module: evidence rows and
+    // bytes per batch, evidence rows per version, report document bytes, versions per lineage, comments per version and events per
+    // comment, each refused by name from BEFORE INSERT triggers; no accepted function redefined), a NEW forward-only migration pending
+    // hosted application.
+    expect(files.length).toBe(184);
   });
 });
 

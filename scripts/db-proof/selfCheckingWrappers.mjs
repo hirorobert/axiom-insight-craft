@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "fs-journey-r1"
+const DRIZZLE_FAILURE = BATCH.id === "fs-bounds-r1"
+  ? { object: "public.fs_bound_report_version()", rolledBack: "SELECT to_regprocedure('public.fs_work_bounds()') IS NULL AND to_regprocedure('public.fs_bound_evidence_batch()') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_feb_work_bounds') AS ok" }
+  : BATCH.id === "fs-journey-r1"
   ? { object: "public.fs_review_comment_states(pg_catalog.uuid,pg_catalog.text,integer)", rolledBack: "SELECT to_regclass('public.fs_review_comments') IS NULL AND to_regclass('public.fs_rollforward_carries') IS NULL AND to_regclass('public.fs_prior_final_acceptances') IS NULL AND to_regprocedure('public.fs_rollforward_carry(uuid,integer,uuid)') IS NULL AND position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "fs-controls-r1"
   ? { object: "public.fs_evidence_statements(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_evidence_statements(uuid,integer)') IS NULL AND NOT EXISTS (SELECT 1 FROM public.fs_pack_requirements WHERE requirement_id = 'smes.note.going_concern') AND position('PUBLICATION_PATH_UNSUPPORTED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0 AS ok" }

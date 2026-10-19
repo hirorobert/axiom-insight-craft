@@ -367,6 +367,11 @@ describe("database inertness — schema and functions", () => {
       // roll-forward and acceptance functions, fs_publication_blockers v4 and fs_prior_final_reconciliation v2 redefined with
       // marked changes only; no existing table, column, index, policy or grant changes. Proven on PostgreSQL by reviewWorkflow.mjs.
       "supabase/migrations/20261112100000_fs_review_workflow_and_rollforward.sql",
+      // Work bounds (20261113100000): a NEW forward-only migration — fs_work_bounds() (constants) and four BEFORE INSERT trigger
+      // functions on financial_evidence_batches, financial_statement_reports, fs_review_comments and fs_review_comment_events that
+      // refuse over-limit rows by name; no existing function, table, column, index, policy or grant changes. Proven on PostgreSQL by
+      // workBounds.mjs (each bound refused at limit+1 and accepted at the limit; the batch trigger dropped: the regression).
+      "supabase/migrations/20261113100000_fs_work_bounds.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -640,6 +645,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/publicationControls.mjs",
       "scripts/db-proof/publicationConcurrency.mjs",
       "scripts/db-proof/reviewWorkflow.mjs",
+      "scripts/db-proof/workBounds.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.

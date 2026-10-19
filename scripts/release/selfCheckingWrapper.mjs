@@ -124,6 +124,12 @@ export const FS_JOURNEY_SOURCE_COMMIT = "fe17272b3395446932941d9589343d9339a8103
 export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
   "20261112100000_fs_review_workflow_and_rollforward.sql",
 ]);
+/** Server-enforced work bounds of the financial-statements module (fs-bounds-r1): one source at the commit holding its reviewed
+ * bytes; applied after fs-journey-r1 (its preflight requires the reviewer workflow). */
+export const FS_BOUNDS_SOURCE_COMMIT = "0000000000000000000000000000000000000000";
+export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
+  "20261113100000_fs_work_bounds.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -141,6 +147,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "pricing-p1", commit: PRICING_P1_SOURCE_COMMIT, sources: PRICING_P1_WRAPPED_SOURCES, postcondition: "docs/release/unlimited-team-members/postcondition.sql" }),
   Object.freeze({ id: "fs-controls-r1", commit: FS_CONTROLS_SOURCE_COMMIT, sources: FS_CONTROLS_WRAPPED_SOURCES, postcondition: "docs/release/fs-controls-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-journey-r1", commit: FS_JOURNEY_SOURCE_COMMIT, sources: FS_JOURNEY_WRAPPED_SOURCES, postcondition: "docs/release/fs-journey-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-bounds-r1", commit: FS_BOUNDS_SOURCE_COMMIT, sources: FS_BOUNDS_WRAPPED_SOURCES, postcondition: "docs/release/fs-bounds-r1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;
