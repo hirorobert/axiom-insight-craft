@@ -1,0 +1,335 @@
+#!/usr/bin/env bun
+// MEASUREMENT of the financial-statements workload through the REAL local Supabase stack (`supabase start` in CI: real
+// Auth, PostgREST with its API-session guards, RLS, Storage and the Edge Functions served from this repository). API
+// level, as the production build would call it (supabase-js, the workbench's own client code for saves and the official
+// pack), no browser. It MEASURES and RECORDS; it asserts only that the representative journey reaches FINAL and that the
+// official pack verifies, so a measurement that degrades is recorded, never hidden.
+//
+// Two companies, invented data:
+//   REPRESENTATIVE  18 accounts, 7-row ledger, two years, comparatives approved → save → REVIEWED → FINAL → official
+//                   pack issued, verified, retrieved; then a growing history (30 further versions) and 8 simultaneous
+//                   saves of one attempt / 8 simultaneous reads.
+//   DEMANDING       2,000 accounts (the trial-balance processing limit), a 20,000-row ledger (the intake limit), 50
+//                   equity rows → composition, notes, dependencies, the save (evidence step + bind), readiness, versions.
+// Every timing is the API round trip as seen by the client (wall time of one PostgREST / Edge Function call on the CI
+// runner) — NOT server CPU. CPU telemetry is not available from this path and is recorded as such.
+//
+//   bun scripts/e2e/workloadJourney.mjs <evidence-dir>       (after `supabase start`; reads `supabase status -o json`)
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
+import { assertLocalStack, tbCsv, CURRENT, PRIOR, PERIODS, reviewDecisions, ASSIGN, EVIDENCE, NOTES, NOT_APPLICABLE, PPE_SCHEDULE, CODES } from "./localStackFixtures.mjs";
+import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
+import { supabaseReportingDb } from "../../src/lib/reporting/supabaseDb.ts";
+import { signoffClient } from "../../src/lib/reporting/signoff.ts";
+import { reviewClient } from "../../src/lib/reporting/reviewWorkflow.ts";
+import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "e2e-evidence/workload"));
+fs.mkdirSync(OUT, { recursive: true });
+const BUCKET = "trial-balance-files";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
+const uuid = () => crypto.randomUUID();
+const key = () => crypto.randomBytes(18).toString("base64url");
+const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "workload.log"), s + "\n"); };
+const results = [];
+async function check(name, fn) {
+  try { const r = await fn(); const ok = r === true; results.push({ name, ok }); log(`  ${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n        ${JSON.stringify(r)?.slice(0, 1200)}`}`); return ok; }
+  catch (e) { results.push({ name, ok: false }); log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split("\n").slice(0, 3).join(" | ")}`); return false; }
+}
+/** One measured call: ms, outcome, error class (never financial content). */
+const M = { environment: {}, representative: {}, demanding: {}, history: [], concurrency: {}, failures: [], notes: [] };
+async function measure(section, label, fn, meta = {}) {
+  const t0 = performance.now();
+  try {
+    const value = await fn();
+    const ms = Math.round(performance.now() - t0);
+    const entry = { ms, ok: true, ...meta, ...(typeof value === "object" && value !== null && value.__meta ? value.__meta : {}) };
+    (M[section][label] ??= []).push(entry);
+    log(`        [${section}] ${label}: ${ms} ms${meta.size ? ` (${meta.size})` : ""}`);
+    return value;
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    const cls = /statement timeout|canceling statement/i.test(String(e?.message)) ? "statement_timeout" : /PT409|STALE/.test(String(e?.message)) ? "stale_or_conflict" : /42501|FORBIDDEN/.test(String(e?.message)) ? "permission" : /fetch|network|ECONN/i.test(String(e?.message)) ? "transport" : "error";
+    const entry = { ms, ok: false, errorClass: cls, message: String(e?.message ?? e).slice(0, 160), ...meta };
+    (M[section][label] ??= []).push(entry);
+    M.failures.push({ section, label, ...entry });
+    log(`        [${section}] ${label}: FAILED after ${ms} ms (${cls}): ${entry.message}`);
+    return null;
+  }
+}
+
+// ── The stack (never printed) ─────────────────────────────────────────────────────────────────────────────────────────
+const status = JSON.parse(execFileSync("supabase", ["status", "-o", "json"], { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+const apiUrl = status.API_URL;
+const anonKey = status.ANON_KEY ?? status.PUBLISHABLE_KEY;
+const serviceKey = status.SERVICE_ROLE_KEY ?? status.SECRET_KEY;
+assertLocalStack({ apiUrl, anonKey, serviceRoleKey: serviceKey });
+const admin = createClient(apiUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+M.environment = { when: new Date().toISOString(), platform: `${os.platform()} ${os.release()}`, cpus: os.cpus().length, cpuModel: os.cpus()[0]?.model ?? null, memoryGb: Math.round(os.totalmem() / 1e9), runner: process.env.GITHUB_ACTIONS ? "github-actions" : "local",
+  measure: "client-observed API round trip in ms (PostgREST / Edge Function on loopback); server CPU is NOT measured from this path" };
+
+// ── Accounts and companies (invented) ─────────────────────────────────────────────────────────────────────────────────
+const run = Date.now().toString(36);
+const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
+const U = { owner: mk("wl-owner"), preparer: mk("wl-preparer"), partner: mk("wl-partner") };
+for (const u of Object.values(U)) {
+  const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
+  if (error) throw new Error(`creating a test user failed: ${error.message}`);
+  u.id = data.user.id;
+}
+{
+  const prod = (await admin.from("commercial_products").select("id").eq("code", "CFOCLOSE").single()).data;
+  const plan = (await admin.from("commercial_plans").select("id").eq("product_id", prod.id).eq("code", "PRACTICE").single()).data;
+  const bc = await admin.from("billing_customers").insert({ owner_user_id: U.owner.id, product_id: prod.id }).select("id").single();
+  if (bc.error) throw new Error(`billing customer: ${bc.error.message}`);
+  const lic = await admin.from("commercial_licences").insert({ billing_customer_id: bc.data.id, plan_id: plan.id, status: "ACTIVE", source: "ADMIN_GRANT", effective_start: new Date(Date.now() - 86400000).toISOString(), additional_seats: 4 });
+  if (lic.error) throw new Error(`licence: ${lic.error.message}`);
+}
+const signIn = async (u) => {
+  const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
+  if (error) throw new Error(`api sign-in failed: ${error.message}`);
+  return { c, token: data.session.access_token, db: supabaseReportingDb(c) };
+};
+const owner = await signIn(U.owner), preparer = await signIn(U.preparer), partner = await signIn(U.partner);
+const rpc = async (who, fn, args) => { const { data, error } = await who.c.rpc(fn, args); if (error) throw new Error(`${fn}: ${error.message}`); return data; };
+const newCompany = async (name) => {
+  const { data, error } = await admin.from("companies").insert({ user_id: U.owner.id, name }).select("id").single();
+  if (error) throw new Error(`company: ${error.message}`);
+  for (const [who, role] of [["preparer", "preparer"], ["partner", "partner"]]) {
+    const r = await admin.from("firm_members").insert({ company_id: data.id, user_id: U[who].id, role, accepted_at: new Date().toISOString() });
+    if (r.error) throw new Error(`member ${role}: ${r.error.message}`);
+  }
+  const ro = await admin.rpc("fs_set_company_rollout", { p_company_id: data.id, p_enabled: true, p_reason: "Workload measurement (invented company)", p_operator_label: "workload" });
+  if (ro.error) throw new Error(`rollout: ${ro.error.message}`);
+  return data.id;
+};
+
+// ── The trial balance through the REAL draft → commit → process path, then review and re-check ───────────────────────
+const fnDraft = async (who, body) => {
+  const res = await fetch(`${apiUrl}/functions/v1/trial-balance-draft`, { method: "POST", headers: { Authorization: `Bearer ${who.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  let json = null; try { json = await res.json(); } catch { /* */ }
+  return { status: res.status, body: json };
+};
+const openPeriod = async (company, year, start, end) => {
+  const d = await rpc(owner, "open_engagement_with_period", { p_company_id: company, p_period_start: start, p_period_end: end, p_reporting_currency: "TZS", p_capabilities: ["FINANCIAL_STATEMENTS"] });
+  if (!d?.periodId) throw new Error(`period FY${year}: ${JSON.stringify(d)}`);
+  return d;
+};
+const settled = async (uploadId) => {
+  for (let i = 0; i < 120; i++) {
+    const { data } = await admin.from("trial_balance_uploads").select("id, status, processing_result").eq("id", uploadId).single();
+    if (data && !["pending", "processing", "queued", "validating"].includes(data.status)) return data;
+    await sleep(1500);
+  }
+  throw new Error("the check did not finish");
+};
+const processUpload = async (who, uploadId, op) => {
+  const res = await fetch(`${apiUrl}/functions/v1/process-trial-balance`, { method: "POST", headers: { Authorization: `Bearer ${who.token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ uploadId, clientRequestId: op }) });
+  return res.status;
+};
+const certified = async (company, year) => { const { data } = await owner.c.rpc("get_authoritative_certification", { p_company_id: company, p_period_year: year }); return Array.isArray(data) ? data.length > 0 : !!data; };
+/** Upload a CSV for a period (draft → sign → storage → commit → process), review every account once, re-check, return the upload id. */
+const uploadReviewCertify = async (company, entity, year, periodLabel, p, bytes, decisions, section) => {
+  const d = await rpc(owner, "reserve_trial_balance_draft", { p_file_name: `${entity.replace(/\W+/g, "-")}-FY${year}.csv`, p_file_size: bytes.length, p_content_sha256: sha(bytes), p_idempotency_key: key() });
+  const draft = d[0];
+  const s = await fnDraft(owner, { action: "sign", draft_id: draft.draft_id });
+  if (s.body?.outcome !== "signed") throw new Error(`sign: ${JSON.stringify(s.body)}`);
+  const up = await owner.c.storage.from(BUCKET).uploadToSignedUrl(s.body.path, s.body.token, new Blob([bytes], { type: "text/csv" }));
+  if (up.error) throw new Error(`upload: ${up.error.message}`);
+  const c = await fnDraft(owner, { action: "commit", draft_id: draft.draft_id, commit_key: key(), company_id: company, period_year: year, period_id: p.periodId, engagement_id: p.engagementId, confirmation: { entity, period: periodLabel, currency: "TZS" } });
+  if (c.body?.outcome !== "committed") throw new Error(`commit: ${JSON.stringify(c.body)}`);
+  const uploadId = c.body.upload_id;
+  await measure(section, `tb_process_first_check_${year}`, async () => { await processUpload(owner, uploadId, uuid()); return settled(uploadId); }, { size: `${decisions.length} accounts, ${bytes.length} bytes` });
+  if (!(await certified(company, year))) {
+    await measure(section, `tb_review_batch_${year}`, () => rpc(owner, "resolve_account_review_batch", { p_company_id: company, p_upload_id: uploadId, p_client_request_id: uuid(), p_decisions: decisions }), { size: `${decisions.length} decisions` });
+    const op = uuid();
+    const { data: src } = await owner.c.from("trial_balance_uploads").select("source_file_hash").eq("id", uploadId).single();
+    await rpc(owner, "tbu_request_reprocess", { p_upload_id: uploadId, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
+    await measure(section, `tb_process_recheck_${year}`, async () => { await processUpload(owner, uploadId, op); return settled(uploadId); }, { size: `${decisions.length} accounts` });
+  }
+  if (!(await certified(company, year))) throw new Error(`FY${year} of ${entity} is not certified after review`);
+  return uploadId;
+};
+
+// ── Reporting preparation (the same server functions the pages call) ─────────────────────────────────────────────────
+const prepareNotes = async (company, year) => {
+  await rpc(preparer, "fs_decide_requirement", { p_company_id: company, p_period_year: year, p_requirement_id: "smes.note.share_capital", p_decision: "applicable", p_reason: "The entity has share capital", p_request_id: uuid() });
+  for (const id of NOT_APPLICABLE) await rpc(preparer, "fs_decide_requirement", { p_company_id: company, p_period_year: year, p_requirement_id: id, p_decision: "not_applicable", p_reason: "None in the periods presented", p_request_id: uuid() });
+  for (const [id, text] of Object.entries(NOTES)) await rpc(preparer, "fs_record_disclosure", { p_company_id: company, p_period_year: year, p_requirement_id: id, p_body: text, p_source_ref: "Notes v1", p_request_id: uuid() });
+};
+const explainFindings = async (company, year) => {
+  await rpc(preparer, "close_review_refresh_findings", { p_company_id: company, p_period_year: year });
+  const st = await rpc(preparer, "close_review_finding_states", { p_company_id: company, p_period_year: year });
+  for (const f of (st ?? []).filter((x) => !x.resolved)) await rpc(preparer, "close_review_finding_action", { p_finding_id: f.finding_id, p_action: "explain", p_text: "Reviewed against the fixed asset register", p_evidence_ref: "FAR", p_request_id: uuid() });
+};
+const parseEvidence = (company, year, type, role, text, period) => {
+  const r = ingestEvidence({ companyId: company, evidenceType: type, periodRole: role, reportingPeriodId: `FY${year}`, currency: "TZS", scale: 2, text, fileName: `${type.toLowerCase()}.csv`, mimeType: "text/csv", periodStart: period.start, periodEnd: period.end });
+  if (r.outcome !== "PARSED") throw new Error(`${type} ${role} rejected: ${JSON.stringify(r.diagnostics).slice(0, 300)}`);
+  const errs = r.batch.diagnostics.filter((d) => d.severity === "ERROR");
+  if (errs.length) throw new Error(`${type} ${role}: ${JSON.stringify(errs).slice(0, 300)}`);
+  return r.batch;
+};
+const save = (who, company, year, legalName, reportId, newEvidence, idempotencyKey = `attempt-${uuid()}`) =>
+  prepareReportVersion(who.db, signoffClient(who.db), { companyId: company, periodYear: year, legalName, reportId, newEvidence, idempotencyKey, evaluatedAt: new Date().toISOString() });
+
+// ═══ REPRESENTATIVE ═══════════════════════════════════════════════════════════════════════════════════════════════════
+log("\n== REPRESENTATIVE: 18 accounts, two years, the full journey to FINAL and the official pack");
+const A = await newCompany("Workload Representative Ltd");
+const pA25 = await openPeriod(A, 2025, PERIODS.prior.start, PERIODS.prior.end);
+const pA26 = await openPeriod(A, 2026, PERIODS.current.start, PERIODS.current.end);
+await uploadReviewCertify(A, "Workload Representative Ltd", 2025, "1 Jul 2024 – 30 Jun 2025", pA25, Buffer.from(tbCsv(PRIOR)), reviewDecisions(), "representative");
+await uploadReviewCertify(A, "Workload Representative Ltd", 2026, "1 Jul 2025 – 30 Jun 2026", pA26, Buffer.from(tbCsv(CURRENT)), reviewDecisions(), "representative");
+await measure("representative", "assign_presentation_18", () => rpc(preparer, "fs_assign_presentation", { p_company_id: A, p_assignments: Object.entries(ASSIGN).map(([accountKey, lineId]) => ({ accountKey, lineId })), p_reason: "Presentation per the chart of accounts", p_request_id: uuid() }), { size: "18 assignments" });
+await explainFindings(A, 2026);
+await prepareNotes(A, 2026);
+await rpc(preparer, "fs_record_schedule", { p_company_id: A, p_period_year: 2026, p_schedule_id: "ppe", p_rows: PPE_SCHEDULE, p_source_ref: "Fixed asset register FY2026", p_request_id: uuid() });
+await measure("representative", "approve_comparatives", () => rpc(partner, "fs_approve_comparatives", { p_company_id: A, p_period_year: 2026, p_approve: true, p_reason: "Agreed to the signed FY2025 statements", p_request_id: uuid() }));
+for (let i = 0; i < 3; i++) {
+  await measure("representative", "fs_statement_composition", () => rpc(preparer, "fs_statement_composition", { p_company_id: A, p_period_year: 2026 }), { size: "18 accounts" });
+  await measure("representative", "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: A, p_period_year: 2026 }));
+  await measure("representative", "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: A, p_period_year: 2026 }));
+}
+const evA = [
+  parseEvidence(A, 2026, "TRANSACTION_LEDGER", "CURRENT", EVIDENCE.current.TRANSACTION_LEDGER, PERIODS.current), parseEvidence(A, 2026, "EQUITY_MOVEMENTS", "CURRENT", EVIDENCE.current.EQUITY_MOVEMENTS, PERIODS.current),
+  parseEvidence(A, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current), parseEvidence(A, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", EVIDENCE.prior.TRANSACTION_LEDGER, PERIODS.prior),
+  parseEvidence(A, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior), parseEvidence(A, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior),
+];
+const ridA = `rpt-wl-${uuid()}`;
+const savedA = await measure("representative", "save_evidence_and_bind", () => save(preparer, A, 2026, "Workload Representative Ltd", ridA, evA), { size: "6 batches, 7+7 ledger rows" });
+let vA = savedA?.reportVersion ?? 0;
+const rdA = await measure("representative", "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: A, p_report_id: ridA, p_report_version: vA }));
+await check("the representative version is ready for review through the real stack", async () => (rdA?.ready === true ? true : rdA?.blockers ?? rdA));
+await measure("representative", "set_state_REVIEWED", () => rpc(partner, "fs_set_publication_state", { p_report_id: ridA, p_report_version: vA, p_company_id: A, p_state: "REVIEWED", p_reason: "Reviewed" }));
+await measure("representative", "set_state_FINAL", () => rpc(owner, "fs_set_publication_state", { p_report_id: ridA, p_report_version: vA, p_company_id: A, p_state: "FINAL", p_reason: "Approved for issue" }));
+const review = reviewClient(owner.db);
+const outputRef = review.outputRef(ridA, vA);
+let issuanceId = null, officialSha = null, officialBytes = 0;
+const issued = await measure("representative", "issue_official_pack", () => review.issueOfficial(A, 2026, outputRef, (blob, name) => { officialBytes = blob.size; }), { size: "issue RPC + Edge Function store + seal" });
+await check("the official pack of the FINAL version is issued and sealed by the server", async () => {
+  const list = await review.issuances(A, outputRef);
+  const sealed = list.find((i) => i.sealedAt);
+  issuanceId = sealed?.issuanceId ?? null; officialSha = sealed?.contentSha256 ?? null;
+  return issued === "delivered" && !!issuanceId && /^[0-9a-f]{64}$/.test(officialSha ?? "") ? true : { issued, list };
+});
+const verified = await measure("representative", "verify_official_pack", () => review.verify(issuanceId), { size: `${officialBytes} bytes stored` });
+const retrieved = await measure("representative", "retrieve_official_pack", () => review.retrieve(issuanceId));
+await check("verify is intact and retrieve returns the sealed bytes with the matching digest", async () =>
+  (verified?.outcome === "intact" && verified.official === true && retrieved?.outcome === "retrieved" && retrieved.content_sha256 === officialSha && retrieved.document.length > 0 ? true : { verified, retrieved: retrieved?.outcome }));
+await measure("representative", "issue_official_pack_second", () => review.issueOfficial(A, 2026, outputRef, () => {}));
+
+// ── Concurrency: 8 simultaneous saves of ONE attempt; 8 simultaneous composition reads ───────────────────────────────
+log("\n== CONCURRENCY (representative lineage)");
+await rpc(preparer, "fs_record_disclosure", { p_company_id: A, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: "None beyond estimates; reviewed again.", p_source_ref: "Notes v2", p_request_id: uuid() });
+{
+  const k = `attempt-${uuid()}`;
+  const t0 = performance.now();
+  const rs = await Promise.all(Array.from({ length: 8 }, () => save(preparer, A, 2026, "Workload Representative Ltd", ridA, [], k).then((v) => ({ ok: true, v: v.outcome, version: v.reportVersion }), (e) => ({ ok: false, e: String(e.message).slice(0, 120) }))));
+  const ms = Math.round(performance.now() - t0);
+  const versions = await rpc(preparer, "fs_list_saved_versions", { p_company_id: A, p_period_year: 2026 });
+  M.concurrency.duplicate_saves = { parallel: 8, wallMs: ms, outcomes: rs, versionsAfter: versions.length };
+  log(`        [concurrency] 8 simultaneous saves of one attempt: ${ms} ms wall; ${rs.filter((r) => r.ok).length} answered, ${rs.filter((r) => !r.ok).length} refused; versions now ${versions.length}`);
+  const t1 = performance.now();
+  const reads = await Promise.all(Array.from({ length: 8 }, () => rpc(preparer, "fs_statement_composition", { p_company_id: A, p_period_year: 2026 }).then(() => true, () => false)));
+  M.concurrency.parallel_reads = { parallel: 8, wallMs: Math.round(performance.now() - t1), ok: reads.filter(Boolean).length };
+  log(`        [concurrency] 8 simultaneous compositions: ${M.concurrency.parallel_reads.wallMs} ms wall, ${M.concurrency.parallel_reads.ok}/8 ok`);
+}
+
+// ── History growth: 30 further versions on the representative lineage ───────────────────────────────────────────────
+log("\n== HISTORY: 30 further versions (a disclosure changes before each save)");
+for (let i = 1; i <= 30; i++) {
+  await rpc(preparer, "fs_record_disclosure", { p_company_id: A, p_period_year: 2026, p_requirement_id: "smes.note.judgements", p_body: `Judgements, revision ${i} of the history measurement.`, p_source_ref: `Notes h${i}`, p_request_id: uuid() });
+  const t0 = performance.now(); let saved = null, err = null;
+  try { saved = await save(preparer, A, 2026, "Workload Representative Ltd", ridA, []); } catch (e) { err = String(e.message).slice(0, 120); }
+  const saveMs = Math.round(performance.now() - t0);
+  const v = saved?.reportVersion ?? vA;
+  const t1 = performance.now(); const list = await rpc(preparer, "fs_list_saved_versions", { p_company_id: A, p_period_year: 2026 }); const listMs = Math.round(performance.now() - t1);
+  const t2 = performance.now(); let ready = null; try { ready = await rpc(partner, "fs_report_readiness", { p_company_id: A, p_report_id: ridA, p_report_version: v }); } catch (e) { err = (err ?? "") + ` readiness: ${String(e.message).slice(0, 80)}`; } const readyMs = Math.round(performance.now() - t2);
+  const t3 = performance.now(); const comments = await rpc(partner, "fs_review_comments", { p_company_id: A, p_report_id: ridA, p_report_version: v }); const commentsMs = Math.round(performance.now() - t3);
+  const { data: doc } = await owner.c.from("financial_statement_reports").select("report_document").eq("report_id", ridA).eq("report_version", v).single();
+  const docBytes = doc ? Buffer.byteLength(JSON.stringify(doc.report_document)) : null;
+  M.history.push({ i, version: v, saveMs, listVersionsMs: listMs, versionsListed: list.length, readinessMs: readyMs, ready: ready?.ready ?? null, commentsMs, documentBytes: docBytes, error: err });
+  if ([1, 5, 10, 20, 30].includes(i)) log(`        [history] +${i}: version ${v}, save ${saveMs} ms, list ${listMs} ms (${list.length} versions), readiness ${readyMs} ms, comments ${commentsMs} ms, document ${docBytes} B${err ? `, error ${err}` : ""}`);
+}
+
+// ═══ DEMANDING ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+log("\n== DEMANDING: 2,000 accounts, a 20,000-row ledger, 50 equity rows");
+const N_ACCOUNTS = 2000, LEDGER_ROWS = 20000;
+const bigRows = (() => { const rows = []; let total = 0; for (let i = 0; i < N_ACCOUNTS - 1; i++) { const minor = 100 + ((i * 7919) % 9_999_900); rows.push([String(100000 + i), `Invented account ${i} ${["receivables", "deposits", "advances", "prepayments"][i % 4]}`, (minor / 100).toFixed(2), "0.00"]); total += minor; } rows.push(["999999", "Retained earnings and reserves", "0.00", (total / 100).toFixed(2)]); return rows; })();
+const bigCsv = Buffer.from("Account code,Account name,Debit,Credit\n" + bigRows.map((r) => r.join(",")).join("\n") + "\n");
+const bigDecisions = bigRows.map(([code, name]) => ({ account_code: code, account_name: name, proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION",
+  statement: "balance_sheet", classification: code === "999999" ? "equity" : "current_assets", normal_balance: code === "999999" ? "credit" : "debit", is_cash_account: code === "100000" }));
+const bigTotalMinor = bigRows.slice(0, -1).reduce((t, r) => t + Math.round(Number(r[2]) * 100), 0);
+const D = await newCompany("Workload Demanding Ltd");
+// Two years of the same 2,000-account file: FY2025 is reviewed once (2,000 decisions in ONE batch call); FY2026 is then
+// certified by the company-wide mapping on its first check, exactly as a second year is in the product.
+const pD25 = await openPeriod(D, 2025, PERIODS.prior.start, PERIODS.prior.end);
+const pD26 = await openPeriod(D, 2026, PERIODS.current.start, PERIODS.current.end);
+await uploadReviewCertify(D, "Workload Demanding Ltd", 2025, "1 Jul 2024 – 30 Jun 2025", pD25, bigCsv, bigDecisions, "demanding");
+await uploadReviewCertify(D, "Workload Demanding Ltd", 2026, "1 Jul 2025 – 30 Jun 2026", pD26, bigCsv, bigDecisions, "demanding");
+const bigAssign = bigRows.map(([code]) => ({ accountKey: code, lineId: code === "100000" ? "sfp.cash_and_cash_equivalents" : code === "999999" ? "sfp.equity_attributable_to_owners" : "sfp.trade_and_other_receivables" }));
+for (let i = 0; i < bigAssign.length; i += 500) {
+  await measure("demanding", "assign_presentation_chunk_500", () => rpc(preparer, "fs_assign_presentation", { p_company_id: D, p_assignments: bigAssign.slice(i, i + 500), p_reason: "Presentation per the chart of accounts", p_request_id: uuid() }), { size: `${Math.min(500, bigAssign.length - i)} assignments` });
+}
+await measure("demanding", "close_review_refresh_and_explain", () => explainFindings(D, 2026), { size: `${N_ACCOUNTS} accounts` });
+await prepareNotes(D, 2026);
+await measure("demanding", "approve_comparatives", () => rpc(partner, "fs_approve_comparatives", { p_company_id: D, p_period_year: 2026, p_approve: true, p_reason: "Agreed to the FY2025 statements", p_request_id: uuid() }));
+for (let i = 0; i < 3; i++) {
+  await measure("demanding", "fs_statement_composition", () => rpc(preparer, "fs_statement_composition", { p_company_id: D, p_period_year: 2026 }), { size: `${N_ACCOUNTS} accounts` });
+  await measure("demanding", "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: D, p_period_year: 2026 }));
+  await measure("demanding", "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: D, p_period_year: 2026 }));
+}
+// A 20,000-row ledger on the one cash account (10,000 receipts of 1.00, 10,000 payments of 1.00: its movement is the trial
+// balance's, zero), 50 equity rows, the prior year's opening cash. Invented, at the intake limit.
+const bigLedger = (() => { const lines = ["transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line"]; for (let i = 0; i < LEDGER_ROWS; i++) { const day = 1 + (i % 28), month = 7 + (i % 12); const y = month > 12 ? 2026 : 2025; const m = ((month - 1) % 12) + 1; lines.push(`L${i},${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")},100000,Invented ${i % 2 ? "payment" : "receipt"} ${i},${i % 2 ? "" : "1.00"},${i % 2 ? "1.00" : ""},OPERATING,${i % 2 ? "Payments to suppliers and employees" : "Receipts from customers"}`); } return lines.join("\n") + "\n"; })();
+const eq = (bigTotalMinor / 100).toFixed(2);
+const bigEquity = (() => { const lines = ["component,movement_type,amount,description", `Retained earnings and reserves,OPENING_BALANCE,${eq},`]; for (let i = 0; i < 48; i++) lines.push(`Retained earnings and reserves,${i % 2 ? "DIVIDENDS_OR_DISTRIBUTIONS" : "PROFIT_OR_LOSS"},${i % 2 ? "-1.00" : "1.00"},Movement ${i}`); lines.push(`Retained earnings and reserves,CLOSING_BALANCE,${eq},`); return lines.join("\n") + "\n"; })();
+const priorLedger = "transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line\nP1,2024-09-30,100000,Invented receipt,1.00,,OPERATING,Receipts from customers\nP2,2025-03-31,100000,Invented payment,,1.00,OPERATING,Payments to suppliers and employees\n";
+const priorEquity = `component,movement_type,amount,description\nRetained earnings and reserves,OPENING_BALANCE,${eq},\nRetained earnings and reserves,CLOSING_BALANCE,${eq},\n`;
+const priorStatements = "statement_type,line_key,line_label,amount\nCASH_FLOWS,cash_and_cash_equivalents_opening_cf,Cash and cash equivalents at 1 July 2024,1.00\n";
+let evD = [];
+try {
+  evD = [parseEvidence(D, 2026, "TRANSACTION_LEDGER", "CURRENT", bigLedger, PERIODS.current), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
+    parseEvidence(D, 2026, "CASH_ACCOUNT_MAP", "CURRENT", "account_key,category,effect,include_in_cash_flow,note\n100000,BANK_ACCOUNT,ADD,Y,Main account\n", PERIODS.current),
+    parseEvidence(D, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", priorLedger, PERIODS.prior), parseEvidence(D, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", priorEquity, PERIODS.prior),
+    parseEvidence(D, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", priorStatements, PERIODS.prior)];
+  M.notes.push(`demanding evidence parsed by the browser intake code: ledger ${LEDGER_ROWS} rows (${Buffer.byteLength(bigLedger)} bytes), equity 50 rows, plus comparative evidence`);
+} catch (e) { M.failures.push({ section: "demanding", label: "evidence_parse", ok: false, errorClass: "intake_refusal", message: String(e.message).slice(0, 200) }); log(`        [demanding] evidence parse: ${String(e.message).slice(0, 200)}`); }
+const ridD = `rpt-wl-big-${uuid()}`;
+const savedD = evD.length ? await measure("demanding", "save_evidence_and_bind", () => save(preparer, D, 2026, "Workload Demanding Ltd", ridD, evD), { size: `${LEDGER_ROWS}-row ledger, ${Buffer.byteLength(bigLedger)} bytes` }) : null;
+const vD = savedD?.reportVersion ?? 0;
+if (vD) {
+  for (let i = 0; i < 3; i++) {
+    const rd = await measure("demanding", "fs_report_readiness", () => rpc(partner, "fs_report_readiness", { p_company_id: D, p_report_id: ridD, p_report_version: vD }));
+    if (i === 0) { M.demanding.readiness = { ready: rd?.ready ?? null, blockers: (rd?.blockers ?? []).map((b) => String(b).slice(0, 120)).slice(0, 20), blockerCount: rd?.blockers?.length ?? null }; log(`        [demanding] readiness: ready=${rd?.ready} blockers=${rd?.blockers?.length ?? "?"}`); }
+    await measure("demanding", "fs_reporting_dependencies_after_evidence", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: D, p_period_year: 2026 }));
+  }
+  await measure("demanding", "fs_list_saved_versions", () => rpc(preparer, "fs_list_saved_versions", { p_company_id: D, p_period_year: 2026 }));
+  const { data: docD } = await owner.c.from("financial_statement_reports").select("report_document").eq("report_id", ridD).eq("report_version", vD).single();
+  M.demanding.document = { version: vD, documentBytes: docD ? Buffer.byteLength(JSON.stringify(docD.report_document)) : null, facts: docD?.report_document?.facts?.length ?? null };
+  log(`        [demanding] document: version ${vD}, ${M.demanding.document.documentBytes} B, ${M.demanding.document.facts} facts`);
+  const { data: batches } = await owner.c.from("financial_evidence_batches").select("evidence_type, row_count").eq("company_id", D);
+  M.demanding.evidenceBatches = batches ?? null;
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+const med = (xs) => { const s = xs.filter((x) => x.ok).map((x) => x.ms).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
+const summary = {};
+for (const section of ["representative", "demanding"]) for (const [label, xs] of Object.entries(M[section])) if (Array.isArray(xs)) summary[`${section}.${label}`] = { n: xs.length, medianMs: med(xs), maxMs: Math.max(...xs.map((x) => x.ms)), failures: xs.filter((x) => !x.ok).length };
+M.summary = summary;
+fs.writeFileSync(path.join(OUT, "measurements.json"), JSON.stringify({ ...M, checks: results }, null, 2));
+log("\n== Summary (median ms of client-observed API round trips; not CPU)");
+for (const [k, v] of Object.entries(summary)) log(`  ${k.padEnd(58)} n=${v.n} median=${v.medianMs} max=${v.maxMs}${v.failures ? ` FAILURES=${v.failures}` : ""}`);
+log(`  history: save ${M.history[0]?.saveMs}→${M.history.at(-1)?.saveMs} ms, list ${M.history[0]?.listVersionsMs}→${M.history.at(-1)?.listVersionsMs} ms over ${M.history.length} versions; document ${M.history.at(-1)?.documentBytes} B`);
+log(`  failures recorded: ${M.failures.length}`);
+const failed = results.filter((r) => !r.ok);
+console.log(`\nchecks: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
+console.log(failed.length === 0 && results.length > 0 ? "WORKLOAD_MEASUREMENT: COMPLETE" : "WORKLOAD_MEASUREMENT: INCOMPLETE");
+process.exit(failed.length === 0 && results.length > 0 ? 0 : 1);

@@ -371,6 +371,9 @@ jobs:
         if: failure()
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
 
+      - name: Workload measurement through the real stack (representative 18-account journey to FINAL with the official pack issued, verified and retrieved; a 30-version history; 8 simultaneous saves; a demanding 2,000-account trial balance with a 20,000-row ledger - client-observed API round trips recorded in real-app-evidence/workload/measurements.json, never CPU)
+        run: bun scripts/e2e/workloadJourney.mjs real-app-evidence/workload
+
       - name: Trial balance drafts journey (the same stack; real Auth, PostgREST, RLS, Storage and the trial-balance-draft function served from this repository; reserve, signed upload, commit with server copy and SHA-256 verification, lost responses, interruptions resumed, revoked authority, integrity refusal, retention sweeps deleting real objects, committed evidence intact)
         if: always()
         run: bun scripts/e2e/draftJourney.mjs real-app-evidence/drafts
