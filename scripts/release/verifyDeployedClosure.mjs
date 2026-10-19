@@ -17,7 +17,7 @@ export const KNOWN_CLOSURES = Object.freeze({
   // PR #176 (FS first slice): the mapping read is paged (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001). The closure deployed hosted on
   // 2026-10-18 (tb-release-r1, EVIDENCE.md) read at most 1,000 mappings and must be redeployed.
   "process-trial-balance": Object.freeze({
-    required: { sha256: "ffd3ad543d919673d478973466d8753b14675ec619e947eb1e1d043abd992b77", source: "PR #176 since bbb9ad2: account_mappings read page by page (_shared/pagedSelect.ts)" },
+    required: { sha256: "85670e5ae5bd01a737ca7a30f90f9b779784d272ad4422c5d94f36e2f7ba8a6e", source: "PR #176 since bbb9ad2: account_mappings read page by page (_shared/pagedSelect.ts)" },
     known: [{ sha256: "67cbf27b09e68fbfb70c8d1562a5fdd7063f284bf7cdda9280a81edbf25607fd", source: "main through 942764f (deployed hosted 2026-10-18, tb-release-r1): one unpaged select, at most 1,000 mappings applied" }],
   }),
   // PR #176: the official Reporting Pack gains the `retrieve` action; `issue` and `verify` unchanged.

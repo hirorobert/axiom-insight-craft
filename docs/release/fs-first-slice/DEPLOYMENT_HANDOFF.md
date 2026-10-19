@@ -16,7 +16,7 @@ machine), HOSTED-VERIFIED (none yet — every hosted step below produces its own
 | Reviewed reporting journey — batch `fs-journey-r1` | `release/wrappers/20261112100000_fs_review_workflow_and_rollforward.wrapper.sql` | same | four new append-only tables, the reviewer-comment, roll-forward and acceptance functions, blockers v4, `fs_prior_final_reconciliation` v2 |
 | Work bounds — batch `fs-bounds-r1` | `release/wrappers/20261114100000_fs_work_bounds.wrapper.sql` | same | `fs_work_bounds()` and four BEFORE INSERT triggers on `financial_evidence_batches`, `financial_statement_reports`, `fs_review_comments`, `fs_review_comment_events`: NEW rows over a bound are refused by name; existing rows are never touched |
 | Edge Function `seal-reporting-pack` | `supabase/functions/seal-reporting-pack` (+ `_shared/reportingPackSeal.mjs`) | `supabase functions deploy seal-reporting-pack` | adds the `retrieve` action; `issue` and `verify` are unchanged in behaviour (same module, same gates). Required closure `dd4f0855…`; the hosted closure of 2026-10-18 is `095a9ed9…` (`scripts/release/verifyDeployedClosure.mjs`) |
-| Edge Function `process-trial-balance` | `supabase/functions/process-trial-balance` (+ new `_shared/pagedSelect.ts`) | `supabase functions deploy process-trial-balance` | DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the reviewed-mapping read is paged, so companies with more than 1,000 reviewed accounts certify; nothing else changes. Required closure `ffd3ad54…`; the hosted closure of 2026-10-18 is `67cbf27b…` |
+| Edge Function `process-trial-balance` | `supabase/functions/process-trial-balance` (+ new `_shared/pagedSelect.ts`) | `supabase functions deploy process-trial-balance` | DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the reviewed-mapping read is paged, so companies with more than 1,000 reviewed accounts certify; nothing else changes. Required closure `85670e5a…`; the hosted closure of 2026-10-18 is `67cbf27b…` |
 | Frontend (the reporting pages, the review/roll-forward/official-pack panels) | the merged `main` | Lovable Publish | only companies with `fs_set_company_rollout(..., true)` can write; everyone else keeps today's pages |
 
 Not shipped, not changed: `FINANCIAL_STATEMENTS_WORKSPACE_ENABLED` (a separate, older gate; stays `false`), the company
@@ -81,7 +81,7 @@ node scripts/release/verifyDeployedClosure.mjs process-trial-balance <scratch di
 ```
 
 The same two commands for `seal-reporting-pack`. Exit 0 prints `REUSE`: the deployed bundle IS the required closure
-(`ffd3ad54…` / `dd4f0855…`); exit 1 names a known older closure (`67cbf27b…` / `095a9ed9…`, the 2026-10-18 deploys) or an
+(`85670e5a…` / `dd4f0855…`); exit 1 names a known older closure (`67cbf27b…` / `095a9ed9…`, the 2026-10-18 deploys) or an
 unknown one → redeploy. Behaviour checks after a successful deploy:
 
 | Function | Check | Must hold |
