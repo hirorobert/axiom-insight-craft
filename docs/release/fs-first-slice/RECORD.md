@@ -497,6 +497,24 @@ the per-year count):**
 | slowest single call → margin under 8 s | fs_report_readiness 2262 ms → **3.54×** | history_readiness 4908 ms → **1.63×** |
 | cancelled statements / failures | 0; 0 | 0; 0 |
 
+**Final-head run 39294466260 (`a93d2db`, the control in force):** at 500 accounts per year (1,000 read) — composition 267 ms,
+dependencies 1,405 ms, readiness 2,415 ms median / 2,539 ms max (3.15× under the timeout), the 1,000-row-ledger save 7,478 ms
+client wall (several calls), ten further versions saved (history readiness 2,395 ms), 8 simultaneous saves of one attempt
+all answered (17.5 s wall); **8 simultaneous readiness reads of the same company: 2 of 8 within the timeout on this runner
+(8 of 8 at 7,285 ms wall in run 39291284391)** — the one concurrency figure that depends on the runner's two CPUs. At 1,000
+per year (2,000 read) the control answered through PostgREST: `fs_statement_composition` → `over_capacity` in 30 ms, the
+browser's save refused with the exact words ("The statements would read 2,000 accounts across the current (1,000) and
+comparative (1,000) trial balances; this release supports up to 1,000. Saved versions, reviewer comments and issued packs stay
+available. To continue, merge sub-accounts…"), nothing written. Publication at 500 per year was not exercised in CI: the
+candidate's readiness carried a Close Review finding the fixture did not explain (harness, not capacity); its cost is the
+readiness cost plus the lineage lock (`fs_set_publication_state` runs the same blockers).
+
+**The specific optimisation that would widen the envelope (not done here):** `fs_report_readiness` / `fs_reporting_dependencies`
+recompute `fs_evidence_statements` and the composition from the account set and the latest evidence on every call
+(≈1.4 s + ≈1.0 s at 500 accounts per year). Persisting the dependencies identity and the evidence figures per
+(company, period, evidence set) — invalidated by the same events that already stale a version — would make readiness and
+dependencies reads O(1) and remove the concurrent-readiness edge; it is a new authority with its own proof, not a repair.
+
 Decision: `accountsReadPerComposition` = **1,000** — at 500 accounts per year (1,000 read) the slowest single API call was readiness at 2,262 ms (3.5× under the 8 s statement timeout) with 8 of 8 simultaneous saves answered and 8 of 8 simultaneous readiness reads served; at 1,000 per year (2,000 read) the slowest single call was 4,908 ms (1.6×) and under concurrency every one of 8 simultaneous saves and 8 readiness reads was cancelled — not a usable envelope. The readiness blockers in this run are a fixture artefact (an odd netting pair moved the bank by 1.00), fixed for the final run, which also exercises REVIEWED/FINAL and the official pack at 500. The envelope is on what the composition READS (current + comparative
 certified accounts), not on a single trial balance; a company whose two reviewed years total more is refused by name before
 any expensive work, on every path, and keeps every saved version and issued pack. Companies above the envelope are listed by
