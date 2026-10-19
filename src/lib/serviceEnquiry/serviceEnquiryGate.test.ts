@@ -60,6 +60,9 @@ vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: null, loading
 import { ENTRY_POINTS } from "./entryPoints";
 import { SERVICE_ENQUIRY_PHASE1_ENABLED, SERVICE_ENQUIRY_PHASE1_GATE, SERVICE_ENQUIRY_SURFACES, evaluateServiceEnquiryGate, surfacesFor, type ServiceEnquirySurfaces } from "./serviceEnquiryGate";
 
+// RE-CAPTURED once more (2026-10-19, PR #176 merging main b261de3 "Added LinkedIn link to footer") through the same
+// withGate(false) render path: main-Footer.html gains the public LinkedIn link main added without re-capturing this fixture
+// (main's own Golden Fixture / Release Gate jobs were red on efb891e and b261de3 for exactly this assertion). Nothing else differs.
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), "utf8");
 const code = (rel: string) => read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
