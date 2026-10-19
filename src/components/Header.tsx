@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/NotificationBell";
-import { LinkedInLink } from "@/components/LinkedInLink";
 import { NAV, CTA } from "@/constants/copy";
 import { contactHref } from "@/lib/serviceEnquiry/entryPoints";
 import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
@@ -120,7 +119,6 @@ export function Header() {
 
         {/* ── Desktop right actions ─────────────────────────────────── */}
         <div className="hidden lg:flex items-center gap-3">
-          <LinkedInLink variant="icon" />
           {user ? (
             <>
               <NotificationBell userId={user?.id} />
@@ -265,7 +263,6 @@ export function Header() {
                 </Button>
               </>
             )}
-            <LinkedInLink variant="button" className="justify-center" />
           </div>
         </div>
       )}
