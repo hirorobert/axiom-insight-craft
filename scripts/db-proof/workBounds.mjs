@@ -8,12 +8,13 @@
 //
 //   S   the committed bounds are exactly the documented ones (fs-work-bounds/1); anon cannot read them; the trigger
 //       functions are internal
-//   B1  evidence rows per batch (20,000): a 20,000-row ledger built by the browser intake is saved; a 20,002-row file sent
-//       past the intake is refused EVIDENCE_ROWS_LIMIT — no version, no batch
-//   B2  evidence bytes per batch (4 MiB): a 20,000-row file with 250-character descriptions (6+ MB as evidence, which the
-//       intake's 2,000,000-character limit never lets through) is refused EVIDENCE_DOCUMENT_SIZE_LIMIT
-//   B3  evidence rows per version (200,000): a version referencing ten 20,000-row batches (200,000 rows) is accepted; one
-//       referencing eleven (220,000) is refused EVIDENCE_ROWS_PER_VERSION_LIMIT
+//   B1  evidence rows per batch (BOUNDS.evidenceRowsPerBatch, 1,000 at contract 2): a ledger of exactly that many rows built by
+//       the browser intake is saved; a file two rows over, sent past the intake, is refused EVIDENCE_ROWS_LIMIT - no version, no batch
+//   B2  evidence bytes per batch (1 MiB): a bound-sized file with long descriptions (over the byte bound as evidence) is refused
+//       EVIDENCE_DOCUMENT_SIZE_LIMIT with nothing stored
+//   B3  evidence rows per version (BOUNDS.evidenceRowsPerVersion, 3,000 at contract 2 = the browser-reachable combination: one
+//       ledger per period at the row bound plus the small files): a version referencing that many full batches is accepted; one
+//       referencing one more batch is refused EVIDENCE_ROWS_PER_VERSION_LIMIT
 //   B4  report document bytes (8 MiB): a version whose document is just under 8 MiB is accepted; over, refused
 //       REPORT_DOCUMENT_SIZE_LIMIT
 //   B5  versions per lineage (1,000): a lineage brought to 999 versions accepts the 1,000th save through the client and
