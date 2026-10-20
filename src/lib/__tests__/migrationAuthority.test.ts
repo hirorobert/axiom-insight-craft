@@ -51,7 +51,8 @@ describe("migration authority parity", () => {
     // 53: 0055, verified charge outcomes (commercial-p5, 20261102100000), the registered wrapper form (hosted 56).
     // 59: 0058–0061, the trial balance release (tb-release-r1), the registered wrapper form (hosted 59–62).
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
-    expect(r.mirrored.length).toBe(60);
+    // 61: 0063, period-currency correction (currency-c1), the registered final-LF-removed wrapper form (hosted 64).
+    expect(r.mirrored.length).toBe(61);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -71,7 +72,7 @@ describe("migration authority parity", () => {
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
-    expect(r.pending).toEqual(["20261113100000_period_currency_correction.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/period-currency-correction)
+    expect(r.pending).toEqual([]); // currency-c1 (20261113100000) applied as hosted 64 (0063): nothing pending
     // before this migration: pricing-p1 (20261110100000) applied as hosted 63: nothing pending
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");

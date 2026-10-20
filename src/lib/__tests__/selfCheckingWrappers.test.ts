@@ -244,11 +244,12 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // is proven on PG17, but no RELEASE_JOURNAL/drizzle entry exists yet (nothing is marked applied before execution).
     // tb-release-r1 applied 2026-10-18 as hosted 59–62 (0058–0061). Nothing is pending.
     // pricing-p1 (20261110100000) applied 2026-10-18 as hosted 63 (0062).
-    // currency-c1 (20261113100000) is registered (wrapper + all forms) and proven, but PENDING hosted application.
-    const PENDING: string[] = ["20261113100000_period_currency_correction.sql"];
+    // currency-c1 (20261113100000) applied 2026-10-20 as hosted 64 (0063), final-LF-removed form. Nothing is pending.
+    const PENDING: string[] = [];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
-    // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
-    const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);
+    // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 and currency-c1's 0063 with exactly
+    // the final LF removed.
+    const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure", "0063_period_currency_correction"]);
     for (const [tag, e] of entries) {
       const x = e as { source: string; form: string; sha256: string; submittedBytes: number };
       const mirror = fs.readFileSync(path.join(DZ, `${tag}.sql`));
