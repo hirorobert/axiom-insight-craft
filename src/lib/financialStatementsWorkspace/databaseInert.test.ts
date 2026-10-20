@@ -397,6 +397,10 @@ describe("database inertness — schema and functions", () => {
       // append-only decisions and investigations, the '#entity' trigger, and the attempt functions with marked additions
       // (generation-7 manifest; decisions refused for engines that cannot read them). Proven by findingDecisions.mjs.
       "supabase/migrations/20261118100000_tb_finding_decisions.sql",
+      // ...and engine generation 7's pure modules: decisions applied and the evaluation manifest (tbFindingDecisions), and
+      // the bounded imbalance investigation (tbInvestigation). Proven with the real functions by tbHandlerCharacterization.mjs.
+      "supabase/functions/_shared/tbFindingDecisions.ts",
+      "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
