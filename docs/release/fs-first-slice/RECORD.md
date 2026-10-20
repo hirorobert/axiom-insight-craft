@@ -644,6 +644,37 @@ Re-pinned: `fs-capacity-r1`'s wrapper from the bytes of the commit holding the p
 comparative-approval guard and the fs_work_bounds text); `fs-memo-r1`'s bytes are unchanged. Not changed: the accepted
 checkpoint `abc11a0`, `fs-controls-r1`, `fs-journey-r1`, `fs-bounds-r1`, the memo.
 
+### 7.9 Codex's re-review of `2c9f685`: the identity-change refusal, forced deterministically
+
+Codex's one remaining blocker: `publicationConcurrency.mjs` C1 did not deterministically cover the client's identity-change
+refusal — eight simultaneous copies of one attempt sometimes produced it (CI run 39394071839), sometimes not, and the proof's
+acceptance set did not name it. Corrected in one revision of that proof (all resolved findings preserved):
+
+**Where the refusal comes from.** `prepareReportVersion` (the browser's own save code) reads three authorities in three
+PostgREST calls — `fs_statement_composition`, `fs_notes_status`, `fs_reporting_dependencies` — and refuses with
+"The statements or notes changed while the version was being prepared; try again." when the dependencies' identities
+differ from the composition and notes it read. `fs_notes_status` reads the stored evidence batches (a requirement is
+satisfied by evidence), so another copy's evidence commit between the second and third read changes the notes identity.
+This is a client-side refusal (outcome `refused`, no RPC error), distinct from the server's `INVALID` (22023) and
+`REPLAY_CONFLICT` (PT409).
+
+**C1a (the eight-way race) keeps a strict allowlist:** every copy ends saved on the same bound version, or PT409
+`REPLAY_CONFLICT` from the server, or the client's refusal with that exact text, counted explicitly; any other refusal,
+a server `INVALID`, a deadlock or an infrastructure error fails the proof. Two versions, six batches, the retry converges.
+
+**C1b forces the interleaving with explicit barriers (a second company, one attempt, two copies; no sleep orders anything):**
+the browser's client is wrapped so that every RPC and its answer are logged and the FIRST time `fs_notes_status` has
+answered, the preparation waits at a gate — exactly between its second and third authoritative read. The proof asserts the
+paused copy has read the composition and the notes, has not asked for the dependencies and has written nothing (no
+version, no batch). A competing copy of the SAME attempt then runs to completion: saved, version 2, six batches, two
+`fs_commit_revision` calls — attributed to it by its own log. The gate opens; the paused copy is refused BY THE CLIENT with
+the exact reason; its logged notes identity differs from the notes identity the dependencies now carry while the
+composition identity is unchanged; it issued no `fs_commit_revision`; still two versions and six batches. The retry with
+the SAME key through the normal path, on refreshed reads, is saved as version 2 already current with no new commit;
+exactly two versions; six distinct batches, each referenced once by the bound version.
+
+Executed: `publicationConcurrency.mjs` 20/20 (EXECUTED-LOCAL on embedded PostgreSQL 16; CI "Publication concurrency proof").
+
 ## 8. Migration and deployment requirements
 
 - Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. **2026-10-20:** PR #179's `20261113100000` (currency-c1) was applied hosted as drizzle 0063 / hosted id 64 AHEAD of this slice's `20261111100000` / `20261112100000` — out of source order; the registry declares it so (`outOfOrder`, the 0016 precedent) and the parity checker lists only uncovered sources as pending. No FS wrapper's preflight depends on 20261113100000; the five FS batches apply after 0063 as 0064–0068.

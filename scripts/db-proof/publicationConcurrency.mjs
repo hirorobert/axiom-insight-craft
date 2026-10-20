@@ -3,7 +3,15 @@
 // §12) — through the browser's own client code (src/lib/reporting) where a page would act, with a second connection
 // holding the lineage's advisory lock to make the interleavings deterministic:
 //
-//   C1  duplicate submission     8 simultaneous saves of ONE attempt → two versions (evidence, bind), every batch once
+//   C1a duplicate submission     8 simultaneous saves of ONE attempt → two versions (evidence, bind), every batch once; every
+//                                copy ends in exactly one allowed way: saved, PT409 REPLAY_CONFLICT (server), or the client's
+//                                identity-change refusal (exact text) — anything else fails the proof
+//   C1b the identity-change refusal, DETERMINISTIC (Codex re-review of 2c9f685): a second company; one copy is paused by an
+//                                explicit barrier between its authoritative reads (after fs_notes_status answered, before
+//                                fs_reporting_dependencies is asked); a competing copy of the same attempt commits the
+//                                evidence; the paused copy resumes and is refused by the client with the exact reason,
+//                                having issued no fs_commit_revision; the retry with the SAME key converges on two
+//                                versions and six batches, no duplicate; no sleep orders anything
 //   C2  concurrent edits         two people replace the ledger at once → one wins; the other is refused STALE_REPORT_VERSION
 //                                (PT409) with nothing stored; their retry builds on the winner's version
 //   C3  approval vs replacement  REVIEWED and an evidence replacement of the same lineage, released together: both wait
@@ -67,6 +75,27 @@ async function main() {
   const attempt = (who, rid, newEvidence, key = `attempt-${uuid()}`) =>
     prepareReportVersion(who.d, who.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, newEvidence, idempotencyKey: key, evaluatedAt: "2027-02-02T09:00:00.000Z" });
   const versions = (rid) => db.count("SELECT count(*) n FROM public.financial_statement_reports WHERE report_id=$1", [rid]);
+  const batchesOf = (company) => db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE company_id=$1", [company]);
+  const IDENTITY_CHANGED = "The statements or notes changed while the version was being prepared; try again.";
+  /** The browser's client with an explicit barrier: every RPC the preparation issues is logged with its answer, and the FIRST
+   *  time `pauseAfter` has answered, the preparation waits until `resume()` — exactly between two of its authoritative reads. */
+  const gatedClient = (uid, pauseAfter) => {
+    const base = clientDb(db, uid);
+    let resolveGate, resolvePaused, pausedOnce = false;
+    const gate = new Promise((r) => { resolveGate = r; });
+    const paused = new Promise((r) => { resolvePaused = r; });
+    const log = [];
+    const d = {
+      rpc: async (fn, args) => {
+        const r = await base.rpc(fn, args);
+        log.push({ fn, data: r.data, error: r.error });
+        if (fn === pauseAfter && !pausedOnce) { pausedOnce = true; resolvePaused(); await gate; }
+        return r;
+      },
+      select: (table, filters) => base.select(table, filters),
+    };
+    return { d, c: signoffClient(d), log, paused, resume: () => resolveGate() };
+  };
   const latest = (rid) => db.count("SELECT coalesce(max(report_version),0) n FROM public.financial_statement_reports WHERE report_id=$1", [rid]);
   const batches = () => db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE company_id=$1", [A]);
   const pubs = (rid) => db.admin.query("SELECT report_version AS v, state FROM public.financial_statement_publications WHERE report_id=$1 ORDER BY seq", [rid]).then((r) => r.rows);
@@ -106,18 +135,84 @@ async function main() {
     const rs = await Promise.all(Array.from({ length: 8 }, () => settle(attempt(pre, rid, ev, key))));
     const saved = rs.filter((r) => r.ok && r.v.outcome === "saved");
     const failed = rs.filter((r) => !r.ok);
+    // The client's own refusal: a copy whose authoritative reads straddled another copy's evidence commit (C1b forces it).
+    const identityRefused = rs.filter((r) => r.ok && r.v.outcome === "refused" && r.v.reason === IDENTITY_CHANGED);
+    const other = rs.filter((r) => r.ok && r.v.outcome !== "saved" && !(r.v.outcome === "refused" && r.v.reason === IDENTITY_CHANGED));
     const bound = new Set(saved.map((r) => r.v.reportVersion));
     const n = await versions(rid), b = await batches();
-    // The idempotency payload includes "which stored batch this replaces"; a copy that read the store after another copy's
-    // evidence step sends a different payload under the same key and is refused rather than silently merged.
-    if (!(n === 2 && b === 6 && saved.length + failed.length === 8 && saved.length >= 1 && bound.size === 1 && bound.has(2) && failed.every((r) => /PT409:.*REPLAY_CONFLICT/.test(r.e))))
-      return { n, b, saved: saved.length, bound: [...bound], failed: failed.map((r) => r.e).slice(0, 3), refused: rs.filter((r) => r.ok && r.v.outcome !== "saved").map((r) => r.v.reason).slice(0, 3) };
+    // Strict allowlist: saved (all on the same bound version), PT409 REPLAY_CONFLICT from the server (the idempotency payload
+    // includes "which stored batch this replaces"; a copy that read the store after another copy's evidence step sends a
+    // different payload under the same key and is refused rather than silently merged), or the client's identity-change
+    // refusal with its exact text. Any other refusal, a server INVALID, a deadlock or an infrastructure error fails here.
+    if (!(n === 2 && b === 6 && saved.length + failed.length + identityRefused.length === 8 && other.length === 0 && saved.length >= 1 && bound.size === 1 && bound.has(2) && failed.every((r) => /^PT409:REPLAY_CONFLICT/.test(r.e))))
+      return { n, b, saved: saved.length, identityRefused: identityRefused.length, bound: [...bound], failed: failed.map((r) => r.e).slice(0, 3), other: other.map((r) => `${r.v.outcome}: ${r.v.reason}`).slice(0, 3) };
+    console.log(`        C1a outcomes: saved ${saved.length}, REPLAY_CONFLICT ${failed.length}, client identity-change refusal ${identityRefused.length}`);
     const again = await attempt(pre, rid, ev, key);
     return again.outcome === "saved" && again.reportVersion === 2 && again.alreadyCurrent === true && (await versions(rid)) === 2 && (await batches()) === 6 ? true : { again };
   });
   await check("the bound version is ready: the race left nothing half-done", async () => {
     const r = await readiness(rid, 2);
     return r.ready === true ? true : r.blockers;
+  });
+
+  // ── C1b ──────────────────────────────────────────────────────────────────────
+  group("C1b. The identity-change refusal, forced with explicit barriers (a second company, one attempt, two copies)");
+  const D = await W.company(U.owner, "Synthetic SME (deterministic interleaving)");
+  for (const role of ["preparer", "partner", "viewer"]) await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [D, U[role], role]);
+  await W.rollout(D, true);
+  await check("the second company is prepared through the real functions (two certified years, presentation, Close Review, notes, schedule, comparatives)", async () => { await prepareReporting(db, { ...W, A: D }, k, { year: Y }); return (await batchesOf(D)) === 0 ? true : { batches: await batchesOf(D) }; });
+  const parseD = (type, role = "CURRENT") => {
+    const y = role === "CURRENT" ? Y : Y - 1;
+    const body = (role === "CURRENT" ? EVIDENCE_FY2026 : EVIDENCE_FY2025_COMPARATIVE)[type];
+    const r = ingestEvidence({ companyId: D, evidenceType: type, periodRole: role, reportingPeriodId: `FY${Y}`, currency: "TZS", scale: 2, text: body, fileName: `${type.toLowerCase()}-${y}.csv`, periodStart: `${y}-01-01`, periodEnd: `${y}-12-31` });
+    if (r.outcome !== "PARSED") throw new Error(`${type} rejected: ${JSON.stringify(r).slice(0, 300)}`);
+    return r.batch;
+  };
+  const evD = [...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "CASH_ACCOUNT_MAP"].map((t) => parseD(t)), ...["TRANSACTION_LEDGER", "EQUITY_MOVEMENTS", "PRIOR_PERIOD_STATEMENTS"].map((t) => parseD(t, "COMPARATIVE"))];
+  const ridD = `rpt-conc-det-${uuid()}`;
+  const keyD = `attempt-${uuid()}`;
+  const attemptD = (who, key = keyD) => prepareReportVersion(who.d, who.c, { companyId: D, periodYear: Y, legalName: "Synthetic SME Limited", reportId: ridD, newEvidence: evD, idempotencyKey: key, evaluatedAt: "2027-02-02T09:00:00.000Z" });
+  let pausedCopy, competing;
+  await check("barrier: the paused copy has read the composition and the notes for its evidence step and stops BEFORE asking for the dependencies; nothing of it is written", async () => {
+    pausedCopy = gatedClient(U.preparer, "fs_notes_status");
+    pausedCopy.result = settle(attemptD(pausedCopy));
+    await pausedCopy.paused;
+    const fns = pausedCopy.log.map((x) => x.fn);
+    const ok = fns.includes("fs_statement_composition") && fns.at(-1) === "fs_notes_status" && !fns.includes("fs_reporting_dependencies") && !fns.includes("fs_commit_revision")
+      && (await versions(ridD)) === 0 && (await batchesOf(D)) === 0;
+    return ok ? true : { fns, versions: await versions(ridD), batches: await batchesOf(D) };
+  });
+  await check("while it waits, a competing copy of the SAME attempt commits the evidence step and the bind step: version 2, six batches, two fs_commit_revision calls - all attributed to that copy", async () => {
+    competing = gatedClient(U.preparer, "none");
+    const r = await attemptD(competing);
+    const commits = competing.log.filter((x) => x.fn === "fs_commit_revision" && !x.error).length;
+    const ok = r.outcome === "saved" && r.reportVersion === 2 && commits === 2 && (await versions(ridD)) === 2 && (await batchesOf(D)) === 6
+      && pausedCopy.log.filter((x) => x.fn === "fs_commit_revision").length === 0;
+    return ok ? true : { r, commits, versions: await versions(ridD), batches: await batchesOf(D) };
+  });
+  await check("resumed, the paused copy is refused BY THE CLIENT with the exact reason: the notes identity it read differs from the one the dependencies now carry (the composition is unchanged); it issued no fs_commit_revision; still two versions and six batches", async () => {
+    pausedCopy.resume();
+    const r = await pausedCopy.result;
+    const notes = pausedCopy.log.find((x) => x.fn === "fs_notes_status")?.data;
+    const comp = pausedCopy.log.find((x) => x.fn === "fs_statement_composition")?.data;
+    const deps = pausedCopy.log.find((x) => x.fn === "fs_reporting_dependencies")?.data;
+    const commits = pausedCopy.log.filter((x) => x.fn === "fs_commit_revision").length;
+    const ok = r.ok && r.v.outcome === "refused" && r.v.reason === IDENTITY_CHANGED
+      && typeof notes?.statusSha256 === "string" && typeof deps?.notesStatusSha256 === "string" && notes.statusSha256 !== deps.notesStatusSha256
+      && comp?.compositionSha256 === deps?.compositionSha256
+      && commits === 0 && (await versions(ridD)) === 2 && (await batchesOf(D)) === 6;
+    if (ok) console.log(`        C1b refusal: client-side, outcome refused, reason "${r.v.reason}"; notes ${notes.statusSha256.slice(0, 12)}… → ${deps.notesStatusSha256.slice(0, 12)}…, composition unchanged ${String(comp.compositionSha256).slice(0, 12)}…`);
+    return ok ? true : { r, notes: notes?.statusSha256, depsNotes: deps?.notesStatusSha256, comp: comp?.compositionSha256, depsComp: deps?.compositionSha256, commits, versions: await versions(ridD), batches: await batchesOf(D) };
+  });
+  await check("the retry with the SAME key through the normal preparation path, on refreshed reads, converges: saved, version 2 already current, no new commit; exactly two versions, six distinct batches each referenced by the bound version", async () => {
+    const retry = gatedClient(U.preparer, "none");
+    const r = await attemptD(retry);
+    const commits = retry.log.filter((x) => x.fn === "fs_commit_revision").length;
+    const ids = await db.admin.query("SELECT evidence_batch_ids AS ids FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=2", [ridD]);
+    const refs = ids.rows[0]?.ids ?? [];
+    const distinct = await db.count("SELECT count(DISTINCT evidence_batch_id) n FROM public.financial_evidence_batches WHERE company_id=$1", [D]);
+    const ok = r.outcome === "saved" && r.reportVersion === 2 && r.alreadyCurrent === true && commits === 0 && (await versions(ridD)) === 2 && (await batchesOf(D)) === 6 && distinct === 6 && refs.length === 6 && new Set(refs).size === 6;
+    return ok ? true : { r, commits, versions: await versions(ridD), batches: await batchesOf(D), distinct, refs: refs.length };
   });
 
   // ── C2 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
