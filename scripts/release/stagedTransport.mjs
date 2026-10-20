@@ -304,6 +304,33 @@ export function transportForms() {
   return f.map((x) => ({ ...x, bytes: Buffer.byteLength(x.text), hashes: journalHashes(x.text) }));
 }
 
+/**
+ * The REGISTERED submission forms of the six transport entries (migration name → exact rendered identity), recorded
+ * BEFORE any hosted application. A journal mirror is accepted only as exactly the rendered text (no final LF) or that
+ * text plus one LF; renderBootstrap()/renderApply() must keep reproducing these literals.
+ */
+export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
+  fs_release_staged_transport: Object.freeze({ role: "bootstrap", bytes: 8922, sha256: "ead3ca14299acdde48b07eae48f57cb08f94d9fd8674f59cc8d8d4136c22daab", withFinalLf: "7cc407593a96bc36acfd54c38046636df4f9d949cf6c38a905927803c407584a" }),
+  fs_controls_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5867, sha256: "8af5bb82e90c01feb72d0cb10dc0a15c421ce1be88089f08395a2601effebeb0", withFinalLf: "9d71a3993ba6e4433c7e83bc92317554af4386e92926feafd5eda13df24e6ddb" }),
+  fs_journey_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5894, sha256: "3367021535ee63fecdefca8b065bf4cbea6be461a440060de4f9377a80d30245", withFinalLf: "d644cebc8cafd80de9cb5c232ee127624daeb4d5e6c59c46cda74fadba1f668d" }),
+  fs_bounds_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5846, sha256: "ec43cefbbe14192f5260ab335ca302efba09b8f45bee36d80a800d234af7be1d", withFinalLf: "1ea163f4eee0f995e690a99206e743f0eeafdc8779090355c27e9bcd76c1a99a" }),
+  fs_capacity_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5869, sha256: "7b938e2d4526db7fd0d563b0573d67565232a27e715d22ad5210befa758a1f32", withFinalLf: "34cddd7ff59bd968a222647ecd0f0cd085472ad05b9832870ff1842334272205" }),
+  fs_memo_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5843, sha256: "8bbf0e2d7331de77723513e69df2e1b0ab7e679cc3579fdbd8b2f19302aa0894", withFinalLf: "28083f1823b77a7a3ca73d3401aeed9aa1a53f5b3b2a10873ebdc969beb04bd7" }),
+});
+
+/** Checks a journal mirror `text` of tag `tag` as a transport entry. Returns { covers?, problems }. */
+export function checkTransportMirror(tag, text) {
+  const f = transportForms().find((x) => tag.endsWith(`_${x.name}`));
+  if (!f) return { problems: [`${tag} is not a registered transport entry`] };
+  const reg = REGISTERED_TRANSPORT_FORMS[f.name];
+  const problems = [];
+  if (!reg || reg.bytes !== f.bytes || reg.sha256 !== f.hashes[0] || reg.withFinalLf !== f.hashes[1]) problems.push(`${f.name}: the rendering no longer equals its registered form`);
+  const h = sha256(Buffer.from(text, "utf8"));
+  if (text !== f.text && text !== f.text + "\n") problems.push(`${tag} is not exactly the registered ${f.name}`);
+  if (reg && h !== reg.sha256 && h !== reg.withFinalLf) problems.push(`${tag}: SHA-256 ${h} is not a registered form of ${f.name}`);
+  return f.role === "apply" ? { covers: f.source, problems } : { problems };
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const files = renderAll();
   if (process.argv.includes("--write")) {
