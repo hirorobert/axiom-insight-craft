@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Real-PostgreSQL proof of the transaction memo (20261116100000): the composition and the reporting input are computed ONCE
 // per transaction, every answer is unchanged, the memo never outlives a transaction, and the account-capacity guard still
-// fires. Measured with track_functions on the proof database.
+// fires. Measured with pg_stat_xact_user_functions inside the very transaction that runs the readiness call.
 //
 //   M1  one fs_report_readiness call at 500 accounts per year: _fs_statement_composition_compute runs once and
 //       _fs_reporting_input_compute once (before: 5 and 7 — the duplicate recomputation); readiness is identical
@@ -48,16 +48,6 @@ const fnFrom = (file, name) => { const m = migrationText(file).match(FN(name)); 
 
 async function main() {
   db = await openDatabase("transaction_memo_proof");
-  // Function statistics for this database (new connections pick it up; the pool opens its connections after this).
-  // Function statistics for THIS database, whatever its name (embedded or external); the pool opens its connections after this.
-  const dbname = (await db.one("SELECT current_database() d")).d;
-  await db.admin.query(`ALTER DATABASE "${dbname}" SET track_functions = 'all'`);
-  await db.admin.query("SET track_functions = 'all'");
-  // Connections the pool already holds predate the ALTER DATABASE and would report no function statistics (CI run
-  // 39374190705: every count 0 under the memo, the counts present only once the pool had reconnected). Set it on each of them.
-  const held = []; for (let i = 0; i < db.pool.totalCount; i++) held.push(await db.pool.connect());
-  for (const c of held) await c.query("SET track_functions = 'all'");
-  for (const c of held) c.release();
   group("Replay");
   await check(`${FILE} is in the chain and the whole chain applies`, async () => (!chainFiles().includes(FILE) ? `${FILE} missing` : (await applyChain(db)) ?? true));
   await refused("re-applying is refused by its preflight", "P0001", () => db.admin.query(migrationText(FILE)), "PREFLIGHT_REFUSED");
@@ -97,9 +87,25 @@ async function main() {
   const saved = await prepareReportVersion(pre, signoffClient(pre), { companyId: A, periodYear: Y, legalName: "Synthetic 500", reportId: rid, newEvidence: ev, idempotencyKey: `attempt-${uuid()}`, evaluatedAt: new Date().toISOString() });
   if (saved.outcome !== "saved") throw new Error(`setup: the save was not saved: ${saved.reason}`);
   const v = saved.reportVersion;
-  const calls = async (names) => { const r = await db.admin.query("SELECT funcname, calls, round(total_time) ms FROM pg_stat_user_functions WHERE schemaname='public' AND funcname = ANY($1)", [names]); const o = {}; for (const x of r.rows) o[x.funcname] = { calls: Number(x.calls), ms: Number(x.ms) }; return o; };
-  const reset = () => db.admin.query("SELECT pg_stat_reset()");
   const COMPUTE = ["_fs_statement_composition_compute", "_fs_reporting_input_compute", "fs_statement_composition", "fs_reporting_input"];
+  // One readiness call as PostgREST would run it (one transaction, the partner's claims), with the function statistics of THAT
+  // transaction read before it commits (pg_stat_xact_user_functions): exact counts, independent of the shared collector's
+  // flush timing (CI runs 39374190705 and 39375957485 read 0 from pg_stat_user_functions before the backend had flushed).
+  const readinessMeasured = async () => {
+    const c = await db.pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL track_functions = 'all'"); await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.sub', $1, true)", [U.partner]);
+      const t0 = performance.now();
+      const r = await c.query("SELECT public.fs_report_readiness($1, $2, $3) AS rd", [A, rid, v]);
+      const ms = Math.round(performance.now() - t0);
+      const st = await c.query("SELECT funcname, calls, round(total_time) AS ms FROM pg_stat_xact_user_functions WHERE schemaname = 'public' AND funcname = ANY($1)", [COMPUTE]);
+      await c.query("COMMIT");
+      const counts = {}; for (const x of st.rows) counts[x.funcname] = { calls: Number(x.calls), ms: Number(x.ms) };
+      for (const n of COMPUTE) counts[n] ??= { calls: 0, ms: 0 };
+      return { ms, rd: r.rows[0].rd, counts };
+    } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
+  };
   const identity = async () => {
     const comp = await rpc(pre, "fs_statement_composition", { p_company_id: A, p_period_year: Y });
     const notes = await rpc(pre, "fs_notes_status", { p_company_id: A, p_period_year: Y });
@@ -111,11 +117,9 @@ async function main() {
   group("M1  one readiness call at 500 accounts per year: each authority computed once");
   let withMemo;
   await check("fs_statement_composition and fs_reporting_input are each COMPUTED once inside one fs_report_readiness (the wrappers are entered several times)", async () => {
-    await reset();
-    const t0 = performance.now();
-    const rd = await rpc(partner, "fs_report_readiness", { p_company_id: A, p_report_id: rid, p_report_version: v });
-    withMemo = { ms: Math.round(performance.now() - t0), rd };
-    const c = await calls(COMPUTE);
+    const m = await readinessMeasured();
+    withMemo = { ms: m.ms, rd: m.rd };
+    const c = m.counts;
     console.log(`        readiness with the memo: ${withMemo.ms} ms in process; compute calls ${JSON.stringify(c)}`);
     return c._fs_statement_composition_compute?.calls === 1 && c._fs_reporting_input_compute?.calls === 1 && (c.fs_statement_composition?.calls ?? 0) >= 2 && (c.fs_reporting_input?.calls ?? 0) >= 2 ? true : c;
   });
@@ -130,11 +134,9 @@ async function main() {
   try {
     await check("control removed (the compute texts under the public names): the same identities and readiness; the composition is computed 5 times and the input 7 times in one readiness call", async () => {
       const plain = await identity();
-      await reset();
-      const t0 = performance.now();
-      await rpc(partner, "fs_report_readiness", { p_company_id: A, p_report_id: rid, p_report_version: v });
-      withoutMemo = { ms: Math.round(performance.now() - t0) };
-      const c = await calls(COMPUTE);
+      const m = await readinessMeasured();
+      withoutMemo = { ms: m.ms };
+      const c = m.counts;
       console.log(`        readiness without the memo: ${withoutMemo.ms} ms in process; public-name calls ${JSON.stringify(c)}`);
       return JSON.stringify(plain) === JSON.stringify(memoised) && (c.fs_statement_composition?.calls ?? 0) >= 4 && (c.fs_reporting_input?.calls ?? 0) >= 6 ? true : { plain, memoised, c };
     });
