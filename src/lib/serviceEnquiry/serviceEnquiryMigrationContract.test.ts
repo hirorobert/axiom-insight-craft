@@ -84,6 +84,7 @@ describe("migration hygiene", () => {
       "20261110100000_unlimited_team_members.sql",
       "20261111100000_fs_publication_controls.sql",
       "20261112100000_fs_review_workflow_and_rollforward.sql",
+      "20261113100000_period_currency_correction.sql",
       "20261114100000_fs_work_bounds.sql",
       "20261115100000_fs_account_capacity.sql",
       "20261116100000_fs_transaction_memo.sql",

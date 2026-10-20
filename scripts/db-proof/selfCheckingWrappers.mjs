@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "fs-memo-r1"
+const DRIZZLE_FAILURE = BATCH.id === "currency-c1"
+  ? { object: "public.correct_period_currency(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid)", rolledBack: "SELECT to_regprocedure('public.get_period_currency_correction(uuid)') IS NULL AND to_regclass('public.uq_fpe_currency_request') IS NULL AND position('currency_corrected' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fpe_action'))) = 0 AND position('axiom.period_currency_correction' IN pg_get_functiondef('public.fiscal_periods_processing_lock()'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-memo-r1"
   ? { object: "public._fs_statement_composition_compute(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public._fs_statement_composition_compute(uuid,integer)') IS NULL AND to_regprocedure('public._fs_memo_get(text)') IS NULL AND position('_fs_memo_get' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "fs-capacity-r1"
   ? { object: "public.fs_account_capacity(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_account_capacity(uuid,integer)') IS NULL AND (public.fs_work_bounds() ->> 'contract') = 'fs-work-bounds/1' AND position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }

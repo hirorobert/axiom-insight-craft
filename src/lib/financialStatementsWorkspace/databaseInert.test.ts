@@ -383,6 +383,12 @@ describe("database inertness — schema and functions", () => {
       // _fs_*_compute names (their latest texts, name changed), the public names as transaction-local memo wrappers, two
       // internal memo helpers. No table, column, index, policy or grant of an existing object changes. Proven by transactionMemo.mjs.
       "supabase/migrations/20261116100000_fs_transaction_memo.sql",
+      // Period-currency correction (owner-approved recovery repair, 20261113100000): a NEW forward-only migration — one
+      // history action and request index, the processing lock redefined with one marked branch, a read and one authorised
+      // operation. No row changed. Proven on PostgreSQL by periodCurrencyCorrection.mjs. The pure currency-label reader the
+      // browser loads lazily to warn before an upload (no edge function imports it).
+      "supabase/migrations/20261113100000_period_currency_correction.sql",
+      "supabase/functions/_shared/tbCurrencyLabels.ts",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -691,6 +697,9 @@ describe("database inertness — schema and functions", () => {
       // Unlimited team members: the loopback-only real-PostgreSQL proof of 20261110100000 (over the full chain, with
       // customers created under the former seat model). No deploy behaviour.
       "scripts/db-proof/unlimitedTeamMembers.mjs",
+      // Period-currency correction: the loopback-only real-PostgreSQL proof of 20261113100000 (reproduces the locked
+      // currency on the chain without the repair, then proves the correction). No deploy behaviour.
+      "scripts/db-proof/periodCurrencyCorrection.mjs",
       // The owner's READ-ONLY impact-detection queries for repairs A, B and C (SELECTs only; run in a read-only
       // transaction by accountIdentity.mjs). No deploy behaviour.
       "scripts/db-preflight/processingIntegrityImpact.sql",

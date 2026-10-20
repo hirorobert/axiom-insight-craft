@@ -60,6 +60,7 @@ export function CurrentTrialBalanceCard({
   historyCount,
   replaceRefusal = null,
   onDismissReplaceRefusal,
+  resolution,
 }: {
   fileName: string;
   uploadedAt: string;
@@ -80,6 +81,9 @@ export function CurrentTrialBalanceCard({
   /** A replacement file refused before upload, in words; shown persistently next to Replace (role="alert"). */
   replaceRefusal?: string | null;
   onDismissReplaceRefusal?: () => void;
+  /** A recovery the server supports for this exact result (e.g. correcting the period's currency), shown above the
+   *  actions. Absent: none. The page renders it only when the server says the recovery is possible or explains why not. */
+  resolution?: ReactNode;
 }) {
   const tone = TONE[verdict.tone];
   const [optionsOpen, setOptionsOpen] = useState(fileOptionsOpen);
@@ -171,6 +175,10 @@ export function CurrentTrialBalanceCard({
             </div>
           ))}
         </dl>
+      )}
+
+      {resolution && (
+        <div className="border-t border-border px-5 py-4 sm:px-7" data-testid="trial-balance-resolution">{resolution}</div>
       )}
 
       {(verdict.primaryAction || hasOptions || replaceRefusal) && (

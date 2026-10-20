@@ -246,10 +246,11 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // pricing-p1 (20261110100000) applied 2026-10-18 as hosted 63 (0062). fs-controls-r1 (8bbb022) is registered
     // (wrapper + all forms) and proven, but PENDING hosted application.
     // fs-journey-r1 (fe17272) is registered (wrapper + all forms) and proven, but PENDING hosted application as well.
+    // currency-c1 (20261113100000, PR #179) is registered (wrapper + all forms) and proven, but PENDING hosted application.
     // fs-memo-r1 (c17809e, the transaction memo, 20261116100000) is registered and proven the same way, PENDING after the four.
     // fs-capacity-r1 (c17809e, the account capacity, 20261115100000) is registered and proven the same way, PENDING after the three.
     // fs-bounds-r1 (c17809e, the work bounds, 20261114100000) is registered and proven the same way, PENDING hosted application after both.
-    const PENDING: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"];
+    const PENDING: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261113100000_period_currency_correction.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure"]);

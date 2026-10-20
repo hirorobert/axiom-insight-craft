@@ -641,6 +641,14 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 28076, sha256: "53b907224151ed5c9a281f9866fcdb70660ead81e2c4ecbd265529d37b37f721" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 28075, sha256: "01155f3f3de4c1e20894cfab673c65895408788165d4873ea612a32c0690c63c" }),
   }),
+  // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application.
+  // Authored, PENDING hosted application.
+  "20261113100000_period_currency_correction.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 34382, sha256: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d" }),
+    finalLfRemoved: Object.freeze({ bytes: 34381, sha256: "cbb154b4a4c5f8b840c699ce0a66088775dd73e8d5bdad7bc8e3825fecb92746" }),
+    wrapper: Object.freeze({ bytes: 35956, sha256: "723baa6cc28cefd0e82ffacb40ff2514aec8f0666d4b28a2c06e268214fb528a" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc" }),
+  }),
 });
 
 /**

@@ -94,7 +94,7 @@ const APP = "http://127.0.0.1:4173";
 // ── Accounts: four real users with generated test passwords; plans granted the way an operator records them ───────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb"), noPlan: mk("noplan") };
+const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb"), noPlan: mk("noplan"), ownerC: mk("ownerc") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -111,6 +111,7 @@ async function grantPlan(userId) {
 }
 await grantPlan(U.owner.id);
 await grantPlan(U.ownerB.id);
+await grantPlan(U.ownerC.id);
 const asUser = async (u) => {
   const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { error } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
@@ -202,6 +203,14 @@ async function widths(name) {
 const writeFile = (name, text) => { const f = path.join(OUT, "files", name); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); return f; };
 const tbCurrent = writeFile("mto-holdings-trial-balance-fy2026.csv", tbCsv(CURRENT));
 const tbPrior = writeFile("mto-holdings-trial-balance-fy2025.csv", tbCsv(PRIOR));
+// The currency journey (invented): the same balanced trial balance with its amount columns labelled TZS, labelled USD, and
+// labelled with two currencies; and a small unlabelled one that does not balance (its check is refused, so nothing is
+// accepted in the period's currency).
+const relabel = (debit, credit) => tbCsv(CURRENT).replace(/^Account code,Account name,Debit,Credit\n/, `Account code,Account name,${debit},${credit}\n`);
+const tbLabelledTzs = writeFile("mlima-invented-tb-labelled-tzs.csv", relabel("Debit TZS", "Credit TZS"));
+const tbLabelledUsd = writeFile("mlima-invented-tb-labelled-usd.csv", relabel("Debit USD", "Credit USD"));
+const tbMixed = writeFile("mlima-invented-tb-mixed-labels.csv", relabel("Debit TZS", "Credit USD"));
+const tbUnbalanced = writeFile("mlima-invented-tb-unbalanced.csv", "Account code,Account name,Debit,Credit\n10457,Invented bank,1000,\n30111,Invented capital,,900\n");
 const evidenceFiles = Object.fromEntries(EVIDENCE_SLOTS.map(([slot, y, k]) => [slot, writeFile(`${y}-${k.toLowerCase()}.csv`, EVIDENCE[y][k])]));
 
 let A = null;      // company id
@@ -272,7 +281,10 @@ async function main() {
   await check("Trial Balance › Intake sets 1 Jul 2025 – 30 Jun 2026 and the prior period 1 Jul 2024 – 30 Jun 2025 (TZS)", async () => {
     await go(`${base}/trial-balance/intake`, "Start date");
     await setByLabel("Start date", PERIODS.current.start); await setByLabel("End date", PERIODS.current.end);
-    if (!(await chooseCurrency("Reporting currency", "TZS"))) return "the reporting currency could not be chosen";
+    // The period already exists (first run, TZS): its currency is shown read-only with the server's rule, never editable.
+    const readOnly = await page.evaluate(() => document.querySelector('[data-testid="period-currency-readonly"]')?.textContent ?? null);
+    if (readOnly !== null) { if (readOnly.trim() !== "TZS") return { readOnlyCurrency: readOnly }; }
+    else if (!(await chooseCurrency("Reporting currency", "TZS"))) return "the reporting currency could not be chosen";
     await setByLabel("Also set up the prior period", true);
     await sleep(300);
     await setByLabel("Prior start date", PERIODS.prior.start); await setByLabel("Prior end date", PERIODS.prior.end);
@@ -786,6 +798,240 @@ async function main() {
     await widths("21-no-plan-continued");
     return !failure && kept[0] === "Pwani Invented Supplies Ltd" && kept[1] === "TZS" && drafts.length === 1 && drafts[0].state === "committed"
       && co.length === 1 && co[0].name === "Pwani Invented Supplies Ltd" ? true : { failure, kept, drafts, co };
+  });
+
+  startGroup("Currency: read before processing; a refused currency is corrected through the one server operation (invented data)");
+  await signOut(); await signIn(U.ownerC);
+  const ownerCApi = await asUser(U.ownerC);
+  let C = null, periodC = null, upC = null;
+  const fillCard = async (currency) => {
+    await setByLabel("Entity name", "Mlima Invented Foods Ltd");
+    await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
+    await setByLabel("Ends on", "2026-06-30");
+    const ok = await chooseCurrency("Trial balance currency", currency);
+    await sleep(500);
+    return ok;
+  };
+  const chooseFirstFile = async (file) => {
+    if (await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-change-file"]'))) { await page.click('[data-testid="first-upload-change-file"]'); await sleep(300); }
+    await page.setFiles('[data-testid="first-upload-input"]', [file]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+  };
+  /** Waits until `cond` (evaluated in the page) has held continuously for `holdMs`; throws after `timeout`. */
+  const waitSteady = async (cond, holdMs, timeout) => {
+    const end = Date.now() + timeout; let since = null;
+    while (Date.now() < end) {
+      if (await page.evaluate(cond)) { since ??= Date.now(); if (Date.now() - since >= holdMs) return; } else since = null;
+      await sleep(100);
+    }
+    throw new Error(`condition did not hold steadily for ${holdMs} ms within ${timeout} ms`);
+  };
+  const text = (id) => page.evaluate((i) => document.querySelector(`[data-testid="${i}"]`)?.textContent ?? null, id);
+  const reviewC = () => `/workspace/${C}/2026/trial-balance/review`;
+  const reloadCard = async () => { await go(reviewC(), ""); await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 }); await sleep(1200); };
+  const latestUpload = async () => ((await admin.from("trial_balance_uploads").select("id, file_path, file_size, source_file_hash, processing_attempt, processing_result, status, uploaded_at")
+    .eq("company_id", C).order("uploaded_at", { ascending: false }).limit(1)).data ?? [])[0];
+  const BUCKET = "trial-balance-files";
+  const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
+  /** What a currency correction must never change: the upload rows, the stored source bytes, every certification. */
+  const integrity = async () => {
+    const ups = (await admin.from("trial_balance_uploads").select("id, file_path, file_size, source_file_hash, processing_attempt, processing_result").eq("company_id", C).order("id")).data ?? [];
+    const bytes = [];
+    for (const u of ups) { const d = await admin.storage.from(BUCKET).download(u.file_path); bytes.push(d.data ? sha(Buffer.from(await d.data.arrayBuffer())) : `missing:${d.error?.message}`); }
+    const certs = (await admin.from("tb_certifications").select("*").in("upload_id", ups.map((u) => u.id)).order("id")).data ?? [];
+    const runs = (await admin.from("engine_runs").select("id").eq("company_id", C)).data ?? [];
+    return { ups: sha(JSON.stringify(ups)), bytes, certs: sha(JSON.stringify(certs)), certCount: certs.length, runs: runs.length };
+  };
+
+  await check("first upload: the file's TZS labels are shown against the chosen USD before anything runs; 'Start' lists the conflict and creates nothing", async () => {
+    await go("/dashboard", "Check your trial balance");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await chooseFirstFile(tbLabelledTzs);
+    if (!(await fillCard("USD"))) return "the currency could not be chosen";
+    await page.waitForSelector('[data-testid="first-upload-file-currency"][data-kind="conflict"]', { timeout: 30000 });
+    const note = await text("first-upload-file-currency");
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-problems"]', { timeout: 10000 });
+    const problems = await text("first-upload-problems");
+    await widths("22-currency-precheck-conflict");
+    const companies = ((await ownerCApi.from("companies").select("id")).data ?? []).length;
+    return /labels its amounts in TZS/.test(note) && /not USD/.test(note) && /labelled TZS/.test(problems) && companies === 0 ? true : { note, problems, companies };
+  });
+  await check("'Use TZS' is an explicit choice: the currency becomes TZS only on that click, and the labels then match", async () => {
+    const before = await page.evaluate(() => document.querySelector('[data-testid="confirm-currency"]')?.dataset.value);
+    await page.click('[data-testid="first-upload-use-file-currency"]');
+    await page.waitForSelector('[data-testid="first-upload-file-currency"][data-kind="match"]', { timeout: 10000 });
+    const after = await page.evaluate(() => document.querySelector('[data-testid="confirm-currency"]')?.dataset.value);
+    return before === "USD" && after === "TZS" ? true : { before, after };
+  });
+  await check("mixed labels (TZS and USD) are refused before anything runs: no currency choice can fix the file", async () => {
+    await chooseFirstFile(tbMixed);
+    if (!(await fillCard("TZS"))) return "the currency could not be chosen";
+    await page.waitForSelector('[data-testid="first-upload-file-currency"][data-kind="mixed"]', { timeout: 30000 });
+    const note = await text("first-upload-file-currency");
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitForSelector('[data-testid="first-upload-problems"]', { timeout: 10000 });
+    const problems = await text("first-upload-problems");
+    await widths("23-currency-precheck-mixed");
+    const use = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-use-file-currency"]'));
+    const companies = ((await ownerCApi.from("companies").select("id")).data ?? []).length;
+    return /more than one currency/.test(note) && /more than one currency/.test(problems) && !use && companies === 0 ? true : { note, problems, use, companies };
+  });
+  await check("set-up: an unlabelled file that does not balance, in USD; its check is refused (nothing accepted)", async () => {
+    await chooseFirstFile(tbUnbalanced);
+    if (!(await fillCard("USD"))) return "the currency could not be chosen";
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitFor(() => /\/trial-balance\/review\?upload=/.test(location.pathname + location.search) || !!document.querySelector('[data-testid="first-upload-failure"]'), [], { timeout: 180000, label: "the result or a refusal" });
+    const failure = await text("first-upload-failure");
+    if (failure) return { failure };
+    await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
+    C = ((await ownerCApi.from("companies").select("id")).data ?? [])[0]?.id ?? null;
+    const p = (await admin.from("fiscal_periods").select("id, reporting_currency").eq("company_id", C)).data ?? [];
+    periodC = p[0]?.id ?? null;
+    const ups = (await admin.from("trial_balance_uploads").select("id").eq("company_id", C)).data ?? [];
+    const certs = (await admin.from("tb_certifications").select("is_blocking").in("upload_id", ups.map((u) => u.id))).data ?? [];
+    return p.length === 1 && p[0].reporting_currency === "USD" && certs.length > 0 && certs.every((c) => c.is_blocking === true) ? true : { p, certs };
+  });
+  await check("Replace with a mixed-label file is refused before upload, next to Replace; the current trial balance is unchanged", async () => {
+    await page.setFiles('[data-testid="trial-balance-replace-input"]', [tbMixed]);
+    await page.waitForSelector('[data-testid="trial-balance-replace-refusal"]', { timeout: 30000 });
+    const t = await text("trial-balance-replace-refusal");
+    const ups = (await admin.from("trial_balance_uploads").select("id").eq("company_id", C)).data ?? [];
+    return /more than one currency/.test(t) && ups.length === 1 ? true : { t, ups };
+  });
+  await check("Replace with the TZS-labelled file is stated before anything runs, with the supported route; nothing changed yet", async () => {
+    await page.setFiles('[data-testid="trial-balance-replace-input"]', [tbLabelledTzs]);
+    await page.waitForSelector('[data-testid="replace-currency-confirm"]', { timeout: 30000 });
+    const t = await text("replace-currency-confirm");
+    await widths("24-currency-replace-confirm");
+    const ups = (await admin.from("trial_balance_uploads").select("id").eq("company_id", C)).data ?? [];
+    return /labels its amounts in TZS/.test(t) && /reports in USD/.test(t) && ups.length === 1 ? true : { t, ups };
+  });
+  await check("the original dead end: the check is refused for the currency, and no pre-existing path can change the period's currency", async () => {
+    await page.click('[data-testid="replace-currency-anyway"]');
+    await page.waitForSelector('[data-testid="currency-correction-offer"]', { timeout: 180000 });
+    // The page refreshes the card while the replacement's check finishes (run 39267740177 read it mid-refresh: offer and
+    // the card's own action briefly absent, both present in the screenshot taken just after). Read only once the server's
+    // result is final AND the offer and the card's action have both been on screen continuously for a full second.
+    for (let i = 0; i < 90; i++) { const u = await latestUpload(); if (u?.processing_result?.ingestion && u.status !== "processing") break; await sleep(1000); }
+    await waitSteady(() => !!document.querySelector('[data-testid="currency-correction-offer"]') && !!document.querySelector('[data-testid="trial-balance-primary-action"]'), 1000, 60000);
+    upC = (await latestUpload())?.id;
+    const codes = ((await latestUpload())?.processing_result?.ingestion?.issues ?? []).map((x) => x.code);
+    // The paths that existed before this repair: a direct change of the period (the processing lock and the fence refuse it).
+    const direct = await ownerCApi.from("fiscal_periods").update({ reporting_currency: "TZS" }).eq("id", periodC).select("id");
+    const still = (await admin.from("fiscal_periods").select("reporting_currency").eq("id", periodC)).data?.[0]?.reporting_currency;
+    const offer = await text("currency-correction-offer");
+    const emphasis = await page.evaluate(() => document.querySelector('[data-testid="trial-balance-primary-action"]')?.dataset.actionEmphasis ?? null);
+    await widths("25-currency-correction-offer");
+    return codes.includes("CURRENCY_MISMATCH") && (!!direct.error || (direct.data ?? []).length === 0) && still === "USD"
+      && /labelled TZS; the period reports in USD/.test(offer) && (emphasis === null || emphasis === "secondary") ? true : { codes, direct: direct.error?.message ?? direct.data, still, offer, emphasis };
+  });
+  await check("downstream record: with management inputs recorded on this trial balance, the card names them and offers no correction", async () => {
+    const ins = await admin.from("management_inputs").insert({ company_id: C, upload_id: upC, period_year: 2026, created_by: U.ownerC.id }).select("id");
+    if (ins.error) return `insert: ${ins.error.message}`;
+    await reloadCard();
+    await page.waitForSelector('[data-testid="currency-correction-blocked"]', { timeout: 30000 });
+    const t = await text("currency-correction-blocked"), route = await text("currency-correction-route");
+    const control = await page.evaluate(() => !!document.querySelector('[data-testid="currency-correction-start"]'));
+    await widths("26-currency-blocked-downstream");
+    await admin.from("management_inputs").delete().eq("id", ins.data[0].id);
+    return /management inputs/.test(t) && /Replace the file with one whose amounts are in USD/.test(route) && !control ? true : { t, route, control };
+  });
+  await check("locked period: the card says it is locked and offers no correction; the server refuses the operation", async () => {
+    const lock = await admin.from("fiscal_periods").update({ status: "locked" }).eq("id", periodC).select("id");
+    if (lock.error) return `lock: ${lock.error.message}`;
+    await reloadCard();
+    await page.waitForSelector('[data-testid="currency-correction-blocked"]', { timeout: 30000 });
+    const t = await text("currency-correction-blocked");
+    const control = await page.evaluate(() => !!document.querySelector('[data-testid="currency-correction-start"]'));
+    const api = await ownerCApi.rpc("correct_period_currency", { p_period_id: periodC, p_new_currency: "TZS", p_expected_currency: "USD", p_reason: "locked check", p_request_id: crypto.randomUUID() });
+    await widths("27-currency-blocked-locked");
+    await admin.from("fiscal_periods").update({ status: "open" }).eq("id", periodC);
+    return /locked/.test(t) && !control && api.data?.outcome === "not_eligible" && api.data?.block?.code === "PERIOD_LOCKED" ? true : { t, control, api: api.data ?? api.error };
+  });
+  await check("unauthorised: a workspace member without prepare_close (viewer) and another workspace's owner can neither read nor correct it", async () => {
+    const m = await admin.from("firm_members").insert({ company_id: C, user_id: U.noPlan.id, role: "viewer", accepted_at: new Date().toISOString() });
+    if (m.error) return `viewer: ${m.error.message}`;
+    const viewer = await asUser(U.noPlan), other = await asUser(U.ownerB);
+    const args = { p_period_id: periodC, p_new_currency: "TZS", p_expected_currency: "USD", p_reason: "not allowed", p_request_id: crypto.randomUUID() };
+    const out = [];
+    for (const c of [viewer, other]) {
+      out.push((await c.rpc("get_period_currency_correction", { p_period_id: periodC })).data?.outcome, (await c.rpc("correct_period_currency", args)).data?.outcome);
+    }
+    const still = (await admin.from("fiscal_periods").select("reporting_currency").eq("id", periodC)).data?.[0]?.reporting_currency;
+    return out.every((o) => o === "not_found") && still === "USD" ? true : { out, still };
+  });
+  let before = null;
+  await check("correction with a reason, three quick clicks, the re-check request failing on the network: one correction, recorded; the card shows the saved currency and 'Re-check now'", async () => {
+    await reloadCard();
+    await page.waitForSelector('[data-testid="currency-correction-offer"]', { timeout: 30000 });
+    before = await integrity();
+    // Fail exactly the first re-check request at the network (CDP Fetch), as a dropped connection would.
+    let failed = 0;
+    const onPaused = (msg) => {
+      if (msg.sessionId !== page.sessionId || msg.method !== "Fetch.requestPaused") return;
+      const id = msg.params.requestId;
+      if (failed === 0 && msg.params.request.method === "POST") { failed++; void page.send("Fetch.failRequest", { requestId: id, errorReason: "ConnectionFailed" }); }
+      else void page.send("Fetch.continueRequest", { requestId: id });
+    };
+    browser.listeners.add(onPaused);
+    await page.send("Fetch.enable", { patterns: [{ urlPattern: "*/rest/v1/rpc/tbu_request_reprocess*" }] });
+    try {
+      await page.click('[data-testid="currency-correction-start"]');
+      await page.waitForSelector('[data-testid="currency-correction-reason"]', { timeout: 10000 });
+      await page.fill('[data-testid="currency-correction-reason"]', "The invented ledger is kept in TZS; USD was chosen by mistake.");
+      await sleep(200);
+      await page.evaluate(() => { const b = document.querySelector('[data-testid="currency-correction-confirm"]'); b.click(); b.click(); b.click(); });
+      await page.waitFor(() => !!document.querySelector('[data-testid="currency-correction-recheck-failed"], [data-testid="currency-correction-done"]'), [], { timeout: 60000, label: "the correction answer" });
+    } finally {
+      await page.send("Fetch.disable"); browser.listeners.delete(onPaused);
+    }
+    const shown = await text("currency-correction-recheck-failed");
+    await widths("28-currency-recheck-failed");
+    const p = (await admin.from("fiscal_periods").select("reporting_currency").eq("id", periodC)).data ?? [];
+    const ev = (await admin.from("fiscal_period_events").select("detail, actor_user_id, actor_member_id, occurred_at").eq("period_id", periodC).eq("action", "currency_corrected")).data ?? [];
+    return failed === 1 && /now reports in TZS \(saved\)/.test(shown ?? "") && p[0]?.reporting_currency === "TZS" && ev.length === 1 && ev[0].detail.from === "USD" && ev[0].detail.to === "TZS"
+      && /kept in TZS/.test(ev[0].detail.reason) && ev[0].actor_user_id === U.ownerC.id && !!ev[0].actor_member_id && !!ev[0].occurred_at ? true : { failed, shown, p, ev };
+  });
+  await check("the correction changed no amount, source file, upload row or certification, and created no processing record", async () => {
+    const after = await integrity();
+    return JSON.stringify(after) === JSON.stringify(before) && before.bytes.every((b) => /^[0-9a-f]{64}$/.test(b)) ? true : { before, after };
+  });
+  await check("reload after the correction: the card reads the saved TZS and the recorded re-check, and offers 'Re-check now'", async () => {
+    await reloadCard();
+    await page.waitForSelector('[data-testid="currency-correction-recheck-needed"]', { timeout: 30000 });
+    const t = await text("currency-correction-recheck-needed");
+    await widths("29-currency-reload-recheck-needed");
+    return /now reports in TZS/.test(t) && /checked against USD/.test(t) ? true : t;
+  });
+  await check("'Re-check now' retries through the normal path as a new attempt; the result is no longer refused for the currency; nothing else changed", async () => {
+    await page.click('[data-testid="currency-correction-recheck"]');
+    await page.waitForSelector('[data-testid="currency-correction-done"]', { timeout: 60000 });
+    let last = null;
+    const done = (u) => { const codes = (u?.processing_result?.ingestion?.issues ?? []).map((x) => x.code); return !!u && u.processing_attempt >= 2 && u.processing_result?.ingestion?.currency === "TZS" && !codes.includes("CURRENCY_MISMATCH"); };
+    for (let i = 0; i < 90 && !done(last); i++) { last = await latestUpload(); if (!done(last)) await sleep(2000); }
+    await reloadCard();
+    const panel = await page.evaluate(() => !!document.querySelector('[data-testid="currency-correction"]'));
+    await widths("30-currency-rechecked");
+    const after = await integrity();
+    const u = ((await admin.from("trial_balance_uploads").select("id, file_path, file_size, source_file_hash").eq("id", upC)).data ?? [])[0];
+    const b0 = ((await admin.from("trial_balance_uploads").select("id").eq("company_id", C)).data ?? []).length;
+    // Same source bytes; earlier certifications kept (one more, from the re-check); exactly the re-check's processing records.
+    return done(last) && !panel && JSON.stringify(after.bytes) === JSON.stringify(before.bytes) && after.certCount > before.certCount && after.runs > before.runs && !!u && b0 === 2
+      ? true : { attempt: last?.processing_attempt, currency: last?.processing_result?.ingestion?.currency, codes: (last?.processing_result?.ingestion?.issues ?? []).map((x) => x.code), panel, before, after };
+  });
+  await check("accepted certification (another workspace, accepted in TZS, awaiting review counts): Replace with a USD-labelled file is refused with the reason; no 'Replace anyway'", async () => {
+    await signOut(); await signIn(U.ownerB);
+    const ups = (await admin.from("trial_balance_uploads").select("id").eq("company_id", B)).data ?? [];
+    const certs = (await admin.from("tb_certifications").select("is_blocking, requires_review").in("upload_id", ups.map((u) => u.id))).data ?? [];
+    await go(`/workspace/${B}/2026/trial-balance/review`, "");
+    await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 }); await sleep(1000);
+    await page.setFiles('[data-testid="trial-balance-replace-input"]', [tbLabelledUsd]);
+    await page.waitForSelector('[data-testid="trial-balance-replace-refusal"]', { timeout: 30000 });
+    const t = await text("trial-balance-replace-refusal");
+    const anyway = await page.evaluate(() => !!document.querySelector('[data-testid="replace-currency-anyway"]'));
+    await widths("31-currency-blocked-accepted");
+    return certs.some((c) => c.is_blocking === false) && /labelled USD/.test(t) && /already accepted in TZS/.test(t) && !anyway ? true : { certs, t, anyway };
   });
 
   startGroup("Every request stayed on loopback");

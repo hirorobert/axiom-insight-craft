@@ -585,6 +585,14 @@ jobs:
           createdb unlimited_members_proof
           node scripts/db-proof/unlimitedTeamMembers.mjs
 
+      - name: Period currency correction proof (20261113100000 — on the chain without the repair a refused currency label locks the period for good; with it the one authorised operation corrects the currency only while nothing depends on it, naming the exact record that prevents it otherwise (an accepted certification including one awaiting review, a running check, a locked period, any downstream record); serialised with every dependent writer (before, in flight, during, after) under one total lock-wait budget including the request-id lock (order, timeout, deadlock, cross-company contention); composite foreign keys, unsupported shapes and row-level-security visibility fail closed; records old and new currency, reason, actor and time; version-checked and idempotent; concurrency with finalize, re-check and downstream writes; 12 duplicate clicks; the re-check through the normal path as a new attempt; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/period_currency_proof
+        run: |
+          createdb period_currency_proof
+          node scripts/db-proof/periodCurrencyCorrection.mjs
+
       - name: I1-C layout-assist controls proof (the real layout-assist function refuses before any read while no provider is wired; provider disabled with both approval gates required; versioned, revocable, append-only workspace consent by manage_members; daily quota and monthly cost cap reserved pessimistically under 12-way concurrency; idempotent runs completed once; a test provider injected into the real function sees only the minimized sample, the suggestion is validated against the whole file and confirmed only through the existing layout function; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -861,6 +869,15 @@ jobs:
           RELEASE_BATCH: fs-memo-r1
         run: |
           createdb fs_memo_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Period currency correction wrapper proof (the same reviewed apply-and-register proof for the currency-c1 wrapper, 20261113100000 at 5581158; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/currency_c1_wrappers_proof
+          RELEASE_BATCH: currency-c1
+        run: |
+          createdb currency_c1_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
       - name: Verified charge outcomes proof (20261102100000, DEFECT-VERIFIED-CHARGE-DROPPED-001; the dropped charge reproduced through local expiry, review and a still-open session; late payments placed; payments after a replacement and second transactions recorded once as recovery cases; duplicates, a replacement race, resolutions and history)

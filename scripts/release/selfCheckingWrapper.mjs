@@ -142,6 +142,12 @@ export const FS_MEMO_SOURCE_COMMIT = "c17809e25c42d1032b416b3c980737f00fc4e282";
 export const FS_MEMO_WRAPPED_SOURCES = Object.freeze([
   "20261116100000_fs_transaction_memo.sql",
 ]);
+/** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Authored, PENDING
+ * hosted application. */
+export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc032557";
+export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
+  "20261113100000_period_currency_correction.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -162,6 +168,7 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "fs-bounds-r1", commit: FS_BOUNDS_SOURCE_COMMIT, sources: FS_BOUNDS_WRAPPED_SOURCES, postcondition: "docs/release/fs-bounds-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-capacity-r1", commit: FS_CAPACITY_SOURCE_COMMIT, sources: FS_CAPACITY_WRAPPED_SOURCES, postcondition: "docs/release/fs-capacity-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-memo-r1", commit: FS_MEMO_SOURCE_COMMIT, sources: FS_MEMO_WRAPPED_SOURCES, postcondition: "docs/release/fs-memo-r1/postcondition.sql" }),
+  Object.freeze({ id: "currency-c1", commit: CURRENCY_C1_SOURCE_COMMIT, sources: CURRENCY_C1_WRAPPED_SOURCES, postcondition: "docs/release/period-currency-correction/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;
