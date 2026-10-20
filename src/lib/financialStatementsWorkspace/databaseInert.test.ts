@@ -681,6 +681,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/engagementPortfolio.mjs",
       // Finding decisions: the loopback-only real-PostgreSQL proof of 20261118100000. No deploy behaviour.
       "scripts/db-proof/findingDecisions.mjs",
+      // Trial-balance workflow rollout: the loopback-only proof of every deployment stage (main → both migrations →
+      // generation 7 → floor 7) with the real old and new handlers. No deploy behaviour.
+      "scripts/db-proof/tbDecisionsRollout.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
