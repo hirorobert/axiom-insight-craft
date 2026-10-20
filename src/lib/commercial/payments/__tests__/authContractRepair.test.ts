@@ -182,7 +182,7 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
     expect(getBranch).toMatch(/return jsonResponse/);
   });
 
-  it("the service-role client is constructed only inside the POST branch, strictly after the ownership-proving anon-key client, and is used for exactly claim_verification_attempt, the claimed intent's own row, and the shared settlement path — nothing else", () => {
+  it("the service-role client is constructed only inside the POST branch, strictly after the ownership-proving anon-key client, and is used for exactly claim_verification_attempt, the claimed intent's own row, the shared settlement path and the owner's abandon — nothing else", () => {
     const readClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SUPABASE_ANON_KEY");
     const serviceClientIndex = paymentStatusCode.indexOf("createClient(SUPABASE_URL, SERVICE_KEY)");
     expect(readClientIndex).toBeGreaterThan(-1);
@@ -190,14 +190,30 @@ describe("commercial-payment-status — genuine owner-scoping, no cross-customer
     expect(readClientIndex).toBeLessThan(serviceClientIndex);
 
     const serviceClientToEnd = paymentStatusCode.slice(serviceClientIndex);
-    const rpcCallsAfter = serviceClientToEnd.match(/serviceClient\.rpc\(/g) ?? [];
-    expect(rpcCallsAfter.length).toBe(1);
-    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('claim_verification_attempt'/);
+    const rpcNames = [...serviceClientToEnd.matchAll(/serviceClient\.rpc\('([a-z_]+)'/g)].map((m) => m[1]);
+    expect(serviceClientToEnd.match(/serviceClient\.rpc\(/g) ?? []).toHaveLength(rpcNames.length);
+    // Recovery and abandon each claim first; the abandon (20261119100000) is the owner's own intent, by the owner-scoped id.
+    expect(rpcNames).toEqual(["claim_verification_attempt", "claim_verification_attempt", "abandon_unpaid_checkout"]);
+    expect(serviceClientToEnd).toMatch(/abandonUnpaidCheckout\(serviceClient, readClient, authResult\.userId, responseData\.intent_id,/);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.rpc\('abandon_unpaid_checkout', \{ p_checkout_intent_id: intentId, p_actor_user_id: userId \}\)/);
+    // Fresh evidence only: the provider is asked under a held claim; a throttled claim answers RETRY_LATER and changes
+    // nothing; the close is reachable only after settlement found nothing final AND a fresh describe reported 'open'.
+    const abandonFn = serviceClientToEnd.slice(serviceClientToEnd.indexOf("async function abandonUnpaidCheckout"));
+    const at = (s: string) => abandonFn.indexOf(s);
+    expect(abandonFn).toMatch(/claim\.reason === 'THROTTLED'\) return await reply\('RETRY_LATER'/);
+    expect(abandonFn).toMatch(/if \(!claim\.claimed\) return await reply\('REFUSED'/);
+    expect(at("claim_verification_attempt")).toBeLessThan(at("settleIntent("));
+    expect(at("'RETRY_LATER'")).toBeLessThan(at("settleIntent("));
+    expect(at("settleIntent(")).toBeLessThan(at("describeCheckout("));
+    expect(at("if (d.status !== 'open') return")).toBeGreaterThan(at("describeCheckout("));
+    expect(at("rpc('abandon_unpaid_checkout'")).toBeGreaterThan(at("if (d.status !== 'open') return"));
+    expect(abandonFn).toMatch(/if \(intent\.status !== 'PENDING'\) return await reply\('NOT_PENDING'/);
     // The commit happens inside settleIntent (_shared/payments/settle.ts), the one path shared with the webhooks.
     expect(serviceClientToEnd).toMatch(/settleIntent\(serviceDbFrom\(serviceClient\), adapter, intent\)/);
-    // The only table read is the claimed intent itself, by the id the owner-scoped read resolved.
-    expect(serviceClientToEnd.match(/serviceClient\.from\(/g) ?? []).toHaveLength(1);
+    // The only table read is the claimed intent itself, by the id the owner-scoped read resolved (directly, or passed in).
+    expect(serviceClientToEnd.match(/serviceClient\.from\(/g) ?? []).toHaveLength(2);
     expect(serviceClientToEnd).toMatch(/serviceClient\.from\('payment_checkout_intents'\)\s*\.select\(SETTLEMENT_INTENT_COLUMNS\)\.eq\('id', responseData\.intent_id\)/);
+    expect(serviceClientToEnd).toMatch(/serviceClient\.from\('payment_checkout_intents'\)\s*\.select\(SETTLEMENT_INTENT_COLUMNS\)\.eq\('id', intentId\)/);
   });
 
   it("a verification/commit attempt can only ever be reached via a successful claim_verification_attempt claim — the durable server-side throttle authority, never an in-process check", () => {

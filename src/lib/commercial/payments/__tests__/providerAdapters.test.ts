@@ -9,7 +9,7 @@ import { createHmac } from "node:crypto";
 import { createPolarAdapter, redactProviderText, sanitizePolarError } from "../../../../../supabase/functions/_shared/payments/providers/polar.ts";
 import { createSnippeAdapter, normaliseTzMobile } from "../../../../../supabase/functions/_shared/payments/providers/snippe.ts";
 import { verifySnippeSignature, verifyStandardWebhook } from "../../../../../supabase/functions/_shared/payments/webhookSignature.ts";
-import { providersFromEnv, selectPaymentProvider, SNIPPE_CUSTOMER_CHECKOUT_ENABLED } from "../../../../../supabase/functions/_shared/payments/routing.ts";
+import { cancelUrlFrom, providersFromEnv, selectPaymentProvider, SNIPPE_CUSTOMER_CHECKOUT_ENABLED } from "../../../../../supabase/functions/_shared/payments/routing.ts";
 import { settleIntent, type ServiceDb } from "../../../../../supabase/functions/_shared/payments/settle.ts";
 import type { ProviderAdapter } from "../../../../../supabase/functions/_shared/payments/contracts.ts";
 
@@ -36,7 +36,7 @@ const polar = (f: ReturnType<typeof mockFetch>) => createPolarAdapter({ environm
 const snippe = (f: ReturnType<typeof mockFetch>) => createSnippeAdapter({ environment: "sandbox", apiKey: "snp_test", webhookSecret: "whsec_snippe-signing-key", webhookUrl: "https://x.supabase.co/functions/v1/commercial-webhook-snippe", apiBase: "https://api.snippe.sh" }, f.impl);
 const params = (over: Partial<Parameters<ProviderAdapter["createCheckout"]>[0]> = {}) => ({
   saffReference: REF, intentId: "intent-1", billingCustomerId: BC, amountMinor: 49000n, currencyCode: "USD", currencyExponent: 2,
-  planCode: "SOLO", planName: "Solo", customerEmail: "owner@example.test", customerName: "Asha Mushi", redirectUrl: `https://cfoclose.com/billing/payment/return?ref=${REF}`,
+  planCode: "SOLO", planName: "Solo", customerEmail: "owner@example.test", customerName: "Asha Mushi", redirectUrl: `https://cfoclose.com/billing/payment/return?ref=${REF}`, cancelUrl: `https://cfoclose.com/plans?unfinished=${REF}`,
   phoneNumber: null, ...over,
 });
 const paidOrder = (over: Record<string, unknown> = {}) => ({
@@ -163,6 +163,19 @@ describe("Polar adapter (merchant of record, USD cards)", () => {
     expect(body.products).toEqual([PRODUCTS.SOLO]);
     expect(body.prices).toEqual({ [PRODUCTS.SOLO]: [{ amount_type: "fixed", price_amount: 49000, price_currency: "usd", tax_behavior: "exclusive" }] });
     expect(body).toMatchObject({ currency: "usd", external_customer_id: BC, allow_discount_codes: false, allow_trial: false, metadata: { saff_reference: REF, billing_customer_id: BC, plan_code: "SOLO" } });
+    // Paid → the order's status page; Polar's own back link (left without paying) → the plans page naming this order, where
+    // the customer resumes it or chooses another plan (20261119100000) — never the "waiting for confirmation" page.
+    expect(body.success_url).toBe(`https://cfoclose.com/billing/payment/return?ref=${REF}`);
+    expect(body.return_url).toBe(`https://cfoclose.com/plans?unfinished=${REF}`);
+  });
+  it("the back link is the configured return URL's own origin plus /plans?unfinished=<encoded order reference> — no other host, path or query survives", () => {
+    expect(cancelUrlFrom("https://cfoclose.com/billing/payment/return", "SAFF-1-AB")).toBe("https://cfoclose.com/plans?unfinished=SAFF-1-AB");
+    expect(cancelUrlFrom("https://staging.cfoclose.com:8443/x/y?z=1#f", "a&b=c")).toBe("https://staging.cfoclose.com:8443/plans?unfinished=a%26b%3Dc");
+  });
+  it("without a separate back link (null), Polar's back link falls back to the order's status page", async () => {
+    const f = mockFetch(() => ({ status: 201, body: { id: CHECKOUT, url: "https://sandbox.polar.sh/checkout/abc", net_amount: 49000 } }));
+    await polar(f).createCheckout(params({ cancelUrl: null }));
+    expect(JSON.parse(String(f.calls[0].init.body)).return_url).toBe(`https://cfoclose.com/billing/payment/return?ref=${REF}`);
   });
   it("refuses before any request: an unconfigured plan, a non-USD offer, a zero amount", async () => {
     const f = mockFetch(() => ({ status: 201, body: {} }));

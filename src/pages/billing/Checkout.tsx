@@ -20,6 +20,7 @@ import { supportHref, SUPPORT_LABEL, PAYMENT_UNAVAILABLE_NOTE } from "@/lib/comm
 import { formatMoney, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { getCheckoutOptions, rememberCheckoutPlan, startCheckout, type CheckoutOptions, type PaymentRoute, type RouteOption } from "@/lib/commercial/checkoutClient";
+import { UnfinishedCheckoutBanner } from "@/components/commercial/UnfinishedCheckoutBanner";
 
 const TZ_MOBILE = /^(?:\+?255|0)[67]\d{8}$/;
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
@@ -55,6 +56,7 @@ export default function Checkout() {
   const [error, setError] = useState<{ text: string; ref: string | null; kind: string } | null>(null);
 
   const [reload, setReload] = useState(0);
+  const [leftNote, setLeftNote] = useState(false);
   const retry = () => { setOptions(null); setLoadError(null); setReload((n) => n + 1); };
   useEffect(() => {
     if (!plan || authLoading || !user) return;
@@ -116,13 +118,9 @@ export default function Checkout() {
       setError({ kind: "uncertain", ref: r.saffReference, text: "We could not confirm whether the payment was started. Do not pay again: check this order first." });
       return;
     }
-    if (r.error === "OPEN_CHECKOUT_OTHER_PLAN" && r.saffReference) {
-      const other = r.previousPlanName ?? "another";
-      setError({ kind: "previous", ref: r.saffReference, text: `You already have an unpaid ${other} plan checkout open. To protect you from paying twice, only one plan checkout can be open at a time. Resume it, or wait until it expires to choose a different plan — the order page shows the exact expiry.` });
-      return;
-    }
-    if (r.error === "OPEN_CHECKOUT_UNFINISHED" && r.saffReference) {
-      setError({ kind: "previous", ref: r.saffReference, text: "Your earlier checkout for this plan was not completed. Open it to check its status with the payment provider and resume it — do not start another payment." });
+    // An open, unpaid checkout (20261105100000): the banner offers Resume and Choose another plan (20261119100000).
+    if ((r.error === "OPEN_CHECKOUT_OTHER_PLAN" || r.error === "OPEN_CHECKOUT_UNFINISHED") && r.saffReference) {
+      setError({ kind: "open", ref: r.saffReference, text: "" });
       return;
     }
     if (r.error.startsWith("CHECKOUT_REQUIRES_SUPPORT")) {
@@ -131,21 +129,20 @@ export default function Checkout() {
         : { kind: "support", ref: null, text: "This change to your plan needs to be arranged with our team. Send us a request and we will set it up." });
       return;
     }
-    setError({ kind: "other", ref: null, text: ERROR_TEXT[r.error] ?? "The payment could not be started. Nothing was charged. Try again, or ask us to activate the plan." });
+    setError({ kind: "other", ref: null, text: ERROR_TEXT[r.error] ?? "The payment could not be started. Nothing was charged. Try again, or contact support." });
   };
 
   return (
     <Shell>
       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Checkout</p>
       <h1 className="mt-2 text-2xl font-semibold" data-testid="checkout-title">{catalogue.name} plan · 12 months</h1>
-      <dl className="mt-6 grid gap-3 border border-border p-4 text-sm sm:grid-cols-2" data-testid="checkout-summary">
-        <div><dt className="text-muted-foreground">Entities</dt><dd className="font-medium">{catalogue.entityCapacity}</dd></div>
-        <div><dt className="text-muted-foreground">Team members</dt><dd className="font-medium">{catalogue.membersUnlimited ? "Unlimited" : "As agreed"}</dd></div>
-        <div><dt className="text-muted-foreground">Term</dt><dd className="font-medium">12 months, no automatic renewal</dd></div>
-      </dl>
+      <p className="mt-2 text-sm text-muted-foreground" data-testid="checkout-summary">
+        {catalogue.entityCapacity === null ? "Entities by agreement" : `${catalogue.entityCapacity} active ${catalogue.entityCapacity === 1 ? "entity" : "entities"}`} · {catalogue.membersUnlimited ? "Unlimited team members" : "Team members as agreed"} · 12 months, no automatic renewal
+      </p>
 
       {sandbox && <p className="mt-4 border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="note" data-testid="checkout-test-mode">Test mode: payments here use the provider's sandbox, and no real money is charged.</p>}
 
+      {leftNote && <p className="mt-4 border border-border px-3 py-2 text-sm" role="status" data-testid="checkout-left-note">Your earlier checkout is closed in CFOClose. Its payment page may stay open until it expires — don't pay on it.</p>}
       {loadError && <p className="mt-6 flex items-start gap-2 text-sm text-destructive" role="alert"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />The payment options could not be loaded. <button type="button" className="font-medium underline" onClick={retry} data-testid="checkout-retry-load">Retry</button></p>}
       {!options && !loadError && <p className="mt-6 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading the payment options…</p>}
 
@@ -165,13 +162,19 @@ export default function Checkout() {
 
       {options && !blocked && open.length > 0 && (
         <>
-          <p className="mt-6 text-sm text-foreground" data-testid="checkout-placement">{placementSentence(options.placement.kind, options.placement.start, catalogue.name)}</p>
+          {options.placement.kind !== "NEW" && <p className="mt-6 text-sm text-foreground" data-testid="checkout-placement">{placementSentence(options.placement.kind, options.placement.start, catalogue.name)}</p>}
           {(options.placement.additional_seats ?? 0) > 0 && (
             <p className="mt-2 text-sm text-foreground" data-testid="checkout-seats-note">
               Your current term has {options.placement.additional_seats} additional named user{options.placement.additional_seats === 1 ? "" : "s"}. They continue until that term ends and are not part of this purchase; arrange them for the new term with our team.
             </p>
           )}
-          <fieldset className="mt-6">
+          {open.length === 1 && (
+            <p className="mt-6 flex items-center gap-2 text-sm text-foreground" data-testid={`route-${open[0].paymentRoute}`}>
+              {open[0].paymentRoute === "CARD" ? <CreditCard className="h-4 w-4 shrink-0" aria-hidden="true" /> : <Smartphone className="h-4 w-4 shrink-0" aria-hidden="true" />}
+              {open[0].paymentRoute === "CARD" ? "Card, on Polar's secure page" : "Mobile money: M-Pesa, Airtel Money, Mixx by Yas or Halotel"}
+            </p>
+          )}
+          {open.length > 1 && <fieldset className="mt-6">
             <legend className="text-sm font-medium">How would you like to pay?</legend>
             <div className="mt-3 grid gap-3">
               {open.map((o) => (
@@ -187,7 +190,7 @@ export default function Checkout() {
                 </label>
               ))}
             </div>
-          </fieldset>
+          </fieldset>}
 
           {chosen?.paymentRoute === "MOBILE_MONEY" && (
             <div className="mt-4">
@@ -202,12 +205,17 @@ export default function Checkout() {
 
           {chosen && (
             <div className="mt-6 border-t border-border pt-4" data-testid="checkout-total">
-              <p className="flex items-baseline justify-between text-sm"><span>Total payable</span><span className="text-lg font-semibold">{formatMoney(chosen.amountMinor ?? 0, chosen.currencyCode ?? "", chosen.currencyExponent ?? 0)}{chosen.paymentRoute === "CARD" ? " + any sales tax" : ""}</span></p>
-              <p className="mt-1 text-xs text-muted-foreground">{chosen.paymentRoute === "CARD" ? "Polar shows the final total, including any tax, before you confirm, and emails your receipt." : "Snippe confirms the payment by message on your phone. Your order and its reference stay in your CFOCLOSE orders."}</p>
+              <p className="flex items-baseline justify-between text-sm"><span>Total</span><span className="text-2xl font-semibold">{formatMoney(chosen.amountMinor ?? 0, chosen.currencyCode ?? "", chosen.currencyExponent ?? 0)}</span></p>
+              <p className="mt-1 text-xs text-muted-foreground">{chosen.paymentRoute === "CARD" ? "Secure card payment by Polar, our merchant of record. Sales tax may apply and is shown before you pay." : "Snippe sends a prompt to your phone; approve it with your PIN."}</p>
             </div>
           )}
 
-          {error && (
+          {error?.kind === "open" && error.ref && (
+            // Cleared (closed just now, or found already closed or paid): read the options again, so the placement reflects
+            // that order; after a close, the old payment page's consequence stays stated above the new payment.
+            <UnfinishedCheckoutBanner key={error.ref} saffReference={error.ref} className="mt-4" onCleared={(reason) => { setError(null); setLeftNote(reason === "left"); retry(); }} />
+          )}
+          {error && error.kind !== "open" && (
             <div className="mt-4 border border-destructive/50 p-3 text-sm" role="alert" data-testid="checkout-error">
               <p>{error.text}</p>
               {error.ref && <Link className="mt-2 inline-block font-medium underline" to={`/billing/payment/return?ref=${encodeURIComponent(error.ref)}`}>{error.kind === "previous" ? "Resume or check the open checkout" : "Open this order"}</Link>}
@@ -216,11 +224,11 @@ export default function Checkout() {
             </div>
           )}
 
-          <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous"} onClick={submit} data-testid="checkout-continue">
+          <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous" || error?.kind === "open"} onClick={submit} data-testid="checkout-continue">
             {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to Polar"}
+            {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : `Pay ${formatMoney(chosen?.amountMinor ?? 0, chosen?.currencyCode ?? "", chosen?.currencyExponent ?? 0)}`}
           </Button>
-          <p className="mt-3 text-xs text-muted-foreground">Your plan starts only once the payment is verified with the provider. Specialist services are not part of any plan.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Your plan starts as soon as the payment is verified.</p>
           <BillingHelpLine className="mt-6 border-t border-border pt-4" subject="Checkout question" />
         </>
       )}

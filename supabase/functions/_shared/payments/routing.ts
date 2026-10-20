@@ -109,6 +109,14 @@ export function returnUrlFrom(env: EnvReader): string | null {
   }
 }
 
+/**
+ * The "left without paying" URL for a hosted checkout: the plans page on the SAME origin as the validated return URL,
+ * carrying the order reference so the page can offer Resume or Choose another plan. Never a separate setting.
+ */
+export function cancelUrlFrom(returnUrl: string, saffReference: string): string {
+  return `${new URL(returnUrl).origin}/plans?unfinished=${encodeURIComponent(saffReference)}`;
+}
+
 export interface ConfiguredProvider { capabilities: PaymentProviderCapabilities; adapter: ProviderAdapter }
 
 /**

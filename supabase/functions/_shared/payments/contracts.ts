@@ -52,6 +52,11 @@ export interface CreateCheckoutParams {
   customerName: string | null;
   /** Where the customer returns to (our own status page). */
   redirectUrl: string;
+  /**
+   * Where a hosted checkout's own "back" link leads when the customer leaves WITHOUT paying (our plans page, which offers
+   * to resume or to choose another plan). null = the provider has no such link; the status page is used instead.
+   */
+  cancelUrl: string | null;
   /** Mobile money only: the payer's number, 255XXXXXXXXX. Never stored by this system. */
   phoneNumber: string | null;
 }

@@ -262,22 +262,30 @@ export async function pollCheckoutStatus(
 ): Promise<{ data: CheckoutStatusResponse | null; error: string | null }> {
   const { supabase } = await import("@/integrations/supabase/client");
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return { data: null, error: "Not authenticated" };
+  if (!session) return { data: null, error: NOT_AUTHENTICATED };
 
   const url = new URL(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`,
   );
   url.searchParams.set("ref", saffReference);
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: { "Authorization": `Bearer ${session.access_token}` },
-  });
-  const json = (await res.json()) as RawCheckoutStatusResponse;
-  if (!res.ok) return { data: null, error: (json as unknown as { error?: string })?.error ?? "Status check failed" };
-
-  return { data: mapRawCheckoutStatusResponse(json), error: null };
+  // A failed request is RETURNED as an error (never thrown): the status page must be able to say so.
+  try {
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${session.access_token}` },
+    });
+    const json = (await res.json().catch(() => null)) as RawCheckoutStatusResponse | null;
+    if (res.status === 401) return { data: null, error: NOT_AUTHENTICATED };
+    if (!res.ok || !json) return { data: null, error: (json as unknown as { error?: string } | null)?.error ?? "Status check failed" };
+    return { data: mapRawCheckoutStatusResponse(json), error: null };
+  } catch {
+    return { data: null, error: "Status check failed" };
+  }
 }
+
+/** The error every payment-status call returns when there is no usable sign-in on this site. */
+export const NOT_AUTHENTICATED = "Not authenticated";
 
 /**
  * Request one bounded recovery-verification attempt via POST to the same
@@ -294,29 +302,68 @@ export async function requestPaymentVerificationRecovery(
 ): Promise<{ data: CheckoutStatusResponse | null; throttled: boolean; retryAfterSeconds: number | null; error: string | null }> {
   const { supabase } = await import("@/integrations/supabase/client");
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return { data: null, throttled: false, retryAfterSeconds: null, error: "Not authenticated" };
+  if (!session) return { data: null, throttled: false, retryAfterSeconds: null, error: NOT_AUTHENTICATED };
 
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`,
-    {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
+  try {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ saffReference }),
       },
-      body: JSON.stringify({ saffReference }),
-    },
-  );
+    );
 
-  if (res.status === 202) {
-    const json = await res.json().catch(() => ({}));
-    return { data: null, throttled: true, retryAfterSeconds: (json as { retryAfterSeconds?: number }).retryAfterSeconds ?? null, error: null };
+    if (res.status === 202) {
+      const json = await res.json().catch(() => ({}));
+      return { data: null, throttled: true, retryAfterSeconds: (json as { retryAfterSeconds?: number }).retryAfterSeconds ?? null, error: null };
+    }
+
+    const json = (await res.json().catch(() => null)) as RawCheckoutStatusResponse | null;
+    if (res.status === 401) return { data: null, throttled: false, retryAfterSeconds: null, error: NOT_AUTHENTICATED };
+    if (!res.ok || !json) return { data: null, throttled: false, retryAfterSeconds: null, error: (json as unknown as { error?: string } | null)?.error ?? "Recovery request failed" };
+    return { data: mapRawCheckoutStatusResponse(json), throttled: false, retryAfterSeconds: null, error: null };
+  } catch {
+    return { data: null, throttled: false, retryAfterSeconds: null, error: "Recovery request failed" };
   }
+}
 
-  const json = (await res.json()) as RawCheckoutStatusResponse;
-  if (!res.ok) return { data: null, throttled: false, retryAfterSeconds: null, error: (json as unknown as { error?: string })?.error ?? "Recovery request failed" };
+/** The server's answer to leaving an unfinished checkout (20261119100000). */
+export type AbandonOutcome = "ABANDONED" | "NOT_PENDING" | "SETTLED" | "PAYMENT_PROCESSING" | "PROVIDER_UNAVAILABLE" | "RETRY_LATER" | "REFUSED" | "UNAVAILABLE";
+const ABANDON_OUTCOMES: readonly AbandonOutcome[] = ["ABANDONED", "NOT_PENDING", "SETTLED", "PAYMENT_PROCESSING", "PROVIDER_UNAVAILABLE", "RETRY_LATER", "REFUSED", "UNAVAILABLE"];
 
-  return { data: mapRawCheckoutStatusResponse(json), throttled: false, retryAfterSeconds: null, error: null };
+/**
+ * Close CFOClose's record of an UNPAID checkout so another plan can be chosen. This never cancels the provider's session
+ * (no provider can): that page stays payable until it expires. The server asks the provider afresh first: a paid session
+ * is committed (SETTLED), never closed; only a session still open and unpaid is closed (ABANDONED). When the provider was
+ * asked moments ago the server does not act on that answer: RETRY_LATER with the wait. Anything unexpected → null.
+ */
+export async function abandonUnfinishedCheckout(
+  saffReference: string,
+): Promise<{ outcome: AbandonOutcome | null; status: CheckoutStatusResponse | null; error: string | null; retryAfterSeconds?: number | null }> {
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { outcome: null, status: null, error: NOT_AUTHENTICATED };
+  try {
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/commercial-payment-status`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ saffReference, action: "abandon" }),
+    });
+    const json = (await res.json().catch(() => null)) as (RawCheckoutStatusResponse & { abandon?: { outcome?: string; retryAfterSeconds?: number } }) | null;
+    if (res.status === 401) return { outcome: null, status: null, error: NOT_AUTHENTICATED };
+    if (!res.ok || !json) return { outcome: null, status: null, error: "Abandon request failed" };
+    const o = json.abandon?.outcome;
+    const outcome = (ABANDON_OUTCOMES as readonly string[]).includes(o ?? "") ? (o as AbandonOutcome) : null;
+    const wait = json.abandon?.retryAfterSeconds;
+    return { outcome, status: json.found === undefined ? null : mapRawCheckoutStatusResponse(json), error: outcome ? null : "Abandon request failed",
+      retryAfterSeconds: typeof wait === "number" && Number.isFinite(wait) ? Math.min(300, Math.max(1, Math.ceil(wait))) : null };
+  } catch {
+    return { outcome: null, status: null, error: "Abandon request failed" };
+  }
 }
 
 function mapRawCheckoutStatusResponse(json: RawCheckoutStatusResponse): CheckoutStatusResponse {

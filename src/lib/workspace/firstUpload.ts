@@ -50,13 +50,15 @@ export interface StartDeps {
   commit(a: { draftId: string; commitKey: string; companyId: string; periodYear: number; periodId: string; engagementId: string;
     confirmation: { entity: string; period: string; currency: string }; replaces?: { uploadId: string; expectedVersion: number } | null }): Promise<{ uploadId: string }>;
   check(a: { uploadId: string; requestId: string }): Promise<CheckOutcome>;
+  /** After a refusal on an existing entity: this person's standing there (get_my_workspace_capabilities); null = unknown. */
+  access?(companyId: string): Promise<{ hasCurrentPlan: boolean | null; canPrepare: boolean; manageBilling: boolean } | null>;
 }
 
 export type StartResult =
   | { kind: "checked"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
   /** The file is added and its check is already running (another request owns it): open that upload to follow it. */
   | { kind: "running"; progress: Required<Pick<StartProgress, "companyId" | "uploadId">> & StartProgress; periodYear: number }
-  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "upload_again" | "replace"; commitId?: string };
+  | { kind: "failed"; step: StartStep; message: string; retryable: boolean; progress: StartProgress; next?: "choose_plan" | "choose_entity" | "upload_again" | "replace"; commitId?: string };
 
 const msg = (e: unknown, fallback: string) => {
   const m = e instanceof Error ? e.message : null;
@@ -68,7 +70,7 @@ const retryableError = (e: unknown) => !(e && typeof e === "object" && "retryabl
 export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKeys, from: StartProgress, onStep?: (s: StartStep) => void): Promise<StartResult> {
   const progress: StartProgress = { ...from };
   if (c.entity.kind === "existing") progress.companyId ??= c.entity.companyId;
-  const fail = (step: StartStep, message: string, retryable: boolean, next?: "choose_plan" | "upload_again"): StartResult =>
+  const fail = (step: StartStep, message: string, retryable: boolean, next?: "choose_plan" | "choose_entity" | "upload_again"): StartResult =>
     ({ kind: "failed", step, message, retryable, progress: { ...progress }, next });
 
   // 1. The entity.
@@ -99,9 +101,16 @@ export async function runStart(deps: StartDeps, c: ConfirmedStart, keys: StartKe
       // NOT_AUTHORISED (42501): for an entity this user just created as its owner, the only missing prerequisite is an
       // active plan with named-user access (open_engagement_with_period requires prepare_close AND a current plan).
       if (e && typeof e === "object" && "kind" in e && (e as { kind: unknown }).kind === "NOT_AUTHORISED") {
-        // An existing entity: the refusal may be this user's permission on it, not a plan — say both, offer no plan as a fix.
-        if (c.entity.kind === "existing") return fail("period", "You can't set up a period for this entity: it needs permission to prepare its trial balance and an active plan. Ask the entity's owner, or choose another entity; your file stays saved as a draft.", false);
-        return fail("period", "Setting up the period needs an active plan for this account. Choose a plan; your entity and file stay saved.", false, "choose_plan");
+        // An existing entity: the one refusal covers two causes (no plan on its account, or no permission here). Ask the
+        // server which, and state only that one with its own action; when it cannot say, state both and offer no plan.
+        if (c.entity.kind === "existing") {
+          const a = deps.access ? await deps.access(c.entity.companyId).catch(() => null) : null;
+          if (a?.hasCurrentPlan === false && a.manageBilling) return fail("period", "Your account has no active plan. Choose a plan to set up this period; your file stays saved as a draft.", false, "choose_plan");
+          if (a?.hasCurrentPlan === false) return fail("period", "This entity's account has no active plan. Ask the account's owner to choose one, or choose another entity; your file stays saved as a draft.", false, "choose_entity");
+          if (a?.hasCurrentPlan === true && !a.canPrepare) return fail("period", "You don't have permission to prepare this entity's trial balance. Ask the entity's owner for access, or choose another entity; your file stays saved as a draft.", false, "choose_entity");
+          return fail("period", "You can't set up a period for this entity: it needs permission to prepare its trial balance and an active plan. Ask the entity's owner, or choose another entity; your file stays saved as a draft.", false, "choose_entity");
+        }
+        return fail("period", "Your account has no active plan. Choose a plan to set up this period; your entity and file stay saved.", false, "choose_plan");
       }
       const invalid = e && typeof e === "object" && "kind" in e && (e as { kind: unknown }).kind === "INVALID";
       return fail("period", msg(e, "The period could not be saved. Try again."), !invalid && retryableError(e));

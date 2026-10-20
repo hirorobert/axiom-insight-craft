@@ -262,7 +262,9 @@ describe("migration directory integrity", () => {
     // 186 -> 187: 20261116100000_fs_transaction_memo.sql (the composition and the reporting input computed once per transaction:
     // the heavy bodies under _fs_*_compute names, the public names memoising wrappers with the same signatures and grants),
     // a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(187);
+    // 187 -> 188: 20261119100000_customer_checkout_abandon.sql (abandon_unpaid_checkout: the owner leaves a provider-verified
+    // unpaid PENDING checkout, audited once; service role only), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(188);
   });
 });
 

@@ -21,8 +21,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { NOT_AUTHENTICATED, pollCheckoutStatus, requestPaymentVerificationRecovery, type CheckoutStatusResponse } from "@/lib/commercial/commercialRpc";
+import { LeaveCheckout } from "@/components/commercial/LeaveCheckout";
+import { safeResumeUrl } from "@/lib/commercial/purchaseJourney";
+import { rememberReturnTo } from "@/lib/commercial/checkoutClient";
 import { AlertCircle, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { Button } from "@/components/ui/button";
@@ -30,7 +33,9 @@ import { displayPlanName, formatLicenceDate } from "@/lib/commercial/billingDisp
 import { formatMoney } from "@/lib/commercial/planOffers";
 import { activationRequestHref } from "@/lib/commercial/offerings";
 
-type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "EXPIRED" | "REVIEW" | "TIMEOUT" | "NO_REF" | "NOT_FOUND";
+type PollPhase = "POLLING" | "CONFIRMED" | "FAILED" | "CANCELLED" | "EXPIRED" | "REVIEW" | "TIMEOUT" | "NO_REF" | "NOT_FOUND" | "SIGN_IN" | "UNREACHABLE";
+/** Consecutive failed reads (no answer at all) before the page says so instead of spinning. */
+const MAX_SILENT_FAILURES = 3;
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLLS = 100; // 5 minutes — a mobile-money prompt can take a few minutes to be approved
@@ -45,6 +50,8 @@ const FINAL: Record<string, PollPhase> = { SUCCEEDED: "CONFIRMED", FAILED: "FAIL
 export default function PaymentReturn() {
   const [searchParams] = useSearchParams();
   const saffRef = searchParams.get("ref");
+  const navigate = useNavigate();
+  const failuresRef = useRef(0);
 
   const [phase, setPhase] = useState<PollPhase>(saffRef ? "POLLING" : "NO_REF");
   const [status, setStatus] = useState<CheckoutStatusResponse | null>(null);
@@ -61,7 +68,15 @@ export default function PaymentReturn() {
   );
   const confirmedEffectiveEnd = status?.purchasedEffectiveEnd ?? status?.effectiveEnd ?? null;
 
+  /** A read that got no answer: say so after a few in a row (never an endless spinner), and ask for a sign-in when that is why. */
+  const noteFailure = useCallback((error: string | null) => {
+    if (error === NOT_AUTHENTICATED) { clearInterval(timerRef.current!); setPhase("SIGN_IN"); return; }
+    failuresRef.current += 1;
+    if (failuresRef.current >= MAX_SILENT_FAILURES) setPhase((p) => (p === "POLLING" ? "UNREACHABLE" : p));
+  }, []);
+
   const applyStatus = useCallback((data: CheckoutStatusResponse) => {
+    failuresRef.current = 0;
     // A read-only GET never carries the provider's session state: keep the last provider-verified answer for the same
     // unfinished order instead of erasing it every poll.
     setStatus((prev) => ({
@@ -103,11 +118,12 @@ export default function PaymentReturn() {
         }
         // Throttled on first load (e.g. a refresh): ask once more right after the server's cooldown, not 60 s later.
         if (recovery.throttled) retryAtRef.current = count + Math.ceil(((recovery.retryAfterSeconds ?? 60) * 1000) / POLL_INTERVAL_MS) + 1;
-        if (recovery.error) return; // keep polling via GET below
+        if (recovery.error === NOT_AUTHENTICATED) { noteFailure(recovery.error); return; }
+        // Any other recovery failure falls through to the read-only GET below on this same tick.
       }
 
       const { data, error } = await pollCheckoutStatus(saffRef);
-      if (error || !data) return; // keep polling
+      if (error || !data) { noteFailure(error); return; }
       applyStatus(data);
     };
 
@@ -122,7 +138,7 @@ export default function PaymentReturn() {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timerRef.current!);
-  }, [saffRef, applyStatus]);
+  }, [saffRef, applyStatus, noteFailure]);
 
   /** "Check again": one recovery request now. Never starts a payment. */
   const checkAgain = async () => {
@@ -132,6 +148,7 @@ export default function PaymentReturn() {
     const r = await requestPaymentVerificationRecovery(saffRef);
     setChecking(false);
     if (r.data) { applyStatus(r.data); setNotice("Checked with the payment provider just now."); return; }
+    if (r.error === NOT_AUTHENTICATED) { noteFailure(r.error); return; }
     if (r.throttled) { setNotice(`Checked recently — try again in about ${r.retryAfterSeconds ?? 60} seconds.`); return; }
     setNotice("The payment provider could not be reached. Your order is unchanged; try again shortly.");
   };
@@ -145,7 +162,9 @@ export default function PaymentReturn() {
   const processing = unfinished && !status?.paymentRecorded && pc?.state === "PAYMENT_PROCESSING";
   const providerUnavailable = unfinished && !status?.paymentRecorded && pc?.state === "PROVIDER_UNAVAILABLE";
   const view = openUnpaid ? "OPEN" : processing ? "PROCESSING" : phase;
-  const resumeUrl = openUnpaid && pc?.resumeUrl && /^https:\/\//.test(pc.resumeUrl) ? pc.resumeUrl : null;
+  const resumeUrl = openUnpaid ? safeResumeUrl(pc?.resumeUrl) : null;
+  // Only an ordinary unpaid checkout may be closed by the customer; a review case stays with our team.
+  const canLeave = openUnpaid && status?.status === "PENDING";
   const providerExpiry = pc?.expiresAt ? new Date(pc.expiresAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
   const amount = status?.expectedAmountMinor != null && status.currencyCode
     ? formatMoney(status.expectedAmountMinor, status.currencyCode, status.currencyExponent ?? 0) : null;
@@ -176,7 +195,27 @@ export default function PaymentReturn() {
           </div>
         )}
 
-        {saffRef && phase !== "NOT_FOUND" && (
+        {phase === "SIGN_IN" && (
+          <div className="space-y-4 text-center" data-testid="payment-sign-in">
+            <AlertCircle className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />
+            <h1 className="text-xl font-semibold">Sign in to see this order</h1>
+            <p className="text-sm text-muted-foreground">Your order is safe. Sign in with the account you paid from to see its status.</p>
+            {/* After signing in, the visitor comes back to exactly this order (one use, validated reference only). */}
+            <Button asChild className="w-full"><Link to="/auth" onClick={() => saffRef && rememberReturnTo({ kind: "order", ref: saffRef })} data-testid="payment-sign-in-link">Sign in</Link></Button>
+          </div>
+        )}
+
+        {phase === "UNREACHABLE" && (
+          <div className="space-y-4 text-center" data-testid="payment-unreachable">
+            <AlertCircle className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />
+            <h1 className="text-xl font-semibold">We cannot reach the order status right now</h1>
+            <p className="text-sm text-muted-foreground">Nothing has changed with your order. Do not pay again; try again in a moment.</p>
+            <Button className="w-full" onClick={() => { failuresRef.current = 0; setPhase("POLLING"); void checkAgain(); }} data-testid="payment-retry">Try again</Button>
+            <Button asChild variant="outline" className="w-full"><Link to="/plans">Back to plans</Link></Button>
+          </div>
+        )}
+
+        {saffRef && phase !== "NOT_FOUND" && phase !== "SIGN_IN" && phase !== "UNREACHABLE" && (
           <>
             <header className="text-center" aria-live="polite">
               {view === "POLLING" && <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" aria-hidden="true" />}
@@ -195,7 +234,9 @@ export default function PaymentReturn() {
                 {view === "TIMEOUT" && "Still waiting for confirmation"}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground" data-testid="payment-explanation">
-                {view === "OPEN" && `Nothing has been paid for this ${planName ?? ""} checkout. You can resume it${providerExpiry ? ` until ${providerExpiry}` : ""}. To choose a different plan, wait until it expires: the payment provider does not let an open checkout be cancelled early, and we never open a second one while this one can still be paid.`}
+                {view === "OPEN" && (canLeave
+                  ? `The payment provider reports this ${planName ?? ""} checkout open and unpaid. Resume it${providerExpiry ? ` (open until ${providerExpiry})` : ""}, or choose another plan.`
+                  : `The payment provider reports this ${planName ?? ""} checkout open and unpaid. Resume it to pay; while it is being confirmed it cannot be closed here.`)}
                 {view === "PROCESSING" && "The payment was submitted and the provider is processing it. Do not pay again; this page updates by itself."}
                 {view === "POLLING" && (mobileMoney
                   ? "A prompt has been sent to your mobile money number. Enter your PIN to approve it. This page updates by itself."
@@ -255,10 +296,13 @@ export default function PaymentReturn() {
                   Resume {planName ?? ""} checkout
                 </Button>
               )}
-              {openUnpaid && (
-                <p className="text-xs text-muted-foreground" data-testid="change-plan-note">
-                  Change plan: available once this checkout expires{providerExpiry ? ` (${providerExpiry})` : ""}. Use “Check again” after that time and the other plans open immediately.
-                </p>
+              {canLeave && saffRef && (
+                <LeaveCheckout saffReference={saffRef} testIdPrefix="next"
+                  onLeft={(reason) => {
+                    if (reason === "left") { navigate("/plans", { replace: true, state: { leftCheckout: saffRef } }); return; }
+                    void checkAgain();
+                  }}
+                  onStatus={applyStatus} />
               )}
               {phase === "CONFIRMED" && !status?.reversalType && !testPayment && (
                 <Button asChild className="w-full" data-testid="next-start-review"><Link to="/dashboard">Start a trial balance review</Link></Button>
@@ -269,7 +313,7 @@ export default function PaymentReturn() {
               {(phase === "FAILED" || phase === "CANCELLED" || phase === "EXPIRED") && (
                 <Button asChild className="w-full" data-testid="next-try-again"><Link to={retryHref}>Start a new payment</Link></Button>
               )}
-              {(phase === "POLLING" || phase === "TIMEOUT" || (phase === "REVIEW" && !status?.paymentRecorded)) && (
+              {!openUnpaid && (phase === "POLLING" || phase === "TIMEOUT" || (phase === "REVIEW" && !status?.paymentRecorded)) && (
                 <Button variant={phase === "POLLING" || resumeUrl ? "outline" : "default"} className="w-full" onClick={checkAgain} disabled={checking} data-testid="next-check-again">
                   {checking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
                   Check again

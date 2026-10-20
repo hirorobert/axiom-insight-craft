@@ -13,6 +13,7 @@ import { Link, NavLink } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
+import { PlanChip } from "@/components/commercial/PlanChip";
 
 /** "Home" is a text link from the sm breakpoint up; on a phone the logo (labelled "CFOClose home") is the home link, so the
  *  account links and Sign out fit at 320–375 px without a scroller. */
@@ -47,6 +48,7 @@ export function AccountShell({ children, onSignOut, mainClassName = "mx-auto w-f
               <NavLink key={n.to} to={n.to} end className={(a) => `${linkClass(a)}${n.wideOnly ? " hidden sm:inline" : ""}`}>{n.label}</NavLink>
             ))}
           </div>
+          <PlanChip className="hidden sm:inline-flex" />
           <Button variant="ghost" size="sm" onClick={onSignOut} className="relative h-8 shrink-0 rounded-none px-2 text-[13px]" data-testid="account-sign-out">
             <LogOut className="h-3.5 w-3.5 sm:mr-1.5" aria-hidden="true" />
             <span className="sr-only sm:not-sr-only">Sign out</span>
