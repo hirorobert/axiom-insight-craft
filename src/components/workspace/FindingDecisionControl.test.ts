@@ -1,0 +1,154 @@
+// @vitest-environment jsdom
+/**
+ * Finding decisions and the imbalance investigation, browser side (20261118100000): nothing pre-selected; a decision is
+ * sent only with its explicit confirmation (or explanation and evidence) and a reason; the request carries the finding's
+ * identity, the evaluation and the expected revision; one request id per attempt (a lost answer is retried with the
+ * same id, a changed decision gets a new one); refusals in words; the investigation lists leads and never a plug.
+ * Invented data only.
+ */
+import { act, createElement } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
+import { FindingDecisionControl } from "@/components/workspace/FindingDecisionControl";
+import { ImbalanceInvestigation } from "@/components/workspace/ImbalanceInvestigation";
+import { clearingPayload, decidable, readFindingDecisions } from "@/lib/workspace/findingDecisions";
+import type { TrialBalanceIssue } from "@/lib/workspace/trialBalanceVerdict";
+
+type Args = Record<string, unknown>;
+const U = "00000000-0000-4000-8000-0000000000a1", CERT = "00000000-0000-4000-8000-0000000000c1";
+const entity = { code: "ENTITY_NAME_DIFFERS", message: "This file names Invented Beta Trading.", rows: [1], kind: "needs_confirmation", subject: "invented beta trading", fileEntity: "Invented Beta Trading" } as TrialBalanceIssue & { code: "ENTITY_NAME_DIFFERS"; subject: string };
+const clearing = { code: "CLEARING_ACCOUNT_BALANCE", message: "1190 Cash in transit has a balance.", rows: [9], kind: "review", subject: "code:1190", accountCode: "1190" } as TrialBalanceIssue & { code: "CLEARING_ACCOUNT_BALANCE"; subject: string };
+const flush = async () => { await act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); }); };
+const q = (el: HTMLElement, id: string) => el.querySelector(`[data-testid=${id}]`) as HTMLElement | null;
+
+describe("findingDecisions helpers", () => {
+  it("only a decision-taking finding WITH the engine's identity is decidable (an older result has none)", () => {
+    expect(decidable(entity)).toBe(true);
+    expect(decidable({ ...entity, subject: undefined })).toBe(false);
+    expect(decidable({ ...entity, code: "TRIAL_BALANCE_IMBALANCE" })).toBe(false);
+  });
+  it("a clearing explanation needs a nature, 10+ characters, an evidence kind and a 3+ character reference", () => {
+    expect(clearingPayload(null, "Deposit banked 31 Dec", "document", "Bank stmt")).toBeNull();
+    expect(clearingPayload("in_transit", "short", "document", "Bank stmt")).toBeNull();
+    expect(clearingPayload("in_transit", "Deposit banked 31 Dec", null, "Bank stmt")).toBeNull();
+    expect(clearingPayload("in_transit", "Deposit banked 31 Dec", "document", "ab")).toBeNull();
+    expect(clearingPayload("in_transit", " Deposit banked 31 Dec ", "document", " Bank stmt ")).toEqual({ nature: "in_transit", explanation: "Deposit banked 31 Dec", evidence: { kind: "document", reference: "Bank stmt" } });
+  });
+  it("the decisions read is strict; anything else is unavailable", async () => {
+    const ok = await readFindingDecisions(async () => ({ data: { outcome: "ok", decisions: [{ decision_id: "d", code: "ENTITY_NAME_DIFFERS", subject: "s", action: "same_entity", resolves: true, revision: 2, reason: "r", carried_from_upload_id: null, created_at: "t" }] }, error: null }), U);
+    expect(ok).toMatchObject({ kind: "ok", decisions: [{ decisionId: "d", revision: 2, resolves: true }] });
+    expect(await readFindingDecisions(async () => ({ data: { outcome: "not_found" }, error: null }), U)).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("FindingDecisionControl", () => {
+  let m: Mounted | null = null;
+  afterEach(() => { m?.unmount(); m = null; });
+  const render = (issue: typeof entity | typeof clearing, rpc: (f: string, a: Args) => Promise<{ data: unknown; error: unknown }>, onRecorded = vi.fn(), current?: Parameters<typeof FindingDecisionControl>[0]["current"]) => {
+    m = mount(createElement(MemoryRouter, null, createElement(FindingDecisionControl, {
+      issue, uploadId: U, certificationId: CERT, current, workspaceEntity: "Invented Alpha Ltd", reconcileHref: "/workspace/c/2025/reconcile", rpc, onRecorded,
+    })));
+    return m.container;
+  };
+
+  it("entity: nothing pre-selected; Record is disabled until a choice, its confirmation and a reason; the request names the finding", async () => {
+    const rpc = vi.fn(async (_f: string, _a: Args) => ({ data: { outcome: "recorded", decision_id: "d1", revision: 1 }, error: null }));
+    const onRecorded = vi.fn();
+    const el = render(entity, rpc, onRecorded);
+    click(q(el, "decision-open-ENTITY_NAME_DIFFERS")!);
+    const record = () => q(el, "decision-record") as HTMLButtonElement;
+    expect((q(el, "decision-choice-same_entity") as HTMLInputElement).checked).toBe(false);
+    expect((q(el, "decision-choice-different_entity") as HTMLInputElement).checked).toBe(false);
+    expect(record().disabled).toBe(true);
+    click(q(el, "decision-choice-same_entity")!);
+    expect(record().disabled).toBe(true);
+    click(q(el, "decision-confirm")!);
+    expect(record().disabled).toBe(true);
+    typeInto(q(el, "decision-reason") as HTMLTextAreaElement, "Trading name of the same company");
+    expect(record().disabled).toBe(false);
+    expect(q(el, "decision-form-ENTITY_NAME_DIFFERS")!.textContent).toContain("I confirm “Invented Beta Trading” is Invented Alpha Ltd.");
+    expect(await axeViolations(el)).toEqual([]);
+    click(record()); await flush();
+    expect(rpc).toHaveBeenCalledWith("record_tb_finding_decision", expect.objectContaining({
+      p_upload_id: U, p_certification_id: CERT, p_code: "ENTITY_NAME_DIFFERS", p_subject: "invented beta trading", p_action: "same_entity",
+      p_payload: { confirmed: true, file_entity: "Invented Beta Trading", workspace_entity: "Invented Alpha Ltd" },
+      p_reason: "Trading name of the same company", p_expected_revision: 0,
+    }));
+    expect(onRecorded).toHaveBeenCalledTimes(1);
+    expect(q(el, "decision-recorded-ENTITY_NAME_DIFFERS")!.textContent).toContain("being checked again");
+  });
+
+  it("a lost answer keeps the request id (no double record); a refusal is said in words and a new attempt gets a new id", async () => {
+    const calls: Args[] = [];
+    let mode: "throw" | "refuse" = "throw";
+    const rpc = vi.fn(async (_f: string, a: Args) => { calls.push(a); if (mode === "throw") return { data: null, error: { message: "network" } }; return { data: { outcome: "refused", code: "STALE_EVALUATION" }, error: null }; });
+    const el = render(entity, rpc);
+    click(q(el, "decision-open-ENTITY_NAME_DIFFERS")!);
+    click(q(el, "decision-choice-same_entity")!); click(q(el, "decision-confirm")!);
+    typeInto(q(el, "decision-reason") as HTMLTextAreaElement, "Same company");
+    click(q(el, "decision-record")!); await flush();
+    expect(q(el, "decision-error")!.textContent).toContain("will not be recorded twice");
+    mode = "refuse";
+    click(q(el, "decision-record")!); await flush();
+    expect(calls[1].p_request_id).toBe(calls[0].p_request_id);
+    expect(q(el, "decision-error")!.textContent).toContain("replaced by a newer check");
+    click(q(el, "decision-record")!); await flush();
+    expect(calls[2].p_request_id).not.toBe(calls[1].p_request_id);
+  });
+
+  it("an existing decision is shown with Change decision, and a change is sent against its revision", async () => {
+    const rpc = vi.fn(async (_f: string, _a: Args) => ({ data: { outcome: "recorded", decision_id: "d2", revision: 2 }, error: null }));
+    const el = render(entity, rpc, vi.fn(), { decisionId: "d1", code: "ENTITY_NAME_DIFFERS", subject: "invented beta trading", action: "same_entity", resolves: true, revision: 1, reason: "r", carriedFromUploadId: "u0", createdAt: "t" });
+    expect(q(el, "decision-current-ENTITY_NAME_DIFFERS")!.textContent).toBe("Decided: Same entity (recorded on an earlier file).");
+    expect(q(el, "decision-open-ENTITY_NAME_DIFFERS")!.textContent).toBe("Change decision");
+    click(q(el, "decision-open-ENTITY_NAME_DIFFERS")!);
+    click(q(el, "decision-choice-different_entity")!); click(q(el, "decision-confirm")!);
+    typeInto(q(el, "decision-reason") as HTMLTextAreaElement, "Belongs to a sister company");
+    click(q(el, "decision-record")!); await flush();
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_action: "different_entity", p_expected_revision: 1 });
+  });
+
+  it("clearing: explanation and evidence are required, the Reconcile link is offered for a reconciliation, and the balance is never changed", async () => {
+    const rpc = vi.fn(async (_f: string, _a: Args) => ({ data: { outcome: "recorded", decision_id: "d3", revision: 1 }, error: null }));
+    const el = render(clearing, rpc);
+    click(q(el, "decision-open-CLEARING_ACCOUNT_BALANCE")!);
+    const record = () => q(el, "decision-record") as HTMLButtonElement;
+    click(q(el, "decision-nature-in_transit")!);
+    typeInto(q(el, "decision-explanation") as HTMLTextAreaElement, "Deposit of 31 December cleared on 2 January");
+    click(q(el, "decision-evidence-reconciliation")!);
+    expect(el.querySelector("a[href='/workspace/c/2025/reconcile']")).not.toBeNull();
+    typeInto(q(el, "decision-reason") as HTMLTextAreaElement, "Period-end deposit");
+    expect(record().disabled).toBe(true); // no reference yet
+    typeInto(q(el, "decision-reference") as HTMLInputElement, "Bank reconciliation December");
+    expect(record().disabled).toBe(false);
+    expect(await axeViolations(el)).toEqual([]);
+    click(record()); await flush();
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_action: "explained", p_payload: { nature: "in_transit", evidence: { kind: "reconciliation", reference: "Bank reconciliation December" } } });
+    expect(JSON.stringify(rpc.mock.calls[0][1])).not.toMatch(/amount|adjust/i);
+  });
+});
+
+describe("ImbalanceInvestigation", () => {
+  let m: Mounted | null = null;
+  afterEach(() => { m?.unmount(); m = null; });
+  it("one request for the result on screen; leads by row with the file-not-ledger statement; in-progress and errors in words", async () => {
+    const result = { format: "tb-investigation/1" as const, difference: "120.00", larger: "debits" as const, more: 0,
+      leads: [{ kind: "amount_equals_difference", rows: [4], check: "An amount of 120.00 — the whole difference — is on this row." }],
+      statement: "These are leads in this file to check against your accounting system, not conclusions." };
+    let answer: unknown = { kind: "ok", value: { status: "in_progress", investigationId: "i1" } };
+    const investigate = vi.fn(async () => answer as never);
+    m = mount(createElement(ImbalanceInvestigation, { client: { investigate }, uploadId: U, certificationId: CERT }));
+    const el = m.container;
+    click(q(el, "investigation-run")!); await flush();
+    expect(q(el, "investigation-busy")).not.toBeNull();
+    answer = { kind: "ok", value: { status: "completed", investigationId: "i1", result } };
+    click(q(el, "investigation-run")!); await flush();
+    expect(investigate.mock.calls[0]).toEqual([U, CERT, expect.any(String)]);
+    expect(investigate.mock.calls[1][2]).toBe(investigate.mock.calls[0][2]);
+    expect(q(el, "investigation-leads")!.textContent).toContain("Row 4.");
+    expect(q(el, "investigation-statement")!.textContent).toContain("not conclusions");
+    expect(el.textContent).not.toMatch(/plug|suspense entry/i);
+    expect(await axeViolations(el)).toEqual([]);
+  });
+});

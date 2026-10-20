@@ -11,7 +11,7 @@
  * Everything that states the result reads one model: trialBalanceVerdict.ts (the certification ledger).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -80,6 +80,10 @@ import { isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { cardVerdictForAccess, currentTrialBalanceTask } from "@/lib/workspace/trialBalanceTask";
 import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspace/reviewActionHierarchy";
 import { PeriodCurrencyCorrection } from "@/components/workspace/PeriodCurrencyCorrection";
+import { FindingDecisionControl } from "@/components/workspace/FindingDecisionControl";
+import { ImbalanceInvestigation } from "@/components/workspace/ImbalanceInvestigation";
+import { decidable, readFindingDecisions, type CurrentDecisionView } from "@/lib/workspace/findingDecisions";
+import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
 import { explainBlock, getCorrectionEligibility, readCurrencyMismatch } from "@/lib/workspace/periodCurrency";
 import { checkFileCurrency, describeEvidence } from "@/lib/ingestion/fileCurrencyCheck";
 
@@ -485,6 +489,75 @@ export default function PrepareWorkspace() {
   // The service, the step and the one thing to do now — from the same verdict as the card below, never re-derived.
   const task = currentTrialBalanceTask(verdict, { reviewAccess: !prepareOnly });
 
+  // ── Findings: recorded decisions and the imbalance investigation (20261118100000) ───────────────────────────────────
+  // Offered only on the upload's CURRENT evaluation (its newest certification, while the readiness says it is in force
+  // for review, acceptance or a block) and only to someone who may record them (prepare_close and a current plan — the
+  // same authority as a new check). Anything else: nothing is offered; the server decides regardless.
+  const latestCert = certReadiness.latestForUpload;
+  const evaluationId = upload && latestCert && latestCert.upload_id === upload.id
+    && (readiness?.verdict === "review" || readiness?.verdict === "certified" || readiness?.verdict === "blocked") ? latestCert.id : null;
+  const mayDecide = !!upload && mayRequestReprocess(upload, capabilityState, commercialState);
+  const [decisions, setDecisions] = useState<{ key: string; list: CurrentDecisionView[] } | null>(null);
+  const decisionsKey = upload && evaluationId ? `${upload.id}:${evaluationId}` : null;
+  useEffect(() => {
+    if (!decisionsKey || !upload) return;
+    let cancelled = false;
+    void readFindingDecisions((fn, args) => supabase.rpc(fn as never, args as never) as never, upload.id)
+      .then((r) => { if (!cancelled) setDecisions({ key: decisionsKey, list: r.kind === "ok" ? r.decisions : [] }); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decisionsKey]);
+  const currentDecisions = decisions && decisions.key === decisionsKey ? decisions.list : [];
+  const layoutApi = useMemo(() => layoutClient(((name, opts) => supabase.functions.invoke(name, opts)) as LayoutInvoke), []);
+  // A recorded decision has already invalidated the result; the file is checked again through the one reprocess path.
+  const recheckAfterDecision = async () => {
+    if (!upload?.id) return;
+    try {
+      await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession });
+    } catch (err) {
+      console.error("[recheckAfterDecision]", err);
+      toast.error("Your decision is recorded, but the new check did not start. Use Retry processing to check the file again.");
+    } finally {
+      refreshUpload();
+      certReadiness.refetch();
+    }
+  };
+  const findingAction = (issue: (typeof verdict.issues)[number]) => {
+    if (decidable(issue)) {
+      if (!evaluationId || !mayDecide || !upload) return null;
+      return (
+        <FindingDecisionControl
+          issue={issue} uploadId={upload.id} certificationId={evaluationId}
+          current={currentDecisions.find((d) => d.code === issue.code && d.subject === issue.subject)}
+          workspaceEntity={company?.name ?? ""}
+          reconcileHref={prepareOnly ? null : `/workspace/${companyId}/${periodYear}/reconcile`}
+          rpc={(fn, args) => supabase.rpc(fn as never, args as never) as never}
+          onRecorded={() => void recheckAfterDecision()}
+        />
+      );
+    }
+    // A file recorded as another entity's: the way out is removing it here and uploading it to the right engagement.
+    if (issue.code === "ENTITY_WRONG_DESTINATION") {
+      return (
+        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]" data-testid="wrong-entity-recovery">
+          {removeAction && <Link to={`?${MANAGE_TRIAL_BALANCE_PARAM}=source`} className="underline underline-offset-4" data-testid="wrong-entity-remove">Remove this file from this engagement</Link>}
+          <Link to="/dashboard" className="underline underline-offset-4" data-testid="wrong-entity-engagements">Find the right engagement</Link>
+        </p>
+      );
+    }
+    if (issue.code === "LAYOUT_CORRECTION_REQUIRED" && !prepareOnly) {
+      return (
+        <p className="mt-2 text-[13px]">
+          <Link to={`/workspace/${companyId}/${periodYear}/trial-balance/intake`} className="underline underline-offset-4" data-testid="layout-correction-link">Correct the file layout</Link>
+        </p>
+      );
+    }
+    return null;
+  };
+  const investigation = upload && evaluationId && mayDecide && verdict.status === "blocked" && verdict.issues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE")
+    ? <ImbalanceInvestigation client={layoutApi} uploadId={upload.id} certificationId={evaluationId} />
+    : undefined;
+
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
   const handleRetry = async () => {
@@ -666,7 +739,8 @@ export default function PrepareWorkspace() {
                     onLeadsChange={setCurrencyLeads}
                     onEngaged={() => setCurrencyEngagedFor(upload.id)}
                   />
-                ) : undefined}
+                ) : investigation}
+                findingAction={findingAction}
                 management={
                   <ManageTrialBalance
                     variant="inline"

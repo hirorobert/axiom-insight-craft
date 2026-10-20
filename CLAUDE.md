@@ -378,6 +378,7 @@ src/
       currencyReasons.ts      ← Currency-correction reason presets (explicit choice; none pre-selected)
       checkDetail.ts          ← A check's detail without restating findings the card already lists
       portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
+      findingDecisions.ts     ← ONLY client path to trial-balance finding decisions (record_tb_finding_decision, get_tb_finding_decisions)
       engagementNextAction.ts ← Account-home engagement button: the actual next step's words + destination (same entity/period/upload)
       processingInvoke.ts     ← ONLY browser path to process-trial-balance (bounded, jittered retry of PROCESSING_BUSY as the same request)
       engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)

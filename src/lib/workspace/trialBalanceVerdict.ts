@@ -231,6 +231,12 @@ export interface TrialBalanceIssue {
   rows: number[];
   /** Blocking, needs confirmation or review (resultStatus.ts); the list is ordered by it. */
   kind: FindingKind;
+  /** The identity a recorded decision binds to (engine generation 7), when the finding takes a decision. */
+  subject?: string;
+  /** ENTITY_NAME_DIFFERS: the entity as the file names it. */
+  fileEntity?: string;
+  /** CLEARING_ACCOUNT_BALANCE: the account. */
+  accountCode?: string | null;
 }
 
 /**
@@ -245,9 +251,18 @@ export function readIngestionIssues(processingResult: unknown): TrialBalanceIssu
     const kind = r ? findingKind(r.severity, r.code) : null;
     if (!r || !kind || typeof r.code !== "string" || typeof r.message !== "string") return [];
     const rows = Array.isArray(r.rows) ? r.rows.filter((n): n is number => Number.isInteger(n)) : [];
-    return [{ code: r.code, message: r.message, rows, kind }];
+    return [{ code: r.code, message: r.message, rows, kind,
+      ...(typeof r.subject === "string" && r.subject ? { subject: r.subject } : {}),
+      ...(typeof r.fileEntity === "string" && r.fileEntity ? { fileEntity: r.fileEntity } : {}),
+      ...(typeof r.accountCode === "string" && r.accountCode ? { accountCode: r.accountCode } : {}) }];
   });
   return FINDING_ORDER.flatMap((k) => read.filter((i) => i.kind === k));
+}
+
+/** The findings the engine recorded as waiting for a decision (processing_result.decisions_required, generation 7). */
+export function decisionsRequiredCount(processingResult: unknown): number {
+  const d = record(processingResult)?.decisions_required;
+  return Array.isArray(d) ? d.length : 0;
 }
 
 export const REFUSED_BEFORE_CHECKS = "Not run: the file was refused before any check.";
@@ -594,9 +609,19 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
           ? { kind: "review_classifications", label: "Resolve account classifications" }
           : { kind: "replace", label: "Replace with corrected Trial Balance" },
       };
-    case "review":
+    case "review": {
+      // Findings that need a recorded decision (generation 7) and nothing else: the decisions are the next step — each is
+      // listed on the card with what can be recorded; no classification action is offered for them.
+      const decisions = decisionsRequiredCount(upload.processing_result);
+      if (decisions > 0 && !classificationOpen) {
+        return {
+          ...base, status: "needs_review", statusLabel: "Needs your decision", tone: "warning", issues,
+          reason: `${decisions} finding${decisions === 1 ? " needs" : "s need"} your decision before this trial balance can be accepted. Each is listed below with what you can record.`,
+          primaryAction: null,
+        };
+      }
       return {
-        ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
+        ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning", issues,
         // The file-level count when the check recorded one; the stored blocker can be a single account's suggestion.
         reason: classificationOpen && classificationText
           ? `${classificationText} ${CLASSIFICATION_NEXT}`
@@ -605,6 +630,7 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
         // held only by an arithmetic check is not resolved by classifying accounts that need no decision.
         primaryAction: classificationOpen || failed?.id !== "l3_arithmetic" ? { kind: "review_classifications", label: "Resolve account classifications" } : null,
       };
+    }
     case "superseded":
       return { ...base, status: "not_current", statusLabel: "Not current", tone: "neutral", reason: "An older trial balance. Another upload is the current one for this period.", primaryAction: null };
     case "stale":

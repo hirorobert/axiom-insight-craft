@@ -60,6 +60,16 @@ export interface LayoutReport {
   } | null;
 }
 
+/** tb-investigation/1 (supabase/functions/_shared/tbInvestigation.ts): leads in the file, never conclusions. */
+export interface InvestigationResult {
+  format: "tb-investigation/1";
+  difference: string;
+  larger: "debits" | "credits";
+  leads: { kind: string; rows: number[]; check: string }[];
+  more: number;
+  statement: string;
+}
+
 export type LayoutAnswer<T> =
   | { kind: "ok"; value: T }
   | { kind: "unavailable" }
@@ -107,6 +117,10 @@ export function layoutClient(invoke: LayoutInvoke) {
     confirm: (uploadId: string, layout: LayoutProfile, expectedConfirmationNo: number, templateId: string | null, numberFormatConfirmed = false) =>
       send<{ status: "confirmed"; confirmationId: string; confirmationNo: number; replay: boolean; unchanged: boolean; report: LayoutReport }>(
         { action: "confirm", uploadId, layout, expectedConfirmationNo, templateId, numberFormatConfirmed }),
+    /** Leads in an out-of-balance file, for the upload's current blocking result (20261118100000). */
+    investigate: (uploadId: string, certificationId: string, requestId: string) =>
+      send<{ status: "completed" | "in_progress" | "failed"; investigationId: string | null; result?: InvestigationResult }>(
+        { action: "investigate", uploadId, certificationId, requestId }),
     saveTemplate: (companyId: string, templateKey: string, expectedVersion: number, name: string, layout: LayoutProfile) =>
       send<{ status: "saved"; templateId: string; templateKey: string; version: number; replay: boolean; unchanged: boolean }>(
         { action: "save_template", companyId, templateKey, expectedVersion, name, layout }),
