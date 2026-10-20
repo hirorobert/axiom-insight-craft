@@ -71,14 +71,15 @@ Deno.test("a row deleted AHEAD of the page boundary between two reads: the offse
   assertEquals(got.length, 1499);
   assertEquals(got.some((x) => x.id === key(0)), true);
   assertEquals(got.some((x) => x.id === key(1000)), false);
-  // Keyset: the cursor is the last key read; deleting a row behind it cannot move anything still to be read.
+  // Keyset: the cursor is the last key read; deleting a row behind it cannot move anything still to be read. Row 1000 is
+  // read; row 0, read before its deletion, stays in the result (a cursor, not a snapshot): 1,500 distinct rows, none skipped.
   const k = source(1500);
   k.hooks.push((pageNo) => { if (pageNo === 2) k.rows.splice(0, 1); });
   const r = await selectAllRowsByKey(k.byKey, (x) => x.id);
   assertEquals(r.error, null);
-  assertEquals(r.data?.length, 1499);
+  assertEquals(r.data?.length, 1500);
   assertEquals(r.data?.some((x) => x.id === key(1000)), true);
-  assertEquals(new Set(r.data?.map((x) => x.id)).size, 1499);
+  assertEquals(new Set(r.data?.map((x) => x.id)).size, 1500);
 });
 
 Deno.test("a row inserted AHEAD of the cursor between pages is read once; one inserted BEHIND it is not read (the keyset is a cursor, not a snapshot)", async () => {
