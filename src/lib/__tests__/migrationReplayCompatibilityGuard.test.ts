@@ -264,7 +264,9 @@ describe("migration directory integrity", () => {
     // a NEW forward-only migration pending hosted application.
     // 187 -> 188: 20261117100000_engagement_portfolio.sql (the engagements portfolio read: one definer function under the
     // platform's workspace-access rule, keyset paging, per-company revisions), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(188);
+    // 188 -> 189: 20261118100000_tb_finding_decisions.sql (trial-balance finding decisions, the generation-7 evaluation
+    // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(189);
   });
 });
 
