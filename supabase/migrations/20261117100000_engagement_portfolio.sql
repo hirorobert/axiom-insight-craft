@@ -8,6 +8,11 @@
 --
 --   list_portfolio_engagements(search, statuses, purposes, period_year, sort, limit, cursor)
 --
+-- and two bounded companions under the same rule: list_portfolio_entities (the upload page's entity choice) and
+-- get_account_home (the home's routing: EXACT counts with bounded samples — no routing decision is ever taken from a
+-- possibly truncated client list). Each portfolio row carries the engagement's granted services, so an engagement whose
+-- every service is withheld is labelled as such instead of offering an action it cannot complete.
+--
 -- AUTHORIZATION (traced, not assumed). The table policies differ (companies: owner only; engagements: accepted members;
 -- trial_balance_uploads: accepted members; tb_certifications: owner and Prepare grant holders), so this is a SECURITY
 -- DEFINER function with ONE explicit rule, the platform's own workspace-access rule: public._workspace_access_basis(
@@ -41,12 +46,14 @@ BEGIN
   IF to_regprocedure('public._workspace_access_basis(uuid,uuid)') IS NULL
      OR to_regprocedure('public.get_authoritative_certification(uuid,integer)') IS NULL
      OR to_regclass('public.workspace_purpose_events') IS NULL OR to_regclass('public.profiles') IS NULL
-     OR to_regclass('public.workspace_capability_grants') IS NULL THEN
+     OR to_regclass('public.workspace_capability_grants') IS NULL
+     OR to_regprocedure('public.list_shared_workspaces()') IS NULL OR to_regclass('public.engagement_mandate_events') IS NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: the workspace access, certification authority or purpose objects this read uses are missing; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
   IF to_regclass('public.portfolio_revisions') IS NOT NULL
      OR to_regprocedure('public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)') IS NOT NULL
-     OR to_regprocedure('public.list_portfolio_entities(integer)') IS NOT NULL THEN
+     OR to_regprocedure('public.list_portfolio_entities(integer)') IS NOT NULL
+     OR to_regprocedure('public.get_account_home(text[],integer)') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: the engagements portfolio already exists; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END
@@ -190,7 +197,11 @@ BEGIN
              WHEN lc.requires_review THEN 'needs_decision'
              ELSE 'needs_recheck'
            END AS status,
-           u.file_name, u.uploaded_at, nullif(btrim(pr.display_name), '') AS uploader_name, u.lifecycle_state AS upload_state
+           u.file_name, u.uploaded_at, nullif(btrim(pr.display_name), '') AS uploader_name, u.lifecycle_state AS upload_state,
+           (SELECT coalesce(array_agg(x.capability ORDER BY x.capability), '{}'::text[])
+              FROM (SELECT DISTINCT ON (me.capability) me.capability, me.action FROM public.engagement_mandate_events me
+                     WHERE me.engagement_id = e.id ORDER BY me.capability, me.sequence_no DESC) x
+             WHERE x.action = 'GRANT') AS services
       FROM public.engagements e
       JOIN public._portfolio_visible_companies(v_uid) v(id) ON v.id = e.company_id
       JOIN public.companies c ON c.id = e.company_id
@@ -231,7 +242,7 @@ BEGIN
          (SELECT coalesce(jsonb_agg(jsonb_build_object(
              'engagement_id', engagement_id, 'company_id', company_id, 'company_name', company_name, 'company_code', company_code,
              'company_tin', company_tin, 'period_id', period_id, 'period_year', period_year, 'period_start', period_start,
-             'period_end', period_end, 'currency', currency, 'opened_at', opened_at, 'purpose', purpose, 'status', status,
+             'period_end', period_end, 'currency', currency, 'opened_at', opened_at, 'purpose', purpose, 'status', status, 'services', services,
              'upload', CASE WHEN file_name IS NULL THEN NULL ELSE jsonb_build_object('file_name', file_name, 'uploaded_at', uploaded_at,
                                                                                    'uploaded_by', uploader_name, 'state', upload_state) END,
              'cursor', jsonb_build_object('name', sort_name, 'year', period_year, 'opened', opened_at, 'id', engagement_id))
@@ -268,3 +279,72 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.list_portfolio_entities(integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.list_portfolio_entities(integer) TO authenticated;
+
+
+-- ── 5. The account home's routing read (bounded, exact counts, explicit completeness) ───────────────────────────────
+-- Every routing decision the home makes (resume the one engagement, open the one company, open the one shared workspace,
+-- first run, or show the choice) is taken from EXACT counts computed here, never from a client list that PostgREST could
+-- have truncated at its row cap. Each list is a bounded sample (1–100, default 50) with its true total, so the browser
+-- states "and N more" instead of silently missing one.
+--   own        companies the caller created or is an accepted, active member of (the platform's access rule);
+--   shared     companies reached only through an explicit grant (list_shared_workspaces' rule);
+--   withheld   an open engagement whose every granted service is in p_withheld (the product's withheld services) — kept,
+--              never resumed, listed apart (the caller supplies the presentation list; it decides no authority).
+CREATE OR REPLACE FUNCTION public.get_account_home(p_withheld text[], p_limit integer DEFAULT 50)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_limit integer := coalesce(p_limit, 50);
+  v_withheld text[] := coalesce(p_withheld, '{}'::text[]);
+  v_result jsonb;
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF v_limit < 1 OR v_limit > 100 THEN RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_LIMIT'); END IF;
+  WITH own AS (
+    SELECT v.id FROM public._portfolio_visible_companies(v_uid) v(id)
+     WHERE public._workspace_access_basis(v_uid, v.id) IN ('workspace_creator', 'accepted_member')
+  ), eng AS (
+    SELECT e.id AS engagement_id, e.company_id, c.name AS company_name, e.opened_at,
+           EXTRACT(YEAR FROM coalesce(p.reporting_end, p.fiscal_year_end))::integer AS period_year,
+           (SELECT coalesce(array_agg(x.capability ORDER BY x.capability), '{}'::text[])
+              FROM (SELECT DISTINCT ON (me.capability) me.capability, me.action FROM public.engagement_mandate_events me
+                     WHERE me.engagement_id = e.id ORDER BY me.capability, me.sequence_no DESC) x
+             WHERE x.action = 'GRANT') AS services
+      FROM public.engagements e
+      JOIN own o ON o.id = e.company_id
+      JOIN public.companies c ON c.id = e.company_id
+      JOIN public.fiscal_periods p ON p.id = e.fiscal_period_id
+     WHERE e.status = 'open' AND coalesce(c.is_active, true)
+  ), classified AS (
+    SELECT eng.*, (cardinality(eng.services) > 0 AND eng.services <@ v_withheld) AS withheld FROM eng WHERE eng.period_year IS NOT NULL
+  ), idle AS (
+    SELECT c.id, c.name, c.code, c.tin, c.fiscal_year_end, c.reporting_framework, c.currency, c.created_at, c.filing_jurisdiction
+      FROM public.companies c JOIN own o ON o.id = c.id
+     WHERE coalesce(c.is_active, true) AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.company_id = c.id AND e.status = 'open')
+  ), shared AS (
+    SELECT s.company_id AS id, s.name, s.capabilities, s.fiscal_year_end, s.reporting_framework, s.currency, s.created_at
+      FROM public.list_shared_workspaces() s
+  )
+  SELECT jsonb_build_object('outcome', 'ok', 'limit', v_limit,
+    'engagements', jsonb_build_object(
+      'total', (SELECT count(*) FROM classified WHERE NOT withheld),
+      'rows', coalesce((SELECT jsonb_agg(jsonb_build_object('engagement_id', x.engagement_id, 'company_id', x.company_id, 'company_name', x.company_name,
+                  'period_year', x.period_year, 'opened_at', x.opened_at, 'services', x.services) ORDER BY x.opened_at DESC, x.engagement_id)
+                FROM (SELECT * FROM classified WHERE NOT withheld ORDER BY opened_at DESC, engagement_id LIMIT v_limit) x), '[]'::jsonb)),
+    'withheld', jsonb_build_object(
+      'total', (SELECT count(*) FROM classified WHERE withheld),
+      'rows', coalesce((SELECT jsonb_agg(jsonb_build_object('engagement_id', x.engagement_id, 'company_id', x.company_id, 'company_name', x.company_name,
+                  'period_year', x.period_year) ORDER BY x.opened_at DESC, x.engagement_id)
+                FROM (SELECT * FROM classified WHERE withheld ORDER BY opened_at DESC, engagement_id LIMIT v_limit) x), '[]'::jsonb)),
+    'companies_without_engagement', jsonb_build_object(
+      'total', (SELECT count(*) FROM idle),
+      'rows', coalesce((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.created_at DESC, x.id) FROM (SELECT * FROM idle ORDER BY created_at DESC, id LIMIT v_limit) x), '[]'::jsonb)),
+    'shared', jsonb_build_object(
+      'total', (SELECT count(*) FROM shared),
+      'rows', coalesce((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.name, x.id) FROM (SELECT * FROM shared ORDER BY name, id LIMIT v_limit) x), '[]'::jsonb)))
+    INTO v_result;
+  RETURN v_result;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.get_account_home(text[], integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_account_home(text[], integer) TO authenticated;

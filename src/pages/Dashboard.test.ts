@@ -76,8 +76,10 @@ const billingMock = vi.hoisted(() => ({ value: { summary: { hasBillingCustomer: 
 const capacityMock = vi.hoisted(() => ({ value: { capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" }, loading: false, error: false, retry: vi.fn() } }));
 vi.mock("@/hooks/useBillingSummary", () => ({ useBillingSummary: () => billingMock.value }));
 vi.mock("@/hooks/useMyEntityCapacity", () => ({ useMyEntityCapacity: () => capacityMock.value }));
-vi.mock("@/hooks/useActiveEngagements", () => ({
-  useActiveEngagements: () => activeEngagementsMock.value,
+// The home reads ONE bounded server answer with exact counts (useAccountHome → get_account_home). The fixtures below are
+// complete lists, so each total is the list's length; totals larger than a sample are covered by accountHome.test.ts.
+vi.mock("@/hooks/useAccountHome", () => ({
+  useAccountHome: () => activeEngagementsMock.value,
 }));
 
 function setActiveEngagements(v: {
@@ -86,7 +88,14 @@ function setActiveEngagements(v: {
   companiesWithoutEngagement: WorkspaceCompany[];
   fetchFailed: boolean;
 }) {
-  activeEngagementsMock.value = { ...v, refresh: vi.fn() };
+  const counted = <T,>(rows: T[]) => ({ total: rows.length, rows, complete: true });
+  activeEngagementsMock.value = {
+    loading: v.loading, fetchFailed: v.fetchFailed, refresh: vi.fn(),
+    home: v.fetchFailed ? null : {
+      engagements: counted(v.entries.map((e) => ({ engagementId: e.engagementId, companyId: e.companyId, companyName: e.companyName, periodYear: e.periodYear, openedAt: e.openedAt }))),
+      withheld: counted([]), companiesWithoutEngagement: counted(v.companiesWithoutEngagement), shared: counted([]),
+    },
+  };
 }
 
 async function renderDashboard(): Promise<string> {

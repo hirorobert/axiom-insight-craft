@@ -36,7 +36,8 @@ import { useReviewActionAccess } from "@/hooks/useReviewActionAccess";
 import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useActiveEngagements, type ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
+import { useAccountHome } from "@/hooks/useAccountHome";
+import { decideAccountHomeRoute } from "@/lib/workspace/accountHome";
 import { decideReturningUserRoute, applyForceHub } from "@/lib/workspace/resolveReturningUserRoute";
 import { engagementNextAction, firstUploadResultRoute } from "@/lib/workspace/engagementNextAction";
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
@@ -92,7 +93,15 @@ export default function Dashboard() {
   // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
   // comment for exactly what this does and does not change.
   const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
-  const { loading: engagementsLoading, entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount, unavailableEngagements, fetchFailed, refresh } = useActiveEngagements();
+  // One bounded server read with exact counts (get_account_home): no routing decision is taken from a client list that
+  // PostgREST could have truncated, and no company, engagement or upload list is fetched in full.
+  const { loading: engagementsLoading, home, fetchFailed, refresh } = useAccountHome();
+  const entries = home?.engagements.rows ?? [];
+  const companiesWithoutEngagement = home?.companiesWithoutEngagement.rows ?? [];
+  const sharedWorkspaces = home?.shared.rows ?? [];
+  const unavailableEngagements = home?.withheld.rows ?? [];
+  const homeTotals = home ? { entries: home.engagements.total, unavailable: home.withheld.total,
+    companiesWithoutEngagement: home.companiesWithoutEngagement.total, shared: home.shared.total } : undefined;
   const { gates: reviewGates, refresh: refreshReviewGates } = useReviewActionAccess((unavailableEngagements ?? []).map((u) => u.companyId));
   const [routing, setRouting] = useState(false);
   const { summary: billing, loading: billingLoading, error: billingError, retry: retryBilling } = useBillingSummary();
@@ -141,7 +150,7 @@ export default function Dashboard() {
   // "first_run" show up on first paint rather than waiting on an effect.
   const route =
     !authLoading && !engagementsLoading && !fetchFailed && serviceDestination.kind !== "wait"
-      ? applyForceHub(decideReturningUserRoute(entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount), forceHub)
+      ? (home ? decideAccountHomeRoute(home, forceHub) : null)
       : null;
 
   // ── 3. Returning-user routing decision — only "resume" and "start_single_company" have a side
@@ -181,8 +190,8 @@ export default function Dashboard() {
 
   // An engagement's button names and opens its actual next step on the trial balance page (engagementNextAction),
   // for the same entity, period and current upload.
-  const resumeEntry = (entry: ActiveEngagementEntry) => {
-    navigate(engagementNextAction(entry.workspaceState).href);
+  const resumeEntry = (entry: { companyId: string; periodYear: number }) => {
+    navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
   };
 
   // Starting a service for a DIFFERENT company (or one with no open engagement) never touches an
@@ -277,6 +286,7 @@ export default function Dashboard() {
         return data?.outcome === "unchanged" ? "That purpose is already recorded." : data?.outcome === "forbidden" ? "Only the company's owner can record its purpose." : "Not recorded: a reason of at least 3 characters is required.";
       }}
       account={{
+        totals: homeTotals,
         billing,
         billingLoading,
         billingError: !!billingError,

@@ -112,8 +112,10 @@ async function main() {
         has_function_privilege('authenticated','public._portfolio_visible_companies(uuid)','EXECUTE') c,
         has_function_privilege('authenticated','public._portfolio_bump(uuid)','EXECUTE') d,
         has_table_privilege('authenticated','public.portfolio_revisions','SELECT') e,
-        has_function_privilege('authenticated','public.list_portfolio_entities(integer)','EXECUTE') f`);
-    return r.a && !r.b && !r.c && !r.d && !r.e && r.f ? true : r;
+        has_function_privilege('authenticated','public.list_portfolio_entities(integer)','EXECUTE') f,
+        has_function_privilege('authenticated','public.get_account_home(text[],integer)','EXECUTE') g,
+        has_function_privilege('anon','public.get_account_home(text[],integer)','EXECUTE') h`);
+    return r.a && !r.b && !r.c && !r.d && !r.e && r.f && r.g && !r.h ? true : r;
   });
 
   // ── Fixture: two tenants; tenant A has 130 engagements across 26 companies; invented names only ───────────────────
@@ -308,6 +310,43 @@ async function main() {
     await memberOf(C1, U.member);
     const after = (await list(U.member, { limit: 2, cursor: before.next_cursor }));
     return before.view_token !== after.view_token && after.rows.length > 0 ? true : { before: before.view_token, after: after.view_token };
+  });
+
+  group("Account home — routing from EXACT server counts with bounded samples, never a truncated client list");
+  const home = (uid, withheld = ["TAX_COMPUTATION", "COMPLIANCE_REVIEW", "FILING_PREPARATION", "MONITORING"], limit = null) =>
+    asRole("authenticated", uid, "SELECT public.get_account_home($1,$2) r", [withheld, limit]).then((r) => r[0].r);
+  await check("the owner: exact total of open engagements (130) with a bounded sample (50); nothing of the other tenant", async () => {
+    const h = await home(U.owner);
+    const ids = new Set(engagements.filter((e) => e.company !== B).map((e) => e.id));
+    return h.outcome === "ok" && h.engagements.total === 130 && h.engagements.rows.length === 50 && h.engagements.rows.every((r) => ids.has(r.engagement_id))
+      && h.companies_without_engagement.total === 0 && h.shared.total === 0 ? true : { total: h.engagements?.total, n: h.engagements?.rows?.length };
+  });
+  await check("an engagement whose every granted service is withheld is counted apart (never resumed); one with Trial balance review is not", async () => {
+    const [wid, fid] = [engagements.find((e) => e.company === companiesA[5]).id, engagements.find((e) => e.company === companiesA[6]).id];
+    const om = await ownerMember(companiesA[5]), om2 = await ownerMember(companiesA[6]);
+    // Historical engagements (granted before withheld services were refused by 20261002100000): inserted as they exist.
+    await admin.query("SET session_replication_role = replica");
+    try {
+      await admin.query("INSERT INTO public.engagement_mandate_events (engagement_id, capability, action, sequence_no, actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',1,$2)", [wid, om]);
+      await admin.query("INSERT INTO public.engagement_mandate_events (engagement_id, capability, action, sequence_no, actor_member_id) VALUES ($1,'TAX_COMPUTATION','GRANT',1,$2),($1,'FINANCIAL_STATEMENTS','GRANT',2,$2)", [fid, om2]);
+    } finally { await admin.query("SET session_replication_role = origin"); }
+    const h = await home(U.owner);
+    const row = (await list(U.owner, { search: "Invented Entity G", limit: 100 })).rows.find((r) => r.engagement_id === fid);
+    return h.engagements.total === 129 && h.withheld.total === 1 && h.withheld.rows[0].engagement_id === wid
+      && JSON.stringify(row?.services) === JSON.stringify(["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"]) ? true : { e: h.engagements.total, w: h.withheld, row };
+  });
+  await check("a company with no open engagement, an accepted member's view, a grant holder's shared workspace, a stranger, and limits", async () => {
+    const idle = (await one("INSERT INTO public.companies (user_id,name) VALUES ($1,'Invented Idle Ltd') RETURNING id", [U.owner])).id;
+    // A fresh, unrevoked grant on another company (the earlier one was revoked above): it is a shared workspace, never own.
+    const by = grantCol.find((c) => c === "granted_by_user_id" || c === "granted_by");
+    await admin.query(`INSERT INTO public.workspace_capability_grants (company_id, grantee_user_id, capability${by ? `, ${by}` : ""}) VALUES ($1,$2,'prepare_trial_balance'${by ? ",$3" : ""})`,
+      by ? [companiesA[2], U.grantee, U.owner] : [companiesA[2], U.grantee]);
+    const o = await home(U.owner), mm = await home(U.member), g = await home(U.grantee), st = await home(U.stranger), bad = await home(U.owner, null, 101);
+    await admin.query("UPDATE public.companies SET is_active=false WHERE id=$1", [idle]);
+    return o.companies_without_engagement.total === 1 && o.companies_without_engagement.rows[0].id === idle
+      && mm.engagements.rows.every((r) => [C0, C1].includes(r.company_id)) && mm.shared.total === 0
+      && g.shared.total === 1 && g.shared.rows[0].id === companiesA[2] && g.engagements.total === 0 && st.engagements.total === 0 && st.shared.total === 0 && bad.code === "INVALID_LIMIT"
+      ? true : { o: o.companies_without_engagement, mm: mm.engagements?.total, g: g.shared, st, bad };
   });
 
   group("Entities — the bounded list the upload page offers, under the same visibility");

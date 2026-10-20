@@ -112,6 +112,13 @@ describe("EngagementPortfolio", () => {
     el = await render(async () => page([], null, "t", 0));
     expect(q(el, "portfolio-count")!.textContent).toBe("No engagements match.");
   });
+  it("an engagement whose every service is withheld says so and offers no action it cannot complete", async () => {
+    const el = await render(async () => page([row(3, "ready", { services: ["TAX_COMPUTATION"] }), row(4, "ready", { services: ["FINANCIAL_STATEMENTS", "TAX_COMPUTATION"] })], null, "t", 2));
+    const withheld = q(el, `portfolio-row-${C(1003)}`)!, open = q(el, `portfolio-row-${C(1004)}`)!;
+    expect(withheld.textContent).toContain("Service no longer offered");
+    expect(withheld.querySelectorAll("a").length).toBe(0);
+    expect(open.querySelectorAll("a").length).toBe(1);
+  });
   it("each row has its status in words and exactly one action, named for the entity and period", async () => {
     const el = await render(async () => page([row(1, "needs_decision"), row(2, "ready")], null, "t", 2));
     const r1 = q(el, `portfolio-row-${C(1001)}`)!;

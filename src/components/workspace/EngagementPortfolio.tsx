@@ -220,13 +220,13 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                   </td>
                   <td className="py-3 pr-4 whitespace-nowrap">{periodWords(r)}</td>
                   <td className="py-3 pr-4">{r.currency ?? <span className="text-muted-foreground">Not set</span>}</td>
-                  <td className="py-3 pr-4"><StatusChip status={r.status} /></td>
+                  <td className="py-3 pr-4">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <StatusChip status={r.status} />}</td>
                   <td className="max-w-[16rem] py-3 pr-4"><UploadCell row={r} /></td>
                   <td className="py-3 text-right">
-                    <Link to={portfolioDestination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    {r.serviceWithheld ? null : <Link to={portfolioDestination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       data-testid={`portfolio-action-${r.engagementId}`}>
                       {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
-                    </Link>
+                    </Link>}
                   </td>
                 </tr>
               ))}
@@ -240,13 +240,13 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                     <p className="truncate font-medium text-foreground">{r.companyName}</p>
                     <p className="text-[12px] text-muted-foreground">{periodWords(r)} · {r.currency ?? "Currency not set"}</p>
                   </div>
-                  <StatusChip status={r.status} />
+                  {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <StatusChip status={r.status} />}
                 </div>
                 <div className="mt-2 text-[13px]"><UploadCell row={r} /></div>
                 {renderEntityOptions?.(r)}
-                <Link to={portfolioDestination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {!r.serviceWithheld && <Link to={portfolioDestination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
-                </Link>
+                </Link>}
               </li>
             ))}
           </ul>

@@ -34,6 +34,8 @@ import { customerCapabilityTitle } from "@/lib/workspace/mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
 import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/deriveOrientationSummary";
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
+/** An engagement as the home knows it: the bounded read gives identity only; the legacy list also carried its state. */
+type HubEntry = Pick<ActiveEngagementEntry, "engagementId" | "companyId" | "companyName" | "periodYear"> & Partial<Omit<ActiveEngagementEntry, "engagementId" | "companyId" | "companyName" | "periodYear">>;
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
@@ -49,6 +51,8 @@ import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio"
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
 export interface AccountHome {
+  /** Exact totals when the lists are bounded samples (get_account_home); count-based decisions use these. */
+  totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number; shared: number };
   billing: BillingSummary | null;
   billingLoading: boolean;
   billingError: boolean;
@@ -85,9 +89,9 @@ export default function EngagementHub({
   onSetPurpose,
   portfolio = false,
 }: {
-  entries: ActiveEngagementEntry[];
+  entries: HubEntry[];
   companiesWithoutEngagement: WorkspaceCompany[];
-  onResume: (entry: ActiveEngagementEntry) => void;
+  onResume: (entry: HubEntry) => void;
   onStartService: (company: WorkspaceCompany) => void;
   /** Workspaces shared through an explicit Prepare grant (PR #32). They open into Prepare Data only. */
   sharedWorkspaces?: SharedWorkspace[];
@@ -138,10 +142,11 @@ export default function EngagementHub({
     ? deriveAccountNextAction({
         ...reads,
         entries: entries.map((e) => ({ engagementId: e.engagementId, companyName: e.companyName, periodYear: e.periodYear })),
+        totals: account?.totals ? { entries: account.totals.entries, unavailable: account.totals.unavailable, companiesWithoutEngagement: account.totals.companiesWithoutEngagement } : undefined,
         unavailable: onAddTrialBalanceReview ? unavailableEngagements : [],
         reviewGates,
         companiesWithoutEngagement,
-        sharedCount: onOpenShared ? sharedWorkspaces.length : 0,
+        sharedCount: onOpenShared ? (account?.totals?.shared ?? sharedWorkspaces.length) : 0,
       })
     : null;
   const creation = reads ? companyCreation(reads) : null;
@@ -157,7 +162,8 @@ export default function EngagementHub({
     : uploadEntities.length > 0 && !["checking", "retry"].includes(next.kind) ? "compact"
     : null;
 
-  const renderEntry = (entry: ActiveEngagementEntry) => {
+  const renderEntry = (entry: HubEntry) => {
+    if (!entry.workspaceState) return null;
     const nextVisible = isStageCustomerVisible(entry.workspaceState.nextAction.mission);
     const stageLabel = nextVisible ? STAGE_CONFIGS[entry.workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
     const nextLabel = nextVisible
@@ -251,7 +257,7 @@ export default function EngagementHub({
           ) : (
           <NextActionCard
             next={next}
-            resumeLabel={(() => { const e = next.kind === "resume" ? entries.find((x) => x.engagementId === next.engagementId) : undefined; return e ? engagementNextAction(e.workspaceState).label : null; })()}
+            resumeLabel={(() => { const e = next.kind === "resume" ? entries.find((x) => x.engagementId === next.engagementId) : undefined; return e?.workspaceState ? engagementNextAction(e.workspaceState).label : e ? "Open engagement" : null; })()}
             busy={pending !== null}
             onRetry={account.onRetry}
             onResume={() => { const e = entries.find((x) => next.kind === "resume" && x.engagementId === next.engagementId); if (e) onResume(e); }}
@@ -286,7 +292,7 @@ export default function EngagementHub({
           {/* Grouped by company, each period with its dates and service; test and training workspaces (explicit, recorded
               purpose — never inferred from a name) are listed apart from client work. */}
           {(() => {
-            const { client, test } = groupEngagements(entries);
+            const { client, test } = groupEngagements(entries as ActiveEngagementEntry[]);
             const renderGroup = (g: CompanyGroup<ActiveEngagementEntry>) => (
               <li key={g.companyId} data-testid={`company-group-${g.companyId}`}>
                 <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -365,6 +371,9 @@ export default function EngagementHub({
               </li>
             ))}
           </ul>
+          {account?.totals && account.totals.companiesWithoutEngagement > companiesWithoutEngagement.length && (
+            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="companiesWithoutEngagement-more">And {account.totals.companiesWithoutEngagement - companiesWithoutEngagement.length} more — open them from Settings › Companies.</p>
+          )}
         </section>
       )}
       {sharedWorkspaces.length > 0 && onOpenShared && (
@@ -391,6 +400,9 @@ export default function EngagementHub({
               </li>
             ))}
           </ul>
+          {account?.totals && account.totals.shared > sharedWorkspaces.length && (
+            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="shared-more">And {account.totals.shared - sharedWorkspaces.length} more — each is also listed under Engagements.</p>
+          )}
         </section>
       )}
       {account && (

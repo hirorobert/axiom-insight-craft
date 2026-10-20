@@ -6,6 +6,8 @@
  * view_token over the caller's visible companies; a later page whose token differs from the first page's means
  * something visible changed, and the list must be refreshed from the first page (never silently re-shuffled).
  */
+import { isEngagementWithheld } from "@/lib/workspace/moduleAvailability";
+import type { EngagementCapability } from "@/lib/workspace/mandate";
 export const PORTFOLIO_STATUSES = ["needs_decision", "blocked", "processing_failed", "needs_recheck", "processing", "no_trial_balance", "ready"] as const;
 export type PortfolioStatus = (typeof PORTFOLIO_STATUSES)[number];
 export const PORTFOLIO_PURPOSES = ["client", "test", "training", "not_stated"] as const;
@@ -33,6 +35,10 @@ export interface PortfolioRow {
   purpose: PortfolioPurpose;
   status: PortfolioStatus;
   upload: { fileName: string; uploadedAt: string; uploadedBy: string | null } | null;
+  /** The engagement's granted services (fold of engagement_mandate_events). */
+  services: string[];
+  /** Every granted service is withheld from customers: kept, never opened from the list (no action it cannot finish). */
+  serviceWithheld: boolean;
 }
 export type PortfolioCursor = Record<string, unknown>;
 export type PortfolioPage =
@@ -51,11 +57,13 @@ function parseRow(v: unknown): PortfolioRow | null {
   const id = str(r.engagement_id), company = str(r.company_id), name = str(r.company_name);
   if (!id || !company || !name || typeof r.period_year !== "number" || !isStatus(r.status) || !isPurpose(r.purpose)) return null;
   const u = r.upload === null ? null : obj(r.upload);
+  const services = Array.isArray(r.services) ? r.services.filter((x): x is string => typeof x === "string") : [];
   return {
     engagementId: id, companyId: company, companyName: name, companyCode: str(r.company_code), companyTin: str(r.company_tin),
     periodYear: r.period_year, periodStart: str(r.period_start), periodEnd: str(r.period_end), currency: str(r.currency),
     purpose: r.purpose, status: r.status,
     upload: u && str(u.file_name) && str(u.uploaded_at) ? { fileName: str(u.file_name)!, uploadedAt: str(u.uploaded_at)!, uploadedBy: str(u.uploaded_by) } : null,
+    services, serviceWithheld: isEngagementWithheld(services as EngagementCapability[]),
   };
 }
 
