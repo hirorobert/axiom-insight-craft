@@ -6,7 +6,8 @@
 //
 //   K1  the count: current + comparative certified account keys; a company at the bound is `within`, one account more is not
 //   K2  within the bound: composition composed, a version saved and ready, REVIEWED → FINAL (the 18-account world)
-//   K3  over the bound, BEFORE the expensive work: composition 'over_capacity' with the counts; notes and dependencies carry
+//   K3  over the bound, BEFORE the expensive work: composition 'over_capacity' with the counts; the comparative approval
+//       answers 'over_capacity' (no approval row); notes and dependencies carry
 //       the same state; a save is refused ACCOUNT_CAPACITY_EXCEEDED with nothing written; readiness names
 //       ACCOUNT_CAPACITY_EXCEEDED:<total>/<bound> and returns at once; REVIEWED is refused; a direct binding insert is refused
 //   K4  what stays available: an earlier saved version of the over-capacity company is still listed and readable; the
@@ -138,6 +139,12 @@ async function main() {
     () => rpc(pre, "fs_commit_revision", { p_company_id: B, p_report_id: ridB, p_expected_report_version: 0, p_idempotency_key: `attempt-${uuid()}`, p_period_year: Y, p_provenance_origin: "TRIAL_BALANCE_DERIVED", p_report_document: {}, p_content_hash: "0".repeat(64), p_evidence: [], p_evidence_batch_ids: [], p_evaluation: {} }), "ACCOUNT_CAPACITY_EXCEEDED");
   await check("nothing was written for B by the refused saves (no version, no batch, no audit of a revision)", async () =>
     ((await db.count("SELECT count(*) n FROM public.financial_statement_reports WHERE company_id=$1", [B])) === 0 && (await db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE company_id=$1", [B])) === 0 ? true : "rows exist"));
+  await check("fs_approve_comparatives answers 'over_capacity' with the counts before the lock, the status or any write (no approval row)", async () => {
+    const before = await db.count("SELECT count(*) n FROM public.fs_comparative_approvals WHERE company_id=$1", [B]);
+    const r = await rpc(partner, "fs_approve_comparatives", { p_company_id: B, p_period_year: Y, p_approve: true, p_reason: "Agreed to the prior statements", p_request_id: uuid() });
+    const after = await db.count("SELECT count(*) n FROM public.fs_comparative_approvals WHERE company_id=$1", [B]);
+    return r?.outcome === "over_capacity" && r.capacity?.total === 2 * perYearOver && r.capacity?.bound === bound && before === after ? true : { r, before, after };
+  });
   // An EARLIER saved version of B (written directly: the control is new, such versions exist for companies that grew past the bound).
   await db.admin.query(`INSERT INTO public.financial_statement_reports (report_id, report_version, company_id, period_year, provenance_origin, report_document, content_hash, document_hash, evidence_batch_ids, created_by_firm_member_id)
     SELECT $2, 1, $1, period_year, provenance_origin, report_document, content_hash, document_hash, '{}'::text[], (SELECT id FROM public.firm_members WHERE company_id = $1 AND user_id = $3 LIMIT 1)

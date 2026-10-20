@@ -14,6 +14,7 @@
 --       fs_notes_status and fs_reporting_dependencies return the composition's state verbatim, so they follow at once;
 --     · fs_commit_revision (every save, the browser's two steps included) — raises ACCOUNT_CAPACITY_EXCEEDED (22023) before
 --       validation, hashing, evidence ingest or any write;
+--     · fs_approve_comparatives — answers outcome 'over_capacity' with the counts before the lock, the status or any write;
 --     · fs_publication_blockers — names ACCOUNT_CAPACITY_EXCEEDED:<total>/<bound> and returns at once, so
 --       fs_report_readiness, fs_set_publication_state (REVIEWED/FINAL) and the fs_bind_publication trigger all refuse.
 --   WHAT STAYS AVAILABLE: every saved version (fs_list_saved_versions, the documents under RLS), reviewer comments, the
@@ -21,8 +22,8 @@
 --   WHAT THE BROWSER DOES: the pages word the state with the counts and the bound; the save is refused in the browser
 --   before the server is asked (prepareReportVersion reads the composition first).
 --
---   The three guarded functions are redefined from their latest committed texts (20261020100000, 20260919110000,
---   20261112100000) with exactly one marked block each — nothing else in them changes. No table, column, index, policy
+--   The four guarded functions are redefined from their latest committed texts (20261020100000 for the composition and
+--   the comparative approval, 20260919110000, 20261112100000) with exactly one marked block each — nothing else in them changes. No table, column, index, policy
 --   or grant of an existing object changes. No Edge Function.
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -408,6 +409,58 @@ BEGIN
 END;
 $$;
 
+-- ── 4b. The comparative approval answers by name ───────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fs_approve_comparatives(p_company_id uuid, p_period_year integer, p_approve boolean, p_reason text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_status jsonb;
+  v_prior record;
+  v_latest record;
+  v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_approve IS NULL OR p_request_id IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'review_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  IF (SELECT c.reporting_framework FROM public.companies c WHERE c.id = p_company_id) IS DISTINCT FROM 'ifrs_for_smes' THEN
+    RETURN jsonb_build_object('outcome', 'framework_not_ifrs_for_smes');
+  END IF;
+  -- [20261115100000] Account capacity: the approval answers by name BEFORE the lock, the status (a composition) or any
+  -- write; without it the approval row's check constraint (no comparative sha at over_capacity) surfaces as a raw error.
+  DECLARE
+    v_cap jsonb := public.fs_account_capacity(p_company_id, p_period_year);
+  BEGIN
+    IF v_cap ->> 'state' = 'measured' AND NOT (v_cap ->> 'within')::boolean THEN
+      RETURN jsonb_build_object('outcome', 'over_capacity', 'capacity', v_cap);
+    END IF;
+  END;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_comparatives:' || p_company_id::text || ':' || p_period_year::text, 0));
+  SELECT * INTO v_prior FROM public.fs_comparative_approvals a WHERE a.actor_user_id = v_uid AND a.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND (v_prior.action = 'approved') = p_approve THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'approvalId', v_prior.id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  v_status := public.fs_comparatives_status(p_company_id, p_period_year) -> 'comparative';
+  SELECT a.action INTO v_latest FROM public.fs_comparative_approvals a WHERE a.company_id = p_company_id AND a.period_year = p_period_year ORDER BY a.seq DESC LIMIT 1;
+  IF p_approve THEN
+    IF v_status ->> 'state' = 'approved' THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+    IF v_status ->> 'state' NOT IN ('unapproved', 'approval_stale') THEN RETURN jsonb_build_object('outcome', 'not_approvable', 'state', coalesce(v_status ->> 'state', 'unavailable')); END IF;
+  ELSE
+    IF v_latest.action IS DISTINCT FROM 'approved' THEN RETURN jsonb_build_object('outcome', 'unchanged'); END IF;
+  END IF;
+  INSERT INTO public.fs_comparative_approvals (company_id, period_year, action, comparative_sha256, reason, actor_user_id, firm_member_id, request_id)
+  VALUES (p_company_id, p_period_year, CASE WHEN p_approve THEN 'approved' ELSE 'withdrawn' END, CASE WHEN p_approve THEN v_status ->> 'comparativeSha256' END,
+          btrim(p_reason), v_uid, public._cr_member(p_company_id, v_uid), p_request_id)
+  RETURNING id INTO v_id;
+  RETURN jsonb_build_object('outcome', 'recorded', 'approvalId', v_id, 'comparativeSha256', CASE WHEN p_approve THEN v_status ->> 'comparativeSha256' END);
+END;
+$$;
+
 -- ── 5. Readiness, REVIEWED/FINAL and the binding trigger refuse by name ────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fs_publication_blockers(p_company_id UUID, p_report_id TEXT, p_version INTEGER)
   RETURNS TEXT[]
@@ -662,6 +715,7 @@ BEGIN
      OR position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid, integer)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
+     OR position('over_capacity' IN pg_get_functiondef('public.fs_approve_comparatives(uuid, integer, boolean, text, uuid)'::regprocedure)) = 0
      OR position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR has_function_privilege('anon', 'public.fs_account_capacity(uuid, integer)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.fs_account_capacity(uuid, integer)', 'EXECUTE')

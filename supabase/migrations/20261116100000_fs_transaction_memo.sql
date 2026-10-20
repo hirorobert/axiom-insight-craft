@@ -304,6 +304,12 @@ BEGIN
 END;
 $$;
 
+-- The public names' grants, stated again as the last statements (CREATE OR REPLACE keeps them; stated so the release reads them).
+REVOKE ALL ON FUNCTION public.fs_reporting_input(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_reporting_input(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_statement_composition(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_statement_composition(uuid, integer) TO authenticated;
+
 DO $postcondition$
 BEGIN
   IF to_regprocedure('public._fs_statement_composition_compute(uuid, integer)') IS NULL OR to_regprocedure('public._fs_reporting_input_compute(uuid, integer)') IS NULL

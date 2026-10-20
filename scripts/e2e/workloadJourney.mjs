@@ -366,9 +366,12 @@ const scaledRows = (nAccounts) => {
     const k = base + (pi < extra ? 1 : 0);
     const cur = minor(r[5] || r[6]), pri = minor(r[7] || r[8]);
     const curDebit = !!r[5], priDebit = !!r[7];
+    // Distinct amounts per part (part i carries i more minor units; the last part absorbs the remainder): equal parts were
+    // flagged by duplicate-detection (identical value, period and locator), an artifact no real chart has. Totals are exact.
+    const part = (total, i) => { const q = Math.floor(total / k); const vary = total >= k * k; return i === k - 1 ? total - (q * (k - 1) + (vary ? (k - 1) * (k - 2) / 2 : 0)) : q + (vary ? i : 0); };
     for (let i = 0; i < k; i++) {
-      const cm = i === k - 1 ? cur - Math.floor(cur / k) * (k - 1) : Math.floor(cur / k);
-      const pm = i === k - 1 ? pri - Math.floor(pri / k) * (k - 1) : Math.floor(pri / k);
+      const cm = part(cur, i);
+      const pm = part(pri, i);
       rows.push([`${r[0]}${String(i).padStart(3, "0")}`, `${r[1]} ${i + 1}`, r[2], r[3], r[4], curDebit ? money(cm) : "", curDebit ? "" : money(cm), priDebit ? money(pm) : "", priDebit ? "" : money(pm)]);
     }
   });
@@ -413,7 +416,7 @@ const capacityRun = async (n) => {
       await measure(section, "fs_notes_status", () => rpc(preparer, "fs_notes_status", { p_company_id: C, p_period_year: 2026 }));
       await measure(section, "fs_reporting_dependencies", () => rpc(preparer, "fs_reporting_dependencies", { p_company_id: C, p_period_year: 2026 }));
     }
-    const ev = [parseEvidence(C, 2026, "TRANSACTION_LEDGER", "CURRENT", paddedLedger(LEDGER_ROWS), PERIODS.current), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "CURRENT", bigEquity, PERIODS.current),
+    const ev = [parseEvidence(C, 2026, "TRANSACTION_LEDGER", "CURRENT", paddedLedger(LEDGER_ROWS), PERIODS.current), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "CURRENT", EVIDENCE.current.EQUITY_MOVEMENTS, PERIODS.current),
       parseEvidence(C, 2026, "CASH_ACCOUNT_MAP", "CURRENT", EVIDENCE.current.CASH_ACCOUNT_MAP, PERIODS.current),
       parseEvidence(C, 2026, "TRANSACTION_LEDGER", "COMPARATIVE", paddedLedger(LEDGER_ROWS, "COMPARATIVE"), PERIODS.prior), parseEvidence(C, 2026, "EQUITY_MOVEMENTS", "COMPARATIVE", EVIDENCE.prior.EQUITY_MOVEMENTS, PERIODS.prior),
       parseEvidence(C, 2026, "PRIOR_PERIOD_STATEMENTS", "COMPARATIVE", EVIDENCE.prior.PRIOR_PERIOD_STATEMENTS, PERIODS.prior)];
@@ -435,9 +438,9 @@ const capacityRun = async (n) => {
     out.ready = rd?.ready ?? null; out.blockers = (rd?.blockers ?? []).slice(0, 8);
     if (!rd?.ready) {
       const { data: evals } = await owner.c.from("financial_statement_evaluations").select("findings").eq("report_id", rid).eq("report_version", v).order("seq", { ascending: false }).limit(1);
-      const blocking = ((evals?.[0]?.findings ?? []).filter((f) => f.severity === "BLOCKING" || f.blocking === true)).slice(0, 5);
-      out.blockingFindings = blocking.map((f) => JSON.stringify(f).slice(0, 200));
-      log(`        [${section}] not ready: ${JSON.stringify(out.blockers)}; evaluation blocking findings: ${JSON.stringify(out.blockingFindings).slice(0, 600)}`);
+      const actionable = ((evals?.[0]?.findings ?? []).filter((f) => f.actionable === true)).slice(0, 8);
+      out.actionableFindings = actionable.map((f) => JSON.stringify({ ruleId: f.ruleId, severity: f.failureSeverity, status: f.status, expected: f.expectedRelationship, observed: f.observedValues, affected: f.affected }).slice(0, 700));
+      log(`        [${section}] not ready: ${JSON.stringify(out.blockers)}; actionable evaluation findings: ${JSON.stringify(out.actionableFindings).slice(0, 2400)}`);
     }
     if (rd?.ready) {
       await measure(section, "set_state_REVIEWED", () => rpc(partner, "fs_set_publication_state", { p_report_id: rid, p_report_version: v, p_company_id: C, p_state: "REVIEWED", p_reason: "Reviewed" }));

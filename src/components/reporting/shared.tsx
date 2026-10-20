@@ -1,7 +1,7 @@
 /** Types and small helpers shared by the reporting workbench pages (no server calls of its own). */
 import { useRef } from "react";
 import type { WorkbenchPageId } from "@/lib/workbench/routes";
-import type { compositionClient } from "@/lib/statements/composition";
+import { capacitySchema, overCapacityWords, type compositionClient } from "@/lib/statements/composition";
 import type { notesClient } from "@/lib/notes/notesStatus";
 import type { comparativesClient } from "@/lib/comparatives/comparatives";
 import type { ReportingDb, signoffClient } from "@/lib/reporting/signoff";
@@ -52,6 +52,7 @@ export const OUTCOME_WORDS: Readonly<Record<string, string>> = {
   comparative_not_available: "There is no comparative to restate or bridge.", not_found: "That record does not exist.",
   not_pending: "That restatement has already been decided.", self_decision_not_allowed: "The person who proposed a restatement cannot decide it.",
   not_approvable: "The comparatives cannot be approved in their current state.", not_approved: "There is no approval to withdraw.",
+  over_capacity: "The statements would read more accounts than this release supports; nothing was recorded.",
 };
 /** The server's own detail is kept: the problems of a refused schedule, the difference of an unbalanced restatement. */
 export const outcomeText = (r: { outcome: string; [k: string]: unknown }) => {
@@ -59,6 +60,7 @@ export const outcomeText = (r: { outcome: string; [k: string]: unknown }) => {
   if (Array.isArray(r.problems)) return `${base} ${(r.problems as unknown[]).map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join("; ")}`;
   if (typeof r.differenceMinor === "string") return `${base} Difference ${r.differenceMinor} (minor units).`;
   if (typeof r.state === "string" && r.outcome === "not_approvable") return `${base} (${r.state})`;
+  if (r.outcome === "over_capacity") { const c = capacitySchema.safeParse(r.capacity); return c.success ? overCapacityWords(c.data) : base; }
   return base;
 };
 
