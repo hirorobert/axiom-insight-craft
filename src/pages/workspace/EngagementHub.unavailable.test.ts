@@ -59,7 +59,7 @@ describe("EngagementHub — one primary next action, every instruction actionabl
     const h = html({ account: { ...withPlan, capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" }, onCompanyCreated: () => {} } });
     expect(h).toContain('data-kind="add_company"');
     expect(h).toContain('data-testid="add-company"');
-    expect(h).toContain('data-testid="manage-companies"');
+    expect(h).not.toContain('data-testid="manage-companies"'); // Settings is in the account header, not the home's body
   });
   it("without a creation handler the creation button is never offered (nothing that cannot work)", () => {
     const h = html({ account: { ...withPlan, capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" } } });

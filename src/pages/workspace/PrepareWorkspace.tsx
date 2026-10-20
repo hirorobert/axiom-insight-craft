@@ -39,7 +39,6 @@ import { CurrentTrialBalanceCard } from "@/components/workspace/CurrentTrialBala
 import { TrialBalanceChecks } from "@/components/workspace/TrialBalanceChecks";
 import { UploadHistory } from "@/components/workspace/UploadHistory";
 import { deriveTrialBalanceVerdict, uploadSubjectKey } from "@/lib/workspace/trialBalanceVerdict";
-import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useCertificationReadiness } from "@/hooks/useCertificationReadiness";
 import { computeCertificationReadiness } from "@/lib/workspace/computeCertificationReadiness";
 import {
@@ -113,7 +112,7 @@ function deriveFiscalPeriod(
 }
 
 export default function PrepareWorkspace() {
-  const { upload: rawUpload, uploads: rawUploads, company, companyId, periodYear, refreshUpload, access } = useWorkspace();
+  const { upload: rawUpload, uploads: rawUploads, uploadsTotal, company, companyId, periodYear, refreshUpload, access } = useWorkspace();
   // Prepare-only access (an explicit capability grant, PR #32): upload, replace, validate, discard and Undo. Account
   // review, mapping, the framework prompt and evidence reconciliation belong to other authorities and are not shown.
   const prepareOnly = isPrepareOnly(access);
@@ -701,7 +700,7 @@ export default function PrepareWorkspace() {
               <span className="font-semibold">Step {task.step} of {task.of} · {task.label}.</span>{" "}
               <span className="text-muted-foreground">{task.instruction}</span>
             </p>
-            {!prepareOnly && <EntityContextSuggestion reportingFrameworkDbValue={company?.reporting_framework} companyCreatedAt={company?.created_at} />}
+            {/* The reporting framework is stated with the engagement in the left rail (EngagementContextPanel), not here. */}
           </div>
         </div>
       </header>
@@ -767,7 +766,7 @@ export default function PrepareWorkspace() {
                 }
                 fileOptionsOpen={focusManage}
                 onShowHistory={rawUploads.length > 0 ? () => setHistoryRequest((n) => n + 1) : undefined}
-                historyCount={rawUploads.length}
+                historyCount={uploadsTotal}
                 replaceRefusal={replaceRefusal}
                 onDismissReplaceRefusal={() => setReplaceRefusal(null)}
               />
@@ -961,8 +960,10 @@ export default function PrepareWorkspace() {
                 )}
               </SurfaceCard>
 
+              {/* Earlier uploads of this period, after the current result and its checks (history is evidence). */}
               <UploadHistory
                 uploads={rawUploads}
+                total={uploadsTotal}
                 currentId={rawUpload?.id ?? null}
                 viewingId={upload.id}
                 openRequest={historyRequest}

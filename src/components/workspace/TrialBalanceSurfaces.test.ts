@@ -143,7 +143,8 @@ describe("Account home (the CFOClose logo from inside a workspace)", () => {
     expect(html).toContain("Sign out");
     expect(html).toContain('data-testid="account-shell"');
     expect(html).toContain('data-testid="account-next-action"');
-    expect(html).toContain('data-testid="manage-companies"');
+    // Settings live in the account header (href="/settings" above), never as a link in the middle of the home.
+    expect(html).not.toContain('data-testid="manage-companies"');
   });
   it("capacity is said once; creation decisions come from the pure derivation and the server's create_entity, never ad-hoc client arithmetic", () => {
     const withPlan = (c: { capacity: number | null; used: number | null; determined: boolean }) => ({ ...account(c), billingError: false,

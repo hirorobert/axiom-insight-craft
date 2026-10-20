@@ -414,9 +414,7 @@ export default function EngagementHub({
                 Add a company
               </Button>
             )}
-            <Link to="/settings" data-testid="manage-companies" className="text-[13px] underline underline-offset-4 text-foreground">
-              Manage companies in Settings
-            </Link>
+            {/* Company settings live in Settings (the account header), not in the middle of the home. */}
           </div>
           {canCreate && addOpen && account.onCompanyCreated && (
             <div id={addFormId} className="mt-4" data-testid="add-company-form">
