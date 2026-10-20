@@ -28,7 +28,7 @@ export const DECISION_CHOICES: Readonly<Record<DecisionCode, readonly DecisionCh
     { action: "part_of_trial_balance", label: "Part of the trial balance", resolves: false, consequence: "The file is blocked until its layout or content is corrected, because those rows have no amounts this check can read." },
   ],
   CLEARING_ACCOUNT_BALANCE: [
-    { action: "explained", label: "Explain this balance", resolves: true, consequence: "Your explanation and evidence are recorded with the result. The balance itself is not changed." },
+    { action: "explained", label: "Explain this balance", resolves: true, consequence: "Your explanation and evidence reference are recorded with the result. The reference is not matched to a bank transaction, and the balance itself is not changed." },
   ],
 };
 export const isDecisionCode = (code: string): code is DecisionCode => code in DECISION_CHOICES;

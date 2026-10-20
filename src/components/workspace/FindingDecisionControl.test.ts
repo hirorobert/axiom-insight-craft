@@ -127,6 +127,11 @@ describe("FindingDecisionControl", () => {
     expect(rpc.mock.calls[0][1]).toMatchObject({ p_action: "different_entity", p_expected_revision: 1 });
   });
 
+  it("a recorded explanation is shown as an explanation with a recorded reference, never as a matched transaction", () => {
+    const el = render(clearing, vi.fn(), vi.fn(), { decisionId: "d4", code: "CLEARING_ACCOUNT_BALANCE", subject: "code:1190", action: "explained", resolves: true, revision: 1, reason: "r", createdAt: "t" });
+    expect(q(el, "decision-current-CLEARING_ACCOUNT_BALANCE")!.textContent).toMatch(/a reference you recorded, not a matched bank transaction/);
+  });
+
   it("clearing: explanation and evidence are required, the Reconcile link is offered for a reconciliation, and the balance is never changed", async () => {
     const rpc = vi.fn(async (_f: string, _a: Args) => ({ data: { outcome: "recorded", decision_id: "d3", revision: 1 }, error: null }));
     const el = render(clearing, rpc);
@@ -140,6 +145,9 @@ describe("FindingDecisionControl", () => {
     expect(record().disabled).toBe(true); // no reference yet
     typeInto(q(el, "decision-reference") as HTMLInputElement, "Bank reconciliation December");
     expect(record().disabled).toBe(false);
+    // A recorded reference is said to be what it is: not a matched bank transaction, not a checked document.
+    expect(q(el, "decision-reference-hint")!.textContent).toMatch(/not matched to a bank transaction/);
+    expect((q(el, "decision-reference") as HTMLInputElement).getAttribute("aria-describedby")).toBe(q(el, "decision-reference-hint")!.id);
     expect(await axeViolations(el)).toEqual([]);
     click(record()); await flush();
     expect(rpc.mock.calls[0][1]).toMatchObject({ p_action: "explained", p_payload: { nature: "in_transit", evidence: { kind: "reconciliation", reference: "Bank reconciliation December" } } });

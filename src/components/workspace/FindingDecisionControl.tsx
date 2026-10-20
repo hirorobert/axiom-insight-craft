@@ -84,6 +84,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
         {current && decidedChoice && (
           <span className="text-muted-foreground" data-testid={`decision-current-${issue.code}`}>
             Decided: {decidedChoice.label}.
+            {current.action === "explained" && " The evidence is a reference you recorded, not a matched bank transaction."}
           </span>
         )}
         <button type="button" className="underline underline-offset-4" onClick={() => setOpen(true)} aria-expanded={false}
@@ -159,7 +160,11 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
             )}
             <label htmlFor={ids.ref} className="mt-2 block">Reference</label>
             <input id={ids.ref} value={reference} maxLength={200} onChange={(e) => change(() => setReference(e.target.value))}
-              className="mt-1 h-10 w-full border border-input bg-background px-2" data-testid="decision-reference" placeholder="Where the evidence is (for example: January bank statement, line 2)" />
+              className="mt-1 h-10 w-full border border-input bg-background px-2" data-testid="decision-reference" aria-describedby={`${ids.ref}-hint`}
+              placeholder="Where the evidence is (for example: January bank statement, line 2)" />
+            <p id={`${ids.ref}-hint`} className="text-[12px] text-muted-foreground" data-testid="decision-reference-hint">
+              A reference you record for the reviewer. It is not matched to a bank transaction, and the system does not check the document.
+            </p>
           </fieldset>
         </>
       )}
