@@ -66,8 +66,11 @@ Deno.test("a row deleted AHEAD of the page boundary between two reads: the offse
     if ((p.data ?? []).length < 1000) break;
     from += 1000;
   }
-  assertEquals(got.length, 1499 - 1); // one of the 1,499 remaining rows was skipped …
-  assertEquals(got.some((x) => x.id === key(1000)), false); // … exactly the one that slid across the boundary
+  // The count equals the 1,499 remaining rows, which is exactly what hides the defect: the read holds the deleted row 0 (a
+  // phantom, read before the deletion) and lacks row 1000, which slid across the boundary into the window already read.
+  assertEquals(got.length, 1499);
+  assertEquals(got.some((x) => x.id === key(0)), true);
+  assertEquals(got.some((x) => x.id === key(1000)), false);
   // Keyset: the cursor is the last key read; deleting a row behind it cannot move anything still to be read.
   const k = source(1500);
   k.hooks.push((pageNo) => { if (pageNo === 2) k.rows.splice(0, 1); });
