@@ -47,6 +47,14 @@ describe("clearing, suspense and in-transit accounts", () => {
     expect(r.blocking).toBe(false);
     expect(r.totals).toEqual({ debitMinor: 50000n, creditMinor: 50000n, differenceMinor: 0n });
   });
+  it("one finding per account, each with the account's identity as its subject (each is explained on its own)", () => {
+    const r = read([H, ["1190", "Suspense account", 100, null], ["1195", "Cash in transit", 50, null], ["3000", "Capital", null, 150]]);
+    expect(r.issues.map((i) => [i.code, i.rows, i.subject, i.accountCode])).toEqual([
+      ["CLEARING_ACCOUNT_BALANCE", [2], "code:1190", "1190"],
+      ["CLEARING_ACCOUNT_BALANCE", [3], "code:1195", "1195"],
+    ]);
+    expect(r.blocking).toBe(false);
+  });
 });
 
 describe("opening and movement content", () => {

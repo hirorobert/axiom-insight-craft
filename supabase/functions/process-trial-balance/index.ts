@@ -48,6 +48,10 @@ import { createAdmission, withAdmission } from "../_shared/admission.ts";
 import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
+import {
+  DECISIONS_AUTHORITY_UNAVAILABLE, applyDecisions, evaluationManifest, readCurrentDecisions, sameDecisions, usesCarriedDecisions,
+  type CurrentDecision, type DecisionFinding,
+} from "../_shared/tbFindingDecisions.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
 // E1: exact class-side amounts ("tb-amounts/1") and the treatment request identity (H1b, 20261007100000).
 import { TB_ROW_FORMAT, buildTbAmounts, classSideMinor, classSideOf, type TbAmounts } from "../_shared/tbAmounts.ts";
@@ -69,14 +73,20 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // certification; output_hash binds the certified rows AND the complete findings; the account bound is enforced.
 // v6: name fallback by counting candidates (20261108100000): a coded account never takes another code's decision by
 // name; several candidates go to review, never the first or the last.
-const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v6";
+// v7: recorded finding decisions and the evaluation manifest (20261118100000): reads the upload's current decisions and
+// the company's current name before the attempt, records '#finding_decisions:<upload>' and '#entity' (and
+// '#entity_decisions' when it uses a carried decision), re-reads both after the snapshot, cites each decision on its
+// finding, never accepts a result with an undecided finding, and reports every rule it evaluated.
+const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v7";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
 // refuses runs and certifications below processing_release_control.min_engine_generation; compared as an integer only.
 // 4 = reads layout confirmations; tb_begin_attempt refuses a lower generation for an upload that has one (20261010100000).
 // 5 = records complete findings (needs 20261107100000; a floor of 5 retires engines that cannot).
 // 6 = counts name candidates (20261108100000 lets coded accounts share a name; a floor of 6 retires last-wins engines).
-const ENGINE_GENERATION = 6;
+// 7 = reads finding decisions and reports the evaluation manifest (needs 20261118100000; refuses before any write
+//     without it). A floor of 7 — a separate, approved release step — makes decisions mandatory for every upload.
+const ENGINE_GENERATION = 7;
 
 // The attempt lease: longer than the hosted Edge wall-clock limit (400 s) plus a margin. A run still marked running after
 // it can be abandoned (LEASE_EXPIRED) by the next authorized request or the expiry pass; its worker is then fenced out.
@@ -867,6 +877,11 @@ interface SafishaExceptionRecord {
   severity:    "error" | "warning" | "info";
   accountCode: string | null;
   message:     string;
+  // v7: the identity a recorded decision binds to (findings that take a decision), and the decision cited.
+  rows?:        number[];
+  subject?:     string;
+  file_entity?: string;
+  decision?:    { id: string; action: string };
 }
 
 interface CertifiedTBRowRecord {
@@ -1153,7 +1168,9 @@ interface AttemptUploadFields {
 }
 type AttemptOutcome =
   | { outcome: "certified"; upload: AttemptUploadFields; normalizedInputHash: string; isBlocking: boolean; requiresReview: boolean;
-      exceptions: SafishaExceptionRecord[]; rowsSnapshot: CertifiedTBRowRecord[] }
+      exceptions: SafishaExceptionRecord[]; rowsSnapshot: CertifiedTBRowRecord[];
+      // v7: the upload's current decisions, how far the check got, and whether the balance was evaluated (the manifest).
+      decisions: CurrentDecision[]; reached: "ingestion" | "classification" | "complete"; balanceEvaluated: boolean }
   | { outcome: "failed"; errorCode: string; upload: AttemptUploadFields };
 
 const COMPANY_REQUIRED = {
@@ -1191,8 +1208,15 @@ function attemptErrorResponse(error: { code?: string; message?: string }): Respo
   return null;
 }
 
+/** The company's current name (v7: the entity a file's title block is compared with). A lookup error is thrown. */
+async function readCompanyName(supabase: { from(t: "companies"): { select(c: string): { eq(c: string, v: string): { maybeSingle(): PromiseLike<{ data: { name?: string | null } | null; error: { code?: string } | null }> } } } }, companyId: string): Promise<string | null> {
+  const { data, error } = await supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
+  if (error) throw new Error(`company lookup failed: ${error.code ?? "unknown"}`);
+  return typeof data?.name === "string" && data.name.trim() ? data.name : null;
+}
+
 /** Every dependency key a run can consult (absent ones included), for tb_snapshot_dependencies. */
-function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccount[]): { scope: string; key: string }[] {
+function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccount[], usesCarried: boolean): { scope: string; key: string }[] {
   const keys = new Map<string, { scope: string; key: string }>();
   const add = (scope: string, key: string) => keys.set(`${scope}|${key}`, { scope, key });
   for (const a of accounts) {
@@ -1206,6 +1230,10 @@ function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccoun
   add(companyId, "#framework");
   add(companyId, "#currency");
   add(companyId, `#layout_confirmation:${uploadId}`);
+  // v7: the upload's decisions, the company's identity (the entity comparison), and carried decisions when used.
+  add(companyId, `#finding_decisions:${uploadId}`);
+  add(companyId, "#entity");
+  if (usesCarried) add(companyId, "#entity_decisions");
   add("global", "#dictionary");
   return [...keys.values()];
 }
@@ -1231,7 +1259,32 @@ async function finishAttempt(
   supabase: ReturnType<typeof createClient>,
   engineRunId: string,
   params: AttemptOutcome,
-): Promise<{ ok: true } | { ok: false; response: Response }> {
+): Promise<{ ok: true; processingResult?: unknown } | { ok: false; response: Response }> {
+  let adjustedResult: unknown;
+  if (params.outcome === "certified") {
+    // v7: decisions are applied HERE, the one place a certification is built. Each finding that takes a decision cites
+    // its current one; a decision that does not resolve adds a blocking finding with its recovery; an undecided finding
+    // makes an otherwise accepted result "needs review". No amount, row or account changes.
+    const applied = applyDecisions(params.exceptions as DecisionFinding[], params.decisions);
+    let { isBlocking, requiresReview, upload } = params;
+    const pr = (upload.processing_result ?? {}) as Record<string, unknown>;
+    const decisionsRequired = applied.undecided.filter((f) => !f.decision)
+      .map((f) => ({ code: f.code, subject: f.subject, rows: f.rows ?? [], message: f.message }));
+    if (applied.blocking.length > 0 && !isBlocking) {
+      isBlocking = true; requiresReview = false;
+      const errors = [...((pr.errors as unknown[]) ?? []), ...applied.blocking.map((b) => ({ code: b.code, message: b.message }))];
+      adjustedResult = { ...pr, status: "blocked", statements: null, errors };
+      upload = { ...upload, status: "blocked", is_valid: false, accounting_errors: errors, processing_result: adjustedResult };
+    } else if (!isBlocking && !requiresReview && decisionsRequired.length > 0) {
+      requiresReview = true;
+      adjustedResult = { ...pr, status: "needs_review", decisions_required: decisionsRequired };
+      upload = { ...upload, status: "needs_review", is_valid: false, processing_result: adjustedResult };
+    } else if (decisionsRequired.length > 0) {
+      adjustedResult = { ...pr, decisions_required: decisionsRequired };
+      upload = { ...upload, processing_result: adjustedResult };
+    }
+    params = { ...params, isBlocking, requiresReview, upload, exceptions: applied.findings as SafishaExceptionRecord[] };
+  }
   const result: Record<string, unknown> = { outcome: params.outcome, upload: params.upload };
   if (params.outcome === "certified") {
     // v5: params.exceptions are the COMPLETE findings. The certification row carries them verbatim when they fit, else a
@@ -1267,6 +1320,7 @@ async function finishAttempt(
       exceptions: summary.exceptions,
       findings,
       rows_snapshot: params.rowsSnapshot,
+      evaluation: evaluationManifest(findings as DecisionFinding[], params.reached, params.balanceEvaluated),
     };
   } else {
     result.error_code = params.errorCode;
@@ -1284,7 +1338,7 @@ async function finishAttempt(
       message: "A mapping, decision or setting this check used changed while it ran. Run the check again.",
     }, 409) };
   }
-  return { ok: true };
+  return { ok: true, processingResult: adjustedResult };
 }
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
@@ -1458,6 +1512,17 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
       if (layoutRead.kind === "unavailable") return jsonResponse(LAYOUT_AUTHORITY_UNAVAILABLE, 503);
       layoutConfirmation = layoutRead.confirmation;
     }
+    // v7: the upload's current finding decisions, and the company's CURRENT name (the entity the file is compared with;
+    // a rename bumps '#entity'). Read before anything is mutated; a database without the decision authority is refused
+    // here with nothing written.
+    let findingDecisions: CurrentDecision[] = [];
+    let workspaceEntityName: string | null = upload.company_name ?? null;
+    if (upload.company_id) {
+      const decisionsRead = await readCurrentDecisions((n, a) => supabase.rpc(n, a as never) as never, uploadId);
+      if (decisionsRead.kind === "unavailable") return jsonResponse(DECISIONS_AUTHORITY_UNAVAILABLE, 503);
+      findingDecisions = decisionsRead.decisions;
+      workspaceEntityName = await readCompanyName(supabase as never, upload.company_id);
+    }
 
     // E2: nothing is written to the upload before the attempt begins (below, after the source is read and parsed). The
     // previous status claim ("validating") is now part of tb_begin_attempt, in one transaction with the run.
@@ -1489,7 +1554,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     const fileBytes = new Uint8Array(fileBuffer);
     // The workspace's entity name is compared only with an identifiable title-block entity name (§3.3): a difference is
     // a confirmation for review, never a rename, a move or a block.
-    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency, workspaceEntityName: upload.company_name ?? null };
+    const readContext = { fileName: upload.file_name ?? "", periodYear: upload.period_year ?? null, currency: reportingCurrency, workspaceEntityName };
     let ingest: IngestResult;
     // A2: under a confirmed layout the file is read exactly as confirmed — the same bytes (source hash), the same layout
     // (profile hash) resolving to the same columns (resolved hash). Any difference is refused before the attempt begins.
@@ -1650,8 +1715,11 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     const blockingIssues = ingest.issues.filter((i) => i.severity === "blocking");
     // Review-only ingestion findings (for example, unrecognised text after the last account) are recorded on every
     // certification as layer-2 warnings: visible for review, never blocking, never adjusting an amount.
+    // v7: a finding that takes a decision carries its identity (subject, rows, the file's entity text, the account).
     const ingestionReviewExceptions = ingest.issues.filter((i) => i.severity === "review").map((i): SafishaExceptionRecord => ({
-      code: i.code, layer: 2, severity: "warning", accountCode: null, message: i.message,
+      code: i.code, layer: 2, severity: "warning", accountCode: i.accountCode ?? null, message: i.message,
+      ...(i.subject ? { subject: i.subject, rows: i.rows ?? [] } : {}),
+      ...(i.fileEntity ? { file_entity: i.fileEntity } : {}),
     } as SafishaExceptionRecord));
     if (blockingIssues.length > 0) {
       const imbalanced = blockingIssues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE");
@@ -1683,9 +1751,12 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
         ],
         rowsSnapshot: [],
         upload: { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
+        // The balance is evaluated unless another integrity finding stopped the arithmetic (a total-row mismatch does not).
+        decisions: findingDecisions, reached: "ingestion",
+        balanceEvaluated: imbalanced || !blockingIssues.some((i) => i.code !== "TOTAL_ROW_MISMATCH"),
       });
       if (!done.ok) return done.response;
-      return jsonResponse(result, 200);
+      return jsonResponse(done.processingResult ?? result, 200);
     }
 
     // ── E2: dependency snapshot (20261008100000) ──────────────────────────────
@@ -1694,7 +1765,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     // dictionary (absent = revision 0). Finalize re-checks them (DEPENDENCY_CHANGED), and authority is re-checked against
     // them at read time, so a later mapping, decision or setting change makes this result a re-check.
     const { error: snapshotError } = await supabase.rpc("tb_snapshot_dependencies", {
-      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, uploadId, rawAccounts),
+      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, uploadId, rawAccounts, usesCarriedDecisions(findingDecisions)),
     } as never);
     if (snapshotError) {
       const refusal = attemptErrorResponse(snapshotError);
@@ -1722,6 +1793,22 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     const layoutAfterSnapshot = await readCurrentLayoutConfirmation(supabase as never, uploadId);
     if (layoutAfterSnapshot.kind !== "read" || (layoutAfterSnapshot.confirmation?.id ?? null) !== (layoutConfirmation?.id ?? null)) {
       const changed = { code: "DEPENDENCY_CHANGED", message: "The file's confirmed layout changed while this check ran. Run the check again." };
+      attemptFinished = true;
+      const done = await finishAttempt(supabase as never, runId, {
+        outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
+        upload: { status: "error", is_valid: false, accounting_errors: [changed], validation_report: null,
+                  processing_result: { status: "blocked", statements: null, errors: [changed], validation_report: {} } },
+      });
+      if (!done.ok) return done.response;
+      return jsonResponse({ status: "blocked", ...changed }, 409);
+    }
+
+    // v7: likewise the decisions and the company's name — a decision recorded, or the company renamed, between the reads
+    // above and the snapshot would otherwise be certified as current while this check used the earlier state.
+    const decisionsAfterSnapshot = await readCurrentDecisions((n, a) => supabase.rpc(n, a as never) as never, uploadId);
+    const nameAfterSnapshot = await readCompanyName(supabase as never, upload.company_id);
+    if (decisionsAfterSnapshot.kind !== "read" || !sameDecisions(decisionsAfterSnapshot.decisions, findingDecisions) || nameAfterSnapshot !== workspaceEntityName) {
+      const changed = { code: "DEPENDENCY_CHANGED", message: "A decision about this file, or the entity's name, changed while this check ran. Run the check again." };
       attemptFinished = true;
       const done = await finishAttempt(supabase as never, runId, {
         outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
@@ -2115,9 +2202,10 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
         ],
         rowsSnapshot: [],
         upload: { status: "needs_review", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
+        decisions: findingDecisions, reached: "classification", balanceEvaluated: true,
       });
       if (!done.ok) return done.response;
-      return jsonResponse(result, 200);
+      return jsonResponse(done.processingResult ?? result, 200);
     }
 
     // ── STEP 8: Statement aggregation (exact, class-side) ───────────────────────
@@ -2240,6 +2328,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
       ],
       rowsSnapshot: buildCertifiedRows(rawAccounts, resolvedMappings, resolvedTiers),
       upload: { status: allValid ? "complete" : "error", is_valid: allValid, validation_report: validationReport, accounting_errors: allErrors, processing_result: processingResult },
+      decisions: findingDecisions, reached: "complete", balanceEvaluated: true,
     });
     if (!done.ok) return done.response;
 

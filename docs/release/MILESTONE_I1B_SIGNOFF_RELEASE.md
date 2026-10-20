@@ -224,10 +224,11 @@ financial-statements rollout.
 ## Unreleased ingestion compatibility update (2026-10-15)
 
 The historical release identities above remain unchanged. The current source dependency closure of
-`layout-assist` is now `729996aba6f29e8e173d8d75bd7284dfb9f786dedfd652586e44bc9af8994256` because the shared deterministic ingestion core recognises
+`layout-assist` is now `d9271d0b23754bb17ba38ff6d96d98aca5a831d7f4086b6ad862002f5e25bb3e` because the shared deterministic ingestion core recognises
 printed-workbook metadata and control totals (tb-ingest-3.1.0), and then printed-report footers by position and structure, title-block
 evidence and the review-only rules (tb-ingest-3.2.0), and the shared reader enforces the one upload policy before any parse
 (`_shared/uploadPolicy.ts`, tb-upload-policy-3: the account bound added by the certification-capacity repair). A file refused as a whole
 (an upload-policy limit or an unreadable format) is now recorded as stopping at the "read" milestone with its reason, not as a
-failed balance (launch acceptance F). This is a source identity, not evidence
+failed balance (launch acceptance F). The ingestion core also gives each finding that takes a recorded decision a stable identity (its subject; the file's
+entity text; one clearing-account finding per account) for the Trial Balance workflow's finding decisions. This is a source identity, not evidence
 of hosted deployment. The layout-assist customer gate remains unchanged.

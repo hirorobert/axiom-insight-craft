@@ -321,7 +321,7 @@ async function main() {
     const dep = await one("SELECT revision FROM public.engine_run_dependencies WHERE engine_run_id=$1 AND dep_key=$2", [row.current_engine_run_id, `#layout_confirmation:${euro.id}`]);
     const run = await one("SELECT engine_generation, engine_version FROM public.engine_runs WHERE id=$1", [row.current_engine_run_id]);
     euroCert = await authoritative(A, euro.year);
-    return r.http === 200 && row.status === "complete" && Number(dep?.revision) === 1 && run.engine_generation === 6 && euroCert !== null ? true : { r: r.body, row, dep, run };
+    return r.http === 200 && row.status === "complete" && Number(dep?.revision) === 1 && run.engine_generation === 7 && euroCert !== null ? true : { r: r.body, row, dep, run };
   });
   await check("a new confirmation after certification → the result is no longer authoritative (Needs re-check)", async () => {
     const r = await L(U.preparer, { action: "confirm", uploadId: euro.id, layout: { ...EURO_LAYOUT, columns: { ...EURO_LAYOUT.columns, accountName: null } }, expectedConfirmationNo: 1 });

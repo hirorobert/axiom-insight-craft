@@ -593,6 +593,22 @@ jobs:
           createdb period_currency_proof
           node scripts/db-proof/periodCurrencyCorrection.mjs
 
+      - name: Engagements portfolio proof (20261117100000 — the server-paged engagements read under the platform's workspace-access rule; the creator, an accepted active member and a capability holder see a company while a pending, suspended or revoked member, another tenant and anon do not; keyset paging with no duplicate or gap in every sort; literal search, purpose, period and status filters with exact counts; a view token that moves for a visible change only; measured cost; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/engagement_portfolio_proof
+        run: |
+          createdb engagement_portfolio_proof
+          node scripts/db-proof/engagementPortfolio.mjs
+
+      - name: Finding decisions proof (20261118100000 — the generation-7 evaluation manifest is complete and agrees with its findings; unknown generations are refused; decisions bind to the certification's own finding identity with required confirmations and evidence, replay, conflict, stale and version outcomes, append-only and fenced, invalidating the evaluation at once; same-entity carry-forward ends on a rename; one durable investigation reservation under 12-way concurrency with a recoverable lease and bounded results; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/finding_decisions_proof
+        run: |
+          createdb finding_decisions_proof
+          node scripts/db-proof/findingDecisions.mjs
+
       - name: I1-C layout-assist controls proof (the real layout-assist function refuses before any read while no provider is wired; provider disabled with both approval gates required; versioned, revocable, append-only workspace consent by manage_members; daily quota and monthly cost cap reserved pessimistically under 12-way concurrency; idempotent runs completed once; a test provider injected into the real function sees only the minimized sample, the suggestion is validated against the whole file and confirmed only through the existing layout function; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -616,6 +632,7 @@ jobs:
         run: |
           createdb release_order_proof
           git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
+          git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
           bun scripts/db-proof/releaseOrder.mjs
 
       - name: Milestone release-order proof (one database upgraded from the schema of main through the seven release migrations one at a time, with legacy personal and workspace uploads, an in-window discard and the real sweeper at every stage; the new storage-cleanup function on the old schema; old and new cleanup handlers on a shared source; retiring or discarding one year never deletes a file its sibling needs; on the same throwaway container)

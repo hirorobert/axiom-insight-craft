@@ -30,6 +30,10 @@ const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const A1_FILE = "20261009100000_currency_registry_and_reporting_periods.sql";
 const A2_FILE = "20261010100000_layout_templates_and_confirmations.sql";
 const GENERATION_3_COMMIT = "553d54cac9921cfc7b2698842bd4fff2a6be8f1b";
+// The engine this release order deployed (stage 3) is pinned: the last generation-6 commit (main daa23e4). The current
+// engine (generation 7) needs 20261118100000, which this proof's database never has — it is driven below only to show it
+// refuses here before any write (its own release order is proven by tbHandlerCharacterization.mjs / findingDecisions.mjs).
+const GENERATION_6_COMMIT = "daa23e4113dc726fab867480dac6b0b6aba0bbfc";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -117,7 +121,8 @@ async function main() {
     return true;
   });
   const gen3 = (await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, GENERATION_3_COMMIT, "process-trial-balance") })).handler;
-  const gen4 = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
+  const gen4 = (await loadFunctionTree(REPO, "process-trial-balance", { functionsDir: functionsAtCommit(REPO, GENERATION_6_COMMIT, "process-trial-balance") })).handler;
+  const current = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
   const layoutFn = (await loadFunctionTree(REPO, "trial-balance-layout")).handler;
 
   const U = { owner: uuid(), preparer: uuid() };
@@ -225,6 +230,14 @@ async function main() {
   });
 
   group("Stage 3 — generation 4 deployed");
+  await check("the current engine (generation 7) on this database (no 20261118100000) is refused before any write", async () => {
+    const before = await one("SELECT status, current_engine_run_id, processing_attempt FROM public.trial_balance_uploads WHERE id=$1", [direct.id]);
+    const runs = (await one("SELECT count(*)::int n FROM public.engine_runs")).n;
+    const r = await run(current, direct);
+    const after = await one("SELECT status, current_engine_run_id, processing_attempt FROM public.trial_balance_uploads WHERE id=$1", [direct.id]);
+    return r.http === 503 && r.body?.code === "DECISIONS_AUTHORITY_UNAVAILABLE" && JSON.stringify(before) === JSON.stringify(after)
+      && (await one("SELECT count(*)::int n FROM public.engine_runs")).n === runs ? true : { r: r.body, before, after };
+  });
   await check("both confirmed uploads now certify under their confirmed layout", async () => {
     const a = await run(gen4, direct);
     const b = await run(gen4, viaFn);
