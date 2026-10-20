@@ -26,7 +26,8 @@
 --      the findings; every decision-taking finding carries its subject and a decision_required flag that the DATABASE
 --      recomputes from the rule and the workspace policy; a cited decision must be current; a non-resolving decision
 --      makes the result blocking; an accepted result leaves no REQUIRED finding without a current resolving decision.
---      Unknown generations are refused; an engine below 7 is refused for an upload that has decisions.
+--      Unknown generations are refused; an engine below 7 is refused for an upload that has decisions (at begin; and at
+--      finalize, should a decision exist by then — defence in depth: a re-check invalidates the result decisions bind to).
 --   5. tb_investigations + tb_investigation_rows — a durable, unique reservation per upload (partial unique index, not an
 --      advisory lock) with a recoverable lease; the reader's own rows (included and excluded, source location, exact
 --      parsed minor amounts) are stored ONCE and read page by page (get_tb_investigation_rows) — the file is never parsed
@@ -1189,6 +1190,23 @@ BEGIN
   -- [20261118100000] The requirement each decision-taking finding states is the database's own (rule + workspace policy);
   -- every decision a finding cites is current for this upload; a non-resolving decision makes the result blocking; and an
   -- accepted result leaves no REQUIRED finding without a current, resolving decision.
+  -- A run below generation 7 that BEGAN before a decision was recorded for this upload (tb_begin_attempt refuses one
+  -- that begins after) cannot have read it, and the decision is not one of its dependencies: in a mixed fleet it would
+  -- otherwise certify past the decision. It finishes as a failure instead; the authoritative result is not replaced.
+  IF v_outcome = 'certified' AND coalesce(v_gen, 0) < 7
+     AND EXISTS (SELECT 1 FROM public.tb_finding_decisions d WHERE d.upload_id = v_row.id) THEN
+    v_outcome := 'failed';
+    v_code := 'DECISIONS_REQUIRE_CURRENT_ENGINE';
+    v_up := jsonb_build_object(
+      'status', 'error', 'is_valid', false,
+      'accounting_errors', jsonb_build_array(jsonb_build_object('code', 'DECISIONS_REQUIRE_CURRENT_ENGINE',
+        'message', 'A decision was recorded while an older version of the check ran. Run the check again.')),
+      'processing_result', jsonb_build_object('status', 'blocked', 'statements', NULL,
+        'errors', jsonb_build_array(jsonb_build_object('code', 'DECISIONS_REQUIRE_CURRENT_ENGINE',
+          'message', 'A decision was recorded while an older version of the check ran. Run the check again.')),
+        'validation_report', '{}'::jsonb),
+      'validation_report', NULL);
+  END IF;
   IF v_outcome = 'certified' AND coalesce(v_gen, 0) >= 7 THEN
     IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
                 WHERE EXISTS (SELECT 1 FROM public.tb_decision_rules r WHERE r.code = f->>'code')

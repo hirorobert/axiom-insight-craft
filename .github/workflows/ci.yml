@@ -601,7 +601,7 @@ jobs:
           createdb engagement_portfolio_proof
           node scripts/db-proof/engagementPortfolio.mjs
 
-      - name: Finding decisions proof (20261118100000 — the generation-7 evaluation manifest is complete and agrees with its findings; unknown generations are refused; decisions bind to the certification's own finding identity with required confirmations and evidence, replay, conflict, stale and version outcomes, append-only and fenced, invalidating the evaluation at once; same-entity carry-forward ends on a rename; one durable investigation reservation under 12-way concurrency with a recoverable lease and bounded results; on the same throwaway container)
+      - name: Finding decisions proof (20261118100000 — the generation-7 evaluation manifest is complete and agrees with its findings; unknown generations are refused; requirements recomputed from the rule and the workspace policy (the entity decision required, clearing balances a review note unless policy requires evidence, trailing text never); decisions bind to the upload, its source and its context with replay, conflict, stale and version outcomes, append-only and fenced, invalidating the evaluation at once; never carried to a replacement file, a renamed entity or a changed layout; a decision never coexists with a running check and an older engine cannot certify past one; one durable investigation reservation with a recoverable lease, rows stored once and read page by page; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/finding_decisions_proof
@@ -634,6 +634,15 @@ jobs:
           git fetch --no-tags --depth=1 origin 553d54cac9921cfc7b2698842bd4fff2a6be8f1b
           git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
           bun scripts/db-proof/releaseOrder.mjs
+
+      - name: Trial-balance workflow rollout proof (one database upgraded main → 20261117100000 → 20261118100000 → generation 7 → floor 7 with the real generation-6 and generation-7 engines and layout functions at every stage; an interrupted apply rolls back completely; results in force stay in force; generation 6 serves exactly as before until it is refused before any write for an upload with decisions and then for every upload once the floor rises; generation 7 completes the refused request; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_rollout_proof
+        run: |
+          createdb tb_rollout_proof
+          git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
+          bun scripts/db-proof/tbDecisionsRollout.mjs
 
       - name: Milestone release-order proof (one database upgraded from the schema of main through the seven release migrations one at a time, with legacy personal and workspace uploads, an in-window discard and the real sweeper at every stage; the new storage-cleanup function on the old schema; old and new cleanup handlers on a shared source; retiring or discarding one year never deletes a file its sibling needs; on the same throwaway container)
         env:

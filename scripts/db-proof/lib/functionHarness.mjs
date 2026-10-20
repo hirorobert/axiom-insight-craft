@@ -79,7 +79,11 @@ export function makeClient(pool, role, uid) {
       if (!setReturning.has(fn)) {
         const c = await pool.connect();
         try {
-          setReturning.set(fn, (await c.query("SELECT bool_or(proretset) s FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1", [fn])).rows[0].s === true);
+          // A function that does not exist yet is not remembered: a proof that upgrades its database between calls (a
+          // release order) must see it as PostgREST would once a migration creates it.
+          const s = (await c.query("SELECT bool_or(proretset) s FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname=$1", [fn])).rows[0].s;
+          if (s === null) return { data: null, error: { code: "PGRST202", message: `Could not find the function public.${fn} in the schema cache` } };
+          setReturning.set(fn, s === true);
           // Input parameters declared as SQL arrays: PostgREST turns a JSON array argument into a PostgreSQL array for these.
           arrayParams.set(fn, new Set((await c.query(`SELECT a.name FROM pg_proc p,
               LATERAL unnest(p.proargnames, COALESCE(p.proallargtypes, p.proargtypes::oid[]),
