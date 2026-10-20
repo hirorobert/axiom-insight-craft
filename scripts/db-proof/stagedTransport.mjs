@@ -169,7 +169,7 @@ try {
       // A modified wrapper smuggled past the insert check (trigger disabled by a superuser): the apply's own literals refuse it.
       const good = renderStage(0, "wrapper"); const at = good.indexOf("-- CFOClose");
       await c.query("ALTER TABLE cfoclose_release.staged_artifacts DISABLE TRIGGER trg_staged_artifacts_guard");
-      await c.query(good.slice(0, at + 3) + "c" + good.slice(at + 4).replace("(batch, kind, body) VALUES", "(batch, kind, body_bytes, body_sha256, body) VALUES").replace("'fs-controls-r1', 'wrapper', $", "'fs-controls-r1', 'wrapper', 94858, '7c3c0b0d9cd456f07a88da1c0930fb5e4a9c4bdeead6ea068008eca939470d56', $"));
+      await c.query((good.slice(0, at + 3) + "c" + good.slice(at + 4)).replace("(batch, kind, body) VALUES", "(batch, kind, body_bytes, body_sha256, body) VALUES").replace("'fs-controls-r1', 'wrapper', $", "'fs-controls-r1', 'wrapper', 94858, '7c3c0b0d9cd456f07a88da1c0930fb5e4a9c4bdeead6ea068008eca939470d56', $"));
       await c.query("ALTER TABLE cfoclose_release.staged_artifacts ENABLE TRIGGER trg_staged_artifacts_guard");
       await refusedUnchanged("a wrapper whose comment was modified behind the insert check (recorded identity forged)", ENTRY[1], /TRANSPORT_STAGE_MISSING_OR_MODIFIED/);
       await refusedUnchanged("out of order (journey before controls)", ENTRY[2], /TRANSPORT_WRONG_PREDECESSOR/);
