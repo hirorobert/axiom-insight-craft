@@ -37,6 +37,9 @@
 // Product · Plans · Questions · Expert help and the footer links Product · Plans · Expert help (anchors #product and
 // #specialist-services); main-Header-inner.html re-rendered byte-identical. Those are the only differences.
 
+// RE-CAPTURED again (2026-10-19, public LinkedIn link added by Lovable on main): main-Footer.html gains exactly one element,
+// the "Follow us on LinkedIn" anchor (https://www.linkedin.com/company/106631843/, new tab, aria-label, decorative icon);
+// verified byte-for-byte that removing that anchor yields the previous fixture. No Contact link; nothing else changed.
 // RE-CAPTURED again (2026-10-12, published email addresses) through the same withGate(false) path: main-Footer.html gains
 // a "Contact" column listing support@, billing@ and contact@cfoclose.com as mailto links (src/lib/contact/contactChannels.ts),
 // which are not part of the enquiry experience and so appear whatever the gate says; the column spans change to fit it.
@@ -209,6 +212,8 @@ describe("4/9. OFF: every public entry point is absent and existing behaviour is
     // mailto links such as contact@cfoclose.com under a "Contact" heading — are not that experience and are shown either way.)
     expect(html).not.toMatch(/href="[^"]*\/contact|>Contact<\/a>/);
     expect(html).toMatch(/href="mailto:support@cfoclose\.com"/);
+    // The public LinkedIn link (Lovable, 2026-10-19): the company page, opened safely in a new tab, with an accessible name.
+    expect(html).toContain('<a href="https://www.linkedin.com/company/106631843/" target="_blank" rel="noopener noreferrer" aria-label="Follow CFOClose on LinkedIn (opens in a new tab)"');
   });
 
   it("every entry point in the registry is disabled by the OFF surfaces, and no source path reaches contactHref except behind a surface flag", () => {

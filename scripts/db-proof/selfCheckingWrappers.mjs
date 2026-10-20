@@ -42,7 +42,9 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "pricing-p1"
+const DRIZZLE_FAILURE = BATCH.id === "currency-c1"
+  ? { object: "public.correct_period_currency(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid)", rolledBack: "SELECT to_regprocedure('public.get_period_currency_correction(uuid)') IS NULL AND to_regclass('public.uq_fpe_currency_request') IS NULL AND position('currency_corrected' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fpe_action'))) = 0 AND position('axiom.period_currency_correction' IN pg_get_functiondef('public.fiscal_periods_processing_lock()'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "pricing-p1"
   ? { object: "public.get_workspace_seat_capacity(pg_catalog.uuid)", rolledBack: "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_plans' AND column_name='members_unlimited') AND to_regprocedure('public._lift_named_user_suspensions_unlimited(uuid,uuid[],text)') IS NULL AS ok" }
   : BATCH.id === "tb-release-r1"
   ? { object: "public.uq_acct_map_company_codeless_name", rolledBack: "SELECT to_regclass('public.trial_balance_drafts') IS NULL AND to_regclass('public.tb_certification_findings') IS NULL AND to_regclass('public.uq_acct_map_company_codeless_name') IS NULL AND to_regclass('public.uq_acct_map_company_norm_name') IS NOT NULL AS ok" }

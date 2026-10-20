@@ -28,6 +28,7 @@ import { CurrencySelect } from "@/components/currency/CurrencySelect";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { ACCEPTED_EXTENSIONS, classifyCheckAnswer, validateFileChoice } from "@/lib/ingestion/uploadFlow";
+import { checkFileCurrency, classifyLabels, describeEvidence, labelsOf, type CurrencyLabelEvidence } from "@/lib/ingestion/fileCurrencyCheck";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 import { openEngagementWithPeriod, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { UPLOAD_LIMITS_TEXT, fileTooLarge } from "@/lib/workspace/uploadPolicy";
@@ -103,6 +104,9 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
   const [currencySource, setCurrencySource] = useState<string | null>(null);
   const [resumable, setResumable] = useState<{ draftId: string; file: FileMeta } | null>(null);
   const [showProblems, setShowProblems] = useState(false);
+  // The chosen file's explicit currency labels, read in the browser with the server's own reader before anything runs.
+  const chosenFile = useRef<File | null>(null);
+  const [fileLabels, setFileLabels] = useState<{ key: string; labels: CurrencyLabelEvidence[] } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const keys = useRef<StartKeys | null>(null);
   const progress = useRef<StartProgress>({});
@@ -168,6 +172,21 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
   const derived = derivePeriod(input.period);
   const existing = entities.find((e) => e.id === input.existingId) ?? null;
   const suggestion = confirmedPeriods?.[0] ? followingYear(confirmedPeriods[0]) : null;
+  // The labels against the chosen currency. Nothing is ever changed for the person: a conflict is stated with its
+  // location and only an explicit "Use …" changes the choice; amounts are never converted.
+  const fileCurrency = fileLabels ? classifyLabels(fileLabels.labels, input.currency || null) : null;
+  const year = periodYear(input.period);
+  const fileDraftId = phase.kind === "stored" || phase.kind === "failed" ? phase.draft.draftId : null;
+  useEffect(() => {
+    const file = chosenFile.current;
+    if (!file || !fileDraftId || year === null) return;
+    const key = `${fileDraftId}|${year}`;
+    if (fileLabels?.key === key) return;
+    let live = true;
+    void checkFileCurrency(file, null, year).then((r) => { if (live) setFileLabels({ key, labels: labelsOf(r) }); });
+    return () => { live = false; };
+  }, [fileDraftId, year, fileLabels?.key]);
+
   const problems = useMemo(() => {
     const p: { field: string; text: string }[] = [];
     if (input.mode === "new" && !input.entityName.trim()) p.push({ field: ids.entity, text: "Enter the entity's name." });
@@ -175,8 +194,10 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     const pp = periodProblem(input.period);
     if (pp) p.push({ field: ids.end, text: pp });
     if (!input.currency) p.push({ field: ids.currency, text: "Choose the trial balance currency." });
+    else if (fileCurrency?.kind === "conflict") p.push({ field: ids.currency, text: `The file's amounts are labelled ${fileCurrency.code} (${describeEvidence(fileCurrency.evidence)}), not ${fileCurrency.selected}. Choose ${fileCurrency.code} if the amounts are in ${fileCurrency.code}, or choose a file in ${fileCurrency.selected}.` });
+    if (fileCurrency?.kind === "mixed") p.push({ field: ids.currency, text: `The file labels its amounts in more than one currency (${fileCurrency.codes.join(", ")}). Correct the labels so every amount is in one currency, then choose the file again.` });
     return p;
-  }, [input, existing, ids.entity, ids.existing, ids.end, ids.currency]);
+  }, [input, existing, ids.entity, ids.existing, ids.end, ids.currency, fileCurrency]);
 
   // ── The file: validated, hashed, reserved and stored as a draft (retry-safe: one key per file) ────────────────────
   const choose = async (file: File | null | undefined) => {
@@ -184,6 +205,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     const invalid = validateFileChoice(file) ?? fileTooLarge(file);
     if (invalid) { setPhase({ kind: "empty", error: invalid }); return; }
     const meta = { name: file.name, size: file.size };
+    chosenFile.current = file; setFileLabels(null);
     setPhase({ kind: "storing", file: meta });
     try {
       await ensureFreshSession();
@@ -266,7 +288,7 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     onOpenResult(r.progress.companyId, r.periodYear, r.progress.uploadId);
   };
 
-  const reset = () => { keys.current = null; progress.current = {}; replaces.current = null; setInput({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" }); setPhase({ kind: "empty" }); };
+  const reset = () => { chosenFile.current = null; setFileLabels(null); keys.current = null; progress.current = {}; replaces.current = null; setInput({ ...EMPTY_INPUT, mode: canCreateEntity || entities.length === 0 ? "new" : "existing" }); setPhase({ kind: "empty" }); };
 
   // ── Render ────────────────────────────────────────────────────────────────────────────────────────────────────────
   const file = phase.kind === "empty" ? null : phase.file;
@@ -427,6 +449,28 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
             <p id={ids.currencyHelp} className="mt-1 text-[13px] text-muted-foreground" data-testid="confirm-currency-source">
               {currencySource && input.currency ? currencySource : "The currency the trial balance amounts are in. Nothing is assumed from the entity's country."}
             </p>
+            {fileCurrency && fileCurrency.kind !== "none" && fileCurrency.kind !== "unread" && (
+              <div className={`mt-2 border px-3 py-2.5 text-[13px] sm:max-w-md ${fileCurrency.kind === "match" ? "border-border" : "border-destructive/60"}`}
+                role={fileCurrency.kind === "match" ? undefined : "status"} data-testid="first-upload-file-currency" data-kind={fileCurrency.kind}>
+                {fileCurrency.kind === "match" ? (
+                  <p>The file's labels ({describeEvidence(fileCurrency.evidence)}) also say {fileCurrency.code}.</p>
+                ) : fileCurrency.kind === "mixed" ? (
+                  <p>The file labels its amounts in more than one currency: {fileCurrency.codes.join(", ")} ({describeEvidence(fileCurrency.evidence)}). A trial balance has one currency; correct the file, then choose it again.</p>
+                ) : (
+                  <>
+                    <p>The file labels its amounts in <strong>{fileCurrency.code}</strong> ({describeEvidence(fileCurrency.evidence)}){fileCurrency.selected ? <>, not {fileCurrency.selected}</> : null}. Amounts are never converted: choose the currency they are actually in.</p>
+                    {locked ? (
+                      // The period is already open in the chosen currency: no control here could change it.
+                      <p className="mt-2" data-testid="first-upload-file-currency-locked">The period is already open in {fileCurrency.selected}. Its check will be refused; then, on the trial balance page, change the period's currency to {fileCurrency.code} (possible while nothing depends on it), or replace the file with one in {fileCurrency.selected}.</p>
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" className="mt-2 h-9 rounded-none"
+                        onClick={() => { set({ currency: fileCurrency.code }); setCurrencySource(`From your choice, matching the file's labels (${describeEvidence(fileCurrency.evidence)})`); }}
+                        data-testid="first-upload-use-file-currency">Use {fileCurrency.code}</Button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {phase.kind === "failed" && (

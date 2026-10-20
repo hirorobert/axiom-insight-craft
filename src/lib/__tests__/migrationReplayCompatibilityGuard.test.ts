@@ -246,7 +246,9 @@ describe("migration directory integrity", () => {
     // 179 -> 180: 20261109100000_refused_replacement_restore.sql (a refused replacement can be withdrawn and the trial balance it replaced restored), a NEW forward-only migration pending hosted application.
     // 180 -> 181: 20261110100000_unlimited_team_members.sql (unlimited team members on Solo, Practice and Firm: an explicit plan flag; the named-user
     // functions honour it; history kept), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(181);
+    // 181 -> 182: 20261113100000_period_currency_correction.sql (an authorised, recorded correction of a period's currency while nothing
+    // has been built on its amounts), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(182);
   });
 });
 
