@@ -267,6 +267,7 @@ export default function Dashboard() {
       unavailableEngagements={unavailableEngagements ?? []}
       onAddTrialBalanceReview={addReview}
       reviewGates={reviewGates}
+      portfolio
       onSetPurpose={async (companyId, purpose, reason) => {
         // Recorded by the server (set_workspace_purpose: the company's owner only, with a reason; append-only).
         const { data, error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => PromiseLike<{ data: { outcome?: string } | null; error: unknown }>)(

@@ -377,6 +377,7 @@ src/
       periodCurrency.ts       ← ONLY client path to the period-currency correction RPCs (get_period_currency_correction / correct_period_currency); server-decided recovery view
       currencyReasons.ts      ← Currency-correction reason presets (explicit choice; none pre-selected)
       checkDetail.ts          ← A check's detail without restating findings the card already lists
+      portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
       engagementNextAction.ts ← Account-home engagement button: the actual next step's words + destination (same entity/period/upload)
       processingInvoke.ts     ← ONLY browser path to process-trial-balance (bounded, jittered retry of PROCESSING_BUSY as the same request)
       engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)

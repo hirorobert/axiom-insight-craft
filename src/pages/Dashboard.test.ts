@@ -126,7 +126,7 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).not.toContain("Beta Co");
   });
 
-  it("more than one open engagement always renders the deterministic chooser, listing every engagement", async () => {
+  it("more than one open engagement always renders the deterministic chooser, with every engagement listed by the server", async () => {
     setActiveEngagements({
       loading: false,
       entries: [entry("e1", "c1", "Acme Ltd"), entry("e2", "c2", "Beta Co", 2026)],
@@ -135,9 +135,12 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     });
     const html = await renderDashboard();
 
-    expect(html).toContain("Acme Ltd");
-    expect(html).toContain("Beta Co");
+    // Never a redirect into one of them: the account home with the engagements list. The list itself is read page by page
+    // from list_portfolio_engagements (EngagementPortfolio.test.ts covers its rows, paging and counts), not from `entries`.
     expect(html).toContain("Your engagements");
+    expect(html).toContain('data-testid="engagement-portfolio"');
+    expect(html).toContain("All engagements");
+    expect(html).not.toContain('data-testid="engagement-hub-list"');
   });
 
   it("zero open engagements, exactly one company: shows the loading/redirect state, never the chooser", async () => {

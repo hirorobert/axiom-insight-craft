@@ -45,6 +45,7 @@ import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { engagementNextAction } from "@/lib/workspace/engagementNextAction";
+import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio";
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
 export interface AccountHome {
@@ -82,6 +83,7 @@ export default function EngagementHub({
   reviewGates = {},
   account,
   onSetPurpose,
+  portfolio = false,
 }: {
   entries: ActiveEngagementEntry[];
   companiesWithoutEngagement: WorkspaceCompany[];
@@ -98,6 +100,8 @@ export default function EngagementHub({
   account?: AccountHome;
   /** Records a company's purpose (set_workspace_purpose: owner only); resolves to the outcome in words. Absent: no control. */
   onSetPurpose?: (companyId: string, purpose: WorkspacePurpose, reason: string) => Promise<string>;
+  /** The engagements are listed by the server, page by page (EngagementPortfolio), instead of from `entries`. */
+  portfolio?: boolean;
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -260,7 +264,10 @@ export default function EngagementHub({
           )}
         </section>
       )}
-      {entries.length > 0 && (
+      {portfolio && account && (
+        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+      )}
+      {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">
           {account ? (
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
