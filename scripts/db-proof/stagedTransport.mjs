@@ -218,20 +218,15 @@ try {
       // Postcondition: the bounds postcondition checks a contract the wrapper sets; break it right after the wrapper's last DDL.
       r = await hosted(c, ENTRY[1]); check("controls applies after the injection is removed", r.ok, r.message);
       r = await hosted(c, ENTRY[2]); check("journey applies", r.ok, r.message);
+      // Postcondition: grant anon EXECUTE on fs_work_bounds() whenever the bounds wrapper leaves it ungranted; the batch
+      // postcondition refuses exactly that.
       await c.query(`CREATE FUNCTION public._proof_post() RETURNS event_trigger LANGUAGE plpgsql AS $f$
-        BEGIN IF current_setting('cfoclose_release.applying', true) = 'fs-bounds-r1' AND to_regprocedure('public._proof_marker()') IS NULL THEN
-          CREATE FUNCTION public._proof_marker() RETURNS int LANGUAGE sql AS 'SELECT 1'; END IF; END $f$;
+        BEGIN
+          IF current_setting('cfoclose_release.applying', true) = 'fs-bounds-r1' AND to_regprocedure('public.fs_work_bounds()') IS NOT NULL
+             AND NOT has_function_privilege('anon', 'public.fs_work_bounds()', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION public.fs_work_bounds() TO anon;
+          END IF; END $f$;
         CREATE EVENT TRIGGER proof_post ON ddl_command_end EXECUTE FUNCTION public._proof_post();`);
-      // The postcondition text itself is fixed; inject at its boundary by making a postcondition-checked grant wrong:
-      // after the wrapper, authenticated must NOT execute the bound helpers — grant it inside the same transaction.
-      await c.query(`CREATE OR REPLACE FUNCTION public._proof_post() RETURNS event_trigger LANGUAGE plpgsql AS $f$
-        DECLARE r record; BEGIN
-          IF current_setting('cfoclose_release.applying', true) = 'fs-bounds-r1' THEN
-            FOR r IN SELECT p.oid::regprocedure AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                       WHERE n.nspname = 'public' AND p.proname = 'fs_work_bounds' LOOP
-              EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon', r.f);
-            END LOOP;
-          END IF; END $f$;`);
       before = await state(c); r = await hosted(c, ENTRY[3]);
       const hit = !r.ok && /POSTCONDITION/.test(r.message);
       check("postcondition failure surfaces (POSTCONDITION raised after the wrapper ran)", hit, r.message);
