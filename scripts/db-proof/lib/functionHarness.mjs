@@ -9,7 +9,7 @@
 //   · Storage downloads are served from `shim.storage` (bucket/path → bytes) set by the proof;
 //   · `auth.getClaims(jwt)` decodes the test token's payload (the platform verifies signatures; the proofs mint tokens).
 // Supported query surface (anything else throws, so a handler change that needs more fails loudly): select, insert, update,
-// delete, eq, in, is (null/true/false), or ("col.eq.v" / "col.is.null|true|false" terms only), order, limit, single,
+// delete, eq, in, is (null/true/false), or ("col.eq.v" / "col.is.null|true|false" terms only), gt, order, limit, single,
 // maybeSingle, rpc (scalar and set-returning, as PostgREST answers them).
 //
 // Used by scripts/db-proof/reconciliationFunctionMatrix.mjs, scripts/db-proof/safishaIngestion.mjs and
@@ -128,6 +128,8 @@ export function makeClient(pool, role, uid) {
         delete() { q.op = "delete"; return b; },
         eq(col, v) { q.params.push(val(v)); q.where.push(`${ident(col)} = $${q.params.length}`); return b; },
         in(col, vs) { q.params.push(vs); q.where.push(`${ident(col)} = ANY($${q.params.length})`); return b; },
+        // the keyset cursor of the paged mapping read (a uuid compared with a uuid literal)
+        gt(col, v) { q.params.push(val(v)); q.where.push(`${ident(col)} > $${q.params.length}`); return b; },
         is(col, v) {
           if (v !== null && v !== true && v !== false) throw new Error(`is(${col}): only null/true/false`);
           q.where.push(`${ident(col)} IS ${v === null ? "NULL" : v ? "TRUE" : "FALSE"}`); return b;

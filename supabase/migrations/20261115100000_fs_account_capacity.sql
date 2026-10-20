@@ -13,7 +13,10 @@
 --     · fs_statement_composition — returns state 'over_capacity' with the counts before the reporting input is computed;
 --       fs_notes_status and fs_reporting_dependencies return the composition's state verbatim, so they follow at once;
 --     · fs_commit_revision (every save, the browser's two steps included) — raises ACCOUNT_CAPACITY_EXCEEDED (22023) before
---       validation, hashing, evidence ingest or any write;
+--       validation, hashing, evidence ingest or any write; and, as its second block, the evidence-aggregate PREFLIGHT: the
+--       rows the version would reference (incoming documents + retained stored batches) are counted against
+--       fs_work_bounds().evidenceRowsPerVersion BEFORE fs_ingest_evidence_internal is ever called (raises
+--       EVIDENCE_ROWS_PER_VERSION_LIMIT, 22023); the version-row trigger of 20261114100000 remains the last defence;
 --     · fs_approve_comparatives — answers outcome 'over_capacity' with the counts before the lock, the status or any write;
 --     · fs_publication_blockers — names ACCOUNT_CAPACITY_EXCEEDED:<total>/<bound> and returns at once, so
 --       fs_report_readiness, fs_set_publication_state (REVIEWED/FINAL) and the fs_bind_publication trigger all refuse.
@@ -23,7 +26,7 @@
 --   before the server is asked (prepareReportVersion reads the composition first).
 --
 --   The four guarded functions are redefined from their latest committed texts (20261020100000 for the composition and
---   the comparative approval, 20260919110000, 20261112100000) with exactly one marked block each — nothing else in them changes. No table, column, index, policy
+--   the comparative approval, 20260919110000, 20261112100000) with marked blocks only (one each; fs_commit_revision two) — nothing else in them changes. No table, column, index, policy
 --   or grant of an existing object changes. No Edge Function.
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -331,6 +334,27 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- [20261115100000] Evidence aggregate PREFLIGHT (fs_work_bounds().evidenceRowsPerVersion): the rows the version WOULD
+  -- reference - every incoming batch document's rows plus the rows of each referenced batch already stored - are counted
+  -- here, BEFORE the idempotency read, the lineage lock, any ingestion, hashing or write. The BEFORE INSERT trigger on the
+  -- version row (20261114100000) stays as the last defence against a bypass or a race; this is the refusal a caller sees.
+  DECLARE
+    v_rows_in   bigint := 0;
+    v_rows_kept bigint := 0;
+    v_row_bound bigint := (public.fs_work_bounds() ->> 'evidenceRowsPerVersion')::bigint;
+    v_incoming  text[] := ARRAY(SELECT e ->> 'evidenceBatchId' FROM jsonb_array_elements(coalesce(p_evidence, '[]'::jsonb)) e);
+  BEGIN
+    SELECT coalesce(sum(CASE WHEN jsonb_typeof(e -> 'batchDocument' -> 'rows') = 'array' THEN jsonb_array_length(e -> 'batchDocument' -> 'rows') ELSE 0 END), 0)
+      INTO v_rows_in FROM jsonb_array_elements(coalesce(p_evidence, '[]'::jsonb)) e;
+    SELECT coalesce(sum(jsonb_array_length(b.batch_document -> 'rows')), 0) INTO v_rows_kept
+      FROM public.financial_evidence_batches b
+     WHERE b.evidence_batch_id = ANY (v_ids) AND NOT (b.evidence_batch_id = ANY (v_incoming)) AND b.company_id = p_company_id
+       AND jsonb_typeof(b.batch_document -> 'rows') = 'array';
+    IF v_rows_in + v_rows_kept > v_row_bound THEN
+      RAISE EXCEPTION 'EVIDENCE_ROWS_PER_VERSION_LIMIT: the version would reference % evidence rows (% incoming, % already stored); at most % rows of evidence may stand behind one version. Nothing was stored.',
+        v_rows_in + v_rows_kept, v_rows_in, v_rows_kept, v_row_bound USING ERRCODE = '22023';
+    END IF;
+  END;
   v_doc_hash := public.fs_sha256_hex(p_report_document::text);
   v_hash := public.fs_sha256_hex(concat_ws('|', p_expected_report_version::text, coalesce(p_evidence, '[]'::jsonb)::text, v_doc_hash, p_content_hash, array_to_string(v_ids, ','), p_evaluation::text, p_period_year::text, p_provenance_origin));
 
@@ -716,6 +740,7 @@ BEGIN
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('over_capacity' IN pg_get_functiondef('public.fs_approve_comparatives(uuid, integer, boolean, text, uuid)'::regprocedure)) = 0
+     OR position('EVIDENCE_ROWS_PER_VERSION_LIMIT' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0
      OR position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR has_function_privilege('anon', 'public.fs_account_capacity(uuid, integer)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.fs_account_capacity(uuid, integer)', 'EXECUTE')

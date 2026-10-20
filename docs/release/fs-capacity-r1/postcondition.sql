@@ -18,8 +18,9 @@ BEGIN
   IF position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid, integer)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN v_blockers) = 0
-     OR position('over_capacity' IN pg_get_functiondef('public.fs_approve_comparatives(uuid, integer, boolean, text, uuid)'::regprocedure)) = 0 THEN
-    RAISE EXCEPTION 'POSTCONDITION: a guarded function does not carry the capacity refusal';
+     OR position('over_capacity' IN pg_get_functiondef('public.fs_approve_comparatives(uuid, integer, boolean, text, uuid)'::regprocedure)) = 0
+     OR position('EVIDENCE_ROWS_PER_VERSION_LIMIT' IN pg_get_functiondef('public.fs_commit_revision(uuid, text, integer, text, integer, text, jsonb, text, jsonb, text[], jsonb)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: a guarded function does not carry the capacity refusal or the evidence-aggregate preflight';
   END IF;
   -- The accepted controls are still in the guarded functions (they were redefined from their latest texts).
   IF position('REVIEW_COMMENT_UNRESOLVED' IN v_blockers) = 0 OR position('PUBLICATION_PATH_UNSUPPORTED' IN v_blockers) = 0

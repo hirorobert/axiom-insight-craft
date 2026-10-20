@@ -1,5 +1,5 @@
 // Test double for https://esm.sh/@supabase/supabase-js@2, used ONLY by functionPath.test.ts through import_map.json.
-// An in-memory database with the query-builder surface process-trial-balance uses (select/eq/is/in/or/order/limit/range,
+// An in-memory database with the query-builder surface process-trial-balance uses (select/eq/is/in/or/gt/order/limit/range,
 // single/maybeSingle, insert…select, update…eq), programmable RPCs, Storage downloads and auth.getClaims. Every call is
 // recorded so the test can assert what the REAL handler did. No network.
 
@@ -20,10 +20,13 @@ export interface World {
   missingTables: Set<string>;
   calls: { kind: "select" | "insert" | "update" | "rpc" | "download"; target: string; payload?: unknown }[];
   nextId: number;
+  /** Runs before the n-th read of a table (1-based): a test changes the table between two pages of one read, as another
+   * session would. */
+  beforeRead: ((table: string, nth: number, w: World) => void) | null;
 }
 
 export function newWorld(): World {
-  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), missingTables: new Set(), calls: [], nextId: 1 };
+  return { tables: {}, rpc: {}, storage: {}, claims: null, failReads: new Set(), missingTables: new Set(), calls: [], nextId: 1, beforeRead: null };
 }
 
 const g = globalThis as unknown as { __ptbWorld?: World };
@@ -60,6 +63,8 @@ class Query implements PromiseLike<Answer> {
     this.filters.push((r) => parts.some(([c, op, v]) => (op === "eq" ? String(r[c]) === v : op === "is" && v === "null" ? (r[c] ?? null) === null : false)));
     return this;
   }
+  // Keyset cursor: PostgREST compares a uuid column with a uuid literal; both orders agree with the text order used here.
+  gt(col: string, val: unknown) { this.filters.push((r) => String(r[col]) > String(val)); return this; }
   not(col: string, op: string, val: unknown) { this.filters.push((r) => !(op === "is" ? (r[col] ?? null) === val : r[col] === val)); return this; }
   // Ordering and limits are applied to reads, as PostgREST does (the newest-row reads depend on them).
   order(col: string, opts?: { ascending?: boolean }) { this.sort = { col, ascending: opts?.ascending !== false }; return this; }
@@ -95,6 +100,8 @@ class Query implements PromiseLike<Answer> {
       w.calls.push({ kind: "update", target: this.table, payload: { ...(this.payload as Row), matched: hit.length } });
       return { data: hit, error: null };
     }
+    const nth = w.calls.filter((c) => c.kind === "select" && c.target === this.table).length + 1;
+    w.beforeRead?.(this.table, nth, w);
     w.calls.push({ kind: "select", target: this.table });
     if (w.missingTables.has(this.table)) return { data: null, error: { code: "PGRST205", message: `Could not find the table 'public.${this.table}' in the schema cache` } };
     if (w.failReads.has(this.table)) return { data: null, error: { code: "08006", message: "connection failure" } };

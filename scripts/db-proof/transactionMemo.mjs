@@ -96,13 +96,15 @@ async function main() {
     try {
       await c.query("BEGIN"); await c.query("SET LOCAL track_functions = 'all'"); await c.query("SET LOCAL ROLE authenticated");
       await c.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.sub', $1, true)", [U.partner]);
+      // The view also carries the backend's not-yet-flushed counts from earlier transactions on this pooled connection: report the difference.
+      const countsNow = async () => { const st = await c.query("SELECT funcname, calls, round(total_time) AS ms FROM pg_stat_xact_user_functions WHERE schemaname = 'public' AND funcname = ANY($1)", [COMPUTE]); const o = {}; for (const n of COMPUTE) o[n] = { calls: 0, ms: 0 }; for (const x of st.rows) o[x.funcname] = { calls: Number(x.calls), ms: Number(x.ms) }; return o; };
+      const before = await countsNow();
       const t0 = performance.now();
       const r = await c.query("SELECT public.fs_report_readiness($1, $2, $3) AS rd", [A, rid, v]);
       const ms = Math.round(performance.now() - t0);
-      const st = await c.query("SELECT funcname, calls, round(total_time) AS ms FROM pg_stat_xact_user_functions WHERE schemaname = 'public' AND funcname = ANY($1)", [COMPUTE]);
+      const after = await countsNow();
       await c.query("COMMIT");
-      const counts = {}; for (const x of st.rows) counts[x.funcname] = { calls: Number(x.calls), ms: Number(x.ms) };
-      for (const n of COMPUTE) counts[n] ??= { calls: 0, ms: 0 };
+      const counts = {}; for (const n of COMPUTE) counts[n] = { calls: after[n].calls - before[n].calls, ms: after[n].ms - before[n].ms };
       return { ms, rd: r.rows[0].rd, counts };
     } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
   };

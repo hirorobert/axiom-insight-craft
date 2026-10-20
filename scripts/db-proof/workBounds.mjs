@@ -15,6 +15,10 @@
 //   B3  evidence rows per version (BOUNDS.evidenceRowsPerVersion, 3,000 at contract 2 = the browser-reachable combination: one
 //       ledger per period at the row bound plus the small files): a version referencing that many full batches is accepted; one
 //       referencing one more batch is refused EVIDENCE_ROWS_PER_VERSION_LIMIT
+//   B3b the aggregate is refused BEFORE ingestion (Codex review of PR #176, blocker 1): a DIRECT fs_commit_revision call with four
+//       individually valid 1,000-row batches is refused EVIDENCE_ROWS_PER_VERSION_LIMIT with ZERO fs_ingest_evidence_internal calls
+//       (counted inside the transaction) and nothing stored; three such batches (3,000 rows) are accepted; a retained 3,000 plus
+//       one incoming 1,000 is refused the same way, before ingestion
 //   B4  report document bytes (8 MiB): a version whose document is just under 8 MiB is accepted; over, refused
 //       REPORT_DOCUMENT_SIZE_LIMIT
 //   B5  versions per lineage (1,000): a lineage brought to 999 versions accepts the 1,000th save through the client and
@@ -31,7 +35,7 @@
 import crypto from "node:crypto";
 import { applyChain, certifier, chainFiles, clientDb, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, uuid } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
-import { signoffClient } from "../../src/lib/reporting/signoff.ts";
+import { evidencePayload, signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 
 const FILE = "20261114100000_fs_work_bounds.sql";
@@ -188,6 +192,70 @@ async function main() {
   await check(`a version referencing ${K} of them (${BOUNDS.evidenceRowsPerVersion.toLocaleString("en-US")} rows) is accepted`, async () => { await copyVersion(1, synthIds.slice(0, K)); return (await latest(synth)) === 1 ? true : await latest(synth); });
   await refused(`a version referencing ${K + 1} (${((K + 1) * BOUNDS.evidenceRowsPerBatch).toLocaleString("en-US")} rows) is refused EVIDENCE_ROWS_PER_VERSION_LIMIT`, "22023", () => copyVersion(2, synthIds), "EVIDENCE_ROWS_PER_VERSION_LIMIT");
   await check("nothing was stored: the synthetic lineage still ends at version 1", async () => ((await latest(synth)) === 1 ? true : await latest(synth)));
+
+  // ── B3b  the aggregate preflight, through the server function itself (what a caller past the browser reaches) ──────────────
+  group("B3b  aggregate preflight (direct fs_commit_revision): four valid 1,000-row batches refused before any ingestion; three accepted; retained + incoming refused");
+  const latestRow = await db.one("SELECT report_document, evidence_batch_ids, report_version FROM public.financial_statement_reports WHERE report_id=$1 ORDER BY report_version DESC LIMIT 1", [rid]);
+  const latestEval = await db.one("SELECT rule_pack_id, rule_pack_version, engine_version, input_hash, findings FROM public.financial_statement_evaluations WHERE report_id=$1 ORDER BY seq DESC LIMIT 1", [rid]);
+  const docFor = (reportId, version) => ({ ...latestRow.report_document, reportIdentity: { ...latestRow.report_document.reportIdentity, reportId, reportVersion: version } });
+  const evalFor = () => ({ evaluationRunId: `proof-${uuid()}`, rulePackId: latestEval.rule_pack_id, rulePackVersion: latestEval.rule_pack_version, engineVersion: latestEval.engine_version, inputHash: latestEval.input_hash, findings: latestEval.findings });
+  /** A valid 1,000-row ledger batch of its own series (distinct id and content hash), as the intake would produce it. */
+  const ledgerOfSeries = (k) => { const b = parse("TRANSACTION_LEDGER", "CURRENT", padded); return { ...b, evidenceBatchId: `eb-proof-${uuid()}`, seriesKey: `aggregate-${k}`, contentHash: sha(JSON.stringify(b.document.rows) + k) }; };
+  const INGEST = ["fs_commit_revision", "fs_ingest_evidence_internal"];
+  /** One fs_commit_revision call as PostgREST runs it (one transaction, the preparer's claims). The backend's function-call
+   * counters are read before and after the call inside that transaction and the DIFFERENCE is reported: the view also carries
+   * the backend's not-yet-flushed counts from earlier transactions on the same pooled connection, and nothing is flushed
+   * inside a transaction. A function that raises is not counted as completed, so the count that matters is the one of
+   * fs_ingest_evidence_internal: every ingestion that ran to completion before the refusal would show. */
+  const commitMeasured = async (reportId, expected, newBatches, ids) => {
+    const c = await db.pool.connect();
+    try {
+      await c.query("BEGIN"); await c.query("SET LOCAL track_functions = 'all'"); await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.sub', $1, true)", [U.preparer]);
+      const countsNow = async () => { const st = await c.query("SELECT funcname, calls FROM pg_stat_xact_user_functions WHERE schemaname = 'public' AND funcname = ANY($1)", [INGEST]); const o = {}; for (const n of INGEST) o[n] = 0; for (const x of st.rows) o[x.funcname] = Number(x.calls); return o; };
+      const before = await countsNow();
+      await c.query("SAVEPOINT s");
+      let outcome;
+      try {
+        const r = await c.query("SELECT (public.fs_commit_revision($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::text[], $11::jsonb)).report_version AS v",
+          [A, reportId, expected, `attempt-${uuid()}`, Y, latestRow.report_document.provenanceOrigin ?? "TRIAL_BALANCE_DERIVED", JSON.stringify(docFor(reportId, expected + 1)), sha(`content-${reportId}-${expected + 1}`),
+            JSON.stringify(newBatches.map((b) => evidencePayload(b, null))), ids, JSON.stringify(evalFor())]);
+        outcome = { ok: true, version: Number(r.rows[0].v) };
+      } catch (e) { await c.query("ROLLBACK TO SAVEPOINT s"); outcome = { ok: false, code: e.code, message: String(e.message).split(LF)[0] }; }
+      const after = await countsNow();
+      await c.query(outcome.ok ? "COMMIT" : "ROLLBACK");
+      const calls = {}; for (const n of INGEST) calls[n] = after[n] - before[n];
+      return { ...outcome, calls };
+    } finally { c.release(); }
+  };
+  const storedOf = (bs) => db.count("SELECT count(*) n FROM public.financial_evidence_batches WHERE evidence_batch_id = ANY($1::text[])", [bs.map((b) => b.evidenceBatchId)]);
+  const KB = BOUNDS.evidenceRowsPerVersion / BOUNDS.evidenceRowsPerBatch;
+  const over = Array.from({ length: KB + 1 }, (_, i) => ledgerOfSeries(`over-${i}`));
+  const ridOver = `rpt-aggregate-over-${uuid()}`;
+  await check(`${KB + 1} valid ${BOUNDS.evidenceRowsPerBatch.toLocaleString("en-US")}-row batches in one call (${((KB + 1) * BOUNDS.evidenceRowsPerBatch).toLocaleString("en-US")} rows) are refused EVIDENCE_ROWS_PER_VERSION_LIMIT with ZERO fs_ingest_evidence_internal calls; no batch, no version`, async () => {
+    const r = await commitMeasured(ridOver, 0, over, over.map((b) => b.evidenceBatchId));
+    const ok = !r.ok && r.code === "22023" && /^EVIDENCE_ROWS_PER_VERSION_LIMIT/.test(r.message) && r.calls.fs_ingest_evidence_internal === 0
+      && (await storedOf(over)) === 0 && (await latest(ridOver)) === 0;
+    return ok ? true : { r, stored: await storedOf(over), version: await latest(ridOver) };
+  });
+  const atBound = Array.from({ length: KB }, (_, i) => ledgerOfSeries(`at-${i}`));
+  const ridAt = `rpt-aggregate-at-${uuid()}`;
+  await check(`${KB} such batches (exactly ${BOUNDS.evidenceRowsPerVersion.toLocaleString("en-US")} rows) in one call are accepted: version 1, ${KB} batches ingested (${KB} fs_ingest_evidence_internal calls)`, async () => {
+    const r = await commitMeasured(ridAt, 0, atBound, atBound.map((b) => b.evidenceBatchId));
+    return r.ok && r.version === 1 && r.calls.fs_ingest_evidence_internal === KB && (await storedOf(atBound)) === KB ? true : { r, stored: await storedOf(atBound) };
+  });
+  await check(`retained ${BOUNDS.evidenceRowsPerVersion.toLocaleString("en-US")} rows plus one incoming ${BOUNDS.evidenceRowsPerBatch.toLocaleString("en-US")}-row batch: refused before ingestion (the message counts both), the lineage stays at version 1`, async () => {
+    const more = ledgerOfSeries("retained-plus");
+    const r = await commitMeasured(ridAt, 1, [more], [...atBound.map((b) => b.evidenceBatchId), more.evidenceBatchId]);
+    const ok = !r.ok && r.code === "22023" && /EVIDENCE_ROWS_PER_VERSION_LIMIT/.test(r.message) && new RegExp(`\\(${BOUNDS.evidenceRowsPerBatch} incoming, ${BOUNDS.evidenceRowsPerVersion} already stored\\)`).test(r.message)
+      && r.calls.fs_ingest_evidence_internal === 0 && (await storedOf([more])) === 0 && (await latest(ridAt)) === 1;
+    return ok ? true : { r, stored: await storedOf([more]), version: await latest(ridAt) };
+  });
+  await check("retained two of the three plus one incoming (3,000 again): accepted as version 2 - the preflight counts what the version would reference, not what was ever stored", async () => {
+    const swap = ledgerOfSeries("retained-swap");
+    const r = await commitMeasured(ridAt, 1, [swap], [...atBound.slice(1).map((b) => b.evidenceBatchId), swap.evidenceBatchId]);
+    return r.ok && r.version === 2 && r.calls.fs_ingest_evidence_internal === 1 ? true : r;
+  });
 
   group("B4  report document bytes: just under 8 MiB accepted, over refused");
   // The latest real document with one added text field, padded so the stored text lands exactly on / just over the bound.
