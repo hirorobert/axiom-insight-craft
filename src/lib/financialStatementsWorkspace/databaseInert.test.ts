@@ -235,6 +235,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/process-trial-balance/functionpath/import_map.json",
       // ...and the mixed-version probe (the same doubles over the release scenarios, for scripts/compat/tbMixedVersions.mjs).
       "supabase/functions/process-trial-balance/functionpath/compatProbe.ts",
+      // DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the paged PostgREST read (pure helper) and its Deno test. No schema.
+      "supabase/functions/_shared/pagedSelect.ts",
+      "supabase/functions/_shared/pagedSelect.test.ts",
       // I1-A A1 (20261009100000): currency-registry/1 and explicit reporting periods — a NEW forward-only migration pending
       // hosted application (its preflight refuses incompatible data; nothing is backfilled or repaired) — and the engine's
       // copy of the registry (generated; parity-tested with the browser copy and the migration seed).
@@ -356,6 +359,30 @@ describe("database inertness — schema and functions", () => {
       // the named-user capacity functions redefined from their current definitions with marked unlimited branches, the
       // proposed seat price retired (rows kept). No row deleted. Proven on PostgreSQL by unlimitedTeamMembers.mjs.
       "supabase/migrations/20261110100000_unlimited_team_members.sql",
+      // Publication controls of the first complete IFRS for SMEs reporting slice (20261111100000): a NEW forward-only
+      // migration — nine pack 1.2.0 requirement rows, fs_evidence_statements and its helpers, and the existing
+      // fs_decide_requirement / fs_notes_status / fs_reporting_dependencies / fs_publication_blockers / fs_bind_publication
+      // redefined with marked changes only; no table, column, index, policy or grant of an existing object changes. Proven on
+      // PostgreSQL by publicationControls.mjs (37/37; the same cases fail without the migration).
+      "supabase/migrations/20261111100000_fs_publication_controls.sql",
+      // The reviewed reporting journey (20261112100000): a NEW forward-only migration — four append-only tables (reviewer comments
+      // and their events, roll-forward carries, prior-FINAL acceptances), their read policies and guards, the reviewer-workflow,
+      // roll-forward and acceptance functions, fs_publication_blockers v4 and fs_prior_final_reconciliation v2 redefined with
+      // marked changes only; no existing table, column, index, policy or grant changes. Proven on PostgreSQL by reviewWorkflow.mjs.
+      "supabase/migrations/20261112100000_fs_review_workflow_and_rollforward.sql",
+      // Work bounds (20261114100000): a NEW forward-only migration — fs_work_bounds() (constants) and four BEFORE INSERT trigger
+      // functions on financial_evidence_batches, financial_statement_reports, fs_review_comments and fs_review_comment_events that
+      // refuse over-limit rows by name; no existing function, table, column, index, policy or grant changes. Proven on PostgreSQL by
+      // workBounds.mjs (each bound refused at limit+1 and accepted at the limit; the batch trigger dropped: the regression).
+      "supabase/migrations/20261114100000_fs_work_bounds.sql",
+      // Account capacity (20261115100000): a NEW forward-only migration — fs_work_bounds v2, fs_account_capacity, and the
+      // composition, commit and blockers functions redefined from their latest texts with exactly one marked guard block each.
+      // No table, column, index, policy or grant of an existing object changes. Proven on PostgreSQL by accountCapacity.mjs.
+      "supabase/migrations/20261115100000_fs_account_capacity.sql",
+      // Transaction memo (20261116100000): a NEW forward-only migration — the composition and the reporting input bodies under
+      // _fs_*_compute names (their latest texts, name changed), the public names as transaction-local memo wrappers, two
+      // internal memo helpers. No table, column, index, policy or grant of an existing object changes. Proven by transactionMemo.mjs.
+      "supabase/migrations/20261116100000_fs_transaction_memo.sql",
       // Period-currency correction (owner-approved recovery repair, 20261113100000): a NEW forward-only migration — one
       // history action and request index, the processing lock redefined with one marked branch, a read and one authorised
       // operation. No row changed. Proven on PostgreSQL by periodCurrencyCorrection.mjs. The pure currency-label reader the
@@ -630,6 +657,14 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/cashPerimeterScope.mjs",
       // The loopback-only sign-off policy proof.
       "scripts/db-proof/signoffPolicy.mjs",
+      // Publication controls (20261111100000): the loopback-only disposable-database proof of acceptance cases A–L, and its
+      // regression mode (PUBLICATION_CONTROLS_ABSENT=1 replays the chain without the migration and must fail). No deploy behaviour.
+      "scripts/db-proof/publicationControls.mjs",
+      "scripts/db-proof/publicationConcurrency.mjs",
+      "scripts/db-proof/reviewWorkflow.mjs",
+      "scripts/db-proof/workBounds.mjs",
+      "scripts/db-proof/accountCapacity.mjs",
+      "scripts/db-proof/transactionMemo.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
@@ -650,6 +685,9 @@ describe("database inertness — schema and functions", () => {
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
       "scripts/db-proof/trialBalanceDrafts.mjs", "scripts/e2e/draftJourney.mjs",
+      // FS workload measurement on the same local stack (invented companies; client-observed API round trips recorded, no
+      // assertion on timing; loopback only, no secret, no deploy behaviour).
+      "scripts/e2e/workloadJourney.mjs",
       // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
       // without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/certificationCapacity.mjs",

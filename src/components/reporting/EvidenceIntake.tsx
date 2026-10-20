@@ -100,7 +100,12 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
       } else setNotice(`Not saved: ${r.reason}`);
     } catch (e) {
       // Nothing half-done is left signable: a stored-evidence version is stale until the next step. "Save" again resumes.
-      setNotice(/STALE_REPORT_VERSION/.test(String((e as Error).message)) ? "Not finished: another version was saved meanwhile. Press save again to continue from it." : `Not finished: ${(e as Error).message} Press save again to continue; nothing is duplicated.`);
+      const message = String((e as Error).message);
+      // A server bound (fs_work_bounds: EVIDENCE_ROWS_LIMIT, EVIDENCE_DOCUMENT_SIZE_LIMIT, ...) is a refusal, not an interruption: nothing
+      // was stored, the files stay chosen, and saving again changes nothing until a smaller file replaces the refused one.
+      setNotice(/STALE_REPORT_VERSION/.test(message) ? "Not finished: another version was saved meanwhile. Press save again to continue from it."
+        : /_LIMIT:/.test(message) ? `Not saved: ${message.replace(/^[A-Z_]+_LIMIT:\s*/, "")} Nothing was stored; your other files are kept. Replace the refused file with smaller parts and save again.`
+        : `Not finished: ${message} Press save again to continue; nothing is duplicated.`);
       await p.refresh();
     } finally { setBusy(false); }
   };

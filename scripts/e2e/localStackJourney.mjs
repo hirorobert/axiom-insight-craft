@@ -529,6 +529,43 @@ async function main() {
     await page.waitForText("is saved", { timeout: 90000 });
     return widths("13-statements");
   });
+  startGroup("Reviewer return: a blocking finding, the preparer's response, the reviewer's resolution (through PostgREST)");
+  await signOut(); await signIn(U.partner);
+  await check("the partner opens a BLOCKING finding on trade payables from the Statements page; the latest version is no longer ready", async () => {
+    await go(`${base}/statements`, "Statement of Financial Position");
+    await page.click('[data-comment-line="sfp.trade_and_other_payables"]');
+    await page.waitForSelector('[data-testid="comment-composer"]', { timeout: 30000 });
+    await page.fill('[data-testid="comment-body"]', "Payables look understated: the rent invoice for June is missing. Please check the accruals.");
+    await page.click('[data-testid="comment-open"]');
+    await page.waitForText("Recorded.", { timeout: 30000 });
+    await go(`${base}/signoff`, "Reviewer comments");
+    await page.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "false", [], { label: "blocked by the finding", timeout: 60000 });
+    const st = await page.evaluate(() => document.querySelector('[data-testid="review-comment"]')?.getAttribute("data-state"));
+    await widths("12b-finding-opened");
+    return st === "open" ? true : { st };
+  });
+  await signOut(); await signIn(U.preparer);
+  await check("the preparer responds (no resolve control); the finding still blocks", async () => {
+    await go(`${base}/signoff`, "Reviewer comments");
+    const noResolve = await page.evaluate(() => !document.querySelector('[data-testid="comment-resolve"]'));
+    await page.fill('[data-testid="comment-note"]', "Accrual checked against the June invoice; the balance is complete.");
+    await page.click('[data-testid="comment-respond"]');
+    await page.waitForText("Recorded.", { timeout: 30000 });
+    await page.waitFor(() => document.querySelector('[data-testid="review-comment"]')?.getAttribute("data-state") === "responded", [], { label: "responded", timeout: 30000 });
+    const ready = await page.evaluate(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready"));
+    return noResolve && ready === "false" ? true : { noResolve, ready };
+  });
+  await signOut(); await signIn(U.partner);
+  await check("the partner resolves the finding; the version is ready again with the full history", async () => {
+    await go(`${base}/signoff`, "Reviewer comments");
+    await page.fill('[data-testid="comment-note"]', "Agreed: the accrual is in; resolved.");
+    await page.click('[data-testid="comment-resolve"]');
+    await page.waitForText("Recorded.", { timeout: 30000 });
+    await page.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "true", [], { label: "ready again", timeout: 60000 });
+    const history = await page.evaluate(() => [...document.querySelectorAll('[data-testid="comment-history"] li')].map((li) => li.textContent.split(" ")[0]));
+    await shot("12c-finding-resolved");
+    return JSON.stringify(history) === JSON.stringify(["opened", "responded", "resolved"]) ? true : history;
+  });
   await signOut(); await signIn(U.partner);
   let version = null;
   await check("the partner marks the latest version REVIEWED", async () => {
@@ -554,6 +591,69 @@ async function main() {
     await go(`${base}/signoff/exports?v=${version}`, "final and sealed");
     return widths("14-exports-sealed");
   });
+
+  startGroup("The retained issued artifact: issue → server-sealed → verify → retrieve again (the real Edge Function and Storage)");
+  let officialSha = null;
+  await check("the owner issues the official pack of the FINAL version: the server stores and seals it; the page lists the sealed issuance with its SHA-256", async () => {
+    await go(`${base}/signoff/exports?v=${version}`, "Official Reporting Pack");
+    await page.click('[data-testid="issue-official"]');
+    await page.waitForSelector('[data-testid="official-issuance"]', { timeout: 90000 });
+    officialSha = await page.evaluate(() => document.querySelector('[data-testid="official-issuance"]')?.getAttribute("data-sha"));
+    const t = await page.bodyText();
+    const { data: rows } = await owner.api.from("reporting_pack_issuances").select("content_sha256, consumed_at, pack_kind, final_publication_id").eq("company_id", A).eq("pack_kind", "financial_statements_data").not("consumed_at", "is", null);
+    await widths("14b-official-pack-issued");
+    // The sealed row is bound to the FINAL publication and carries the digest the page shows.
+    return /^[0-9a-f]{64}$/.test(officialSha ?? "") && /issued, stored and sealed by the server/.test(t) && rows?.length === 1 && rows[0].content_sha256 === officialSha && !!rows[0].final_publication_id ? true : { officialSha, t: t.slice(-400), rows };
+  });
+  await check("verify on the server re-reads the stored bytes: intact and official; retrieve returns the same bytes with the same digest as sealed", async () => {
+    await page.click('[data-testid="verify-official"]');
+    await page.waitForText("Verified:", { timeout: 60000 });
+    await page.click('[data-testid="retrieve-official"]');
+    await page.waitForText("Retrieved again", { timeout: 60000 });
+    const t = await page.evaluate(() => document.querySelector('[data-testid="official-verdict"]')?.textContent ?? "");
+    await shot("14c-official-pack-verified");
+    return /matches the seal recorded at issue/.test(t) && !/WARNING/.test(t) ? true : t;
+  });
+  await check("issuing again does not duplicate or overwrite the retained artifact: a second issuance is a second sealed artifact (its canonical document names its own issuance, so its digest differs); the first row, its digest and its stored bytes are unchanged and still verify intact", async () => {
+    const before = await owner.api.from("reporting_pack_issuances").select("id, content_sha256").eq("company_id", A).not("content_sha256", "is", null);
+    await page.click('[data-testid="issue-official"]');
+    await page.waitFor((n) => document.querySelectorAll('[data-testid="official-issuance"]').length >= n, [before.data.length + 1], { label: "second issuance", timeout: 90000 });
+    const after = await owner.api.from("reporting_pack_issuances").select("id, content_sha256").eq("company_id", A).not("content_sha256", "is", null);
+    const firstKept = before.data.every((b) => after.data.some((a) => a.id === b.id && a.content_sha256 === b.content_sha256));
+    // The first artifact, verified again on the server after the second issuance: still intact, same digest.
+    await page.click(`[data-testid="official-issuance"][data-sha="${officialSha}"] [data-testid="verify-official"]`);
+    await page.waitFor((sha) => (document.querySelector(`[data-testid="official-issuance"][data-sha="${sha}"] [data-testid="official-verdict"]`)?.textContent ?? "").startsWith("Verified:"), [officialSha], { label: "first artifact verified", timeout: 60000 });
+    const digests = new Set(after.data.map((a) => a.content_sha256));
+    return firstKept && after.data.length === before.data.length + 1 && digests.size === after.data.length && after.data.every((a) => /^[0-9a-f]{64}$/.test(a.content_sha256)) ? true : { before: before.data, after: after.data };
+  });
+
+  startGroup("Next-period roll-forward: FY2027 from the issued FY2026 (carried decisions with provenance; evidence never carried)");
+  await check("FY2027 (1 Jul 2026 - 30 Jun 2027) is uploaded through the uploader and reviewed; the prior issued report is untouched", async () => {
+    const { data: fin0 } = await owner.api.from("fs_publication_bindings").select("document_sha256").eq("company_id", A).eq("report_version", version).eq("state", "FINAL");
+    await uploadAndReview(2027, tbCurrent);
+    const { data: fin1 } = await owner.api.from("fs_publication_bindings").select("document_sha256").eq("company_id", A).eq("report_version", version).eq("state", "FINAL");
+    return fin0?.length === 1 && fin1?.[0]?.document_sha256 === fin0[0].document_sha256 ? true : { fin0, fin1 };
+  });
+  await signOut(); await signIn(U.preparer);
+  await check("Comparatives of FY2027: the comparatives agree with the issued FY2026; the preparer carries FY2026's decisions and wording forward for review", async () => {
+    await go(`/workspace/${A}/2027/statements/comparatives`, "Roll-forward from FY2026");
+    await page.click('[data-testid="carry-forward"]');
+    await page.waitForText("carried forward for review", { timeout: 60000 });
+    await page.waitForSelector('[data-testid="carry"][data-status="carried"]', { timeout: 30000 });
+    const n = await page.evaluate(() => document.querySelectorAll('[data-testid="carry"][data-status="carried"]').length);
+    const pf = await page.evaluate(() => document.querySelector('[data-testid="rollforward"]')?.getAttribute("data-prior-final"));
+    const ev = await page.evaluate(() => document.querySelector('[data-testid="evidence-to-supply"]')?.textContent ?? "");
+    await widths("15b-rollforward-carried");
+    return n >= 10 && pf === "reconciled" && /still to supply/.test(ev) ? true : { n, pf, ev };
+  });
+  await check("confirming one carried wording writes it for FY2027 through the notes authority; the notes page shows it provided with the FY2026 source; nothing else is current", async () => {
+    await page.click('[data-testid="carry"][data-requirement="smes.note.policies"] [data-testid="carry-confirm"]');
+    await page.waitForText("Confirmed for this period.", { timeout: 30000 });
+    const st = await page.evaluate(() => document.querySelector('[data-testid="carry"][data-requirement="smes.note.policies"]')?.getAttribute("data-status"));
+    const { data: rows } = await owner.api.from("fs_disclosure_texts").select("requirement_id, source_ref").eq("company_id", A).eq("period_year", 2027);
+    return st === "confirmed" && rows?.length === 1 && rows[0].requirement_id === "smes.note.policies" && /Carried forward from FY2026/.test(rows[0].source_ref) ? true : { st, rows };
+  });
+  await signOut(); await signIn(U.owner);
 
   startGroup("A changed layout makes the result out of date; the sealed version stays FINAL");
   await check("confirming a new layout for FY2026 puts the trial balance out of date and the Overview names the re-check", async () => {

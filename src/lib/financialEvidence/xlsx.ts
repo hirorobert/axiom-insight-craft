@@ -336,7 +336,7 @@ export function readWorkbookSheet(bytes: Uint8Array, sheetName: string, opts: { 
     for (const row of kids(child(ws, "sheetData"), "row")) {
       rowCount += 1;
       if (overTime()) return timeUp;
-      if (rowCount > INTAKE_LIMITS.maxRows + 50) return { ok: false, diagnostics: [err("TOO_MANY_ROWS", `The sheet has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows.`)] };
+      if (rowCount > INTAKE_LIMITS.maxRows + 50) return { ok: false, diagnostics: [err("TOO_MANY_ROWS", `The sheet has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows. Split it by month or by account and add the parts as separate files; each is kept.`)] };
       const hidden = row.attrs.hidden === "1" || row.attrs.hidden === "true";
       let seq = 0;
       for (const c of kids(row, "c")) {

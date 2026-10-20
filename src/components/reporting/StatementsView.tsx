@@ -9,9 +9,10 @@ import { Link } from "react-router-dom";
 import { EvidenceIntake } from "./EvidenceIntake";
 import { DataTable, type DataColumn } from "@/components/workbench/DataTable";
 import { SecondaryPanel } from "@/components/workbench/SecondaryPanel";
+import { CommentComposer, ReviewCommentsPanel } from "./ReviewComments";
 import { presentAmount } from "@/lib/presentation/amounts";
 import { IFRS_FOR_SMES_2015 } from "@/lib/frameworkPacks/ifrsForSmes";
-import { statementViews, type Composition, type CompositionLine, type StatementRow } from "@/lib/statements/composition";
+import { statementViews, type Composition, type CompositionLine, type StatementRow, overCapacityWords } from "@/lib/statements/composition";
 import type { NotesStatus } from "@/lib/notes/notesStatus";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
 
@@ -29,6 +30,7 @@ type Row = StatementRow & { key: string };
 export function StatementsView(p: PageProps) {
   const c = p.state.composition;
   if (!c) return null;
+  if (c.state === "over_capacity") return <p role="status" data-testid="statements-not-composed" data-state="over_capacity">{overCapacityWords(c.capacity)}</p>;
   if (c.state !== "composed") return <p role="status" data-testid="statements-not-composed">{NOT_COMPOSED[c.state] ?? `Not composed (${c.state}).`}</p>;
   return <Composed {...p} c={c} />;
 }
@@ -43,12 +45,18 @@ function Composed(p: PageProps & { c: Composition }) {
     return v.map((s) => (s.id !== "SCI" ? s : { ...s, rows: [...s.rows, { kind: "total" as const, label: "Total comprehensive income for the period", current: amt(tci.totalsMinor!.current), comparative: amt(tci.totalsMinor!.comparative) }] }));
   }, [p.c, tci]);
   const [open, setOpen] = useState<Row | null>(null);
+  const [commentOn, setCommentOn] = useState<Row | null>(null);
   const cmpYear = p.c.comparative.periodYear;
+  // A reviewer comments on a figure of a SAVED version (the selected one, else the latest); the fact id is the line's current-period fact.
+  const version = p.state.versions.find((v) => v.reportVersion === p.reportVersion) ?? p.state.latest?.version ?? null;
+  const canComment = p.allowed.includes("review_close") && version !== null;
+  const factIdOf = (r: Row) => { const section = p.c.lines.find((l) => l.lineId === r.lineId)?.section; return section && r.lineId ? `fact:current:${section}:${r.lineId}` : null; };
   const columns: DataColumn<Row>[] = [
     { id: "label", header: "Line", wrap: true, render: (r) => <span className={r.kind === "heading" ? "font-semibold" : r.kind === "total" ? "font-semibold" : r.kind === "subtotal" ? "font-medium" : "pl-3"}>{r.label}</span> },
     { id: "cur", header: `FY${p.c.current.periodYear}`, kind: "amount", render: (r) => (r.current ? <Amt t={r.current} /> : "") },
     { id: "cmp", header: cmpYear ? `FY${cmpYear}` : "Comparative", kind: "amount", render: (r) => (r.comparative ? <span><Amt t={r.comparative} />{r.comparativeAsReported ? <span className="block text-xs text-muted-foreground">as reported <Amt t={r.comparativeAsReported} /></span> : null}</span> : "") },
     { id: "trace", header: "Lineage", render: (r) => (r.lineage ? <button type="button" className="text-primary underline" data-trace={r.lineId} onClick={() => setOpen(r)} tabIndex={-1}>Trace</button> : "") },
+    ...(canComment ? [{ id: "comment", header: "Review", render: (r: Row) => (r.kind === "line" && factIdOf(r) ? <button type="button" className="text-primary underline" data-comment-line={r.lineId} onClick={() => setCommentOn(r)} tabIndex={-1}>Comment</button> : "") }] : []),
   ];
   return (
     <div className="space-y-6">
@@ -73,6 +81,14 @@ function Composed(p: PageProps & { c: Composition }) {
       <EvidenceIntake {...p} mode="prepare" />
       <SecondaryPanel open={open !== null} title={open ? `Lineage — ${open.label}` : ""} onClose={() => setOpen(null)} returnSelector={open ? `[data-trace="${open.lineId}"]` : undefined}>
         {open?.lineage ? <Lineage lineage={open.lineage} exponent={p.c.current.exponent} /> : null}
+      </SecondaryPanel>
+      <SecondaryPanel open={commentOn !== null} title={commentOn ? `Review — ${commentOn.label}` : ""} onClose={() => setCommentOn(null)} returnSelector={commentOn ? `[data-comment-line="${commentOn.lineId}"]` : undefined}>
+        {commentOn && version && factIdOf(commentOn) ? (
+          <div className="space-y-4" data-testid="line-review">
+            <ReviewCommentsPanel {...p} reportId={version.reportId} reportVersion={version.reportVersion} filter={{ itemKind: "fact", itemId: factIdOf(commentOn)! }} />
+            <CommentComposer {...p} reportId={version.reportId} reportVersion={version.reportVersion} itemKind="fact" itemId={factIdOf(commentOn)!} label={commentOn.label} />
+          </div>
+        ) : null}
       </SecondaryPanel>
     </div>
   );

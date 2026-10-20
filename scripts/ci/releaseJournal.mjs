@@ -338,12 +338,13 @@ export const RELEASE_JOURNAL = {
     bytes: 37312, digest: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009",
     form: "wrapper", submittedBytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" },
   // Period-currency correction (batch currency-c1; PR #179, main 4ead5c9), applied 2026-10-20 by Lovable's hosted migrator
-  // through its SELF-CHECKING WRAPPER in the registered final-LF-removed form (mirror byte-identical to release/wrappers/
-  // minus its single final LF; Lovable commit da31e04). POSTCONDITION OK. Nothing is pending.
-  // hosted id 64; journal "when" 1792470872315 = 2026-10-20T04:34:32.315Z.
+  // through its SELF-CHECKING WRAPPER with the wrapper's single final LF removed (the registered wrapperFinalLfRemoved form).
+  // hosted id 64; journal "when" 1792470872315 = 2026-10-20T04:34:32.315Z. OUT OF SOURCE ORDER on purpose (the precedent
+  // of 0016): it was applied ahead of the authored, still-PENDING 20261111100000 and 20261112100000 of the financial-statements
+  // slice (PR #176), whose wrappers apply later through their own preflights (none depends on 20261113100000).
   "0063_period_currency_correction": { kind: "release_self_checking_wrapper", source: "20261113100000_period_currency_correction.sql",
     bytes: 34382, digest: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d",
-    form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc" },
+    form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc", outOfOrder: true },
 };
 
 /**
@@ -612,8 +613,44 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 38877, sha256: "1fbcccc09d4fdcf1dff67045fc42515a5c0f7c93de246cd3301779a9b67d7a42" }),
   }),
-  // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application.
-  // Applied 2026-10-20 as hosted 64 (0063) in the final-LF-removed wrapper form.
+  // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1; 8bbb022): all four forms
+  // registered BEFORE application, from the reviewed bytes at that commit. Authored, PENDING hosted application.
+  "20261111100000_fs_publication_controls.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 93290, sha256: "b8b8bef6a9de61829f4a28269f63e9abef9c081666106c46723c69abdacfc95a" }),
+    finalLfRemoved: Object.freeze({ bytes: 93289, sha256: "f1337535a75bb5c111ea591452a2edcfcc95b166c3e4771ddf0a87f7951453d0" }),
+    wrapper: Object.freeze({ bytes: 94858, sha256: "7c3c0b0d9cd456f07a88da1c0930fb5e4a9c4bdeead6ea068008eca939470d56" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 94857, sha256: "acd55ee6fa3b3961c3bd10e14f65d705782db7b77cf777c759388e3172f13ce2" }),
+  }),
+  // The reviewed reporting journey (batch fs-journey-r1): all four forms registered BEFORE application; applied after fs-controls-r1.
+  "20261112100000_fs_review_workflow_and_rollforward.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 71537, sha256: "e499ef6983ae9fd1ebd1063d9f2defe5d66e8c9c7d6d01fb497221fa4132a893" }),
+    finalLfRemoved: Object.freeze({ bytes: 71536, sha256: "721e0461d3e8ea6c91a75ae5d02c4a9691331d4d1fc2939d84530d8ae5575823" }),
+    wrapper: Object.freeze({ bytes: 73127, sha256: "8f7a1a98a0c34a250dbeb2c94a5c6f4f6d9528a0bf4509e8b1ee89649e135fcd" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 73126, sha256: "615b597594b99ad44c0037f6f17bcb845fa3bb08c1a1a66649cae481f0619c77" }),
+  }),
+  // The work bounds (batch fs-bounds-r1): all four forms registered BEFORE application; applied after fs-journey-r1.
+  "20261114100000_fs_work_bounds.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 13548, sha256: "e024082d5c27db04ec1ccd1221ac4702d44549cf0d73be2caf4533aaebc37747" }),
+    finalLfRemoved: Object.freeze({ bytes: 13547, sha256: "cc42b96a551f955f127d52b861f00520edab5168ce6347e63b4dcfaad36bbe33" }),
+    wrapper: Object.freeze({ bytes: 15098, sha256: "778cfec6f62847def10b7d0938b7aa661ac2c22c2330b40009f3bc0e4682898b" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 15097, sha256: "461d9d38d31624820b672990e2719be619400b6181f1050a898931e7183f1215" }),
+  }),
+  // The account capacity (batch fs-capacity-r1): all four forms registered BEFORE application; applied after fs-bounds-r1.
+  "20261115100000_fs_account_capacity.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 55481, sha256: "408e84e112022264c3ad6a11ac646c40d92792bbb5016466d47c136329f163f7" }),
+    finalLfRemoved: Object.freeze({ bytes: 55480, sha256: "8300b4002c0e2e5a0c7484cd5e5cd5ade13364a0a59a56e77efd745fbb0bf373" }),
+    wrapper: Object.freeze({ bytes: 57041, sha256: "d156d1aa434d290932c03f868d0a03779456a90cbdc269d473f8a0ecf9510428" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 57040, sha256: "8d9a7f8fa37bd430a624141d847bdb8907f1ac10913df6660aa9bcc83fec2dd2" }),
+  }),
+  // The transaction memo (batch fs-memo-r1): all four forms registered BEFORE application; applied after fs-capacity-r1.
+  "20261116100000_fs_transaction_memo.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 26996, sha256: "9d278868a4d0bf5794232a6b576239aaef9efd8740aee9b4ddf7b11fe112ae17" }),
+    finalLfRemoved: Object.freeze({ bytes: 26995, sha256: "0b436293c992ef65fa9c89c53d2227a4d58d6a62f241838cedca85850132e24b" }),
+    wrapper: Object.freeze({ bytes: 28556, sha256: "f332c8b62ba87d99bc149644dd2e43580a6419f9e2d07a4db90666776a5c0321" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 28555, sha256: "7b07a40a8b8b495ece66d2e57d309e7d267408551470ebcebac68fc7ebebf171" }),
+  }),
+  // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application;
+  // applied 2026-10-20 as 0063 in the wrapperFinalLfRemoved form (RELEASE_JOURNAL).
   "20261113100000_period_currency_correction.sql": Object.freeze({
     identical: Object.freeze({ bytes: 34382, sha256: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d" }),
     finalLfRemoved: Object.freeze({ bytes: 34381, sha256: "cbb154b4a4c5f8b840c699ce0a66088775dd73e8d5bdad7bc8e3825fecb92746" }),
@@ -767,7 +804,9 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     const reg = entry.form === "wrapper" ? SUBMISSION_FORMS[entry.source]?.wrapper : entry.form === "wrapper_final_lf_removed" ? SUBMISSION_FORMS[entry.source]?.wrapperFinalLfRemoved : null;
     if (!reg || reg.sha256 !== entry.sha256 || reg.bytes !== entry.submittedBytes) problems.push(`${tag}: ${entry.form} is not a registered wrapper form of ${entry.source} (SUBMISSION_FORMS)`);
     if (submittedForm(entry.source, src, hosted) !== entry.form) problems.push(`${tag} is not exactly the registered ${entry.form} of ${entry.source}`);
-    return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: false, problems };
+    // A reviewed entry may declare itself applied OUT OF SOURCE ORDER (ahead of authored, still-pending sources): the parity
+    // checker then counts it as applied without treating the earlier sources as skipped (the 0016 precedent).
+    return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: entry.outOfOrder === true, problems };
   }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));

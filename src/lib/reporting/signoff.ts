@@ -15,6 +15,8 @@ import type { ReportingDependenciesRef } from "@/lib/statements/canonicalDocumen
 export interface ReportingDb {
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>;
   select(table: string, filters: Record<string, string | number | boolean>): PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>;
+  /** A server function (Edge Function) call, when the transport offers one; absent on the loopback harness. */
+  invoke?(name: string, body: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
 }
 
 /** A refusal from the server, kept with its code so the page can say what to do next. */

@@ -246,9 +246,23 @@ describe("migration directory integrity", () => {
     // 179 -> 180: 20261109100000_refused_replacement_restore.sql (a refused replacement can be withdrawn and the trial balance it replaced restored), a NEW forward-only migration pending hosted application.
     // 180 -> 181: 20261110100000_unlimited_team_members.sql (unlimited team members on Solo, Practice and Firm: an explicit plan flag; the named-user
     // functions honour it; history kept), a NEW forward-only migration pending hosted application.
-    // 181 -> 182: 20261113100000_period_currency_correction.sql (an authorised, recorded correction of a period's currency while nothing
-    // has been built on its amounts), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(182);
+    // 181 -> 182: 20261111100000_fs_publication_controls.sql (publication controls of the first IFRS for SMEs reporting slice: server-recomposed cash-flow/equity figures bound at sign-off, unsupported paths refused by name, pack 1.2.0 disclosures), a NEW forward-only migration pending hosted application.
+    // 182 -> 183: 20261112100000_fs_review_workflow_and_rollforward.sql (the reviewed reporting journey: version-bound reviewer comments
+    // with computed states and blockers v4, authorised acceptance of prior-FINAL differences, next-period roll-forward carry), a NEW
+    // forward-only migration pending hosted application.
+    // 183 -> 184: 20261113100000_period_currency_correction.sql (an authorised, recorded correction of a period's currency while nothing
+    // has been built on its amounts; PR #179), a NEW forward-only migration pending hosted application.
+    // 184 -> 185: 20261114100000_fs_work_bounds.sql (server-enforced work bounds for the financial-statements module: evidence rows and
+    // bytes per batch, evidence rows per version, report document bytes, versions per lineage, comments per version and events per
+    // comment, each refused by name from BEFORE INSERT triggers; no accepted function redefined), a NEW forward-only migration pending
+    // hosted application.
+    // 185 -> 186: 20261115100000_fs_account_capacity.sql (the account capacity of the financial-statements module: what is counted,
+    // refused by name before the expensive work in composition, save, readiness and publication; fs_work_bounds contract 2),
+    // a NEW forward-only migration pending hosted application.
+    // 186 -> 187: 20261116100000_fs_transaction_memo.sql (the composition and the reporting input computed once per transaction:
+    // the heavy bodies under _fs_*_compute names, the public names memoising wrappers with the same signatures and grants),
+    // a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(187);
   });
 });
 

@@ -42,6 +42,7 @@ import {
 } from "../_shared/tbIngestion.ts";
 import { SHEET_ROWS, detectSourceFormat, readTrialBalanceSource, readTrialBalanceSourceWithLayout, refusedRead, type XlsxLike } from "../_shared/tbSource.ts";
 import { TB_UPLOAD_POLICY, checkAccountCount, checkSourceBytesActual } from "../_shared/uploadPolicy.ts";
+import { selectAllRowsByKey } from "../_shared/pagedSelect.ts";
 import { FindingsSummaryTooLarge, summarizeFindings } from "../_shared/certificationFindings.ts";
 import { createAdmission, withAdmission } from "../_shared/admission.ts";
 import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from "../_shared/accountNameMatch.ts";
@@ -1747,10 +1748,24 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     const reportingFramework = company?.reporting_framework ?? null;
     console.log(`[PTB] reporting_framework: ${reportingFramework ?? "not set"}`);
 
-    const { data: rawMappings } = await supabase
-      .from("account_mappings")
-      .select("*")
-      .or(companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null");
+    // DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: PostgREST answers at most max-rows (1,000) per request and says nothing about
+    // the rest, so an unpaged select applied only the first 1,000 reviewed mappings of a larger company. Read every page
+    // by KEYSET: ordered by the immutable unique id, each page the rows with id strictly greater than the last id seen, the
+    // same tenant filter on every page — an unrelated mapping deleted or inserted between two pages cannot shift a relevant
+    // one out of (or twice into) the read, which an offset window could (Codex review of PR #176). Not a snapshot: the
+    // dependency revisions recorded above and re-checked at finalize (DEPENDENCY_CHANGED) guard the keys this run uses.
+    // A failed page leaves the mappings unread, exactly as a failed unpaged read did before (every account then goes to
+    // review), and is logged.
+    const mappingFilter = companyId ? `company_id.eq.${companyId},company_id.is.null` : "company_id.is.null";
+    // The rows are the untyped `select("*")` rows the loop below has always consumed.
+    // deno-lint-ignore no-explicit-any
+    const mappingsRead = await selectAllRowsByKey<any>((afterId, limit) => {
+      const q = supabase.from("account_mappings").select("*").or(mappingFilter);
+      return (afterId === null ? q : q.gt("id", afterId)).order("id", { ascending: true }).limit(limit);
+    }, (m) => String(m.id ?? ""));
+    if (mappingsRead.error) console.log(`[PTB] account_mappings read failed on page ${mappingsRead.pages}: ${mappingsRead.error.message}`);
+    const rawMappings = mappingsRead.data;
+    console.log(`[PTB] account_mappings: ${rawMappings?.length ?? 0} rows in ${mappingsRead.pages} page(s)`);
 
     const companyByCode = new Map<string, AccountMapping>(); // Tier 1 (codes are unique per company)
     const globalByCode  = new Map<string, AccountMapping>(); // Tier 3 (code)

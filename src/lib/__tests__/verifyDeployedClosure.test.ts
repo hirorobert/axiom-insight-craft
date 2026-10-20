@@ -27,6 +27,14 @@ const before76 = (f: string) => {
 };
 
 describe("which storage-cleanup bundle is deployed", () => {
+  it("PR #176: the repository's current process-trial-balance and seal-reporting-pack closures ARE the required ones; the hosted 2026-10-18 closures are known older (redeploy)", () => {
+    for (const fn of ["process-trial-balance", "seal-reporting-pack"] as const) {
+      const digest = deployedClosure(fn, ROOT);
+      expect(digest, fn).toBe(KNOWN_CLOSURES[fn].required.sha256);
+      expect(classify(fn, digest).verdict, fn).toBe("REQUIRED");
+      expect(classify(fn, KNOWN_CLOSURES[fn].known[0].sha256).verdict, fn).toBe("KNOWN_OLDER");
+    }
+  });
   it("a bundle with the current sources IS the required closure (reuse)", () => {
     const d = tree(Object.fromEntries(FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f))])));
     expect(classify("trial-balance-storage-cleanup", deployedClosure("trial-balance-storage-cleanup", d)).verdict).toBe("REQUIRED");

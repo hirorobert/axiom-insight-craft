@@ -188,7 +188,7 @@ jobs:
         run: deno test --no-check --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 
       - name: Existing process-trial-balance Deno tests
-        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts
+        run: deno test --allow-env --allow-read --allow-net=esm.sh,deno.land supabase/functions/process-trial-balance/balanceSheetCheck_test.ts supabase/functions/process-trial-balance/l5l6Evidence.test.ts supabase/functions/process-trial-balance/normalize.test.ts supabase/functions/process-trial-balance/publicSectorClassification_test.ts supabase/functions/process-trial-balance/requestIdentity.test.ts supabase/functions/process-trial-balance/tierProvenance.test.ts supabase/functions/_shared/pagedSelect.test.ts
 
   golden-tests:
     name: Golden Fixture Tests (vitest)
@@ -370,6 +370,9 @@ jobs:
       - name: Keep the local Edge Functions log with the evidence when the journey fails
         if: failure()
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
+
+      - name: Workload measurement through the real stack (representative 18-account journey to FINAL with the official pack issued, verified and retrieved; a 30-version history; 8 simultaneous saves; a demanding 2,000-account trial balance with a 20,000-row ledger - client-observed API round trips recorded in real-app-evidence/workload/measurements.json, never CPU)
+        run: bun scripts/e2e/workloadJourney.mjs real-app-evidence/workload
 
       - name: Trial balance drafts journey (the same stack; real Auth, PostgREST, RLS, Storage and the trial-balance-draft function served from this repository; reserve, signed upload, commit with server copy and SHA-256 verification, lost responses, interruptions resumed, revoked authority, integrity refusal, retention sweeps deleting real objects, committed evidence intact)
         if: always()
@@ -823,6 +826,51 @@ jobs:
           createdb pricing_p1_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
+      - name: Publication controls wrapper proof (the same reviewed apply-and-register proof for the fs-controls-r1 wrapper - 20261111100000, the publication controls of the first IFRS for SMEs reporting slice at 8bbb022; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_controls_wrappers_proof
+          RELEASE_BATCH: fs-controls-r1
+        run: |
+          createdb fs_controls_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Reviewed reporting journey wrapper proof (the same reviewed apply-and-register proof for the fs-journey-r1 wrapper - 20261112100000, the persisted reviewer workflow, prior-FINAL acceptance and roll-forward carry of the first IFRS for SMEs reporting slice at fe17272; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_journey_wrappers_proof
+          RELEASE_BATCH: fs-journey-r1
+        run: |
+          createdb fs_journey_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at c17809e)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_bounds_wrappers_proof
+          RELEASE_BATCH: fs-bounds-r1
+        run: |
+          createdb fs_bounds_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at b27de40)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_capacity_wrappers_proof
+          RELEASE_BATCH: fs-capacity-r1
+        run: |
+          createdb fs_capacity_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
+      - name: Transaction memo wrapper proof (the same reviewed apply-and-register proof for the fs-memo-r1 wrapper - 20261116100000, the composition and the reporting input computed once per transaction; applied after fs-capacity-r1; at b27de40)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_memo_wrappers_proof
+          RELEASE_BATCH: fs-memo-r1
+        run: |
+          createdb fs_memo_wrappers_proof
+          node scripts/db-proof/selfCheckingWrappers.mjs
+
       - name: Period currency correction wrapper proof (the same reviewed apply-and-register proof for the currency-c1 wrapper, 20261113100000 at 5581158; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
@@ -895,6 +943,54 @@ jobs:
         run: |
           createdb closure_proof
           bun scripts/db-proof/reportingClosure.mjs
+
+      - name: Publication controls proof (20261111100000; the executed acceptance cases of the first complete IFRS for SMEs slice - a missing applicable disclosure refused; every cash-flow, equity, perimeter and ledger figure recomposed by the server and bound; a tampered cash-flow or equity figure, an invented line, every unsupported framework or provenance, an unauthorised or same-person approval, a cross-tenant call, a changed dependency, replaced evidence, a seeded prior-closing discrepancy and an equity movement that no longer ties each refused by name; the FINAL version byte-identical afterwards; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pubctl_proof
+        run: |
+          createdb pubctl_proof
+          bun scripts/db-proof/publicationControls.mjs
+
+      - name: Publication concurrency proof (addendum sections 3, 4 and 12 - eight simultaneous saves of one attempt, two people replacing the ledger at once, an approval and an evidence replacement released together, a FINAL approval held open while evidence is replaced with the lineage lock removed and restored, an approver revoked while the approval waits)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/pubconc_proof
+        run: |
+          createdb pubconc_proof
+          bun scripts/db-proof/publicationConcurrency.mjs
+
+      - name: Reviewed reporting journey proof (20261112100000 - a blocking reviewer comment blocks the version by name and an advisory one never does; who may open, respond, resolve and reopen; a save never resolves; unchanged content stays resolved and changed content reopens; the control removed and restored; a prior-year adjustment approved after issue blocks the next period until a reviewer accepts exactly that set; the roll-forward carry with provenance, nothing current until confirmed, write-through on confirmation, withdrawn under another edition)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/review_proof
+        run: |
+          createdb review_proof
+          bun scripts/db-proof/reviewWorkflow.mjs
+
+      - name: Work bounds proof (20261114100000 - every bound reached through the browser's own save code and refused by name with nothing stored, accepted at the bound; a 20,000-row ledger saved and a 20,002-row file refused at the committed limit; the batch trigger dropped accepts the over-limit file, restored refuses it)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/work_bounds_proof
+        run: |
+          createdb work_bounds_proof
+          bun scripts/db-proof/workBounds.mjs
+
+      - name: Account capacity proof (20261115100000 - what is counted; a company over the envelope is refused by name before the expensive work in composition, notes, dependencies, save, readiness and publication with nothing written; saved versions and issued packs stay available; the previous function texts re-installed accept it, restored refuse it)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/account_capacity_proof
+        run: |
+          createdb account_capacity_proof
+          bun scripts/db-proof/accountCapacity.mjs
+
+      - name: Transaction memo proof (20261116100000 - one readiness call computes the composition once and the reporting input once instead of five and seven times; every identity and readiness answer unchanged with and without the memo; no stale answer across transactions; the capacity guard still refuses; the memo and compute bodies are internal)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/transaction_memo_proof
+        run: |
+          createdb transaction_memo_proof
+          bun scripts/db-proof/transactionMemo.mjs
 
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:

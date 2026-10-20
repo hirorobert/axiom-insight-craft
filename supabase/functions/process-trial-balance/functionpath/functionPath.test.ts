@@ -7,7 +7,7 @@
 //   deno test --allow-env --allow-net=esm.sh,deno.land --import-map=supabase/functions/process-trial-balance/functionpath/import_map.json \
 //     supabase/functions/process-trial-balance/functionpath/functionPath.test.ts
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
+import { POSTGREST_MAX_ROWS, newWorld, setWorld, type Row, type World } from "./supabaseDouble.ts";
 import { capturedHandler } from "./serverDouble.ts";
 import { installAttemptDoubles } from "./attemptDouble.ts";
 import { validateTbAmounts } from "../../_shared/tbAmounts.ts";
@@ -39,7 +39,8 @@ function setup(opts: { csv: string; fileName?: string; currency?: string | null;
   }];
   w.tables.fiscal_periods = [{ id: PERIOD, company_id: COMPANY, reporting_currency: opts.currency ?? "TZS" }];
   w.tables.companies = [{ id: COMPANY, reporting_framework: "full_ifrs" }];
-  w.tables.account_mappings = opts.mappings ?? [];
+  // Every row carries an immutable unique id, as the real table does (the keyset read pages on it); a test may set its own.
+  w.tables.account_mappings = (opts.mappings ?? []).map((m, i) => ({ id: `am-seed-${String(i).padStart(6, "0")}`, ...m }));
   w.tables.keyword_dictionary = [];
   w.storage[PATH] = enc(opts.csv);
   w.rpc.tbu_resolve_processing_actor = () => ({ data: [{ actor_type: "workspace_user", firm_member_id: null, authority_basis: "workspace_owner" }], error: null });
@@ -88,6 +89,103 @@ Deno.test("reviewed mappings + exact balance → complete, certified with rows; 
   assertEquals(milestoneStates(w), ["read:passed", "columns:passed", "rows:passed", "amounts:passed", "balance:passed", "classification:passed", "recorded:passed"]);
   const exact = ((upload(w).processing_result as Record<string, Record<string, Record<string, unknown>>>).validation_report.tb_balance_check.exact);
   assertEquals(exact, { currency: "TZS", currency_exponent: 2, total_debits: "1900.25", total_credits: "1900.25", difference: "0.00" });
+});
+
+// DEFECT-PTB-MAPPINGS-API-ROW-CAP-001: the double answers at most POSTGREST_MAX_ROWS rows per read, as PostgREST does. A
+// company with more reviewed mappings than that must still have every one applied — the handler reads them page by page
+// (a keyset on the immutable id since Codex's review; see the interleaving test below).
+Deno.test("1,500 reviewed mappings (more than one PostgREST answer holds): every account is classified from its mapping, certified with no review; the mappings were read in pages", async () => {
+  const n = POSTGREST_MAX_ROWS + 500;
+  const codes = Array.from({ length: n - 1 }, (_, i) => String(100000 + i));
+  const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900)); // minor units
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const money = (m: number) => (m / 100).toFixed(2);
+  const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
+  const mappings = [...codes.map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
+  assert(mappings.length > POSTGREST_MAX_ROWS);
+  // Another company's reviewed mappings for the SAME codes, classified as revenue: they must never be read for this company.
+  const OTHER = "99999999-9999-4999-8999-999999999999";
+  const foreign = codes.map((c) => ({ ...mapping(c, "revenue", "income_statement", "credit"), company_id: OTHER, review_decision_id: `other-${c}` }));
+  const w = setup({ csv, mappings: [...foreign, ...mappings] });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "complete");
+  const cert = w.tables.tb_certifications[0];
+  assertEquals([cert.p_is_blocking, cert.p_requires_review], [false, false]);
+  const snapshot = cert.p_rows_snapshot as { accountCode: string }[];
+  assertEquals(snapshot.length, n); // no omitted account …
+  assertEquals(new Set(snapshot.map((x) => x.accountCode)).size, n); // … and none twice
+  // No cross-company leakage: every debit account is an asset, nothing is income; the equation balances on this company's mappings alone.
+  const tbAmounts = (upload(w).processing_result as Record<string, unknown>).amounts as Record<string, Record<string, string>>;
+  assertEquals([tbAmounts.classes.income_minor, tbAmounts.classes.assets_minor, tbAmounts.classes.equity_minor, tbAmounts.equation.status], ["0", String(total), String(total), "balanced"]);
+  const mappingReads = w.calls.filter((c) => c.kind === "select" && c.target === "account_mappings").length;
+  assert(mappingReads >= 2, `expected the mappings to be read in at least two pages, saw ${mappingReads} read(s)`);
+});
+
+// Codex review of PR #176, blocker 2: an OFFSET window is unsafe against a concurrent change to the same table. Here another
+// session deletes an unrelated SHARED mapping (inside the handler's filter, a code this file never uses) that sorts BEFORE
+// the first page boundary between the handler's first and second
+// page reads. With offsets every later row would shift down by one, a relevant reviewed mapping would slide into the range
+// already read and be skipped, and that account would fall back to another classification path. With the keyset read the
+// cursor is the last id seen, so nothing still to be read moves: EVERY reviewed mapping is applied (the acceptable outcomes
+// were "every relevant reviewed mapping applied correctly" or an explicit DEPENDENCY_CHANGED refusal; the keyset read
+// delivers the former, and this test requires exactly that — no fallback, no omission, no duplicate).
+Deno.test("an unrelated mapping deleted between two pages of the read: every one of 1,500 reviewed mappings is still applied (keyset cursor; no skipped row, no fallback)", async () => {
+  const n = POSTGREST_MAX_ROWS + 500;
+  const codes = Array.from({ length: n - 1 }, (_, i) => String(100000 + i));
+  const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900));
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const money = (m: number) => (m / 100).toFixed(2);
+  const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
+  // Ids order the table: ten SHARED suggestions (company_id null, codes not in this file - inside the handler's own filter,
+  // so an offset window would feel their deletion) come FIRST, then this company's reviewed mappings.
+  const unrelated = Array.from({ length: 10 }, (_, i) => ({ ...mapping(`90000${i}`, "revenue", "income_statement", "credit"), id: `am-0${i}`, company_id: null, review_decision_id: null }));
+  const mappings = [...codes.map((c, i) => ({ ...mapping(c, "current_assets", "balance_sheet", "debit"), id: `am-1${String(i).padStart(5, "0")}` })),
+    { ...mapping("999999", "equity", "balance_sheet", "credit"), id: "am-199999" }];
+  const w = setup({ csv, mappings: [...unrelated, ...mappings] });
+  let deletedBeforeSecondPage = false;
+  w.beforeRead = (table, nth, world) => {
+    if (table !== "account_mappings" || nth !== 2) return;
+    // Between page 1 and page 2: another session deletes an unrelated row that sorts before the boundary.
+    const i = world.tables.account_mappings.findIndex((r) => r.id === "am-00");
+    assert(i >= 0, "the unrelated row must still exist before the second page");
+    world.tables.account_mappings.splice(i, 1);
+    deletedBeforeSecondPage = true;
+  };
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assert(deletedBeforeSecondPage, "the deletion must have happened between the two pages");
+  const mappingReads = w.calls.filter((c) => c.kind === "select" && c.target === "account_mappings").length;
+  assert(mappingReads >= 2, `expected at least two pages, saw ${mappingReads} read(s)`);
+  // Every account classified from its reviewed mapping: certified with no review, nothing omitted, nothing twice, no fallback.
+  assertEquals(upload(w).status, "complete");
+  const cert = w.tables.tb_certifications[0];
+  assertEquals([cert.p_is_blocking, cert.p_requires_review], [false, false]);
+  const snapshot = cert.p_rows_snapshot as { accountCode: string }[];
+  assertEquals(snapshot.length, n);
+  assertEquals(new Set(snapshot.map((x) => x.accountCode)).size, n);
+  const tbAmounts = (upload(w).processing_result as Record<string, unknown>).amounts as Record<string, Record<string, string>>;
+  assertEquals([tbAmounts.classes.income_minor, tbAmounts.classes.assets_minor, tbAmounts.classes.equity_minor, tbAmounts.equation.status], ["0", String(total), String(total), "balanced"]);
+  const review = (upload(w).processing_result as { needs_review_accounts?: unknown[] }).needs_review_accounts ?? [];
+  assertEquals(review, []);
+});
+
+Deno.test("1,500 accounts of which one has no reviewed mapping: the paged read changes nothing about review — exactly that account needs review, nothing is certified without it", async () => {
+  const n = POSTGREST_MAX_ROWS + 500;
+  const codes = Array.from({ length: n - 1 }, (_, i) => String(100000 + i));
+  const amounts = codes.map((_, i) => 100 + ((i * 7919) % 999_900));
+  const total = amounts.reduce((a, b) => a + b, 0);
+  const money = (m: number) => (m / 100).toFixed(2);
+  const csv = "Code,Name,Debit,Credit\n" + codes.map((c, i) => `${c},Account ${c},${money(amounts[i])},`).join("\n") + `\n999999,Retained earnings,,${money(total)}\n`;
+  const unreviewed = "100500";
+  const mappings = [...codes.filter((c) => c !== unreviewed).map((c) => mapping(c, "current_assets", "balance_sheet", "debit")), mapping("999999", "equity", "balance_sheet", "credit")];
+  const w = setup({ csv, mappings });
+  const r = await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
+  assertEquals(r.status, 200);
+  assertEquals(upload(w).status, "needs_review");
+  assertEquals(w.tables.tb_certifications[0].p_requires_review, true);
+  const review = (upload(w).processing_result as { needs_review_accounts?: { account_code: string }[] }).needs_review_accounts ?? [];
+  assertEquals(review.map((x) => x.account_code), [unreviewed]);
 });
 
 Deno.test("no reviewed mapping → every machine guess goes to review; certification requires review; nothing accepted", async () => {

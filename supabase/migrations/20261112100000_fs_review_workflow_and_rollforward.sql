@@ -1,0 +1,895 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+-- 20261112100000 — The reviewed reporting journey: persisted reviewer workflow, next-period roll-forward with carried
+-- decisions, and authorised acceptance of prior-FINAL differences. Forward-only; builds on 20261111100000 (the
+-- publication controls). Written for the CFOCLOSE "complete the financial-statements customer journey" instruction
+-- (2026-10-19), §3, §5 and §7.
+--
+--   1. Reviewer comments are VERSION-BOUND and ITEM-BOUND (fs_review_comments + fs_review_comment_events, append-only):
+--      a comment names a statement fact (fact id), a note (disclosure id) or a statement section of an exact saved
+--      version, records the item's content identity when opened (the fact's minor units; the note's text hash), and keeps
+--      every event (opened, responded, resolved, reopened) with its author, time and the latest version at that moment.
+--      Severity separates BLOCKING findings from ADVISORY comments. Who may do what: a reviewer (review_close) opens,
+--      resolves and reopens; a preparer (prepare_close) or a reviewer responds. A preparer can never resolve a blocking
+--      finding — not directly, not through a save: a new version only re-evaluates the comment's state.
+--   2. The state of a comment is COMPUTED for a version (fs_review_comment_states): resolved only when the item's content
+--      in that version equals the content it was resolved against; otherwise reopened_by_change. Unchanged content
+--      never reopens; changed content always does. The reviewer sees what changed since the comment was opened.
+--   3. fs_publication_blockers v4 names every unresolved BLOCKING comment of the lineage for the version being signed
+--      (REVIEW_COMMENT_UNRESOLVED:<id>); advisory comments never block; the binding trigger re-checks under the lock.
+--   4. Roll-forward carry (fs_rollforward_carries): the prior year's in-force disclosure wording and applicability
+--      decisions are carried into the next period as CARRIED records with provenance (source year, source record) and
+--      the status "carried — review required". Nothing carried is current: the notes status, the dependencies and every
+--      version ignore carried records until a preparer confirms one, which writes through the EXISTING authorities
+--      (fs_record_disclosure, fs_decide_requirement) with a reason naming the source. A carried item is withdrawn when the
+--      target period resolves to another framework edition (the decision must be taken afresh). Presentation assignments
+--      are company-level and carry inherently; amounts and evidence are never carried.
+--   5. Authorised acceptance of prior-FINAL differences (fs_prior_final_acceptances): when a comparative line, as reported,
+--      differs from the prior year's issued figure (COMPARATIVE_NOT_AS_ISSUED), a reviewer may accept EXACTLY that set of
+--      differences with a reason (a prior-period adjustment approved after issue, a reclassification). The acceptance is
+--      bound to the reconciliation's identity: any new or changed difference re-blocks. Both values stay visible — the
+--      issued figure and the figure as now reported — with the reason and the approval; nothing is absorbed silently.
+--      fs_prior_final_reconciliation v2 reports state reconciled | differences | accepted_differences.
+--
+-- No existing table is altered. Every new table is append-only, RLS-read by workspace members, written only through the
+-- functions here. Every DELETE/UPDATE carries a WHERE clause (Supabase API sessions load safeupdate). No Edge Function.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+DO $preflight$
+BEGIN
+  IF to_regclass('public.fs_review_comments') IS NOT NULL OR to_regprocedure('public.fs_rollforward_carry(uuid, integer, uuid)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the reviewer workflow already exists; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regprocedure('public.fs_prior_final_reconciliation(uuid, integer)') IS NULL
+     OR position('financial_statement_reports:'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0
+     OR to_regprocedure('public.fs_presentation_append_only()') IS NULL OR to_regprocedure('public.close_review_readable(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261111100000 (with its lineage lock) must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$preflight$;
+
+-- ── 1. Reviewer comments: tables ─────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_review_comments (
+  id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq             BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id      UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  report_id       TEXT        NOT NULL,
+  report_version  INTEGER     NOT NULL,
+  item_kind       TEXT        NOT NULL CHECK (item_kind IN ('fact', 'note', 'section')),
+  item_id         TEXT        NOT NULL CHECK (length(item_id) BETWEEN 1 AND 300 AND item_id !~ '[[:cntrl:]]'),
+  severity        TEXT        NOT NULL CHECK (severity IN ('blocking', 'advisory')),
+  body            TEXT        NOT NULL CHECK (length(btrim(body)) BETWEEN 1 AND 4000),
+  opened_content  TEXT        NOT NULL,
+  author_user_id  UUID        NOT NULL,
+  firm_member_id  UUID        NOT NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id      UUID        NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_fsrc_version FOREIGN KEY (report_id, report_version) REFERENCES public.financial_statement_reports (report_id, report_version) ON DELETE RESTRICT,
+  CONSTRAINT uq_fsrc_request UNIQUE (company_id, author_user_id, request_id)
+);
+CREATE INDEX idx_fsrc_lineage ON public.fs_review_comments (company_id, report_id, seq);
+CREATE TABLE public.fs_review_comment_events (
+  id              UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq             BIGINT      GENERATED ALWAYS AS IDENTITY,
+  comment_id      UUID        NOT NULL REFERENCES public.fs_review_comments (id) ON DELETE RESTRICT,
+  company_id      UUID        NOT NULL,
+  action          TEXT        NOT NULL CHECK (action IN ('opened', 'responded', 'resolved', 'reopened')),
+  body            TEXT        NULL CHECK (body IS NULL OR length(btrim(body)) BETWEEN 1 AND 4000),
+  report_version  INTEGER     NOT NULL,
+  content_at      TEXT        NOT NULL,
+  actor_user_id   UUID        NOT NULL,
+  firm_member_id  UUID        NOT NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id      UUID        NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_fsrce_request UNIQUE (company_id, actor_user_id, request_id)
+);
+CREATE INDEX idx_fsrce_comment ON public.fs_review_comment_events (comment_id, seq);
+ALTER TABLE public.fs_review_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fs_review_comment_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY fsrc_read ON public.fs_review_comments FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+CREATE POLICY fsrce_read ON public.fs_review_comment_events FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+REVOKE ALL ON public.fs_review_comments, public.fs_review_comment_events FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.fs_review_comments, public.fs_review_comment_events TO authenticated;
+CREATE TRIGGER trg_fsrc_append_only BEFORE UPDATE OR DELETE ON public.fs_review_comments FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_fsrc_no_truncate BEFORE TRUNCATE ON public.fs_review_comments FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_fsrce_append_only BEFORE UPDATE OR DELETE ON public.fs_review_comment_events FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_fsrce_no_truncate BEFORE TRUNCATE ON public.fs_review_comment_events FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+
+-- ── 2. The content identity of an item in a saved version's document ────────────────────────────────────────────────
+-- 'fact'    → the fact's minor units (exact), or 'absent' when the version has no such fact
+-- 'note'    → sha256 of the recorded text of that disclosure id, or 'absent'
+-- 'section' → 'present' when the statement type exists in the document, or 'absent'
+CREATE OR REPLACE FUNCTION public._fs_item_content(p_doc jsonb, p_kind text, p_id text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE p_kind
+    WHEN 'fact' THEN coalesce((SELECT x #>> '{value,minorUnits,__bigint__}' FROM jsonb_array_elements(coalesce(p_doc -> 'facts', '[]'::jsonb)) x WHERE x ->> 'factId' = p_id LIMIT 1), 'absent')
+    WHEN 'note' THEN coalesce((SELECT encode(sha256(convert_to(x ->> 'text', 'UTF8')), 'hex') FROM jsonb_array_elements(coalesce(p_doc -> 'textualDisclosures', '[]'::jsonb)) x WHERE x ->> 'disclosureId' = p_id LIMIT 1), 'absent')
+    WHEN 'section' THEN CASE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(p_doc -> 'statements', '[]'::jsonb)) s WHERE s ->> 'type' = p_id) THEN 'present' ELSE 'absent' END
+    ELSE 'absent' END;
+$$;
+
+-- ── 3. The computed state of every comment of a lineage, for ONE version ─────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fs_review_comment_states(p_company_id uuid, p_report_id text, p_report_version integer)
+RETURNS TABLE (id uuid, seq bigint, report_version integer, item_kind text, item_id text, severity text, body text, opened_content text,
+               content_now text, changed_since_opened boolean, state text, last_action text, last_event_at timestamptz, last_report_version integer,
+               author_user_id uuid, created_at timestamptz)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_doc jsonb;
+BEGIN
+  SELECT r.report_document INTO v_doc FROM public.financial_statement_reports r
+   WHERE r.company_id = p_company_id AND r.report_id = p_report_id AND r.report_version = p_report_version;
+  IF NOT FOUND THEN RETURN; END IF;
+  RETURN QUERY
+    SELECT c.id, c.seq, c.report_version, c.item_kind, c.item_id, c.severity, c.body, c.opened_content,
+           public._fs_item_content(v_doc, c.item_kind, c.item_id) AS content_now,
+           public._fs_item_content(v_doc, c.item_kind, c.item_id) IS DISTINCT FROM c.opened_content AS changed_since_opened,
+           CASE WHEN e.action = 'resolved' AND public._fs_item_content(v_doc, c.item_kind, c.item_id) IS DISTINCT FROM e.content_at THEN 'reopened_by_change'
+                WHEN e.action = 'resolved' THEN 'resolved'
+                WHEN e.action = 'responded' THEN 'responded'
+                ELSE 'open' END AS state,
+           e.action, e.created_at, e.report_version, c.author_user_id, c.created_at
+      FROM public.fs_review_comments c
+      JOIN LATERAL (SELECT x.* FROM public.fs_review_comment_events x WHERE x.comment_id = c.id ORDER BY x.seq DESC LIMIT 1) e ON true
+     WHERE c.company_id = p_company_id AND c.report_id = p_report_id
+     ORDER BY c.seq;
+END;
+$$;
+
+-- ── 4. Reviewer workflow commands ────────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fs_review_comment_open(p_company_id uuid, p_report_id text, p_report_version integer, p_item_kind text, p_item_id text,
+  p_severity text, p_body text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_member uuid;
+  v_doc jsonb;
+  v_content text;
+  v_prior record;
+  v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_report_id IS NULL OR p_report_version IS NULL OR p_request_id IS NULL
+     OR p_item_kind NOT IN ('fact', 'note', 'section') OR p_severity NOT IN ('blocking', 'advisory')
+     OR p_item_id IS NULL OR length(p_item_id) NOT BETWEEN 1 AND 300 OR p_body IS NULL OR length(btrim(p_body)) NOT BETWEEN 1 AND 4000 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'review_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  v_member := public._cr_member(p_company_id, v_uid);
+  SELECT * INTO v_prior FROM public.fs_review_comments c WHERE c.company_id = p_company_id AND c.author_user_id = v_uid AND c.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.report_id = p_report_id AND v_prior.report_version = p_report_version AND v_prior.item_kind = p_item_kind AND v_prior.item_id = p_item_id
+       AND v_prior.severity = p_severity AND v_prior.body = btrim(p_body) THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'commentId', v_prior.id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
+  SELECT r.report_document INTO v_doc FROM public.financial_statement_reports r
+   WHERE r.company_id = p_company_id AND r.report_id = p_report_id AND r.report_version = p_report_version;
+  IF NOT FOUND THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  v_content := public._fs_item_content(v_doc, p_item_kind, p_item_id);
+  IF v_content = 'absent' THEN RETURN jsonb_build_object('outcome', 'item_not_found'); END IF;
+  INSERT INTO public.fs_review_comments (company_id, report_id, report_version, item_kind, item_id, severity, body, opened_content, author_user_id, firm_member_id, request_id)
+  VALUES (p_company_id, p_report_id, p_report_version, p_item_kind, p_item_id, p_severity, btrim(p_body), v_content, v_uid, v_member, p_request_id)
+  RETURNING id INTO v_id;
+  INSERT INTO public.fs_review_comment_events (comment_id, company_id, action, body, report_version, content_at, actor_user_id, firm_member_id, request_id)
+  VALUES (v_id, p_company_id, 'opened', btrim(p_body), p_report_version, v_content, v_uid, v_member, p_request_id);
+  PERFORM public.fs_audit_event(p_company_id, p_report_id, 'DECISION_RECORDED',
+    jsonb_build_object('event', 'REVIEW_COMMENT_OPENED', 'commentId', v_id, 'reportVersion', p_report_version::text, 'itemKind', p_item_kind, 'itemId', p_item_id, 'severity', p_severity), v_member);
+  RETURN jsonb_build_object('outcome', 'recorded', 'commentId', v_id, 'state', 'open');
+END;
+$$;
+
+-- One command for respond / resolve / reopen: the capability depends on the action; the event records the LATEST version
+-- of the lineage and the item's content in it (what the actor saw).
+CREATE OR REPLACE FUNCTION public._fs_review_comment_event(p_company_id uuid, p_comment_id uuid, p_action text, p_body text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_member uuid;
+  v_c record;
+  v_prior record;
+  v_latest integer;
+  v_doc jsonb;
+  v_content text;
+  v_state text;
+  v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_comment_id IS NULL OR p_request_id IS NULL OR p_action NOT IN ('responded', 'resolved', 'reopened')
+     OR (p_body IS NOT NULL AND length(btrim(p_body)) NOT BETWEEN 1 AND 4000) OR (p_action <> 'reopened' AND p_body IS NULL) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  -- Resolve and reopen are the reviewer's; a response is the preparer's or the reviewer's. Never the other way round.
+  IF p_action IN ('resolved', 'reopened') THEN
+    IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'review_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  ELSIF NOT (public.workspace_capability_allowed(p_company_id, v_uid, 'prepare_close') OR public.workspace_capability_allowed(p_company_id, v_uid, 'review_close')) THEN
+    RETURN jsonb_build_object('outcome', 'forbidden');
+  END IF;
+  v_member := public._cr_member(p_company_id, v_uid);
+  SELECT * INTO v_prior FROM public.fs_review_comment_events e WHERE e.company_id = p_company_id AND e.actor_user_id = v_uid AND e.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.comment_id = p_comment_id AND v_prior.action = p_action AND v_prior.body IS NOT DISTINCT FROM btrim(p_body) THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'eventId', v_prior.id, 'state', CASE p_action WHEN 'resolved' THEN 'resolved' WHEN 'responded' THEN 'responded' ELSE 'open' END);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  SELECT * INTO v_c FROM public.fs_review_comments c WHERE c.id = p_comment_id AND c.company_id = p_company_id;
+  IF NOT FOUND THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || v_c.report_id));
+  SELECT max(r.report_version) INTO v_latest FROM public.financial_statement_reports r WHERE r.report_id = v_c.report_id AND r.company_id = p_company_id;
+  SELECT s.state INTO v_state FROM public.fs_review_comment_states(p_company_id, v_c.report_id, v_latest) s WHERE s.id = p_comment_id;
+  IF p_action = 'responded' AND v_state = 'resolved' THEN RETURN jsonb_build_object('outcome', 'already_resolved'); END IF;
+  IF p_action = 'resolved' AND v_state = 'resolved' THEN RETURN jsonb_build_object('outcome', 'already_resolved'); END IF;
+  IF p_action = 'reopened' AND v_state <> 'resolved' THEN RETURN jsonb_build_object('outcome', 'not_resolved'); END IF;
+  SELECT r.report_document INTO v_doc FROM public.financial_statement_reports r WHERE r.report_id = v_c.report_id AND r.report_version = v_latest;
+  v_content := public._fs_item_content(v_doc, v_c.item_kind, v_c.item_id);
+  INSERT INTO public.fs_review_comment_events (comment_id, company_id, action, body, report_version, content_at, actor_user_id, firm_member_id, request_id)
+  VALUES (p_comment_id, p_company_id, p_action, CASE WHEN p_body IS NULL THEN NULL ELSE btrim(p_body) END, v_latest, v_content, v_uid, v_member, p_request_id)
+  RETURNING id INTO v_id;
+  PERFORM public.fs_audit_event(p_company_id, v_c.report_id, 'DECISION_RECORDED',
+    jsonb_build_object('event', 'REVIEW_COMMENT_' || upper(p_action), 'commentId', p_comment_id, 'reportVersion', v_latest::text, 'itemKind', v_c.item_kind, 'itemId', v_c.item_id), v_member);
+  RETURN jsonb_build_object('outcome', 'recorded', 'eventId', v_id, 'reportVersion', v_latest,
+    'state', CASE p_action WHEN 'resolved' THEN 'resolved' WHEN 'responded' THEN 'responded' ELSE 'open' END);
+END;
+$$;
+CREATE OR REPLACE FUNCTION public.fs_review_comment_respond(p_company_id uuid, p_comment_id uuid, p_body text, p_request_id uuid)
+RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT public._fs_review_comment_event(p_company_id, p_comment_id, 'responded', p_body, p_request_id);
+$$;
+CREATE OR REPLACE FUNCTION public.fs_review_comment_resolve(p_company_id uuid, p_comment_id uuid, p_body text, p_request_id uuid)
+RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT public._fs_review_comment_event(p_company_id, p_comment_id, 'resolved', p_body, p_request_id);
+$$;
+CREATE OR REPLACE FUNCTION public.fs_review_comment_reopen(p_company_id uuid, p_comment_id uuid, p_body text, p_request_id uuid)
+RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT public._fs_review_comment_event(p_company_id, p_comment_id, 'reopened', p_body, p_request_id);
+$$;
+
+-- The comments of a lineage as they stand for one version, with their history (members of the company).
+CREATE OR REPLACE FUNCTION public.fs_review_comments(p_company_id uuid, p_report_id text, p_report_version integer)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_report_id IS NULL OR p_report_version IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_reports r WHERE r.company_id = p_company_id AND r.report_id = p_report_id AND r.report_version = p_report_version) THEN
+    RETURN jsonb_build_object('state', 'not_found');
+  END IF;
+  RETURN jsonb_build_object('state', 'listed', 'contract', 'fs-review-comments/1', 'reportId', p_report_id, 'reportVersion', p_report_version,
+    'comments', coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'commentId', s.id, 'openedOnVersion', s.report_version, 'itemKind', s.item_kind, 'itemId', s.item_id, 'severity', s.severity, 'body', s.body,
+        'state', s.state, 'changedSinceOpened', s.changed_since_opened, 'openedContent', s.opened_content, 'contentNow', s.content_now,
+        'lastAction', s.last_action, 'lastEventAt', s.last_event_at, 'lastReportVersion', s.last_report_version,
+        'authorRole', (SELECT m.role FROM public.firm_members m WHERE m.company_id = p_company_id AND m.user_id = s.author_user_id LIMIT 1), 'openedAt', s.created_at,
+        'events', (SELECT jsonb_agg(jsonb_build_object('eventId', e.id, 'action', e.action, 'body', e.body, 'reportVersion', e.report_version, 'contentAt', e.content_at, 'at', e.created_at,
+                     'actorRole', (SELECT m.role FROM public.firm_members m WHERE m.id = e.firm_member_id)) ORDER BY e.seq)
+                     FROM public.fs_review_comment_events e WHERE e.comment_id = s.id)
+      ) ORDER BY s.seq) FROM public.fs_review_comment_states(p_company_id, p_report_id, p_report_version) s), '[]'::jsonb));
+END;
+$$;
+
+-- ── 5. Prior-FINAL differences: authorised acceptance, bound to the exact set of differences ─────────────────────────
+CREATE TABLE public.fs_prior_final_acceptances (
+  id                    UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq                   BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id            UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  period_year           INTEGER     NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
+  action                TEXT        NOT NULL CHECK (action IN ('accepted', 'withdrawn')),
+  differences_sha256    TEXT        NULL CHECK (differences_sha256 IS NULL OR differences_sha256 ~ '^[0-9a-f]{64}$'),
+  differences           JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  prior_report_id       TEXT        NULL,
+  prior_report_version  INTEGER     NULL,
+  reason                TEXT        NOT NULL CHECK (length(btrim(reason)) BETWEEN 8 AND 2000),
+  actor_user_id         UUID        NOT NULL,
+  firm_member_id        UUID        NOT NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id            UUID        NOT NULL,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_fspfa_request UNIQUE (company_id, actor_user_id, request_id)
+);
+CREATE INDEX idx_fspfa_current ON public.fs_prior_final_acceptances (company_id, period_year, seq DESC);
+ALTER TABLE public.fs_prior_final_acceptances ENABLE ROW LEVEL SECURITY;
+CREATE POLICY fspfa_read ON public.fs_prior_final_acceptances FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+REVOKE ALL ON public.fs_prior_final_acceptances FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.fs_prior_final_acceptances TO authenticated;
+CREATE TRIGGER trg_fspfa_append_only BEFORE UPDATE OR DELETE ON public.fs_prior_final_acceptances FOR EACH ROW EXECUTE FUNCTION public.fs_presentation_append_only();
+CREATE TRIGGER trg_fspfa_no_truncate BEFORE TRUNCATE ON public.fs_prior_final_acceptances FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+
+-- The differences themselves, computed once (shared by the reconciliation and the acceptance).
+CREATE OR REPLACE FUNCTION public._fs_prior_final_differences(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_comp jsonb;
+  v_prior record;
+  v_diffs jsonb;
+BEGIN
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  IF v_comp ->> 'state' IS DISTINCT FROM 'composed' THEN RETURN jsonb_build_object('state', coalesce(v_comp ->> 'state', 'unavailable'), 'reason', v_comp ->> 'reason'); END IF;
+  SELECT r.report_id, r.report_version, encode(sha256(convert_to(r.report_document::text, 'UTF8')), 'hex') AS doc_sha, p.created_at, r.report_document AS doc
+    INTO v_prior
+    FROM public.financial_statement_publications p
+    JOIN public.financial_statement_reports r ON r.report_id = p.report_id AND r.report_version = p.report_version
+   WHERE p.company_id = p_company_id AND r.company_id = p_company_id AND r.period_year = p_period_year - 1 AND p.state = 'FINAL'
+     AND r.provenance_origin = 'TRIAL_BALANCE_DERIVED' AND r.report_document #>> '{framework,kind}' = 'IFRS_FOR_SMES'
+   ORDER BY p.seq DESC LIMIT 1;
+  IF NOT FOUND THEN RETURN jsonb_build_object('state', 'no_prior_final', 'periodYear', p_period_year, 'priorPeriodYear', p_period_year - 1); END IF;
+  IF v_comp -> 'comparative' ->> 'state' IS DISTINCT FROM 'available' OR (v_comp -> 'comparative' ->> 'periodYear')::integer IS DISTINCT FROM p_period_year - 1 THEN
+    RETURN jsonb_build_object('state', 'comparative_unavailable', 'periodYear', p_period_year,
+      'priorFinal', jsonb_build_object('reportId', v_prior.report_id, 'reportVersion', v_prior.report_version, 'documentSha256', v_prior.doc_sha, 'issuedAt', v_prior.created_at));
+  END IF;
+  SELECT coalesce(jsonb_agg(d ORDER BY d ->> 'factId'), '[]'::jsonb) INTO v_diffs FROM (
+    SELECT jsonb_build_object('factId', coalesce(c.fid, f.fid), 'issuedMinor', f.issued, 'comparativeAsReportedMinor', c.rep, 'comparativePresentedMinor', c.pres,
+             'differenceMinor', CASE WHEN c.rep IS NOT NULL AND f.issued IS NOT NULL THEN (c.rep::numeric - f.issued::numeric)::text END) AS d
+      FROM (SELECT 'fact:comparative:' || (l ->> 'section') || ':' || (l ->> 'lineId') AS fid, l -> 'comparative' ->> 'asReportedMinor' AS rep, l -> 'comparative' ->> 'amountMinor' AS pres
+              FROM jsonb_array_elements(v_comp -> 'lines') l WHERE jsonb_typeof(l -> 'comparative') = 'object') c
+      FULL JOIN (SELECT replace(x ->> 'factId', 'fact:current:', 'fact:comparative:') AS fid, x #>> '{value,minorUnits,__bigint__}' AS issued
+                   FROM jsonb_array_elements(v_prior.doc -> 'facts') x
+                  WHERE x ->> 'factId' LIKE 'fact:current:%' AND x ->> 'factId' NOT LIKE 'fact:current:account:%' AND x ->> 'factId' NOT LIKE 'fact:current:total:%') f
+        ON f.fid = c.fid
+     WHERE c.rep IS DISTINCT FROM f.issued) s;
+  RETURN jsonb_build_object('state', CASE WHEN v_diffs = '[]'::jsonb THEN 'reconciled' ELSE 'differences' END, 'periodYear', p_period_year,
+    'priorFinal', jsonb_build_object('reportId', v_prior.report_id, 'reportVersion', v_prior.report_version, 'documentSha256', v_prior.doc_sha, 'issuedAt', v_prior.created_at),
+    'comparativeCertificationId', v_comp -> 'comparative' ->> 'certificationId', 'differences', v_diffs,
+    'differencesSha256', encode(sha256(convert_to(v_diffs::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+-- A reviewer accepts EXACTLY the current set of differences (the prior-year figures as issued stay beside the figures as
+-- now reported); any later change to the set re-blocks. Withdrawing is a new row.
+CREATE OR REPLACE FUNCTION public.fs_accept_prior_final_differences(p_company_id uuid, p_period_year integer, p_accept boolean, p_reason text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_member uuid;
+  v_prior record;
+  v_d jsonb;
+  v_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_accept IS NULL OR p_request_id IS NULL OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 8 AND 2000 THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request');
+  END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'review_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  v_member := public._cr_member(p_company_id, v_uid);
+  SELECT * INTO v_prior FROM public.fs_prior_final_acceptances a WHERE a.company_id = p_company_id AND a.actor_user_id = v_uid AND a.request_id = p_request_id;
+  IF FOUND THEN
+    IF v_prior.period_year = p_period_year AND v_prior.action = (CASE WHEN p_accept THEN 'accepted' ELSE 'withdrawn' END) AND v_prior.reason = btrim(p_reason) THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'acceptanceId', v_prior.id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'request_reused');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_prior_final:' || p_company_id::text || ':' || p_period_year::text, 0));
+  v_d := public._fs_prior_final_differences(p_company_id, p_period_year);
+  IF p_accept THEN
+    IF v_d ->> 'state' <> 'differences' THEN RETURN jsonb_build_object('outcome', 'nothing_to_accept', 'state', v_d ->> 'state'); END IF;
+    INSERT INTO public.fs_prior_final_acceptances (company_id, period_year, action, differences_sha256, differences, prior_report_id, prior_report_version, reason, actor_user_id, firm_member_id, request_id)
+    VALUES (p_company_id, p_period_year, 'accepted', v_d ->> 'differencesSha256', v_d -> 'differences', v_d -> 'priorFinal' ->> 'reportId', (v_d -> 'priorFinal' ->> 'reportVersion')::integer,
+            btrim(p_reason), v_uid, v_member, p_request_id)
+    RETURNING id INTO v_id;
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM public.fs_prior_final_acceptances a WHERE a.company_id = p_company_id AND a.period_year = p_period_year ORDER BY a.seq DESC LIMIT 1) THEN
+      RETURN jsonb_build_object('outcome', 'not_accepted');
+    END IF;
+    INSERT INTO public.fs_prior_final_acceptances (company_id, period_year, action, differences_sha256, differences, reason, actor_user_id, firm_member_id, request_id)
+    VALUES (p_company_id, p_period_year, 'withdrawn', NULL, '[]'::jsonb, btrim(p_reason), v_uid, v_member, p_request_id)
+    RETURNING id INTO v_id;
+  END IF;
+  PERFORM public.fs_audit_event(p_company_id, NULL, 'DECISION_RECORDED',
+    jsonb_build_object('event', 'PRIOR_FINAL_DIFFERENCES_' || CASE WHEN p_accept THEN 'ACCEPTED' ELSE 'WITHDRAWN' END, 'periodYear', p_period_year::text, 'acceptanceId', v_id, 'differencesSha256', v_d ->> 'differencesSha256'), v_member);
+  RETURN jsonb_build_object('outcome', 'recorded', 'acceptanceId', v_id, 'differencesSha256', v_d ->> 'differencesSha256');
+END;
+$$;
+
+-- fs_prior_final_reconciliation v2: the same differences, now with the acceptance in force. The acceptance's identity
+-- (and so the set it covers) is part of the body → of the dependencies → of every version bound after it.
+CREATE OR REPLACE FUNCTION public.fs_prior_final_reconciliation(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_d jsonb;
+  v_acc record;
+  v_blockers text[] := '{}';
+  v_body jsonb;
+  v_state text;
+BEGIN
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  v_d := public._fs_prior_final_differences(p_company_id, p_period_year);
+  IF v_d ->> 'state' NOT IN ('reconciled', 'differences') THEN RETURN v_d; END IF;
+  SELECT * INTO v_acc FROM public.fs_prior_final_acceptances a WHERE a.company_id = p_company_id AND a.period_year = p_period_year ORDER BY a.seq DESC LIMIT 1;
+  IF v_d ->> 'state' = 'differences' AND NOT (FOUND AND v_acc.action = 'accepted' AND v_acc.differences_sha256 = v_d ->> 'differencesSha256') THEN
+    SELECT coalesce(array_agg('COMPARATIVE_NOT_AS_ISSUED:' || (d ->> 'factId') || ':' || coalesce(d ->> 'differenceMinor', CASE WHEN d ->> 'issuedMinor' IS NULL THEN 'not_issued' ELSE 'not_presented' END) ORDER BY d ->> 'factId'), '{}')
+      INTO v_blockers FROM jsonb_array_elements(v_d -> 'differences') d;
+  END IF;
+  v_state := CASE WHEN v_d ->> 'state' = 'reconciled' THEN 'reconciled' WHEN v_blockers = '{}' THEN 'accepted_differences' ELSE 'differences' END;
+  v_body := jsonb_build_object('contract', 'fs-prior-final-reconciliation/2', 'periodYear', p_period_year, 'priorFinal', v_d -> 'priorFinal',
+    'comparativeCertificationId', v_d -> 'comparativeCertificationId', 'differences', v_d -> 'differences', 'differencesSha256', v_d ->> 'differencesSha256',
+    'acceptance', CASE WHEN FOUND AND v_acc.action = 'accepted' THEN jsonb_build_object('acceptanceId', v_acc.id, 'differencesSha256', v_acc.differences_sha256, 'reason', v_acc.reason, 'at', v_acc.created_at,
+                                                                     'inForce', v_acc.differences_sha256 = v_d ->> 'differencesSha256') END,
+    'blockers', to_jsonb(v_blockers));
+  RETURN jsonb_build_object('state', v_state) || v_body || jsonb_build_object('reconciliationSha256', encode(sha256(convert_to(v_body::text, 'UTF8')), 'hex'));
+END;
+$$;
+
+-- ── 6. Roll-forward carry ────────────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.fs_rollforward_carries (
+  id                      UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  seq                     BIGINT      GENERATED ALWAYS AS IDENTITY,
+  company_id              UUID        NOT NULL REFERENCES public.companies (id) ON DELETE RESTRICT,
+  period_year             INTEGER     NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
+  source_period_year      INTEGER     NOT NULL CHECK (source_period_year BETWEEN 2000 AND 2100),
+  kind                    TEXT        NOT NULL CHECK (kind IN ('wording', 'decision')),
+  requirement_id          TEXT        NOT NULL,
+  payload                 JSONB       NOT NULL,
+  source_record_id        UUID        NOT NULL,
+  status                  TEXT        NOT NULL CHECK (status IN ('carried', 'confirmed', 'withdrawn')),
+  status_reason           TEXT        NULL,
+  carried_by_user_id      UUID        NOT NULL,
+  firm_member_id          UUID        NOT NULL REFERENCES public.firm_members (id) ON DELETE RESTRICT,
+  request_id              UUID        NOT NULL,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at              TIMESTAMPTZ NULL,
+  decided_by_user_id      UUID        NULL,
+  confirmation_record_id  UUID        NULL,
+  CONSTRAINT uq_fsrfc_item UNIQUE (company_id, period_year, kind, requirement_id),
+  CONSTRAINT chk_fsrfc_decided CHECK ((status = 'carried') = (decided_at IS NULL))
+);
+ALTER TABLE public.fs_rollforward_carries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY fsrfc_read ON public.fs_rollforward_carries FOR SELECT TO authenticated USING (public.close_review_readable(company_id));
+REVOKE ALL ON public.fs_rollforward_carries FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.fs_rollforward_carries TO authenticated;
+-- A carried record moves ONLY from carried to confirmed or withdrawn, once, through the functions below (the status
+-- columns are the only ones that may change); nothing is ever deleted.
+CREATE OR REPLACE FUNCTION public.fs_rollforward_carries_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN RAISE EXCEPTION 'APPEND_ONLY: roll-forward carries are never deleted' USING ERRCODE = '42501'; END IF;
+  IF OLD.status <> 'carried' OR NEW.status = 'carried'
+     OR NEW.id <> OLD.id OR NEW.company_id <> OLD.company_id OR NEW.period_year <> OLD.period_year OR NEW.source_period_year <> OLD.source_period_year
+     OR NEW.kind <> OLD.kind OR NEW.requirement_id <> OLD.requirement_id OR NEW.payload <> OLD.payload OR NEW.source_record_id <> OLD.source_record_id
+     OR NEW.carried_by_user_id <> OLD.carried_by_user_id OR NEW.firm_member_id <> OLD.firm_member_id OR NEW.request_id <> OLD.request_id OR NEW.created_at <> OLD.created_at THEN
+    RAISE EXCEPTION 'APPEND_ONLY: a carried record is decided once; nothing else changes' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_fsrfc_guard BEFORE UPDATE OR DELETE ON public.fs_rollforward_carries FOR EACH ROW EXECUTE FUNCTION public.fs_rollforward_carries_guard();
+CREATE TRIGGER trg_fsrfc_no_truncate BEFORE TRUNCATE ON public.fs_rollforward_carries FOR EACH STATEMENT EXECUTE FUNCTION public.fs_presentation_append_only();
+
+-- The framework edition a period resolves to, when its statements compose; NULL until then.
+CREATE OR REPLACE FUNCTION public._fs_period_pack_id(p_company_id uuid, p_period_year integer)
+RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_comp jsonb;
+BEGIN
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  RETURN CASE WHEN v_comp ->> 'state' = 'composed' THEN v_comp -> 'pack' ->> 'packId' END;
+END;
+$$;
+
+-- Carries the prior year's in-force wording and decisions into p_period_year as carried records. Idempotent: an item
+-- already carried, confirmed or withdrawn is left as it is; a requirement already recorded in the target year is skipped.
+CREATE OR REPLACE FUNCTION public.fs_rollforward_carry(p_company_id uuid, p_period_year integer, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_member uuid;
+  v_src integer := p_period_year - 1;
+  v_src_pack text;
+  v_tgt_pack text;
+  v_edition_changed boolean;
+  v_carried integer := 0;
+  v_withdrawn integer := 0;
+  v_skipped integer := 0;
+  v_r record;
+  v_status text;
+  v_reason text;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL OR p_request_id IS NULL OR p_period_year NOT BETWEEN 2001 AND 2100 THEN RETURN jsonb_build_object('outcome', 'invalid_request'); END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'prepare_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  v_member := public._cr_member(p_company_id, v_uid);
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_rollforward:' || p_company_id::text || ':' || p_period_year::text, 0));
+  -- The source year's edition is the one its latest issued version sealed (or, failing that, its composition); the target's
+  -- is its composition's. A different edition means every carried decision must be taken afresh: carried as withdrawn.
+  SELECT r.report_document #>> '{framework,version}' INTO v_src_pack
+    FROM public.financial_statement_publications p JOIN public.financial_statement_reports r ON r.report_id = p.report_id AND r.report_version = p.report_version
+   WHERE p.company_id = p_company_id AND r.period_year = v_src AND p.state = 'FINAL' ORDER BY p.seq DESC LIMIT 1;
+  IF v_src_pack IS NULL THEN v_src_pack := public._fs_period_pack_id(p_company_id, v_src); END IF;
+  v_tgt_pack := public._fs_period_pack_id(p_company_id, p_period_year);
+  v_edition_changed := v_src_pack IS NOT NULL AND v_tgt_pack IS NOT NULL AND v_src_pack <> v_tgt_pack;
+  FOR v_r IN
+    SELECT 'wording' AS kind, t.requirement_id, jsonb_build_object('body', t.body, 'sourceRef', t.source_ref) AS payload, t.id AS source_id
+      FROM (SELECT DISTINCT ON (x.requirement_id) x.* FROM public.fs_disclosure_texts x WHERE x.company_id = p_company_id AND x.period_year = v_src AND x.pack_family = 'ifrs-for-smes'
+             ORDER BY x.requirement_id, x.seq DESC) t
+     WHERE t.body IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM public.fs_disclosure_texts y WHERE y.company_id = p_company_id AND y.period_year = p_period_year AND y.requirement_id = t.requirement_id)
+    UNION ALL
+    SELECT 'decision', d.requirement_id, jsonb_build_object('decision', d.decision, 'reason', d.reason), d.id
+      FROM (SELECT DISTINCT ON (x.requirement_id) x.* FROM public.fs_requirement_decisions x WHERE x.company_id = p_company_id AND x.period_year = v_src AND x.pack_family = 'ifrs-for-smes'
+             ORDER BY x.requirement_id, x.seq DESC) d
+     WHERE NOT EXISTS (SELECT 1 FROM public.fs_requirement_decisions y WHERE y.company_id = p_company_id AND y.period_year = p_period_year AND y.requirement_id = d.requirement_id)
+  LOOP
+    IF EXISTS (SELECT 1 FROM public.fs_rollforward_carries c WHERE c.company_id = p_company_id AND c.period_year = p_period_year AND c.kind = v_r.kind AND c.requirement_id = v_r.requirement_id) THEN
+      v_skipped := v_skipped + 1; CONTINUE;
+    END IF;
+    v_status := CASE WHEN v_edition_changed THEN 'withdrawn' ELSE 'carried' END;
+    v_reason := CASE WHEN v_edition_changed THEN 'edition_changed:' || v_src_pack || '->' || v_tgt_pack END;
+    INSERT INTO public.fs_rollforward_carries (company_id, period_year, source_period_year, kind, requirement_id, payload, source_record_id, status, status_reason,
+                                               carried_by_user_id, firm_member_id, request_id, decided_at, decided_by_user_id)
+    VALUES (p_company_id, p_period_year, v_src, v_r.kind, v_r.requirement_id, v_r.payload, v_r.source_id, v_status, v_reason, v_uid, v_member, p_request_id,
+            CASE WHEN v_edition_changed THEN now() END, CASE WHEN v_edition_changed THEN v_uid END);
+    IF v_edition_changed THEN v_withdrawn := v_withdrawn + 1; ELSE v_carried := v_carried + 1; END IF;
+  END LOOP;
+  PERFORM public.fs_audit_event(p_company_id, NULL, 'DECISION_RECORDED',
+    jsonb_build_object('event', 'ROLLFORWARD_CARRIED', 'periodYear', p_period_year::text, 'sourcePeriodYear', v_src::text, 'carried', v_carried, 'withdrawn', v_withdrawn, 'skipped', v_skipped, 'editionChanged', v_edition_changed), v_member);
+  RETURN jsonb_build_object('outcome', 'recorded', 'carried', v_carried, 'withdrawn', v_withdrawn, 'skipped', v_skipped, 'sourcePeriodYear', v_src,
+                            'sourcePackId', v_src_pack, 'targetPackId', v_tgt_pack, 'editionChanged', v_edition_changed);
+END;
+$$;
+
+-- Confirms one carried item: the EXISTING authority records it for the target year (the preparer's own act, with a reason
+-- naming the source); the carried record is then confirmed with the record it produced. Withdrawing needs a reason.
+CREATE OR REPLACE FUNCTION public.fs_rollforward_decide(p_company_id uuid, p_carry_id uuid, p_confirm boolean, p_reason text, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_c record;
+  v_r jsonb;
+  v_rec uuid;
+  v_label text;
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_carry_id IS NULL OR p_confirm IS NULL OR p_request_id IS NULL
+     OR (NOT p_confirm AND (p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 2000)) THEN RETURN jsonb_build_object('outcome', 'invalid_request'); END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'prepare_close') THEN RETURN jsonb_build_object('outcome', 'forbidden'); END IF;
+  IF NOT public.fs_rollout_allows(p_company_id) THEN RETURN jsonb_build_object('outcome', 'feature_disabled'); END IF;
+  SELECT * INTO v_c FROM public.fs_rollforward_carries c WHERE c.id = p_carry_id AND c.company_id = p_company_id;
+  IF NOT FOUND THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('fs_rollforward:' || p_company_id::text || ':' || v_c.period_year::text, 0));
+  SELECT * INTO v_c FROM public.fs_rollforward_carries c WHERE c.id = p_carry_id;
+  IF v_c.status <> 'carried' THEN
+    -- An exact retry of the decision already taken answers it; another decision is refused.
+    IF v_c.decided_by_user_id = v_uid AND v_c.status = (CASE WHEN p_confirm THEN 'confirmed' ELSE 'withdrawn' END) THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'replay', true, 'status', v_c.status, 'recordId', v_c.confirmation_record_id);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'already_decided', 'status', v_c.status);
+  END IF;
+  IF p_confirm THEN
+    v_label := 'Carried forward from FY' || v_c.source_period_year::text || ' and re-confirmed';
+    IF v_c.kind = 'wording' THEN
+      v_r := public.fs_record_disclosure(p_company_id, v_c.period_year, v_c.requirement_id, v_c.payload ->> 'body',
+               left(v_label || coalesce('; source ' || (v_c.payload ->> 'sourceRef'), ''), 300), p_request_id);
+      v_rec := (v_r ->> 'textId')::uuid;
+    ELSE
+      v_r := public.fs_decide_requirement(p_company_id, v_c.period_year, v_c.requirement_id, v_c.payload ->> 'decision',
+               left(v_label || coalesce(': ' || (v_c.payload ->> 'reason'), ''), 2000), p_request_id);
+      v_rec := (v_r ->> 'decisionId')::uuid;
+    END IF;
+    IF v_r ->> 'outcome' NOT IN ('recorded', 'unchanged') THEN RETURN jsonb_build_object('outcome', 'not_confirmed', 'authority', v_r); END IF;
+    UPDATE public.fs_rollforward_carries SET status = 'confirmed', status_reason = NULL, decided_at = now(), decided_by_user_id = v_uid, confirmation_record_id = v_rec
+     WHERE id = p_carry_id AND status = 'carried';
+  ELSE
+    UPDATE public.fs_rollforward_carries SET status = 'withdrawn', status_reason = btrim(p_reason), decided_at = now(), decided_by_user_id = v_uid
+     WHERE id = p_carry_id AND status = 'carried';
+  END IF;
+  PERFORM public.fs_audit_event(p_company_id, NULL, 'DECISION_RECORDED',
+    jsonb_build_object('event', 'ROLLFORWARD_' || CASE WHEN p_confirm THEN 'CONFIRMED' ELSE 'WITHDRAWN' END, 'carryId', p_carry_id, 'periodYear', v_c.period_year::text, 'kind', v_c.kind, 'requirementId', v_c.requirement_id), public._cr_member(p_company_id, v_uid));
+  RETURN jsonb_build_object('outcome', 'recorded', 'status', CASE WHEN p_confirm THEN 'confirmed' ELSE 'withdrawn' END, 'recordId', v_rec, 'authority', v_r);
+END;
+$$;
+
+-- The roll-forward worklist of a period: carried items with their status and provenance, the evidence families still to
+-- be supplied for the period, the prior-FINAL reconciliation, and what carries inherently. Read-only, for members.
+CREATE OR REPLACE FUNCTION public.fs_rollforward_worklist(p_company_id uuid, p_period_year integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_pf jsonb;
+  v_comp jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF p_company_id IS NULL OR p_period_year IS NULL THEN RETURN jsonb_build_object('state', 'invalid_request'); END IF;
+  IF NOT public.close_review_readable(p_company_id) THEN RETURN jsonb_build_object('state', 'unavailable'); END IF;
+  v_pf := public.fs_prior_final_reconciliation(p_company_id, p_period_year);
+  v_comp := public.fs_statement_composition(p_company_id, p_period_year);
+  RETURN jsonb_build_object('state', 'listed', 'contract', 'fs-rollforward-worklist/1', 'periodYear', p_period_year, 'sourcePeriodYear', p_period_year - 1,
+    'priorFinal', v_pf,
+    'carries', coalesce((SELECT jsonb_agg(jsonb_build_object('carryId', c.id, 'kind', c.kind, 'requirementId', c.requirement_id, 'payload', c.payload, 'status', c.status,
+                 'statusReason', c.status_reason, 'sourcePeriodYear', c.source_period_year, 'sourceRecordId', c.source_record_id, 'carriedAt', c.created_at,
+                 'decidedAt', c.decided_at, 'confirmationRecordId', c.confirmation_record_id,
+                 'kindOfRequirement', (SELECT r.kind FROM public.fs_pack_requirements r WHERE r.pack_family = 'ifrs-for-smes' AND r.requirement_id = c.requirement_id LIMIT 1)) ORDER BY c.seq)
+                 FROM public.fs_rollforward_carries c WHERE c.company_id = p_company_id AND c.period_year = p_period_year), '[]'::jsonb),
+    'evidence', (SELECT jsonb_agg(jsonb_build_object('evidenceType', f.t, 'periodRole', f.r,
+                   'supplied', EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.company_id = p_company_id AND b.reporting_period_id = 'FY' || p_period_year::text
+                                         AND b.evidence_type = f.t AND b.period_role = f.r)) ORDER BY f.r, f.t)
+                   FROM (VALUES ('TRANSACTION_LEDGER', 'CURRENT'), ('EQUITY_MOVEMENTS', 'CURRENT'), ('CASH_ACCOUNT_MAP', 'CURRENT'),
+                                ('TRANSACTION_LEDGER', 'COMPARATIVE'), ('EQUITY_MOVEMENTS', 'COMPARATIVE'), ('PRIOR_PERIOD_STATEMENTS', 'COMPARATIVE')) f(t, r)),
+    'presentation', jsonb_build_object('carriesInherently', true, 'compositionState', v_comp ->> 'state',
+                      'accountsNotPresented', CASE WHEN v_comp ->> 'state' = 'composed' THEN (SELECT count(*) FROM jsonb_array_elements(coalesce(v_comp -> 'accountsNotPresented', '[]'::jsonb)) a WHERE a ->> 'period' = 'current') END),
+    'editions', jsonb_build_object('target', CASE WHEN v_comp ->> 'state' = 'composed' THEN v_comp -> 'pack' ->> 'packId' END));
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fs_publication_blockers(p_company_id UUID, p_report_id TEXT, p_version INTEGER)
+  RETURNS TEXT[]
+  LANGUAGE plpgsql
+  VOLATILE
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  v_report   public.financial_statement_reports;
+  v_req      public.financial_statement_framework_requirements;
+  v_b        public.financial_evidence_batches;
+  v_out      TEXT[] := '{}';
+  v_doc      JSONB;
+  v_type     TEXT;
+  v_cid      TEXT;
+  v_id       TEXT;
+  v_latest   INTEGER;
+  v_n        INTEGER;
+  v_comp_any BOOLEAN;
+  v_txt      TEXT;
+  v_cov      TEXT;
+  v_rec      JSONB;
+  v_disc     JSONB;
+  v_has_budget BOOLEAN;
+  v_input    JSONB;
+  v_hashes   TEXT[];
+  v_deps     JSONB;
+  v_bad      TEXT[];
+BEGIN
+  SELECT * INTO v_report FROM public.financial_statement_reports r
+   WHERE r.report_id = p_report_id AND r.report_version = p_version AND r.company_id = p_company_id;
+  IF NOT FOUND THEN
+    RETURN ARRAY['REPORT_VERSION_NOT_FOUND'];
+  END IF;
+  v_doc := v_report.report_document;
+
+  SELECT max(r.report_version) INTO v_latest FROM public.financial_statement_reports r WHERE r.report_id = p_report_id;
+  IF v_latest <> p_version THEN v_out := array_append(v_out, 'NOT_LATEST_VERSION'); END IF;
+
+  -- [20261111100000] The one supported publication path: an IFRS for SMEs report derived from the authoritative trial
+  -- balance. Every other framework or provenance is refused by name. The generic checks below still report what else is
+  -- missing, but no such report can ever reach REVIEWED or FINAL through them (and fs_bind_publication refuses it too).
+  IF v_report.provenance_origin IS DISTINCT FROM 'TRIAL_BALANCE_DERIVED' OR v_doc #>> '{framework,kind}' IS DISTINCT FROM 'IFRS_FOR_SMES' THEN
+    v_out := v_out || ('PUBLICATION_PATH_UNSUPPORTED:' || coalesce(v_doc #>> '{framework,kind}', 'FRAMEWORK_UNKNOWN') || ':' || coalesce(v_report.provenance_origin, 'PROVENANCE_UNKNOWN'));
+  END IF;
+
+  SELECT * INTO v_req FROM public.financial_statement_framework_requirements f WHERE f.framework_kind = v_doc #>> '{framework,kind}';
+  IF NOT FOUND THEN
+    v_out := array_append(v_out, 'FRAMEWORK_UNKNOWN');
+  ELSE
+    v_comp_any := jsonb_array_length(coalesce(v_doc -> 'comparativePeriods', '[]'::jsonb)) > 0;
+    -- [20261017100000] The first-period exception: an approved first-period declaration (approve_certification, evidence
+    -- dated within the period) satisfies the comparative requirement; nothing else does (reference-only figures never do).
+    IF v_req.comparatives_required AND NOT v_comp_any AND NOT public.fs_first_period_declared(p_company_id, v_report.period_year) THEN
+      v_out := array_append(v_out, 'COMPARATIVE_PERIOD_MISSING');
+    END IF;
+
+    FOREACH v_type IN ARRAY v_req.required_statement_types LOOP
+      IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == $t)', jsonb_build_object('t', v_type)) THEN
+        v_out := v_out || ('MISSING_STATEMENT:' || v_type);
+      ELSIF v_req.comparatives_required AND v_comp_any THEN
+        FOR v_cid IN SELECT jsonb_array_elements(v_doc -> 'comparativePeriods') ->> 'periodId' LOOP
+          IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == $t).sections[*].lines[*].factBindings[*] ? (@.periodId == $c)',
+                                   jsonb_build_object('t', v_type, 'c', v_cid)) THEN
+            v_out := v_out || ('COMPARATIVE_FIGURES_MISSING:' || v_type || ':' || v_cid);
+          END IF;
+        END LOOP;
+      END IF;
+    END LOOP;
+
+    FOREACH v_type IN ARRAY v_req.required_evidence_types LOOP
+      IF NOT EXISTS (
+        SELECT 1 FROM public.financial_evidence_batches b
+         WHERE b.company_id = p_company_id AND b.evidence_batch_id = ANY (v_report.evidence_batch_ids) AND b.evidence_type = v_type
+      ) THEN
+        v_out := v_out || ('REQUIRED_EVIDENCE_MISSING:' || v_type);
+      END IF;
+    END LOOP;
+  END IF;
+
+  FOREACH v_id IN ARRAY v_report.evidence_batch_ids LOOP
+    SELECT * INTO v_b FROM public.financial_evidence_batches b WHERE b.evidence_batch_id = v_id AND b.company_id = p_company_id;
+    IF NOT FOUND THEN
+      v_out := v_out || ('EVIDENCE_MISSING:' || v_id);
+    ELSE
+      IF v_b.validation_status NOT IN ('VALID', 'VALID_WITH_WARNINGS') THEN v_out := v_out || ('EVIDENCE_NOT_VALID:' || v_id); END IF;
+      IF EXISTS (SELECT 1 FROM public.financial_evidence_batches n
+                  WHERE n.company_id = v_b.company_id AND n.reporting_period_id = v_b.reporting_period_id AND n.evidence_type = v_b.evidence_type
+                    AND n.period_role = v_b.period_role AND n.series_key = v_b.series_key AND n.version > v_b.version) THEN
+        v_out := v_out || ('EVIDENCE_SUPERSEDED:' || v_id);
+      END IF;
+    END IF;
+  END LOOP;
+
+  IF v_req.framework_kind IS NOT NULL THEN
+    -- Cash-flow authority: a ledger-derived closing figure AND proof that the ledger is complete account by account.
+    IF 'STATEMENT_OF_CASH_FLOWS' = ANY (v_req.required_statement_types) THEN
+      IF NOT jsonb_path_exists(v_doc, '$.statements[*] ? (@.type == "STATEMENT_OF_CASH_FLOWS").sections[*].lines[*] ? (@.lineId == "line:cf:closing")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_CLOSING_CASH_MISSING');
+      END IF;
+      IF NOT jsonb_path_exists(v_doc, '$.notes[*] ? (@.noteId == "note:cash-ledger-authority")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_LEDGER_AUTHORITY_MISSING');
+      ELSIF NOT jsonb_path_exists(v_doc, '$.notes[*] ? (@.noteId == "note:cash-ledger-authority").monetaryFactIds[*] ? (@ starts with "fact:cashroll:ledger:")') THEN
+        v_out := array_append(v_out, 'CASHFLOW_LEDGER_AUTHORITY_UNRESOLVED');
+      END IF;
+    END IF;
+
+    -- Reviewed mappings: the trial balance must have been prepared with every account reviewed and unambiguous.
+    IF v_req.requires_mapping_review THEN
+      SELECT d ->> 'text' INTO v_cov FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' = 'mapping:coverage' LIMIT 1;
+      IF v_cov IS NULL THEN
+        v_out := array_append(v_out, 'MAPPING_REVIEW_UNRECORDED');
+      ELSIF v_cov !~ '^total=[1-9][0-9]*;unmapped=0;ambiguous=0$' THEN
+        v_out := v_out || ('MAPPING_UNREVIEWED:' || left(v_cov, 60));
+      END IF;
+    END IF;
+
+    -- Disclosure checklist: every framework disclosure area present and not MISSING.
+    FOREACH v_id IN ARRAY v_req.disclosure_area_ids LOOP
+      SELECT d ->> 'text' INTO v_txt FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' = 'checklist:' || v_id LIMIT 1;
+      IF v_txt IS NULL THEN
+        v_out := v_out || ('DISCLOSURE_CHECKLIST_ABSENT:' || v_id);
+      ELSIF v_txt LIKE 'MISSING:%' THEN
+        v_out := v_out || ('DISCLOSURE_CHECKLIST_INCOMPLETE:' || v_id);
+      END IF;
+    END LOOP;
+
+    -- Budget completeness, wherever a budget is part of this report.
+    v_has_budget := EXISTS (SELECT 1 FROM public.financial_evidence_batches b WHERE b.company_id = p_company_id AND b.evidence_batch_id = ANY (v_report.evidence_batch_ids) AND b.evidence_type = 'BUDGET');
+    IF jsonb_path_exists(v_doc, '$.textualDisclosures[*] ? (@.disclosureId == "budget:gap")') THEN
+      v_out := array_append(v_out, 'BUDGET_COMPARISON_GAP');
+    ELSIF v_has_budget AND NOT jsonb_path_exists(v_doc, '$.textualDisclosures[*] ? (@.disclosureId starts with "budget:line:")') THEN
+      v_out := array_append(v_out, 'BUDGET_COMPARISON_MISSING');
+    END IF;
+    FOR v_disc IN SELECT d FROM jsonb_array_elements(coalesce(v_doc -> 'textualDisclosures', '[]'::jsonb)) d WHERE d ->> 'disclosureId' LIKE 'budget:line:%' ORDER BY d ->> 'disclosureId' LOOP
+      v_rec := public.fs_try_jsonb(v_disc ->> 'text');
+      IF v_rec IS NULL OR jsonb_typeof(v_rec) <> 'object' THEN
+        v_out := v_out || ('BUDGET_LINE_UNREADABLE:' || (v_disc ->> 'disclosureId'));
+      ELSE
+        IF coalesce(v_rec ->> 'matched', 'false') <> 'true' THEN v_out := v_out || ('BUDGET_LINE_UNMATCHED:' || coalesce(v_rec ->> 'lineKey', '?')); END IF;
+        IF v_rec ->> 'required' = 'true' AND coalesce(btrim(v_rec ->> 'explanation'), '') = '' THEN v_out := v_out || ('BUDGET_EXPLANATION_MISSING:' || coalesce(v_rec ->> 'lineKey', '?')); END IF;
+      END IF;
+    END LOOP;
+  END IF;
+
+  -- [20261017100000] A trial-balance report is final only on the CURRENT authoritative reporting input and a finished Close
+  -- Review: its trial-balance facts must all come from one input identity equal to fs_reporting_input's now (else stale);
+  -- the findings of that authority must have been checked with no unresolved blocking finding; no adjustment may be
+  -- awaiting a decision, and no approved adjustment may be awaiting a revalidation decision after a re-check.
+  IF v_report.provenance_origin = 'TRIAL_BALANCE_DERIVED' THEN
+    v_input := public.fs_reporting_input(p_company_id, v_report.period_year);
+    SELECT array_agg(DISTINCT s) INTO v_hashes
+      FROM jsonb_path_query(v_doc, '$.facts[*].provenance.source ? (@.artifactKind == "TRIAL_BALANCE").sourceHash') h(s0), LATERAL (SELECT h.s0 #>> '{}' AS s) x;
+    IF v_input ->> 'state' IS DISTINCT FROM 'current' THEN
+      v_out := v_out || ('REPORTING_INPUT_NOT_AUTHORITATIVE:' || coalesce(v_input ->> 'state', 'unknown'));
+    ELSIF v_hashes IS NULL OR array_length(v_hashes, 1) <> 1 OR v_hashes[1] IS DISTINCT FROM v_input ->> 'inputSha256' THEN
+      v_out := array_append(v_out, 'REPORTING_INPUT_STALE');
+    END IF;
+    IF v_input ->> 'state' = 'current' THEN
+      IF v_input #>> '{findings,state}' IS DISTINCT FROM 'current' THEN
+        v_out := array_append(v_out, 'CLOSE_REVIEW_FINDINGS_NOT_CHECKED');
+      ELSIF coalesce((v_input #>> '{findings,unresolvedBlocking}')::integer, 0) > 0 THEN
+        v_out := v_out || ('CLOSE_REVIEW_BLOCKING_FINDINGS:' || (v_input #>> '{findings,unresolvedBlocking}'));
+      END IF;
+      SELECT count(*) INTO v_n FROM public.close_review_adjustments a
+       WHERE a.company_id = p_company_id AND a.period_year = v_report.period_year
+         AND a.certification_id = (v_input #>> '{current,certificationId}')::uuid AND public._cr_adjustment_status(a.id) = 'proposed';
+      IF v_n > 0 THEN v_out := v_out || ('CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:' || v_n); END IF;
+      IF coalesce((v_input ->> 'adjustmentsRequiringRevalidation')::integer, 0) > 0 THEN
+        v_out := v_out || ('CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION:' || (v_input ->> 'adjustmentsRequiringRevalidation'));
+      END IF;
+    END IF;
+  END IF;
+
+  -- [20261021100000, 20261111100000] An IFRS for SMEs trial-balance report is bound to its reporting dependencies — the
+  -- database's composition, notes status, comparative status and evidence statements — and its four statements must carry
+  -- EXACTLY the database's figures under their fixed fact identities; nothing else may be bound there. Every blocker of
+  -- those dependencies is a blocker of the report; any later change makes the binding stale.
+  IF v_report.provenance_origin = 'TRIAL_BALANCE_DERIVED' AND v_doc #>> '{framework,kind}' = 'IFRS_FOR_SMES' THEN
+    v_deps := public.fs_reporting_dependencies(p_company_id, v_report.period_year);
+    IF v_deps ->> 'state' IS DISTINCT FROM 'current' THEN
+      v_out := v_out || ('REPORTING_DEPENDENCIES_UNAVAILABLE:' || coalesce(v_deps ->> 'state', 'unknown'));
+    ELSE
+      IF v_doc #>> '{reportingDependencies,dependenciesSha256}' IS NULL THEN
+        v_out := array_append(v_out, 'REPORTING_DEPENDENCIES_UNBOUND');
+      ELSIF v_doc #>> '{reportingDependencies,dependenciesSha256}' IS DISTINCT FROM v_deps ->> 'dependenciesSha256' THEN
+        v_out := array_append(v_out, 'REPORTING_DEPENDENCIES_STALE');
+      END IF;
+      -- [20261111100000] The edition the document seals must be the one the server resolves for the period.
+      IF v_doc #>> '{framework,version}' IS NULL THEN
+        v_out := array_append(v_out, 'FRAMEWORK_EDITION_UNRECORDED');
+      ELSIF v_doc #>> '{framework,version}' IS DISTINCT FROM v_deps ->> 'packId' THEN
+        v_out := v_out || ('FRAMEWORK_EDITION_MISMATCH:' || (v_doc #>> '{framework,version}') || ':' || (v_deps ->> 'packId'));
+      END IF;
+      -- [20261111100000] Only the 2015 edition's requirement texts are verified; a report composed under the third edition
+      -- (a period beginning on or after 2027-01-01, or an early-application election) is refused by name.
+      IF v_deps ->> 'packId' IS DISTINCT FROM 'ifrs-for-smes/2015' THEN
+        v_out := v_out || ('FRAMEWORK_EDITION_UNSUPPORTED:' || coalesce(v_deps ->> 'packId', 'unknown'));
+      END IF;
+      v_out := v_out || ARRAY(SELECT jsonb_array_elements_text(v_deps -> 'blockers'));
+      -- [20261111100000] Every evidence batch a server figure rests on is bound to this version.
+      FOR v_rec IN SELECT b FROM jsonb_array_elements(coalesce(v_deps -> 'evidenceBatches', '[]'::jsonb)) b LOOP
+        IF NOT ((v_rec ->> 'batchId') = ANY (v_report.evidence_batch_ids)) THEN
+          v_out := v_out || ('EVIDENCE_NOT_BOUND:' || (v_rec ->> 'type') || ':' || (v_rec ->> 'role'));
+        END IF;
+      END LOOP;
+      -- Every composed figure present with exactly its amount ...
+      SELECT array_agg(f ->> 'factId' ORDER BY f ->> 'factId') INTO v_bad
+        FROM jsonb_array_elements(v_deps -> 'figures') f
+       WHERE NOT jsonb_path_exists(v_doc, '$.facts[*] ? (@.factId == $id && @.value.minorUnits.__bigint__ == $m)',
+                                   jsonb_build_object('id', f ->> 'factId', 'm', f ->> 'amountMinor'));
+      IF v_bad IS NOT NULL THEN v_out := v_out || ('STATEMENT_FIGURE_MISMATCH:' || array_length(v_bad, 1) || ':' || v_bad[1]); END IF;
+      -- ... and nothing else bound on the four statements (20261111100000: the statements of changes in equity and cash flows too).
+      SELECT array_agg(DISTINCT b ORDER BY b) INTO v_bad
+        FROM jsonb_path_query(v_doc, '$.statements[*] ? (@.type == "STATEMENT_OF_FINANCIAL_POSITION" || @.type == "STATEMENT_OF_PROFIT_OR_LOSS" || @.type == "STATEMENT_OF_CHANGES_IN_EQUITY" || @.type == "STATEMENT_OF_CASH_FLOWS").sections[*].lines[*].factBindings[*].factId') q(j),
+             LATERAL (SELECT q.j #>> '{}' AS b) x
+       WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_deps -> 'figures') f WHERE f ->> 'factId' = x.b);
+      IF v_bad IS NOT NULL THEN v_out := v_out || ('STATEMENT_FIGURE_NOT_COMPOSED:' || array_length(v_bad, 1) || ':' || v_bad[1]); END IF;
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.financial_statement_evaluations e WHERE e.report_id = p_report_id AND e.report_version = p_version) THEN
+    v_out := array_append(v_out, 'NOT_EVALUATED');
+  ELSE
+    v_n := public.fs_unresolved_blocking_count(p_report_id, p_version);
+    IF v_n > 0 THEN v_out := v_out || ('BLOCKING_FINDINGS:' || v_n); END IF;
+    v_n := public.fs_unmet_reconciliation_count(p_report_id, p_version);
+    IF v_n > 0 THEN v_out := v_out || ('RECONCILIATION_UNMET:' || v_n); END IF;
+  END IF;
+  -- [20261112100000] A reviewer's BLOCKING comment on this lineage that is not resolved for THIS version's content blocks
+  -- it by name; an advisory comment never does; a resolved comment whose item is unchanged stays resolved.
+  v_out := v_out || ARRAY(SELECT 'REVIEW_COMMENT_UNRESOLVED:' || c.id::text
+                            FROM public.fs_review_comment_states(p_company_id, p_report_id, p_version) c
+                           WHERE c.severity = 'blocking' AND c.state <> 'resolved' ORDER BY c.seq);
+  RETURN v_out;
+END;
+$$;
+
+-- ── Access ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+REVOKE ALL ON FUNCTION public._fs_item_content(jsonb, text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_review_comment_states(uuid, text, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_review_comment_event(uuid, uuid, text, text, uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_prior_final_differences(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_period_pack_id(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_rollforward_carries_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fs_review_comment_open(uuid, text, integer, text, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_review_comment_open(uuid, text, integer, text, text, text, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_review_comment_respond(uuid, uuid, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_review_comment_respond(uuid, uuid, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_review_comment_resolve(uuid, uuid, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_review_comment_resolve(uuid, uuid, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_review_comment_reopen(uuid, uuid, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_review_comment_reopen(uuid, uuid, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_review_comments(uuid, text, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_review_comments(uuid, text, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_accept_prior_final_differences(uuid, integer, boolean, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_accept_prior_final_differences(uuid, integer, boolean, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_prior_final_reconciliation(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_prior_final_reconciliation(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_rollforward_carry(uuid, integer, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_rollforward_carry(uuid, integer, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_rollforward_decide(uuid, uuid, boolean, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_rollforward_decide(uuid, uuid, boolean, text, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_rollforward_worklist(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fs_rollforward_worklist(uuid, integer) TO authenticated;
+REVOKE ALL ON FUNCTION public.fs_publication_blockers(UUID, TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+
+DO $postcondition$
+BEGIN
+  IF to_regclass('public.fs_review_comments') IS NULL OR to_regclass('public.fs_review_comment_events') IS NULL
+     OR to_regclass('public.fs_rollforward_carries') IS NULL OR to_regclass('public.fs_prior_final_acceptances') IS NULL
+     OR position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
+     OR position('fs-prior-final-reconciliation/2' IN pg_get_functiondef('public.fs_prior_final_reconciliation(uuid, integer)'::regprocedure)) = 0
+     OR has_function_privilege('anon', 'public.fs_review_comment_open(uuid, text, integer, text, text, text, text, uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fs_review_comment_states(uuid, text, integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fs_publication_blockers(uuid, text, integer)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.fs_rollforward_worklist(uuid, integer)', 'EXECUTE')
+     OR (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.fs_review_comments'::regclass) IS DISTINCT FROM true
+     OR (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.fs_rollforward_carries'::regclass) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'POSTCONDITION_FAILED: the reviewer workflow is not in its reviewed state' USING ERRCODE = 'P0001';
+  END IF;
+END;
+$postcondition$;

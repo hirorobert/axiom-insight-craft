@@ -14,7 +14,7 @@ import { EVIDENCE_SCHEMA_VERSION, type EvidenceBatch, type EvidenceBatchDocument
 /** The content identity of evidence: a hash of its canonical records (header + rows as exact strings), independent of file format. */
 export const canonicalIdentityOf = (records: readonly (readonly string[])[]): string => sha256Hex(canonicalStringify({ records }));
 
-export const INTAKE_LIMITS = { maxChars: 2_000_000, maxRows: 20_000, maxColumns: 40, maxTextChars: 500, maxLongTextChars: 20_000, maxAmountDigits: 30 } as const;
+export const INTAKE_LIMITS = { maxChars: 2_000_000, maxRows: 1_000, maxColumns: 40, maxTextChars: 500, maxLongTextChars: 20_000, maxAmountDigits: 30 } as const;
 
 export interface IntakeCommon {
   readonly companyId: string;
@@ -178,7 +178,8 @@ export function ingestRecords(req: IntakeCommon, records: readonly (readonly str
   }
 
   if (records.length === 0) return rejected(err("EMPTY_FILE", "The file contains no data."));
-  if (records.length - 1 > INTAKE_LIMITS.maxRows) return rejected(err("TOO_MANY_ROWS", `The file has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows.`));
+  // The same limit the server enforces (fs_work_bounds evidenceRowsPerBatch): refused here, before any upload, with what to do.
+  if (records.length - 1 > INTAKE_LIMITS.maxRows) return rejected(err("TOO_MANY_ROWS", `The file has more than ${INTAKE_LIMITS.maxRows.toLocaleString("en-US")} data rows. Split it by month or by account and add the parts as separate files; each is kept.`));
 
   const header = records[0].map((h) => h.trim().toLowerCase());
   if (header.length > INTAKE_LIMITS.maxColumns) return rejected(err("TOO_MANY_COLUMNS", `The header has more than ${INTAKE_LIMITS.maxColumns} columns.`));

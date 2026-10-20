@@ -1,6 +1,7 @@
 // Reporting activation guards:
-//  1. the reporting routes can never reach the defective legacy Reporting Pack sealing / deletion path
-//     (DEFECT-REPORTING-PACK-SEAL-RACE-001) — checked over the full transitive import closure of the routed pages;
+//  1. the reporting routes reach the server-sealed Reporting Pack issuance ONLY through the sanctioned module and transport
+//     (DEFECT-REPORTING-PACK-SEAL-RACE-001 repaired in 84cd8e0 / e698c3c; before that the routes could not reach it at all)
+//     — checked over the full transitive import closure of the routed pages; the legacy helper and storage stay out;
 //  2. reporting is offered per company by the server's answer, never to every customer;
 //  3. the legacy statements workspace (which does import that path) stays unrouted and its gates stay off.
 import fs from "node:fs";
@@ -39,8 +40,19 @@ describe("the reporting routes cannot reach the defective Reporting Pack sealing
     expect(closure).toContain("src/components/reporting/SignoffView.tsx");
     expect(closure).toContain("src/components/reporting/ExportsView.tsx");
   });
-  it("no file of it imports the sealing code, its request helper or the legacy commercial pack, and none invokes an Edge Function or storage", () => {
+  // 20261112100000 (the reviewed reporting journey): DEFECT-REPORTING-PACK-SEAL-RACE-001 was repaired in 84cd8e0 (a failed
+  // seal never removes the canonical object) and e698c3c (#156: issuance never deletes or overwrites a stored object; unit
+  // regressions and 63/63 on real PostgreSQL). The reporting workbench now reaches the REPAIRED server-sealed issuance
+  // through exactly one module (lib/reporting/reviewWorkflow.ts: issue_official_reporting_pack → the Edge Function's
+  // issue / verify / retrieve) over exactly one transport (lib/reporting/supabaseDb.ts). The legacy commercial helper and
+  // the legacy workspace stay out; nothing in the closure touches storage directly.
+  const SANCTIONED: Readonly<Record<string, readonly string[]>> = {
+    "src/lib/reporting/reviewWorkflow.ts": ["sealing path"],
+    "src/lib/reporting/supabaseDb.ts": ["edge function invocation"],
+  };
+  it("no file of it imports the legacy Reporting Pack helper or touches storage; the repaired sealing path and the Edge Function are reached only from the two sanctioned modules", () => {
     const offenders: string[] = [];
+    const sanctionedSeen: string[] = [];
     for (const rel of closure) {
       if (rel === "src/integrations/supabase/types.ts") continue; // generated type declarations, not calls
       const src = read(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'\\])\/\/[^\n]*/g, "$1");
@@ -49,9 +61,20 @@ describe("the reporting routes cannot reach the defective Reporting Pack sealing
         [/requestReportingPack|lib\/commercial\/reportingPack/, "legacy Reporting Pack helper"],
         [/functions\.invoke/, "edge function invocation"],
         [/\.storage\b/, "storage access"],
-      ] as const) if (re.test(src)) offenders.push(`${rel}: ${what}`);
+      ] as const) {
+        if (!re.test(src)) continue;
+        if (SANCTIONED[rel]?.includes(what)) { sanctionedSeen.push(`${rel}: ${what}`); continue; }
+        offenders.push(`${rel}: ${what}`);
+      }
     }
     expect(offenders).toEqual([]);
+    expect(sanctionedSeen.sort()).toEqual(["src/lib/reporting/reviewWorkflow.ts: sealing path", "src/lib/reporting/supabaseDb.ts: edge function invocation"]);
+  });
+  it("the sanctioned module never builds, uploads or hashes a pack itself: it names the server's issue RPC and the Edge Function's three actions, nothing else of the path", () => {
+    const src = read("src/lib/reporting/reviewWorkflow.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'\\])\/\/[^\n]*/g, "$1");
+    expect(src).toMatch(/issue_official_reporting_pack/);
+    expect(src).not.toMatch(/prepare_official_reporting_pack|seal_reporting_pack_server|reporting_pack_sealed_object|\.storage\b|upload\(/);
+    expect([...src.matchAll(/action: "(issue|verify|retrieve)"/g)].map((m) => m[1]).sort()).toEqual(["issue", "retrieve", "verify"]);
   });
   it("the legacy statements workspace (which imports that path) is not routed, and its gates stay off", () => {
     const app = read("src/App.tsx");

@@ -117,6 +117,14 @@ export const NOTES = {
   "smes.note.identification": "Mto Holdings Limited; year ended 30 June 2026; TZS.",
   "smes.note.policies": "Historical cost.", "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives of equipment.",
   "smes.note.subclassifications": "All receivables from third parties.", "smes.note.share_capital": "10,000 ordinary shares, fully paid.",
+  // Pack 1.2.0 (20261111100000): the applicable disclosures of the first reporting slice (synthetic wording).
+  "smes.note.going_concern": "Management assessed going concern for twelve months from authorisation and identified no material uncertainties.",
+  "smes.note.authorisation": "Authorised for issue by the directors on 31 August 2026.",
+  "smes.note.kmp_compensation": "Key management personnel compensation in total: TZS 1,800.00 (2025: TZS 1,700.00).",
+  "smes.note.cash_components": "Cash and cash equivalents comprise the mapped bank accounts; no restricted balances or overdrafts.",
+  "smes.note.income_tax": "Tax expense is current tax at the statutory rate; there is no deferred tax.",
+  "smes.note.revenue": "Revenue is recognised on delivery; all revenue is from the sale of goods.",
 };
-export const NOT_APPLICABLE = ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"];
+// Recorded not applicable: the three comprehensive-income line items (Section 5) and the three pack 1.2.0 preparer decisions.
+export const NOT_APPLICABLE = ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h", "smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions"];
 export const PPE_SCHEDULE = [{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }];
