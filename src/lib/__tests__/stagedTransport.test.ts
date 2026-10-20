@@ -99,6 +99,8 @@ describe("staged release transport", () => {
         const tag = `${String(idx).padStart(4, "0")}_${f.name}`;
         const text = mutate ? mutate(f.name, f.text) : f.text;
         fs.writeFileSync(path.join(dir, "drizzle/migrations", `${tag}.sql`), text);
+        // drizzle-kit writes a snapshot per custom migration (schema unchanged): the previous one, as the migrator does.
+        fs.copyFileSync(path.join(dir, "drizzle/migrations/meta", `${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, "drizzle/migrations/meta", `${String(idx).padStart(4, "0")}_snapshot.json`));
         j.entries.push({ idx, version: "7", when: (when += 1000), tag, breakpoints: true });
         (RELEASE_JOURNAL as Record<string, unknown>)[tag] = { kind: "staged_transport", sha256: sha(Buffer.from(f.text, "utf8")) };
         added.push(tag);
