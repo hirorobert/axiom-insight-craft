@@ -1,0 +1,247 @@
+-- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+-- 20261117100000_engagement_portfolio.sql — the engagements portfolio, read on the server (Trial Balance workflow, Track A).
+--
+-- The account home used to read every active company, every open engagement and EVERY upload of those companies with
+-- unbounded client selects (src/hooks/useActiveEngagements.ts), and derived each status in the browser. PostgREST answers
+-- at most max-rows (1,000) per request without saying so, so a large account could silently see a truncated, wrong list.
+-- This adds ONE bounded, server-paginated read:
+--
+--   list_portfolio_engagements(search, statuses, purposes, period_year, sort, limit, cursor)
+--
+-- AUTHORIZATION (traced, not assumed). The table policies differ (companies: owner only; engagements: accepted members;
+-- trial_balance_uploads: accepted members; tb_certifications: owner and Prepare grant holders), so this is a SECURITY
+-- DEFINER function with ONE explicit rule, the platform's own workspace-access rule: public._workspace_access_basis(
+-- auth.uid(), company) IS NOT NULL — the workspace creator; an accepted member whose named-user access is active; or an
+-- unrevoked capability-grant holder (20260925110000). Candidates are only the caller's own companies, memberships and
+-- grants (never a scan of every company). Pending, suspended or revoked members and other tenants see nothing; anon
+-- cannot execute it. Only the listed columns are returned (no storage path, no processing result).
+--
+-- ORDERING AND PAGING. Keyset, never offset: every sort ends with the engagement id (unique), and the cursor is the last
+-- row's sort keys. Sorts use keys that do not change with processing (entity name, period year, opened time), so a
+-- status change never moves a row. Page size 1–100 (default 25); anything else is refused (INVALID_LIMIT).
+--
+-- CONSISTENCY CONTRACT (a live view, refresh required — NOT a snapshot). portfolio_revisions keeps one revision per
+-- company, bumped by triggers on every write that can change a portfolio row or its visibility. Each answer carries
+-- view_token = sha256 of (company_id:revision …) over the caller's VISIBLE companies, ordered by id. If the token of a
+-- later page differs from the first page's, something visible changed (or visibility itself did): the browser must
+-- refresh from the first page. Rows are never silently reshuffled into a page sequence already shown.
+--
+-- STATUS (server-computed, from the same authority as acceptance):
+--   no_trial_balance  no active upload for the engagement's period;
+--   processing        the latest active upload is unprocessed or processing;
+--   processing_failed processed, but no certification was recorded (the check stopped);
+--   blocked           its latest certification is blocking;
+--   ready             public.get_authoritative_certification returns a certification for the company and year;
+--   needs_decision    its latest certification requires review;
+--   needs_recheck     a certification exists but is no longer authoritative (an input changed).
+-- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+DO $preflight$
+BEGIN
+  IF to_regprocedure('public._workspace_access_basis(uuid,uuid)') IS NULL
+     OR to_regprocedure('public.get_authoritative_certification(uuid,integer)') IS NULL
+     OR to_regclass('public.workspace_purpose_events') IS NULL OR to_regclass('public.profiles') IS NULL
+     OR to_regclass('public.workspace_capability_grants') IS NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the workspace access, certification authority or purpose objects this read uses are missing; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+  IF to_regclass('public.portfolio_revisions') IS NOT NULL
+     OR to_regprocedure('public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: the engagements portfolio already exists; nothing was changed' USING ERRCODE = 'P0001';
+  END IF;
+END
+$preflight$;
+
+-- ── 1. Per-company revisions (change detection) ────────────────────────────────────────────────────────────────────
+CREATE TABLE public.portfolio_revisions (
+  company_id uuid        PRIMARY KEY,
+  revision   bigint      NOT NULL DEFAULT 0,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.portfolio_revisions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.portfolio_revisions FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.portfolio_revisions TO service_role;
+
+CREATE OR REPLACE FUNCTION public._portfolio_bump(p_company_id uuid)
+RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  INSERT INTO public.portfolio_revisions AS r (company_id, revision, changed_at) VALUES (p_company_id, 1, now())
+  ON CONFLICT (company_id) DO UPDATE SET revision = r.revision + 1, changed_at = now();
+$$;
+REVOKE ALL ON FUNCTION public._portfolio_bump(uuid) FROM PUBLIC, anon, authenticated;
+
+-- One trigger function for every table that carries company_id directly (both old and new company on a move).
+CREATE OR REPLACE FUNCTION public._portfolio_bump_company_row()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_new uuid := CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN (to_jsonb(NEW)->>CASE WHEN TG_TABLE_NAME = 'companies' THEN 'id' ELSE 'company_id' END)::uuid END;
+  v_old uuid := CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN (to_jsonb(OLD)->>CASE WHEN TG_TABLE_NAME = 'companies' THEN 'id' ELSE 'company_id' END)::uuid END;
+BEGIN
+  IF v_new IS NOT NULL THEN PERFORM public._portfolio_bump(v_new); END IF;
+  IF v_old IS NOT NULL AND v_old IS DISTINCT FROM v_new THEN PERFORM public._portfolio_bump(v_old); END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._portfolio_bump_company_row() FROM PUBLIC, anon, authenticated;
+
+-- A certification invalidation names a certification; its company is the certification's.
+CREATE OR REPLACE FUNCTION public._portfolio_bump_invalidation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  PERFORM public._portfolio_bump(c.company_id) FROM public.tb_certifications c WHERE c.id = NEW.certification_id;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._portfolio_bump_invalidation() FROM PUBLIC, anon, authenticated;
+
+CREATE TRIGGER trg_portfolio_uploads AFTER INSERT OR UPDATE OR DELETE ON public.trial_balance_uploads
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_certifications AFTER INSERT ON public.tb_certifications
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_invalidations AFTER INSERT ON public.tb_certification_invalidations
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_invalidation();
+CREATE TRIGGER trg_portfolio_engagements AFTER INSERT OR UPDATE OR DELETE ON public.engagements
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_periods AFTER INSERT OR UPDATE OR DELETE ON public.fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_companies AFTER INSERT OR UPDATE OR DELETE ON public.companies
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_members AFTER INSERT OR UPDATE OR DELETE ON public.firm_members
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_grants AFTER INSERT OR UPDATE OR DELETE ON public.workspace_capability_grants
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+CREATE TRIGGER trg_portfolio_purpose AFTER INSERT ON public.workspace_purpose_events
+  FOR EACH ROW EXECUTE FUNCTION public._portfolio_bump_company_row();
+
+-- ── 2. Who may see a company: the platform's workspace-access rule, over the caller's own candidates only ────────────
+CREATE OR REPLACE FUNCTION public._portfolio_visible_companies(p_user uuid)
+RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT c.id FROM public.companies c
+   WHERE c.is_active
+     AND c.id IN (SELECT x.id FROM public.companies x WHERE x.user_id = p_user
+                  UNION SELECT fm.company_id FROM public.firm_members fm WHERE fm.user_id = p_user
+                  UNION SELECT g.company_id FROM public.workspace_capability_grants g WHERE g.grantee_user_id = p_user AND g.revoked_at IS NULL)
+     AND public._workspace_access_basis(p_user, c.id) IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION public._portfolio_visible_companies(uuid) FROM PUBLIC, anon, authenticated;
+
+CREATE INDEX IF NOT EXISTS idx_engagements_company_status ON public.engagements (company_id, status);
+CREATE INDEX IF NOT EXISTS idx_tbu_period_active ON public.trial_balance_uploads (period_id, uploaded_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_tbu_company_year_active ON public.trial_balance_uploads (company_id, period_year, uploaded_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_tbc_upload_seq ON public.tb_certifications (upload_id, sequence_no DESC);
+
+-- ── 3. The read ──────────────────────────────────────────────────────────────────────────────────────────────────────
+-- Outcomes: ok | unauthenticated | invalid_request (code INVALID_LIMIT | INVALID_SORT | INVALID_CURSOR | INVALID_FILTER).
+CREATE OR REPLACE FUNCTION public.list_portfolio_engagements(
+  p_search text, p_statuses text[], p_purposes text[], p_period_year integer, p_sort text, p_limit integer, p_cursor jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_sort text := coalesce(nullif(p_sort, ''), 'entity');
+  v_limit integer := coalesce(p_limit, 25);
+  v_search text := nullif(lower(btrim(coalesce(p_search, ''))), '');
+  v_like text;
+  v_token text;
+  v_total bigint;
+  v_counts jsonb;
+  v_rows jsonb;
+  v_more boolean;
+  c_name text; c_year integer; c_opened timestamptz; c_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF v_limit < 1 OR v_limit > 100 THEN RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_LIMIT'); END IF;
+  IF v_sort NOT IN ('entity', 'period', 'opened') THEN RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_SORT'); END IF;
+  IF p_statuses IS NOT NULL AND NOT (p_statuses <@ ARRAY['no_trial_balance','processing','processing_failed','blocked','ready','needs_decision','needs_recheck']) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_FILTER');
+  END IF;
+  IF p_purposes IS NOT NULL AND NOT (p_purposes <@ ARRAY['client','test','training','not_stated']) THEN
+    RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_FILTER');
+  END IF;
+  IF length(coalesce(v_search, '')) > 100 THEN RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_FILTER'); END IF;
+  IF p_cursor IS NOT NULL THEN
+    BEGIN
+      c_name := p_cursor->>'name'; c_year := (p_cursor->>'year')::integer;
+      c_opened := (p_cursor->>'opened')::timestamptz; c_id := (p_cursor->>'id')::uuid;
+    EXCEPTION WHEN others THEN RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_CURSOR');
+    END;
+    IF c_id IS NULL OR (v_sort IN ('entity', 'period') AND (c_name IS NULL OR c_year IS NULL)) OR (v_sort = 'opened' AND c_opened IS NULL) THEN
+      RETURN jsonb_build_object('outcome', 'invalid_request', 'code', 'INVALID_CURSOR');
+    END IF;
+  END IF;
+  -- LIKE metacharacters in the search are literal.
+  v_like := CASE WHEN v_search IS NULL THEN NULL ELSE '%' || replace(replace(replace(v_search, '\', '\\'), '%', '\%'), '_', '\_') || '%' END;
+
+  -- The change-detection token over EVERY visible company (not only the filtered ones): visibility changes count too.
+  SELECT encode(extensions.digest(coalesce(string_agg(v.id::text || ':' || coalesce(r.revision, 0)::text, ',' ORDER BY v.id), ''), 'sha256'), 'hex')
+    INTO v_token
+    FROM public._portfolio_visible_companies(v_uid) v(id) LEFT JOIN public.portfolio_revisions r ON r.company_id = v.id;
+
+  WITH base AS (
+    SELECT e.id AS engagement_id, c.id AS company_id, c.name AS company_name, c.code AS company_code, c.tin AS company_tin,
+           lower(c.name) AS sort_name, p.id AS period_id,
+           EXTRACT(YEAR FROM coalesce(p.reporting_end, p.fiscal_year_end))::integer AS period_year,
+           p.reporting_start AS period_start, coalesce(p.reporting_end, p.fiscal_year_end) AS period_end,
+           p.reporting_currency AS currency, e.opened_at, coalesce(pe.purpose, 'not_stated') AS purpose,
+           CASE
+             WHEN u.id IS NULL THEN 'no_trial_balance'
+             WHEN u.lifecycle_state IN ('active_unprocessed', 'active_processing') THEN 'processing'
+             WHEN lc.id IS NULL THEN 'processing_failed'
+             WHEN lc.is_blocking THEN 'blocked'
+             WHEN ac.id IS NOT NULL THEN 'ready'
+             WHEN lc.requires_review THEN 'needs_decision'
+             ELSE 'needs_recheck'
+           END AS status,
+           u.file_name, u.uploaded_at, nullif(btrim(pr.display_name), '') AS uploader_name, u.lifecycle_state AS upload_state
+      FROM public.engagements e
+      JOIN public._portfolio_visible_companies(v_uid) v(id) ON v.id = e.company_id
+      JOIN public.companies c ON c.id = e.company_id
+      JOIN public.fiscal_periods p ON p.id = e.fiscal_period_id
+      LEFT JOIN LATERAL (SELECT w.purpose FROM public.workspace_purpose_events w WHERE w.company_id = c.id ORDER BY w.seq DESC LIMIT 1) pe ON true
+      LEFT JOIN LATERAL (
+        SELECT t.id, t.file_name, t.uploaded_at, t.user_id, t.lifecycle_state FROM public.trial_balance_uploads t
+         WHERE t.company_id = c.id
+           AND (t.period_id = p.id OR (t.period_id IS NULL AND t.period_year = EXTRACT(YEAR FROM coalesce(p.reporting_end, p.fiscal_year_end))::integer))
+           AND t.lifecycle_state IN ('active_unprocessed', 'active_processing', 'active_processed', 'blocked')
+         ORDER BY t.uploaded_at DESC, t.id DESC LIMIT 1) u ON true
+      LEFT JOIN LATERAL (SELECT x.id, x.is_blocking, x.requires_review FROM public.tb_certifications x WHERE x.upload_id = u.id ORDER BY x.sequence_no DESC LIMIT 1) lc ON true
+      LEFT JOIN LATERAL (SELECT a.id FROM public.get_authoritative_certification(c.id, EXTRACT(YEAR FROM coalesce(p.reporting_end, p.fiscal_year_end))::integer) a
+                          WHERE a.upload_id = u.id LIMIT 1) ac ON u.id IS NOT NULL
+      LEFT JOIN public.profiles pr ON pr.user_id = u.user_id
+     WHERE e.status = 'open'
+       AND (v_like IS NULL OR lower(c.name) LIKE v_like OR lower(coalesce(c.code, '')) LIKE v_like OR lower(coalesce(c.tin, '')) LIKE v_like)
+       AND (p_period_year IS NULL OR EXTRACT(YEAR FROM coalesce(p.reporting_end, p.fiscal_year_end))::integer = p_period_year)
+       AND (p_purposes IS NULL OR coalesce(pe.purpose, 'not_stated') = ANY (p_purposes))
+  ), filtered AS (
+    SELECT * FROM base r WHERE p_statuses IS NULL OR r.status = ANY (p_statuses)
+  ), page AS (
+    SELECT r.*, row_number() OVER (ORDER BY
+             CASE WHEN v_sort = 'entity' THEN r.sort_name END ASC,
+             CASE WHEN v_sort = 'entity' THEN r.period_year END DESC,
+             CASE WHEN v_sort = 'period' THEN r.period_year END DESC,
+             CASE WHEN v_sort = 'period' THEN r.sort_name END ASC,
+             CASE WHEN v_sort = 'opened' THEN r.opened_at END DESC,
+             r.engagement_id ASC) AS rn
+      FROM filtered r
+     WHERE p_cursor IS NULL
+        OR (v_sort = 'entity' AND (r.sort_name > c_name OR (r.sort_name = c_name AND (r.period_year < c_year OR (r.period_year = c_year AND r.engagement_id > c_id)))))
+        OR (v_sort = 'period' AND (r.period_year < c_year OR (r.period_year = c_year AND (r.sort_name > c_name OR (r.sort_name = c_name AND r.engagement_id > c_id)))))
+        OR (v_sort = 'opened' AND (r.opened_at < c_opened OR (r.opened_at = c_opened AND r.engagement_id > c_id)))
+  )
+  SELECT (SELECT coalesce(jsonb_object_agg(s.status, s.n), '{}'::jsonb) FROM (SELECT status, count(*) AS n FROM base GROUP BY status) s),
+         (SELECT count(*) FROM filtered),
+         (SELECT coalesce(jsonb_agg(jsonb_build_object(
+             'engagement_id', engagement_id, 'company_id', company_id, 'company_name', company_name, 'company_code', company_code,
+             'company_tin', company_tin, 'period_id', period_id, 'period_year', period_year, 'period_start', period_start,
+             'period_end', period_end, 'currency', currency, 'opened_at', opened_at, 'purpose', purpose, 'status', status,
+             'upload', CASE WHEN file_name IS NULL THEN NULL ELSE jsonb_build_object('file_name', file_name, 'uploaded_at', uploaded_at,
+                                                                                   'uploaded_by', uploader_name, 'state', upload_state) END,
+             'cursor', jsonb_build_object('name', sort_name, 'year', period_year, 'opened', opened_at, 'id', engagement_id))
+             ORDER BY rn), '[]'::jsonb) FROM page WHERE rn <= v_limit),
+         (SELECT count(*) > v_limit FROM page WHERE rn <= v_limit + 1)
+    INTO v_counts, v_total, v_rows, v_more;
+
+  RETURN jsonb_build_object('outcome', 'ok', 'rows', v_rows, 'has_more', v_more,
+    'next_cursor', CASE WHEN v_more THEN v_rows->-1->'cursor' ELSE NULL END,
+    'total', v_total, 'status_counts', v_counts, 'view_token', v_token, 'limit', v_limit, 'sort', v_sort);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.list_portfolio_engagements(text, text[], text[], integer, text, integer, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_portfolio_engagements(text, text[], text[], integer, text, integer, jsonb) TO authenticated;
