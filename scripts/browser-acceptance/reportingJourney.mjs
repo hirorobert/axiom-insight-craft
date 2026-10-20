@@ -23,6 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(OUT, { recursive: true });
 
 const results = [];
+const pages = {};
 const check = async (name, fn) => {
   try { const r = await fn(); results.push({ name, ok: r === true, detail: r === true ? undefined : r }); console.log(`  ${r === true ? "PASS" : "FAIL"}  ${name}${r === true ? "" : `\n        ${JSON.stringify(r).slice(0, 800)}`}`); }
   catch (e) { results.push({ name, ok: false, detail: String(e?.message ?? e) }); console.log(`  FAIL  ${name}\n        ${String(e?.message ?? e).slice(0, 800)}`); }
@@ -48,7 +49,7 @@ try {
   const seed = await (await fetch(`${ready.bridge}/seed`, { method: "POST", headers: { "x-sim-user": "owner" }, body: "{}" })).json();
   browser = await Browser.launch();
   const url = (as, hash) => `http://127.0.0.1:${HARNESS_PORT}/dev-harness/reporting/index.html?bridge=${encodeURIComponent(ready.bridge)}&as=${as}#${hash}`;
-  const open = async (as) => { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); return p; };
+  const open = async (as) => { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); pages[as] = p; return p; };
   const shot = (p, name) => p.screenshot(path.join(OUT, `${name}.png`));
   const go = async (p, as, hash, text) => { await p.goto(url(as, hash)); if (text) await p.waitForText(text, { timeout: 45000 }); await sleep(300); };
   const nextAction = (p) => p.evaluate(() => { const el = document.querySelector('[data-testid="next-action"]'); return el ? { text: el.innerText.replace(/\s+/g, " ").trim(), tone: el.getAttribute("data-tone") } : null; });
@@ -142,6 +143,48 @@ try {
     await shot(preparer, "07-version-saved-ready");
     return unsaved && summaryOnly ? true : { unsaved, summaryOnly };
   });
+  console.log("\n== Reviewer return: a blocking finding on a figure, the preparer's response, the reviewer's resolution (20261112100000)");
+  await check("the reviewer opens a BLOCKING finding on trade payables from the Statements page; version 2 is no longer ready and the Sign-off page names the finding in words", async () => {
+    await go(partner, "partner", "/statements", "Statement of Financial Position");
+    await partner.click('[data-comment-line="sfp.trade_and_other_payables"]');
+    await partner.waitForSelector('[data-testid="comment-composer"]');
+    await partner.fill('[data-testid="comment-body"]', "Payables look understated: the November rent invoice is missing. Please check the accruals.");
+    await partner.click('[data-testid="comment-open"]');
+    await partner.waitForText("Recorded.", { timeout: 30000 });
+    await shot(partner, "06b-finding-opened");
+    await go(partner, "partner", "/signoff?v=2", "Reviewer comments on version 2");
+    await partner.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "false", [], { label: "version 2 blocked", timeout: 30000 });
+    const t = await partner.bodyText();
+    const st = await partner.evaluate(() => document.querySelector('[data-testid="review-comment"]')?.getAttribute("data-state"));
+    return st === "open" && /blocking finding is not resolved/.test(t) && /Blocking finding/.test(t) && /was|now|3,100\.00/.test(t) ? true : { st, t: t.slice(0, 600) };
+  });
+  await check("the preparer responds on the Sign-off page and has no resolve control; the finding reads 'responded' and still blocks", async () => {
+    // The harness is a hash router: a page already mounted keeps its snapshot, so the preparer leaves Sign-off and returns.
+    await go(preparer, "preparer", "/statements", "Statement of Financial Position");
+    await go(preparer, "preparer", "/signoff?v=2", "Reviewer comments on version 2");
+    try { await preparer.waitForSelector('[data-testid="review-comment"] [data-testid="comment-note"]', { timeout: 30000 }); }
+    catch { const t = await preparer.bodyText(); await shot(preparer, "06c-no-respond-control"); return { noNote: true, comments: await preparer.evaluate(() => document.querySelectorAll('[data-testid="review-comment"]').length), t: t.slice(0, 900) }; }
+    const noResolve = await preparer.evaluate(() => !document.querySelector('[data-testid="comment-resolve"]') && !!document.querySelector('[data-testid="comment-respond"]'));
+    await preparer.fill('[data-testid="comment-note"]', "Accrual checked against the November invoice; the balance is complete.");
+    await preparer.click('[data-testid="comment-respond"]');
+    await preparer.waitForText("Recorded.", { timeout: 30000 });
+    await preparer.waitFor(() => document.querySelector('[data-testid="review-comment"]')?.getAttribute("data-state") === "responded", [], { label: "responded", timeout: 30000 });
+    const ready = await preparer.evaluate(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready"));
+    await shot(preparer, "06c-finding-responded");
+    return noResolve && ready === "false" ? true : { noResolve, ready };
+  });
+  await check("the reviewer resolves it with a note: version 2 is ready again and the history keeps opened, responded and resolved with their authors and versions", async () => {
+    await go(partner, "partner", "/statements", "Statement of Financial Position");
+    await go(partner, "partner", "/signoff?v=2", "Reviewer comments on version 2");
+    await partner.waitForSelector('[data-testid="review-comment"][data-state="responded"] [data-testid="comment-note"]', { timeout: 30000 });
+    await partner.fill('[data-testid="comment-note"]', "Agreed: the accrual is in; resolved.");
+    await partner.click('[data-testid="comment-resolve"]');
+    await partner.waitForText("Recorded.", { timeout: 30000 });
+    await partner.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "true", [], { label: "version 2 ready again", timeout: 30000 });
+    const history = await partner.evaluate(() => [...document.querySelectorAll('[data-testid="comment-history"] li')].map((li) => li.textContent.split(" ")[0]));
+    await shot(partner, "06d-finding-resolved");
+    return JSON.stringify(history) === JSON.stringify(["opened", "responded", "resolved"]) ? true : history;
+  });
   await check("a preparer cannot sign: no sign-off control, the page says who does", async () => {
     const t = await preparer.bodyText();
     return (await preparer.evaluate(() => !document.querySelector('[data-testid^="sign-"]'))) && /A reviewer marks the version reviewed/.test(t) ? true : t.slice(-400);
@@ -165,6 +208,12 @@ try {
     return na?.tone === "done" && /Version 2 is signed off/.test(na.text) ? true : na;
   });
 
+  await check("Exports offers the owner the server-sealed official pack of the FINAL version (the issue control; nothing issued here — the loopback harness has no Edge Function; the real-stack journey issues, verifies and retrieves it)", async () => {
+    await go(owner, "owner", "/signoff/exports?v=2", "Official Reporting Pack");
+    const ok = await owner.evaluate(() => !!document.querySelector('[data-testid="official-pack"] [data-testid="issue-official"]') && !!document.querySelector('[data-testid="no-official"]'));
+    await shot(owner, "08b-official-pack-offered");
+    return ok;
+  });
   console.log("\n== Exports: the sealed pack and the draft, from the stored versions");
   const printPack = async (p, file) => {
     const html = await p.evaluate(() => document.querySelector('[data-testid="pack-preview"]').srcdoc);
@@ -279,7 +328,7 @@ try {
   try { vite.child.kill(); } catch { /* */ }
   if (process.platform === "win32") { try { spawn("taskkill", ["/pid", String(vite.child.pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* */ } }
 }
-fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ when: new Date().toISOString(), results }, null, 2));
+fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ when: new Date().toISOString(), results, consoleErrors: Object.fromEntries(Object.entries(pages).map(([k, p]) => [k, p.consoleErrors ?? []])) }, null, 2));
 const failed = results.filter((r) => !r.ok);
 console.log(`\nchecks: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
 console.log(failed.length === 0 && results.length > 0 ? "REPORTING_JOURNEY: ALL PASSED" : "REPORTING_JOURNEY: FAILED");

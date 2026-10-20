@@ -44,6 +44,16 @@ const N = WRAPPED_SOURCES.length;
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
 const DRIZZLE_FAILURE = BATCH.id === "currency-c1"
   ? { object: "public.correct_period_currency(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid)", rolledBack: "SELECT to_regprocedure('public.get_period_currency_correction(uuid)') IS NULL AND to_regclass('public.uq_fpe_currency_request') IS NULL AND position('currency_corrected' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fpe_action'))) = 0 AND position('axiom.period_currency_correction' IN pg_get_functiondef('public.fiscal_periods_processing_lock()'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-memo-r1"
+  ? { object: "public._fs_statement_composition_compute(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public._fs_statement_composition_compute(uuid,integer)') IS NULL AND to_regprocedure('public._fs_memo_get(text)') IS NULL AND position('_fs_memo_get' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-capacity-r1"
+  ? { object: "public.fs_account_capacity(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_account_capacity(uuid,integer)') IS NULL AND (public.fs_work_bounds() ->> 'contract') = 'fs-work-bounds/1' AND position('over_capacity' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-bounds-r1"
+  ? { object: "public.fs_bound_report_version()", rolledBack: "SELECT to_regprocedure('public.fs_work_bounds()') IS NULL AND to_regprocedure('public.fs_bound_evidence_batch()') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_feb_work_bounds') AS ok" }
+  : BATCH.id === "fs-journey-r1"
+  ? { object: "public.fs_review_comment_states(pg_catalog.uuid,pg_catalog.text,integer)", rolledBack: "SELECT to_regclass('public.fs_review_comments') IS NULL AND to_regclass('public.fs_rollforward_carries') IS NULL AND to_regclass('public.fs_prior_final_acceptances') IS NULL AND to_regprocedure('public.fs_rollforward_carry(uuid,integer,uuid)') IS NULL AND position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "fs-controls-r1"
+  ? { object: "public.fs_evidence_statements(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public.fs_evidence_statements(uuid,integer)') IS NULL AND NOT EXISTS (SELECT 1 FROM public.fs_pack_requirements WHERE requirement_id = 'smes.note.going_concern') AND position('PUBLICATION_PATH_UNSUPPORTED' IN pg_get_functiondef('public.fs_bind_publication()'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "pricing-p1"
   ? { object: "public.get_workspace_seat_capacity(pg_catalog.uuid)", rolledBack: "SELECT NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='commercial_plans' AND column_name='members_unlimited') AND to_regprocedure('public._lift_named_user_suspensions_unlimited(uuid,uuid[],text)') IS NULL AS ok" }
   : BATCH.id === "tb-release-r1"

@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyChainBefore, assignmentPairs, ASSIGN, certifier, clientDb, COMPREHENSIVE_INCOME_DECISIONS, csv, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026,
+import { applyChainBefore, assignmentPairs, ASSIGN, certifier, clientDb, COMPREHENSIVE_INCOME_DECISIONS, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, WORDS_1_2_0,
   FY2025, FY2026, makeWorld, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
@@ -78,6 +78,8 @@ async function main() {
     for (const [id, t] of Object.entries({ "smes.note.compliance": "Synthetic.", "smes.note.identification": "Synthetic SME Limited; 2026; TZS.", "smes.note.policies": "Historical cost.",
       "smes.note.judgements": "None beyond estimates.", "smes.note.estimates": "Useful lives.", "smes.note.subclassifications": "All third parties.", "smes.note.share_capital": "10,000 shares." }))
       await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, Y, id, t, uuid()]);
+    for (const [id, t] of Object.entries(WORDS_1_2_0)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, Y, id, t, uuid()]);
+    for (const id of DECISIONS_1_2_0) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented',$4)", [A, Y, id, uuid()]);
     await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register',$4)", [A, Y,
       JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);
     await asU(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed',$3) r", [A, Y, uuid()]);

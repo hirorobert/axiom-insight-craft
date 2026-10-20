@@ -17,9 +17,9 @@ import { applyChain, certifier, clientDb, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_
 
 const PORT = Number(process.env.REPORTING_BRIDGE_PORT ?? 54998);
 const RPC = /^(fs_[a-z_]+|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
-const WRITE_RPC = /^fs_(assign_presentation|elect_early_application|decide_requirement|record_disclosure|record_schedule|bridge_comparative_account|propose_restatement|decide_restatement|approve_comparatives|commit_revision|set_publication_state)$/;
-const READ_RPC = /^(fs_(statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness)|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
-const TABLES = /^(financial_evidence_batches|fs_disclosure_texts|account_mappings|financial_statement_reports|financial_statement_publications|fs_publication_bindings|fs_comparative_restatements|fs_comparative_restatement_decisions)$/;
+const WRITE_RPC = /^fs_(review_comment_open|review_comment_respond|review_comment_resolve|review_comment_reopen|rollforward_carry|rollforward_decide|accept_prior_final_differences|assign_presentation|elect_early_application|decide_requirement|record_disclosure|record_schedule|bridge_comparative_account|propose_restatement|decide_restatement|approve_comparatives|commit_revision|set_publication_state)$/;
+const READ_RPC = /^(fs_(review_comments|rollforward_worklist|prior_final_reconciliation|statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness)|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities)$/;
+const TABLES = /^(reporting_pack_issuances|fs_review_comments|fs_review_comment_events|fs_rollforward_carries|fs_prior_final_acceptances|financial_evidence_batches|fs_disclosure_texts|account_mappings|financial_statement_reports|financial_statement_publications|fs_publication_bindings|fs_comparative_restatements|fs_comparative_restatement_decisions)$/;
 
 const db = await openDatabase("reporting_harness");
 const failed = await applyChain(db);

@@ -806,13 +806,11 @@ async function signoffProof({ U, A, B }, kit) {
     await asUser(U.preparer, "SELECT public.close_review_decide_adjustment($1,'withdraw','Not needed',NULL,$2) r", [pend.adjustmentId, uuid()]);
     return JSON.stringify(mine(r)) === JSON.stringify(["CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED:1"]) && mine(old).includes("REPORTING_INPUT_STALE") ? true : { r: r.blockers, old: old.blockers };
   });
-  await check("the complete, authoritative report is ready: REVIEWED (review_close), then FINAL (approve_certification); FINAL is immutable", async () => {
+  await check("the report on the authoritative input has no Close Review blocker left; being a generic (full IFRS) document it is still refused by name — PUBLICATION_PATH_UNSUPPORTED (20261111100000; the supported path signs in publicationControls.mjs)", async () => {
     const r = await readiness(ridFinal);
-    const reviewed = await setState(U.partner, ridFinal, "REVIEWED");
-    const fin = await setState(U.owner, ridFinal, "FINAL", "final sign-off on the authoritative input");
-    let again = null;
-    try { await setState(U.partner, ridFinal, "REVIEWED", "trying to reopen"); } catch (e) { again = e.code; }
-    return r.ready === true && reviewed.state === "REVIEWED" && fin.state === "FINAL" && again === "PT409" ? true : { r: r.blockers, again };
+    let refusal = null;
+    try { await setState(U.partner, ridFinal, "REVIEWED"); } catch (e) { refusal = `${e.code}:${e.message}`; }
+    return mine(r).length === 0 && JSON.stringify(r.blockers) === JSON.stringify(["PUBLICATION_PATH_UNSUPPORTED:IFRS:TRIAL_BALANCE_DERIVED"]) && /PT409.*PUBLICATION_PATH_UNSUPPORTED/.test(refusal ?? "") ? true : { r: r.blockers, refusal };
   });
   await check("a preparer cannot mark REVIEWED (capabilities unchanged: one sign-off path)", async () => {
     let a = null;

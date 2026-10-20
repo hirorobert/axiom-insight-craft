@@ -19,6 +19,7 @@ import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
 import { blockerText } from "@/lib/reporting/blockers";
 import { Notice, type PageProps } from "./shared";
 import { EvidenceIntake } from "./EvidenceIntake";
+import { ReviewCommentsPanel } from "./ReviewComments";
 
 export function SignoffView(p: PageProps) {
   const latest = p.state.latest?.version ?? null;
@@ -30,6 +31,7 @@ export function SignoffView(p: PageProps) {
       <EvidenceIntake {...p} mode="summary" />
       <Versions {...p} selected={selected} />
       {selected ? <Readiness_ {...p} version={selected} isLatest={selected.reportVersion === latest?.reportVersion} /> : <p>No report version is saved yet.</p>}
+      {selected ? <ReviewCommentsPanel {...p} reportId={selected.reportId} reportVersion={selected.reportVersion} /> : null}
     </div>
   );
 }

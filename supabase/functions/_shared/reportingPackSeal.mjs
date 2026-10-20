@@ -40,14 +40,14 @@ const STATUS = {
 const refuse = (outcome) => ({ httpStatus: STATUS[outcome] ?? 500, body: { outcome } });
 
 /**
- * The only accepted request: a JSON object with exactly { action: "issue" | "verify", issuance_id }. Anything else — a
+ * The only accepted request: a JSON object with exactly { action: "issue" | "verify" | "retrieve", issuance_id }. Anything else — a
  * multipart upload, raw bytes, a hash or any extra field — is refused (null) before the database is called.
  * @param {string | null} contentType @param {unknown} body
  */
 export function parseSealRequest(contentType, body) {
   if (!String(contentType ?? "").startsWith("application/json")) return null;
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).sort().join(",") !== "action,issuance_id") return null;
-  if (body.action !== "issue" && body.action !== "verify") return null;
+  if (body.action !== "issue" && body.action !== "verify" && body.action !== "retrieve") return null;
   if (typeof body.issuance_id !== "string" || !UUID.test(body.issuance_id)) return null;
   return { action: body.action, issuanceId: body.issuance_id };
 }
@@ -89,6 +89,22 @@ export async function issueOfficialPack(deps, input) {
  * ended); anyone else learns nothing (not_found). official is true only for "intact".
  * @param {import("./reportingPackSeal.d.mts").SealDeps} deps @param {string} userId @param {string} issuanceId
  */
+/**
+ * retrieve: the stored official bytes AGAIN, with the sealed digest, for a workspace member — only when the stored object
+ * is intact (verify's own gate); never a regenerated document. { outcome: "retrieved", document, content_sha256, file_name }
+ * or verify's refusal outcome.
+ * @param {import("./reportingPackSeal.d.mts").SealDeps} deps @param {string} userId @param {string} issuanceId
+ */
+export async function retrieveOfficialPack(deps, userId, issuanceId) {
+  const v = await verifyOfficialPack(deps, userId, issuanceId);
+  if (v.outcome !== "intact") return { outcome: v.outcome, official: false };
+  const { data } = await deps.rpc("reporting_pack_sealed_object", { p_issuance_id: issuanceId });
+  const row = obj(data);
+  const bytes = row?.storage_path ? await deps.get(row.storage_path) : null;
+  if (!bytes || (await deps.sha256Hex(bytes)) !== row.content_sha256) return { outcome: "substituted", official: false };
+  return { outcome: "retrieved", official: true, content_sha256: row.content_sha256, document: new TextDecoder().decode(bytes), file_name: `official-reporting-pack-${issuanceId}.json` };
+}
+
 export async function verifyOfficialPack(deps, userId, issuanceId) {
   if (!UUID.test(userId ?? "")) return { outcome: "not_found", official: false };
   const r = await verifyStoredPack(deps, issuanceId);

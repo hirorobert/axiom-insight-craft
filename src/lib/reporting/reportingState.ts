@@ -6,6 +6,7 @@ import { compositionClient, type CompositionResult } from "@/lib/statements/comp
 import { notesClient, type NotesStatusResult } from "@/lib/notes/notesStatus";
 import { comparativesClient, type ComparativeStatus } from "@/lib/comparatives/comparatives";
 import { signoffClient, type ReportingDb, type SavedVersion } from "./signoff";
+import { reviewClient } from "./reviewWorkflow";
 import type { FindingsSummary } from "@/lib/closeReview/findings";
 import { nextReportingAction, type NextAction } from "./nextAction";
 
@@ -20,7 +21,7 @@ export interface ReportingSnapshot {
 }
 
 export function reportingClients(db: ReportingDb) {
-  return { composition: compositionClient(db), notes: notesClient(db), comparatives: comparativesClient(db), signoff: signoffClient(db) };
+  return { composition: compositionClient(db), notes: notesClient(db), comparatives: comparativesClient(db), signoff: signoffClient(db), review: reviewClient(db) };
 }
 
 export async function readReportingSnapshot(db: ReportingDb, clients: ReturnType<typeof reportingClients>, companyId: string, periodYear: number): Promise<ReportingSnapshot> {

@@ -114,6 +114,34 @@ export const PRICING_P1_SOURCE_COMMIT = "4fba8c5efe1824dec5d4bdf0b261c385263f762
 export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
   "20261110100000_unlimited_team_members.sql",
 ]);
+/** The publication controls of the first complete IFRS for SMEs reporting slice (fs-controls-r1): one source at the commit holding its reviewed bytes. */
+export const FS_CONTROLS_SOURCE_COMMIT = "8bbb0223cdc88636302cf33ef637fcb7c1f261a5";
+export const FS_CONTROLS_WRAPPED_SOURCES = Object.freeze([
+  "20261111100000_fs_publication_controls.sql",
+]);
+/** The reviewed reporting journey (fs-journey-r1): one source at the commit holding its reviewed bytes; applied after fs-controls-r1. */
+export const FS_JOURNEY_SOURCE_COMMIT = "fe17272b3395446932941d9589343d9339a81034";
+export const FS_JOURNEY_WRAPPED_SOURCES = Object.freeze([
+  "20261112100000_fs_review_workflow_and_rollforward.sql",
+]);
+/** Server-enforced work bounds of the financial-statements module (fs-bounds-r1): one source at the commit holding its reviewed
+ * bytes; applied after fs-journey-r1 (its preflight requires the reviewer workflow). */
+export const FS_BOUNDS_SOURCE_COMMIT = "c17809e25c42d1032b416b3c980737f00fc4e282";
+export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
+  "20261114100000_fs_work_bounds.sql",
+]);
+/** Account capacity of the financial-statements module (fs-capacity-r1): one source at the commit holding its reviewed bytes;
+ * applied after fs-bounds-r1 (its preflight requires fs-work-bounds/1). */
+export const FS_CAPACITY_SOURCE_COMMIT = "b27de408889457e26da5439b22f7791354aa7af2";
+export const FS_CAPACITY_WRAPPED_SOURCES = Object.freeze([
+  "20261115100000_fs_account_capacity.sql",
+]);
+/** Transaction memo of the financial-statements reads (fs-memo-r1): one source at the commit holding its reviewed bytes;
+ * applied after fs-capacity-r1 (its preflight requires the account capacity). */
+export const FS_MEMO_SOURCE_COMMIT = "b27de408889457e26da5439b22f7791354aa7af2";
+export const FS_MEMO_WRAPPED_SOURCES = Object.freeze([
+  "20261116100000_fs_transaction_memo.sql",
+]);
 /** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Applied 2026-10-20 as
  * hosted 64 (0063), final-LF-removed wrapper form. */
 export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc032557";
@@ -135,6 +163,11 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "access-a1", commit: ACCESS_SOURCE_COMMIT, sources: ACCESS_WRAPPED_SOURCES, postcondition: "docs/release/access-a1/postcondition.sql" }),
   Object.freeze({ id: "tb-release-r1", commit: TB_RELEASE_SOURCE_COMMIT, sources: TB_RELEASE_WRAPPED_SOURCES, postcondition: "docs/release/tb-release-r1/postcondition.sql" }),
   Object.freeze({ id: "pricing-p1", commit: PRICING_P1_SOURCE_COMMIT, sources: PRICING_P1_WRAPPED_SOURCES, postcondition: "docs/release/unlimited-team-members/postcondition.sql" }),
+  Object.freeze({ id: "fs-controls-r1", commit: FS_CONTROLS_SOURCE_COMMIT, sources: FS_CONTROLS_WRAPPED_SOURCES, postcondition: "docs/release/fs-controls-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-journey-r1", commit: FS_JOURNEY_SOURCE_COMMIT, sources: FS_JOURNEY_WRAPPED_SOURCES, postcondition: "docs/release/fs-journey-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-bounds-r1", commit: FS_BOUNDS_SOURCE_COMMIT, sources: FS_BOUNDS_WRAPPED_SOURCES, postcondition: "docs/release/fs-bounds-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-capacity-r1", commit: FS_CAPACITY_SOURCE_COMMIT, sources: FS_CAPACITY_WRAPPED_SOURCES, postcondition: "docs/release/fs-capacity-r1/postcondition.sql" }),
+  Object.freeze({ id: "fs-memo-r1", commit: FS_MEMO_SOURCE_COMMIT, sources: FS_MEMO_WRAPPED_SOURCES, postcondition: "docs/release/fs-memo-r1/postcondition.sql" }),
   Object.freeze({ id: "currency-c1", commit: CURRENCY_C1_SOURCE_COMMIT, sources: CURRENCY_C1_WRAPPED_SOURCES, postcondition: "docs/release/period-currency-correction/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */

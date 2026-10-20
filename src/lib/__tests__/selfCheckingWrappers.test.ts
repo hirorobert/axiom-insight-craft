@@ -243,12 +243,17 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // access-a1 (20261104100000) is registered (wrapper + both forms) but PENDING hosted application: its wrapper exists and
     // is proven on PG17, but no RELEASE_JOURNAL/drizzle entry exists yet (nothing is marked applied before execution).
     // tb-release-r1 applied 2026-10-18 as hosted 59–62 (0058–0061). Nothing is pending.
-    // pricing-p1 (20261110100000) applied 2026-10-18 as hosted 63 (0062).
-    // currency-c1 (20261113100000) applied 2026-10-20 as hosted 64 (0063), final-LF-removed form. Nothing is pending.
-    const PENDING: string[] = [];
+    // pricing-p1 (20261110100000) applied 2026-10-18 as hosted 63 (0062). fs-controls-r1 (8bbb022) is registered
+    // (wrapper + all forms) and proven, but PENDING hosted application.
+    // fs-journey-r1 (fe17272) is registered (wrapper + all forms) and proven, but PENDING hosted application as well.
+    // currency-c1 (20261113100000, PR #179) applied 2026-10-20 as hosted 64 (0063), the wrapper minus its final LF.
+    // fs-memo-r1 (b27de40, the transaction memo, 20261116100000) is registered and proven the same way, PENDING after the four.
+    // fs-capacity-r1 (b27de40, the account capacity, 20261115100000) is registered and proven the same way, PENDING after the three.
+    // fs-bounds-r1 (c17809e, the work bounds, 20261114100000) is registered and proven the same way, PENDING hosted application after both.
+    const PENDING: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
-    // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 and currency-c1's 0063 with exactly
-    // the final LF removed.
+    // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 and the currency correction's 0063
+    // with exactly the final LF removed.
     const FINAL_LF_REMOVED = new Set(["0043_r1_w4_fs_signoff_binding", "0044_r1_w5_fs_reporting_closure", "0063_period_currency_correction"]);
     for (const [tag, e] of entries) {
       const x = e as { source: string; form: string; sha256: string; submittedBytes: number };

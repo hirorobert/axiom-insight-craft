@@ -56,6 +56,8 @@ const T = (ed: Edition, paragraph: string): Citation =>
 
 function requirements(ed: Edition): PackRequirement[] {
   const c = (p: string) => [T(ed, p)];
+  // The 2015 text where the third edition's paragraph could not be reached for verification (see the 1.2.0 note below).
+  const cx = (p: string) => (ed === "2015" ? c(p) : [T("2015", p)]);
   const line = (letter: string, label: string, condition?: string): PackRequirement => ({
     id: `smes.sfp.4_2_${letter}`, kind: "LINE_ITEM", statement: "SFP", label, citations: c(`4.2(${letter})`),
     applicability: "CONDITIONAL", condition: condition ?? "The entity has amounts of this kind at either reporting date.", blocking: true,
@@ -137,6 +139,28 @@ function requirements(ed: Edition): PackRequirement[] {
       applicability: "CONDITIONAL", condition: "The line has a carrying amount at either reporting date.", blocking: true },
     { id: "smes.note.early_application", kind: "DISCLOSURE", statement: "NOTES", label: "The fact of earlier application of the edition", citations: ed === "2015" ? c("A1") : [{ source: "ey-ifrs-developments-235", paragraph: "early application disclosure", verification: "SECONDARY" }],
       applicability: "CONDITIONAL", condition: "The edition is applied before its effective date (recorded early-application election).", blocking: true },
+    // 1.2.0 — the applicable disclosures of the first complete reporting slice (20261111100000). Paragraph numbers verified
+    // against the pinned 2015 text on 2026-10-18 (PRIMARY_TEXT). The third edition's published text was reachable only
+    // through Section 7 that day (3.8, 3.9 and 7.20 confirmed there); its later paragraphs cite the 2015 text and are NOT
+    // verified third-edition requirements. For that reason the server refuses to review or finalise a report composed under
+    // the third edition (FRAMEWORK_EDITION_UNSUPPORTED, 20261111100000): the 2015 edition is the supported edition of this slice.
+    { id: "smes.note.going_concern", kind: "DISCLOSURE", statement: "NOTES", label: "Going concern: management's assessment, any material uncertainties, or the basis used when not a going concern",
+      citations: [...c("3.8"), ...c("3.9")], applicability: "ALWAYS", blocking: true },
+    { id: "smes.note.authorisation", kind: "DISCLOSURE", statement: "NOTES", label: "Date the financial statements were authorised for issue and who gave that authorisation", citations: cx("32.9"),
+      applicability: "ALWAYS", blocking: true },
+    { id: "smes.note.kmp_compensation", kind: "DISCLOSURE", statement: "NOTES", label: "Key management personnel compensation in total", citations: cx("33.7"), applicability: "ALWAYS", blocking: true },
+    { id: "smes.note.cash_components", kind: "DISCLOSURE", statement: "NOTES", label: "Components of cash and cash equivalents and reconciliation to the statement of financial position", citations: c("7.20"),
+      applicability: "ALWAYS", blocking: true },
+    { id: "smes.note.income_tax", kind: "DISCLOSURE", statement: "NOTES", label: "Income tax: the major components of tax expense (income)", citations: cx("29.39"),
+      applicability: "CONDITIONAL", condition: "The composed tax expense line carries an amount at either reporting date (decided by the data, never by hand).", blocking: true },
+    { id: "smes.note.revenue", kind: "DISCLOSURE", statement: "NOTES", label: "Revenue: the accounting policies for recognition and the amount of each category of revenue", citations: cx("23.30"),
+      applicability: "CONDITIONAL", condition: "The composed revenue line carries an amount at either reporting date (decided by the data, never by hand).", blocking: true },
+    { id: "smes.note.events_after", kind: "DISCLOSURE", statement: "NOTES", label: "Non-adjusting events after the end of the reporting period: the nature and financial effect of each category",
+      citations: [...cx("32.10"), ...cx("32.11")], applicability: "CONDITIONAL", condition: "The entity has non-adjusting events after the end of the reporting period (recorded decision).", blocking: true },
+    { id: "smes.note.related_party_control", kind: "DISCLOSURE", statement: "NOTES", label: "Name of the parent and, if different, the ultimate controlling party", citations: cx("33.5"),
+      applicability: "CONDITIONAL", condition: "The entity has a parent or an ultimate controlling party (recorded decision).", blocking: true },
+    { id: "smes.note.related_party_transactions", kind: "DISCLOSURE", statement: "NOTES", label: "Related party transactions: the nature of the relationship, amounts, outstanding balances and commitments",
+      citations: cx("33.9"), applicability: "CONDITIONAL", condition: "The entity had related party transactions in the periods presented (recorded decision).", blocking: true },
   ];
 }
 
@@ -223,7 +247,14 @@ function schedules(): ScheduleDefinition[] {
 }
 
 // 1.1.0: movement schedules (17.31(e), 16.10(e), 18.27(e), 21.14(a)) added.
-export const IFRS_FOR_SMES_PACK_VERSION = "1.1.0";
+// 1.2.0: the applicable disclosures of the first complete reporting slice (going concern, authorisation, key management
+//        compensation, cash components, income tax, revenue, events after the period, related parties) added.
+export const IFRS_FOR_SMES_PACK_VERSION = "1.2.0";
+/** Requirements that entered the pack at 1.2.0 (their fs_pack_requirements.pack_version); every earlier row carries 1.1.0. */
+export const IFRS_FOR_SMES_REQUIREMENTS_ADDED_1_2_0: readonly string[] = Object.freeze([
+  "smes.note.going_concern", "smes.note.authorisation", "smes.note.kmp_compensation", "smes.note.cash_components", "smes.note.income_tax",
+  "smes.note.revenue", "smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions",
+]);
 /** Version of the presentation-line vocabulary alone (fs_presentation_lines.lines_version); changes only when `lines()` changes. */
 export const IFRS_FOR_SMES_LINES_VERSION = "1.0.0";
 

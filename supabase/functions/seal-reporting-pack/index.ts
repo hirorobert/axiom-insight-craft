@@ -4,6 +4,8 @@
 //   → the DATABASE renders the canonical document from the authoritative saved output of the issuance, this function
 //     stores exactly those bytes (private bucket, no overwrite) and the database seals its own hash of them. The
 //     response carries the sealed document for the caller to save.
+// POST application/json { action: "retrieve", issuance_id }
+//   → the stored official bytes again with their sealed digest, for a workspace member, only when intact (never regenerated).
 // POST application/json { action: "verify", issuance_id }
 //   → intact | substituted | not_canonical | missing | not_found, and official = (intact): the ONLY route that may
 //     answer official, because it downloads the stored bytes and re-hashes them (workspace access required).
@@ -13,7 +15,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // @deno-types="../_shared/reportingPackSeal.d.mts"
-import { issueOfficialPack, parseSealRequest, verifyOfficialPack, type SealDeps } from "../_shared/reportingPackSeal.mjs";
+import { issueOfficialPack, parseSealRequest, retrieveOfficialPack, verifyOfficialPack, type SealDeps } from "../_shared/reportingPackSeal.mjs";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +54,10 @@ serve(async (req) => {
     if (request.action === "issue") {
       const r = await issueOfficialPack(deps, { userId: user.id, issuanceId: request.issuanceId });
       return json(r.httpStatus, r.body);
+    }
+    if (request.action === "retrieve") {
+      const r = await retrieveOfficialPack(deps, user.id, request.issuanceId);
+      return json(r.outcome === "not_found" ? 404 : 200, r);
     }
     // The only route that may answer official: the stored bytes are downloaded and re-hashed (workspace access required).
     const v = await verifyOfficialPack(deps, user.id, request.issuanceId);

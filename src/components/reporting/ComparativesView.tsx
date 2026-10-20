@@ -14,6 +14,7 @@ import { presentAmount } from "@/lib/presentation/amounts";
 import type { Composition } from "@/lib/statements/composition";
 import { signedMinor } from "./SchedulesView";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
+import { RollforwardPanel } from "./RollforwardPanel";
 
 interface Restatement { id: string; lines: RestatementLine[]; reason: string; reference: string; createdAt: string; state: "pending" | "approved" | "rejected" | "withdrawn" }
 
@@ -62,6 +63,7 @@ function Evaluated(p: PageProps & { s: ComparativeStatus; c: Composition }) {
       {cs.state === "missing" ? <MissingRecovery {...p} /> : null}
       <Bridges {...p} />
       <Restatements {...p} />
+      <RollforwardPanel {...p} />
       <Notice text={notice} />
       <ConfirmDialog open={confirm !== null} title={confirm === "approve" ? "Approve the comparatives" : "Withdraw the approval"} period={`FY${p.periodYear} (comparative FY${p.c.comparative.periodYear ?? ""})`} version={null}
         consequences={confirm === "approve" ? "The prior-year figures shown, with any approved restatements and bridges, become the approved comparatives. Any later change to them makes this approval out of date." : "The comparatives stop counting as approved; sign-off is blocked until they are approved again."}

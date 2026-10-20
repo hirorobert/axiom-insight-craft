@@ -224,7 +224,9 @@ export function checkMigrationAuthority(repo = REPO) {
     const first = Math.min(...order), last = Math.max(...order);
     const covered = new Set([...mirrored, ...releaseApplied].map((m) => m.source));
     for (let i = first; i <= last; i++) if (!covered.has(sources[i])) errors.push(`drizzle: source ${sources[i]} was skipped by the hosted apply journal`);
-    for (let i = last + 1; i < sources.length; i++) pending.push(sources[i]);
+    // Authored and not yet applied: the sources after the last in-order mirror that no hosted entry covers (an entry applied
+    // out of source order, e.g. 0063, is covered and therefore not pending; the earlier sources it jumped remain pending).
+    for (let i = last + 1; i < sources.length; i++) if (!covered.has(sources[i])) pending.push(sources[i]);
   }
   return { ok: errors.length === 0, errors, mirrored, pending, knownDrift, resolved, releaseApplied };
 }

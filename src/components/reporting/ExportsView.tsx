@@ -13,6 +13,7 @@ import type { SavedVersion } from "@/lib/reporting/signoff";
 import { sealedPackInput } from "@/lib/reporting/sealedPack";
 import { PRINT_HOST_ID, PRINT_ROOT_CLASS, packForPrintHost, printDocumentCss } from "@/lib/exports/printHost";
 import type { PageProps } from "./shared";
+import { OfficialPack } from "./OfficialPack";
 
 export function ExportsView(p: PageProps) {
   const finals = p.state.versions.filter((v) => v.state === "FINAL").sort((a, b) => b.reportVersion - a.reportVersion);
@@ -79,6 +80,7 @@ function Pack(p: PageProps & { v: SavedVersion }) {
         <button type="button" className="rounded-md border border-input px-3 py-1.5" onClick={() => download(`${base}.csv`, "text/csv", pack.csv)}>Download spreadsheet (CSV)</button>
       </div>
       <iframe title={`Report pack — version ${p.v.reportVersion}`} srcDoc={pack.html} className="h-[70vh] w-full border border-border bg-white" data-testid="pack-preview" />
+      <OfficialPack {...p} v={p.v} />
     </div>
   );
 }

@@ -26,7 +26,8 @@ const requirementSchema = z.object({
   totalsMinor: z.object({ current: MINOR.optional(), comparative: MINOR.optional() }).optional(),
 });
 const evaluatedSchema = z.object({
-  state: z.literal("evaluated"), contract: z.literal("fs-notes-status/2"), packId: z.enum(["ifrs-for-smes/2015", "ifrs-for-smes/2025"]),
+  // Contract 3 (20261111100000) adds the data-decided disclosures (income tax, revenue); the shape is unchanged.
+  state: z.literal("evaluated"), contract: z.enum(["fs-notes-status/2", "fs-notes-status/3"]), packId: z.enum(["ifrs-for-smes/2015", "ifrs-for-smes/2025"]),
   compositionSha256: z.string().regex(/^[0-9a-f]{64}$/), periodYear: z.number().int(),
   requirements: z.array(requirementSchema), blockers: z.array(z.string()), statusSha256: z.string().regex(/^[0-9a-f]{64}$/),
 });

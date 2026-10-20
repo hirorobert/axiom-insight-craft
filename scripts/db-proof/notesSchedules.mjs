@@ -22,7 +22,8 @@
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) also works (CI).
 import crypto from "node:crypto";
 import { ASSIGN, FY2025, FY2026, applyChain, assignmentPairs, certifier, chainFiles, csv, makeWorld, migrationText, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
-import { IFRS_FOR_SMES_2015, IFRS_FOR_SMES_2025, IFRS_FOR_SMES_PACK_VERSION } from "../../src/lib/frameworkPacks/ifrsForSmes.ts";
+import { IFRS_FOR_SMES_2015, IFRS_FOR_SMES_2025, IFRS_FOR_SMES_PACK_VERSION, IFRS_FOR_SMES_REQUIREMENTS_ADDED_1_2_0 } from "../../src/lib/frameworkPacks/ifrsForSmes.ts";
+import { DECISIONS_1_2_0, WORDS_1_2_0 } from "./lib/reportingKit.mjs";
 
 const NOTES_FILE = "20261019100000_fs_notes_and_schedules.sql";
 const { group, check, refused, finish } = reporter();
@@ -40,7 +41,7 @@ async function main() {
   group("Vocabulary — requirements and schedules are the TypeScript pack's");
   await check("every requirement (id, kind, statement, applicability, blocking, order) and the pack version are identical", async () => {
     const rows = (await db.admin.query("SELECT pack_version, requirement_id, kind, statement, applicability, blocking, sort_order FROM public.fs_pack_requirements ORDER BY sort_order")).rows;
-    const want = IFRS_FOR_SMES_2015.requirements.map((r, i) => ({ pack_version: IFRS_FOR_SMES_PACK_VERSION, requirement_id: r.id, kind: r.kind, statement: r.statement ?? null,
+    const want = IFRS_FOR_SMES_2015.requirements.map((r, i) => ({ pack_version: IFRS_FOR_SMES_REQUIREMENTS_ADDED_1_2_0.includes(r.id) ? IFRS_FOR_SMES_PACK_VERSION : "1.1.0", requirement_id: r.id, kind: r.kind, statement: r.statement ?? null,
       applicability: r.applicability, blocking: r.blocking, sort_order: i + 1 }));
     const same2025 = JSON.stringify(IFRS_FOR_SMES_2025.requirements.map((r) => [r.id, r.kind, r.statement, r.applicability, r.blocking]))
       === JSON.stringify(IFRS_FOR_SMES_2015.requirements.map((r) => [r.id, r.kind, r.statement, r.applicability, r.blocking]));
@@ -97,6 +98,11 @@ async function main() {
       "smes.schedule.intangibles": "not_applicable", "smes.schedule.provisions": "not_applicable", "smes.note.early_application": "not_applicable",
       // 20261022100000: Section 5 comprehensive income — nothing decided yet, so nothing is assumed "not applicable".
       "smes.sci.5_5_e": "undecided", "smes.sci.5_5_g": "undecided", "smes.sci.5_5_h": "undecided", "smes.sci.5_5_i": "undecided",
+      // 20261111100000 (pack 1.2.0): four always-applicable disclosures missing; income tax and revenue decided by the data
+      // (both lines carry amounts: missing); three preparer decisions undecided.
+      "smes.note.going_concern": "missing", "smes.note.authorisation": "missing", "smes.note.kmp_compensation": "missing", "smes.note.cash_components": "missing",
+      "smes.note.income_tax": "missing", "smes.note.revenue": "missing",
+      "smes.note.events_after": "undecided", "smes.note.related_party_control": "undecided", "smes.note.related_party_transactions": "undecided",
     };
     const got = Object.fromEntries(initial.requirements.map((r) => [r.requirementId, r.status]));
     const bad = Object.entries(want).filter(([id, s]) => got[id] !== s);
@@ -107,6 +113,9 @@ async function main() {
       "REQUIRED_DISCLOSURE_MISSING:smes.note.compliance", "REQUIRED_DISCLOSURE_MISSING:smes.note.identification", "REQUIRED_DISCLOSURE_MISSING:smes.note.policies",
       "REQUIRED_DISCLOSURE_MISSING:smes.note.judgements", "REQUIRED_DISCLOSURE_MISSING:smes.note.estimates", "REQUIRED_DISCLOSURE_MISSING:smes.note.subclassifications",
       "REQUIREMENT_UNDECIDED:smes.note.share_capital", "SCHEDULE_MISSING:ppe",
+      "REQUIRED_DISCLOSURE_MISSING:smes.note.going_concern", "REQUIRED_DISCLOSURE_MISSING:smes.note.authorisation", "REQUIRED_DISCLOSURE_MISSING:smes.note.kmp_compensation",
+      "REQUIRED_DISCLOSURE_MISSING:smes.note.cash_components", "REQUIRED_DISCLOSURE_MISSING:smes.note.income_tax", "REQUIRED_DISCLOSURE_MISSING:smes.note.revenue",
+      "REQUIREMENT_UNDECIDED:smes.note.events_after", "REQUIREMENT_UNDECIDED:smes.note.related_party_control", "REQUIREMENT_UNDECIDED:smes.note.related_party_transactions",
       "REQUIREMENT_UNDECIDED:smes.sci.5_5_e", "REQUIREMENT_UNDECIDED:smes.sci.5_5_g", "REQUIREMENT_UNDECIDED:smes.sci.5_5_h"];
     return JSON.stringify(initial.blockers) === JSON.stringify(want) ? true : initial.blockers;
   });
@@ -256,6 +265,14 @@ async function main() {
   });
 
   group("Complete — and the identity moves with every change");
+  await check("pack 1.2.0 (20261111100000): the data-decided disclosures cannot be decided by hand; the applicable ones are recorded and the preparer's decisions taken", async () => {
+    const a = await decide(U.preparer, "smes.note.income_tax", "not_applicable");
+    const b = await decide(U.preparer, "smes.note.revenue", "not_applicable");
+    const r = [];
+    for (const [id, text] of Object.entries(WORDS_1_2_0)) r.push(await disclose(U.preparer, id, text));
+    for (const id of DECISIONS_1_2_0) r.push(await decide(U.preparer, id, "not_applicable"));
+    return a.outcome === "not_decidable" && b.outcome === "not_decidable" && r.every((x) => x.outcome === "recorded") ? true : { a, b, r };
+  });
   let done;
   await check("Section 5 decided (no discontinued operation, no OCI): total comprehensive income is composed and equals profit or loss, 5,100.00 and 3,100.00 (hand-computed)", async () => {
     for (const id of ["smes.sci.5_5_e", "smes.sci.5_5_g", "smes.sci.5_5_h"]) await decide(U.preparer, id, "not_applicable");

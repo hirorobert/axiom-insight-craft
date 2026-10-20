@@ -49,10 +49,24 @@ const composedSchema = z.object({
   blockers: z.array(z.string()),
   compositionSha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
-const notComposedSchema = z.object({
-  state: z.enum(["unavailable", "invalid_request", "no_authority", "legacy_certification", "currency_unknown", "edition_unresolved"]),
-  periodYear: z.number().int().optional(), reason: z.string().optional(),
+/** fs_account_capacity (20261115100000): what the composition would read, against the release's envelope. */
+export const capacitySchema = z.object({
+  state: z.literal("measured"), contract: z.literal("fs-account-capacity/1"), periodYear: z.number().int().optional(),
+  current: z.number().int().nonnegative(), comparative: z.number().int().nonnegative(), total: z.number().int().nonnegative(),
+  bound: z.number().int().positive(), within: z.boolean(),
 });
+export type AccountCapacity = z.infer<typeof capacitySchema>;
+const notComposedSchema = z.object({
+  state: z.enum(["unavailable", "invalid_request", "no_authority", "legacy_certification", "currency_unknown", "edition_unresolved", "over_capacity"]),
+  periodYear: z.number().int().optional(), reason: z.string().optional(), capacity: capacitySchema.optional(),
+});
+/** The words for an engagement over the account envelope: the counts, the bound, what stays available and what to do. */
+export function overCapacityWords(c: AccountCapacity | undefined): string {
+  const tail = "Saved versions, reviewer comments and issued packs stay available; every account keeps its identity - nothing is merged or dropped to fit. Statements for a chart of this size are not available in this release; the capacity release will widen the envelope.";
+  if (!c) return `The statements would read more accounts across the current and comparative trial balances than this release supports. ${tail}`;
+  const n = (x: number) => x.toLocaleString("en-US");
+  return `The statements would read ${n(c.total)} accounts across the current (${n(c.current)}) and comparative (${n(c.comparative)}) trial balances; this release supports up to ${n(c.bound)}. ${tail}`;
+}
 
 export type Composition = z.infer<typeof composedSchema>;
 export type CompositionLine = z.infer<typeof lineSchema>;

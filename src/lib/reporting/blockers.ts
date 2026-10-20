@@ -17,9 +17,42 @@ const EXACT: Readonly<Record<string, string>> = {
   BUDGET_COMPARISON_MISSING: "The budget comparison is missing.",
   TOTAL_COMPREHENSIVE_INCOME_NOT_COMPOSED: "Total comprehensive income is not composed because profit or loss is not.",
   CLOSE_REVIEW_FINDINGS_NOT_CHECKED: "Close Review has not been checked for this trial balance. Open Close Review › Findings and run the check.",
+  // 20261111100000 — the publication controls.
+  FRAMEWORK_EDITION_UNRECORDED: "The version does not record the edition it applies.",
+  CASHFLOW_OPENING_CASH_CONFLICT: "Two authorities state different opening cash; nothing is chosen between them.",
+  CASH_PERIMETER_NOT_ESTABLISHED: "The cash perimeter of the current period could not be established from the cash account map.",
 };
 
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
+  // 20261112100000 — the reviewer workflow.
+  // 20261115100000 — the account capacity (fs_account_capacity): <total>/<bound>.
+  ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.`; }],
+  ["REVIEW_COMMENT_UNRESOLVED", (r) => `A reviewer's blocking finding is not resolved for this version (comment ${r.slice(0, 8)}…). The preparer responds and the reviewer resolves it on the Sign-off page.`],
+  // 20261111100000 — the publication controls.
+  ["PUBLICATION_PATH_UNSUPPORTED", (r) => `Only an IFRS for SMEs report derived from the authoritative trial balance can be reviewed or finalised (${r.replace(/:/g, " / ")}).`],
+  ["FRAMEWORK_EDITION_UNSUPPORTED", (r) => `Only the IFRS for SMEs 2015 edition can be reviewed or finalised in this release; this period resolves to ${r}.`],
+  ["COMPARATIVE_NOT_AS_ISSUED", (r) => `A comparative figure, as reported, differs from the prior year's issued statements (${r.replace(/:(-?\d+|not_issued|not_presented)$/, ", difference $1")}). A reviewer accepts explained differences on the Comparatives page, or the prior year is re-issued.`],
+  ["FRAMEWORK_EDITION_MISMATCH", (r) => `The version records an edition the server does not resolve for this period (${r.replace(/:/g, " vs ")}). Save a new version.`],
+  ["EVIDENCE_SERIES_AMBIGUOUS", (r) => `Two usable evidence series exist for one family and period (${r.replace(/:/g, " ")}); withdraw one.`],
+  ["EVIDENCE_DENOMINATION_MISMATCH", (r) => `An evidence file is stated in another currency or scale than the statements (${r.replace(/:/g, " ")}); re-state it.`],
+  ["EVIDENCE_NOT_BOUND", (r) => `A figure rests on evidence this version is not bound to (${r.replace(/:/g, " ")}). Save a new version.`],
+  ["EVIDENCE_STATEMENTS_UNAVAILABLE", (r) => `The server could not compose the cash-flow and equity statements (${r}).`],
+  ["CASHFLOW_CLOSING_CASH_TIE", (r) => `Closing cash does not equal the statement of financial position's cash perimeter (${r.replace(/:/g, ", difference ")} minor units).`],
+  ["CASHFLOW_OPENING_NOT_PRIOR_CLOSING", (r) => `Opening cash does not equal the comparative period's closing cash (difference ${r} minor units).`],
+  ["CASHFLOW_ACCOUNT_ROLLFORWARD", (r) => `The ledger movement of a cash account differs from its trial-balance movement (account ${r.replace(/:/g, ", difference ")} minor units).`],
+  ["CASHFLOW_ROLLFORWARD_BALANCE_MISSING", (r) => `A cash account has no balance in one of the two statements of financial position, so its ledger movement cannot be checked (${r}).`],
+  ["CASHFLOW_LEDGER_ACCOUNT_NOT_CASH", (r) => `A ledger row names an account the cash review did not establish as cash (${r}).`],
+  ["CASH_ACCOUNT_UNMAPPED", (r) => `An account reviewed as cash has no category in the cash account map (${r}).`],
+  ["CASH_ACCOUNT_NOT_IN_TRIAL_BALANCE", (r) => `A mapped cash account is not in a presented period's trial balance, or has a balance but no statement line (${r}).`],
+  ["CASH_PERIMETER_BALANCE_MISSING", (r) => `A mapped cash account has no figure in the current period (${r}).`],
+  ["SOCIE_OPENING_MISSING", (r) => `No opening balance was supplied for an equity component (${r}); opening equity is never inferred.`],
+  ["SOCIE_COMPONENT_DOES_NOT_CAST", (r) => `A stated closing equity balance does not equal opening plus movements (${r.replace(/:/g, ", ")} minor units).`],
+  ["SOCIE_CLOSING_EQUITY_TIE", (r) => `Total closing equity does not equal the statement of financial position's total equity (${r.replace(/:/g, ", difference ")} minor units).`],
+  ["SOCIE_PROFIT_TIE", (r) => `The result recognised in equity does not equal profit or loss (${r.replace(/:/g, ", difference ")} minor units).`],
+  ["SOCIE_OPENING_NOT_PRIOR_CLOSING", (r) => `An equity component's opening balance does not equal its comparative closing balance (${r.replace(/:/g, ", difference ")} minor units).`],
+  ["REQUIRED_DISCLOSURE_MISSING", (r) => `A required disclosure has no recorded wording (${r}).`],
+  ["STATEMENT_EVIDENCE_MISSING", (r) => `The evidence a statement is generated from is missing (${r}).`],
+  ["STATEMENT_INCOMPLETE", (r) => `A composed statement is incomplete (${r}).`],
   ["CLOSE_REVIEW_BLOCKING_FINDINGS", (r) => `${r} blocking Close Review finding(s) are unresolved. Resolve them in Close Review › Findings.`],
   ["CLOSE_REVIEW_ADJUSTMENTS_UNDECIDED", (r) => `${r} Close Review adjustment(s) await a decision.`],
   ["CLOSE_REVIEW_ADJUSTMENTS_REQUIRE_REVALIDATION", (r) => `${r} approved adjustment(s) need revalidation after a re-check.`],

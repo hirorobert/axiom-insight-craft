@@ -21,7 +21,7 @@ import type { GenerationDiagnostic } from "@/lib/financialGeneration/common";
 import type { EvidenceUse } from "@/lib/financialGeneration/applyEvidence";
 import { cashScopeFromReportingInput } from "./cashScope";
 import type { EvidenceBatch } from "@/lib/financialEvidence/types";
-import { parseComposition } from "@/lib/statements/composition";
+import { overCapacityWords, parseComposition } from "@/lib/statements/composition";
 import { parseNotesStatus, type NotesStatus, type NotesStatusResult } from "@/lib/notes/notesStatus";
 import { dependenciesRef, latestEvidence, type ReportingDb, type SignoffClient } from "./signoff";
 
@@ -87,6 +87,7 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
     return data;
   };
   const composition = parseComposition(await rpc("fs_statement_composition"));
+  if (composition.state === "over_capacity") return { outcome: "refused", reason: overCapacityWords(composition.capacity), diagnostics: none };
   if (composition.state !== "composed") return { outcome: "refused", reason: `The statements are not composed (${composition.state}).`, diagnostics: none };
   const parsed: NotesStatusResult = parseNotesStatus(await rpc("fs_notes_status"));
   if (parsed.state !== "evaluated") return { outcome: "refused", reason: `The notes are not evaluated (${parsed.state}).`, diagnostics: none };
