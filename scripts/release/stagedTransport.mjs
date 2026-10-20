@@ -312,11 +312,11 @@ export function transportForms() {
  */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
   fs_release_staged_transport: Object.freeze({ role: "bootstrap", bytes: 8922, sha256: "ead3ca14299acdde48b07eae48f57cb08f94d9fd8674f59cc8d8d4136c22daab", withFinalLf: "7cc407593a96bc36acfd54c38046636df4f9d949cf6c38a905927803c407584a" }),
-  fs_controls_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5867, sha256: "8af5bb82e90c01feb72d0cb10dc0a15c421ce1be88089f08395a2601effebeb0", withFinalLf: "9d71a3993ba6e4433c7e83bc92317554af4386e92926feafd5eda13df24e6ddb" }),
-  fs_journey_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5894, sha256: "3367021535ee63fecdefca8b065bf4cbea6be461a440060de4f9377a80d30245", withFinalLf: "d644cebc8cafd80de9cb5c232ee127624daeb4d5e6c59c46cda74fadba1f668d" }),
-  fs_bounds_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5846, sha256: "ec43cefbbe14192f5260ab335ca302efba09b8f45bee36d80a800d234af7be1d", withFinalLf: "1ea163f4eee0f995e690a99206e743f0eeafdc8779090355c27e9bcd76c1a99a" }),
-  fs_capacity_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5869, sha256: "7b938e2d4526db7fd0d563b0573d67565232a27e715d22ad5210befa758a1f32", withFinalLf: "34cddd7ff59bd968a222647ecd0f0cd085472ad05b9832870ff1842334272205" }),
-  fs_memo_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5843, sha256: "8bbf0e2d7331de77723513e69df2e1b0ab7e679cc3579fdbd8b2f19302aa0894", withFinalLf: "28083f1823b77a7a3ca73d3401aeed9aa1a53f5b3b2a10873ebdc969beb04bd7" }),
+  fs_controls_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5625, sha256: "b0c9e768e9776c25bfa8324e2baf802fddd7b1059054f399958c8fa06ce46d2a", withFinalLf: "43082b222ae9ac0fdb66edbe9c414770ce0d5a9dfa7a2b54a4f765511d4ea6a6" }),
+  fs_journey_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5652, sha256: "ef7468d912838fd94b810330a851d3beccd85f6f5a889e443ca9b7b6ea552c47", withFinalLf: "f0c8db453db6d1ed2622ea734291e65f4a7eb3bdf52460ea7e47024bb2c4a4f8" }),
+  fs_bounds_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5604, sha256: "2d2245dd74d20da8b0569a1cd89304061f715c27b8550b902730fe7d5528e893", withFinalLf: "b7838927a2f7bbe03b760b410de590adf7d972d661f2d3732ce0addb3c4be905" }),
+  fs_capacity_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5627, sha256: "f09a8bfa676396220deefd0a0c58f45a747d6cfeeca6aebe8cce9e8d1106e5b2", withFinalLf: "54128fa9b74a7a8cccf8068d68a73c3752a02c842bf601bd304755819e9ebd3a" }),
+  fs_memo_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5601, sha256: "ab9f67ebc6ac60e6d23b8a4da6f8dde24ab23441c73eaf446bdf5965c5bcb93c", withFinalLf: "614d87902f14f033cb52542c862da39ddc7e669abbe121ebe2dbd05acf43beba" }),
 });
 
 /** Checks a journal mirror `text` of tag `tag` as a transport entry. Returns { covers?, problems }. */
