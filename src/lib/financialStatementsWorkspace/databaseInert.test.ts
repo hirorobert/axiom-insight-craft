@@ -527,6 +527,10 @@ describe("database inertness — schema and functions", () => {
       // Pure, database-free migration-ordering predicates shared by run.mjs and serviceEnquiries.mjs (already reviewed above),
       // replacing their prior files.length-N / slice(-N,-M) positional assumptions. No new dependency, no deploy behavior change.
       "scripts/db-proof/migrationOrderingChecks.mjs",
+      // The file-based release runner for self-checking wrapper batches (owner-run against a connection string it never logs;
+      // one transaction per wrapper holding the submitted text and its drizzle journal row, the repository mirror written) and
+      // its disposable-database proof (loopback-only; main's schema before the FS slice, then the runner itself). No CI deploy.
+      "scripts/release/applyJournalledWrappers.mjs", "scripts/db-proof/journalledRunner.mjs",
       // Readiness evidence under real RLS: loopback-only; creates and drops ONLY its own uniquely named database; reads
       // through the app's own readReconciliationEvidence; probes (never changes) the write surface. No deploy behaviour.
       "scripts/db-proof/reconciliationEvidence.mjs",
