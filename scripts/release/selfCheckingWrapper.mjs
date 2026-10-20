@@ -142,8 +142,8 @@ export const FS_MEMO_SOURCE_COMMIT = "7bfb2630889f4932630ce57e48b6345125d1f16c";
 export const FS_MEMO_WRAPPED_SOURCES = Object.freeze([
   "20261116100000_fs_transaction_memo.sql",
 ]);
-/** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Authored, PENDING
- * hosted application. */
+/** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Applied 2026-10-20 as
+ * hosted 64 (0063), final-LF-removed wrapper form. */
 export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc032557";
 export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
   "20261113100000_period_currency_correction.sql",
