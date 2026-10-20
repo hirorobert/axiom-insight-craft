@@ -3,6 +3,8 @@
  *
  * The browser offers a decision only where the server would accept one: a finding that takes a decision
  * (tb_decision_actions), carrying the identity the engine recorded (code + subject), on the upload's current evaluation.
+ * Whether it MUST be decided is the server's rule (decision_required on the finding): the entity always; a clearing
+ * balance only under the workspace's recorded policy; amount-free trailing text never (it may be acknowledged).
  * record_tb_finding_decision decides everything else — the actor and their authority, the finding's identity against
  * the certification's own findings, the required confirmations and evidence, stale/version/replay outcomes — and
  * invalidates the evaluation it was made against at once. The page then checks the file again through the one
@@ -18,11 +20,11 @@ export interface DecisionChoice { action: string; label: string; resolves: boole
 /** What each finding can be decided as (mirrors tb_decision_actions; the server refuses anything else). */
 export const DECISION_CHOICES: Readonly<Record<DecisionCode, readonly DecisionChoice[]>> = {
   ENTITY_NAME_DIFFERS: [
-    { action: "same_entity", label: "Same entity", resolves: true, consequence: "The file is accepted as this entity's. Later files naming it the same way are recognised too, until the entity's details change." },
+    { action: "same_entity", label: "Same entity", resolves: true, consequence: "The file is accepted as this entity's. It applies to this file only; a replacement file, or a change to the entity's details, is asked about again." },
     { action: "different_entity", label: "Different entity", resolves: false, consequence: "The file is blocked here. Remove it and upload it to the right engagement." },
   ],
   UNRECOGNISED_TRAILING_TEXT: [
-    { action: "not_part_of_trial_balance", label: "Not part of the trial balance", resolves: true, consequence: "The rows stay out of the accounts, and the decision is recorded with the result." },
+    { action: "not_part_of_trial_balance", label: "Not part of the trial balance", resolves: true, consequence: "The rows stay out of the accounts (they carry no amounts), and your acknowledgement is recorded with the result." },
     { action: "part_of_trial_balance", label: "Part of the trial balance", resolves: false, consequence: "The file is blocked until its layout or content is corrected, because those rows have no amounts this check can read." },
   ],
   CLEARING_ACCOUNT_BALANCE: [
@@ -38,9 +40,12 @@ export function decidable(issue: TrialBalanceIssue): issue is TrialBalanceIssue 
 
 export interface CurrentDecisionView {
   decisionId: string; code: string; subject: string; action: string; resolves: boolean; revision: number;
-  reason: string; carriedFromUploadId: string | null; createdAt: string;
+  reason: string; createdAt: string;
 }
-export type DecisionsRead = { kind: "ok"; decisions: CurrentDecisionView[] } | { kind: "unavailable" };
+/** The newest revision recorded for each finding (current or not): the expected revision of the next decision. */
+export type LatestRevisions = ReadonlyMap<string, number>;
+export const revisionKey = (code: string, subject: string) => `${code}\u0000${subject}`;
+export type DecisionsRead = { kind: "ok"; decisions: CurrentDecisionView[]; latest: LatestRevisions } | { kind: "unavailable" };
 
 export async function readFindingDecisions(rpc: Rpc, uploadId: string): Promise<DecisionsRead> {
   const { data, error } = await rpc("get_tb_finding_decisions", { p_upload_id: uploadId });
@@ -51,10 +56,14 @@ export async function readFindingDecisions(rpc: Rpc, uploadId: string): Promise<
     if (typeof r.decision_id !== "string" || typeof r.code !== "string" || typeof r.subject !== "string" || typeof r.action !== "string"
       || typeof r.resolves !== "boolean" || typeof r.revision !== "number") return [];
     return [{ decisionId: r.decision_id, code: r.code, subject: r.subject, action: r.action, resolves: r.resolves, revision: r.revision,
-      reason: typeof r.reason === "string" ? r.reason : "", carriedFromUploadId: typeof r.carried_from_upload_id === "string" ? r.carried_from_upload_id : null,
-      createdAt: typeof r.created_at === "string" ? r.created_at : "" }];
+      reason: typeof r.reason === "string" ? r.reason : "", createdAt: typeof r.created_at === "string" ? r.created_at : "" }];
   });
-  return { kind: "ok", decisions };
+  const raw = (d as { latest_revisions?: unknown }).latest_revisions;
+  const latest = new Map<string, number>((Array.isArray(raw) ? raw : []).flatMap((x) => {
+    const r = x as Record<string, unknown>;
+    return typeof r.code === "string" && typeof r.subject === "string" && typeof r.revision === "number" ? [[revisionKey(r.code, r.subject), r.revision] as [string, number]] : [];
+  }));
+  return { kind: "ok", decisions, latest };
 }
 
 export interface DecisionInput {
@@ -109,4 +118,33 @@ export type EvidenceKind = "reconciliation" | "document";
 export function clearingPayload(nature: ClearingNature | null, explanation: string, evidence: EvidenceKind | null, reference: string) {
   if (!nature || !evidence || explanation.trim().length < 10 || reference.trim().length < 3) return null;
   return { nature, explanation: explanation.trim(), evidence: { kind: evidence, reference: reference.trim() } };
+}
+
+// ── The workspace's review policy for clearing and in-transit balances (set_tb_finding_policy) ──────────────────────────
+
+export type ClearingPolicyMode = "review" | "require_decision";
+export interface ClearingPolicy { mode: ClearingPolicyMode; revision: number; reason: string | null; mayChange: boolean }
+
+export async function readClearingPolicy(rpc: Rpc, companyId: string): Promise<ClearingPolicy | null> {
+  const { data, error } = await rpc("get_tb_finding_policies", { p_company_id: companyId });
+  const d = data as { outcome?: string; may_change?: unknown; policies?: unknown } | null;
+  if (error || d?.outcome !== "ok" || !Array.isArray(d.policies)) return null;
+  const p = (d.policies as Record<string, unknown>[]).find((x) => x.code === "CLEARING_ACCOUNT_BALANCE");
+  if (!p || (p.mode !== "review" && p.mode !== "require_decision") || typeof p.revision !== "number") return null;
+  return { mode: p.mode, revision: p.revision, reason: typeof p.reason === "string" ? p.reason : null, mayChange: d.may_change === true };
+}
+
+const POLICY_REFUSAL: Record<string, string> = {
+  FORBIDDEN: "Only someone who reviews this workspace's close can change this policy.",
+  VERSION_CONFLICT: "Someone changed this policy meanwhile. Reload to see it.",
+  REASON_REQUIRED: "Give a reason of at least 3 characters.",
+};
+export async function setClearingPolicy(rpc: Rpc, companyId: string, mode: ClearingPolicyMode, reason: string, expectedRevision: number, requestId: string):
+  Promise<{ ok: true; revision: number } | { ok: false; message: string }> {
+  const { data, error } = await rpc("set_tb_finding_policy", { p_company_id: companyId, p_code: "CLEARING_ACCOUNT_BALANCE", p_mode: mode,
+    p_reason: reason, p_expected_revision: expectedRevision, p_request_id: requestId });
+  if (error) return { ok: false, message: "The policy could not be saved (connection problem). Try again." };
+  const d = (data ?? {}) as { outcome?: string; code?: string; revision?: number };
+  if ((d.outcome === "recorded" || d.outcome === "unchanged") && typeof d.revision === "number") return { ok: true, revision: d.revision };
+  return { ok: false, message: POLICY_REFUSAL[d.code ?? ""] ?? "The policy was not changed. Try again." };
 }

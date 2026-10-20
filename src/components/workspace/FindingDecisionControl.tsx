@@ -19,11 +19,13 @@ type Rpc = Parameters<typeof recordFindingDecision>[0];
 const NATURE: Record<ClearingNature, string> = { in_transit: "Cash or a payment in transit", timing: "A timing difference that clears after the period end", other: "Something else (explain)" };
 const EVIDENCE: Record<EvidenceKind, string> = { reconciliation: "A reconciliation", document: "A document (for example a bank statement or deposit slip)" };
 
-export function FindingDecisionControl({ issue, uploadId, certificationId, current, workspaceEntity, reconcileHref, rpc, onRecorded }: {
+export function FindingDecisionControl({ issue, uploadId, certificationId, current, expectedRevision, workspaceEntity, reconcileHref, rpc, onRecorded }: {
   issue: TrialBalanceIssue & { code: DecisionCode; subject: string };
   uploadId: string;
   certificationId: string;
   current: CurrentDecisionView | undefined;
+  /** The newest revision recorded for this finding (current or not); 0 when none. */
+  expectedRevision: number;
   workspaceEntity: string;
   reconcileHref: string | null;
   rpc: Rpc;
@@ -60,7 +62,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
     try {
       const r = await recordFindingDecision(rpc, {
         uploadId, certificationId, code: issue.code, subject: issue.subject, action: choice.action, payload: p, reason: reason.trim(),
-        expectedRevision: current?.revision ?? 0, requestId: requestId.current,
+        expectedRevision, requestId: requestId.current,
       });
       if (r.kind === "refused") { setState({ kind: "error", message: r.message }); requestId.current = crypto.randomUUID(); return; }
       setState({ kind: "recorded" });
@@ -81,13 +83,18 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]" data-testid={`decision-${issue.code}`}>
         {current && decidedChoice && (
           <span className="text-muted-foreground" data-testid={`decision-current-${issue.code}`}>
-            Decided: {decidedChoice.label}{current.carriedFromUploadId ? " (recorded on an earlier file)" : ""}.
+            Decided: {decidedChoice.label}.
           </span>
         )}
         <button type="button" className="underline underline-offset-4" onClick={() => setOpen(true)} aria-expanded={false}
           data-testid={`decision-open-${issue.code}`}>
-          {current ? "Change decision" : issue.code === "CLEARING_ACCOUNT_BALANCE" ? "Explain this balance" : "Decide"}
+          {current ? "Change decision" : issue.code === "CLEARING_ACCOUNT_BALANCE" ? "Explain this balance" : issue.code === "UNRECOGNISED_TRAILING_TEXT" ? "Acknowledge" : "Decide"}
         </button>
+        {!current && (
+          <span className="text-[12px] text-muted-foreground" data-testid={`decision-requirement-${issue.code}`}>
+            {issue.decisionRequired ? "Needed before this trial balance can be accepted." : "Optional — a note for review; it does not hold the trial balance back."}
+          </span>
+        )}
       </div>
     );
   }

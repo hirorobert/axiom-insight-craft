@@ -237,6 +237,8 @@ export interface TrialBalanceIssue {
   fileEntity?: string;
   /** CLEARING_ACCOUNT_BALANCE: the account. */
   accountCode?: string | null;
+  /** Whether this finding must be decided before the trial balance can be accepted (the workspace's rule; server-set). */
+  decisionRequired?: boolean;
 }
 
 /**
@@ -254,7 +256,8 @@ export function readIngestionIssues(processingResult: unknown): TrialBalanceIssu
     return [{ code: r.code, message: r.message, rows, kind,
       ...(typeof r.subject === "string" && r.subject ? { subject: r.subject } : {}),
       ...(typeof r.fileEntity === "string" && r.fileEntity ? { fileEntity: r.fileEntity } : {}),
-      ...(typeof r.accountCode === "string" && r.accountCode ? { accountCode: r.accountCode } : {}) }];
+      ...(typeof r.accountCode === "string" && r.accountCode ? { accountCode: r.accountCode } : {}),
+      ...(typeof r.decision_required === "boolean" ? { decisionRequired: r.decision_required } : {}) }];
   });
   return FINDING_ORDER.flatMap((k) => read.filter((i) => i.kind === k));
 }

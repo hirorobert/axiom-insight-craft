@@ -82,7 +82,7 @@ import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspa
 import { PeriodCurrencyCorrection } from "@/components/workspace/PeriodCurrencyCorrection";
 import { FindingDecisionControl } from "@/components/workspace/FindingDecisionControl";
 import { ImbalanceInvestigation } from "@/components/workspace/ImbalanceInvestigation";
-import { decidable, readFindingDecisions, type CurrentDecisionView } from "@/lib/workspace/findingDecisions";
+import { decidable, readFindingDecisions, revisionKey, type CurrentDecisionView, type LatestRevisions } from "@/lib/workspace/findingDecisions";
 import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
 import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { explainBlock, getCorrectionEligibility, readCurrencyMismatch } from "@/lib/workspace/periodCurrency";
@@ -498,13 +498,13 @@ export default function PrepareWorkspace() {
   const evaluationId = upload && latestCert && latestCert.upload_id === upload.id
     && (readiness?.verdict === "review" || readiness?.verdict === "certified" || readiness?.verdict === "blocked") ? latestCert.id : null;
   const mayDecide = !!upload && mayRequestReprocess(upload, capabilityState, commercialState);
-  const [decisions, setDecisions] = useState<{ key: string; list: CurrentDecisionView[] } | null>(null);
+  const [decisions, setDecisions] = useState<{ key: string; list: CurrentDecisionView[]; latest: LatestRevisions } | null>(null);
   const decisionsKey = upload && evaluationId ? `${upload.id}:${evaluationId}` : null;
   useEffect(() => {
     if (!decisionsKey || !upload) return;
     let cancelled = false;
     void readFindingDecisions((fn, args) => supabase.rpc(fn as never, args as never) as never, upload.id)
-      .then((r) => { if (!cancelled) setDecisions({ key: decisionsKey, list: r.kind === "ok" ? r.decisions : [] }); });
+      .then((r) => { if (!cancelled) setDecisions({ key: decisionsKey, list: r.kind === "ok" ? r.decisions : [], latest: r.kind === "ok" ? r.latest : new Map() }); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decisionsKey]);
@@ -530,6 +530,7 @@ export default function PrepareWorkspace() {
         <FindingDecisionControl
           issue={issue} uploadId={upload.id} certificationId={evaluationId}
           current={currentDecisions.find((d) => d.code === issue.code && d.subject === issue.subject)}
+          expectedRevision={decisions?.key === decisionsKey ? decisions.latest.get(revisionKey(issue.code, issue.subject)) ?? 0 : 0}
           workspaceEntity={company?.name ?? ""}
           reconcileHref={prepareOnly ? null : `/workspace/${companyId}/${periodYear}/reconcile`}
           rpc={(fn, args) => supabase.rpc(fn as never, args as never) as never}
