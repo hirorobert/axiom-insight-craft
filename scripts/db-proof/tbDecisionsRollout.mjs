@@ -296,6 +296,14 @@ async function main() {
     const runGen = Number((await one("SELECT engine_generation g FROM public.engine_runs WHERE id=$1", [c.engine_run_id]))?.g);
     return r.http === 200 && runGen === 7 && (await authoritative(u1)) === c.id ? true : { http: r.http, body: r.body, runGen };
   });
+  await check("generation 7 certifies a file with a printed total row (exact amounts on the row lineage never reach a JSON result)", async () => {
+    const u = await upload([...PLAIN, ["", "Total", "1,900.25", "1,900.25"]]);
+    const r = await run(neu.engine, u);
+    const row = await one("SELECT status, processing_result FROM public.trial_balance_uploads WHERE id=$1", [u.id]);
+    const totals = (row.processing_result?.summary?.rejected_rows ?? row.processing_result?.rejected_rows ?? []).filter((x) => x.disposition === "total");
+    return r.http === 200 && row.status === "complete" && (await authoritative(u)) !== null && totals.length === 1 && !("debitMinor" in totals[0])
+      ? true : { http: r.http, body: r.body, status: row.status, totals };
+  });
   await check("the new layout function investigates a generation-7 blocking result (reservation, stored rows, cause)", async () => {
     const u = await upload(UNBALANCED);
     await run(neu.engine, u);

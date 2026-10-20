@@ -1267,15 +1267,16 @@ async function finishAttempt(
     // its requirement and cites its current decision; a decision that does not resolve adds a blocking finding with its
     // recovery; an undecided REQUIRED finding makes an otherwise accepted result "needs review" (review indicators stay
     // notes). No amount, row or account changes.
-    const applied = applyDecisions(params.exceptions as DecisionFinding[], params.decisions, params.requirements);
+    const requirements = params.requirements;
+    const applied = applyDecisions(params.exceptions as DecisionFinding[], params.decisions, requirements);
     let { isBlocking, requiresReview, upload } = params;
     // The one findings list the person reads (processing_result.ingestion.issues) carries the same requirement flags and
     // the blocks a decision produced, so every finding is stated once, with what can be done about it.
     const basePr = (upload.processing_result ?? {}) as Record<string, unknown>;
     const ingestion = (basePr.ingestion ?? null) as Record<string, unknown> | null;
     const flagged = Array.isArray(ingestion?.issues) ? (ingestion!.issues as Record<string, unknown>[]).map((i) =>
-      typeof i.code === "string" && typeof i.subject === "string" && typeof params.requirements[i.code] === "boolean"
-        ? { ...i, decision_required: params.requirements[i.code] } : i) : null;
+      typeof i.code === "string" && typeof i.subject === "string" && typeof requirements[i.code] === "boolean"
+        ? { ...i, decision_required: requirements[i.code] } : i) : null;
     const pr: Record<string, unknown> = ingestion && flagged ? { ...basePr, ingestion: { ...ingestion, issues: [...flagged,
       ...applied.blocking.map((b) => ({ code: b.code, severity: "blocking", message: b.message, rows: b.rows ?? [] }))] } } : basePr;
     if (pr !== basePr) upload = { ...upload, processing_result: pr };
@@ -1631,7 +1632,10 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
       debitMinor: a.debitMinor,
       creditMinor: a.creditMinor,
     }));
-    const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance");
+    // The rows not read as accounts, as stored before (row, disposition, reason). The exact minor amounts on lineage are for
+    // the investigation, which reads the lineage itself; they are bigint and never part of a JSON result.
+    const rejectedRows = ingest.lineage.filter((l) => l.disposition === "rejected" || l.disposition === "total" || l.disposition === "zero_balance")
+      .map(({ debitMinor: _d, creditMinor: _c, ...row }) => row);
     console.log(`[PTB] Ingested ${ingest.lineageSummary.rowsRead} rows → ${rawAccounts.length} accounts; ${ingest.issues.length} issue(s)`);
 
     // ── E2 — the attempt begins (20261008100000) ─────────────────────────────
