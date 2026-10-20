@@ -53,6 +53,11 @@ async function main() {
   const dbname = (await db.one("SELECT current_database() d")).d;
   await db.admin.query(`ALTER DATABASE "${dbname}" SET track_functions = 'all'`);
   await db.admin.query("SET track_functions = 'all'");
+  // Connections the pool already holds predate the ALTER DATABASE and would report no function statistics (CI run
+  // 39374190705: every count 0 under the memo, the counts present only once the pool had reconnected). Set it on each of them.
+  const held = []; for (let i = 0; i < db.pool.totalCount; i++) held.push(await db.pool.connect());
+  for (const c of held) await c.query("SET track_functions = 'all'");
+  for (const c of held) c.release();
   group("Replay");
   await check(`${FILE} is in the chain and the whole chain applies`, async () => (!chainFiles().includes(FILE) ? `${FILE} missing` : (await applyChain(db)) ?? true));
   await refused("re-applying is refused by its preflight", "P0001", () => db.admin.query(migrationText(FILE)), "PREFLIGHT_REFUSED");

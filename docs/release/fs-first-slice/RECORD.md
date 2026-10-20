@@ -580,14 +580,49 @@ official pack through PostgREST. A third gap surfaced on the 1,000-per-year cand
 capacity failed with the approval row's check constraint (`chk_fsca_sha`, no comparative sha) — a raw error instead of the
 refusal by name. The capacity migration now guards it as its fourth function (outcome `over_capacity` with the counts,
 before the lock, the status or any write; `accountCapacity.mjs` K3 proves no approval row; the browser words the outcome).
-Numbers: §7.7 table below (run pending, head `pending`).
+Numbers: §7.7 table below (run 39374190705, head `67be6e1`).
 
 **3. The combined envelope.** The advertised 10,000 evidence rows per version was never reachable from the browser (one
 ledger per period); the per-version bound is now **3,000** (two ledgers at the 1,000-row bound plus the small files) and the
 capacity run exercises exactly that combination — 500 accounts per year, a 1,000-row ledger for BOTH periods (≈2,000 evidence
 rows behind the version), ten retained versions, 8 simultaneous saves and 8 simultaneous readiness reads:
 
-__CAPACITY_TABLE__
+| Call (client-observed round trip, ms; median and max) | 500 accounts per year (1000 read) | 1000 accounts per year (2000 read) |
+|---|---|---|
+| review batch (resolve_account_review_batch) | 325 ms (max 325) | 677 ms (max 677) |
+| re-check after review | 203 ms (max 203) | 298 ms (max 298) |
+| fs_statement_composition | 269 ms (max 276) | 31 ms (max 32) |
+| fs_notes_status | 277 ms (max 288) | 31 ms (max 31) |
+| fs_reporting_dependencies | 309 ms (max 322) | 31 ms (max 33) |
+| Close Review refresh + explain (several calls) | 837 ms (max 837) | 2799 ms (max 2799) |
+| fs_approve_comparatives | 286 ms (max 286) | 34 ms (max 34) |
+| save: evidence step + bind, 6 files incl. a 1,000-row ledger for EACH period (several calls) | 5139 ms (max 5139) | 38 ms (max 38) |
+| fs_report_readiness | 1299 ms (max 1535) | — |
+| Close Review refresh + explain after the save (several calls) | — | — |
+| save after explaining (several calls) | — | — |
+| fs_set_publication_state REVIEWED / FINAL | 2454 ms (max 2454) / 2435 ms (max 2435) | — / — |
+| official pack issue (several calls) / verify | 300 ms (max 300) / 76 ms (max 76) | — / — |
+| history save ×10 (several calls) | 3530 ms (max 3584) | — |
+| history readiness ×10 | 1539 ms (max 1573) | — |
+| fs_list_saved_versions | 23 ms (max 23) | — |
+| evidence rows behind the version | 2012 | 2012 |
+| ready after the save (after explaining the finding raised by the evidence); blockers | True; 0 | None; 0 |
+| over-capacity refusal (the control) | — | The statements would read 2,000 accounts across the current (1,000) and comparative (1,000 |
+| official pack | intact | None |
+| 8 simultaneous saves of one attempt | 11794 ms wall, 8 answered | None ms wall, None answered |
+| 8 simultaneous readiness reads | 4753 ms wall, 8/8 ok | None ms wall, None/8 ok |
+| slowest single call → margin under 8 s | set_state_REVIEWED 2454 ms → **3.26×** | None None ms → **None×** |
+| cancelled statements / failures | 0; 0 | None; 0 |
+
+**Read of the table (CI run 39374190705, Linux runner, real Supabase/PostgREST):** at 500 accounts per year with a 1,000-row
+ledger in each period (2,012 evidence rows behind the version) the saved version is ready at once; REVIEWED 2,454 ms, FINAL
+2,435 ms, the official pack issued (300 ms) and verified intact (76 ms); readiness 1,293–1,535 ms (was 2,262–2,539 ms before the
+memo on the same runner class); ten retained versions saved and re-checked; 8 simultaneous saves all answered and 8 simultaneous
+readiness reads all served (4.8 s wall); the slowest single call is REVIEWED at 2,454 ms — **3.26× under the 8 s statement
+timeout** — and nothing was cancelled. At 1,000 per year the comparative approval answers `over_capacity` (34 ms) and the save
+is refused by the control (38 ms) with the wording quoted above. This is the measured operating envelope of this release:
+≤ 1,000 certified accounts read (current + comparative), ≤ 1,000 rows and 1 MiB per evidence file, ≤ 3,000 evidence rows per
+version, with publication measured — not inferred — at the boundary.
 
 **4. Wording.** The capacity refusal no longer suggests merging accounts: every account keeps its identity, nothing is merged
 or dropped to fit, and statements for a chart above the envelope are "not available in this release" until the capacity
