@@ -84,7 +84,7 @@ describe("checkout", () => {
     click(byTestId(m, "route-CARD")!.querySelector("input")!);
     expect(byTestId(m, "checkout-total")!.textContent).toContain("USD 490");
     expect(byTestId(m, "checkout-total")!.textContent).toContain("Sales tax may apply and is shown before you pay");
-    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Pay USD 490");
+    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Continue to payment");
     expect(await axeViolations(m.container)).toEqual([]);
   });
 
@@ -95,7 +95,7 @@ describe("checkout", () => {
     expect(m.container.querySelector('input[type="radio"]')).toBeNull();
     expect(byTestId(m, "route-CARD")!.textContent).toContain("Card, on Polar's secure page");
     expect(byTestId(m, "checkout-placement")).toBeNull();
-    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Pay USD 490");
+    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Continue to payment");
     expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(false);
     expect(await axeViolations(m.container)).toEqual([]);
   });

@@ -636,6 +636,24 @@ async function main() {
   });
 
   startGroup("Leaving the provider's page without paying (20261119100000)");
+  // This journey switches between Solo and Practice. Approve Practice through the same operator UI;
+  // an unavailable offer must never be treated as a checkout-recovery failure.
+  await signInAs(U.admin);
+  await check("approve the Practice USD annual offer for the two-plan abandonment journey", async () => {
+    await go("/commercial/admin");
+    await adminTab("Prices");
+    await page.waitForText("CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL");
+    await setByLabel("Reason (recorded)", "Approved for the two-plan abandonment journey");
+    await acceptConfirms();
+    await page.evaluate(() => {
+      const row = document.querySelector('li[data-offer-code="CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL"]');
+      [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click();
+    });
+    await page.waitForText("Price saved.");
+    const { data, error } = await admin.from("commercial_offers").select("is_purchasable, amount_minor")
+      .eq("offer_code", "CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL").single();
+    return !error && data?.is_purchasable && Number(data.amount_minor) === 99000 ? true : { data, error };
+  });
   await signInAs(U.leaver);
   let leftRef = null; let leftSession = null;
   const banner = () => page.evaluate(() => {
@@ -644,8 +662,8 @@ async function main() {
       choose: !!document.querySelector('[data-testid="unfinished-choose-another"]'), spinner: /Waiting for payment confirmation/.test(document.body.innerText) };
   });
   await check("Back: card → the provider's page → its Back link lands on /plans naming the unfinished checkout (recorded state only: 'No payment has been recorded'), Resume and Choose another plan — never a spinner", async () => {
-    await go("/billing/checkout?plan=PRACTICE", "Card · USD");
-    await page.click('[data-testid="route-CARD"] input');
+    await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
+    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
     await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.leaver);
@@ -751,8 +769,8 @@ async function main() {
     // The provider expires the session; its notification never arrives.
     mock.checkouts.get(pending.provider_checkout_ref).status = "expired";
     await sleep(61_000); // the review page's own read may hold the verification claim
-    await go("/billing/checkout?plan=PRACTICE", "Card · USD");
-    await page.click('[data-testid="route-CARD"] input');
+    await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
+    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
     await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const all = await intentsOf(U.leaver);
@@ -898,7 +916,7 @@ async function main() {
   await check("administrator accounts page at 1280 and 375 px", async () => widths("26-admin-accounts"));
 
   startGroup("Public plans when online payment is open to customers");
-  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved USD price and 'Choose Solo', no mobile money; the other plans stay proposed", async () => {
+  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved USD price and 'Choose Solo', no mobile money; Firm stays proposed", async () => {
     const ops = await apiAs(U.admin);
     { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "CUSTOMER_PAYMENTS_ENABLED", p_reason: "payment journey: public view" }); if (error) return error.message; }
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
@@ -908,7 +926,7 @@ async function main() {
     await page.evaluate(() => document.getElementById("plans")?.scrollIntoView());
     await widths("27-landing-plans-online");
     // Polar card payments only: the approved TZS price is never shown (mobile money is not launched).
-    return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 990 per year") ? true : t.slice(0, 1200);
+    return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 2,990 per year") ? true : t.slice(0, 1200);
   });
   await check("…and a sandbox route is then not offered at checkout (the platform matrix): the page shows payment unavailable, and the server refuses the attempt", async () => {
     await signInAs(U.mobile);

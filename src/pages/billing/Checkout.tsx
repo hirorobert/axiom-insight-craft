@@ -226,7 +226,7 @@ export default function Checkout() {
 
           <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous" || error?.kind === "open"} onClick={submit} data-testid="checkout-continue">
             {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : `Pay ${formatMoney(chosen?.amountMinor ?? 0, chosen?.currencyCode ?? "", chosen?.currencyExponent ?? 0)}`}
+            {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to payment"}
           </Button>
           <p className="mt-3 text-xs text-muted-foreground">Your plan starts as soon as the payment is verified.</p>
           <BillingHelpLine className="mt-6 border-t border-border pt-4" subject="Checkout question" />
