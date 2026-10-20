@@ -53,6 +53,8 @@ const PRICING_P1 = ["20261110100000_unlimited_team_members.sql"].map((name) => (
 const FS_CONTROLS = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"].map((name) => ({ name }));
 // Period-currency correction (batch currency-c1): all four forms registered BEFORE application; applied 2026-10-20 as 0063 (hosted 64).
 const CURRENCY_C1 = ["20261113100000_period_currency_correction.sql"].map((name) => ({ name }));
+// Trial Balance workflow (tb-portfolio-a1, tb-decisions-b1): registered (wrapper + all forms) and proven, PENDING hosted application.
+const TB_WORKFLOW = ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
   { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
@@ -374,7 +376,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name)].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -537,7 +539,7 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
 describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
   it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length;
+    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length + TB_WORKFLOW.length;
     expect(keys.slice(-(MILESTONE.length + after), -after)).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
@@ -628,9 +630,9 @@ describe("the milestone's seven migrations: both submission forms registered ahe
 describe("the reporting release: all four forms of each source registered ahead of application (nothing applied)", () => {
   it("registers exactly the five, then the readiness correction last, in release order; each form recomputed here from the repository bytes", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length;
+    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length + TB_WORKFLOW.length;
     expect(keys.slice(-(REPORTING.length + tail), -tail)).toEqual(REPORTING.map((m) => m.name));
-    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE, ...PRICING_P1, ...FS_CONTROLS, ...CURRENCY_C1].map((m) => m.name));
+    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE, ...PRICING_P1, ...FS_CONTROLS, ...CURRENCY_C1, ...TB_WORKFLOW].map((m) => m.name));
     for (const { name } of [...REPORTING, ...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS]) {
       const src = fs.readFileSync(path.join(ROOT, "supabase/migrations", name));
       const w = fs.readFileSync(path.join(ROOT, "release/wrappers", name.replace(/\.sql$/, ".wrapper.sql")));

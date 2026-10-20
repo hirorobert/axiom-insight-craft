@@ -148,6 +148,18 @@ export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc0325
 export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
   "20261113100000_period_currency_correction.sql",
 ]);
+/** Trial Balance workflow, Track A (tb-portfolio-a1): the engagements portfolio read and the entity list; one source at the
+ * commit holding its reviewed bytes. Independent of every pending FS batch. PENDING hosted application. */
+export const TB_PORTFOLIO_SOURCE_COMMIT = "b3ff9119921ea085d3c27d16ee228fa63c3c5e08";
+export const TB_PORTFOLIO_WRAPPED_SOURCES = Object.freeze([
+  "20261117100000_engagement_portfolio.sql",
+]);
+/** Trial Balance workflow, Track B (tb-decisions-b1): finding decisions, the generation-7 evaluation manifest, the entity
+ * dependency and bounded investigations; applied BEFORE process-trial-balance generation 7 is deployed. PENDING hosted. */
+export const TB_DECISIONS_SOURCE_COMMIT = "b3ff9119921ea085d3c27d16ee228fa63c3c5e08";
+export const TB_DECISIONS_WRAPPED_SOURCES = Object.freeze([
+  "20261118100000_tb_finding_decisions.sql",
+]);
 /** Every batch of registered wrappers, in release order. */
 export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "i1b-signoff", commit: SOURCE_COMMIT, sources: WRAPPED_SOURCES, postcondition: "docs/release/milestone-i1b-signoff/postcondition.sql" }),
@@ -169,6 +181,8 @@ export const RELEASE_BATCHES = Object.freeze([
   Object.freeze({ id: "fs-capacity-r1", commit: FS_CAPACITY_SOURCE_COMMIT, sources: FS_CAPACITY_WRAPPED_SOURCES, postcondition: "docs/release/fs-capacity-r1/postcondition.sql" }),
   Object.freeze({ id: "fs-memo-r1", commit: FS_MEMO_SOURCE_COMMIT, sources: FS_MEMO_WRAPPED_SOURCES, postcondition: "docs/release/fs-memo-r1/postcondition.sql" }),
   Object.freeze({ id: "currency-c1", commit: CURRENCY_C1_SOURCE_COMMIT, sources: CURRENCY_C1_WRAPPED_SOURCES, postcondition: "docs/release/period-currency-correction/postcondition.sql" }),
+  Object.freeze({ id: "tb-portfolio-a1", commit: TB_PORTFOLIO_SOURCE_COMMIT, sources: TB_PORTFOLIO_WRAPPED_SOURCES, postcondition: "docs/release/tb-portfolio-a1/postcondition.sql" }),
+  Object.freeze({ id: "tb-decisions-b1", commit: TB_DECISIONS_SOURCE_COMMIT, sources: TB_DECISIONS_WRAPPED_SOURCES, postcondition: "docs/release/tb-decisions-b1/postcondition.sql" }),
 ]);
 /** The batch a registered source belongs to. */
 export const batchOf = (source) => RELEASE_BATCHES.find((b) => b.sources.includes(source)) ?? null;
