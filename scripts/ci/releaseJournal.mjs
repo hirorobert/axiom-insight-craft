@@ -637,17 +637,17 @@ export const SUBMISSION_FORMS = Object.freeze({
   }),
   // The account capacity (batch fs-capacity-r1): all four forms registered BEFORE application; applied after fs-bounds-r1.
   "20261115100000_fs_account_capacity.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 53128, sha256: "ff1b948327c68763c770b56c51cfc52d1a8cb68c0f1e14977989d44b842aea36" }),
-    finalLfRemoved: Object.freeze({ bytes: 53127, sha256: "49a120f06b86aa02f1269e23ce72f4d6799fc557ee24c719e5ee4e880c7ee725" }),
-    wrapper: Object.freeze({ bytes: 54688, sha256: "5716f2903fb55cdac18a25379112d62b9747ba3cca30f2178d88ba9a9e02f460" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 54687, sha256: "94327cd9e867861f64f3f0ec949ea8a232cffae0a769002a6631ed5b4aba02be" }),
+    identical: Object.freeze({ bytes: 55481, sha256: "408e84e112022264c3ad6a11ac646c40d92792bbb5016466d47c136329f163f7" }),
+    finalLfRemoved: Object.freeze({ bytes: 55480, sha256: "8300b4002c0e2e5a0c7484cd5e5cd5ade13364a0a59a56e77efd745fbb0bf373" }),
+    wrapper: Object.freeze({ bytes: 57041, sha256: "d156d1aa434d290932c03f868d0a03779456a90cbdc269d473f8a0ecf9510428" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 57040, sha256: "8d9a7f8fa37bd430a624141d847bdb8907f1ac10913df6660aa9bcc83fec2dd2" }),
   }),
   // The transaction memo (batch fs-memo-r1): all four forms registered BEFORE application; applied after fs-capacity-r1.
   "20261116100000_fs_transaction_memo.sql": Object.freeze({
     identical: Object.freeze({ bytes: 26996, sha256: "9d278868a4d0bf5794232a6b576239aaef9efd8740aee9b4ddf7b11fe112ae17" }),
     finalLfRemoved: Object.freeze({ bytes: 26995, sha256: "0b436293c992ef65fa9c89c53d2227a4d58d6a62f241838cedca85850132e24b" }),
-    wrapper: Object.freeze({ bytes: 28556, sha256: "3467ec6b37e70788d7f2e1537e13f9a3210918d803536782e87ae0eb8f4e249b" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 28555, sha256: "2716f79e08a296455c1c763d228147e602d183871b4e9171174671bbaa4b4966" }),
+    wrapper: Object.freeze({ bytes: 28556, sha256: "f332c8b62ba87d99bc149644dd2e43580a6419f9e2d07a4db90666776a5c0321" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 28555, sha256: "7b07a40a8b8b495ece66d2e57d309e7d267408551470ebcebac68fc7ebebf171" }),
   }),
   // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application;
   // applied 2026-10-20 as 0063 in the wrapperFinalLfRemoved form (RELEASE_JOURNAL).

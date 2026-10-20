@@ -247,8 +247,8 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // (wrapper + all forms) and proven, but PENDING hosted application.
     // fs-journey-r1 (fe17272) is registered (wrapper + all forms) and proven, but PENDING hosted application as well.
     // currency-c1 (20261113100000, PR #179) applied 2026-10-20 as hosted 64 (0063), the wrapper minus its final LF.
-    // fs-memo-r1 (7bfb263, the transaction memo, 20261116100000) is registered and proven the same way, PENDING after the four.
-    // fs-capacity-r1 (7bfb263, the account capacity, 20261115100000) is registered and proven the same way, PENDING after the three.
+    // fs-memo-r1 (b27de40, the transaction memo, 20261116100000) is registered and proven the same way, PENDING after the four.
+    // fs-capacity-r1 (b27de40, the account capacity, 20261115100000) is registered and proven the same way, PENDING after the three.
     // fs-bounds-r1 (c17809e, the work bounds, 20261114100000) is registered and proven the same way, PENDING hosted application after both.
     const PENDING: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
