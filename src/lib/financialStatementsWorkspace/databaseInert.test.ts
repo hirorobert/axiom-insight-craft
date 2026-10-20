@@ -389,6 +389,10 @@ describe("database inertness — schema and functions", () => {
       // browser loads lazily to warn before an upload (no edge function imports it).
       "supabase/migrations/20261113100000_period_currency_correction.sql",
       "supabase/functions/_shared/tbCurrencyLabels.ts",
+      // Engagements portfolio (Trial Balance workflow A1, 20261117100000): a NEW forward-only migration — a per-company
+      // revision table with AFTER triggers that only bump it, one definer read under the platform's workspace-access rule,
+      // and indexes. No existing row, column, policy or grant changes. Proven on PostgreSQL by engagementPortfolio.mjs.
+      "supabase/migrations/20261117100000_engagement_portfolio.sql",
     ]);
     const modified = new Set([
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
@@ -665,6 +669,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/workBounds.mjs",
       "scripts/db-proof/accountCapacity.mjs",
       "scripts/db-proof/transactionMemo.mjs",
+      // Engagements portfolio: the loopback-only real-PostgreSQL proof of 20261117100000. No deploy behaviour.
+      "scripts/db-proof/engagementPortfolio.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.

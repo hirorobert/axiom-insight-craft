@@ -262,7 +262,9 @@ describe("migration directory integrity", () => {
     // 186 -> 187: 20261116100000_fs_transaction_memo.sql (the composition and the reporting input computed once per transaction:
     // the heavy bodies under _fs_*_compute names, the public names memoising wrappers with the same signatures and grants),
     // a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(187);
+    // 187 -> 188: 20261117100000_engagement_portfolio.sql (the engagements portfolio read: one definer function under the
+    // platform's workspace-access rule, keyset paging, per-company revisions), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(188);
   });
 });
 
