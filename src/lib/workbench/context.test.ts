@@ -10,6 +10,10 @@ describe("workbench context", () => {
     expect(withContext("/w/c/2025/trial-balance/review", { reportVersion: 4 })).toBe("/w/c/2025/trial-balance/review?v=4");
     expect(withContext("/w/x?v=3&tab=a", { reportVersion: 4 })).toBe("/w/x?v=4&tab=a");
     expect(withContext("/w/x?v=3", { reportVersion: null })).toBe("/w/x");
+    // A fragment stays a fragment (it was once encoded into the query as %23 and lost).
+    expect(withContext("/w/x/review?manage=source#manage-trial-balance", { reportVersion: null })).toBe("/w/x/review?manage=source#manage-trial-balance");
+    expect(withContext("/w/x/review?manage=source#manage-trial-balance", { reportVersion: 2 })).toBe("/w/x/review?manage=source&v=2#manage-trial-balance");
+    expect(withContext("/w/x#a", { reportVersion: null })).toBe("/w/x#a");
   });
   it("keys responses by company, period and version", () => {
     const a = { companyId: "c", periodYear: 2025, reportVersion: 4 };

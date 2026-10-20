@@ -18,6 +18,8 @@ import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/wor
 import { FINDING_HEADING, FINDING_ORDER } from "@/lib/workspace/resultStatus";
 
 export const TRIAL_BALANCE_CHECKS_ANCHOR = "trial-balance-checks";
+/** The card's findings list: the ONE place each finding is stated (the checks list points here instead of repeating it). */
+export const TRIAL_BALANCE_FINDINGS_ANCHOR = "trial-balance-findings";
 const MAX_FIXES = 5;
 
 const TONE: Record<TrialBalanceVerdict["tone"], { badge: string; rule: string }> = {
@@ -134,7 +136,7 @@ export function CurrentTrialBalanceCard({
         </div>
         <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-foreground" data-testid="trial-balance-reason">{verdict.reason}</p>
         {fixes.length > 0 && (
-          <div className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
+          <div id={TRIAL_BALANCE_FINDINGS_ANCHOR} className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
             {/* One group per kind, in order: blocking, needs confirmation, review (resultStatus.ts, §3.5). */}
             {FINDING_ORDER.map((kind) => {
               const group = fixes.filter((i) => i.kind === kind);

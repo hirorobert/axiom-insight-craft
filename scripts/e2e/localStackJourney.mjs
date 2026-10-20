@@ -879,6 +879,8 @@ async function main() {
     try {
       await page.click('[data-testid="currency-correction-start"]');
       await page.waitForSelector('[data-testid="currency-correction-reason"]', { timeout: 10000 });
+      // The reason is picked explicitly (none is pre-selected); "Other" with the person's own words.
+      await page.click('[data-testid="currency-correction-preset-other"]');
       await page.fill('[data-testid="currency-correction-reason"]', "The invented ledger is kept in TZS; USD was chosen by mistake.");
       await sleep(200);
       await page.evaluate(() => { const b = document.querySelector('[data-testid="currency-correction-confirm"]'); b.click(); b.click(); b.click(); });

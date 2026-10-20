@@ -6,7 +6,19 @@
 
 import { AlertTriangle, Check, Minus, X } from "lucide-react";
 import type { MilestoneState, TrialBalanceCheck, TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
-import { TRIAL_BALANCE_CHECKS_ANCHOR } from "./CurrentTrialBalanceCard";
+import { TRIAL_BALANCE_CHECKS_ANCHOR, TRIAL_BALANCE_FINDINGS_ANCHOR } from "./CurrentTrialBalanceCard";
+import type { TrialBalanceIssue } from "@/lib/workspace/trialBalanceVerdict";
+
+/**
+ * A check whose detail only restates findings the card already lists (by exact message) points to that list instead of
+ * repeating it, so each finding is stated once. Any other text in the detail is kept as written.
+ */
+export function checkDetail(detail: string, listed: readonly TrialBalanceIssue[]): { text: string; pointsToFindings: number } {
+  const repeated = listed.filter((i) => i.message && detail.includes(i.message));
+  if (repeated.length === 0) return { text: detail, pointsToFindings: 0 };
+  const rest = repeated.reduce((d, i) => d.split(i.message).join(" "), detail).replace(/\s+/g, " ").trim();
+  return { text: rest, pointsToFindings: repeated.length };
+}
 
 const ICON: Record<TrialBalanceCheck["state"], JSX.Element> = {
   passed: <Check className="h-4 w-4 text-success" aria-hidden="true" />,
@@ -18,7 +30,8 @@ const STATE_WORD: Record<TrialBalanceCheck["state"], string> = { passed: "Passed
 const MILESTONE_AS_CHECK: Record<MilestoneState, TrialBalanceCheck["state"]> = { passed: "passed", failed: "failed", needs_review: "review", not_reached: "pending" };
 const MILESTONE_WORD: Record<MilestoneState, string> = { passed: "Done", failed: "Stopped here", needs_review: "Needs review", not_reached: "Not reached" };
 
-function Row({ check, muted = false }: { check: TrialBalanceCheck; muted?: boolean }) {
+function Row({ check, muted = false, listed = [] }: { check: TrialBalanceCheck; muted?: boolean; listed?: readonly TrialBalanceIssue[] }) {
+  const detail = checkDetail(check.detail, listed);
   return (
     <li className="flex gap-3 border-t border-border px-5 py-3.5 first:border-t-0 sm:px-7" data-testid={`check-${check.id}`} data-state={check.neutral ? "neutral" : check.notEvaluated ? "not_evaluated" : check.state}>
       <span className="mt-0.5 shrink-0">{ICON[check.state]}</span>
@@ -32,7 +45,14 @@ function Row({ check, muted = false }: { check: TrialBalanceCheck; muted?: boole
             </span>
           )}
         </div>
-        <p className="mt-0.5 break-words text-[13px] text-muted-foreground">{check.detail}</p>
+        {detail.text && <p className="mt-0.5 break-words text-[13px] text-muted-foreground">{detail.text}</p>}
+        {detail.pointsToFindings > 0 && (
+          <p className="mt-0.5 text-[13px] text-muted-foreground" data-testid={`check-${check.id}-findings-link`}>
+            <a href={`#${TRIAL_BALANCE_FINDINGS_ANCHOR}`} className="underline underline-offset-4">
+              {detail.pointsToFindings === 1 ? "1 finding" : `${detail.pointsToFindings} findings`}, listed with the trial balance above
+            </a>
+          </p>
+        )}
       </div>
     </li>
   );
@@ -50,7 +70,7 @@ export function TrialBalanceChecks({ verdict }: { verdict: TrialBalanceVerdict }
       {verdict.checks.length === 0 ? (
         <p className="px-5 py-4 text-[13px] text-muted-foreground sm:px-7">The checks appear here once processing finishes.</p>
       ) : (
-        <ul>{verdict.checks.map((c) => <Row key={c.id} check={c} />)}</ul>
+        <ul>{verdict.checks.map((c) => <Row key={c.id} check={c} listed={verdict.issues} />)}</ul>
       )}
       {/* Lead with the result: when every check passed, how the last run got there (milestones) and the informational
           rows are detail, collapsed. Anything that failed or needs review keeps them open. */}

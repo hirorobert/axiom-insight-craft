@@ -54,6 +54,11 @@ describe("five groups, one canonical destination per task", () => {
   it("canonicalises legacy hrefs and keeps the query; other hrefs are unchanged", () => {
     expect(canonicalWorkbenchHref(`${BASE}/prepare`, BASE)).toBe(`${BASE}/trial-balance/review`);
     expect(canonicalWorkbenchHref(`${BASE}/prepare?v=4`, BASE)).toBe(`${BASE}/trial-balance/review?v=4`);
+    // The derived "fix the file" action carries a query AND a fragment: both are kept, the alias still resolves.
+    expect(canonicalWorkbenchHref(`${BASE}/prepare?manage=source#manage-trial-balance`, BASE)).toBe(`${BASE}/trial-balance/review?manage=source#manage-trial-balance`);
+    expect(canonicalWorkbenchHref(`${BASE}/prepare#manage-trial-balance`, BASE)).toBe(`${BASE}/trial-balance/review#manage-trial-balance`);
+    // An href with a query or fragment still names its page (so "Next open item" is never shown on its own page).
+    expect(activeWorkbenchPage(`${BASE}/trial-balance/review?manage=source#manage-trial-balance`, BASE)).toBe(activeWorkbenchPage(`${BASE}/trial-balance/review`, BASE));
     expect(canonicalWorkbenchHref(`${BASE}/reconcile`, BASE)).toBe(`${BASE}/reconcile`);
     expect(canonicalWorkbenchHref("/dashboard", BASE)).toBe("/dashboard");
   });
