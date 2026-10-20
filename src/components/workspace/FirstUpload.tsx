@@ -21,6 +21,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Circle, FileSpreadsheet, Loader2, Upload, XCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { findSameEntity } from "@/lib/workspace/entityPrecheck";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
@@ -171,6 +172,10 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
   const locked = phase.kind === "starting" || phase.kind === "checked" || durable();
   const derived = derivePeriod(input.period);
   const existing = entities.find((e) => e.id === input.existingId) ?? null;
+  // Entity pre-check: a new name that is an existing entity's, written differently, is asked about before registration.
+  const sameEntity = input.mode === "new" ? findSameEntity(input.entityName, entities) : null;
+  const [distinctFor, setDistinctFor] = useState<string | null>(null);
+  const distinctConfirmed = !!sameEntity && distinctFor === `${sameEntity.id}:${input.entityName.trim()}`;
   const suggestion = confirmedPeriods?.[0] ? followingYear(confirmedPeriods[0]) : null;
   // The labels against the chosen currency. Nothing is ever changed for the person: a conflict is stated with its
   // location and only an explicit "Use …" changes the choice; amounts are never converted.
@@ -191,13 +196,14 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
     const p: { field: string; text: string }[] = [];
     if (input.mode === "new" && !input.entityName.trim()) p.push({ field: ids.entity, text: "Enter the entity's name." });
     if (input.mode === "existing" && !existing) p.push({ field: ids.existing, text: "Choose the entity." });
+    if (sameEntity && !distinctConfirmed) p.push({ field: ids.entity, text: `An entity named “${sameEntity.name}” already exists. Use it, or confirm this is a different entity.` });
     const pp = periodProblem(input.period);
     if (pp) p.push({ field: ids.end, text: pp });
     if (!input.currency) p.push({ field: ids.currency, text: "Choose the trial balance currency." });
     else if (fileCurrency?.kind === "conflict") p.push({ field: ids.currency, text: `The file's amounts are labelled ${fileCurrency.code} (${describeEvidence(fileCurrency.evidence)}), not ${fileCurrency.selected}. Choose ${fileCurrency.code} if the amounts are in ${fileCurrency.code}, or choose a file in ${fileCurrency.selected}.` });
     if (fileCurrency?.kind === "mixed") p.push({ field: ids.currency, text: `The file labels its amounts in more than one currency (${fileCurrency.codes.join(", ")}). Correct the labels so every amount is in one currency, then choose the file again.` });
     return p;
-  }, [input, existing, ids.entity, ids.existing, ids.end, ids.currency, fileCurrency]);
+  }, [input, existing, sameEntity, distinctConfirmed, ids.entity, ids.existing, ids.end, ids.currency, fileCurrency]);
 
   // ── The file: validated, hashed, reserved and stored as a draft (retry-safe: one key per file) ────────────────────
   const choose = async (file: File | null | undefined) => {
@@ -392,6 +398,19 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
                 <Label htmlFor={ids.entity}>Entity name</Label>
                 <Input id={ids.entity} value={input.entityName} onChange={(e) => set({ entityName: e.target.value })} placeholder="The business or organisation this trial balance belongs to"
                   className="mt-1 bg-white" autoComplete="organization" data-testid="confirm-entity" />
+                {sameEntity && (
+                  <div className="mt-2 space-y-2 border border-amber-500/50 bg-amber-500/5 p-3 text-[13px]" role="status" data-testid="entity-precheck">
+                    <p>An entity named <strong>{sameEntity.name}</strong> already exists in your workspace.</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="button" variant="outline" className="h-9 rounded-none" onClick={() => set({ mode: "existing", existingId: sameEntity.id, currency: "" })} data-testid="entity-precheck-use">
+                        Use {sameEntity.name}</Button>
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={distinctConfirmed} onChange={(e) => setDistinctFor(e.target.checked ? `${sameEntity.id}:${input.entityName.trim()}` : null)} data-testid="entity-precheck-distinct" />
+                        It is a different entity with the same name
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="mt-2">

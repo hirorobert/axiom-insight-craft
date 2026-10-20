@@ -57,9 +57,11 @@ function UploadCell({ row }: { row: PortfolioRow }) {
   );
 }
 
-export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", renderEntityOptions, rpc = supabaseRpc }: {
+export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", uploadHref, renderEntityOptions, rpc = supabaseRpc }: {
   /** Omitted where the page already offers the upload as its one primary action. */
   onUpload?: () => void;
+  /** A quiet link to the focused upload page (used where the page has another primary action). */
+  uploadHref?: string;
   headingLevel?: "h1" | "h2";
   title?: string;
   /** Per-row entity options (e.g. recording the workspace purpose), shown under the entity name. */
@@ -128,6 +130,10 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
         <Heading id={ids.heading} ref={headingRef} tabIndex={-1}
           className={headingLevel === "h1" ? "text-2xl font-semibold tracking-tight text-foreground outline-none" : "text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"}>{title}</Heading>
         {onUpload && <Button onClick={onUpload} className="h-10 rounded-none" data-testid="portfolio-upload"><Upload className="mr-2 h-4 w-4" aria-hidden="true" />Upload trial balance</Button>}
+        {!onUpload && uploadHref && (
+          <Link to={uploadHref} className="inline-flex h-10 items-center gap-2 border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link">
+            <Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">

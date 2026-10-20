@@ -80,6 +80,7 @@ const Checkout = lazy(() => import("@/pages/billing/Checkout"));
 const Orders = lazy(() => import("@/pages/billing/Orders"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
+const UploadTrialBalance = lazy(() => import("@/pages/UploadTrialBalance"));
 // Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
 // A literal gate (REPORTING_PAGES_SHIPPED): while it is false the chunk is not in the build at all.
 const ReportingWorkbenchPage = REPORTING_PAGES_SHIPPED
@@ -217,6 +218,14 @@ const App = () => (
                 {PlanStatesAcceptance && (
                   <Route path="/internal/acceptance/plan-states" element={<Suspense fallback={null}><PlanStatesAcceptance /></Suspense>} />
                 )}
+                <Route
+                  path="/upload"
+                  element={
+                    <PageErrorBoundary pageName="UploadTrialBalance">
+                      <Suspense fallback={null}><UploadTrialBalance /></Suspense>
+                    </PageErrorBoundary>
+                  }
+                />
                 <Route
                   path="/uploads/status"
                   element={

@@ -99,3 +99,17 @@ export function portfolioDestination(row: PortfolioRow): string {
   const base = `/workspace/${row.companyId}/${row.periodYear}`;
   return PORTFOLIO_STATUS_VIEW[row.status].destination === "overview" ? base : `${base}/trial-balance/review`;
 }
+
+/** The entities the caller may upload to (list_portfolio_entities): bounded, with the true total. */
+export interface PortfolioEntity { id: string; name: string; code: string | null; tin: string | null }
+export async function fetchPortfolioEntities(rpc: Rpc, limit = 200): Promise<{ kind: "ok"; entities: PortfolioEntity[]; total: number } | { kind: "unavailable" }> {
+  const { data, error } = await rpc("list_portfolio_entities", { p_limit: limit });
+  const d = obj(data);
+  if (error || d.outcome !== "ok" || !Array.isArray(d.entities) || typeof d.total !== "number") return { kind: "unavailable" };
+  const entities = d.entities.flatMap((e): PortfolioEntity[] => {
+    const r = obj(e);
+    const id = str(r.id), name = str(r.name);
+    return id && name ? [{ id, name, code: str(r.code), tin: str(r.tin) }] : [];
+  });
+  return { kind: "ok", entities, total: d.total };
+}

@@ -178,13 +178,16 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).toContain('data-testid="add-company"');
   });
 
-  it("returning user with entities: a compact upload sits above the one next action (P2-4); one filled primary remains", async () => {
-    // (One company alone routes straight into its workspace; the home shows from two.)
+  it("returning user with entities: uploading is its own focused page (/upload), linked quietly from the engagements list; one filled primary remains", async () => {
+    // (One company alone routes straight into its workspace; the home shows from two.) The compact upload card of P2-4
+    // is replaced by the focused upload page (Trial Balance workflow, Track A): the home links to it, it does not embed it.
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [company("c1", "Acme Ltd"), company("c2", "Beta Co")], fetchFailed: false });
     const html = await renderDashboard();
-    expect(html).toContain('data-compact="true"');
+    expect(html).not.toContain('data-compact="true"');
+    const link = html.match(/<a[^>]*data-testid="portfolio-upload-link"[^>]*>/)?.[0] ?? "";
+    expect(link).toContain('href="/upload"');
     expect(html).toContain('data-testid="account-next-action"');
-    // The compact upload's button is an outline (secondary): the next action keeps at most one filled primary.
+    // The upload link is an outline link (secondary): the next action keeps at most one filled primary.
     expect((html.match(/data-testid="next-action-primary"/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 

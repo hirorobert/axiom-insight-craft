@@ -45,7 +45,8 @@ BEGIN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: the workspace access, certification authority or purpose objects this read uses are missing; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
   IF to_regclass('public.portfolio_revisions') IS NOT NULL
-     OR to_regprocedure('public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)') IS NOT NULL THEN
+     OR to_regprocedure('public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)') IS NOT NULL
+     OR to_regprocedure('public.list_portfolio_entities(integer)') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: the engagements portfolio already exists; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END
@@ -245,3 +246,25 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.list_portfolio_engagements(text, text[], text[], integer, text, integer, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.list_portfolio_engagements(text, text[], text[], integer, text, integer, jsonb) TO authenticated;
+
+-- ── 4. The entities the caller may upload to (bounded; the upload page and its duplicate-entity pre-check) ──────────
+-- The same visibility as the engagements read; ordered by name; at most p_limit (1–500, default 200) with the true total,
+-- so a list that does not fit says so instead of silently missing an entity.
+CREATE OR REPLACE FUNCTION public.list_portfolio_entities(p_limit integer DEFAULT 200)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_limit integer := coalesce(p_limit, 200);
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF v_limit < 1 OR v_limit > 500 THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'INVALID_LIMIT'); END IF;
+  RETURN jsonb_build_object('outcome', 'ok',
+    'entities', coalesce((
+      SELECT jsonb_agg(jsonb_build_object('id', x.id, 'name', x.name, 'code', x.code, 'tin', x.tin) ORDER BY lower(x.name), x.id)
+        FROM (SELECT c.id, c.name, c.code, c.tin FROM public._portfolio_visible_companies(v_uid) v(id)
+                JOIN public.companies c ON c.id = v.id ORDER BY lower(c.name), c.id LIMIT v_limit) x), '[]'::jsonb),
+    'total', (SELECT count(*) FROM public._portfolio_visible_companies(v_uid)));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.list_portfolio_entities(integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_portfolio_entities(integer) TO authenticated;

@@ -239,7 +239,8 @@ export default function EngagementHub({
       {account && next && (
         <section className="mb-10" aria-labelledby="account-home-title">
           <h1 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h1>
-          {uploadHome === "compact" && account.onOpenTrialBalance && (
+          {/* With the engagements list, uploading lives on its own page (/upload), linked from the list. */}
+          {uploadHome === "compact" && account.onOpenTrialBalance && !portfolio && (
             <div className="mb-4">
               <FirstUpload compact entities={uploadEntities} canCreateEntity={creation === "allowed"} needsPlan={next.kind === "choose_plan"}
                 onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
@@ -265,7 +266,7 @@ export default function EngagementHub({
         </section>
       )}
       {portfolio && account && (
-        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" uploadHref={uploadHome === "compact" ? "/upload" : undefined} renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
       )}
       {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">

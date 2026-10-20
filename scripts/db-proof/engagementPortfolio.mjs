@@ -111,8 +111,9 @@ async function main() {
         has_function_privilege('anon','public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)','EXECUTE') b,
         has_function_privilege('authenticated','public._portfolio_visible_companies(uuid)','EXECUTE') c,
         has_function_privilege('authenticated','public._portfolio_bump(uuid)','EXECUTE') d,
-        has_table_privilege('authenticated','public.portfolio_revisions','SELECT') e`);
-    return r.a && !r.b && !r.c && !r.d && !r.e ? true : r;
+        has_table_privilege('authenticated','public.portfolio_revisions','SELECT') e,
+        has_function_privilege('authenticated','public.list_portfolio_entities(integer)','EXECUTE') f`);
+    return r.a && !r.b && !r.c && !r.d && !r.e && r.f ? true : r;
   });
 
   // ── Fixture: two tenants; tenant A has 130 engagements across 26 companies; invented names only ───────────────────
@@ -308,6 +309,19 @@ async function main() {
     const after = (await list(U.member, { limit: 2, cursor: before.next_cursor }));
     return before.view_token !== after.view_token && after.rows.length > 0 ? true : { before: before.view_token, after: after.view_token };
   });
+
+  group("Entities — the bounded list the upload page offers, under the same visibility");
+  await check("the owner lists all 26 entities by name with the true total; a member only theirs; a stranger none; limits enforced", async () => {
+    const ents = (uid, limit = null) => asRole("authenticated", uid, "SELECT public.list_portfolio_entities($1) r", [limit]).then((r) => r[0].r);
+    const o = await ents(U.owner), mm = await ents(U.member), st = await ents(U.stranger), small = await ents(U.owner, 5), bad = await ents(U.owner, 501);
+    const names = o.entities.map((e) => e.name);
+    const sorted = [...names].sort((a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0));
+    return o.outcome === "ok" && o.total === 26 && o.entities.length === 26 && JSON.stringify(names) === JSON.stringify(sorted)
+      && !o.entities.some((e) => e.id === B) && mm.entities.every((e) => [C0, C1].includes(e.id)) && st.total === 0
+      && small.entities.length === 5 && small.total === 26 && bad.code === "INVALID_LIMIT" ? true : { o: o.total, mm: mm.entities?.length, st, small: small.entities?.length, bad };
+  });
+  await check("anon cannot call the entity list", async () =>
+    asRole("anon", null, "SELECT public.list_portfolio_entities(10)").then(() => "allowed", (e) => (/permission denied/.test(e.message) ? true : e.message)));
 
   group("Cost — measured on this data set (reported; a release check, not a latency guarantee)");
   await check(`a filtered first page and a full-status count over 130 engagements finish within ${BUDGET_MS} ms (median of 5)`, async () => {
