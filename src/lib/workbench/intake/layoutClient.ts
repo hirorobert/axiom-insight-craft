@@ -60,13 +60,25 @@ export interface LayoutReport {
   } | null;
 }
 
-/** tb-investigation/1 (supabase/functions/_shared/tbInvestigation.ts): leads in the file, never conclusions. */
+/** tb-investigation/2 (supabase/functions/_shared/tbInvestigation.ts): leads in the file, never conclusions. */
 export interface InvestigationResult {
-  format: "tb-investigation/1";
+  format: "tb-investigation/2";
+  currency: string | null;
+  /** Minor-unit exponent of the stored rows' amounts. */
+  exponent: number;
   difference: string;
   larger: "debits" | "credits";
+  /** The totals of the rows read as accounts. */
+  read: { debit: string; credit: string };
+  /** The file's own printed total rows, as read. */
+  printed: { row: number; debit: string; credit: string }[];
+  cause: "export_totals_do_not_balance" | "reading_differs_from_printed_totals" | "reading_agrees_with_printed_totals" | "no_printed_totals";
+  causeText: string;
   leads: { kind: string; rows: number[]; check: string }[];
   more: number;
+  row_count: number;
+  included_count: number;
+  excluded_count: number;
   statement: string;
 }
 

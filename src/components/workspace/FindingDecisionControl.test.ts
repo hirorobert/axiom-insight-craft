@@ -155,13 +155,62 @@ describe("FindingDecisionControl", () => {
   });
 });
 
+const invResult = (extra: Record<string, unknown> = {}) => ({ format: "tb-investigation/2" as const, currency: "TZS", exponent: 2, difference: "120.00", larger: "debits" as const, more: 0,
+  read: { debit: "2,020.25", credit: "1,900.25" }, printed: [], cause: "no_printed_totals" as const,
+  causeText: "The file has no printed totals to compare with, so the leads below are the evidence available.",
+  leads: [{ kind: "amount_equals_difference", rows: [4], check: "An amount of 120.00 — the whole difference — is on this row." }],
+  row_count: 3, included_count: 2, excluded_count: 1,
+  statement: "These are leads in this file to check against your accounting system, not conclusions.", ...extra });
+const invRow = (n: number, included: boolean, extra: Args = {}) => ({ ordinal: n, row_number: n + 2, included, disposition: included ? "account" : "blank",
+  account_code: included ? `10${n}0` : null, account_name: included ? `Invented ${n}` : null, debit_minor: included ? "12000" : null, credit_minor: null,
+  reason: included ? null : "no account and no amounts", ...extra });
+
 describe("ImbalanceInvestigation", () => {
   let m: Mounted | null = null;
   afterEach(() => { m?.unmount(); m = null; });
+  it("shows the read and printed totals, the labelled possible cause, and every stored row page by page — filtered, keyset-paged, never re-investigated", async () => {
+    const result = invResult({ printed: [{ row: 9, debit: "1,900.25", credit: "1,900.25" }], cause: "reading_differs_from_printed_totals",
+      causeText: "The file's printed totals on row 9 are not what the rows read add up to." });
+    const investigate = vi.fn(async () => ({ kind: "ok", value: { status: "completed", investigationId: "inv1", result } }) as never);
+    const rpc = vi.fn(async (_f: string, a: Args) => {
+      if (a.p_filter === "excluded") return { data: { outcome: "ok", rows: [invRow(3, false)], next_after: null, total: 1 }, error: null };
+      return a.p_after === 0
+        ? { data: { outcome: "ok", rows: [invRow(1, true), invRow(2, true)], next_after: 2, total: 3 }, error: null }
+        : { data: { outcome: "ok", rows: [invRow(3, false)], next_after: null, total: 3 }, error: null };
+    });
+    m = mount(createElement(ImbalanceInvestigation, { client: { investigate }, uploadId: U, certificationId: CERT, rpc }));
+    const el = m.container;
+    click(q(el, "investigation-run")!); await flush();
+    expect(q(el, "investigation-totals")!.textContent).toMatch(/Rows read as accounts2,020\.251,900\.25/);
+    expect(q(el, "investigation-totals")!.textContent).toContain("Printed totals (row 9)");
+    expect(q(el, "investigation-cause")!.dataset.cause).toBe("reading_differs_from_printed_totals");
+    expect(q(el, "investigation-cause")!.textContent).toMatch(/^Possible cause:/);
+    expect(rpc).toHaveBeenLastCalledWith("get_tb_investigation_rows", { p_investigation_id: "inv1", p_filter: "all", p_after: 0, p_limit: 50 });
+    expect(q(el, "investigation-row-3")!.textContent).toMatch(/1010 Invented 1120\.00/);
+    expect(q(el, "investigation-rows-count")!.textContent).toBe("Showing 2 of 3.");
+    click(q(el, "investigation-rows-more")!); await flush();
+    expect(rpc).toHaveBeenLastCalledWith("get_tb_investigation_rows", expect.objectContaining({ p_filter: "all", p_after: 2 }));
+    expect(q(el, "investigation-row-5")!.textContent).toContain("Excluded — no account and no amounts");
+    expect(q(el, "investigation-rows-count")!.textContent).toBe("Showing 3 of 3.");
+    expect(q(el, "investigation-rows-more")).toBeNull();
+    click(q(el, "investigation-filter-excluded")!); await flush();
+    expect(rpc).toHaveBeenLastCalledWith("get_tb_investigation_rows", expect.objectContaining({ p_filter: "excluded", p_after: 0 }));
+    expect(el.querySelectorAll('[data-testid^="investigation-row-"][data-included]').length).toBe(1);
+    expect(investigate).toHaveBeenCalledTimes(1);
+    expect(el.textContent).not.toMatch(/plug|suspense entry|ledger is (out of balance|unbalanced)/i);
+    expect(await axeViolations(el)).toEqual([]);
+  });
+  it("a failed page read says so and leaves the findings unchanged; a malformed page is never shown in part", async () => {
+    const investigate = vi.fn(async () => ({ kind: "ok", value: { status: "completed", investigationId: "inv1", result: invResult() } }) as never);
+    const rpc = vi.fn(async () => ({ data: { outcome: "ok", rows: [invRow(1, true, { debit_minor: "12.5" })], next_after: null, total: 1 }, error: null }));
+    m = mount(createElement(ImbalanceInvestigation, { client: { investigate }, uploadId: U, certificationId: CERT, rpc }));
+    click(q(m.container, "investigation-run")!); await flush();
+    expect(q(m.container, "investigation-rows-error")).not.toBeNull();
+    expect(m.container.querySelectorAll('[data-testid^="investigation-row-"][data-included]').length).toBe(0);
+    expect(q(m.container, "investigation-cause")!.textContent).toContain("No printed totals");
+  });
   it("one request for the result on screen; leads by row with the file-not-ledger statement; in-progress and errors in words", async () => {
-    const result = { format: "tb-investigation/1" as const, difference: "120.00", larger: "debits" as const, more: 0,
-      leads: [{ kind: "amount_equals_difference", rows: [4], check: "An amount of 120.00 — the whole difference — is on this row." }],
-      statement: "These are leads in this file to check against your accounting system, not conclusions." };
+    const result = invResult();
     let answer: unknown = { kind: "ok", value: { status: "in_progress", investigationId: "i1" } };
     const investigate = vi.fn(async () => answer as never);
     m = mount(createElement(ImbalanceInvestigation, { client: { investigate }, uploadId: U, certificationId: CERT }));
