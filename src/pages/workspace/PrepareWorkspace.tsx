@@ -84,6 +84,7 @@ import { FindingDecisionControl } from "@/components/workspace/FindingDecisionCo
 import { ImbalanceInvestigation } from "@/components/workspace/ImbalanceInvestigation";
 import { decidable, readFindingDecisions, type CurrentDecisionView } from "@/lib/workspace/findingDecisions";
 import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
+import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { explainBlock, getCorrectionEligibility, readCurrencyMismatch } from "@/lib/workspace/periodCurrency";
 import { checkFileCurrency, describeEvidence } from "@/lib/ingestion/fileCurrencyCheck";
 
@@ -554,9 +555,18 @@ export default function PrepareWorkspace() {
     }
     return null;
   };
+  // The handoff: an accepted trial balance leads into financial statements — only where the server enables reporting for
+  // this company (financial_statements_workspace_access; fails closed), so no unavailable step is ever offered.
+  const reporting = useReportingAccess(companyId);
+  const statementsHandoff = verdict.status === "accepted" && reporting.state === "enabled" && !prepareOnly ? (
+    <p className="text-[13px]" data-testid="statements-handoff">
+      <Link to={`/workspace/${companyId}/${periodYear}/statements`} className="inline-flex h-10 items-center gap-2 border border-border px-4 font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Continue to financial statements</Link>
+    </p>
+  ) : undefined;
   const investigation = upload && evaluationId && mayDecide && verdict.status === "blocked" && verdict.issues.some((i) => i.code === "TRIAL_BALANCE_IMBALANCE")
     ? <ImbalanceInvestigation client={layoutApi} uploadId={upload.id} certificationId={evaluationId} />
-    : undefined;
+    : statementsHandoff;
 
   // Re-run processing after an engine failure (never offered for a blocked trial balance: its checks ran and the same
   // file would fail again). Only the Edge Function writes; the page makes no financial write.
