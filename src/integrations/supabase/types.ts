@@ -9822,6 +9822,29 @@ export type Database = {
         Args: { p_issuance_id: string }
         Returns: string
       }
+      _period_currency_actor: {
+        Args: { p_company_id: string; p_user: string }
+        Returns: string
+      }
+      _period_currency_bookkeeping: { Args: never; Returns: string[] }
+      _period_currency_correction_block: {
+        Args: { p_period_id: string }
+        Returns: Json
+      }
+      _period_currency_dependencies: {
+        Args: { p_role?: unknown }
+        Returns: {
+          child_cols: string[]
+          constraint_name: string
+          kind: string
+          parent_cols: string[]
+          problem: string
+          qualified: string
+          rel: unknown
+          target: unknown
+        }[]
+      }
+      _period_currency_dependent_relations: { Args: never; Returns: unknown[] }
       _period_has_processing: {
         Args: { p_period_id: string }
         Returns: boolean
@@ -10507,6 +10530,16 @@ export type Database = {
           outcome: string
         }[]
       }
+      correct_period_currency: {
+        Args: {
+          p_expected_currency: string
+          p_new_currency: string
+          p_period_id: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       create_entity: {
         Args: {
           p_code?: string
@@ -11131,6 +11164,10 @@ export type Database = {
         Returns: Json
       }
       get_named_user_roster: { Args: never; Returns: Json }
+      get_period_currency_correction: {
+        Args: { p_period_id: string }
+        Returns: Json
+      }
       get_public_plan_prices: { Args: never; Returns: Json }
       get_trial_balance_draft: {
         Args: { p_draft_id: string }

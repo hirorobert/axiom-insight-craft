@@ -442,6 +442,13 @@
       "when": 1792341986524,
       "tag": "0062_unlimited_team_members_wrapper",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1792470872315,
+      "tag": "0063_period_currency_correction",
+      "breakpoints": true
     }
   ]
 }
