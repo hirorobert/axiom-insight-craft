@@ -49,8 +49,8 @@ import { indexByName, matchByName, namesSharedInUpload, type NameMatch } from ".
 // A2: a confirmed manual layout (layout-confirmation/1, 20261010100000) replaces automatic column detection for its file.
 import { LAYOUT_AUTHORITY_UNAVAILABLE, readCurrentLayoutConfirmation, type LayoutConfirmationRow } from "../_shared/layoutConfirmationRead.ts";
 import {
-  DECISIONS_AUTHORITY_UNAVAILABLE, applyDecisions, evaluationManifest, readCurrentDecisions, sameDecisions, usesCarriedDecisions,
-  type CurrentDecision, type DecisionFinding,
+  DECISIONS_AUTHORITY_UNAVAILABLE, applyDecisions, evaluationManifest, readCurrentDecisions, readRequirements, sameDecisions,
+  sameRequirements, type CurrentDecision, type DecisionFinding, type Requirements,
 } from "../_shared/tbFindingDecisions.ts";
 import { profileSha256, resolvedLayoutSha256, validateProfile } from "../_shared/layoutProfile.ts";
 // E1: exact class-side amounts ("tb-amounts/1") and the treatment request identity (H1b, 20261007100000).
@@ -73,10 +73,11 @@ const PARSER_VERSION = TB_INGESTION_VERSION;
 // certification; output_hash binds the certified rows AND the complete findings; the account bound is enforced.
 // v6: name fallback by counting candidates (20261108100000): a coded account never takes another code's decision by
 // name; several candidates go to review, never the first or the last.
-// v7: recorded finding decisions and the evaluation manifest (20261118100000): reads the upload's current decisions and
-// the company's current name before the attempt, records '#finding_decisions:<upload>' and '#entity' (and
-// '#entity_decisions' when it uses a carried decision), re-reads both after the snapshot, cites each decision on its
-// finding, never accepts a result with an undecided finding, and reports every rule it evaluated.
+// v7: recorded finding decisions and the evaluation manifest (20261118100000): reads the upload's current decisions, the
+// workspace's requirement per decision-taking code and the company's current name before the attempt, records
+// '#finding_decisions:<upload>', '#entity' and '#finding_policy', re-reads all three after the snapshot, states each
+// finding's requirement and cites its decision, never accepts a result with an undecided REQUIRED finding (review
+// indicators stay notes), lists decision-made blocks in the findings, and reports every rule it evaluated.
 const SAFISHA_ENGINE_VERSION = "safisha-tb-certification-v7";
 
 // The numeric engine generation written on every run (engine_runs.engine_generation, 20261007100000). The database
@@ -1170,7 +1171,7 @@ type AttemptOutcome =
   | { outcome: "certified"; upload: AttemptUploadFields; normalizedInputHash: string; isBlocking: boolean; requiresReview: boolean;
       exceptions: SafishaExceptionRecord[]; rowsSnapshot: CertifiedTBRowRecord[];
       // v7: the upload's current decisions, how far the check got, and whether the balance was evaluated (the manifest).
-      decisions: CurrentDecision[]; reached: "ingestion" | "classification" | "complete"; balanceEvaluated: boolean }
+      decisions: CurrentDecision[]; requirements: Requirements; reached: "ingestion" | "classification" | "complete"; balanceEvaluated: boolean }
   | { outcome: "failed"; errorCode: string; upload: AttemptUploadFields };
 
 const COMPANY_REQUIRED = {
@@ -1216,7 +1217,7 @@ async function readCompanyName(supabase: { from(t: "companies"): { select(c: str
 }
 
 /** Every dependency key a run can consult (absent ones included), for tb_snapshot_dependencies. */
-function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccount[], usesCarried: boolean): { scope: string; key: string }[] {
+function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccount[]): { scope: string; key: string }[] {
   const keys = new Map<string, { scope: string; key: string }>();
   const add = (scope: string, key: string) => keys.set(`${scope}|${key}`, { scope, key });
   for (const a of accounts) {
@@ -1230,10 +1231,10 @@ function dependencyKeys(companyId: string, uploadId: string, accounts: RawAccoun
   add(companyId, "#framework");
   add(companyId, "#currency");
   add(companyId, `#layout_confirmation:${uploadId}`);
-  // v7: the upload's decisions, the company's identity (the entity comparison), and carried decisions when used.
+  // v7: the upload's decisions, the company's identity (the entity comparison) and the workspace's finding policy.
   add(companyId, `#finding_decisions:${uploadId}`);
   add(companyId, "#entity");
-  if (usesCarried) add(companyId, "#entity_decisions");
+  add(companyId, "#finding_policy");
   add("global", "#dictionary");
   return [...keys.values()];
 }
@@ -1262,12 +1263,22 @@ async function finishAttempt(
 ): Promise<{ ok: true; processingResult?: unknown } | { ok: false; response: Response }> {
   let adjustedResult: unknown;
   if (params.outcome === "certified") {
-    // v7: decisions are applied HERE, the one place a certification is built. Each finding that takes a decision cites
-    // its current one; a decision that does not resolve adds a blocking finding with its recovery; an undecided finding
-    // makes an otherwise accepted result "needs review". No amount, row or account changes.
-    const applied = applyDecisions(params.exceptions as DecisionFinding[], params.decisions);
+    // v7: decisions are applied HERE, the one place a certification is built. Each finding that takes a decision states
+    // its requirement and cites its current decision; a decision that does not resolve adds a blocking finding with its
+    // recovery; an undecided REQUIRED finding makes an otherwise accepted result "needs review" (review indicators stay
+    // notes). No amount, row or account changes.
+    const applied = applyDecisions(params.exceptions as DecisionFinding[], params.decisions, params.requirements);
     let { isBlocking, requiresReview, upload } = params;
-    const pr = (upload.processing_result ?? {}) as Record<string, unknown>;
+    // The one findings list the person reads (processing_result.ingestion.issues) carries the same requirement flags and
+    // the blocks a decision produced, so every finding is stated once, with what can be done about it.
+    const basePr = (upload.processing_result ?? {}) as Record<string, unknown>;
+    const ingestion = (basePr.ingestion ?? null) as Record<string, unknown> | null;
+    const flagged = Array.isArray(ingestion?.issues) ? (ingestion!.issues as Record<string, unknown>[]).map((i) =>
+      typeof i.code === "string" && typeof i.subject === "string" && typeof params.requirements[i.code] === "boolean"
+        ? { ...i, decision_required: params.requirements[i.code] } : i) : null;
+    const pr: Record<string, unknown> = ingestion && flagged ? { ...basePr, ingestion: { ...ingestion, issues: [...flagged,
+      ...applied.blocking.map((b) => ({ code: b.code, severity: "blocking", message: b.message, rows: b.rows ?? [] }))] } } : basePr;
+    if (pr !== basePr) upload = { ...upload, processing_result: pr };
     const decisionsRequired = applied.undecided.filter((f) => !f.decision)
       .map((f) => ({ code: f.code, subject: f.subject, rows: f.rows ?? [], message: f.message }));
     if (applied.blocking.length > 0 && !isBlocking) {
@@ -1282,6 +1293,8 @@ async function finishAttempt(
     } else if (decisionsRequired.length > 0) {
       adjustedResult = { ...pr, decisions_required: decisionsRequired };
       upload = { ...upload, processing_result: adjustedResult };
+    } else if (pr !== basePr) {
+      adjustedResult = pr;
     }
     params = { ...params, isBlocking, requiresReview, upload, exceptions: applied.findings as SafishaExceptionRecord[] };
   }
@@ -1516,11 +1529,14 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     // a rename bumps '#entity'). Read before anything is mutated; a database without the decision authority is refused
     // here with nothing written.
     let findingDecisions: CurrentDecision[] = [];
+    let findingRequirements: Requirements = {};
     let workspaceEntityName: string | null = upload.company_name ?? null;
     if (upload.company_id) {
       const decisionsRead = await readCurrentDecisions((n, a) => supabase.rpc(n, a as never) as never, uploadId);
-      if (decisionsRead.kind === "unavailable") return jsonResponse(DECISIONS_AUTHORITY_UNAVAILABLE, 503);
+      const requirementsRead = await readRequirements((n, a) => supabase.rpc(n, a as never) as never, upload.company_id);
+      if (decisionsRead.kind === "unavailable" || requirementsRead.kind === "unavailable") return jsonResponse(DECISIONS_AUTHORITY_UNAVAILABLE, 503);
       findingDecisions = decisionsRead.decisions;
+      findingRequirements = requirementsRead.requirements;
       workspaceEntityName = await readCompanyName(supabase as never, upload.company_id);
     }
 
@@ -1752,7 +1768,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
         rowsSnapshot: [],
         upload: { status: "blocked", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
         // The balance is evaluated unless another integrity finding stopped the arithmetic (a total-row mismatch does not).
-        decisions: findingDecisions, reached: "ingestion",
+        decisions: findingDecisions, requirements: findingRequirements, reached: "ingestion",
         balanceEvaluated: imbalanced || !blockingIssues.some((i) => i.code !== "TOTAL_ROW_MISMATCH"),
       });
       if (!done.ok) return done.response;
@@ -1765,7 +1781,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     // dictionary (absent = revision 0). Finalize re-checks them (DEPENDENCY_CHANGED), and authority is re-checked against
     // them at read time, so a later mapping, decision or setting change makes this result a re-check.
     const { error: snapshotError } = await supabase.rpc("tb_snapshot_dependencies", {
-      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, uploadId, rawAccounts, usesCarriedDecisions(findingDecisions)),
+      p_engine_run_id: runId, p_keys: dependencyKeys(upload.company_id, uploadId, rawAccounts),
     } as never);
     if (snapshotError) {
       const refusal = attemptErrorResponse(snapshotError);
@@ -1806,9 +1822,12 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
     // v7: likewise the decisions and the company's name — a decision recorded, or the company renamed, between the reads
     // above and the snapshot would otherwise be certified as current while this check used the earlier state.
     const decisionsAfterSnapshot = await readCurrentDecisions((n, a) => supabase.rpc(n, a as never) as never, uploadId);
+    const requirementsAfterSnapshot = await readRequirements((n, a) => supabase.rpc(n, a as never) as never, upload.company_id);
     const nameAfterSnapshot = await readCompanyName(supabase as never, upload.company_id);
-    if (decisionsAfterSnapshot.kind !== "read" || !sameDecisions(decisionsAfterSnapshot.decisions, findingDecisions) || nameAfterSnapshot !== workspaceEntityName) {
-      const changed = { code: "DEPENDENCY_CHANGED", message: "A decision about this file, or the entity's name, changed while this check ran. Run the check again." };
+    if (decisionsAfterSnapshot.kind !== "read" || !sameDecisions(decisionsAfterSnapshot.decisions, findingDecisions)
+        || requirementsAfterSnapshot.kind !== "read" || !sameRequirements(requirementsAfterSnapshot.requirements, findingRequirements)
+        || nameAfterSnapshot !== workspaceEntityName) {
+      const changed = { code: "DEPENDENCY_CHANGED", message: "A decision about this file, the workspace's finding policy or the entity's name changed while this check ran. Run the check again." };
       attemptFinished = true;
       const done = await finishAttempt(supabase as never, runId, {
         outcome: "failed", errorCode: "DEPENDENCY_CHANGED",
@@ -2202,7 +2221,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
         ],
         rowsSnapshot: [],
         upload: { status: "needs_review", is_valid: false, accounting_errors: allErrors, processing_result: result, validation_report: result.validation_report },
-        decisions: findingDecisions, reached: "classification", balanceEvaluated: true,
+        decisions: findingDecisions, requirements: findingRequirements, reached: "classification", balanceEvaluated: true,
       });
       if (!done.ok) return done.response;
       return jsonResponse(done.processingResult ?? result, 200);
@@ -2328,7 +2347,7 @@ serve(withAdmission(ADMISSION, () => new Response(JSON.stringify(PROCESSING_BUSY
       ],
       rowsSnapshot: buildCertifiedRows(rawAccounts, resolvedMappings, resolvedTiers),
       upload: { status: allValid ? "complete" : "error", is_valid: allValid, validation_report: validationReport, accounting_errors: allErrors, processing_result: processingResult },
-      decisions: findingDecisions, reached: "complete", balanceEvaluated: true,
+      decisions: findingDecisions, requirements: findingRequirements, reached: "complete", balanceEvaluated: true,
     });
     if (!done.ok) return done.response;
 

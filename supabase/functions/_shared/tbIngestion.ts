@@ -600,6 +600,9 @@ export interface RowLineage {
   /** The account identity for an "account" row. */
   identity?: string;
   reason?: string;
+  /** Total and excluded rows: the amounts the reader parsed from them (exact minor units), for investigation. */
+  debitMinor?: bigint;
+  creditMinor?: bigint;
 }
 
 export interface IngestedAccount {
@@ -848,11 +851,12 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       if (useDebitCredit && typeof d === "bigint" && typeof c === "bigint" && b !== "bad"
         && accounts.length > 0 && onlyAmounts && i === lastSubstantive) {
         totalRowsChecked.push({ row: row.rowNumber, debit: d, credit: c, accountsDebit: runningDebit, accountsCredit: runningCredit });
-        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows" });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows", debitMinor: d, creditMinor: c });
         continue;
       }
       lineage.push(anyAmount
-        ? { rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code or name" }
+        ? { rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code or name",
+            ...(typeof d === "bigint" ? { debitMinor: d } : {}), ...(typeof c === "bigint" ? { creditMinor: c } : {}) }
         : { rowNumber: row.rowNumber, disposition: "blank" });
       if (anyAmount) missingCode.push(row.rowNumber);
       continue;
@@ -880,7 +884,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
         if (GRAND_TOTAL_PATTERN.test(name) && !allBlank) {
           totalRowsChecked.push({ row: row.rowNumber, debit, credit, accountsDebit: runningDebit, accountsCredit: runningCredit });
         }
-        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: name });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: name, ...(allBlank ? {} : { debitMinor: debit, creditMinor: credit }) });
         continue;
       }
     }
@@ -888,7 +892,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     if (allBlank) { lineage.push({ rowNumber: row.rowNumber, disposition: code ? "zero_balance" : "heading", reason: name || code }); continue; }
     if (hasCodeColumn && !code) {
       missingCode.push(row.rowNumber);
-      lineage.push({ rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code" });
+      lineage.push({ rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code", debitMinor: debit, creditMinor: credit });
       continue;
     }
     if (debit === 0n && credit === 0n) { lineage.push({ rowNumber: row.rowNumber, disposition: "zero_balance", reason: name || code }); continue; }

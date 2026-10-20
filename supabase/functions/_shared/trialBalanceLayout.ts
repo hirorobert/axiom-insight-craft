@@ -331,11 +331,17 @@ export async function handleLayoutRequest(userId: string, body: unknown, deps: L
       } else {
         read = readTrialBalanceSource(opened.bytes, ctx, deps.xlsx);
       }
-      const result = investigateImbalance(read);
-      if (!result) { await finish("failed", null, "NOT_OUT_OF_BALANCE"); return refusal("NOT_APPLICABLE"); }
-      const done = await finish("completed", result, null);
+      const found = investigateImbalance(read);
+      if (!found) { await finish("failed", null, "NOT_OUT_OF_BALANCE"); return refusal("NOT_APPLICABLE"); }
+      // The rows are stored once, in batches of at most 2,000; pages are then read from storage, never re-parsed.
+      for (let i = 0; i < found.rows.length; i += 2000) {
+        const { error: rowsError } = await deps.rpc("tb_investigation_add_rows", { p_investigation_id: id, p_rows: found.rows.slice(i, i + 2000) });
+        if (rowsError && rowsError.code === "PT409") return { status: 202, body: { status: "in_progress", investigationId: id } };
+        if (rowsError) throw new Error(`tb_investigation_add_rows failed: ${rowsError.code ?? "unknown"}`);
+      }
+      const done = await finish("completed", found.result, null);
       if (done === "superseded") return { status: 202, body: { status: "in_progress", investigationId: id } };
-      return { status: 200, body: { status: "completed", investigationId: id, result: result as unknown as Record<string, unknown> } };
+      return { status: 200, body: { status: "completed", investigationId: id, result: found.result as unknown as Record<string, unknown> } };
     }
     default:
       return bad("action must be inspect, validate, confirm, save_template or investigate.");

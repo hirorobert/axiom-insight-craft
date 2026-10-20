@@ -58,7 +58,7 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   "REQ-WITHHELD-TAX", "REQ-WITHHELD-NOTES", "REQ-WITHHELD-LETTER",
   // Generation 7 (20261118100000): finding decisions required, recorded, applied; a rename and a wrong entity
   "REQ-G7-DECISIONS-REQUIRED", "REQ-G7-DECIDE-AND-RECHECK", "REQ-G7-RENAME-INVALIDATES", "REQ-G7-WRONG-ENTITY", "REQ-G7-OLD-ENGINE-REFUSED",
-  "REQ-G7-INVESTIGATE"];
+  "REQ-G7-INVESTIGATE", "REQ-G7-CLEARING-POLICY", "REQ-G7-REPLACEMENT-NOT-CARRIED"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -596,8 +596,8 @@ async function main() {
   }
 
   // ── G7: recorded finding decisions through the real handler (20261118100000) ───────────────────────────────────────
-  // A company of its own (its rename must not touch the other requirements' authority), with reviewed mappings.
-  console.log("\n== G7: finding decisions — required, recorded, applied; a rename and a wrong entity");
+  // A company of its own (its rename and policy must not touch the other requirements' authority), with reviewed mappings.
+  console.log("\n== G7: finding decisions — required vs review indicators, recorded, applied; policy, rename, replacement, wrong entity, investigation");
   const G = (await one("INSERT INTO public.companies (user_id,name) VALUES ($1,'Synthetic Gamma Ltd') RETURNING id", [U.owner])).id;
   const seedG = await upload(G, 1999, csv([["9000", "Seed", "1", ""], ["9001", "Seed", "", "1"]]));
   await review(U.owner, G, seedG, [["1000", "Bank", "current_assets"], ["1190", "Cash in transit", "current_assets"], ["3000", "Share capital", "equity"], ["4000", "Sales", "revenue"], ["6000", "Rent", "operating_expenses"]]);
@@ -606,48 +606,94 @@ async function main() {
     [a.upload, a.cert, a.code, a.subject, a.action, JSON.stringify(a.payload), "Confirmed with the client's finance lead", a.expected ?? 0, uuid()]).then((r) => r[0].r);
   const latestCertOf = async (id) => (await certs(id)).at(-1);
   const findingsOf = async (cid) => (await admin.query("SELECT finding FROM public.tb_certification_findings WHERE certification_id=$1 ORDER BY ordinal", [cid])).rows.map((r) => r.finding);
+  const recheck = async (id) => {
+    const op = uuid();
+    const acc = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [id, op, (await uploadRow(id)).source_file_hash]))[0].r;
+    const r = await runHandler(U.owner, id, op);
+    return { acc, r };
+  };
+  const CLEAR = { nature: "in_transit", explanation: "Deposit of 31 December cleared on 2 January", evidence: { kind: "document", reference: "January bank statement, line 2" } };
   const g7Up = await upload(G, 2030, csv(G_ROWS, "Synthetic Gamma Trading Company"));
   await req1("REQ-G7-DECISIONS-REQUIRED", async () => {
-    // A differing entity and a clearing balance: the otherwise-acceptable file is NOT accepted; each finding is listed
-    // with its identity, the manifest reports every rule, and nothing is authoritative.
+    // A differing entity and a clearing balance: the entity MUST be decided (needs review); the clearing balance is a review
+    // indicator by default (stated, flagged not required). Each finding is listed once with its identity; nothing is authoritative.
     const r = await runHandler(U.owner, g7Up);
     const row = await uploadRow(g7Up); const c = await latestCertOf(g7Up);
-    const req = row.processing_result?.decisions_required ?? [];
-    const codes = req.map((d) => d.code).sort().join();
-    return r.http === 200 && row.status === "needs_review" && c?.requires_review === true && c.is_blocking === false
-      && codes === "CLEARING_ACCOUNT_BALANCE,ENTITY_NAME_DIFFERS" && req.every((d) => typeof d.subject === "string")
-      && (await authoritative(G, 2030)) === null ? true : { http: r.http, body: r.body, status: row.status, req, c: c && { b: c.is_blocking, r: c.requires_review } };
+    const req = (row.processing_result?.decisions_required ?? []).map((d) => d.code).join();
+    const issues = row.processing_result?.ingestion?.issues ?? [];
+    const flags = issues.filter((i) => i.subject).map((i) => `${i.code}=${i.decision_required}`).sort().join();
+    return r.http === 200 && row.status === "needs_review" && c?.requires_review === true && c.is_blocking === false && req === "ENTITY_NAME_DIFFERS"
+      && flags === "CLEARING_ACCOUNT_BALANCE=false,ENTITY_NAME_DIFFERS=true" && (await authoritative(G, 2030)) === null
+      ? true : { http: r.http, body: r.body, status: row.status, req, flags };
   });
+  let entityDecision;
   await req1("REQ-G7-DECIDE-AND-RECHECK", async () => {
-    // Decide the entity, re-check (still needs the clearing explanation), explain it with evidence, re-check: accepted and
-    // authoritative, each finding citing its decision. Every decision invalidated the result it was made against at once.
+    // Decide the entity → the re-check is ACCEPTED with the clearing balance left as a review note; explaining it (optional)
+    // with evidence is recorded and cited by the next check, which stays accepted. Each decision invalidated its result at once.
     const c1 = await latestCertOf(g7Up);
     const f1 = await findingsOf(c1.id);
     const ent = f1.find((x) => x.code === "ENTITY_NAME_DIFFERS"), clr = f1.find((x) => x.code === "CLEARING_ACCOUNT_BALANCE");
-    const d1 = await decideAs(U.owner, { upload: g7Up, cert: c1.id, code: ent.code, subject: ent.subject, action: "same_entity",
+    entityDecision = await decideAs(U.owner, { upload: g7Up, cert: c1.id, code: ent.code, subject: ent.subject, action: "same_entity",
       payload: { confirmed: true, file_entity: ent.file_entity, workspace_entity: "Synthetic Gamma Ltd" } });
     const inv1 = (await one("SELECT count(*)::int n FROM public.tb_certification_invalidations WHERE certification_id=$1 AND reason='finding_decision'", [c1.id])).n;
     const r1 = await runHandler(U.owner, g7Up);
     const c2 = await latestCertOf(g7Up);
-    const d2 = await decideAs(U.owner, { upload: g7Up, cert: c2.id, code: clr.code, subject: clr.subject, action: "explained",
-      payload: { nature: "in_transit", explanation: "Deposit of 31 December cleared on 2 January", evidence: { kind: "document", reference: "January bank statement, line 2" } } });
-    const r2 = await runHandler(U.owner, g7Up);
+    const accepted1 = (await authoritative(G, 2030)) === c2.id;
+    const d2 = await decideAs(U.owner, { upload: g7Up, cert: c2.id, code: clr.code, subject: clr.subject, action: "explained", payload: CLEAR });
+    const { r: r2 } = await recheck(g7Up);
     const c3 = await latestCertOf(g7Up);
     const cited = (await findingsOf(c3.id)).filter((x) => x.decision).map((x) => x.decision.id).sort().join();
-    return d1.outcome === "recorded" && inv1 === 1 && r1.http === 200 && c2.requires_review === true && d2.outcome === "recorded"
-      && r2.http === 200 && c3.is_blocking === false && c3.requires_review === false && (await uploadRow(g7Up)).status === "complete"
-      && (await authoritative(G, 2030)) === c3.id && cited === [d1.decision_id, d2.decision_id].sort().join()
-      ? true : { d1, inv1, r1: r1.http, c2: c2?.requires_review, d2, r2: r2.http, c3: c3 && { b: c3.is_blocking, r: c3.requires_review }, cited };
+    return entityDecision.outcome === "recorded" && inv1 === 1 && r1.http === 200 && c2.requires_review === false && accepted1
+      && d2.outcome === "recorded" && r2.http === 200 && c3.requires_review === false && (await authoritative(G, 2030)) === c3.id
+      && cited === [entityDecision.decision_id, d2.decision_id].sort().join()
+      ? true : { entityDecision, inv1, r1: r1.http, c2: c2?.requires_review, accepted1, d2, r2: r2.http, cited };
+  });
+  await req1("REQ-G7-CLEARING-POLICY", async () => {
+    // An explicit, recorded workspace policy makes the clearing explanation required: the accepted result loses authority at
+    // once; a replacement-year file with an unexplained clearing balance needs review; explaining it lets it be accepted.
+    const before = await authoritative(G, 2030);
+    const set = (await asUser(U.owner, "SELECT public.set_tb_finding_policy($1,'CLEARING_ACCOUNT_BALANCE','require_decision',$2,0,$3) r", [G, "Engagement letter requires evidence", uuid()]))[0].r;
+    const after = await authoritative(G, 2030);
+    const id = await upload(G, 2033, csv(G_ROWS));
+    await runHandler(U.owner, id);
+    const c = await latestCertOf(id);
+    const row = await uploadRow(id);
+    const clr = (await findingsOf(c.id)).find((x) => x.code === "CLEARING_ACCOUNT_BALANCE");
+    const d = await decideAs(U.owner, { upload: id, cert: c.id, code: clr.code, subject: clr.subject, action: "explained", payload: CLEAR });
+    await runHandler(U.owner, id);
+    const accepted = (await authoritative(G, 2033)) === (await latestCertOf(id)).id;
+    const back = (await asUser(U.owner, "SELECT public.set_tb_finding_policy($1,'CLEARING_ACCOUNT_BALANCE','review',$2,1,$3) r", [G, "Back to review indicators", uuid()]))[0].r;
+    return before && set.outcome === "recorded" && after === null && c.requires_review === true && clr.decision_required === true
+      && (row.processing_result?.decisions_required ?? []).map((x) => x.code).join() === "CLEARING_ACCOUNT_BALANCE" && d.outcome === "recorded" && accepted && back.outcome === "recorded"
+      ? true : { before, set, after, c: c?.requires_review, clr, d, accepted, back };
   });
   await req1("REQ-G7-RENAME-INVALIDATES", async () => {
-    // The rename race closed: renaming the entity removes the result's authority at once (the comparison used the old name).
+    // The rename race closed, and context respected: renaming the entity removes the result's authority at once, and the
+    // entity confirmation (made against the old name) no longer applies — the re-check asks for it again.
+    const { r: r0 } = await recheck(g7Up);
     const before = await authoritative(G, 2030);
     await admin.query("UPDATE public.companies SET name='Synthetic Gamma Holdings Ltd' WHERE id=$1", [G]);
     const after = await authoritative(G, 2030);
-    return before !== null && after === null ? true : { before, after };
+    const { r } = await recheck(g7Up);
+    const row = await uploadRow(g7Up);
+    return r0.http === 200 && before !== null && after === null && r.http === 200 && row.status === "needs_review"
+      && (row.processing_result?.decisions_required ?? []).map((x) => x.code).join() === "ENTITY_NAME_DIFFERS" ? true : { before, after, status: row.status, req: row.processing_result?.decisions_required };
+  });
+  await req1("REQ-G7-REPLACEMENT-NOT-CARRIED", async () => {
+    // A replacement file (another upload) naming the same entity is decided again — nothing carries across files — and a
+    // changed title is a different finding identity.
+    const same = await upload(G, 2034, csv(G_ROWS, "Synthetic Gamma Trading Company"));
+    await runHandler(U.owner, same);
+    const changed = await upload(G, 2035, csv(G_ROWS, "Synthetic Gamma Trading Company East"));
+    await runHandler(U.owner, changed);
+    const reqOf = async (id) => ((await uploadRow(id)).processing_result?.decisions_required ?? []).map((x) => `${x.code}:${x.subject}`).join();
+    const a = await reqOf(same), b = await reqOf(changed);
+    const cited = [...(await findingsOf((await latestCertOf(same)).id)), ...(await findingsOf((await latestCertOf(changed)).id))].some((f) => f.decision);
+    return a === "ENTITY_NAME_DIFFERS:synthetic gamma trading co" && b === "ENTITY_NAME_DIFFERS:synthetic gamma trading co east" && !cited ? true : { a, b, cited };
   });
   await req1("REQ-G7-WRONG-ENTITY", async () => {
-    // "This file is for another entity" is recorded, and the re-check BLOCKS with the recovery — never accepted as is.
+    // "This file is for another entity" is recorded, and the re-check BLOCKS with the recovery stated in the findings list —
+    // never accepted as is.
     const id = await upload(G, 2031, csv(HAPPY, "Synthetic Omega Traders Ltd"));
     await runHandler(U.owner, id);
     const c = await latestCertOf(id);
@@ -657,8 +703,9 @@ async function main() {
     const r = await runHandler(U.owner, id);
     const row = await uploadRow(id); const c2 = await latestCertOf(id);
     const codes = (await findingsOf(c2.id)).map((x) => x.code);
-    return d.outcome === "recorded" && r.http === 200 && row.status === "blocked" && c2.is_blocking === true
-      && codes.includes("ENTITY_WRONG_DESTINATION") && (await authoritative(G, 2031)) === null ? true : { d, http: r.http, status: row.status, codes };
+    const listed = (row.processing_result?.ingestion?.issues ?? []).some((i) => i.code === "ENTITY_WRONG_DESTINATION" && i.severity === "blocking");
+    return d.outcome === "recorded" && r.http === 200 && row.status === "blocked" && c2.is_blocking === true && listed
+      && codes.includes("ENTITY_WRONG_DESTINATION") && (await authoritative(G, 2031)) === null ? true : { d, http: r.http, status: row.status, codes, listed };
   });
   await req1("REQ-G7-OLD-ENGINE-REFUSED", async () => {
     // An engine that cannot read decisions is refused for an upload that has them, before anything is written.
@@ -686,9 +733,13 @@ async function main() {
     const stale = await inv(uuid(), (await latestCertOf(g7Up)).id);
     const n = (await one("SELECT count(*)::int n FROM public.tb_investigations WHERE upload_id=$1", [id])).n;
     const lead = a.body?.result?.leads?.find((l) => l.kind === "amount_equals_difference");
+    const stored = (await one("SELECT count(*)::int n FROM public.tb_investigation_rows WHERE investigation_id=$1", [a.body?.investigationId])).n;
+    const page = (await asUser(U.owner, "SELECT public.get_tb_investigation_rows($1,'included',0,50) r", [a.body?.investigationId]))[0].r;
     return c.is_blocking === true && a.http === 200 && a.body?.status === "completed" && a.body.result.difference === "120.00" && lead?.rows?.join() === "4" /* title row 1, header row 2: Debtors is row 4 */
       && b.http === 200 && b.body?.investigationId === a.body.investigationId && stale.http === 409 && stale.body?.code === "STALE_EVALUATION"
-      && n === 1 && (await snap()) === before ? true : { c: c?.is_blocking, a: a.http, ab: a.body, b: b.body, stale: stale.body, n };
+      && n === 1 && stored === a.body.result.row_count && page.outcome === "ok" && page.total === a.body.result.included_count
+      && page.rows.some((x) => x.account_code === "1100" && x.debit_minor === "12000") && a.body.result.cause === "no_printed_totals"
+      && (await snap()) === before ? true : { c: c?.is_blocking, a: a.http, ab: a.body, b: b.body, stale: stale.body, n, stored, page };
   });
 
   // ── X8: the previous engines on S2's schema ──────────────────────────────────────────────────────────────────────

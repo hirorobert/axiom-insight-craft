@@ -1,40 +1,46 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
--- Trial balance findings: recorded decisions, the evaluation manifest, the entity dependency and bounded investigation.
+-- Trial balance findings: recorded decisions, the requirement model, the evaluation manifest, the entity dependency and
+-- bounded, stored investigation.
 --
---   1. tb_decision_actions — the closed registry of what a person may decide about a finding, per finding code. A code
---      that is not here (an imbalance, a duplicate account, a total that disagrees, …) has NO decision: it is corrected
---      in the source and uploaded again, or investigated. Nothing here ever adjusts an amount, adds a row or plugs a
---      difference: a decision only states a fact about the file (the same entity; text that is not part of the trial
---      balance; why a clearing balance is there, with evidence).
---   2. tb_finding_decisions — append-only. Each decision names a finding of ONE certification by its server-checked
---      identity (code + subject, both written by the engine into tb_certification_findings), the upload's source hash,
---      the actor (derived here from auth.uid(), with prepare_close) and a revision per finding; a retry with the same
---      request id replays; reuse with other content is a conflict; a decision made against a superseded or invalidated
---      evaluation is refused (STALE_EVALUATION). Recording one invalidates the current certification in the same
---      transaction (reason 'finding_decision') and bumps '#finding_decisions:<upload>', so nothing built without it
---      stays authoritative — not even for a moment.
---      Carry-forward: only an action marked carry_forward (the same-entity confirmation) applies to the company's later
---      uploads naming the same entity, and only while the company's identity ('#entity' revision) is unchanged.
---   3. '#entity' (company name, code, TIN) and '#entity_decisions' are dependency keys: a rename makes every result that
---      compared the file's entity against the old name a re-check; a new entity decision anywhere in the company makes
---      every result that USED a carried-forward decision (the engine records '#entity_decisions' only then) a re-check.
---   4. The evaluation manifest (engine generation 7): an accepted, review or blocking certification must list every
---      rule of tb_evaluation_rules(7) exactly once with its outcome, agree with its findings, and — when accepted — cite
---      a current, resolving decision for every finding that needs one. Finalize refuses an engine generation this
---      database does not know (above tb_max_engine_generation()). tb_begin_attempt refuses an engine below 7 for an
---      upload that has decisions (it could not read them) — refused before anything is written.
---   5. tb_investigations — a durable, unique reservation per upload (one running investigation; a partial unique index,
---      not an advisory lock) with a recoverable lease: an expired reservation is abandoned by the next request, and a
---      late worker is fenced out. Results are bounded in size; a completed investigation of a certification is reused.
+--   1. tb_decision_rules + tb_decision_actions — fixed by migration. A finding code's REQUIREMENT is defined, never
+--      inferred: 'always' (ENTITY_NAME_DIFFERS — a file naming another entity is not accepted until the person states
+--      whose it is), 'policy' (CLEARING_ACCOUNT_BALANCE — a review indicator by default; an explanation with evidence is
+--      required only where the workspace's recorded policy says so) or 'never' (UNRECOGNISED_TRAILING_TEXT — amount-free
+--      text after the last amount row is a review indicator; it may be acknowledged, never a blanket blocker). Amount-
+--      bearing rows without an account are not decisions at all: they block as MISSING_ACCOUNT_CODE and are resolved by
+--      a layout correction or a corrected file — never by dropping them. Nothing here adjusts an amount, adds a row or
+--      plugs a difference: a decision only states a fact about the file.
+--   2. tb_finding_policies — append-only, per workspace and code, set only by someone with review_close
+--      (set_tb_finding_policy, reason required, expected revision, idempotent). A change bumps '#finding_policy', so a
+--      result evaluated under the previous policy stops being authoritative at once.
+--   3. tb_finding_decisions — append-only. A decision names a finding of ONE certification by the engine's stored identity
+--      (code + subject), binds the upload and its source hash, the file's layout revision ('#layout_confirmation:<upload>')
+--      and — for entity findings — the workspace's identity revision ('#entity'); the actor is derived from auth.uid() with
+--      prepare_close. Replay, IDEMPOTENCY_KEY_REUSED, STALE_EVALUATION, VERSION_CONFLICT, unchanged. Recording one
+--      invalidates the evaluation it was made against in the same transaction and bumps '#finding_decisions:<upload>'.
+--      SAFE CARRY-FORWARD: a decision is reused only by a later check of the SAME upload (same source bytes) while its
+--      layout revision — and for an entity finding the entity revision — is unchanged and the finding (code + subject)
+--      reappears. A replacement file, a changed title (a new subject), a new layout confirmation or a renamed entity
+--      requires a new decision. Nothing carries across files or across a company's uploads.
+--   4. The evaluation manifest (engine generation 7): every rule of tb_evaluation_rules(7) exactly once, consistent with
+--      the findings; every decision-taking finding carries its subject and a decision_required flag that the DATABASE
+--      recomputes from the rule and the workspace policy; a cited decision must be current; a non-resolving decision
+--      makes the result blocking; an accepted result leaves no REQUIRED finding without a current resolving decision.
+--      Unknown generations are refused; an engine below 7 is refused for an upload that has decisions.
+--   5. tb_investigations + tb_investigation_rows — a durable, unique reservation per upload (partial unique index, not an
+--      advisory lock) with a recoverable lease; the reader's own rows (included and excluded, source location, exact
+--      parsed minor amounts) are stored ONCE and read page by page (get_tb_investigation_rows) — the file is never parsed
+--      again for a page. Bounded: ≤ 20,000 rows, ≤ 2,000 per write, ≤ 200 per page, ≤ 50 leads.
 --
 -- The trusted-handler boundary: the database cannot re-parse the file. It verifies what it can — every rule reported,
--- outcomes consistent with the findings, every cited decision current and resolving, identities taken from the
--- certification's own stored findings — and trusts the service-role engine (process-trial-balance, generation 7) for the
--- parse itself. Generation 7 is not enforced for other uploads until processing_release_control.min_engine_generation is
--- raised to 7 (a separate, approved release step).
+-- outcomes consistent with the findings, requirements recomputed from rule and policy, every cited decision current and
+-- resolving, identities taken from the certification's own stored findings — and trusts the service-role engine
+-- (process-trial-balance, generation 7) to have evaluated each rule truthfully. A manifest does not prove that. Generation
+-- 7 is not enforced for uploads without decisions until processing_release_control.min_engine_generation is raised to 7.
 --
 -- PREFLIGHT: refuses if any object exists already or a prerequisite is missing; nothing is replaced silently.
--- Release order: this migration → process-trial-balance (generation 7) + trial-balance-layout (investigate) → frontend.
+-- Release order: this migration → process-trial-balance (generation 7) + trial-balance-layout (investigate) → frontend →
+-- minimum generation 7.
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 DO $preflight$
@@ -42,50 +48,70 @@ BEGIN
   IF to_regclass('public.tb_certification_findings') IS NULL OR to_regclass('public.layout_confirmations') IS NULL
      OR to_regprocedure('public._tb_bump_dependency(text, text)') IS NULL
      OR to_regprocedure('public._layout_actor(uuid, uuid)') IS NULL
-     OR to_regprocedure('public.can_access_workspace(uuid)') IS NULL THEN
+     OR to_regprocedure('public.can_access_workspace(uuid)') IS NULL
+     OR to_regprocedure('public.workspace_capability_allowed(uuid, uuid, text)') IS NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: a prerequisite (findings, layouts, dependency revisions, workspace access) is missing; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
-  IF to_regclass('public.tb_decision_actions') IS NOT NULL OR to_regclass('public.tb_finding_decisions') IS NOT NULL
-     OR to_regclass('public.tb_investigations') IS NOT NULL
+  IF to_regclass('public.tb_decision_actions') IS NOT NULL OR to_regclass('public.tb_decision_rules') IS NOT NULL
+     OR to_regclass('public.tb_finding_decisions') IS NOT NULL OR to_regclass('public.tb_finding_policies') IS NOT NULL
+     OR to_regclass('public.tb_investigations') IS NOT NULL OR to_regclass('public.tb_investigation_rows') IS NOT NULL
      OR to_regprocedure('public.record_tb_finding_decision(uuid, uuid, text, text, text, jsonb, text, integer, uuid)') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: finding decisions are already in force; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END;
 $preflight$;
 
--- ── 1. The decision registry ─────────────────────────────────────────────────────────────────────────────────────────
-CREATE TABLE public.tb_decision_actions (
-  code          text    NOT NULL,
-  action        text    NOT NULL,
-  resolves      boolean NOT NULL,
-  carry_forward boolean NOT NULL,
-  CONSTRAINT tb_decision_actions_pkey PRIMARY KEY (code, action),
-  CONSTRAINT chk_tda_code CHECK (code ~ '^[A-Z][A-Z0-9_]{2,63}$'),
-  CONSTRAINT chk_tda_action CHECK (action ~ '^[a-z][a-z_]{2,63}$'),
-  CONSTRAINT chk_tda_carry CHECK (NOT carry_forward OR resolves)
+-- ── 1. The rules and the decision registry (fixed) ───────────────────────────────────────────────────────────────────
+CREATE TABLE public.tb_decision_rules (
+  code        text NOT NULL,
+  requirement text NOT NULL,
+  CONSTRAINT tb_decision_rules_pkey PRIMARY KEY (code),
+  CONSTRAINT chk_tdr_code CHECK (code ~ '^[A-Z][A-Z0-9_]{2,63}$'),
+  CONSTRAINT chk_tdr_requirement CHECK (requirement IN ('always', 'policy', 'never'))
 );
-INSERT INTO public.tb_decision_actions (code, action, resolves, carry_forward) VALUES
-  ('ENTITY_NAME_DIFFERS',        'same_entity',               true,  true),
-  ('ENTITY_NAME_DIFFERS',        'different_entity',          false, false),
-  ('UNRECOGNISED_TRAILING_TEXT', 'not_part_of_trial_balance', true,  false),
-  ('UNRECOGNISED_TRAILING_TEXT', 'part_of_trial_balance',     false, false),
-  ('CLEARING_ACCOUNT_BALANCE',   'explained',                 true,  false);
+INSERT INTO public.tb_decision_rules (code, requirement) VALUES
+  ('ENTITY_NAME_DIFFERS',        'always'),
+  ('CLEARING_ACCOUNT_BALANCE',   'policy'),
+  ('UNRECOGNISED_TRAILING_TEXT', 'never');
+COMMENT ON TABLE public.tb_decision_rules IS
+  'Whether a finding code must be decided before a trial balance can be accepted: always, by workspace policy, or never (a review indicator that may be acknowledged). Fixed by migration.';
+
+CREATE TABLE public.tb_decision_actions (
+  code     text    NOT NULL,
+  action   text    NOT NULL,
+  resolves boolean NOT NULL,
+  CONSTRAINT tb_decision_actions_pkey PRIMARY KEY (code, action),
+  CONSTRAINT fk_tda_rule FOREIGN KEY (code) REFERENCES public.tb_decision_rules(code),
+  CONSTRAINT chk_tda_action CHECK (action ~ '^[a-z][a-z_]{2,63}$')
+);
+INSERT INTO public.tb_decision_actions (code, action, resolves) VALUES
+  ('ENTITY_NAME_DIFFERS',        'same_entity',               true),
+  ('ENTITY_NAME_DIFFERS',        'different_entity',          false),
+  ('UNRECOGNISED_TRAILING_TEXT', 'not_part_of_trial_balance', true),
+  ('UNRECOGNISED_TRAILING_TEXT', 'part_of_trial_balance',     false),
+  ('CLEARING_ACCOUNT_BALANCE',   'explained',                 true);
 COMMENT ON TABLE public.tb_decision_actions IS
-  'The closed registry of decisions a finding may receive. resolves = the finding no longer needs review; a non-resolving action (different_entity, part_of_trial_balance) turns it into a blocking finding with its recovery. Fixed by migration.';
-CREATE OR REPLACE FUNCTION public.tb_decision_actions_fixed()
+  'The closed registry of decisions a finding may receive. resolves = the finding is settled; a non-resolving action (different_entity, part_of_trial_balance) makes the result blocking with its recovery. Fixed by migration.';
+CREATE OR REPLACE FUNCTION public.tb_decision_registry_fixed()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
-  RAISE EXCEPTION 'Iron Dome: tb_decision_actions is fixed by migration. % is not permitted.', TG_OP USING ERRCODE = '42501';
+  RAISE EXCEPTION 'Iron Dome: % is fixed by migration. % is not permitted.', TG_TABLE_NAME, TG_OP USING ERRCODE = '42501';
 END;
 $$;
-REVOKE ALL ON FUNCTION public.tb_decision_actions_fixed() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.tb_decision_registry_fixed() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER trg_tdr_fixed BEFORE INSERT OR UPDATE OR DELETE ON public.tb_decision_rules
+  FOR EACH ROW EXECUTE FUNCTION public.tb_decision_registry_fixed();
+CREATE TRIGGER trg_tdr_no_truncate BEFORE TRUNCATE ON public.tb_decision_rules
+  FOR EACH STATEMENT EXECUTE FUNCTION public.tb_decision_registry_fixed();
 CREATE TRIGGER trg_tda_fixed BEFORE INSERT OR UPDATE OR DELETE ON public.tb_decision_actions
-  FOR EACH ROW EXECUTE FUNCTION public.tb_decision_actions_fixed();
+  FOR EACH ROW EXECUTE FUNCTION public.tb_decision_registry_fixed();
 CREATE TRIGGER trg_tda_no_truncate BEFORE TRUNCATE ON public.tb_decision_actions
-  FOR EACH STATEMENT EXECUTE FUNCTION public.tb_decision_actions_fixed();
+  FOR EACH STATEMENT EXECUTE FUNCTION public.tb_decision_registry_fixed();
+ALTER TABLE public.tb_decision_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tb_decision_actions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.tb_decision_actions FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public.tb_decision_actions TO authenticated, service_role;
+REVOKE ALL ON TABLE public.tb_decision_rules, public.tb_decision_actions FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.tb_decision_rules, public.tb_decision_actions TO authenticated, service_role;
+CREATE POLICY tdr_read ON public.tb_decision_rules FOR SELECT TO authenticated USING (true);
 CREATE POLICY tda_read ON public.tb_decision_actions FOR SELECT TO authenticated USING (true);
 
 -- The rules an engine generation must report on every certification (the evaluation manifest), and the newest generation
@@ -117,7 +143,125 @@ REVOKE ALL ON FUNCTION public.tb_finding_rule(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.tb_evaluation_rules(integer), public.tb_max_engine_generation(), public.tb_finding_rule(text)
   TO authenticated, service_role;
 
--- ── 2. Decisions ─────────────────────────────────────────────────────────────────────────────────────────────────────
+-- ── 2. Workspace policy (explicit, recorded) ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE public.tb_finding_policies (
+  id            uuid        NOT NULL DEFAULT gen_random_uuid(),
+  company_id    uuid        NOT NULL,
+  code          text        NOT NULL,
+  mode          text        NOT NULL,
+  revision      integer     NOT NULL,
+  reason        text        NOT NULL,
+  request_id    uuid        NOT NULL,
+  actor_user_id uuid        NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT tb_finding_policies_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_tfp_company FOREIGN KEY (company_id) REFERENCES public.companies(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_tfp_rule FOREIGN KEY (code) REFERENCES public.tb_decision_rules(code),
+  CONSTRAINT uq_tfp_revision UNIQUE (company_id, code, revision),
+  CONSTRAINT uq_tfp_request UNIQUE (company_id, request_id),
+  CONSTRAINT chk_tfp_mode CHECK (mode IN ('review', 'require_decision')),
+  CONSTRAINT chk_tfp_revision CHECK (revision > 0),
+  CONSTRAINT chk_tfp_reason CHECK (length(btrim(reason)) BETWEEN 3 AND 1000)
+);
+COMMENT ON TABLE public.tb_finding_policies IS
+  'Append-only workspace policies for policy-controlled findings (today: CLEARING_ACCOUNT_BALANCE). Absent = review indicator. Written only by set_tb_finding_policy.';
+
+-- Whether a finding code must be decided before acceptance, for this workspace now.
+CREATE OR REPLACE FUNCTION public.tb_finding_required(p_company_id uuid, p_code text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT CASE r.requirement
+    WHEN 'always' THEN true
+    WHEN 'never' THEN false
+    ELSE coalesce((SELECT p.mode = 'require_decision' FROM public.tb_finding_policies p
+                    WHERE p.company_id = p_company_id AND p.code = p_code ORDER BY p.revision DESC LIMIT 1), false) END
+    FROM public.tb_decision_rules r WHERE r.code = p_code;
+$$;
+REVOKE ALL ON FUNCTION public.tb_finding_required(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tb_finding_required(uuid, text) TO service_role;
+
+-- The engine's read: every decision-taking code with its current requirement for the workspace.
+CREATE OR REPLACE FUNCTION public.tb_finding_requirements(p_company_id uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT coalesce(jsonb_object_agg(r.code, public.tb_finding_required(p_company_id, r.code)), '{}'::jsonb) FROM public.tb_decision_rules r;
+$$;
+REVOKE ALL ON FUNCTION public.tb_finding_requirements(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tb_finding_requirements(uuid) TO service_role;
+
+-- The browser's read: the workspace's policy for each policy-controlled code, and who may change it.
+CREATE OR REPLACE FUNCTION public.get_tb_finding_policies(p_company_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF p_company_id IS NULL OR NOT public.can_access_workspace(p_company_id) THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  RETURN jsonb_build_object('outcome', 'ok',
+    'may_change', public.workspace_capability_allowed(p_company_id, v_uid, 'review_close'),
+    'policies', coalesce((SELECT jsonb_agg(jsonb_build_object('code', r.code,
+        'mode', coalesce(p.mode, 'review'), 'revision', coalesce(p.revision, 0), 'reason', p.reason, 'set_at', p.created_at) ORDER BY r.code)
+      FROM public.tb_decision_rules r
+      LEFT JOIN LATERAL (SELECT * FROM public.tb_finding_policies x WHERE x.company_id = p_company_id AND x.code = r.code
+                          ORDER BY x.revision DESC LIMIT 1) p ON true
+     WHERE r.requirement = 'policy'), '[]'::jsonb));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.get_tb_finding_policies(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_tb_finding_policies(uuid) TO authenticated;
+
+-- Sets a workspace's policy for one policy-controlled code (review_close; reason; expected revision; idempotent).
+CREATE OR REPLACE FUNCTION public.set_tb_finding_policy(p_company_id uuid, p_code text, p_mode text, p_reason text,
+  p_expected_revision integer, p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_prior public.tb_finding_policies%ROWTYPE;
+  v_latest public.tb_finding_policies%ROWTYPE;
+  v_rev integer;
+BEGIN
+  IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'UNAUTHENTICATED'); END IF;
+  IF p_company_id IS NULL OR p_code IS NULL OR p_mode IS NULL OR p_mode NOT IN ('review', 'require_decision')
+     OR p_expected_revision IS NULL OR p_expected_revision < 0 OR p_request_id IS NULL THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'INVALID_REQUEST');
+  END IF;
+  IF p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 1000 THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'REASON_REQUIRED');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tb_decision_rules r WHERE r.code = p_code AND r.requirement = 'policy') THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'NOT_POLICY_CONTROLLED');
+  END IF;
+  IF NOT public.can_access_workspace(p_company_id) THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'NOT_FOUND'); END IF;
+  IF NOT public.workspace_capability_allowed(p_company_id, v_uid, 'review_close') THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'FORBIDDEN');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('tb_finding_policy'), hashtext(p_company_id::text || ':' || p_code));
+  SELECT * INTO v_prior FROM public.tb_finding_policies p WHERE p.company_id = p_company_id AND p.request_id = p_request_id;
+  IF v_prior.id IS NOT NULL THEN
+    IF v_prior.code = p_code AND v_prior.mode = p_mode AND v_prior.actor_user_id = v_uid THEN
+      RETURN jsonb_build_object('outcome', 'recorded', 'revision', v_prior.revision, 'replay', true);
+    END IF;
+    RETURN jsonb_build_object('outcome', 'conflict', 'code', 'IDEMPOTENCY_KEY_REUSED');
+  END IF;
+  SELECT * INTO v_latest FROM public.tb_finding_policies p WHERE p.company_id = p_company_id AND p.code = p_code ORDER BY p.revision DESC LIMIT 1;
+  IF coalesce(v_latest.revision, 0) <> p_expected_revision THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'VERSION_CONFLICT', 'current_revision', coalesce(v_latest.revision, 0));
+  END IF;
+  IF coalesce(v_latest.mode, 'review') = p_mode THEN
+    RETURN jsonb_build_object('outcome', 'unchanged', 'revision', coalesce(v_latest.revision, 0));
+  END IF;
+  v_rev := coalesce(v_latest.revision, 0) + 1;
+  PERFORM set_config('axiom.tb_decision_writer', txid_current()::text, true);
+  INSERT INTO public.tb_finding_policies (company_id, code, mode, revision, reason, request_id, actor_user_id)
+  VALUES (p_company_id, p_code, p_mode, v_rev, btrim(p_reason), p_request_id, v_uid);
+  PERFORM set_config('axiom.tb_decision_writer', '', true);
+  -- Every result evaluated under the previous policy stops being authoritative at once.
+  PERFORM public._tb_bump_dependency(p_company_id::text, '#finding_policy');
+  RETURN jsonb_build_object('outcome', 'recorded', 'revision', v_rev);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.set_tb_finding_policy(uuid, text, text, text, integer, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_tb_finding_policy(uuid, text, text, text, integer, uuid) TO authenticated;
+
+-- ── 3. Decisions ─────────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE public.tb_finding_decisions (
   id               uuid        NOT NULL DEFAULT gen_random_uuid(),
   upload_id        uuid        NOT NULL,
@@ -131,6 +275,7 @@ CREATE TABLE public.tb_finding_decisions (
   payload          jsonb       NOT NULL,
   reason           text        NOT NULL,
   source_file_hash text        NOT NULL,
+  layout_revision  bigint      NOT NULL,
   entity_revision  bigint      NOT NULL,
   request_id       uuid        NOT NULL,
   request_hash     text        NOT NULL,
@@ -155,9 +300,8 @@ CREATE TABLE public.tb_finding_decisions (
   CONSTRAINT chk_tfd_actor CHECK ((actor_type = 'user' AND firm_member_id IS NOT NULL) OR (actor_type = 'workspace_user' AND firm_member_id IS NULL))
 );
 CREATE INDEX idx_tfd_upload ON public.tb_finding_decisions (upload_id, finding_key, revision DESC);
-CREATE INDEX idx_tfd_company_key ON public.tb_finding_decisions (company_id, finding_key, created_at DESC);
 COMMENT ON TABLE public.tb_finding_decisions IS
-  'Append-only decisions about trial-balance findings: one row per decision, bound to the certification and source hash it was made against, the finding''s server-checked identity (code + subject) and the actor. Written only by record_tb_finding_decision.';
+  'Append-only decisions about trial-balance findings: bound to the certification, source hash, layout revision and (entity findings) entity revision they were made under, the finding''s server-checked identity (code + subject) and the actor. Written only by record_tb_finding_decision.';
 
 CREATE OR REPLACE FUNCTION public.tb_decision_records_fence()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
@@ -185,50 +329,57 @@ CREATE TRIGGER trg_tfd_fence BEFORE INSERT OR UPDATE OR DELETE ON public.tb_find
   FOR EACH ROW EXECUTE FUNCTION public.tb_decision_records_fence();
 CREATE TRIGGER trg_tfd_no_truncate BEFORE TRUNCATE ON public.tb_finding_decisions
   FOR EACH STATEMENT EXECUTE FUNCTION public.tb_decision_records_fence();
+CREATE TRIGGER trg_tfp_fence BEFORE INSERT OR UPDATE OR DELETE ON public.tb_finding_policies
+  FOR EACH ROW EXECUTE FUNCTION public.tb_decision_records_fence();
+CREATE TRIGGER trg_tfp_no_truncate BEFORE TRUNCATE ON public.tb_finding_policies
+  FOR EACH STATEMENT EXECUTE FUNCTION public.tb_decision_records_fence();
 ALTER TABLE public.tb_finding_decisions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.tb_finding_decisions FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public.tb_finding_decisions TO authenticated, service_role;
+ALTER TABLE public.tb_finding_policies ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.tb_finding_decisions, public.tb_finding_policies FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.tb_finding_decisions, public.tb_finding_policies TO authenticated, service_role;
 CREATE POLICY tfd_workspace_read ON public.tb_finding_decisions FOR SELECT TO authenticated
+  USING (public.can_access_workspace(company_id));
+CREATE POLICY tfp_workspace_read ON public.tb_finding_policies FOR SELECT TO authenticated
   USING (public.can_access_workspace(company_id));
 
 ALTER TABLE public.tb_certification_invalidations DROP CONSTRAINT tb_certification_invalidations_reason_check;
 ALTER TABLE public.tb_certification_invalidations
   ADD CONSTRAINT tb_certification_invalidations_reason_check CHECK (reason IN ('reprocess_requested', 'period_dates_completed', 'finding_decision'));
 
--- The decisions that apply to an upload now: its own newest decision per finding (made against its current file), and
--- carried-forward decisions (carry_forward actions) from the company's other uploads — the company's newest decision for
--- that finding identity, while the company's identity is unchanged since it was made. Its own decision always wins.
+-- The context revisions a decision is bound to, as they stand now.
+CREATE OR REPLACE FUNCTION public._tb_revision(p_scope text, p_key text)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT coalesce((SELECT r.revision FROM public.tb_dependency_revisions r WHERE r.scope = p_scope AND r.dep_key = p_key), 0);
+$$;
+REVOKE ALL ON FUNCTION public._tb_revision(text, text) FROM PUBLIC, anon, authenticated;
+
+-- The decisions that apply to an upload NOW: its own newest decision per finding, made against its current source bytes,
+-- under the current layout revision and — for an entity finding — the current entity revision. Anything else needs a new
+-- decision. Nothing from another upload ever applies.
 CREATE OR REPLACE FUNCTION public.tb_current_finding_decisions(p_upload_id uuid)
 RETURNS TABLE (decision_id uuid, code text, subject text, action text, resolves boolean, revision integer, payload jsonb,
-               reason text, carried_from_upload_id uuid, created_at timestamptz)
+               reason text, created_at timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   WITH u AS (
-    SELECT t.id, t.company_id, t.source_file_hash FROM public.trial_balance_uploads t WHERE t.id = p_upload_id
-  ), own AS (
+    SELECT t.id, t.company_id, t.source_file_hash,
+           public._tb_revision(t.company_id::text, '#layout_confirmation:' || t.id::text) AS layout_rev,
+           public._tb_revision(t.company_id::text, '#entity') AS entity_rev
+      FROM public.trial_balance_uploads t WHERE t.id = p_upload_id
+  ), latest AS (
     SELECT DISTINCT ON (d.finding_key) d.*
-      FROM public.tb_finding_decisions d JOIN u ON d.upload_id = u.id AND d.source_file_hash = u.source_file_hash
+      FROM public.tb_finding_decisions d JOIN u ON d.upload_id = u.id
      ORDER BY d.finding_key, d.revision DESC
-  ), company_latest AS (
-    SELECT DISTINCT ON (d.finding_key) d.*
-      FROM public.tb_finding_decisions d JOIN u ON d.company_id = u.company_id AND d.upload_id <> u.id
-     ORDER BY d.finding_key, d.created_at DESC, d.id DESC
-  ), carried AS (
-    SELECT c.* FROM company_latest c
-      JOIN public.tb_decision_actions a ON a.code = c.code AND a.action = c.action AND a.carry_forward
-      JOIN u ON true
-     WHERE c.entity_revision = coalesce((SELECT r.revision FROM public.tb_dependency_revisions r
-                                          WHERE r.scope = u.company_id::text AND r.dep_key = '#entity'), 0)
-       AND NOT EXISTS (SELECT 1 FROM own o WHERE o.finding_key = c.finding_key)
   )
-  SELECT o.id, o.code, o.subject, o.action, a.resolves, o.revision, o.payload, o.reason, NULL::uuid, o.created_at
-    FROM own o JOIN public.tb_decision_actions a ON a.code = o.code AND a.action = o.action
-  UNION ALL
-  SELECT c.id, c.code, c.subject, c.action, true, c.revision, c.payload, c.reason, c.upload_id, c.created_at FROM carried c;
+  SELECT l.id, l.code, l.subject, l.action, a.resolves, l.revision, l.payload, l.reason, l.created_at
+    FROM latest l JOIN u ON true JOIN public.tb_decision_actions a ON a.code = l.code AND a.action = l.action
+   WHERE l.source_file_hash = u.source_file_hash AND l.layout_revision = u.layout_rev
+     AND (l.code <> 'ENTITY_NAME_DIFFERS' OR l.entity_revision = u.entity_rev);
 $$;
 REVOKE ALL ON FUNCTION public.tb_current_finding_decisions(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tb_current_finding_decisions(uuid) TO service_role;
 
--- The browser's read: the current decisions of an upload the caller may see, and the number of recorded decisions.
+-- The browser's read: the current decisions of an upload the caller may see, the newest revision recorded for every
+-- finding (the expected revision of the next decision, current or not) and the number of recorded decisions.
 CREATE OR REPLACE FUNCTION public.get_tb_finding_decisions(p_upload_id uuid)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -240,8 +391,11 @@ BEGIN
   RETURN jsonb_build_object('outcome', 'ok',
     'decisions', coalesce((SELECT jsonb_agg(jsonb_build_object('decision_id', d.decision_id, 'code', d.code, 'subject', d.subject,
                      'action', d.action, 'resolves', d.resolves, 'revision', d.revision, 'payload', d.payload, 'reason', d.reason,
-                     'carried_from_upload_id', d.carried_from_upload_id, 'created_at', d.created_at) ORDER BY d.code, d.subject)
+                     'created_at', d.created_at) ORDER BY d.code, d.subject)
                      FROM public.tb_current_finding_decisions(p_upload_id) d), '[]'::jsonb),
+    'latest_revisions', coalesce((SELECT jsonb_agg(jsonb_build_object('code', x.code, 'subject', x.subject, 'revision', x.revision) ORDER BY x.code, x.subject)
+                     FROM (SELECT DISTINCT ON (y.finding_key) y.code, y.subject, y.revision FROM public.tb_finding_decisions y
+                            WHERE y.upload_id = p_upload_id ORDER BY y.finding_key, y.revision DESC) x), '[]'::jsonb),
     'recorded', (SELECT count(*) FROM public.tb_finding_decisions x WHERE x.upload_id = p_upload_id));
 END;
 $$;
@@ -268,6 +422,7 @@ DECLARE
   v_id uuid;
   v_rev integer;
   v_entity_rev bigint;
+  v_layout_rev bigint;
   v_rows jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'UNAUTHENTICATED'); END IF;
@@ -348,25 +503,27 @@ BEGIN
     END IF;
   END IF;
 
+  v_layout_rev := public._tb_revision(v_row.company_id::text, '#layout_confirmation:' || p_upload_id::text);
+  v_entity_rev := public._tb_revision(v_row.company_id::text, '#entity');
   SELECT * INTO v_latest FROM public.tb_finding_decisions d WHERE d.upload_id = p_upload_id AND d.finding_key = v_key
    ORDER BY d.revision DESC LIMIT 1;
   IF coalesce(v_latest.revision, 0) <> p_expected_revision THEN
     RETURN jsonb_build_object('outcome', 'refused', 'code', 'VERSION_CONFLICT', 'current_revision', coalesce(v_latest.revision, 0));
   END IF;
+  -- The same decision, still current in the same context, is unchanged; under a changed context it is recorded again.
   IF v_latest.id IS NOT NULL AND v_latest.action = p_action AND v_latest.payload = p_payload
-     AND v_latest.source_file_hash = v_row.source_file_hash THEN
+     AND v_latest.source_file_hash = v_row.source_file_hash AND v_latest.layout_revision = v_layout_rev
+     AND (p_code <> 'ENTITY_NAME_DIFFERS' OR v_latest.entity_revision = v_entity_rev) THEN
     RETURN jsonb_build_object('outcome', 'unchanged', 'decision_id', v_latest.id, 'revision', v_latest.revision);
   END IF;
 
   v_rev := coalesce(v_latest.revision, 0) + 1;
-  SELECT coalesce((SELECT r.revision FROM public.tb_dependency_revisions r WHERE r.scope = v_row.company_id::text AND r.dep_key = '#entity'), 0)
-    INTO v_entity_rev;
   PERFORM set_config('axiom.tb_decision_writer', txid_current()::text, true);
   INSERT INTO public.tb_finding_decisions (upload_id, company_id, certification_id, code, subject, finding_key, action, revision,
-                                           payload, reason, source_file_hash, entity_revision, request_id, request_hash,
-                                           actor_type, firm_member_id, actor_user_id)
+                                           payload, reason, source_file_hash, layout_revision, entity_revision, request_id,
+                                           request_hash, actor_type, firm_member_id, actor_user_id)
   VALUES (p_upload_id, v_row.company_id, v_cert.id, p_code, p_subject, v_key, p_action, v_rev, p_payload, btrim(p_reason),
-          v_row.source_file_hash, v_entity_rev, p_request_id, v_hash, v_actor.actor_type,
+          v_row.source_file_hash, v_layout_rev, v_entity_rev, p_request_id, v_hash, v_actor.actor_type,
           CASE WHEN v_actor.actor_type = 'user' THEN v_actor.firm_member_id END, v_uid)
   RETURNING id INTO v_id;
   PERFORM set_config('axiom.tb_decision_writer', '', true);
@@ -374,16 +531,13 @@ BEGIN
   INSERT INTO public.tb_certification_invalidations (certification_id, company_id, upload_id, reason, operation_id, actor_user_id)
   VALUES (v_cert.id, v_cert.company_id, v_cert.upload_id, 'finding_decision', v_id, v_uid);
   PERFORM public._tb_bump_dependency(v_row.company_id::text, '#finding_decisions:' || p_upload_id::text);
-  IF v_act.carry_forward OR p_code = 'ENTITY_NAME_DIFFERS' THEN
-    PERFORM public._tb_bump_dependency(v_row.company_id::text, '#entity_decisions');
-  END IF;
   RETURN jsonb_build_object('outcome', 'recorded', 'decision_id', v_id, 'revision', v_rev, 'invalidated_certification_id', v_cert.id);
 END;
 $$;
 REVOKE ALL ON FUNCTION public.record_tb_finding_decision(uuid, uuid, text, text, text, jsonb, text, integer, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.record_tb_finding_decision(uuid, uuid, text, text, text, jsonb, text, integer, uuid) TO authenticated;
 
--- ── 3. The entity dependency ─────────────────────────────────────────────────────────────────────────────────────────
+-- ── 4. The entity dependency ─────────────────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.tb_dependency_bump_entity()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -397,7 +551,8 @@ REVOKE ALL ON FUNCTION public.tb_dependency_bump_entity() FROM PUBLIC, anon, aut
 CREATE TRIGGER trg_companies_bump_entity AFTER UPDATE OF name, code, tin ON public.companies
   FOR EACH ROW EXECUTE FUNCTION public.tb_dependency_bump_entity();
 
--- ── 4. Investigations ────────────────────────────────────────────────────────────────────────────────────────────────
+
+-- ── 5. Investigations ────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE public.tb_investigations (
   id               uuid        NOT NULL DEFAULT gen_random_uuid(),
   upload_id        uuid        NOT NULL,
@@ -441,6 +596,45 @@ REVOKE ALL ON TABLE public.tb_investigations FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.tb_investigations TO authenticated, service_role;
 CREATE POLICY tbi_workspace_read ON public.tb_investigations FOR SELECT TO authenticated
   USING (public.can_access_workspace(company_id));
+
+-- The reader's own rows, stored ONCE per investigation (never re-parsed for a page): every row the reader saw, whether it
+-- was included as an account or excluded (and why), where it is in the file, and its exact parsed amounts in minor units.
+CREATE TABLE public.tb_investigation_rows (
+  investigation_id uuid    NOT NULL,
+  ordinal          integer NOT NULL,
+  row_number       integer NOT NULL,
+  included         boolean NOT NULL,
+  disposition      text    NOT NULL,
+  account_code     text    NULL,
+  account_name     text    NULL,
+  debit_minor      numeric NULL,
+  credit_minor     numeric NULL,
+  reason           text    NULL,
+  CONSTRAINT tb_investigation_rows_pkey PRIMARY KEY (investigation_id, ordinal),
+  CONSTRAINT fk_tbir_investigation FOREIGN KEY (investigation_id) REFERENCES public.tb_investigations(id) ON DELETE RESTRICT,
+  CONSTRAINT chk_tbir_ordinal CHECK (ordinal > 0 AND row_number > 0),
+  CONSTRAINT chk_tbir_disposition CHECK (disposition IN ('preamble', 'header', 'blank', 'heading', 'total', 'zero_balance', 'account', 'rejected')),
+  CONSTRAINT chk_tbir_amounts CHECK ((debit_minor IS NULL OR debit_minor = trunc(debit_minor)) AND (credit_minor IS NULL OR credit_minor = trunc(credit_minor))),
+  CONSTRAINT chk_tbir_text CHECK (length(coalesce(account_code, '')) <= 200 AND length(coalesce(account_name, '')) <= 500 AND length(coalesce(reason, '')) <= 500)
+);
+CREATE INDEX idx_tbir_included ON public.tb_investigation_rows (investigation_id, included, ordinal);
+COMMENT ON TABLE public.tb_investigation_rows IS
+  'Rows of one investigation as the processing reader saw them (included/excluded, source row, exact minor amounts). Written once, by the running reservation only; read page by page through get_tb_investigation_rows.';
+CREATE OR REPLACE FUNCTION public.tb_investigation_rows_fence()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF TG_OP = 'INSERT' AND coalesce(current_setting('axiom.tb_decision_writer', true), '') = txid_current()::text THEN RETURN NEW; END IF;
+  RAISE EXCEPTION 'Iron Dome: tb_investigation_rows is written once by the investigation functions. % is not permitted.', TG_OP USING ERRCODE = '42501';
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tb_investigation_rows_fence() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER trg_tbir_fence BEFORE INSERT OR UPDATE OR DELETE ON public.tb_investigation_rows
+  FOR EACH ROW EXECUTE FUNCTION public.tb_investigation_rows_fence();
+CREATE TRIGGER trg_tbir_no_truncate BEFORE TRUNCATE ON public.tb_investigation_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.tb_investigation_rows_fence();
+ALTER TABLE public.tb_investigation_rows ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.tb_investigation_rows FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.tb_investigation_rows TO service_role;
 
 -- Reserves (or answers) an investigation of the upload's current, blocking, out-of-balance evaluation. Called by the
 -- trial-balance-layout function with the signed-in user; the actor is derived here.
@@ -507,6 +701,45 @@ $$;
 REVOKE ALL ON FUNCTION public.tb_investigation_reserve(uuid, uuid, uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tb_investigation_reserve(uuid, uuid, uuid, uuid, integer) TO service_role;
 
+-- Appends the next rows of a running reservation: at most 2,000 per call, ordinals contiguous from the stored count,
+-- 20,000 in all. A worker whose reservation was abandoned is refused.
+CREATE OR REPLACE FUNCTION public.tb_investigation_add_rows(p_investigation_id uuid, p_rows jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_inv public.tb_investigations%ROWTYPE;
+  v_have integer;
+  v_n integer;
+BEGIN
+  IF p_investigation_id IS NULL OR jsonb_typeof(p_rows) IS DISTINCT FROM 'array' OR jsonb_array_length(p_rows) NOT BETWEEN 1 AND 2000 THEN
+    RAISE EXCEPTION 'INVALID_ROWS' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO v_inv FROM public.tb_investigations i WHERE i.id = p_investigation_id;
+  IF v_inv.id IS NULL THEN RAISE EXCEPTION 'INVESTIGATION_NOT_CURRENT' USING ERRCODE = 'PT409'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('tb_investigation'), hashtext(v_inv.upload_id::text));
+  SELECT * INTO v_inv FROM public.tb_investigations i WHERE i.id = p_investigation_id FOR UPDATE;
+  IF v_inv.status <> 'running' THEN RAISE EXCEPTION 'INVESTIGATION_NOT_CURRENT' USING ERRCODE = 'PT409'; END IF;
+  SELECT count(*) INTO v_have FROM public.tb_investigation_rows r WHERE r.investigation_id = p_investigation_id;
+  v_n := jsonb_array_length(p_rows);
+  IF v_have + v_n > 20000 THEN RAISE EXCEPTION 'INVESTIGATION_TOO_LARGE' USING ERRCODE = '22023'; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_rows) WITH ORDINALITY x(r, o)
+              WHERE jsonb_typeof(r) <> 'object' OR jsonb_typeof(r->'ordinal') IS DISTINCT FROM 'number'
+                 OR (r->>'ordinal')::integer <> v_have + o::integer
+                 OR jsonb_typeof(r->'row_number') IS DISTINCT FROM 'number' OR jsonb_typeof(r->'included') IS DISTINCT FROM 'boolean') THEN
+    RAISE EXCEPTION 'INVALID_ROWS' USING ERRCODE = '22023';
+  END IF;
+  PERFORM set_config('axiom.tb_decision_writer', txid_current()::text, true);
+  INSERT INTO public.tb_investigation_rows (investigation_id, ordinal, row_number, included, disposition, account_code, account_name,
+                                            debit_minor, credit_minor, reason)
+  SELECT p_investigation_id, (r->>'ordinal')::integer, (r->>'row_number')::integer, (r->>'included')::boolean, r->>'disposition',
+         r->>'account_code', r->>'account_name', (r->>'debit_minor')::numeric, (r->>'credit_minor')::numeric, r->>'reason'
+    FROM jsonb_array_elements(p_rows) r;
+  PERFORM set_config('axiom.tb_decision_writer', '', true);
+  RETURN jsonb_build_object('stored', v_have + v_n);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tb_investigation_add_rows(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.tb_investigation_add_rows(uuid, jsonb) TO service_role;
+
 -- Closes the caller's reservation. A worker whose reservation was abandoned (lease expired, taken over) is refused.
 CREATE OR REPLACE FUNCTION public.tb_investigation_complete(p_investigation_id uuid, p_status text, p_result jsonb, p_error_code text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -524,6 +757,11 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('tb_investigation'), hashtext(v_inv.upload_id::text));
   SELECT * INTO v_inv FROM public.tb_investigations i WHERE i.id = p_investigation_id FOR UPDATE;
   IF v_inv.status <> 'running' THEN RAISE EXCEPTION 'INVESTIGATION_NOT_CURRENT' USING ERRCODE = 'PT409'; END IF;
+  -- A completed investigation states how many rows it stored, and they must all be there.
+  IF p_status = 'completed' AND (jsonb_typeof(p_result->'row_count') IS DISTINCT FROM 'number'
+       OR (p_result->>'row_count')::integer <> (SELECT count(*) FROM public.tb_investigation_rows r WHERE r.investigation_id = p_investigation_id)) THEN
+    RAISE EXCEPTION 'INVALID_RESULT: the stored rows do not match the result' USING ERRCODE = '22023';
+  END IF;
   PERFORM set_config('axiom.tb_decision_writer', txid_current()::text, true);
   UPDATE public.tb_investigations i
      SET status = p_status, result = CASE WHEN p_status = 'completed' THEN p_result END,
@@ -536,7 +774,44 @@ $$;
 REVOKE ALL ON FUNCTION public.tb_investigation_complete(uuid, text, jsonb, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tb_investigation_complete(uuid, text, jsonb, text) TO service_role;
 
--- ── 5. The attempt functions — each its 20261107100000 definition with exactly the marked [20261118100000] lines ─────
+-- One page of a completed investigation's stored rows (never a new parse): 'all', 'included' or 'excluded', after an
+-- ordinal, at most 200; for someone who may see the workspace.
+CREATE OR REPLACE FUNCTION public.get_tb_investigation_rows(p_investigation_id uuid, p_filter text, p_after integer, p_limit integer)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_inv public.tb_investigations%ROWTYPE;
+  v_limit integer := coalesce(p_limit, 50);
+  v_page jsonb;
+  v_more boolean;
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF p_filter IS NULL OR p_filter NOT IN ('all', 'included', 'excluded') OR v_limit NOT BETWEEN 1 AND 200 OR coalesce(p_after, 0) < 0 THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'INVALID_REQUEST');
+  END IF;
+  SELECT * INTO v_inv FROM public.tb_investigations i WHERE i.id = p_investigation_id;
+  IF v_inv.id IS NULL OR NOT public.can_access_workspace(v_inv.company_id) THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  IF v_inv.status <> 'completed' THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'NOT_COMPLETED'); END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('ordinal', r.ordinal, 'row_number', r.row_number, 'included', r.included,
+           'disposition', r.disposition, 'account_code', r.account_code, 'account_name', r.account_name,
+           'debit_minor', r.debit_minor::text, 'credit_minor', r.credit_minor::text, 'reason', r.reason) ORDER BY r.ordinal), '[]'::jsonb)
+    INTO v_page
+    FROM (SELECT * FROM public.tb_investigation_rows r
+           WHERE r.investigation_id = p_investigation_id AND r.ordinal > coalesce(p_after, 0)
+             AND (p_filter = 'all' OR r.included = (p_filter = 'included'))
+           ORDER BY r.ordinal LIMIT v_limit) r;
+  v_more := jsonb_array_length(v_page) = v_limit AND EXISTS (
+    SELECT 1 FROM public.tb_investigation_rows r WHERE r.investigation_id = p_investigation_id
+       AND r.ordinal > (v_page->(v_limit - 1)->>'ordinal')::integer AND (p_filter = 'all' OR r.included = (p_filter = 'included')));
+  RETURN jsonb_build_object('outcome', 'ok', 'rows', v_page,
+    'next_after', CASE WHEN v_more THEN (v_page->(v_limit - 1)->>'ordinal')::integer END,
+    'total', (SELECT count(*) FROM public.tb_investigation_rows r WHERE r.investigation_id = p_investigation_id
+               AND (p_filter = 'all' OR r.included = (p_filter = 'included'))));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.get_tb_investigation_rows(uuid, text, integer, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_tb_investigation_rows(uuid, text, integer, integer) TO authenticated;
+
+-- ── 6. The attempt functions — each its 20261107100000 definition with exactly the marked [20261118100000] lines ─────
 CREATE OR REPLACE FUNCTION public.tb_snapshot_dependencies(p_engine_run_id uuid, p_keys jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
@@ -559,14 +834,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_keys) e
               WHERE jsonb_typeof(e) <> 'object' OR (e->>'scope') IS NULL OR (e->>'key') IS NULL
                  OR (e->>'scope') NOT IN (v_run.company_id::text, 'global')
-                 OR (e->>'key') !~ '^(code:.+|name:.*|#framework|#currency|#dictionary|#layout_confirmation:[0-9a-f-]{36}|#entity|#entity_decisions|#finding_decisions:[0-9a-f-]{36})$' -- [20261118100000] three keys
+                 OR (e->>'key') !~ '^(code:.+|name:.*|#framework|#currency|#dictionary|#layout_confirmation:[0-9a-f-]{36}|#entity|#finding_policy|#finding_decisions:[0-9a-f-]{36})$' -- [20261118100000] three keys
                  -- A2: the layout key names the run's own upload, in the company's scope.
                  OR ((e->>'key') LIKE '#layout_confirmation:%' AND ((e->>'scope') <> v_run.company_id::text
                       OR substring(e->>'key' FROM 22) <> v_run.source_record_id::text))
                  -- [20261118100000] the decisions key names the run's own upload; the entity keys are company scope.
                  OR ((e->>'key') LIKE '#finding_decisions:%' AND ((e->>'scope') <> v_run.company_id::text
                       OR substring(e->>'key' FROM 20) <> v_run.source_record_id::text))
-                 OR ((e->>'key') IN ('#entity', '#entity_decisions') AND (e->>'scope') <> v_run.company_id::text)) THEN -- [/20261118100000]
+                 OR ((e->>'key') IN ('#entity', '#finding_policy') AND (e->>'scope') <> v_run.company_id::text)) THEN -- [/20261118100000]
     RAISE EXCEPTION 'INVALID_DEPENDENCIES' USING ERRCODE = '22023';
   END IF;
   -- L2: the review RPC's per-account advisory lock (company scope), in sorted order, so a review in flight on the same
@@ -869,9 +1144,10 @@ BEGIN
       RAISE EXCEPTION 'INVALID_RESULT: the evaluation does not agree with the findings' USING ERRCODE = '22023';
     END IF;
     IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
-                WHERE EXISTS (SELECT 1 FROM public.tb_decision_actions a WHERE a.code = f->>'code')
-                  AND (jsonb_typeof(f->'subject') IS DISTINCT FROM 'string' OR length(f->>'subject') NOT BETWEEN 1 AND 500)) THEN
-      RAISE EXCEPTION 'INVALID_RESULT: a finding that takes a decision has no subject' USING ERRCODE = '22023';
+                WHERE EXISTS (SELECT 1 FROM public.tb_decision_rules r WHERE r.code = f->>'code')
+                  AND (jsonb_typeof(f->'subject') IS DISTINCT FROM 'string' OR length(f->>'subject') NOT BETWEEN 1 AND 500
+                       OR jsonb_typeof(f->'decision_required') IS DISTINCT FROM 'boolean')) THEN
+      RAISE EXCEPTION 'INVALID_RESULT: a finding that takes a decision has no subject or requirement' USING ERRCODE = '22023';
     END IF;
   END IF;
   -- [/20261118100000]
@@ -910,9 +1186,15 @@ BEGIN
     END IF;
   END IF;
 
-  -- [20261118100000] Every decision a finding cites is current for this upload (its own, or carried forward), and an
-  -- accepted result leaves no finding that takes a decision without a current, resolving one.
+  -- [20261118100000] The requirement each decision-taking finding states is the database's own (rule + workspace policy);
+  -- every decision a finding cites is current for this upload; a non-resolving decision makes the result blocking; and an
+  -- accepted result leaves no REQUIRED finding without a current, resolving decision.
   IF v_outcome = 'certified' AND coalesce(v_gen, 0) >= 7 THEN
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
+                WHERE EXISTS (SELECT 1 FROM public.tb_decision_rules r WHERE r.code = f->>'code')
+                  AND (f->'decision_required') IS DISTINCT FROM to_jsonb(public.tb_finding_required(v_row.company_id, f->>'code'))) THEN
+      RAISE EXCEPTION 'INVALID_RESULT: a finding states a requirement the workspace does not have' USING ERRCODE = '22023';
+    END IF;
     IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
                 WHERE f ? 'decision' AND NOT EXISTS (
                   SELECT 1 FROM public.tb_current_finding_decisions(v_row.id) d
@@ -920,9 +1202,15 @@ BEGIN
                      AND d.action = f->'decision'->>'action')) THEN
       RAISE EXCEPTION 'INVALID_RESULT: a finding cites a decision that is not current' USING ERRCODE = '22023';
     END IF;
+    IF NOT (v_c->>'is_blocking')::boolean
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
+                    JOIN public.tb_current_finding_decisions(v_row.id) d ON d.decision_id::text = f->'decision'->>'id'
+                   WHERE NOT d.resolves) THEN
+      RAISE EXCEPTION 'INVALID_RESULT: a non-resolving decision must block the result' USING ERRCODE = '22023';
+    END IF;
     IF NOT (v_c->>'is_blocking')::boolean AND NOT (v_c->>'requires_review')::boolean
        AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_findings) f
-                    WHERE EXISTS (SELECT 1 FROM public.tb_decision_actions a WHERE a.code = f->>'code')
+                    WHERE (f->'decision_required') = 'true'::jsonb
                       AND NOT EXISTS (SELECT 1 FROM public.tb_current_finding_decisions(v_row.id) d
                                        WHERE d.decision_id::text = f->'decision'->>'id' AND d.resolves)) THEN
       RAISE EXCEPTION 'INVALID_RESULT: an accepted result has a finding that needs a decision' USING ERRCODE = '22023';

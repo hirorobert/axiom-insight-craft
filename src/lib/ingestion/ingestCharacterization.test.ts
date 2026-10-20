@@ -31,7 +31,15 @@ describe("ingestion characterization (no layout)", () => {
       // Keep every pinned behavioural digest. Only the intentionally bumped parser version is normalised.
       // The title-block evidence (tb-ingest-3.2.0, §3.3/§3.4) is a new, additive output with its own tests
       // (titleBlockEvidence.test.ts, reviewRules.test.ts), as are the review-only rules (§3.6); every pre-existing field stays pinned.
-      const { evidence: _evidence, reviewChecks: _reviewChecks, ...pinned } = r;
+      const { evidence: _evidence, reviewChecks: _reviewChecks, ...rest } = r;
+      // 20261118100000 adds, additively: the parsed amounts on total and excluded lineage rows (for the investigation;
+      // imbalanceInvestigation.test.ts) and the identity of decision-taking issues (subject, fileEntity, accountCode;
+      // reviewRules/titleBlockEvidence/findingDecisions tests). Every pre-existing field stays pinned.
+      const pinned = {
+        ...rest,
+        lineage: rest.lineage.map(({ debitMinor: _d, creditMinor: _c, ...l }) => l),
+        issues: rest.issues.map(({ subject: _s, fileEntity: _f, accountCode: _a, ...i }) => i),
+      };
       const digest = createHash("sha256").update(resultText({ ...pinned, version: "tb-ingest-3.0.0" })).digest("hex");
       if (digest !== golden.digests[c.name]) differ.push(c.name);
     }

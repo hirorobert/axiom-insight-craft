@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { call, loadFunctionTree, mintTestJwt, shim } from "./functionHarness.mjs";
+import { call, functionsAtCommit, loadFunctionTree, mintTestJwt, shim } from "./functionHarness.mjs";
 import { currentChain, migrationSql } from "./parkedMigrations.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -173,9 +173,17 @@ export const ASSIGN = {
 };
 export const assignmentPairs = (map) => Object.entries(map).map(([k, line]) => ({ accountKey: String(k), lineId: line }));
 
+/** The last generation-6 engine (main daa23e4), live before 20261118100000. */
+export const GENERATION_6_COMMIT = "daa23e4113dc726fab867480dac6b0b6aba0bbfc";
+
 /** Upload + real-engine certification. */
 export async function certifier(db, U) {
-  const ptb = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
+  // The engine of the database's own release stage: generation 7 needs 20261118100000 (it refuses, before any write, on a
+  // database without it — proven by releaseOrder.mjs), so a proof that stops the chain earlier models the engine that was
+  // live at that stage: the last generation-6 commit (main daa23e4).
+  const decisionsAuthority = (await db.one("SELECT to_regprocedure('public.tb_current_finding_decisions(uuid)') IS NOT NULL AS ok")).ok;
+  const ptb = (await loadFunctionTree(REPO, "process-trial-balance", decisionsAuthority ? {}
+    : { functionsDir: functionsAtCommit(REPO, GENERATION_6_COMMIT, "process-trial-balance") })).handler;
   const upload = async (company, y, text, { currency = "TZS", start = `${y}-01-01`, end = `${y}-12-31` } = {}) => {
     const pid = (await db.one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$2) RETURNING id",
       [company, end, `FY${y}`, U.owner, currency, start])).id;

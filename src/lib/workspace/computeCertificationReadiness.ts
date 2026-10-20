@@ -523,6 +523,10 @@ export function computeCertificationReadiness(input: CertificationReadinessInput
   const checks = constrainChecksByIngestion(result.checks, input.processingResult);
   if (checks === result.checks) return result;
   const constrained = { ...result, checks, passedCount: countPassed(checks) };
-  if (result.verdict !== "certified" || checks.filter(c => ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"].includes(c.id)).every(c => c.state === "passed")) return constrained;
+  // A certified result is downgraded only by NEGATIVE evidence: a required step that failed or did not run. A data-quality
+  // check in review carries the result's own recorded findings (layer-2 notes such as a decided entity name or an
+  // explained clearing balance) — they never make an accepted result "unknown".
+  const required = checks.filter(c => ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"].includes(c.id));
+  if (result.verdict !== "certified" || required.every(c => c.state === "passed" || (c.id === "l2_data_quality" && c.state === "review"))) return constrained;
   return { ...constrained, verdict: "unknown", headline: "Processing results need verification", blocker: "The recorded processing steps do not support a completed trial balance check. Reprocess the file before continuing." };
 }

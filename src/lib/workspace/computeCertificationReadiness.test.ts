@@ -518,3 +518,14 @@ describe('recorded ingestion progress prevents fabricated passes', () => {
     expect(computeCertificationReadiness(input(true)).verdict).not.toBe('certified');
   });
 });
+
+describe("computeCertificationReadiness — recorded findings on an accepted result (20261118100000)", () => {
+  it("a certified result whose data-quality check carries recorded findings stays certified; a step that did not run still downgrades it", () => {
+    const milestones = (classification: string) => ({ ingestion: { milestones: ["read", "columns", "rows", "amounts", "balance"].map((id) => ({ id, status: "passed" })).concat([{ id: "classification", status: classification }]) } });
+    const warned = row({ upload_id: UPLOAD_A, exceptions: [{ code: "ENTITY_NAME_DIFFERS", layer: 2, severity: "warning", accountCode: null, message: "Same entity, recorded." }] });
+    const ok = computeCertificationReadiness({ uploadExists: true, currentUploadId: UPLOAD_A, authoritative: warned, latestForUpload: warned, processingResult: milestones("passed") });
+    expect(ok.verdict).toBe("certified");
+    const notRun = computeCertificationReadiness({ uploadExists: true, currentUploadId: UPLOAD_A, authoritative: warned, latestForUpload: warned, processingResult: milestones("not_reached") });
+    expect(notRun.verdict).toBe("unknown");
+  });
+});
