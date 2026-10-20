@@ -215,7 +215,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                 <tr key={r.engagementId} className="border-b border-border align-top" data-testid={`portfolio-row-${r.engagementId}`}>
                   <td className="py-3 pr-4">
                     <span className="block font-medium text-foreground">{r.companyName}</span>
-                    <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `TIN ${r.companyTin}` : null, r.purpose !== "client" ? PORTFOLIO_PURPOSE_LABEL[r.purpose] : null].filter(Boolean).join(" · ") || "No identifier recorded"}</span>
+                    <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `Tax number ${r.companyTin}` : null, r.purpose !== "client" ? PORTFOLIO_PURPOSE_LABEL[r.purpose] : null].filter(Boolean).join(" · ") || "No identifier recorded"}</span>
                     {renderEntityOptions?.(r)}
                   </td>
                   <td className="py-3 pr-4 whitespace-nowrap">{periodWords(r)}</td>
