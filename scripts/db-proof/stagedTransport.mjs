@@ -13,11 +13,14 @@
 //   T5  injected failure in the middle of the wrapper and in the postcondition: everything rolled back, stage included;
 //       the same entry then applies cleanly
 //   T6  two concurrent submissions of the same entry: exactly one applies
+//   T7  an extra sign-off binding injected mid-batch: TRANSPORT_SIGNOFF_BASELINE_CHANGED, batch and journal rolled back
+//   T1/T7 run over TWO complete sign-off bindings (REVIEWED + FINAL, same lineage) seeded by a disposable-only hook
 //
 //   DB_PROOF_CONN=postgres://postgres:postgres@localhost:<port>/postgres node scripts/db-proof/stagedTransport.mjs
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { releaseServer, Client, Pool, sha256, hostedJournal, REPO } from "./lib/releaseBase.mjs";
 import { BATCHES, KINDS, renderBootstrap, renderApply, renderStage, transportForms, BOOTSTRAP_NAME } from "../release/stagedTransport.mjs";
@@ -57,6 +60,30 @@ async function hosted(c, text, { rowFirst = false } = {}) {
     return { ok: true };
   } catch (e) { await c.query("ROLLBACK"); return { ok: false, code: e.code, message: e.message }; }
 }
+/** Complete-row sign-off fingerprint, exactly the transport's (and the primary live baseline's) expression. */
+const DIGEST_SQL = "SELECT count(*)::int AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest FROM public.fs_publication_bindings f";
+async function digest(c) { return (await c.query(DIGEST_SQL)).rows[0]; }
+/** DISPOSABLE-ONLY fixture hook (test-only, as in s2Authority/billingSuspension): rows written with
+ *  session_replication_role = replica, so append-only triggers and parent-row FKs are bypassed. Every column populated. */
+async function insertBinding(c, { state: st, report = "fsr-2025-proof", version = 6, doc = "c".repeat(64) }) {
+  const cols = (await c.query("SELECT column_name, data_type, is_identity, is_generated FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'fs_publication_bindings' ORDER BY ordinal_position")).rows
+    .filter((r) => r.is_identity !== "YES" && r.is_generated !== "ALWAYS");
+  const fixed = { state: st, report_id: report, report_version: version, document_sha256: doc, declared_content_hash: "d".repeat(64),
+    dependencies_sha256: "e".repeat(64), dependencies: { proof: true, state: st }, approver_role: "owner", approver_display_name: `Proof ${st}`,
+    signoff_policy: "solo_owner", same_approver: true, approved_at: st === "FINAL" ? "2026-10-09T14:11:46Z" : "2026-10-09T14:11:09Z" };
+  const val = (r) => r.column_name in fixed ? fixed[r.column_name]
+    : r.data_type === "uuid" ? crypto.randomUUID() : r.data_type === "boolean" ? true : /int|numeric/.test(r.data_type) ? 1
+    : /timestamp/.test(r.data_type) ? "2026-10-09T14:00:00Z" : /json/.test(r.data_type) ? { proof: r.column_name } : `proof-${r.column_name}`;
+  await c.query("BEGIN"); await c.query("SET LOCAL session_replication_role = replica");
+  try {
+    await c.query(`INSERT INTO public.fs_publication_bindings (${cols.map((r) => r.column_name).join(", ")}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(", ")})`, cols.map(val));
+    await c.query("COMMIT");
+  } catch (e) { await c.query("ROLLBACK"); throw e; }
+}
+async function seedTwoBindings(c) {
+  const shared = { report: "fsr-2025-proof", version: 6, doc: "c".repeat(64) };
+  await insertBinding(c, { ...shared, state: "REVIEWED" }); await insertBinding(c, { ...shared, state: "FINAL" });
+}
 async function stageAll(c, batches = BATCHES.map((_, i) => i)) { for (const i of batches) for (const k of KINDS) await c.query(renderStage(i, k)); }
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "transport-dz-"));
 /** A drizzle migrations folder holding the first n transport entries, with `when` after hosted 0063. */
@@ -84,18 +111,24 @@ try {
     const pool = new Pool({ connectionString: url, ssl: false });
     const c = await connect(url);
     try {
+      await seedTwoBindings(c);
+      const base0 = await digest(c);
+      const full = (await c.query("SELECT bool_and(NOT EXISTS (SELECT 1 FROM jsonb_each(to_jsonb(f)) e WHERE e.value = 'null'::jsonb)) AS ok, string_agg(state, ',' ORDER BY seq) AS st, count(DISTINCT report_id || ':' || report_version || ':' || document_sha256)::int AS lin FROM public.fs_publication_bindings f")).rows[0];
+      check("fixture: two complete sign-off bindings (REVIEWED, FINAL; same lineage; no NULL field)", base0.n === 2 && full.ok === true && full.st === "REVIEWED,FINAL" && full.lin === 1, JSON.stringify(full));
       await migrate(drizzle(pool), { migrationsFolder: folder(1) });
       await stageAll(c);
       for (let i = 0; i < BATCHES.length; i++) {
         await migrate(drizzle(pool), { migrationsFolder: folder(i + 2) });
         const consumed = (await c.query("SELECT count(*)::int AS n FROM cfoclose_release.staged_artifacts WHERE batch = $1 AND consumed_at IS NOT NULL", [BATCHES[i].batch])).rows[0].n;
         check(`${BATCHES[i].batch} applied (preflight, wrapper, postcondition) and consumed`, consumed === 3);
+        const d = await digest(c);
+        check(`${BATCHES[i].batch}: both complete sign-off rows byte-identical (full-row digest)`, d.n === 2 && d.digest === base0.digest, JSON.stringify(d));
       }
       const j = (await c.query("SELECT id, hash FROM drizzle.__drizzle_migrations WHERE id > 64 ORDER BY id")).rows;
       check("six journal rows 65–70 with exactly the registered hashes", j.length === 6 && j.every((r, i) => r.id === 65 + i && r.hash === FORMS[i].hashes[0]), JSON.stringify(j));
       const ev = (await c.query("SELECT batch, detail FROM cfoclose_release.transport_events WHERE event = 'applied' ORDER BY seq")).rows;
       check("five applied events in the approved order", ev.map((e) => e.batch).join() === BATCHES.map((b) => b.batch).join());
-      check("sign-off baseline recorded unchanged in every event", ev.every((e) => typeof e.detail.signoff_digest === "string"));
+      check("every applied event records the unchanged full-row baseline (2 rows)", ev.every((e) => e.detail.signoffs === 2 && e.detail.signoff_digest === base0.digest));
       // Each batch's postcondition ran inside its own apply, at that batch's state (later batches legitimately supersede
       // earlier contracts); after the release, the LAST batch's postcondition holds read-only.
       const last = BATCHES.at(-1);
@@ -219,19 +252,22 @@ try {
       // Postcondition: the bounds postcondition checks a contract the wrapper sets; break it right after the wrapper's last DDL.
       r = await hosted(c, ENTRY[1]); check("controls applies after the injection is removed", r.ok, r.message);
       r = await hosted(c, ENTRY[2]); check("journey applies", r.ok, r.message);
-      // Postcondition: grant anon EXECUTE on fs_work_bounds() whenever the bounds wrapper leaves it ungranted; the batch
-      // postcondition refuses exactly that.
+      // SEPARATELY STAGED postcondition: grant authenticated EXECUTE on fs_bound_review_comment(). The wrapper's own
+      // internal postcondition does not check that function (so the wrapper completes); only the staged
+      // docs/release/fs-bounds-r1/postcondition.sql does, with 'POSTCONDITION: the function grants …'.
       await c.query(`CREATE FUNCTION public._proof_post() RETURNS event_trigger LANGUAGE plpgsql AS $f$
         BEGIN
-          IF current_setting('cfoclose_release.applying', true) = 'fs-bounds-r1' AND to_regprocedure('public.fs_work_bounds()') IS NOT NULL
-             AND NOT has_function_privilege('anon', 'public.fs_work_bounds()', 'EXECUTE') THEN
-            GRANT EXECUTE ON FUNCTION public.fs_work_bounds() TO anon;
+          IF current_setting('cfoclose_release.applying', true) = 'fs-bounds-r1' AND to_regprocedure('public.fs_bound_review_comment()') IS NOT NULL
+             AND NOT has_function_privilege('authenticated', 'public.fs_bound_review_comment()', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION public.fs_bound_review_comment() TO authenticated;
           END IF; END $f$;
         CREATE EVENT TRIGGER proof_post ON ddl_command_end EXECUTE FUNCTION public._proof_post();`);
       before = await state(c); r = await hosted(c, ENTRY[3]);
-      const hit = !r.ok && /POSTCONDITION/.test(r.message);
-      check("postcondition failure surfaces (POSTCONDITION raised after the wrapper ran)", hit, r.message);
-      check("postcondition failure: journal, stage, events and schema unchanged", (await state(c)) === before);
+      check("staged-postcondition failure surfaces from the STAGED file (not the wrapper's POSTCONDITION_FAILED)",
+        !r.ok && /^POSTCONDITION: the function grants/.test(r.message ?? "") && !/POSTCONDITION_FAILED/.test(r.message ?? ""), r.message);
+      check("staged-postcondition failure: journal, stage consumption, events and schema unchanged", (await state(c)) === before);
+      check("staged-postcondition failure: the wrapper's DDL rolled back (fs_work_bounds and its triggers absent)",
+        (await c.query("SELECT to_regprocedure('public.fs_work_bounds()') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_feb_work_bounds') AS a")).rows[0].a === true);
       await c.query("DROP EVENT TRIGGER proof_post; DROP FUNCTION public._proof_post()");
       r = await hosted(c, ENTRY[3]); check("bounds applies after the injection is removed", r.ok, r.message);
     } finally { await c.end(); }
@@ -250,6 +286,39 @@ try {
       check("exactly one applied event and one journal row", (await a.query("SELECT count(*)::int AS n FROM cfoclose_release.transport_events WHERE event = 'applied'")).rows[0].n === 1
         && (await a.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations WHERE id > 65")).rows[0].n === 1);
     } finally { await a.end(); await b.end(); }
+  }
+  group("T7 an injected sign-off change is detected and rolls the batch back");
+  {
+    const url = await srv.copyOf(base.name, "t7");
+    const c = await connect(url);
+    try {
+      await seedTwoBindings(c);
+      const base0 = await digest(c);
+      await hosted(c, ENTRY[0]); await stageAll(c);
+      // UPDATE/DELETE are refused by the table's append-only trigger, so the injection is an extra INSERT through the
+      // disposable-only replica hook, fired by the controls wrapper's own DDL while the batch applies.
+      await c.query(`CREATE FUNCTION public._proof_signoff() RETURNS event_trigger LANGUAGE plpgsql AS $f$
+        DECLARE v public.fs_publication_bindings;
+        BEGIN
+          IF current_setting('cfoclose_release.applying', true) = 'fs-controls-r1'
+             AND NOT EXISTS (SELECT 1 FROM public.fs_publication_bindings WHERE report_id = 'fsr-injected') THEN
+            SELECT * INTO v FROM public.fs_publication_bindings ORDER BY seq LIMIT 1;
+            v.id := gen_random_uuid(); v.publication_id := gen_random_uuid(); v.report_id := 'fsr-injected';
+            PERFORM set_config('session_replication_role', 'replica', true);
+            INSERT INTO public.fs_publication_bindings OVERRIDING SYSTEM VALUE SELECT (v).*;
+            PERFORM set_config('session_replication_role', 'origin', true);
+          END IF; END $f$;
+        CREATE EVENT TRIGGER proof_signoff ON ddl_command_end EXECUTE FUNCTION public._proof_signoff();`);
+      const before = await state(c);
+      const r = await hosted(c, ENTRY[1]);
+      check("the extra binding is detected: TRANSPORT_SIGNOFF_BASELINE_CHANGED", !r.ok && /TRANSPORT_SIGNOFF_BASELINE_CHANGED/.test(r.message ?? ""), r.message);
+      check("detection rolled back journal, stage consumption, events and schema", (await state(c)) === before);
+      const d = await digest(c);
+      check("the injected binding is gone; the two original rows are byte-identical", d.n === 2 && d.digest === base0.digest, JSON.stringify(d));
+      check("the controls wrapper's objects are absent", (await c.query("SELECT to_regprocedure('public.fs_evidence_statements(uuid, integer)') IS NULL AS a")).rows[0].a === true);
+      await c.query("DROP EVENT TRIGGER proof_signoff; DROP FUNCTION public._proof_signoff()");
+      const ok = await hosted(c, ENTRY[1]); check("controls then applies cleanly with the baseline intact", ok.ok, ok.message);
+    } finally { await c.end(); }
   }
 } catch (e) { fail++; console.error(e); }
 finally { await srv.cleanup(); fs.rmSync(tmp, { recursive: true, force: true }); }

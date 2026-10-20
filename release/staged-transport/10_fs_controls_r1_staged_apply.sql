@@ -54,8 +54,7 @@ BEGIN
   IF v_postcondition IS NULL THEN
     RAISE EXCEPTION 'TRANSPORT_STAGE_MISSING_OR_MODIFIED: % postcondition is not staged with 3574 bytes and SHA-256 d57af109ed12acdefdcf0160422cafd4e63a3cdcd8774fc7826bb096174607f3; nothing was changed', c_batch USING ERRCODE = '55000';
   END IF;
-  SELECT * INTO v_before FROM (SELECT count(*) AS n, coalesce(encode(sha256(convert_to(string_agg(concat_ws('|', f.report_id, f.report_version, f.state, f.document_sha256,
-         f.dependencies_sha256, f.approver_user_id, f.approved_at), E'\n' ORDER BY f.seq), 'UTF8')), 'hex'), '') AS digest
+  SELECT * INTO v_before FROM (SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest
      FROM public.fs_publication_bindings f) x;
 
   PERFORM set_config('cfoclose_release.applying', c_batch, true);
@@ -63,8 +62,7 @@ BEGIN
   EXECUTE v_wrapper;
   EXECUTE v_postcondition;
 
-  SELECT * INTO v_after FROM (SELECT count(*) AS n, coalesce(encode(sha256(convert_to(string_agg(concat_ws('|', f.report_id, f.report_version, f.state, f.document_sha256,
-         f.dependencies_sha256, f.approver_user_id, f.approved_at), E'\n' ORDER BY f.seq), 'UTF8')), 'hex'), '') AS digest
+  SELECT * INTO v_after FROM (SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest
      FROM public.fs_publication_bindings f) x;
   IF v_after.n IS DISTINCT FROM v_before.n OR v_after.digest IS DISTINCT FROM v_before.digest THEN
     RAISE EXCEPTION 'TRANSPORT_SIGNOFF_BASELINE_CHANGED: % changed the recorded sign-offs; nothing was changed', c_batch USING ERRCODE = '55000';
