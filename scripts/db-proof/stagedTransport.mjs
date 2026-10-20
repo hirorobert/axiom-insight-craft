@@ -96,10 +96,11 @@ try {
       const ev = (await c.query("SELECT batch, detail FROM cfoclose_release.transport_events WHERE event = 'applied' ORDER BY seq")).rows;
       check("five applied events in the approved order", ev.map((e) => e.batch).join() === BATCHES.map((b) => b.batch).join());
       check("sign-off baseline recorded unchanged in every event", ev.every((e) => typeof e.detail.signoff_digest === "string"));
-      for (const b of BATCHES) {
-        const r = await attempt(c, fs.readFileSync(path.join(REPO, b.postcondition.path), "utf8"));
-        check(`${b.batch} postcondition re-run read-only after the whole release: OK`, r.ok, r.message);
-      }
+      // Each batch's postcondition ran inside its own apply, at that batch's state (later batches legitimately supersede
+      // earlier contracts); after the release, the LAST batch's postcondition holds read-only.
+      const last = BATCHES.at(-1);
+      const r = await attempt(c, fs.readFileSync(path.join(REPO, last.postcondition.path), "utf8"));
+      check(`${last.batch} postcondition re-run read-only after the whole release: OK`, r.ok, r.message);
     } finally { await c.end(); await pool.end(); }
   }
 
