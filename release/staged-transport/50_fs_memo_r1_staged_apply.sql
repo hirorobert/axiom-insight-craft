@@ -8,7 +8,7 @@ DO $cfoclose_transport_fs_memo_r1$
 DECLARE
   c_batch       CONSTANT text   := 'fs-memo-r1';
   c_prior       CONSTANT text   := 'fs-capacity-r1';
-  c_predecessor CONSTANT text[] := ARRAY['7b938e2d4526db7fd0d563b0573d67565232a27e715d22ad5210befa758a1f32', '34cddd7ff59bd968a222647ecd0f0cd085472ad05b9832870ff1842334272205']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['f09a8bfa676396220deefd0a0c58f45a747d6cfeeca6aebe8cce9e8d1106e5b2', '54128fa9b74a7a8cccf8068d68a73c3752a02c842bf601bd304755819e9ebd3a']::text[];
   v_n bigint;
   v_pred_id bigint;
   v_preflight text;
@@ -54,8 +54,7 @@ BEGIN
   IF v_postcondition IS NULL THEN
     RAISE EXCEPTION 'TRANSPORT_STAGE_MISSING_OR_MODIFIED: % postcondition is not staged with 3091 bytes and SHA-256 68c72b99cf80ca35f09cc8a79d6a4b5152025ecab48ed6d3af244224a426c4c1; nothing was changed', c_batch USING ERRCODE = '55000';
   END IF;
-  SELECT * INTO v_before FROM (SELECT count(*) AS n, coalesce(encode(sha256(convert_to(string_agg(concat_ws('|', f.report_id, f.report_version, f.state, f.document_sha256,
-         f.dependencies_sha256, f.approver_user_id, f.approved_at), E'\n' ORDER BY f.seq), 'UTF8')), 'hex'), '') AS digest
+  SELECT * INTO v_before FROM (SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest
      FROM public.fs_publication_bindings f) x;
 
   PERFORM set_config('cfoclose_release.applying', c_batch, true);
@@ -63,8 +62,7 @@ BEGIN
   EXECUTE v_wrapper;
   EXECUTE v_postcondition;
 
-  SELECT * INTO v_after FROM (SELECT count(*) AS n, coalesce(encode(sha256(convert_to(string_agg(concat_ws('|', f.report_id, f.report_version, f.state, f.document_sha256,
-         f.dependencies_sha256, f.approver_user_id, f.approved_at), E'\n' ORDER BY f.seq), 'UTF8')), 'hex'), '') AS digest
+  SELECT * INTO v_after FROM (SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest
      FROM public.fs_publication_bindings f) x;
   IF v_after.n IS DISTINCT FROM v_before.n OR v_after.digest IS DISTINCT FROM v_before.digest THEN
     RAISE EXCEPTION 'TRANSPORT_SIGNOFF_BASELINE_CHANGED: % changed the recorded sign-offs; nothing was changed', c_batch USING ERRCODE = '55000';
