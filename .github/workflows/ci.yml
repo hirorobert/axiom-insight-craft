@@ -635,14 +635,17 @@ jobs:
           git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
           bun scripts/db-proof/releaseOrder.mjs
 
-      - name: Trial-balance workflow rollout proof (one database upgraded main → 20261117100000 → 20261118100000 → generation 7 → floor 7 with the real generation-6 and generation-7 engines and layout functions at every stage; an interrupted apply rolls back completely; results in force stay in force; generation 6 serves exactly as before until it is refused before any write for an upload with decisions and then for every upload once the floor rises; generation 7 completes the refused request; on the same throwaway container)
+      - name: Trial-balance workflow rollout proof (one database upgraded main → 20261117100000 → 20261118100000 → generation 7 → floor 7 with the real generation-6 (main daa23e4 and the hosted 942764f closure) and generation-7 engines and layout functions at every stage; an interrupted apply rolls back completely; results in force stay in force; generation 6 serves exactly as before until it is refused before any write for an upload with decisions and then for every upload once the floor rises; generation 7 completes the refused request; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_rollout_proof
         run: |
           createdb tb_rollout_proof
           git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
+          git fetch --no-tags --depth=1 origin 942764f10506b54d5f0b37c93fecaabc371444fe
           bun scripts/db-proof/tbDecisionsRollout.mjs
+          dropdb tb_rollout_proof && createdb tb_rollout_proof
+          ROLLOUT_OLD_COMMIT=942764f10506b54d5f0b37c93fecaabc371444fe bun scripts/db-proof/tbDecisionsRollout.mjs
 
       - name: Milestone release-order proof (one database upgraded from the schema of main through the seven release migrations one at a time, with legacy personal and workspace uploads, an in-window discard and the real sweeper at every stage; the new storage-cleanup function on the old schema; old and new cleanup handlers on a shared source; retiring or discarding one year never deletes a file its sibling needs; on the same throwaway container)
         env:

@@ -32,8 +32,9 @@ const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const PORTFOLIO_FILE = "20261117100000_engagement_portfolio.sql";
 const DECISIONS_FILE = "20261118100000_tb_finding_decisions.sql";
-// The engine live before this release: the last generation-6 commit (main daa23e4), both functions.
-const GENERATION_6_COMMIT = "daa23e4113dc726fab867480dac6b0b6aba0bbfc";
+// The engine live before this release: a generation-6 commit, both functions — main daa23e4 by default; the closure
+// deployed hosted on 2026-10-18 (942764f, also generation 6) with ROLLOUT_OLD_COMMIT=942764f… (fetch it first).
+const GENERATION_6_COMMIT = process.env.ROLLOUT_OLD_COMMIT || "daa23e4113dc726fab867480dac6b0b6aba0bbfc";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -114,6 +115,7 @@ async function main() {
     layout: (await loadFunctionTree(REPO, "trial-balance-layout")).handler,
   };
 
+  console.log(`old engine (generation 6): process-trial-balance and trial-balance-layout at ${GENERATION_6_COMMIT}`);
   group("Stage 0 — the database as on main; generation 6 live");
   await check("the two migrations are the newest of the chain, in this order; everything before applies", async () => {
     if (iP < 0 || iD !== iP + 1 || iD !== files.length - 1) return files.slice(-3);

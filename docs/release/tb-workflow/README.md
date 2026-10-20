@@ -1,121 +1,145 @@
 # Trial Balance workflow — release candidate (Track A and Track B)
 
-**Status: release candidate on branch `feat/tb-workflow`. NOTHING here is applied, deployed, published or activated.**
-Production release (migration application, function deployment, enforcement floor, Publish) is a separate, explicitly
-approved step. All data used anywhere in this work is invented.
+**Status: release candidate on branch `feat/tb-workflow` (draft PR). NOTHING here is applied, deployed, published or
+activated.** Migration application, function deployment, the enforcement floor and Publish are separate, explicitly
+approved steps (§6). All data used anywhere in this work is invented.
 
 ## 1. What changes for a person
 
 | Before | After |
 |---|---|
-| The account home listed every engagement from an unbounded read | A server-paged engagements list: search (entity, code, TIN; literal), status, purpose and period filters, three sorts, Previous/Next, exact count, and a notice when the list changed while paging |
-| Upload was a compact card on the home | A focused page, `/upload`, linked from the list; saved (unchecked) uploads listed with an explicit, confirmed removal; a new entity whose name matches an existing one (the engine's normalisation) is asked about first |
-| A differing entity name, unrecognised trailing text and clearing/in-transit balances were review notes that never held anything back | Each is a finding that **needs a recorded decision** before the trial balance can be accepted; the decision is made under the finding itself |
-| An imbalance said "correct the file" | Same instruction, plus **"Look for likely causes in this file"**: bounded leads by row (an amount equal to the difference, half of it, a digit transposition, rows read as totals, rows with amounts not read, both sides on one row) — never a plug, never a claim about the ledger |
-| A file for the wrong entity could only be "confirmed" or ignored | "Different entity" blocks it, with the way out: remove it here (when removal is allowed) and find the right engagement |
-| An accepted trial balance ended there | "Continue to financial statements", only where the server enables reporting for the company |
+| The account home routed from unbounded client reads | `get_account_home`: exact totals with bounded samples; the route (resume, start, shared, chooser, first run) is decided from the totals, never from a truncated list |
+| The home listed every engagement | A server-paged engagements list: literal search, status/purpose/period filters, three sorts, keyset Previous/Next, exact count, a notice when the list moved while paging; a withheld service says "Service no longer offered" and offers no action |
+| Upload was a card on the home | A focused page, `/upload`; saved (unchecked) uploads listed with a confirmed removal; a new entity matching an existing name is asked about first |
+| Settings links sat in the middle of task pages | The workspace rail states the engagement (entity, period dates, currency, framework) with its settings: period/currency, company details, the clearing-balance policy |
+| Findings were all "review notes" | Each finding says whether it **must be decided** (rule + workspace policy, computed by the server): a differing entity name — required; a clearing/in-transit balance — an optional review note unless the workspace requires an explanation; amount-free trailing text — an optional acknowledgement; an amount-bearing row without an account — blocking (`MISSING_ACCOUNT_CODE`), never a decision |
+| An imbalance said "correct the file" | Plus **"Look for likely causes in this file"**: read vs printed totals, a labelled possible cause, leads by row, and every row read (included and excluded, source row, exact amounts, exclusion reason) page by page — never a plug, never a claim about the ledger |
+| A wrong-entity file could only be confirmed or ignored | "Different entity" blocks it, with the way out: remove it here and find the right engagement |
+| History was mixed with the current result | The current result and its checks first; "Upload history · N" (exact, this period) after them; a note when only the most recent are shown |
+| An accepted trial balance ended there | "Continue to financial statements", only where the server enables reporting |
 
 ## 2. Accounting-integrity rules this implements
 
-* No plug, no suspense entry and no balanced journal is ever offered for an imbalance. The investigation proposes no figure.
-* No silent row drop: trailing text decided "not part of the trial balance" stays recorded with its rows; "part of the
-  trial balance" **blocks** the file with a layout correction (`LAYOUT_CORRECTION_REQUIRED`).
-* An account name is never proof of error: clearing balances are explained with evidence, not reclassified or removed.
-* Nothing claims the originating ledger is unbalanced: every investigation result says the leads are about **this file**.
+* No plug, suspense entry or balanced journal is offered for an imbalance; an out-of-balance source stays blocked even
+  if a balanced draft journal is proposed (no authority → `no_authority`).
+* No silent row drop: amount-free trailing text acknowledged as "not part of the trial balance" stays recorded with its
+  rows; "part of the trial balance" blocks with a layout correction; a page number outside the amount columns is a
+  recognised footer, not a finding; footer-like text carrying an amount is refused as a row without an account.
+* An account name is never proof of error: a clearing balance is a review indicator, explained (optionally, or as the
+  workspace policy requires) with evidence — never reclassified or removed. **A recorded evidence reference is what the
+  preparer wrote; it is not a matched bank transaction and the system does not check the document** (said in the UI).
+* Nothing claims the originating ledger is unbalanced: investigation results are about **this file**.
 * A decision changes no amount, row, account or mapping.
 
-## 3. The decision model (20261118100000)
+## 3. The requirement and decision model (20261118100000)
 
-* **Registry** `tb_decision_actions` (fixed by migration): `ENTITY_NAME_DIFFERS` → `same_entity` (resolves, carries forward)
-  / `different_entity` (blocks); `UNRECOGNISED_TRAILING_TEXT` → `not_part_of_trial_balance` (resolves) /
-  `part_of_trial_balance` (blocks); `CLEARING_ACCOUNT_BALANCE` → `explained` (resolves). Anything else has no decision.
-* **Append-only** `tb_finding_decisions`, written only by `record_tb_finding_decision`:
-  * the actor is derived from `auth.uid()` with `prepare_close` (`_layout_actor`), never from the request;
-  * the finding's identity (code + subject) is taken from the certification's **own stored findings**;
-  * server-enforced confirmations: both entity names exactly; the exact rows; an explanation of 10+ characters and an
-    evidence kind and reference; a reason of 3+ characters;
-  * outcomes: `recorded`, replay of the same request, `IDEMPOTENCY_KEY_REUSED`, `STALE_EVALUATION`, `VERSION_CONFLICT`,
-    `unchanged`, `FORBIDDEN`, `IN_PROGRESS`, `FINDING_NOT_FOUND`, `ACTION_NOT_AVAILABLE`, `CONFIRMATION_REQUIRED`,
-    `EVIDENCE_REQUIRED`, `REASON_REQUIRED`;
-  * **immediate invalidation**: the certification it was made against is invalidated in the same transaction
-    (`reason = 'finding_decision'`) and `#finding_decisions:<upload>` is bumped.
-* **Carry-forward**: only `same_entity`, to the company's later uploads naming the same entity, and only while the
-  company's identity is unchanged (`#entity` revision recorded on the decision).
-* **Dependencies**: `#entity` (company name, code, TIN — the rename race), `#finding_decisions:<upload>`, and
-  `#entity_decisions` for a run that used a carried decision. A rename makes a dependent result non-authoritative at once.
+* **Rules** `tb_decision_rules` (fixed): `ENTITY_NAME_DIFFERS` always; `CLEARING_ACCOUNT_BALANCE` by policy;
+  `UNRECOGNISED_TRAILING_TEXT` never. **Actions** `tb_decision_actions` (fixed): same/different entity; not part/part of
+  the trial balance; explained.
+* **Policy** `tb_finding_policies` (append-only) via `set_tb_finding_policy`: review authority, a reason, the expected
+  revision, idempotent; a change bumps `#finding_policy`, so results evaluated under the old policy lose authority at once.
+* **Requirement** `tb_finding_required(company, code)` — the engine states it on each finding (`decision_required`) and
+  finalize **recomputes and compares** it.
+* **Decisions** `tb_finding_decisions` (append-only) via `record_tb_finding_decision`: actor from `auth.uid()` with
+  `prepare_close`; identity from the certification's own stored findings; bound to the upload, its source hash, its layout
+  revision and (entity findings) the company identity revision; refused while a check runs (`IN_PROGRESS`) and on any
+  result that is not the latest uninvalidated one (`STALE_EVALUATION`); version-checked; replay-safe; the result it was
+  made against is invalidated in the same transaction.
+* **No carry-forward across files**: `tb_current_finding_decisions` returns only the upload's own decisions whose context
+  is unchanged. A shared company never authorizes a file-specific confirmation. The same file re-checked with unchanged
+  context reuses its decisions; a replacement file, a renamed entity or a changed layout needs a new decision.
 
-## 4. Finalize: the evaluation manifest and generations (the trusted-handler boundary)
+## 4. Finalize and the trusted-handler boundary
 
-From engine generation 7, `tb_finalize_attempt` refuses a certification unless its `evaluation` (`tb-evaluation/1`):
-names every rule of `tb_evaluation_rules(7)` exactly once (an omitted, unknown or repeated rule is refused); leaves a rule
-`not_reached` only on a blocking result; agrees with the findings in both directions for `entity_name`, `trailing_text`,
-`clearing_accounts` and `balance`; gives every decision-taking finding a subject; cites only **current** decisions; and,
-when accepted, leaves no decision-taking finding without a current, resolving decision. A generation newer than
-`tb_max_engine_generation()` (7) is refused at begin and at finalize. `tb_begin_attempt` refuses an engine below 7 for an
-upload that has decisions.
+From generation 7, `tb_finalize_attempt` refuses a certification unless its evaluation (`tb-evaluation/1`) names every
+rule of `tb_evaluation_rules(7)` exactly once, agrees with the findings, gives every decision-taking finding a subject and
+the database's own requirement, cites only current decisions, blocks on a non-resolving decision, and — when accepted —
+leaves no required finding undecided. A generation above 7 is refused at begin and finalize. An engine below 7 is refused
+at begin for an upload with decisions, and a run below 7 that finishes after a decision exists ends failed
+(`DECISIONS_REQUIRE_CURRENT_ENGINE`) — defence in depth: through the public paths a decision never coexists with a running
+check (both proven; the guard mutation-tested). **Boundary:** the database cannot re-parse the file; it verifies
+everything above and trusts the service-role engine for the parse itself, as for every earlier generation.
 
-**Boundary.** The database cannot re-parse the file. It verifies everything above from what it holds; it trusts the
-service-role engine (process-trial-balance generation 7) for the parse itself — the same boundary as every earlier
-generation. Generation 7 is **not enforced for uploads without decisions** until `processing_release_control.min_engine_generation`
-is raised to 7 — a separate, approved step after the generation-7 engine is deployed.
+## 5. Investigation
 
-## 5. Investigation (bounded)
+`tb_investigations`: a durable reservation (`uq_tbi_one_running`, one running per upload) with a recoverable lease; an
+expired reservation is abandoned by the next request and its worker fenced out at completion; a completed investigation
+of an evaluation is reused. The reader's rows are stored once (`tb_investigation_add_rows`, ≤ 2,000 per call, ≤ 20,000,
+contiguous ordinals; completion checks the count) with the same reader and exact minor-unit amounts as processing, and
+read in keyset pages (`get_tb_investigation_rows`, ≤ 200; all/included/excluded; the UI uses 50). Result
+`tb-investigation/2`: read vs printed totals and a possible cause (`export_totals_do_not_balance`,
+`reading_differs_from_printed_totals`, `reading_agrees_with_printed_totals`, `no_printed_totals`).
 
-`tb_investigations`: a durable reservation — one running investigation per upload (`uq_tbi_one_running`, a partial unique
-index, not an advisory lock) with a lease (30–300 s; 120 s used). An expired reservation is abandoned by the next request
-and its worker is fenced out at completion. A completed investigation of an evaluation is reused. Results ≤ 50 leads,
-≤ 200 kB; ≤ 10 rows per lead; digit transpositions examined on ≤ 20,000 amounts. Only for the upload's current blocking,
-out-of-balance evaluation.
+## 6. Rollout: order, enforcement, recovery (each step needs its own approval)
 
-## 6. Migration and cutover sequence (each step needs its own approval)
+Proven by `scripts/db-proof/tbDecisionsRollout.mjs`: the real old and new handlers on one database upgraded step by step,
+run twice — the old engine as main `daa23e4` and as the hosted `942764f` closure (both generation 6).
 
-1. **Apply `tb-portfolio-a1`** (`20261117100000_engagement_portfolio.sql`, wrapper) — read-only additions plus revision
-   triggers; independent of every pending FS batch. Postcondition `docs/release/tb-portfolio-a1/postcondition.sql`.
-2. **Apply `tb-decisions-b1`** (`20261118100000_tb_finding_decisions.sql`, wrapper) — BEFORE step 3. Postcondition
-   `docs/release/tb-decisions-b1/postcondition.sql`. With generation 6 still deployed nothing changes for users: no
-   decision can be recorded (generation-6 findings have no subject → `FINDING_NOT_FOUND`).
-3. **Deploy `process-trial-balance`** (generation 7; required closure `d454b31f…a957`) and **`trial-balance-layout`**
-   (adds `investigate`). Generation 7 on a database without step 2 refuses before any write
-   (`DECISIONS_AUTHORITY_UNAVAILABLE`; proven by `releaseOrder.mjs`).
-4. **Publish the frontend.**
-5. **Raise `min_engine_generation` to 7** only after step 3 is verified live (retires engines that cannot read decisions).
+| Step | Action | Safe because |
+|---|---|---|
+| 1 | Apply `tb-portfolio-a1` (`20261117100000`, wrapper; postcondition `docs/release/tb-portfolio-a1/postcondition.sql`) | Generation 6 keeps certifying through the new triggers; results in force stay in force; the old frontend calls none of it |
+| 2 | Apply `tb-decisions-b1` (`20261118100000`, wrapper; postcondition `docs/release/tb-decisions-b1/postcondition.sql`) | An interrupted apply rolls back completely; generation 6 serves exactly as before (same file, same outcome — compared); results in force need no manifest; no decision can be recorded on a generation-6 result |
+| 3 | **Publish the frontend** | Needs steps 1–2 (without them the home reads "unavailable" — fails closed). With generation 6 live, generation-6 findings carry no decision identity, so no decision control is offered |
+| 4 | Deploy `process-trial-balance` generation 7 (closure `0a50b5d0…bfea`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | Mixed fleet: generation 7 certifies with the manifest; a generation-6 instance is refused before any write for an upload with decisions and still serves uploads without; generation 7 completes the refused request. **Must follow step 3:** the main-branch frontend shows a generation-7 accepted-with-notes result as "Processing results need verification" (fails closed, never falsely accepted) |
+| 5 | Raise `min_engine_generation` to 7 (`admin_set_processing_control`; reason; version-checked; it only rises) | Generation 6 refused for every upload before any write; generation 7 serves the same request; earlier results stay in force |
 
-Rollback: before any decision or generation-7 certification exists, the migration's documented rollback; after, roll
-forward only. Functions: redeploy the generation-6 closure (`e2553c3b…5bd8`) — it is refused for uploads that have
-decisions (by design), and works for all others.
+**When enforcement activates.** The required entity decision, the manifest and the database-computed requirements apply
+to every result **generation 7 produces** from step 4. Until step 5, a generation-6 instance still answering certifies
+uploads without decisions exactly as before — including a file naming another entity (proven: generation 6 accepts it).
+From step 5 every new check is generation 7. **Results already in force are not re-evaluated**: they stay authoritative
+until re-checked (issued history is preserved by design).
 
-## 7. Evidence (executed on this branch, PostgreSQL 16, invented data)
+**Interrupted cutover — recovery.** Step 1 or 2 interrupted: the wrapper is atomic (no journal row; wrapper proofs and the
+rollout proof); re-run it. Frontend published without 1–2: the home says unavailable; apply 1–2. Step 4 rolled back to
+generation 6 after decisions exist: those uploads are refused (before any write) until generation 7 is redeployed, others
+work; redeploy generation 7 — no data repair. Step 5 before generation 7 is live everywhere: checks are refused (fail
+closed) until it is; the floor cannot be lowered. Database rollback only before any decision or generation-7
+certification exists (the migration's documented rollback); afterwards roll forward only.
 
-| Proof | Result |
-|---|---|
-| `engagementPortfolio.mjs` — authorization matrix, keyset paging in every sort, filters, counts, view token, entity list, measured cost (median 25–41 ms at 130 engagements) | 25/25 |
-| `findingDecisions.mjs` — manifest refusals, decision identity/confirmations/replay/conflict/stale/version, fence, immediate invalidation, carry-forward, rename race, 12-way concurrent investigation, lease recovery, bounds | 45/45 |
-| `tbHandlerCharacterization.mjs` — the real handlers incl. 6 generation-7 requirements (decisions required, decide and re-check to acceptance, rename invalidates, wrong entity blocks, old engine refused, investigate through the real function) | 43/43 |
-| `layoutAuthority.mjs`, `closeReviewAuthority.mjs`, `h1Authority.mjs`, `statementComposition.mjs` (real handler, generation 7) | 38/38, 99/99, 61/61, 37/37 |
-| `releaseOrder.mjs` (stage-3 engine pinned to `daa23e4`; generation 7 refused before any write without the migration) | 17/17 |
-| `selfCheckingWrappers.mjs` for `tb-portfolio-a1` and `tb-decisions-b1` | 32/32 each |
-| Unit/component tests (vitest; decisions, investigation, portfolio, upload page, verdicts, accessibility via axe) | all pass locally (environmental 5 s timeouts on this Windows host excepted, re-run green with a longer timeout) |
-| Local-stack browser journey (new "Trial Balance workflow" group, 7 checks) | **runs in CI on the draft PR** — not executable on this host (no Docker) |
+## 7. Requirement-to-evidence checklist (the entire authorized scope)
 
-## 8. Delivery checklist
+**Impl** = implementation; **Test** = executed evidence on this branch (PostgreSQL 16, invented data); **Lim** =
+remaining limitation. "Journey" = the local-stack browser journey (`scripts/e2e/localStackJourney.mjs`), which runs only
+in CI (this host has no Docker); its status is the CI run on the PR head, reported with the PR.
 
-- [x] Isolated branch and worktree; synthetic data only; no hosted change
-- [x] Migrations with preflights, real-PostgreSQL proofs, wrappers, four registered forms each, postconditions, CI steps
-- [x] Engine generation 7 proven with the real handler; release-order behaviour proven
-- [x] Browser: portfolio, focused upload, saved uploads, entity pre-check, decision controls, investigation, wrong-entity
-      recovery, statements handoff; accessibility checks; 1280/375 widths in the journey
-- [x] Closure registries updated (process-trial-balance `d454b31f…`, layout-assist `9508a926…`)
-- [ ] CI green on the PR head (including the local-stack journey)
-- [ ] Independent review verdict on the final head
-- [ ] Owner approval for the §6 sequence
+| # | Requirement | Impl | Test | Lim |
+|---|---|---|---|---|
+| 1 | 100+ engagements with genuine server-side pagination | `list_portfolio_engagements` (keyset, view token); `EngagementPortfolio` | `engagementPortfolio.mjs` 28/28 (130 engagements; every sort; filters; counts; timing); `EngagementPortfolio.test.ts`; journey | — |
+| 2 | Bounded routing (single-engagement redirect, first run, entity selection) with explicit completeness | `get_account_home` totals + samples; `decideAccountHomeRoute`; `list_portfolio_entities` | `engagementPortfolio.mjs` (home); `accountHome.test.ts`; `moduleAvailability.test.ts`; `Dashboard.test.ts` | — |
+| 3 | Focused upload; saved uploads; entity pre-check | `/upload`; saved drafts; entity pre-check | Journey (focused upload, saved uploads); unit tests | — |
+| 4 | Each finding with its actual resolution action | `FindingDecisionControl` (decide / explain / acknowledge); layout correction link; classification; investigation; wrong-entity recovery | `FindingDecisionControl.test.ts`; `TrialBalanceSurfaces.test.ts`; journey | — |
+| 5 | Severity model: entity required; clearing a review indicator; evidence only by explicit policy; trailing text distinct from amount-bearing rows | `tb_decision_rules`; `tb_finding_policies`; engine `decision_required`; `MISSING_ACCOUNT_CODE` | `findingDecisions.mjs` (policy; requirement recomputed; review indicators accepted); REQ-G7-DECISIONS-REQUIRED, REQ-G7-CLEARING-POLICY; `printedReportFooter.test.ts`; journey (required vs optional; policy) | — |
+| 6 | Genuine wrong-entity upload vs supported alternative name | entity decision same/different; `ENTITY_WRONG_DESTINATION` | REQ-G7-WRONG-ENTITY; REQ-G7-DECIDE-AND-RECHECK; journey (same entity accepted; different entity blocked with recovery) | — |
+| 7 | Footer page number outside the amount columns vs ambiguous amount-bearing rows | footer rules; `MISSING_ACCOUNT_CODE` | `printedReportFooter.test.ts` (a page number beyond the amount columns is a footer with no issue; "Page 2" with an amount is refused); `phase1Acceptance.test.ts` | — |
+| 8 | Layout-caused imbalance vs inconsistent source export | investigation cause (read vs printed totals) | `imbalanceInvestigation.test.ts` (LAYOUT-CAUSED; INCONSISTENT EXPORT); REQ-G7-INVESTIGATE; journey (cause shown) | — |
+| 9 | Legitimate cash in transit with supporting evidence | clearing explanation (nature, explanation, evidence kind, reference) | `findingDecisions.mjs`; journey (optional explanation accepted and cited; required under policy) | Evidence is a recorded reference, not a matched bank transaction (`DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001`) — labelled so in the UI |
+| 10 | Balanced base plus an approved accrual/depreciation adjustment | Close Review adjustments (propose, approval policy, adjusted layer) | `closeReviewAuthority.mjs` 100/100 (accrual proposed and approved; layer applied with lineage; certified amounts unchanged; re-check requires revalidation) | Exercised in the journey's financial-statements group, not for the trial-balance group's company |
+| 11 | Unbalanced source stays blocked despite a balanced draft journal | propose requires authority | `closeReviewAuthority.mjs` (real engine blocks on `TRIAL_BALANCE_IMBALANCE`; a balanced journal for the whole difference is refused `no_authority`; nothing recorded; nothing authoritative) | — |
+| 12 | Unchanged decisions carried forward; changed context or source invalidated | `tb_current_finding_decisions` | `findingDecisions.mjs` (same-input reuse; replacement file; changed title; changed layout; rename); REQ-G7-RENAME-INVALIDATES; REQ-G7-REPLACEMENT-NOT-CARRIED; journey (rename; replacement) | — |
+| 13 | Direct-RPC bypass, stale generation and omitted-rule refusal | grants; fences; manifest checks | `findingDecisions.mjs` (direct writes refused; manifest refusals; generation 8 refused); REQ-G7-OLD-ENGINE-REFUSED | — |
+| 14 | Concurrent decisions, reprocessing, lost responses and replay | version check; request ids; `IN_PROGRESS`; finalize guard | `findingDecisions.mjs` (12 parallel decisions → one recorded; lost answer replays; key reuse a conflict; a decision during a running check refused; the late older-engine finalize fails) | — |
+| 15 | Investigation lease expiry and failed-worker recovery | lease + fence | `findingDecisions.mjs` (expired lease recovered; late worker fenced out of rows and completion) | — |
+| 16 | Investigation: same reader and exact money; included/excluded rows; source locations; parsed amounts; comparable totals; labelled causes; bounded pages; no re-parse; durable reservation | `tbInvestigation.ts`; `tb_investigation_rows`; `ImbalanceInvestigation`; `investigationRows` | REQ-G7-INVESTIGATE (stored rows = row count; page read); `findingDecisions.mjs` (paging; fences); `FindingDecisionControl.test.ts` (rows filtered and keyset-paged; never re-investigated; axe); `investigationRows.test.ts`; journey | — |
+| 17 | Preservation of source, audit and issued history | append-only decisions, policies, investigations; history list | `findingDecisions.mjs` (append-only; no truncate); rollout (results in force preserved); journey (the earlier upload and its decisions stay in history) | Results in force are not re-evaluated retroactively (by design) |
+| 18 | Settings out of the task body; engagement-context sidebar | `EngagementContextPanel` in the workspace rail | `EngagementContextPanel.test.ts` (axe); `WorkspaceAccessGate.test.ts`; journey (rail; no settings link in the task; policy change) | — |
+| 19 | Current upload vs history; contextual navigation | period-scoped uploads with exact count; history after the checks; Reconcile link; statements handoff | `TrialBalanceSurfaces.test.ts`; journey (history · 2; handoff) | — |
+| 20 | Keyboard, screen reader, desktop and mobile | labelled controls; live regions; tables with captions | axe in component tests; journey `widths()` at 1280×900 and 375×812 with screenshots | Automated rules and keyboard paths — not a human screen-reader session |
+| 21 | Rollout safety at every stage; enforcement timing; interrupted cutover | §6 | `tbDecisionsRollout.mjs` 25/25 with `daa23e4` and 25/25 with `942764f`; `releaseOrder.mjs` 17/17; wrapper proofs 32/32 each | — |
+| 22 | Unrelated FS and payment controls preserved | no change to their migrations or functions | `closeReviewAuthority.mjs`; `statementComposition.mjs`; `signoffPolicy.mjs`; `h1Authority.mjs`; `layoutAuthority.mjs`; the full vitest suite; CI payment and FS jobs | — |
+| 23 | The complete journey through the FS handoff on the integrated isolated stack | journey "Trial Balance workflow" group | CI run on the PR head | Reported with the PR |
+
+## 8. Executed proofs on this branch (PostgreSQL 16)
+
+`findingDecisions.mjs` 54/54 · `tbDecisionsRollout.mjs` 25/25 (each old engine) · `tbHandlerCharacterization.mjs` 45/45 ·
+`engagementPortfolio.mjs` 28/28 · `closeReviewAuthority.mjs` 100/100 · `layoutAuthority.mjs` 38/38 · `h1Authority.mjs`
+61/61 · `statementComposition.mjs` 37/37 · `signoffPolicy.mjs` 24/24 · `releaseOrder.mjs` 17/17 · wrapper proofs
+`tb-portfolio-a1` 32/32 and `tb-decisions-b1` 32/32. Typecheck clean; lint 0 errors (157 warnings — the existing baseline).
 
 ## 9. Known limitations (stated, not hidden)
 
-* **Account-home routing** (resume a single engagement, first run) still reads `useActiveEngagements` (companies,
-  engagements and uploads without a page bound). The engagements **list** is server-paged; the routing decision is not
-  yet moved onto server status.
-* Settings relocation and a left-rail engagement context were not built in this candidate.
-* Carry-forward covers only the same-entity confirmation; trailing-text and clearing decisions are per file and period.
-* The adjustments page is offered only where already released (reporting groups); classification review is unchanged.
-* `DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001` is unchanged: clearing-balance evidence is a reference the preparer records,
-  not an independently matched bank transaction.
+* Clearing-balance evidence is a reference the preparer records — not an independently matched bank transaction
+  (`DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001`, unchanged).
+* Until the floor is raised (step 5), a generation-6 instance still answering certifies uploads without decisions as
+  before, including a file naming another entity; results already in force are not re-evaluated.
+* The database trusts the service-role engine for the parse (the manifest proves complete reporting, not its truth).
+* Accessibility is checked by automated rules (axe) and keyboard paths in tests, not by a human screen-reader session.
