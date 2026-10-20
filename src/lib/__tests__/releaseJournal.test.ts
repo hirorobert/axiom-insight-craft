@@ -49,7 +49,7 @@ const ACCESS = ["20261104100000_platform_owner_access_and_entity_allowance.sql"]
 const TB_RELEASE = ["20261106100000_trial_balance_drafts.sql", "20261107100000_certification_findings_capacity.sql", "20261108100000_account_identity_codeless_name.sql", "20261109100000_refused_replacement_restore.sql"].map((name) => ({ name }));
 // Unlimited team members (batch pricing-p1): all four forms registered BEFORE application; PENDING hosted application.
 const PRICING_P1 = ["20261110100000_unlimited_team_members.sql"].map((name) => ({ name }));
-// Period-currency correction (batch currency-c1): all four forms registered BEFORE application; PENDING hosted application.
+// Period-currency correction (batch currency-c1): all four forms registered BEFORE application; applied as hosted 64 (0063).
 const CURRENCY_C1 = ["20261113100000_period_currency_correction.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
@@ -78,7 +78,8 @@ describe("the reviewed release journal", () => {
     // 41: 0055 (verified charge outcomes, commercial-p5; release_self_checking_wrapper; hosted 56).
     // 46: 0058–0061 (the trial balance release, tb-release-r1; release_self_checking_wrapper; hosted 59–62).
     // 47: 0062 (unlimited team members, pricing-p1; release_self_checking_wrapper; hosted 63).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(47);
+    // 48: 0063 (period-currency correction, currency-c1; release_self_checking_wrapper, final-LF-removed form; hosted 64).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(48);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -101,7 +102,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261113100000_period_currency_correction.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/period-currency-correction)
+    expect(r.pending).toEqual([]); // currency-c1 (20261113100000) applied as hosted 64 (0063): nothing pending
     // before this migration: pricing-p1 (20261110100000) applied as hosted 63: nothing pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
@@ -489,7 +490,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261113100000_period_currency_correction.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/period-currency-correction)
+    expect(r.pending).toEqual([]); // currency-c1 (20261113100000) applied as hosted 64 (0063): nothing pending
     // before this migration: pricing-p1 (20261110100000) applied as hosted 63: nothing pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
@@ -613,7 +614,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261113100000_period_currency_correction.sql"]); // authored, PENDING hosted application (owner applies through the authorized journal process; see docs/release/period-currency-correction)
+    expect(r.pending).toEqual([]); // currency-c1 (20261113100000) applied as hosted 64 (0063): nothing pending
     // before this migration: pricing-p1 (20261110100000) applied as hosted 63: nothing pending
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",

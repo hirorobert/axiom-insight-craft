@@ -114,8 +114,8 @@ export const PRICING_P1_SOURCE_COMMIT = "4fba8c5efe1824dec5d4bdf0b261c385263f762
 export const PRICING_P1_WRAPPED_SOURCES = Object.freeze([
   "20261110100000_unlimited_team_members.sql",
 ]);
-/** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Authored, PENDING
- * hosted application. */
+/** Period-currency correction (currency-c1): one source at the commit holding its reviewed bytes. Applied 2026-10-20 as
+ * hosted 64 (0063), final-LF-removed wrapper form. */
 export const CURRENCY_C1_SOURCE_COMMIT = "5581158eeaf172c387715f278fadfb92cc032557";
 export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
   "20261113100000_period_currency_correction.sql",

@@ -337,6 +337,13 @@ export const RELEASE_JOURNAL = {
   "0062_unlimited_team_members_wrapper": { kind: "release_self_checking_wrapper", source: "20261110100000_unlimited_team_members.sql",
     bytes: 37312, digest: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009",
     form: "wrapper", submittedBytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" },
+  // Period-currency correction (batch currency-c1; PR #179, main 4ead5c9), applied 2026-10-20 by Lovable's hosted migrator
+  // through its SELF-CHECKING WRAPPER in the registered final-LF-removed form (mirror byte-identical to release/wrappers/
+  // minus its single final LF; Lovable commit da31e04). POSTCONDITION OK. Nothing is pending.
+  // hosted id 64; journal "when" 1792470872315 = 2026-10-20T04:34:32.315Z.
+  "0063_period_currency_correction": { kind: "release_self_checking_wrapper", source: "20261113100000_period_currency_correction.sql",
+    bytes: 34382, digest: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d",
+    form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc" },
 };
 
 /**
@@ -606,7 +613,7 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapperFinalLfRemoved: Object.freeze({ bytes: 38877, sha256: "1fbcccc09d4fdcf1dff67045fc42515a5c0f7c93de246cd3301779a9b67d7a42" }),
   }),
   // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application.
-  // Authored, PENDING hosted application.
+  // Applied 2026-10-20 as hosted 64 (0063) in the final-LF-removed wrapper form.
   "20261113100000_period_currency_correction.sql": Object.freeze({
     identical: Object.freeze({ bytes: 34382, sha256: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d" }),
     finalLfRemoved: Object.freeze({ bytes: 34381, sha256: "cbb154b4a4c5f8b840c699ce0a66088775dd73e8d5bdad7bc8e3825fecb92746" }),
