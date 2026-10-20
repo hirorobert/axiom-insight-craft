@@ -213,8 +213,9 @@ export function renderApply(index) {
   if (!b) throw new Error(`no batch ${index}`);
   const prior = index === 0 ? null : BATCHES[index - 1].batch;
   const tag = `$cfoclose_transport_${b.batch.replace(/-/g, "_")}$`;
-  const bind = `(SELECT count(*) AS n, coalesce(encode(sha256(convert_to(string_agg(concat_ws('|', f.report_id, f.report_version, f.state, f.document_sha256,
-         f.dependencies_sha256, f.approver_user_id, f.approved_at), E'\\n' ORDER BY f.seq), 'UTF8')), 'hex'), '') AS digest
+  // Complete-row fingerprint: count + SHA-256 of every whole row as jsonb text, one per line in seq order (no column
+  // selection, no delimiter or NULL ambiguity; the same expression as the primary live baseline).
+  const bind = `(SELECT count(*) AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest
      FROM public.fs_publication_bindings f)`;
   const pick = (k) => `  SELECT s.body INTO v_${k} FROM cfoclose_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = '${k}'
