@@ -8,6 +8,9 @@
  *                  file, record an append-only confirmation bound to the source hash and the resolved layout hash
  *                  (expected confirmation number; a retry replays);
  *   save_template  record a reusable template version (expected version; a retry replays). A template has no file.
+ *   investigate    leads in an out-of-balance file (_shared/tbInvestigation.ts), for the upload's CURRENT blocking
+ *                  evaluation only, under a durable reservation (one running per upload; a recoverable lease; a completed
+ *                  result reused); read under the upload's confirmed layout when it has one. Nothing is adjusted.
  *
  * Who: the same processing authority as process-trial-balance for the file (actor resolution, current plan, active
  * upload, source binding); writes additionally need prepare_close — decided in the database by the writer functions,
@@ -26,7 +29,8 @@ import { resolveProcessingActor } from "./processingActor.ts";
 import { processingEntitlementRefusal } from "./paidAction.ts";
 import { PROCESSING_FORBIDDEN, processingRefusal, sourceBindingRefusal } from "./uploadLifecycle.ts";
 import { detectColumns, formatMinor, TB_INGESTION_VERSION, type Cell, type IngestResult, type SourceRow } from "./tbIngestion.ts";
-import { readSourceTables, readTrialBalanceSourceWithLayout, type XlsxLike } from "./tbSource.ts";
+import { readSourceTables, readTrialBalanceSource, readTrialBalanceSourceWithLayout, type XlsxLike } from "./tbSource.ts";
+import { investigateImbalance } from "./tbInvestigation.ts";
 import { checkSourceBytesActual } from "./uploadPolicy.ts";
 
 export interface LayoutUpload {
@@ -62,7 +66,8 @@ const unavailable = (): LayoutResponse => ({
 const bad = (message: string, errors?: string[]): LayoutResponse => ({ status: 400, body: { status: "invalid", code: "INVALID_REQUEST", message, ...(errors ? { errors } : {}) } });
 const isMissingFunction = (e: RpcAnswer["error"]) => !!e && (e.code === "PGRST202" || e.code === "42883");
 
-const REFUSAL_STATUS: Record<string, number> = { NUMBER_FORMAT_AMBIGUOUS: 422, FORBIDDEN: 403, UPLOAD_NOT_FOUND: 403, VERSION_CONFLICT: 409, IN_PROGRESS: 409, REPROCESS_REQUIRED: 409, SOURCE_CHANGED: 409, UPLOAD_NOT_ACTIVE: 409, TEMPLATE_NOT_FOUND: 404, LAYOUT_DOES_NOT_FIT: 422 };
+const INVESTIGATION_LEASE_SECONDS = 120;
+const REFUSAL_STATUS: Record<string, number> = { NOT_APPLICABLE: 409, STALE_EVALUATION: 409, NUMBER_FORMAT_AMBIGUOUS: 422, FORBIDDEN: 403, UPLOAD_NOT_FOUND: 403, VERSION_CONFLICT: 409, IN_PROGRESS: 409, REPROCESS_REQUIRED: 409, SOURCE_CHANGED: 409, UPLOAD_NOT_ACTIVE: 409, TEMPLATE_NOT_FOUND: 404, LAYOUT_DOES_NOT_FIT: 422 };
 const REFUSAL_COPY: Record<string, string> = {
   FORBIDDEN: "You don't have permission to set up layouts in this workspace.",
   UPLOAD_NOT_FOUND: "You don't have permission to set up layouts in this workspace.",
@@ -73,6 +78,8 @@ const REFUSAL_COPY: Record<string, string> = {
   UPLOAD_NOT_ACTIVE: "This trial balance is no longer in use, so its layout cannot change.",
   TEMPLATE_NOT_FOUND: "That layout template was not found in this workspace.",
   LAYOUT_DOES_NOT_FIT: "This layout does not fit the file. Correct it and validate again.",
+  NOT_APPLICABLE: "This trial balance is not out of balance, so there is nothing to investigate.",
+  STALE_EVALUATION: "This result has been replaced by a newer check. Reload to see the current result.",
   NUMBER_FORMAT_AMBIGUOUS: "The amounts in this file can be read in more than one number format, giving different values. Check the examples, choose the format your system exported, and confirm that choice explicitly.",
 };
 function refusal(code: string, extra: Record<string, unknown> = {}): LayoutResponse {
@@ -286,8 +293,52 @@ export async function handleLayoutRequest(userId: string, body: unknown, deps: L
       if (answer.outcome !== "saved") return refusal(answer.code ?? "REFUSED", answer.currentVersion !== undefined ? { currentVersion: answer.currentVersion } : {});
       return { status: 200, body: { status: "saved", templateId: answer.templateId, templateKey: answer.templateKey, version: answer.version, replay: !!answer.replay, unchanged: !!answer.unchanged } };
     }
+    case "investigate": {
+      if (typeof b.certificationId !== "string" || !UUID.test(b.certificationId)) return bad("certificationId must be the result you are looking at.");
+      if (typeof b.requestId !== "string" || !UUID.test(b.requestId)) return bad("requestId must be a UUID.");
+      const opened = await openUpload(deps, userId, b.uploadId);
+      if (!opened.ok) return opened.response;
+      const { data, error } = await deps.rpc("tb_investigation_reserve", {
+        p_user_id: userId, p_upload_id: opened.upload.id, p_certification_id: b.certificationId, p_request_id: b.requestId,
+        p_lease_seconds: INVESTIGATION_LEASE_SECONDS,
+      });
+      if (isMissingFunction(error)) return unavailable();
+      if (error) throw new Error(`tb_investigation_reserve failed: ${error.code ?? "unknown"}`);
+      const answer = data as { outcome: string; code?: string; investigation_id?: string; result?: unknown; source_file_hash?: string };
+      if (answer.outcome === "refused") return refusal(answer.code ?? "REFUSED");
+      if (answer.outcome === "in_progress" || answer.outcome === "running") return { status: 202, body: { status: "in_progress", investigationId: answer.investigation_id } };
+      if (answer.outcome === "completed") return { status: 200, body: { status: "completed", investigationId: answer.investigation_id, result: answer.result as Record<string, unknown> } };
+      if (answer.outcome !== "reserved" || !answer.investigation_id) return { status: 200, body: { status: "failed", investigationId: answer.investigation_id ?? null } };
+      const id = answer.investigation_id;
+      const finish = async (status: "completed" | "failed", result: unknown, code: string | null) => {
+        const { error: e } = await deps.rpc("tb_investigation_complete", { p_investigation_id: id, p_status: status, p_result: result, p_error_code: code });
+        return e && e.code === "PT409" ? "superseded" : e ? Promise.reject(new Error(`tb_investigation_complete failed: ${e.code ?? "unknown"}`)) : "ok";
+      };
+      // The file must still be the one the evaluation read.
+      if (answer.source_file_hash !== opened.sourceFileHash) {
+        await finish("failed", null, "SOURCE_CHANGED");
+        return refusal("SOURCE_CHANGED");
+      }
+      // Read exactly as the evaluation did: under the confirmed layout when there is one.
+      const currency = await deps.reportingCurrency(opened.upload);
+      const ctx = { fileName: opened.upload.file_name ?? "", periodYear: opened.upload.period_year ?? null, currency };
+      const layout = await readCurrentLayoutConfirmation(deps.db, opened.upload.id);
+      let read: IngestResult;
+      if (layout.kind === "read" && layout.confirmation) {
+        const v = validateProfile(layout.confirmation.profile);
+        if (!v.ok) { await finish("failed", null, "LAYOUT_RECORD_INVALID"); return { status: 200, body: { status: "failed", investigationId: id } }; }
+        read = readTrialBalanceSourceWithLayout(opened.bytes, ctx, deps.xlsx, v.profile, layout.confirmation.profile_sha256).result;
+      } else {
+        read = readTrialBalanceSource(opened.bytes, ctx, deps.xlsx);
+      }
+      const result = investigateImbalance(read);
+      if (!result) { await finish("failed", null, "NOT_OUT_OF_BALANCE"); return refusal("NOT_APPLICABLE"); }
+      const done = await finish("completed", result, null);
+      if (done === "superseded") return { status: 202, body: { status: "in_progress", investigationId: id } };
+      return { status: 200, body: { status: "completed", investigationId: id, result: result as unknown as Record<string, unknown> } };
+    }
     default:
-      return bad("action must be inspect, validate, confirm or save_template.");
+      return bad("action must be inspect, validate, confirm, save_template or investigate.");
   }
 }
 

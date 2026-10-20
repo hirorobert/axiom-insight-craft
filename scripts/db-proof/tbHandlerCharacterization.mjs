@@ -57,7 +57,8 @@ const REQUIRED_REQUIREMENTS = ["REQ-AUTH-1", "REQ-AUTH-2", "REQ-AUTH-3", "REQ-HA
   // R0 release: services withheld from this release refuse on the server, with no writes
   "REQ-WITHHELD-TAX", "REQ-WITHHELD-NOTES", "REQ-WITHHELD-LETTER",
   // Generation 7 (20261118100000): finding decisions required, recorded, applied; a rename and a wrong entity
-  "REQ-G7-DECISIONS-REQUIRED", "REQ-G7-DECIDE-AND-RECHECK", "REQ-G7-RENAME-INVALIDATES", "REQ-G7-WRONG-ENTITY", "REQ-G7-OLD-ENGINE-REFUSED"];
+  "REQ-G7-DECISIONS-REQUIRED", "REQ-G7-DECIDE-AND-RECHECK", "REQ-G7-RENAME-INVALIDATES", "REQ-G7-WRONG-ENTITY", "REQ-G7-OLD-ENGINE-REFUSED",
+  "REQ-G7-INVESTIGATE"];
 const ledger = validateLedger(JSON.parse(fs.readFileSync(LEDGER_FILE, "utf8")));
 const REQUIRED_PROBES = ledger.defects.map((d) => d.probe);
 const results = { requirement: new Map(), probe: new Map() };
@@ -667,6 +668,27 @@ async function main() {
     const r = await runHandler(U.owner, g7Up, op, e1);
     const after = canon({ certs: await certs(g7Up), runs: (await admin.query("SELECT id, status FROM public.engine_runs WHERE source_record_id=$1 ORDER BY started_at, id", [g7Up])).rows });
     return acc.outcome === "accepted" && r.http >= 400 && before === after ? true : { acc, http: r.http, body: r.body, same: before === after };
+  });
+
+  await req1("REQ-G7-INVESTIGATE", async () => {
+    // An out-of-balance file: the real trial-balance-layout function investigates the CURRENT blocking result under a
+    // durable reservation, returns bounded leads (the row equal to the difference), reuses the completed result, refuses a
+    // result that is not the current one, and writes nothing to the upload, its certifications or its mappings.
+    const layoutFn = (await loadFunctionTree(REPO, "trial-balance-layout")).handler;
+    const id = await upload(G, 2032, csv([["1000", "Bank", "1,500.25", ""], ["1100", "Debtors", "120.00", ""], ["3000", "Share capital", "", "1,000.00"], ["4000", "Sales", "", "900.25"], ["6000", "Rent", "400.00", ""]]));
+    await runHandler(U.owner, id);
+    const c = await latestCertOf(id);
+    const snap = async () => canon({ row: await uploadRow(id), certs: await certs(id) });
+    const before = await snap();
+    const inv = (requestId, cert = c.id) => call(layoutFn, pool, mintTestJwt(U.owner), { action: "investigate", uploadId: id, certificationId: cert, requestId });
+    const a = await inv(uuid());
+    const b = await inv(uuid());
+    const stale = await inv(uuid(), (await latestCertOf(g7Up)).id);
+    const n = (await one("SELECT count(*)::int n FROM public.tb_investigations WHERE upload_id=$1", [id])).n;
+    const lead = a.body?.result?.leads?.find((l) => l.kind === "amount_equals_difference");
+    return c.is_blocking === true && a.http === 200 && a.body?.status === "completed" && a.body.result.difference === "120.00" && lead?.rows?.join() === "4" /* title row 1, header row 2: Debtors is row 4 */
+      && b.http === 200 && b.body?.investigationId === a.body.investigationId && stale.http === 409 && stale.body?.code === "STALE_EVALUATION"
+      && n === 1 && (await snap()) === before ? true : { c: c?.is_blocking, a: a.http, ab: a.body, b: b.body, stale: stale.body, n };
   });
 
   // ── X8: the previous engines on S2's schema ──────────────────────────────────────────────────────────────────────
