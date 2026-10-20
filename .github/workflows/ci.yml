@@ -836,7 +836,7 @@ jobs:
           createdb fs_journey_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at 18d4c41)
+      - name: Work bounds wrapper proof (the same reviewed apply-and-register proof for the fs-bounds-r1 wrapper - 20261114100000, the server-enforced work bounds of the financial-statements module; applied after fs-journey-r1; at c17809e)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_bounds_wrappers_proof
@@ -845,7 +845,7 @@ jobs:
           createdb fs_bounds_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at c746682)
+      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at c17809e)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_capacity_wrappers_proof
@@ -854,7 +854,7 @@ jobs:
           createdb fs_capacity_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Transaction memo wrapper proof (the same reviewed apply-and-register proof for the fs-memo-r1 wrapper - 20261116100000, the composition and the reporting input computed once per transaction; applied after fs-capacity-r1)
+      - name: Transaction memo wrapper proof (the same reviewed apply-and-register proof for the fs-memo-r1 wrapper - 20261116100000, the composition and the reporting input computed once per transaction; applied after fs-capacity-r1; at c17809e)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_memo_wrappers_proof
