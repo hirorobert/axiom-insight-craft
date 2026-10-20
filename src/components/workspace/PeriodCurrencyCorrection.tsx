@@ -11,6 +11,7 @@
  *   · where the server refuses a correction, the record that prevents it and the route that still works — no control.
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { CURRENCY_REASON_PRESETS, composeCurrencyReason, currencyReasonText, type CurrencyReasonPreset } from "@/lib/workspace/currencyReasons";
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,23 +23,6 @@ import {
 
 type Rpc = Parameters<typeof getCorrectionEligibility>[0];
 const rpc: Rpc = (fn, args) => (supabase.rpc as unknown as (f: string, a: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>)(fn, args);
-
-/** Preset reasons for a currency correction. None is pre-selected: the person picks one explicitly. */
-export const CURRENCY_REASON_PRESETS = ["chosen_by_mistake", "client_reports_in", "other"] as const;
-export type CurrencyReasonPreset = (typeof CURRENCY_REASON_PRESETS)[number];
-export function currencyReasonText(p: CurrencyReasonPreset, from: string, to: string): string {
-  return p === "chosen_by_mistake" ? `The ledger is kept in ${to}; ${from} was chosen by mistake.`
-    : p === "client_reports_in" ? `The client reports in ${to}.`
-    : "Other reason";
-}
-/** The reason sent to the server, or null while it is not yet complete (no preset, or "Other" without 3+ characters). */
-export function composeCurrencyReason(p: CurrencyReasonPreset | null, details: string, from: string, to: string): string | null {
-  const note = details.trim();
-  if (p === null) return null;
-  if (p === "other") return note.length >= 3 ? note : null;
-  const text = currencyReasonText(p, from, to);
-  return note ? `${text} ${note}` : text;
-}
 
 type Step =
   | { kind: "idle" }

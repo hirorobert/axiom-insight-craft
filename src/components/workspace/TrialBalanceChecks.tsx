@@ -7,18 +7,8 @@
 import { AlertTriangle, Check, Minus, X } from "lucide-react";
 import type { MilestoneState, TrialBalanceCheck, TrialBalanceVerdict } from "@/lib/workspace/trialBalanceVerdict";
 import { TRIAL_BALANCE_CHECKS_ANCHOR, TRIAL_BALANCE_FINDINGS_ANCHOR } from "./CurrentTrialBalanceCard";
+import { checkDetail } from "@/lib/workspace/checkDetail";
 import type { TrialBalanceIssue } from "@/lib/workspace/trialBalanceVerdict";
-
-/**
- * A check whose detail only restates findings the card already lists (by exact message) points to that list instead of
- * repeating it, so each finding is stated once. Any other text in the detail is kept as written.
- */
-export function checkDetail(detail: string, listed: readonly TrialBalanceIssue[]): { text: string; pointsToFindings: number } {
-  const repeated = listed.filter((i) => i.message && detail.includes(i.message));
-  if (repeated.length === 0) return { text: detail, pointsToFindings: 0 };
-  const rest = repeated.reduce((d, i) => d.split(i.message).join(" "), detail).replace(/\s+/g, " ").trim();
-  return { text: rest, pointsToFindings: repeated.length };
-}
 
 const ICON: Record<TrialBalanceCheck["state"], JSX.Element> = {
   passed: <Check className="h-4 w-4 text-success" aria-hidden="true" />,

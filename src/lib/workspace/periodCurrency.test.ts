@@ -169,7 +169,7 @@ describe("the panel (real component)", () => {
 
 describe("correction reason presets", () => {
   it("nothing is sent until a reason is picked; Other needs the person's own words", async () => {
-    const { composeCurrencyReason } = await import("@/components/workspace/PeriodCurrencyCorrection");
+    const { composeCurrencyReason } = await import("@/lib/workspace/currencyReasons");
     expect(composeCurrencyReason(null, "anything", "USD", "TZS")).toBeNull();
     expect(composeCurrencyReason("other", " a ", "USD", "TZS")).toBeNull();
     expect(composeCurrencyReason("other", "Group policy", "USD", "TZS")).toBe("Group policy");

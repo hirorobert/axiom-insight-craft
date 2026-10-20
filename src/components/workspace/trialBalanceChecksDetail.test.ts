@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkDetail } from "./TrialBalanceChecks";
+import { checkDetail } from "@/lib/workspace/checkDetail";
 
 const issue = (message: string) => ({ code: "X", message, rows: [], kind: "review" as const });
 
