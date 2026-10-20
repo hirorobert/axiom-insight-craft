@@ -853,7 +853,7 @@ jobs:
           createdb fs_bounds_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at c17809e)
+      - name: Account capacity wrapper proof (the same reviewed apply-and-register proof for the fs-capacity-r1 wrapper - 20261115100000, the account capacity of the financial-statements module; applied after fs-bounds-r1; at 7bfb263)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_capacity_wrappers_proof
@@ -862,7 +862,7 @@ jobs:
           createdb fs_capacity_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Transaction memo wrapper proof (the same reviewed apply-and-register proof for the fs-memo-r1 wrapper - 20261116100000, the composition and the reporting input computed once per transaction; applied after fs-capacity-r1; at c17809e)
+      - name: Transaction memo wrapper proof (the same reviewed apply-and-register proof for the fs-memo-r1 wrapper - 20261116100000, the composition and the reporting input computed once per transaction; applied after fs-capacity-r1; at 7bfb263)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/fs_memo_wrappers_proof

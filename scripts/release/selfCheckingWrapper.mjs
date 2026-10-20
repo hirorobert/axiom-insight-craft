@@ -132,13 +132,13 @@ export const FS_BOUNDS_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Account capacity of the financial-statements module (fs-capacity-r1): one source at the commit holding its reviewed bytes;
  * applied after fs-bounds-r1 (its preflight requires fs-work-bounds/1). */
-export const FS_CAPACITY_SOURCE_COMMIT = "c17809e25c42d1032b416b3c980737f00fc4e282";
+export const FS_CAPACITY_SOURCE_COMMIT = "7bfb2630889f4932630ce57e48b6345125d1f16c";
 export const FS_CAPACITY_WRAPPED_SOURCES = Object.freeze([
   "20261115100000_fs_account_capacity.sql",
 ]);
 /** Transaction memo of the financial-statements reads (fs-memo-r1): one source at the commit holding its reviewed bytes;
  * applied after fs-capacity-r1 (its preflight requires the account capacity). */
-export const FS_MEMO_SOURCE_COMMIT = "c17809e25c42d1032b416b3c980737f00fc4e282";
+export const FS_MEMO_SOURCE_COMMIT = "7bfb2630889f4932630ce57e48b6345125d1f16c";
 export const FS_MEMO_WRAPPED_SOURCES = Object.freeze([
   "20261116100000_fs_transaction_memo.sql",
 ]);
