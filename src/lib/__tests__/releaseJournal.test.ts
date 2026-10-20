@@ -51,7 +51,7 @@ const TB_RELEASE = ["20261106100000_trial_balance_drafts.sql", "20261107100000_c
 const PRICING_P1 = ["20261110100000_unlimited_team_members.sql"].map((name) => ({ name }));
 // Publication controls of the first IFRS for SMEs reporting slice (batch fs-controls-r1): all four forms registered BEFORE application; PENDING hosted application.
 const FS_CONTROLS = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"].map((name) => ({ name }));
-// Period-currency correction (batch currency-c1): all four forms registered BEFORE application; PENDING hosted application.
+// Period-currency correction (batch currency-c1): all four forms registered BEFORE application; applied 2026-10-20 as 0063 (hosted 64).
 const CURRENCY_C1 = ["20261113100000_period_currency_correction.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
@@ -80,7 +80,8 @@ describe("the reviewed release journal", () => {
     // 41: 0055 (verified charge outcomes, commercial-p5; release_self_checking_wrapper; hosted 56).
     // 46: 0058–0061 (the trial balance release, tb-release-r1; release_self_checking_wrapper; hosted 59–62).
     // 47: 0062 (unlimited team members, pricing-p1; release_self_checking_wrapper; hosted 63).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(47);
+    // 48: 0063 (period-currency correction, currency-c1; release_self_checking_wrapper in the final-LF-removed wrapper form; hosted 64).
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(48);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -103,7 +104,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261113100000_period_currency_correction.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; fs-controls-r1, fs-journey-r1, currency-c1 (#179), fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
+    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; currency-c1 (#179) applied as hosted 64 (0063); fs-controls-r1, fs-journey-r1, fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -111,7 +112,8 @@ describe("the reviewed release journal", () => {
       tag: "0028_apply_20261006100000_mapping_and_processing_authority", source: "20261006100000_mapping_and_processing_authority.sql", how: "release_verbatim" });
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
-    expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" }]);
+    expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" },
+      { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" }]); // applied ahead of the pending 20261111/20261112 (declared out of order)
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
@@ -490,7 +492,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261113100000_period_currency_correction.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; fs-controls-r1, fs-journey-r1, currency-c1 (#179), fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
+    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; currency-c1 (#179) applied as hosted 64 (0063); fs-controls-r1, fs-journey-r1, fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -613,7 +615,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261113100000_period_currency_correction.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; fs-controls-r1, fs-journey-r1, currency-c1 (#179), fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
+    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; currency-c1 (#179) applied as hosted 64 (0063); fs-controls-r1, fs-journey-r1, fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",

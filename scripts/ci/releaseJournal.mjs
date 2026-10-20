@@ -337,6 +337,14 @@ export const RELEASE_JOURNAL = {
   "0062_unlimited_team_members_wrapper": { kind: "release_self_checking_wrapper", source: "20261110100000_unlimited_team_members.sql",
     bytes: 37312, digest: "5081c8199f53dbb68cf1e2c866f56668505537b901a19af9952cbf6ee8267009",
     form: "wrapper", submittedBytes: 38878, sha256: "d3f1ae17f8de24f23f85c49bb7c7f2bfe4d0c80aba4fc1fbcf79f887389bfb79" },
+  // Period-currency correction (batch currency-c1; PR #179, main 4ead5c9), applied 2026-10-20 by Lovable's hosted migrator
+  // through its SELF-CHECKING WRAPPER with the wrapper's single final LF removed (the registered wrapperFinalLfRemoved form).
+  // hosted id 64; journal "when" 1792470872315 = 2026-10-20T04:34:32.315Z. OUT OF SOURCE ORDER on purpose (the precedent
+  // of 0016): it was applied ahead of the authored, still-PENDING 20261111100000 and 20261112100000 of the financial-statements
+  // slice (PR #176), whose wrappers apply later through their own preflights (none depends on 20261113100000).
+  "0063_period_currency_correction": { kind: "release_self_checking_wrapper", source: "20261113100000_period_currency_correction.sql",
+    bytes: 34382, digest: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d",
+    form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc", outOfOrder: true },
 };
 
 /**
@@ -641,8 +649,8 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 28556, sha256: "3467ec6b37e70788d7f2e1537e13f9a3210918d803536782e87ae0eb8f4e249b" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 28555, sha256: "2716f79e08a296455c1c763d228147e602d183871b4e9171174671bbaa4b4966" }),
   }),
-  // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application.
-  // Authored, PENDING hosted application.
+  // Period-currency correction (batch currency-c1; source commit 5581158): all four forms registered BEFORE application;
+  // applied 2026-10-20 as 0063 in the wrapperFinalLfRemoved form (RELEASE_JOURNAL).
   "20261113100000_period_currency_correction.sql": Object.freeze({
     identical: Object.freeze({ bytes: 34382, sha256: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d" }),
     finalLfRemoved: Object.freeze({ bytes: 34381, sha256: "cbb154b4a4c5f8b840c699ce0a66088775dd73e8d5bdad7bc8e3825fecb92746" }),
@@ -796,7 +804,9 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     const reg = entry.form === "wrapper" ? SUBMISSION_FORMS[entry.source]?.wrapper : entry.form === "wrapper_final_lf_removed" ? SUBMISSION_FORMS[entry.source]?.wrapperFinalLfRemoved : null;
     if (!reg || reg.sha256 !== entry.sha256 || reg.bytes !== entry.submittedBytes) problems.push(`${tag}: ${entry.form} is not a registered wrapper form of ${entry.source} (SUBMISSION_FORMS)`);
     if (submittedForm(entry.source, src, hosted) !== entry.form) problems.push(`${tag} is not exactly the registered ${entry.form} of ${entry.source}`);
-    return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: false, problems };
+    // A reviewed entry may declare itself applied OUT OF SOURCE ORDER (ahead of authored, still-pending sources): the parity
+    // checker then counts it as applied without treating the earlier sources as skipped (the 0016 precedent).
+    return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: entry.outOfOrder === true, problems };
   }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));

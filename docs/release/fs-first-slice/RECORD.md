@@ -595,7 +595,7 @@ release widens it (`overCapacityWords`, the next action, the readiness blocker).
 
 ## 8. Migration and deployment requirements
 
-- Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. `20261111100000` is the only batch still PENDING hosted application.
+- Apply order: after `20261110100000` (pricing-p1, merged to main as #175, applied hosted on 2026-10-18 as drizzle entry 0062 / hosted id 63 — `dd2a29c`, closed out by #177 `50282a3`, mirrored in `RELEASE_JOURNAL`); no object overlap. **2026-10-20:** PR #179's `20261113100000` (currency-c1) was applied hosted as drizzle 0063 / hosted id 64 AHEAD of this slice's `20261111100000` / `20261112100000` — out of source order; the registry declares it so (`outOfOrder`, the 0016 precedent) and the parity checker lists only uncovered sources as pending. No FS wrapper's preflight depends on 20261113100000; the five FS batches apply after 0063 as 0064–0068.
 - Hosted apply only through the self-checking wrapper of the committed bytes, by the owner, with
   `docs/release/fs-controls-r1/preflight.sql` before and `postcondition.sql` after. **Not authorised by this kickoff.**
 - Batch `fs-controls-r1` registered in `scripts/release/selfCheckingWrapper.mjs` at the implementation commit

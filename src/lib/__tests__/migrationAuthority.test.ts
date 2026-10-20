@@ -51,7 +51,10 @@ describe("migration authority parity", () => {
     // 53: 0055, verified charge outcomes (commercial-p5, 20261102100000), the registered wrapper form (hosted 56).
     // 59: 0058–0061, the trial balance release (tb-release-r1), the registered wrapper form (hosted 59–62).
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
+    // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
+    // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
     expect(r.mirrored.length).toBe(60);
+    expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction"]);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });
@@ -71,7 +74,7 @@ describe("migration authority parity", () => {
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
-    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261113100000_period_currency_correction.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; fs-controls-r1, fs-journey-r1, currency-c1 (#179), fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
+    expect(r.pending).toEqual(["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"]); // pricing-p1 applied as hosted 63; currency-c1 (#179) applied as hosted 64 (0063); fs-controls-r1, fs-journey-r1, fs-bounds-r1, fs-capacity-r1 and fs-memo-r1 authored, PENDING hosted application
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
   });
