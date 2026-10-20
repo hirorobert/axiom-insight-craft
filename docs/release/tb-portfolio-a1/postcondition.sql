@@ -12,12 +12,19 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: portfolio_revisions is missing, has RLS off, or is readable by a client';
   END IF;
 
-  -- 2. The two reads for authenticated only; the helpers for nobody outside.
+  -- 2. The reads for authenticated only; the helpers for nobody outside.
   IF NOT has_function_privilege('authenticated', 'public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.list_portfolio_entities(integer)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.list_portfolio_entities(integer)', 'EXECUTE') THEN
     RAISE EXCEPTION 'POSTCONDITION: the portfolio reads have the wrong client privileges';
+  END IF;
+  -- The account home: exact totals with bounded samples, for authenticated only, a STABLE SECURITY DEFINER read.
+  IF NOT has_function_privilege('authenticated', 'public.get_account_home(text[],integer)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.get_account_home(text[],integer)', 'EXECUTE')
+     OR (SELECT prosecdef FROM pg_proc WHERE oid = 'public.get_account_home(text[],integer)'::regprocedure) IS NOT TRUE
+     OR (SELECT provolatile FROM pg_proc WHERE oid = 'public.get_account_home(text[],integer)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'POSTCONDITION: get_account_home is missing or has the wrong privileges or kind';
   END IF;
   IF has_function_privilege('authenticated', 'public._portfolio_visible_companies(uuid)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public._portfolio_bump(uuid)', 'EXECUTE') THEN

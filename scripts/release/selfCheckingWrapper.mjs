@@ -150,13 +150,13 @@ export const CURRENCY_C1_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Trial Balance workflow, Track A (tb-portfolio-a1): the engagements portfolio read and the entity list; one source at the
  * commit holding its reviewed bytes. Independent of every pending FS batch. PENDING hosted application. */
-export const TB_PORTFOLIO_SOURCE_COMMIT = "b3ff9119921ea085d3c27d16ee228fa63c3c5e08";
+export const TB_PORTFOLIO_SOURCE_COMMIT = "ac8a3961b47219d8f1a367520ebf694fc6d7083b";
 export const TB_PORTFOLIO_WRAPPED_SOURCES = Object.freeze([
   "20261117100000_engagement_portfolio.sql",
 ]);
 /** Trial Balance workflow, Track B (tb-decisions-b1): finding decisions, the generation-7 evaluation manifest, the entity
  * dependency and bounded investigations; applied BEFORE process-trial-balance generation 7 is deployed. PENDING hosted. */
-export const TB_DECISIONS_SOURCE_COMMIT = "b3ff9119921ea085d3c27d16ee228fa63c3c5e08";
+export const TB_DECISIONS_SOURCE_COMMIT = "ac8a3961b47219d8f1a367520ebf694fc6d7083b";
 export const TB_DECISIONS_WRAPPED_SOURCES = Object.freeze([
   "20261118100000_tb_finding_decisions.sql",
 ]);

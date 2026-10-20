@@ -250,7 +250,7 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // fs-memo-r1 (b27de40, the transaction memo, 20261116100000) is registered and proven the same way, PENDING after the four.
     // fs-capacity-r1 (b27de40, the account capacity, 20261115100000) is registered and proven the same way, PENDING after the three.
     // fs-bounds-r1 (c17809e, the work bounds, 20261114100000) is registered and proven the same way, PENDING hosted application after both.
-    // tb-portfolio-a1 and tb-decisions-b1 (b3ff911, the Trial Balance workflow) are registered and proven the same way, PENDING.
+    // tb-portfolio-a1 and tb-decisions-b1 (ac8a396, the Trial Balance workflow) are registered and proven the same way, PENDING.
     const PENDING: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql", "20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 and the currency correction's 0063
