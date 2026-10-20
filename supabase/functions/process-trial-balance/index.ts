@@ -1274,9 +1274,16 @@ async function finishAttempt(
     // the blocks a decision produced, so every finding is stated once, with what can be done about it.
     const basePr = (upload.processing_result ?? {}) as Record<string, unknown>;
     const ingestion = (basePr.ingestion ?? null) as Record<string, unknown> | null;
-    const flagged = Array.isArray(ingestion?.issues) ? (ingestion!.issues as Record<string, unknown>[]).map((i) =>
-      typeof i.code === "string" && typeof i.subject === "string" && typeof requirements[i.code] === "boolean"
-        ? { ...i, decision_required: requirements[i.code] } : i) : null;
+    // Each decision-taking finding also names the decision it cites (id, action, whether it resolves), so the page states
+    // a decided finding as decided — never as still needing a decision.
+    const resolvesById = new Map(params.decisions.map((d) => [d.decisionId, d.resolves]));
+    const citedBy = new Map(applied.findings.filter((f) => f.decision && f.subject)
+      .map((f) => [`${f.code}|${f.subject}`, { id: f.decision!.id, action: f.decision!.action, resolves: resolvesById.get(f.decision!.id) === true }]));
+    const flagged = Array.isArray(ingestion?.issues) ? (ingestion!.issues as Record<string, unknown>[]).map((i) => {
+      if (typeof i.code !== "string" || typeof i.subject !== "string" || typeof requirements[i.code] !== "boolean") return i;
+      const cited = citedBy.get(`${i.code}|${i.subject}`);
+      return { ...i, decision_required: requirements[i.code], ...(cited ? { decision: cited } : {}) };
+    }) : null;
     const pr: Record<string, unknown> = ingestion && flagged ? { ...basePr, ingestion: { ...ingestion, issues: [...flagged,
       ...applied.blocking.map((b) => ({ code: b.code, severity: "blocking", message: b.message, rows: b.rows ?? [] }))] } } : basePr;
     if (pr !== basePr) upload = { ...upload, processing_result: pr };
@@ -2437,6 +2444,9 @@ function ingestionRecord(ingest: IngestResult, milestones: MilestoneLog): Record
       ? { debit: formatMinor(ingest.totals.debitMinor, e), credit: formatMinor(ingest.totals.creditMinor, e), difference: formatMinor(ingest.totals.differenceMinor, e) }
       : null,
     lineage_summary: ingest.lineageSummary,
+    // The finding rules this result was evaluated under (generation 7: required decisions, database-computed requirements,
+    // the evaluation record). A stored result without it was evaluated by an earlier engine and is shown as such.
+    rules_generation: ENGINE_GENERATION,
     // Compact per-row lineage: [row number, disposition, account identity or reason].
     lineage: ingest.lineage.map((l) => [l.rowNumber, l.disposition, l.identity ?? l.reason ?? null]),
     issues: ingest.issues,

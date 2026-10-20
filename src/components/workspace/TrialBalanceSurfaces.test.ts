@@ -29,12 +29,20 @@ const layers = (l3: PreflightCheck["state"]): PreflightCheck[] => [
 const pr = { validation_report: { tb_balance_check: { total_debits: 10, total_credits: 8, difference: 2 } } };
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const blocked = deriveTrialBalanceVerdict({ upload: { status: "blocked", processing_result: pr }, readiness: { verdict: "blocked", blocker: "x", checks: layers("failed") }, canRetry: true });
 const accepted = deriveTrialBalanceVerdict({ upload: { status: "complete", processing_result: { ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: { total_debits: 10, total_credits: 10, difference: 0 } } } }, readiness: { verdict: "certified", blocker: null, checks: layers("passed") }, canRetry: true });
 const card = (verdict: typeof blocked) => render(createElement(CurrentTrialBalanceCard, { fileName: "TB.xlsx", uploadedAt: "2026-09-30T10:40:00Z", fileSize: 21_000, verdict, onPrimary: () => {} }));
 
 describe("Current Trial Balance card", () => {
+  it("a finding stated as the reason keeps its action under the reason (the wrong-entity recovery), stated once", () => {
+    const message = "You recorded that this file is for Invented Other Ltd, not the entity of this workspace. Remove it from this engagement and upload it to the right one.";
+    const v = { ...blocked, reason: message, issues: [{ code: "ENTITY_WRONG_DESTINATION", message, rows: [1], kind: "blocking" as const }] };
+    const html = render(createElement(CurrentTrialBalanceCard, { fileName: "TB.xlsx", uploadedAt: "2026-09-30T10:40:00Z", fileSize: 21_000, verdict: v, onPrimary: () => {},
+      findingAction: (i: { code: string }) => (i.code === "ENTITY_WRONG_DESTINATION" ? createElement("p", { "data-testid": "wrong-entity-recovery" }, "Find the right engagement") : null) }));
+    expect(html).toContain('data-testid="wrong-entity-recovery"');
+    expect(html.split(message).length - 1).toBe(1);
+  });
   it("blocked: file, status, totals, plain reason, and ONE action — replace with a corrected file", () => {
     const html = card(blocked);
     expect(html).toContain("TB.xlsx");

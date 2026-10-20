@@ -148,3 +148,16 @@ export async function setClearingPolicy(rpc: Rpc, companyId: string, mode: Clear
   if ((d.outcome === "recorded" || d.outcome === "unchanged") && typeof d.revision === "number") return { ok: true, revision: d.revision };
   return { ok: false, message: POLICY_REFUSAL[d.code ?? ""] ?? "The policy was not changed. Try again." };
 }
+
+/**
+ * The certification a decision binds to for the upload on screen: the authoritative one when it is this upload's (the
+ * readiness read does not fetch the upload's latest then — it IS the latest), otherwise the upload's latest. Without this
+ * an ACCEPTED result would offer no decision, no optional explanation and no investigation.
+ */
+export function evaluationCertification<T extends { id: string; upload_id: string }>(
+  reads: { authoritative: T | null; latestForUpload: T | null }, uploadId: string | null | undefined,
+): T | null {
+  if (!uploadId) return null;
+  if (reads.authoritative && reads.authoritative.upload_id === uploadId) return reads.authoritative;
+  return reads.latestForUpload && reads.latestForUpload.upload_id === uploadId ? reads.latestForUpload : null;
+}

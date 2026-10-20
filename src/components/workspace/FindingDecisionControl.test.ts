@@ -227,3 +227,15 @@ describe("ImbalanceInvestigation", () => {
     expect(await axeViolations(el)).toEqual([]);
   });
 });
+
+describe("evaluationCertification", () => {
+  it("an accepted result's decisions bind to the authoritative certification when it is this upload's; otherwise the upload's latest; never another upload's", async () => {
+    const { evaluationCertification } = await import("@/lib/workspace/findingDecisions");
+    const auth = { id: "c-auth", upload_id: "u1" }, latest = { id: "c-latest", upload_id: "u1" }, other = { id: "c-other", upload_id: "u2" };
+    expect(evaluationCertification({ authoritative: auth, latestForUpload: null }, "u1")).toBe(auth);
+    expect(evaluationCertification({ authoritative: other, latestForUpload: latest }, "u1")).toBe(latest);
+    expect(evaluationCertification({ authoritative: null, latestForUpload: latest }, "u1")).toBe(latest);
+    expect(evaluationCertification({ authoritative: other, latestForUpload: null }, "u1")).toBeNull();
+    expect(evaluationCertification({ authoritative: auth, latestForUpload: latest }, null)).toBeNull();
+  });
+});

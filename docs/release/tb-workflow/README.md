@@ -80,14 +80,53 @@ run twice — the old engine as main `daa23e4` and as the hosted `942764f` closu
 | 1 | Apply `tb-portfolio-a1` (`20261117100000`, wrapper; postcondition `docs/release/tb-portfolio-a1/postcondition.sql`) | Generation 6 keeps certifying through the new triggers; results in force stay in force; the old frontend calls none of it |
 | 2 | Apply `tb-decisions-b1` (`20261118100000`, wrapper; postcondition `docs/release/tb-decisions-b1/postcondition.sql`) | An interrupted apply rolls back completely; generation 6 serves exactly as before (same file, same outcome — compared); results in force need no manifest; no decision can be recorded on a generation-6 result |
 | 3 | **Publish the frontend** | Needs steps 1–2 (without them the home reads "unavailable" — fails closed). With generation 6 live, generation-6 findings carry no decision identity, so no decision control is offered |
-| 4 | Deploy `process-trial-balance` generation 7 (closure `0a50b5d0…bfea`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | Mixed fleet: generation 7 certifies with the manifest; a generation-6 instance is refused before any write for an upload with decisions and still serves uploads without; generation 7 completes the refused request. **Must follow step 3:** the main-branch frontend shows a generation-7 accepted-with-notes result as "Processing results need verification" (fails closed, never falsely accepted) |
+| 4 | Deploy `process-trial-balance` generation 7 (closure `01ac6e4e…6bd7`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | Mixed fleet: generation 7 certifies with the manifest; a generation-6 instance is refused before any write for an upload with decisions and still serves uploads without; generation 7 completes the refused request. **Must follow step 3:** the main-branch frontend shows a generation-7 accepted-with-notes result as "Processing results need verification" (fails closed, never falsely accepted) |
 | 5 | Raise `min_engine_generation` to 7 (`admin_set_processing_control`; reason; version-checked; it only rises) | Generation 6 refused for every upload before any write; generation 7 serves the same request; earlier results stay in force |
 
 **When enforcement activates.** The required entity decision, the manifest and the database-computed requirements apply
-to every result **generation 7 produces** from step 4. Until step 5, a generation-6 instance still answering certifies
-uploads without decisions exactly as before — including a file naming another entity (proven: generation 6 accepts it).
-From step 5 every new check is generation 7. **Results already in force are not re-evaluated**: they stay authoritative
-until re-checked (issued history is preserved by design).
+to every result **generation 7 produces** from step 4. From step 5 every new check is generation 7.
+
+### 6.1 Containing the old engine during the cutover
+
+* **What the database refuses at every stage** (proven by `tbDecisionsRollout.mjs` with both generation-6 closures): an
+  engine below 7 cannot begin a check of an upload that has a decision; a run below 7 that finishes after a decision
+  exists ends failed and certifies nothing; a generation above 7 is refused; from step 5 every engine below 7 is refused
+  for every upload — each refusal before any write. A decision is refused while any check runs and binds only to the
+  latest uninvalidated result, so an old engine can never certify past a recorded decision.
+* **What an old engine can still do** between steps 4 and 5: certify an upload that has no decision, exactly as today
+  (proven: generation 6 accepts a file naming another entity). That result is identifiable (§6.2) and never shown as
+  passing the current checks.
+* **Narrowing that window (available, optional):** the existing processing hold (`admin_set_processing_control`:
+  `hold` with canary companies; reason; version-checked; proven by `h1Authority.mjs`) can pause processing for everyone
+  except named canary companies from step 4 until step 5, so no old-engine result is produced in the window. Step 5
+  follows as soon as the generation-7 closure is verified live (`scripts/release/verifyDeployedClosure.mjs`).
+
+### 6.2 Results accepted under earlier rules — how they are distinguished
+
+* **Server (authoritative):** every certification names its engine run; `engine_runs.engine_generation` records the
+  generation that evaluated it. `docs/release/tb-workflow/earlier-rules-inventory.sql` (read-only) lists every period
+  whose result in force was evaluated below generation 7 — proven to list exactly the generation-6 results still in force
+  and none re-checked or produced by generation 7.
+* **Engine record:** from generation 7 each result records `processing_result.ingestion.rules_generation = 7`.
+* **Every surface:** a result without the current rules generation is shown as **"Checked by an earlier version.
+  Reprocess to apply current checks."** (Prepare, Overview and hub read the one fact `resultVersion.isCurrentCheckSet`):
+  never "Reviewed trial balance", never "ready for statement preparation", no balance claim; the card offers **"Check
+  again under the current checks"** (the one reprocess path). Unit-tested in `resultVersion.test.ts`.
+
+### 6.3 Compatibility and re-check policy for downstream use
+
+1. **Preserved, not re-evaluated.** Results accepted before the release keep their history, approvals and authority.
+   Nothing is invalidated, rewritten or re-labelled in the database by this release.
+2. **Compatible downstream.** Close Review, the financial-statements reporting input and sign-off continue to accept the
+   authoritative result whatever its generation — their controls are unchanged by this release. No surface states that
+   such a result passed the generation-7 checks.
+3. **Re-check is explicit.** A person (or the owner, from the inventory) re-checks a period through "Check again under
+   the current checks". The re-check invalidates the earlier result at once and produces a generation-7 result, which may
+   ask for the entity decision; work bound to the earlier result follows the existing rules (the reporting input becomes
+   stale; approved adjustments require revalidation — proven by `closeReviewAuthority.mjs`).
+4. **Owner decision recorded for release review:** whether any period must be re-checked before its next Reviewed/Final
+   sign-off. This candidate does **not** enforce that (it would change financial-statements controls); the inventory gives
+   the list to act on.
 
 **Interrupted cutover — recovery.** Step 1 or 2 interrupted: the wrapper is atomic (no journal row; wrapper proofs and the
 rollout proof); re-run it. Frontend published without 1–2: the home says unavailable; apply 1–2. Step 4 rolled back to
@@ -120,17 +159,17 @@ in CI (this host has no Docker); its status is the CI run on the PR head, report
 | 14 | Concurrent decisions, reprocessing, lost responses and replay | version check; request ids; `IN_PROGRESS`; finalize guard | `findingDecisions.mjs` (12 parallel decisions → one recorded; lost answer replays; key reuse a conflict; a decision during a running check refused; the late older-engine finalize fails) | — |
 | 15 | Investigation lease expiry and failed-worker recovery | lease + fence | `findingDecisions.mjs` (expired lease recovered; late worker fenced out of rows and completion) | — |
 | 16 | Investigation: same reader and exact money; included/excluded rows; source locations; parsed amounts; comparable totals; labelled causes; bounded pages; no re-parse; durable reservation | `tbInvestigation.ts`; `tb_investigation_rows`; `ImbalanceInvestigation`; `investigationRows` | REQ-G7-INVESTIGATE (stored rows = row count; page read); `findingDecisions.mjs` (paging; fences); `FindingDecisionControl.test.ts` (rows filtered and keyset-paged; never re-investigated; axe); `investigationRows.test.ts`; journey | — |
-| 17 | Preservation of source, audit and issued history | append-only decisions, policies, investigations; history list | `findingDecisions.mjs` (append-only; no truncate); rollout (results in force preserved); journey (the earlier upload and its decisions stay in history) | Results in force are not re-evaluated retroactively (by design) |
+| 17 | Preservation of source, audit and issued history; earlier results never presented as passing new checks | append-only decisions, policies, investigations; history list; `isCurrentCheckSet` + `rules_generation`; inventory query (§6.2) | `findingDecisions.mjs` (append-only; no truncate); rollout (results in force preserved; inventory lists exactly the generation-6 results in force); `resultVersion.test.ts`; journey (history) | Results in force are not re-evaluated retroactively (by design; §6.3) |
 | 18 | Settings out of the task body; engagement-context sidebar | `EngagementContextPanel` in the workspace rail | `EngagementContextPanel.test.ts` (axe); `WorkspaceAccessGate.test.ts`; journey (rail; no settings link in the task; policy change) | — |
 | 19 | Current upload vs history; contextual navigation | period-scoped uploads with exact count; history after the checks; Reconcile link; statements handoff | `TrialBalanceSurfaces.test.ts`; journey (history · 2; handoff) | — |
 | 20 | Keyboard, screen reader, desktop and mobile | labelled controls; live regions; tables with captions | axe in component tests; journey `widths()` at 1280×900 and 375×812 with screenshots | Automated rules and keyboard paths — not a human screen-reader session |
-| 21 | Rollout safety at every stage; enforcement timing; interrupted cutover | §6 | `tbDecisionsRollout.mjs` 25/25 with `daa23e4` and 25/25 with `942764f`; `releaseOrder.mjs` 17/17; wrapper proofs 32/32 each | — |
+| 21 | Rollout safety at every stage; enforcement timing; old-engine containment; interrupted cutover | §6, §6.1 | `tbDecisionsRollout.mjs` 27/27 with `daa23e4` and with `942764f`; `releaseOrder.mjs` 17/17; wrapper proofs 32/32 each | — |
 | 22 | Unrelated FS and payment controls preserved | no change to their migrations or functions | `closeReviewAuthority.mjs`; `statementComposition.mjs`; `signoffPolicy.mjs`; `h1Authority.mjs`; `layoutAuthority.mjs`; the full vitest suite; CI payment and FS jobs | — |
 | 23 | The complete journey through the FS handoff on the integrated isolated stack | journey "Trial Balance workflow" group | CI run on the PR head | Reported with the PR |
 
 ## 8. Executed proofs on this branch (PostgreSQL 16)
 
-`findingDecisions.mjs` 54/54 · `tbDecisionsRollout.mjs` 25/25 (each old engine) · `tbHandlerCharacterization.mjs` 45/45 ·
+`findingDecisions.mjs` 54/54 · `tbDecisionsRollout.mjs` 27/27 (each old engine) · `tbHandlerCharacterization.mjs` 45/45 ·
 `engagementPortfolio.mjs` 28/28 · `closeReviewAuthority.mjs` 100/100 · `layoutAuthority.mjs` 38/38 · `h1Authority.mjs`
 61/61 · `statementComposition.mjs` 37/37 · `signoffPolicy.mjs` 24/24 · `releaseOrder.mjs` 17/17 · wrapper proofs
 `tb-portfolio-a1` 32/32 and `tb-decisions-b1` 32/32. Typecheck clean; lint 0 errors (157 warnings — the existing baseline).
@@ -140,6 +179,7 @@ in CI (this host has no Docker); its status is the CI run on the PR head, report
 * Clearing-balance evidence is a reference the preparer records — not an independently matched bank transaction
   (`DEFECT-SAFISHA-TRANSACTION-LEDGER-GAP-001`, unchanged).
 * Until the floor is raised (step 5), a generation-6 instance still answering certifies uploads without decisions as
-  before, including a file naming another entity; results already in force are not re-evaluated.
+  before, including a file naming another entity — contained and identifiable (§6.1, §6.2); results already in force are
+  not re-evaluated (§6.3).
 * The database trusts the service-role engine for the parse (the manifest proves complete reporting, not its truth).
 * Accessibility is checked by automated rules (axe) and keyboard paths in tests, not by a human screen-reader session.

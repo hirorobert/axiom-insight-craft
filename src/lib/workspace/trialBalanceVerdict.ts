@@ -38,7 +38,7 @@
 import type { PreflightCheck, PreflightCheckState, PreflightVerdict } from "./computePreflight";
 import { NOT_AN_APPROVAL, REVIEWED_TRIAL_BALANCE } from "./trialBalanceReadiness";
 import { LAYER3_LABEL, readRecordedEquation, recordedEquationHold, constrainChecksByIngestion } from "./computeCertificationReadiness";
-import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
+import { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, isCurrentCheckSet } from "./resultVersion";
 import { FINDING_ORDER, findingKind, openFindingWord, type FindingKind } from "./resultStatus";
 
 /**
@@ -58,7 +58,7 @@ export const STATEMENT_EQUATION_NOTE_ID = "statement_equation";
 /** That row's one neutral explanation (no state word beside it: it is neither passed nor "not checked yet"). */
 export const EQUATION_VERIFICATION_UNAVAILABLE = "Exact equation verification unavailable for this result. Reprocess to apply current checks.";
 
-export { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord } from "./resultVersion";
+export { EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON, hasMilestoneRecord, isCurrentCheckSet } from "./resultVersion";
 /** The statement equation proven by the stored result's exact amounts (tb-amounts/1, recomputed on read). */
 export const EQUATION_HOLDS_EXACTLY = "Holds exactly: assets equal liabilities + equity + income − expenses, to the minor unit.";
 
@@ -239,12 +239,28 @@ export interface TrialBalanceIssue {
   accountCode?: string | null;
   /** Whether this finding must be decided before the trial balance can be accepted (the workspace's rule; server-set). */
   decisionRequired?: boolean;
+  /** The decision this result cites for the finding (engine generation 7), and whether it resolves it. */
+  decision?: { id: string; action: string; resolves: boolean };
 }
+
+/**
+ * A generation-7 finding that does not hold an accepted result open: decided with a resolving decision, or a review
+ * indicator the workspace does not require a decision for. Findings without the server's requirement flag (earlier
+ * generations) are never settled here — they keep their recorded words.
+ */
+export const settledFinding = (i: TrialBalanceIssue): boolean =>
+  typeof i.decisionRequired === "boolean" && (i.decision?.resolves === true || i.decisionRequired === false);
 
 /**
  * The findings the server recorded for this file, each already a plain sentence naming its rows, ordered blocking →
  * needs confirmation → review (§3.5). Anything without a recognised severity is not shown.
  */
+function decisionOf(v: unknown): { decision: { id: string; action: string; resolves: boolean } } | null {
+  const d = record(v);
+  return d && typeof d.id === "string" && typeof d.action === "string" && typeof d.resolves === "boolean"
+    ? { decision: { id: d.id, action: d.action, resolves: d.resolves } } : null;
+}
+
 export function readIngestionIssues(processingResult: unknown): TrialBalanceIssue[] {
   const issues = record(record(processingResult)?.ingestion)?.issues;
   if (!Array.isArray(issues)) return [];
@@ -253,11 +269,15 @@ export function readIngestionIssues(processingResult: unknown): TrialBalanceIssu
     const kind = r ? findingKind(r.severity, r.code) : null;
     if (!r || !kind || typeof r.code !== "string" || typeof r.message !== "string") return [];
     const rows = Array.isArray(r.rows) ? r.rows.filter((n): n is number => Number.isInteger(n)) : [];
-    return [{ code: r.code, message: r.message, rows, kind,
+    // A finding with a recorded decision no longer waits for a confirmation: it is listed with its decision (a decision
+    // that does not resolve adds its own blocking finding, which carries the consequence).
+    const decided = decisionOf(r.decision);
+    return [{ code: r.code, message: r.message, rows, kind: decided && kind === "needs_confirmation" ? "review" as const : kind,
       ...(typeof r.subject === "string" && r.subject ? { subject: r.subject } : {}),
       ...(typeof r.fileEntity === "string" && r.fileEntity ? { fileEntity: r.fileEntity } : {}),
       ...(typeof r.accountCode === "string" && r.accountCode ? { accountCode: r.accountCode } : {}),
-      ...(typeof r.decision_required === "boolean" ? { decisionRequired: r.decision_required } : {}) }];
+      ...(typeof r.decision_required === "boolean" ? { decisionRequired: r.decision_required } : {}),
+      ...(decided ?? {}) }];
   });
   return FINDING_ORDER.flatMap((k) => read.filter((i) => i.kind === k));
 }
@@ -354,6 +374,8 @@ export type TrialBalanceTone = "neutral" | "danger" | "warning" | "success";
 export type TrialBalancePrimaryAction =
   | { kind: "replace"; label: "Replace with corrected Trial Balance" }
   | { kind: "retry"; label: "Retry processing" }
+  /** A result accepted under earlier checks: check it again so the current checks apply (the one reprocess path). */
+  | { kind: "recheck"; label: "Check again under the current checks" }
   | { kind: "review_classifications"; label: "Resolve account classifications" };
 
 export interface TrialBalanceCheck {
@@ -566,16 +588,23 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       // Open non-blocking findings (§3.3 confirmation, §3.6 review rules) decide the words, in order: needs confirmation,
       // then review. They are recorded on layer 2 as warnings; they never change what the certification unlocks.
       const findings = issues.filter((i) => i.kind !== "blocking");
-      const openKind = findings.some((i) => i.kind === "needs_confirmation") ? "needs_confirmation" as const : findings.length ? "review" as const : null;
+      // Generation 7: a decided finding and an optional review indicator do not hold the result open; they stay listed as
+      // review notes (with their decision or the optional explanation), and the result reads as accepted.
+      const open = findings.filter((i) => !settledFinding(i));
+      const notes = findings.filter(settledFinding).map((i) => ({ ...i, kind: "review" as const }));
+      const openKind = open.some((i) => i.kind === "needs_confirmation") ? "needs_confirmation" as const : open.length ? "review" as const : null;
       const onlyFindings = !!openKind && !classificationOpen && checks.every((c) => c.state === "passed" || (c.id === "l2_data_quality" && c.state === "review"));
       if (onlyFindings && openKind) {
         return {
-          ...base, status: "needs_review", statusLabel: openFindingWord(openKind), tone: "warning", issues: findings,
-          reason: findingsSummary(findings), failedCheckId: checks.some((c) => c.state === "review") ? "l2_data_quality" : null, primaryAction: null,
+          ...base, status: "needs_review", statusLabel: openFindingWord(openKind), tone: "warning", issues: [...open, ...notes],
+          reason: findingsSummary(open), failedCheckId: checks.some((c) => c.state === "review") ? "l2_data_quality" : null, primaryAction: null,
         };
       }
       // "Reviewed" only when no check needs review or failed — a contradictory certification is never shown as reviewed.
-      if (failed) {
+      // The data-quality check's "review" is exactly its findings: when every one is settled (generation 7) it holds nothing.
+      const notesOnly = open.length === 0 && notes.length > 0 && failed?.id === "l2_data_quality" && failed.state === "review"
+        && !checks.some((c) => c.id !== "l2_data_quality" && (c.state === "review" || c.state === "failed"));
+      if (failed && !notesOnly) {
         return {
           ...base, status: "needs_review", statusLabel: "Needs review", tone: "warning",
           reason: failed.id === "l3_arithmetic" ? failed.detail
@@ -587,19 +616,22 @@ export function deriveTrialBalanceVerdict(input: TrialBalanceVerdictInput): Tria
       if (checks.some(c => c.state === "pending")) {
         return { ...base, status: "checking", statusLabel: "Checks incomplete", tone: "warning", reason: "The processing record does not show that all required checks completed. Reprocess the file before continuing.", primaryAction: input.canRetry ? { kind: "retry", label: "Retry processing" } : null };
       }
-      if (!hasMilestoneRecord(upload.processing_result)) {
+      if (!isCurrentCheckSet(upload.processing_result)) {
         // An earlier version's accepted result: its record and approvals stand, but it does not show today's checks as
         // passed. Reprocessing creates a new version through the existing authority; nothing here rewrites history.
         return {
           ...base, status: "accepted", statusLabel: EARLIER_VERSION_LABEL, tone: "neutral", reason: EARLIER_VERSION_REASON,
           checks: checks.map((c) => (c.state === "passed" ? { ...c, neutral: true, detail: EARLIER_VERSION_REASON } : c)),
           informational: informational.filter((c) => c.id !== STATEMENT_EQUATION_NOTE_ID),
-          balanceStatement: null, primaryAction: null,
+          balanceStatement: null, primaryAction: input.canRetry ? { kind: "recheck", label: "Check again under the current checks" } : null,
         };
       }
       return {
-        ...base, status: "accepted", statusLabel: "Reviewed", tone: "success",
-        reason: `${REVIEWED_TRIAL_BALANCE}. ${reviewedScope(recordedEquation === "exact")} It is ready for statement preparation. ${NOT_AN_APPROVAL}`,
+        ...base, status: "accepted", statusLabel: "Reviewed", tone: "success", issues: notes,
+        ...(notesOnly ? { failedCheckId: null, checks: checks.map((c) => (c.id === "l2_data_quality"
+          ? { ...c, state: "passed" as const, detail: `Passed, with ${notes.length === 1 ? "one review note" : `${notes.length} review notes`} listed with the trial balance above.` } : c)) } : {}),
+        reason: `${REVIEWED_TRIAL_BALANCE}. ${reviewedScope(recordedEquation === "exact")} It is ready for statement preparation. ${NOT_AN_APPROVAL}`
+          + (notes.length ? ` ${notes.length === 1 ? "One review note is" : `${notes.length} review notes are`} recorded with it below.` : ""),
         primaryAction: null,
       };
     }

@@ -41,13 +41,13 @@ export function deriveReviewSubmission(i: ReviewSubmissionInput): ReviewSubmissi
 }
 
 export function reviewActionHierarchy(
-  cardAction: "replace" | "retry" | "review_classifications" | null,
+  cardAction: "replace" | "retry" | "recheck" | "review_classifications" | null,
   review: ReviewSubmissionState | null,
 ): { card: ActionEmphasis; save: ActionEmphasis } {
   // No review panel on screen: the card's action (if any) is the only action.
   if (review === null) return { card: "primary", save: "secondary" };
   // The file or the check comes first.
-  if (cardAction === "replace" || cardAction === "retry") return { card: "primary", save: "secondary" };
+  if (cardAction === "replace" || cardAction === "retry" || cardAction === "recheck") return { card: "primary", save: "secondary" };
   if (review === "failed" || review === "submitting") return { card: "secondary", save: "primary" };
   // incomplete, ready (not yet saved) or nothing to submit: the card leads (Review, or no card action at all).
   return { card: "primary", save: "secondary" };

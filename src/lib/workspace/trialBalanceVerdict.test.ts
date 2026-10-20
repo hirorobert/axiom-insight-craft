@@ -12,7 +12,7 @@ import {
 } from "./trialBalanceVerdict";
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 
 const SAMPLE_RESULT = {
   ingestion: CURRENT_INGESTION,
@@ -187,4 +187,46 @@ it('cannot show Reviewed when stored milestones say balance and classification n
   expect(v.checks.find(c => c.id === 'l3_arithmetic')?.state).toBe('pending');
   expect(v.checks.find(c => c.id === 'l4_classification')?.state).toBe('pending');
   expect(v.balanceStatement).toBeNull();
+});
+
+// Generation 7 (20261118100000): an accepted result whose findings are each decided (resolving) or an optional review
+// indicator reads as accepted — the notes stay listed with their decision or optional explanation; a finding that still
+// needs a decision holds it open; an earlier generation's findings (no requirement flag) keep their recorded words.
+describe("generation-7 findings on a certified result", () => {
+  const l2Review = passedLayers.map((c) => (c.id === "l2_data_quality" ? { ...c, state: "review" as const, detail: "2 findings" } : c));
+  const ENTITY = { code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [1], message: "This file names Invented Beta Trading. Same entity?", subject: "invented beta trading" };
+  const CLEARING = { code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: [22], message: "10990 Cash in transit (row 22) has a balance.", subject: "code:10990" };
+  const certifiedWith = (issues: unknown[]) => deriveTrialBalanceVerdict({
+    upload: upload("complete", { processing_result: { ...SAMPLE_RESULT, validation_report: { ...SAMPLE_RESULT.validation_report, tb_balance_check: { total_debits: 100, total_credits: 100, difference: 0 } }, ingestion: { ...CURRENT_INGESTION, issues } } }),
+    readiness: { verdict: "certified", blocker: null, checks: l2Review }, canRetry: true });
+
+  it("decided entity + optional clearing note: Reviewed, ready for statement preparation, both listed as review notes, the data-quality check passed", () => {
+    const v = certifiedWith([{ ...ENTITY, decision_required: true, decision: { id: "d1", action: "same_entity", resolves: true } }, { ...CLEARING, decision_required: false }]);
+    expect(v).toMatchObject({ status: "accepted", statusLabel: "Reviewed", failedCheckId: null });
+    expect(v.reason).toMatch(/ready for statement preparation/);
+    expect(v.reason).toMatch(/2 review notes are recorded with it below/);
+    expect(v.issues.map((i) => [i.code, i.kind, i.decision?.action ?? null])).toEqual([["ENTITY_NAME_DIFFERS", "review", "same_entity"], ["CLEARING_ACCOUNT_BALANCE", "review", null]]);
+    expect(v.checks.find((c) => c.id === "l2_data_quality")).toMatchObject({ state: "passed" });
+  });
+  it("a required finding without a resolving decision keeps the result open (never Reviewed)", () => {
+    const v = certifiedWith([{ ...ENTITY, decision_required: true }, { ...CLEARING, decision_required: false }]);
+    expect(v.status).toBe("needs_review");
+    expect(v.statusLabel).toBe("Needs confirmation");
+    const nonResolving = certifiedWith([{ ...ENTITY, decision_required: true, decision: { id: "d2", action: "different_entity", resolves: false } }]);
+    expect(nonResolving.status).not.toBe("accepted");
+  });
+  it("an earlier generation's findings (no requirement flag) keep their recorded words", () => {
+    const { subject: _s, ...legacy } = ENTITY;
+    const v = certifiedWith([legacy]);
+    expect(v).toMatchObject({ status: "needs_review", statusLabel: "Needs confirmation" });
+  });
+});
+
+it("a finding with a recorded decision is never listed as still needing a confirmation (even a decision that does not resolve it)", async () => {
+  const { readIngestionIssues } = await import("./trialBalanceVerdict");
+  const issues = readIngestionIssues({ ingestion: { issues: [
+    { code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [1], message: "Names another entity.", subject: "x", decision_required: true, decision: { id: "d", action: "different_entity", resolves: false } },
+    { code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [1], message: "Undecided.", subject: "y", decision_required: true },
+  ] } });
+  expect(issues.map((i) => [i.message, i.kind])).toEqual([["Undecided.", "needs_confirmation"], ["Names another entity.", "review"]]);
 });

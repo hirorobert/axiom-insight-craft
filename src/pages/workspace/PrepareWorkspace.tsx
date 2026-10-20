@@ -81,7 +81,7 @@ import { reviewActionHierarchy, type ReviewSubmissionState } from "@/lib/workspa
 import { PeriodCurrencyCorrection } from "@/components/workspace/PeriodCurrencyCorrection";
 import { FindingDecisionControl } from "@/components/workspace/FindingDecisionControl";
 import { ImbalanceInvestigation } from "@/components/workspace/ImbalanceInvestigation";
-import { decidable, readFindingDecisions, revisionKey, type CurrentDecisionView, type LatestRevisions } from "@/lib/workspace/findingDecisions";
+import { decidable, evaluationCertification, readFindingDecisions, revisionKey, type CurrentDecisionView, type LatestRevisions } from "@/lib/workspace/findingDecisions";
 import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
 import { useReportingAccess } from "@/hooks/useReportingAccess";
 import { explainBlock, getCorrectionEligibility, readCurrencyMismatch } from "@/lib/workspace/periodCurrency";
@@ -493,7 +493,7 @@ export default function PrepareWorkspace() {
   // Offered only on the upload's CURRENT evaluation (its newest certification, while the readiness says it is in force
   // for review, acceptance or a block) and only to someone who may record them (prepare_close and a current plan — the
   // same authority as a new check). Anything else: nothing is offered; the server decides regardless.
-  const latestCert = certReadiness.latestForUpload;
+  const latestCert = evaluationCertification(certReadiness, upload?.id);
   const evaluationId = upload && latestCert && latestCert.upload_id === upload.id
     && (readiness?.verdict === "review" || readiness?.verdict === "certified" || readiness?.verdict === "blocked") ? latestCert.id : null;
   const mayDecide = !!upload && mayRequestReprocess(upload, capabilityState, commercialState);
@@ -589,7 +589,7 @@ export default function PrepareWorkspace() {
 
   const onPrimary = (kind: NonNullable<typeof verdict.primaryAction>["kind"]) => {
     if (kind === "replace") replaceInputRef.current?.click();
-    else if (kind === "retry") void handleRetry();
+    else if (kind === "retry" || kind === "recheck") void handleRetry();
     else if (kind === "review_classifications") {
       if (reviewRef.current) {
         reviewRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -777,7 +777,7 @@ export default function PrepareWorkspace() {
                 refreshKey={`${upload.status}|${upload.version ?? ""}|${upload.processed_at ?? ""}`}
                 busy={retryingProcess}
                 // One action per state: when the card already offers "Retry processing", the notice only explains.
-                canAct={mayRequestReprocess(upload, capabilityState, commercialState) && verdict.primaryAction?.kind !== "retry"}
+                canAct={mayRequestReprocess(upload, capabilityState, commercialState) && verdict.primaryAction?.kind !== "retry" && verdict.primaryAction?.kind !== "recheck"}
                 onAction={() => void handleRetry()}
               />
             </>

@@ -280,8 +280,13 @@ async function main() {
   });
   await check("recovery: generation 7 completes the same accepted request — accepted, with the decision applied", async () => {
     const r = await run(neu.engine, ent, pending.op);
-    const row = await one("SELECT status FROM public.trial_balance_uploads WHERE id=$1", [ent.id]);
-    return r.http === 200 && row.status === "complete" && (await authoritative(ent)) !== null ? true : { http: r.http, body: r.body, status: row.status };
+    const row = await one("SELECT status, processing_result FROM public.trial_balance_uploads WHERE id=$1", [ent.id]);
+    // The finding the person reads names the decision it cites (so it is shown as decided), and the optional note says so.
+    const issues = row.processing_result?.ingestion?.issues ?? [];
+    const e = issues.find((i) => i.code === "ENTITY_NAME_DIFFERS"), c = issues.find((i) => i.code === "CLEARING_ACCOUNT_BALANCE");
+    return r.http === 200 && row.status === "complete" && (await authoritative(ent)) !== null
+      && e?.decision?.action === "same_entity" && e.decision.resolves === true && c?.decision_required === false && !c.decision
+      ? true : { http: r.http, body: r.body, status: row.status, e, c };
   });
   await check("in the same fleet generation 6 still certifies an upload with no decisions (enforcement for it is not yet active)", async () => {
     const u = await upload(PLAIN);
@@ -332,6 +337,16 @@ async function main() {
   await check("generation 7 serves the same upload; results certified earlier by generation 6 stay in force", async () => {
     const r = await run(neu.engine, late, lateOp);
     return r.http === 200 && (await authoritative(late)) !== null && (await authoritative(u0)) !== null ? true : { http: r.http, body: r.body };
+  });
+  await check("earlier-rules results are identifiable from the engine's own record: the read-only inventory lists the generation-6 results still in force and none re-checked or produced by generation 7", async () => {
+    const sql = fs.readFileSync(path.join(REPO, "docs/release/tb-workflow/earlier-rules-inventory.sql"), "utf8");
+    await admin.query("BEGIN TRANSACTION READ ONLY");
+    let rows;
+    try { rows = (await admin.query(sql)).rows; } finally { await admin.query("ROLLBACK"); }
+    const listed = new Set(rows.map((r) => r.upload_id));
+    const gen6InForce = [u0].filter(Boolean);
+    return rows.every((r) => Number(r.engine_generation) < 7) && gen6InForce.every((u) => listed.has(u.id))
+      && ![u1, ent, late].some((u) => listed.has(u.id)) ? true : { rows: rows.map((r) => [r.period_year, r.engine_generation]) };
   });
   await check("the floor cannot be lowered again (it only rises)", async () => {
     try { await control(6, "attempt to lower"); return "lowered"; }

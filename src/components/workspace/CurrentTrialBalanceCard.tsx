@@ -32,6 +32,7 @@ const TONE: Record<TrialBalanceVerdict["tone"], { badge: string; rule: string }>
 const ACTION_ICON: Record<NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"], JSX.Element> = {
   replace: <Upload className="mr-2 h-4 w-4" />,
   retry: <RefreshCw className="mr-2 h-4 w-4" />,
+  recheck: <RefreshCw className="mr-2 h-4 w-4" />,
   review_classifications: <ArrowRight className="mr-2 h-4 w-4" />,
 };
 
@@ -100,6 +101,9 @@ export function CurrentTrialBalanceCard({
   const outOfBalance = isOutOfBalance(totals);
   // Row-level corrections the server recorded; the one already stated as the reason is not repeated.
   const fixes = verdict.issues.filter((i) => i.message !== verdict.reason);
+  // The finding already stated as the reason keeps its action (for example the wrong-entity recovery) under the reason.
+  const reasonFinding = verdict.issues.find((i) => i.message === verdict.reason) ?? null;
+  const reasonAction = reasonFinding && findingAction ? findingAction(reasonFinding) : null;
   // The first few of each kind, plus every finding that has an action here (a decision is never hidden in the details).
   const shownOf = (group: typeof fixes) => group.filter((i, n) => n < MAX_FIXES || (findingAction ? findingAction(i) !== null : false));
   const unit = totals?.currency ? ` (${totals.currency})` : "";
@@ -140,6 +144,7 @@ export function CurrentTrialBalanceCard({
           </button>
         </div>
         <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-foreground" data-testid="trial-balance-reason">{verdict.reason}</p>
+        {reasonAction && <div className="max-w-3xl" data-code={reasonFinding?.code}>{reasonAction}</div>}
         {fixes.length > 0 && (
           <div id={TRIAL_BALANCE_FINDINGS_ANCHOR} className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
             {/* One group per kind, in order: blocking, needs confirmation, review (resultStatus.ts, §3.5). */}

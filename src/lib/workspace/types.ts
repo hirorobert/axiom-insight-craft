@@ -95,7 +95,7 @@ export interface UploadSnapshot {
   certificationBlocker?: string | null;
   /** What the stored result proves about the statement equation (readRecordedEquation); undefined = not read. */
   recordedEquation?: import("./computeCertificationReadiness").RecordedEquation;
-  /** The stored result records the processing milestones (resultVersion.hasMilestoneRecord); undefined = not read. */
+  /** The stored result is of the current check set — milestones and the current finding rules (resultVersion.isCurrentCheckSet); undefined = not read. */
   hasMilestoneRecord?: boolean;
   /** The most important open non-blocking finding in the stored result (resultStatus.openFindingKind); null = none. */
   openFinding?: "needs_confirmation" | "review" | null;
