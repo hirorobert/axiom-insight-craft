@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { lexSql } from "./atomicEnvelope.mjs";
 import { checkGuardedEntry } from "../release/guardedEntry.mjs";
 import { render as renderSelfCheckingWrapper } from "../release/selfCheckingWrapper.mjs";
+import { checkTransportMirror } from "../release/stagedTransport.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -807,6 +808,13 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     // A reviewed entry may declare itself applied OUT OF SOURCE ORDER (ahead of authored, still-pending sources): the parity
     // checker then counts it as applied without treating the earlier sources as skipped (the 0016 precedent).
     return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: entry.outOfOrder === true, problems };
+  }
+  if (entry.kind === "staged_transport") {
+    // A staged-transport entry (scripts/release/stagedTransport.mjs): the mirror must be exactly a REGISTERED transport
+    // form; an apply covers its batch's source (the staged original wrapper it executed), the bootstrap covers nothing.
+    const r = checkTransportMirror(tag, text);
+    problems.push(...r.problems);
+    return r.covers ? { covers: r.covers, how: "staged_transport", outOfOrder: false, problems } : { problems };
   }
   if (entry.kind === "probe" || entry.kind === "staging_table") {
     problems.push(...checkReleaseInfrastructure(entry.kind, text).map((p) => `${tag}: ${p}`));
