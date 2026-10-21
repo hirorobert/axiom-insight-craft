@@ -10037,6 +10037,11 @@ export type Database = {
         }
         Returns: number
       }
+      _fs_memo_get: { Args: { p_key: string }; Returns: Json }
+      _fs_memo_put: {
+        Args: { p_body: Json; p_key: string }
+        Returns: undefined
+      }
       _fs_notes_refusal: {
         Args: { p_company_id: string; p_uid: string }
         Returns: string
@@ -10066,6 +10071,10 @@ export type Database = {
       _fs_reference_statements_present: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
+      }
+      _fs_reporting_input_compute: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
       }
       _fs_restatement_state: {
         Args: { p_restatement_id: string }
@@ -10097,6 +10106,10 @@ export type Database = {
       _fs_smes_elected: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
+      }
+      _fs_statement_composition_compute: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
       }
       _invitation_valid: {
         Args: {

@@ -484,6 +484,13 @@
       "when": 1792602414913,
       "tag": "0068_fs_capacity_r1_staged_apply",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792602453026,
+      "tag": "0069_fs_memo_r1_staged_apply",
+      "breakpoints": true
     }
   ]
 }
