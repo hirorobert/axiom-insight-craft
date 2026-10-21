@@ -4783,6 +4783,72 @@ export type Database = {
         }
         Relationships: []
       }
+      fs_prior_final_acceptances: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          differences: Json
+          differences_sha256: string | null
+          firm_member_id: string
+          id: string
+          period_year: number
+          prior_report_id: string | null
+          prior_report_version: number | null
+          reason: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          differences?: Json
+          differences_sha256?: string | null
+          firm_member_id: string
+          id?: string
+          period_year: number
+          prior_report_id?: string | null
+          prior_report_version?: number | null
+          reason: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          differences?: Json
+          differences_sha256?: string | null
+          firm_member_id?: string
+          id?: string
+          period_year?: number
+          prior_report_id?: string | null
+          prior_report_version?: number | null
+          reason?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_prior_final_acceptances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_prior_final_acceptances_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_publication_bindings: {
         Row: {
           approved_at: string | null
@@ -4941,6 +5007,217 @@ export type Database = {
           },
           {
             foreignKeyName: "fs_requirement_decisions_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_review_comment_events: {
+        Row: {
+          action: string
+          actor_user_id: string
+          body: string | null
+          comment_id: string
+          company_id: string
+          content_at: string
+          created_at: string
+          firm_member_id: string
+          id: string
+          report_version: number
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          body?: string | null
+          comment_id: string
+          company_id: string
+          content_at: string
+          created_at?: string
+          firm_member_id: string
+          id?: string
+          report_version: number
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          body?: string | null
+          comment_id?: string
+          company_id?: string
+          content_at?: string
+          created_at?: string
+          firm_member_id?: string
+          id?: string
+          report_version?: number
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_review_comment_events_comment_id_fkey"
+            columns: ["comment_id"]
+            isOneToOne: false
+            referencedRelation: "fs_review_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_review_comment_events_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_review_comments: {
+        Row: {
+          author_user_id: string
+          body: string
+          company_id: string
+          created_at: string
+          firm_member_id: string
+          id: string
+          item_id: string
+          item_kind: string
+          opened_content: string
+          report_id: string
+          report_version: number
+          request_id: string
+          seq: number
+          severity: string
+        }
+        Insert: {
+          author_user_id: string
+          body: string
+          company_id: string
+          created_at?: string
+          firm_member_id: string
+          id?: string
+          item_id: string
+          item_kind: string
+          opened_content: string
+          report_id: string
+          report_version: number
+          request_id: string
+          seq?: never
+          severity: string
+        }
+        Update: {
+          author_user_id?: string
+          body?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string
+          id?: string
+          item_id?: string
+          item_kind?: string
+          opened_content?: string
+          report_id?: string
+          report_version?: number
+          request_id?: string
+          seq?: never
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsrc_version"
+            columns: ["report_id", "report_version"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_reports"
+            referencedColumns: ["report_id", "report_version"]
+          },
+          {
+            foreignKeyName: "fs_review_comments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_review_comments_firm_member_id_fkey"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_rollforward_carries: {
+        Row: {
+          carried_by_user_id: string
+          company_id: string
+          confirmation_record_id: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by_user_id: string | null
+          firm_member_id: string
+          id: string
+          kind: string
+          payload: Json
+          period_year: number
+          request_id: string
+          requirement_id: string
+          seq: number
+          source_period_year: number
+          source_record_id: string
+          status: string
+          status_reason: string | null
+        }
+        Insert: {
+          carried_by_user_id: string
+          company_id: string
+          confirmation_record_id?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by_user_id?: string | null
+          firm_member_id: string
+          id?: string
+          kind: string
+          payload: Json
+          period_year: number
+          request_id: string
+          requirement_id: string
+          seq?: never
+          source_period_year: number
+          source_record_id: string
+          status: string
+          status_reason?: string | null
+        }
+        Update: {
+          carried_by_user_id?: string
+          company_id?: string
+          confirmation_record_id?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by_user_id?: string | null
+          firm_member_id?: string
+          id?: string
+          kind?: string
+          payload?: Json
+          period_year?: number
+          request_id?: string
+          requirement_id?: string
+          seq?: never
+          source_period_year?: number
+          source_record_id?: string
+          status?: string
+          status_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_rollforward_carries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_rollforward_carries_firm_member_id_fkey"
             columns: ["firm_member_id"]
             isOneToOne: false
             referencedRelation: "firm_members"
@@ -9747,6 +10024,10 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number; p_type: string }
         Returns: boolean
       }
+      _fs_item_content: {
+        Args: { p_doc: Json; p_id: string; p_kind: string }
+        Returns: string
+      }
       _fs_line_amount: {
         Args: {
           p_debit_net: number
@@ -9764,6 +10045,10 @@ export type Database = {
         Args: { p_certification_id: string; p_company_id: string }
         Returns: Json
       }
+      _fs_period_pack_id: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: string
+      }
       _fs_presentation_status: {
         Args: {
           p_line_id: string
@@ -9774,6 +10059,10 @@ export type Database = {
         }
         Returns: string
       }
+      _fs_prior_final_differences: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       _fs_reference_statements_present: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
@@ -9781,6 +10070,16 @@ export type Database = {
       _fs_restatement_state: {
         Args: { p_restatement_id: string }
         Returns: string
+      }
+      _fs_review_comment_event: {
+        Args: {
+          p_action: string
+          p_body: string
+          p_comment_id: string
+          p_company_id: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       _fs_section: { Args: { p_classification: string }; Returns: string }
       _fs_signoff_policy: {
@@ -10646,6 +10945,16 @@ export type Database = {
           sequence_no: number
         }[]
       }
+      fs_accept_prior_final_differences: {
+        Args: {
+          p_accept: boolean
+          p_company_id: string
+          p_period_year: number
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       fs_actor_member_id: { Args: { p_company_id: string }; Returns: string }
       fs_append_decision: {
         Args: {
@@ -10955,6 +11264,101 @@ export type Database = {
         Returns: Json
       }
       fs_reporting_input: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_review_comment_open: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_item_id: string
+          p_item_kind: string
+          p_report_id: string
+          p_report_version: number
+          p_request_id: string
+          p_severity: string
+        }
+        Returns: Json
+      }
+      fs_review_comment_reopen: {
+        Args: {
+          p_body: string
+          p_comment_id: string
+          p_company_id: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      fs_review_comment_resolve: {
+        Args: {
+          p_body: string
+          p_comment_id: string
+          p_company_id: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      fs_review_comment_respond: {
+        Args: {
+          p_body: string
+          p_comment_id: string
+          p_company_id: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      fs_review_comment_states: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: {
+          author_user_id: string
+          body: string
+          changed_since_opened: boolean
+          content_now: string
+          created_at: string
+          id: string
+          item_id: string
+          item_kind: string
+          last_action: string
+          last_event_at: string
+          last_report_version: number
+          opened_content: string
+          report_version: number
+          seq: number
+          severity: string
+          state: string
+        }[]
+      }
+      fs_review_comments: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
+      }
+      fs_rollforward_carry: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      fs_rollforward_decide: {
+        Args: {
+          p_carry_id: string
+          p_company_id: string
+          p_confirm: boolean
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      fs_rollforward_worklist: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }

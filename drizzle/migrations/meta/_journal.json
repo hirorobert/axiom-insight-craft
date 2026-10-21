@@ -463,6 +463,13 @@
       "when": 1792602300202,
       "tag": "0065_fs_controls_r1_staged_apply",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792602338481,
+      "tag": "0066_fs_journey_r1_staged_apply",
+      "breakpoints": true
     }
   ]
 }
