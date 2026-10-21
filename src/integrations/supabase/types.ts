@@ -9724,6 +9724,25 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
+      _fs_ev_cell: {
+        Args: { p_col: string; p_doc: Json; p_row: Json }
+        Returns: string
+      }
+      _fs_ev_minor: {
+        Args: { p_scale: number; p_text: string }
+        Returns: number
+      }
+      _fs_ev_pick: {
+        Args: {
+          p_company_id: string
+          p_currency: string
+          p_period_year: number
+          p_role: string
+          p_scale: number
+          p_type: string
+        }
+        Returns: Json
+      }
       _fs_evidence_present: {
         Args: { p_company_id: string; p_period_year: number; p_type: string }
         Returns: boolean
@@ -9771,6 +9790,7 @@ export type Database = {
           policy: string
         }[]
       }
+      _fs_slug: { Args: { p_text: string }; Returns: string }
       _fs_smes_edition_decide: {
         Args: { p_elected: boolean; p_framework: string; p_start: string }
         Returns: Json
@@ -10815,6 +10835,10 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_evidence_statements: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_first_period_declared: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
@@ -10874,6 +10898,10 @@ export type Database = {
         Returns: Json
       }
       fs_notes_status: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_prior_final_reconciliation: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
