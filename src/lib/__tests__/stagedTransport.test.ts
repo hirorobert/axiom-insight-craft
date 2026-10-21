@@ -82,6 +82,18 @@ describe("staged release transport", () => {
     expect(t).not.toMatch(/SECURITY DEFINER/);
   });
 
+  it("function revokes target only the three newly created helper signatures, never all schema functions", () => {
+    const t = renderBootstrap();
+    expect(t).not.toMatch(/\bON\s+ALL\s+FUNCTIONS\s+IN\s+SCHEMA\b/i);
+    const targets = [...t.matchAll(/REVOKE EXECUTE ON FUNCTION ([\w.]+\([^)]*\)) FROM (PUBLIC|%I)/g)];
+    const helpers = ["cfoclose_release.approved_artifact(text, text)", "cfoclose_release.staged_artifacts_guard()", "cfoclose_release.append_only_guard()"];
+    expect(targets.map((m) => [m[1], m[2]])).toEqual([
+      ...helpers.map((h) => [h, "PUBLIC"]), ...helpers.map((h) => [h, "%I"]),
+    ]);
+    expect(t.match(/\bREVOKE\b/g)).toHaveLength(10);
+    for (const helper of helpers) expect(t).toContain(`CREATE FUNCTION ${helper.replace("(text, text)", "(p_batch text, p_kind text, OUT bytes integer, OUT sha256 text)")}`);
+  });
+
   describe("migration authority with the six transport mirrors", () => {
     const added: string[] = [];
     afterEach(() => { for (const t of added.splice(0)) delete (RELEASE_JOURNAL as Record<string, unknown>)[t]; });

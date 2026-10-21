@@ -8,7 +8,7 @@ DO $cfoclose_transport_fs_memo_r1$
 DECLARE
   c_batch       CONSTANT text   := 'fs-memo-r1';
   c_prior       CONSTANT text   := 'fs-capacity-r1';
-  c_predecessor CONSTANT text[] := ARRAY['f09a8bfa676396220deefd0a0c58f45a747d6cfeeca6aebe8cce9e8d1106e5b2', '54128fa9b74a7a8cccf8068d68a73c3752a02c842bf601bd304755819e9ebd3a']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['0589f056ef0165c6b52adeb5d146a8cc58267682ba6b91c3cd7e2ffc96833008', '0e7c71a877cd21c54bfb936b38b24ec5396984ece17ba6a5326e352afb84a9e0']::text[];
   v_n bigint;
   v_pred_id bigint;
   v_preflight text;

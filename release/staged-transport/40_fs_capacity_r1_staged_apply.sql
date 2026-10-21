@@ -8,7 +8,7 @@ DO $cfoclose_transport_fs_capacity_r1$
 DECLARE
   c_batch       CONSTANT text   := 'fs-capacity-r1';
   c_prior       CONSTANT text   := 'fs-bounds-r1';
-  c_predecessor CONSTANT text[] := ARRAY['2d2245dd74d20da8b0569a1cd89304061f715c27b8550b902730fe7d5528e893', 'b7838927a2f7bbe03b760b410de590adf7d972d661f2d3732ce0addb3c4be905']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['1c6cb96f22e317b35d3c2e2b574ea99786500c5df46ce5d44b61bee418377d54', 'b88d70045fd478b6a14506d6e66453342bca2b6d3baa077f5211938866faedfa']::text[];
   v_n bigint;
   v_pred_id bigint;
   v_preflight text;
