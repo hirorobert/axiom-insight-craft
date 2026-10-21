@@ -11526,6 +11526,7 @@ export type Database = {
         Args: { p_report_id: string; p_version: number }
         Returns: number
       }
+      fs_work_bounds: { Args: never; Returns: Json }
       generate_service_enquiry_reference: { Args: never; Returns: string }
       get_access_grant_history: {
         Args: { p_limit?: number; p_recipient_user_id?: string }
