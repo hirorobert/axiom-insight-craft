@@ -315,12 +315,12 @@ export function transportForms() {
  * text plus one LF; renderBootstrap()/renderApply() must keep reproducing these literals.
  */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  fs_release_staged_transport: Object.freeze({ role: "bootstrap", bytes: 8922, sha256: "ead3ca14299acdde48b07eae48f57cb08f94d9fd8674f59cc8d8d4136c22daab", withFinalLf: "7cc407593a96bc36acfd54c38046636df4f9d949cf6c38a905927803c407584a" }),
-  fs_controls_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5625, sha256: "b0c9e768e9776c25bfa8324e2baf802fddd7b1059054f399958c8fa06ce46d2a", withFinalLf: "43082b222ae9ac0fdb66edbe9c414770ce0d5a9dfa7a2b54a4f765511d4ea6a6" }),
-  fs_journey_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5652, sha256: "ef7468d912838fd94b810330a851d3beccd85f6f5a889e443ca9b7b6ea552c47", withFinalLf: "f0c8db453db6d1ed2622ea734291e65f4a7eb3bdf52460ea7e47024bb2c4a4f8" }),
-  fs_bounds_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5604, sha256: "2d2245dd74d20da8b0569a1cd89304061f715c27b8550b902730fe7d5528e893", withFinalLf: "b7838927a2f7bbe03b760b410de590adf7d972d661f2d3732ce0addb3c4be905" }),
-  fs_capacity_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5627, sha256: "f09a8bfa676396220deefd0a0c58f45a747d6cfeeca6aebe8cce9e8d1106e5b2", withFinalLf: "54128fa9b74a7a8cccf8068d68a73c3752a02c842bf601bd304755819e9ebd3a" }),
-  fs_memo_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5601, sha256: "ab9f67ebc6ac60e6d23b8a4da6f8dde24ab23441c73eaf446bdf5965c5bcb93c", withFinalLf: "614d87902f14f033cb52542c862da39ddc7e669abbe121ebe2dbd05acf43beba" }),
+  fs_release_staged_transport: Object.freeze({ role: "bootstrap", bytes: 9338, sha256: "ea6e6ec703b42a9e2d100d2be70c609587d551655a56c89bf605c719afffaf32", withFinalLf: "5d6eb661ab2558b9a75154dfbc57c97e4a21252571465ea795e43b43b54533e0" }),
+  fs_controls_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5625, sha256: "c845a02ca49f43bb5b55e69ad26a77b6af32f3fcda45f9fb0bdb74eee8ce9653", withFinalLf: "b3bfdb95a70b5e2fa3179e24d883e14df987fa00684e34f826a89f4bf7e457d1" }),
+  fs_journey_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5652, sha256: "a421b7f9587f54d6c14077976ad2f42f2e5d8641fd2394b682b7cc5092d3217b", withFinalLf: "20329d3bb7847e83be1f76b7e44e15921d9d2b8783c87b236d33c83743a18264" }),
+  fs_bounds_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5604, sha256: "1c6cb96f22e317b35d3c2e2b574ea99786500c5df46ce5d44b61bee418377d54", withFinalLf: "b88d70045fd478b6a14506d6e66453342bca2b6d3baa077f5211938866faedfa" }),
+  fs_capacity_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5627, sha256: "0589f056ef0165c6b52adeb5d146a8cc58267682ba6b91c3cd7e2ffc96833008", withFinalLf: "0e7c71a877cd21c54bfb936b38b24ec5396984ece17ba6a5326e352afb84a9e0" }),
+  fs_memo_r1_staged_apply: Object.freeze({ role: "apply", bytes: 5601, sha256: "dbff469ea43ae9c2f364cb602165c727d29cc6a96eade7d7f7217af4b0e2a496", withFinalLf: "d45ab2bf84fa5e909647aa182aafd11742578871ea3e470532bd6d42664d2ac1" }),
 });
 
 /** Checks a journal mirror `text` of tag `tag` as a transport entry. Returns { covers?, problems }. */
