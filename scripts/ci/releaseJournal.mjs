@@ -346,6 +346,17 @@ export const RELEASE_JOURNAL = {
   "0063_period_currency_correction": { kind: "release_self_checking_wrapper", source: "20261113100000_period_currency_correction.sql",
     bytes: 34382, digest: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d",
     form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc", outOfOrder: true },
+  // Financial-statements staged release (scripts/release/stagedTransport.mjs, reviewed 78e923d; originals from daa23e4),
+  // applied 2026-10-21 by Lovable's hosted migrator, each submitted once in its registered no-final-LF form.
+  // hosted id 65; "when" 1792601984044. Bootstrap of the private cfoclose_release schema; covers no source.
+  "0064_fs_release_staged_transport": { kind: "staged_transport" },
+  // hosted ids 66–70; "when" 1792602300202 / 1792602338481 / 1792602377600 / 1792602414913 / 1792602453026. Each executed
+  // its batch's staged preflight, ORIGINAL wrapper and postcondition (byte-verified) in one transaction.
+  "0065_fs_controls_r1_staged_apply": { kind: "staged_transport" },
+  "0066_fs_journey_r1_staged_apply": { kind: "staged_transport" },
+  "0067_fs_bounds_r1_staged_apply": { kind: "staged_transport" },
+  "0068_fs_capacity_r1_staged_apply": { kind: "staged_transport" },
+  "0069_fs_memo_r1_staged_apply": { kind: "staged_transport" },
 };
 
 /**
