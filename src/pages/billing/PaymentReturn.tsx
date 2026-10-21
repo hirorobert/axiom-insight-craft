@@ -52,6 +52,8 @@ export default function PaymentReturn() {
   const saffRef = searchParams.get("ref");
   const navigate = useNavigate();
   const failuresRef = useRef(0);
+  // A close in flight or waiting: Resume is off until it ends (never both at once).
+  const [closing, setClosing] = useState(false);
 
   const [phase, setPhase] = useState<PollPhase>(saffRef ? "POLLING" : "NO_REF");
   const [status, setStatus] = useState<CheckoutStatusResponse | null>(null);
@@ -292,12 +294,12 @@ export default function PaymentReturn() {
 
             <div className="flex flex-col gap-2">
               {resumeUrl && (
-                <Button className="w-full" onClick={() => window.location.assign(resumeUrl)} data-testid="next-resume-checkout">
+                <Button className="w-full" onClick={() => window.location.assign(resumeUrl)} disabled={closing} data-testid="next-resume-checkout">
                   Resume {planName ?? ""} checkout
                 </Button>
               )}
               {canLeave && saffRef && (
-                <LeaveCheckout saffReference={saffRef} testIdPrefix="next"
+                <LeaveCheckout saffReference={saffRef} testIdPrefix="next" onClosingChange={setClosing}
                   onLeft={(reason) => {
                     if (reason === "left") { navigate("/plans", { replace: true, state: { leftCheckout: saffRef } }); return; }
                     void checkAgain();

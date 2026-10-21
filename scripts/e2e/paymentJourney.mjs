@@ -708,6 +708,8 @@ async function main() {
     await page.click('[data-testid="unfinished-choose-another"]');
     await page.click('[data-testid="unfinished-confirm-close"]');
     const waited = await page.waitForSelector('[data-testid="unfinished-waiting"]', { timeout: 15000 }).then(() => true, () => false);
+    // Never Resume and a close at once: while the close waits, Resume is disabled.
+    const resumeOff = waited && await page.evaluate(() => document.querySelector('[data-testid="unfinished-resume"]')?.disabled === true);
     if (waited) await shot("30-leave-waiting-1280");
     await page.waitForSelector('[data-testid="unfinished-checkout-left"]', { timeout: 150000 });
     await widths("31-plans-left");
@@ -715,8 +717,8 @@ async function main() {
     const row = (await admin.from("payment_checkout_intents").select("status, metadata").eq("id", i.id).single()).data;
     const audit = (await admin.from("billing_audit_events").select("id").eq("action", "CHECKOUT_ABANDONED_BY_CUSTOMER").eq("actor_user_id", U.leaver.id)).data ?? [];
     const providerSession = mock.checkouts.get(leftSession)?.status;
-    return waited && row?.status === "CANCELLED" && row.metadata?.cancel_reason === "CUSTOMER_ABANDONED_UNPAID" && audit.length === 1 && providerSession === "open"
-      ? true : { waited, row, audit: audit.length, providerSession };
+    return waited && resumeOff && row?.status === "CANCELLED" && row.metadata?.cancel_reason === "CUSTOMER_ABANDONED_UNPAID" && audit.length === 1 && providerSession === "open"
+      ? true : { waited, resumeOff, row, audit: audit.length, providerSession };
   });
   await check("…then another plan's payment starts at once (no waiting for the old session to expire)", async () => {
     await go("/billing/checkout?plan=SOLO", "Card · USD 490");

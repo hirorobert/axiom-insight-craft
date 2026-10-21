@@ -19,13 +19,15 @@ import { LEAVE_CHECKOUT_DISCLOSURE } from "@/lib/commercial/purchaseJourney";
 /** Automatic re-asks after a RETRY_LATER answer, before the customer is asked to try again themselves. */
 const MAX_AUTO_RETRIES = 2;
 
-export function LeaveCheckout({ saffReference, onLeft, onStatus, testIdPrefix = "leave-checkout" }: {
+export function LeaveCheckout({ saffReference, onLeft, onStatus, onClosingChange, testIdPrefix = "leave-checkout" }: {
   saffReference: string;
   /** Another plan can now be bought: "left" = closed in CFOClose just now (its provider page may still be open);
    *  "closed" = it had already ended unpaid. */
   onLeft: (reason: "left" | "closed") => void;
   /** The order's latest server state, when an answer carried one (e.g. the provider had already completed it). */
   onStatus?: (s: CheckoutStatusResponse) => void;
+  /** True while a close is being asked or waited for: the caller disables Resume so the two never run together. */
+  onClosingChange?: (closing: boolean) => void;
   testIdPrefix?: string;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -35,6 +37,11 @@ export function LeaveCheckout({ saffReference, onLeft, onStatus, testIdPrefix = 
   const retries = useRef(0);
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
+  const closing = busy || wait !== null;
+  const onClosingRef = useRef(onClosingChange);
+  onClosingRef.current = onClosingChange;
+  useEffect(() => { onClosingRef.current?.(closing); }, [closing]);
+  useEffect(() => () => onClosingRef.current?.(false), []);
 
   const leave = async () => {
     setBusy(true);

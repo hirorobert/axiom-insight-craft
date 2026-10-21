@@ -162,6 +162,8 @@ describe("checkout", () => {
     await flush();
     expect(byTestId(m!, "unfinished-waiting")!.textContent).toContain("Confirming with the payment provider that nothing was paid");
     expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    // Never Resume and a close at once: Resume is off for the whole wait.
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(true);
     expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledTimes(1);
     for (let i = 0; i < 4; i++) { await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); await flush(); }
     expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledTimes(2);
@@ -176,6 +178,22 @@ describe("checkout", () => {
     await flush();
     expect(byTestId(m!, "unfinished-notice")!.textContent).toContain("Do not pay again");
     expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    // The close attempt ended without closing: Resume is available again.
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("while a close is being asked, Resume is disabled (banner); a request in flight counts as closing", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    rpcMod.abandonUnfinishedCheckout.mockImplementation(() => new Promise((r) => { release = r; }));
+    await refusedFor("OPEN_CHECKOUT_UNFINISHED");
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(true);
+    release({ outcome: "PROVIDER_UNAVAILABLE", status: openOrder, error: null });
+    await flush();
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("a NOT_PENDING answer for an order under review is never reported as closed: the review is shown and payment stays off", async () => {
@@ -408,6 +426,17 @@ describe("payment status page", () => {
     await flush();
     expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledWith("SAFF-9");
     expect(where).toBe("/plans");
+  });
+  it("order page: Resume is disabled while the close waits out a moments-old provider answer", async () => {
+    vi.useFakeTimers();
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "RETRY_LATER", status: null, error: null, retryAfterSeconds: 30 });
+    await showStatus({ status: "PENDING", providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "https://polar.example.test/checkout/s1", expiresAt: null } });
+    expect((byTestId(m!, "next-resume-checkout") as HTMLButtonElement).disabled).toBe(false);
+    click(byTestId(m!, "next-choose-another")!);
+    click(byTestId(m!, "next-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "next-waiting")).not.toBeNull();
+    expect((byTestId(m!, "next-resume-checkout") as HTMLButtonElement).disabled).toBe(true);
   });
   it("closing a checkout the provider has just completed: not closed; the completed result is shown", async () => {
     const paid = { ...statusBase, status: "SUCCEEDED", paymentRecorded: true, purchasedEffectiveStart: "2026-10-10T08:01:00Z", purchasedEffectiveEnd: "2027-10-10T08:01:00Z" };

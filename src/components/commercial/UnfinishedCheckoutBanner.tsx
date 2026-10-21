@@ -45,6 +45,8 @@ const orderHref = (ref: string) => `/billing/payment/return?ref=${encodeURICompo
 export function UnfinishedCheckoutBanner({ saffReference = null, onCleared, className = "" }: Props) {
   const [state, setState] = useState<State>({ kind: "unknown" });
   const [resuming, setResuming] = useState(false);
+  // A close in flight or waiting: Resume is off until it ends (never both at once).
+  const [closing, setClosing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const onClearedRef = useRef(onCleared);
   onClearedRef.current = onCleared;
@@ -129,10 +131,10 @@ export function UnfinishedCheckoutBanner({ saffReference = null, onCleared, clas
         {notice && <p className="mt-1 text-xs" role="alert" data-testid="unfinished-notice">{notice} <Link className="font-medium underline" to={orderHref(ref)}>Open the order</Link></p>}
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-        <Button size="sm" onClick={() => void resume()} disabled={resuming} data-testid="unfinished-resume">
+        <Button size="sm" onClick={() => void resume()} disabled={resuming || closing} data-testid="unfinished-resume">
           {resuming && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}Resume
         </Button>
-        <LeaveCheckout saffReference={ref} testIdPrefix="unfinished"
+        <LeaveCheckout saffReference={ref} testIdPrefix="unfinished" onClosingChange={setClosing}
           onLeft={(reason) => {
             if (reason === "left") { setState({ kind: "left" }); onClearedRef.current?.("left"); return; }
             setState({ kind: "none" }); onClearedRef.current?.("closed");
