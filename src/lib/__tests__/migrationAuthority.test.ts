@@ -53,7 +53,7 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(60);
+    expect(r.mirrored.length).toBe(65); // +0065–0069 staged FS applies (0064, the transport bootstrap, covers no source)
     expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction"]);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
