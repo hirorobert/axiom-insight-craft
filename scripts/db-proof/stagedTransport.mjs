@@ -63,6 +63,9 @@ async function hosted(c, text, { rowFirst = false } = {}) {
 /** Complete-row sign-off fingerprint, exactly the transport's (and the primary live baseline's) expression. */
 const DIGEST_SQL = "SELECT count(*)::int AS n, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq), ''), 'UTF8')), 'hex') AS digest FROM public.fs_publication_bindings f";
 async function digest(c) { return (await c.query(DIGEST_SQL)).rows[0]; }
+async function existingFunctionPrivileges(c) {
+  return JSON.stringify((await c.query("SELECT p.oid, p.proacl FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'cfoclose_release' ORDER BY p.oid")).rows);
+}
 /** DISPOSABLE-ONLY fixture hook (test-only, as in s2Authority/billingSuspension): rows written with
  *  session_replication_role = replica, so append-only triggers and parent-row FKs are bypassed. Every column populated. */
 async function insertBinding(c, { state: st, report = "fsr-2025-proof", version = 6, doc = "c".repeat(64) }) {
@@ -115,7 +118,15 @@ try {
       const base0 = await digest(c);
       const full = (await c.query("SELECT bool_and(NOT EXISTS (SELECT 1 FROM jsonb_each(to_jsonb(f)) e WHERE e.value = 'null'::jsonb)) AS ok, string_agg(state, ',' ORDER BY seq) AS st, count(DISTINCT report_id || ':' || report_version || ':' || document_sha256)::int AS lin FROM public.fs_publication_bindings f")).rows[0];
       check("fixture: two complete sign-off bindings (REVIEWED, FINAL; same lineage; no NULL field)", base0.n === 2 && full.ok === true && full.st === "REVIEWED,FINAL" && full.lin === 1, JSON.stringify(full));
+      const privilegesBefore = await existingFunctionPrivileges(c);
       await migrate(drizzle(pool), { migrationsFolder: folder(1) });
+      check("bootstrap leaves every pre-existing function privilege unchanged", (await existingFunctionPrivileges(c)) === privilegesBefore);
+      const helpers = ["cfoclose_release.approved_artifact(text,text)", "cfoclose_release.staged_artifacts_guard()", "cfoclose_release.append_only_guard()"];
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        const denied = await Promise.all(helpers.map(async (fn) => (await c.query("SELECT NOT has_function_privilege($1, $2, 'EXECUTE') AS denied", [role, fn])).rows[0].denied));
+        check(`${role}: EXECUTE denied on all three exact new helper signatures`, denied.every(Boolean));
+      }
+      check("PUBLIC has no EXECUTE on any new helper", (await c.query("SELECT count(*)::int AS n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE n.nspname = 'cfoclose_release' AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'")).rows[0].n === 0);
       await stageAll(c);
       for (let i = 0; i < BATCHES.length; i++) {
         await migrate(drizzle(pool), { migrationsFolder: folder(i + 2) });
