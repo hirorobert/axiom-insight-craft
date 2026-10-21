@@ -666,13 +666,13 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 28141, sha256: "c07611e571c7c65bf986a47ea6105b9c99e7c898d65c18f53c9afc652d34e08d" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 28140, sha256: "162393795b77f4c442a246665377c20166978b8e2a959448d8e74b3de90a9756" }),
   }),
-  // Trial Balance workflow, Track B (batch tb-decisions-b1; source commit ac8a396): all four forms registered BEFORE
+  // Trial Balance workflow, Track B (batch tb-decisions-b1; source commit e897887): all four forms registered BEFORE
   // application; applied BEFORE process-trial-balance generation 7 is deployed. PENDING hosted application.
   "20261118100000_tb_finding_decisions.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 90987, sha256: "d36b37d14e6c4da746bcc40043a2180df398f71917a3efe69ab0f747c11f3d4f" }),
-    finalLfRemoved: Object.freeze({ bytes: 90986, sha256: "07cd8c48e9c3d8a86f24db26641692ea5ab94b399807ae00058f6d61f13297a0" }),
-    wrapper: Object.freeze({ bytes: 92549, sha256: "4cc2a6da476ede6481dde0ece075e3451d0157331e5a803eb728562974f9c1cd" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 92548, sha256: "c22d5770d624330b7d185a0b51984dcd3c24c3c8ec57ab195446b0ced99f7fb4" }),
+    identical: Object.freeze({ bytes: 96087, sha256: "e717f7ffed11647e659ea1c4e550793720af8c42f3a1729fb3b855d247d361fc" }),
+    finalLfRemoved: Object.freeze({ bytes: 96086, sha256: "bc27c71e1e73b287c9ec82788af98f47837a5777e9f934322040fd36930a1205" }),
+    wrapper: Object.freeze({ bytes: 97649, sha256: "b485a01652fba013f3f9440e29b4287f86e3cac9c5888ba7da09435d55c8f831" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 97648, sha256: "ada8b4817ae4f21e7fa712fb35e8fcd26dd5c41403d1303ceaa0351d6b073aa0" }),
   }),
 });
 

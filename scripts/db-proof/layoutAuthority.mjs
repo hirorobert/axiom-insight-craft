@@ -329,13 +329,13 @@ async function main() {
   });
   await check("a confirmation while an attempt is running is refused (IN_PROGRESS)", async () => {
     const up = await upload(A, EURO);
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v4',4,'workspace_user',NULL,$4,600) r", [up.id, uuid(), sha(up.bytes), U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [up.id, uuid(), sha(up.bytes), U.owner]))[0].r;
     const r = await L(U.preparer, { action: "confirm", uploadId: up.id, layout: EURO_LAYOUT, expectedConfirmationNo: 0 });
     return b.outcome === "claimed" && r.http === 409 && r.body.code === "IN_PROGRESS" ? true : { b, r: r.body };
   });
   await check("the layout dependency key is accepted only for the run's own upload", async () => {
     const up = await upload(A, PLAIN);
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v4',4,'workspace_user',NULL,$4,600) r", [up.id, uuid(), sha(up.bytes), U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [up.id, uuid(), sha(up.bytes), U.owner]))[0].r;
     let other = null;
     try { await asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb)", [b.engine_run_id, JSON.stringify([{ scope: A, key: `#layout_confirmation:${euro.id}` }])]); other = "accepted"; } catch (e) { other = e.code; }
     const own = (await asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb) r", [b.engine_run_id, JSON.stringify([{ scope: A, key: `#layout_confirmation:${up.id}` }])]))[0].r;
@@ -352,12 +352,25 @@ async function main() {
     return r.http === 409 && before === after && (await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [up.id])) === 0 ? true : { r: r.body, before, after };
   });
   let gen3Upload;
-  await check("generation 3 on an upload WITHOUT a confirmation still certifies (existing behaviour)", async () => {
+  await check("generation 3 on an upload WITHOUT a confirmation is refused too since 20261118100000 (containment: no engine below 7 begins), before any write; the current engine certifies it", async () => {
     gen3Upload = await upload(A, PLAIN);
+    const before = JSON.stringify(await one("SELECT status, processing_attempt, current_engine_run_id FROM public.trial_balance_uploads WHERE id=$1", [gen3Upload.id]));
     const r = await process(U.owner, gen3Upload.id, ptbGen3);
-    return r.http === 200 && (await authoritative(A, gen3Upload.year)) !== null ? true : r.body;
+    const after = JSON.stringify(await one("SELECT status, processing_attempt, current_engine_run_id FROM public.trial_balance_uploads WHERE id=$1", [gen3Upload.id]));
+    const runs = await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [gen3Upload.id]);
+    const r7 = await process(U.owner, gen3Upload.id, ptb);
+    return r.http >= 400 && before === after && runs === 0 && r7.http === 200 && (await authoritative(A, gen3Upload.year)) !== null ? true : { r: r.body, runs, r7: r7.body };
   });
   await check("a certification from before layouts: a confirmation is refused until a re-check is requested (REPROCESS_REQUIRED)", async () => {
+    // FIXTURE: such results exist from before the release, and no older engine can produce one any more (containment). A
+    // pre-layout result is one whose run recorded no layout dependency: that row is removed from the current result's run,
+    // which is exactly the state a generation-3 certification is in.
+    await admin.query("SET session_replication_role = replica");
+    try {
+      await admin.query(`DELETE FROM public.engine_run_dependencies WHERE dep_key = '#layout_confirmation:' || $1::text
+        AND engine_run_id = (SELECT engine_run_id FROM public.tb_certifications WHERE upload_id=$1::uuid ORDER BY sequence_no DESC LIMIT 1)`, [gen3Upload.id]);
+      await admin.query("UPDATE public.engine_runs SET engine_generation = 3 WHERE id = (SELECT engine_run_id FROM public.tb_certifications WHERE upload_id=$1::uuid ORDER BY sequence_no DESC LIMIT 1)", [gen3Upload.id]);
+    } finally { await admin.query("SET session_replication_role = origin"); }
     const r = await L(U.preparer, { action: "confirm", uploadId: gen3Upload.id, layout: { ...EURO_LAYOUT, numberFormat: "comma_dot", columns: { ...EURO_LAYOUT.columns, debit: "Debit", credit: "Credit" }, sheet: { kind: "csv" } }, expectedConfirmationNo: 0 });
     return r.http === 409 && r.body.code === "REPROCESS_REQUIRED" && (await confirmations(gen3Upload.id)).length === 0 ? true : r.body;
   });

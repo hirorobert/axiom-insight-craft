@@ -156,7 +156,7 @@ export const TB_PORTFOLIO_WRAPPED_SOURCES = Object.freeze([
 ]);
 /** Trial Balance workflow, Track B (tb-decisions-b1): finding decisions, the generation-7 evaluation manifest, the entity
  * dependency and bounded investigations; applied BEFORE process-trial-balance generation 7 is deployed. PENDING hosted. */
-export const TB_DECISIONS_SOURCE_COMMIT = "ac8a3961b47219d8f1a367520ebf694fc6d7083b";
+export const TB_DECISIONS_SOURCE_COMMIT = "e89788748e31e233e14dbae96b04bd9ff873db64";
 export const TB_DECISIONS_WRAPPED_SOURCES = Object.freeze([
   "20261118100000_tb_finding_decisions.sql",
 ]);

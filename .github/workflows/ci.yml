@@ -635,7 +635,7 @@ jobs:
           git fetch --no-tags --depth=1 origin daa23e4113dc726fab867480dac6b0b6aba0bbfc
           bun scripts/db-proof/releaseOrder.mjs
 
-      - name: Trial-balance workflow rollout proof (one database upgraded main → 20261117100000 → 20261118100000 → generation 7 → floor 7 with the real generation-6 (main daa23e4 and the hosted 942764f closure) and generation-7 engines and layout functions at every stage; an interrupted apply rolls back completely; results in force stay in force; generation 6 serves exactly as before until it is refused before any write for an upload with decisions and then for every upload once the floor rises; generation 7 completes the refused request; on the same throwaway container)
+      - name: Trial-balance workflow rollout proof (one database upgraded main → 20261117100000 → 20261118100000 → generation 7 → floor 7 with the real generation-6 (main daa23e4 and the hosted 942764f closure) and generation-7 engines and layout functions at every stage; an interrupted apply rolls back completely; results in force stay in force; containment by construction from the decisions migration (every engine below generation 7 refused before any write, an attempt in flight across the apply certifies nothing); processing resumes with generation 7, which completes the refused requests; the read-only inventory lists the earlier-rules results in force; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_rollout_proof
@@ -918,7 +918,7 @@ jobs:
           createdb tb_portfolio_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Finding decisions wrapper proof (the same reviewed apply-and-register proof for the tb-decisions-b1 wrapper, 20261118100000 at ac8a396; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Finding decisions wrapper proof (the same reviewed apply-and-register proof for the tb-decisions-b1 wrapper, 20261118100000 at e897887; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_decisions_wrappers_proof

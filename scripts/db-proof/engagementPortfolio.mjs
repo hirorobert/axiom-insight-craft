@@ -75,10 +75,15 @@ async function asRole(role, uid, sql, params) {
 const one = async (sql, p = []) => (await pool.query(sql, p)).rows[0];
 const asService = (sql, params) => asRole("service_role", null, sql, params);
 const SRC = crypto.createHash("sha256").update("engagement-portfolio-proof").digest("hex");
-const result = (blocking, review) => ({ outcome: "certified",
-  upload: { status: blocking ? "blocked" : review ? "needs_review" : "complete", is_valid: !blocking && !review, processing_result: { status: "x" }, validation_report: { ok: !blocking }, accounting_errors: [] },
-  certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: blocking, requires_review: review, rows_snapshot: [],
-    exceptions: blocking ? [{ code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null, message: "Debits do not equal credits." }] : [] } });
+// A generation-7 result (20261118100000: older engines are refused): complete findings and the evaluation manifest.
+const RULES = ["source_read", "columns", "period_and_currency", "duplicate_identities", "balance", "entity_name", "trailing_text", "clearing_accounts", "classification"];
+const result = (blocking, review) => {
+  const findings = blocking ? [{ code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null, message: "Debits do not equal credits." }] : [];
+  return { outcome: "certified",
+    upload: { status: blocking ? "blocked" : review ? "needs_review" : "complete", is_valid: !blocking && !review, processing_result: { status: "x" }, validation_report: { ok: !blocking }, accounting_errors: [] },
+    certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: blocking, requires_review: review, rows_snapshot: [], exceptions: findings, findings,
+      evaluation: { format: "tb-evaluation/1", rules: RULES.map((rule) => ({ rule, outcome: blocking && rule === "balance" ? "finding" : "passed" })) } } };
+};
 
 async function main() {
   const url = await startDatabase();
@@ -161,7 +166,7 @@ async function main() {
   async function upload(company, year, period) {
     const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id, source_file_hash)
       VALUES ('invented-tb.csv',$1,10,'processing',$2,$3,$4,$5,$6) RETURNING id`, [`${owner1.u}/${uuid()}.csv`, company, year, period, owner1.u, SRC])).id;
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, owner1.u]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, owner1.u]))[0].r;
     if (b.outcome !== "claimed") throw new Error(`begin: ${JSON.stringify(b)}`);
     return { up, run: b.engine_run_id };
   }

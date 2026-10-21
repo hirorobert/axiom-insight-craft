@@ -197,8 +197,14 @@ async function main() {
   group("Repair — applied over the same database");
   await check(`${REPAIR_FILE} applies`, async () => { await admin.query(migrationSql(REPO, REPAIR_FILE)); return true; });
   await refused("applying it again is refused by its preflight (nothing is replaced)", "P0001", () => admin.query(migrationSql(REPO, REPAIR_FILE)), "PREFLIGHT_REFUSED");
-  await check("every later migration applies on top", async () => {
-    for (const f of files.slice(cut + 1)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
+  // Every later migration up to (not including) 20261118100000: from it on, no engine below generation 7 begins a check
+  // (containment), and this proof's subject — the capacity repair and the refused-replacement restore as served to the
+  // engines of their release — is the stage before it. Containment is proven by tbDecisionsRollout.mjs and
+  // findingDecisions.mjs.
+  const decisionsAt = files.indexOf("20261118100000_tb_finding_decisions.sql");
+  await check("every later migration up to the finding-decisions release applies on top", async () => {
+    if (decisionsAt <= cut) return "20261118100000 missing from the chain";
+    for (const f of files.slice(cut + 1, decisionsAt)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
     return true;
   });
 
