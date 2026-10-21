@@ -10955,6 +10955,10 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_account_capacity: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       fs_actor_member_id: { Args: { p_company_id: string }; Returns: string }
       fs_append_decision: {
         Args: {
