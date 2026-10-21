@@ -245,51 +245,49 @@ async function main() {
   });
   await check("generation 7 without its complete findings → refused", async () => { const r = await certify(m, g7({ omitFindings: true })); return /complete findings/.test(r.error ?? "") ? true : r; });
   await check("a generation newer than the database (8) is refused at begin, before anything is written", async () => { const r = await certify(m, g7({}), 8); return r.begin?.code === "ENGINE_GENERATION_UNSUPPORTED" ? true : r; });
-  await check("mixed fleet: a decision never coexists with a running check — refused while a run holds its lease, and still refused once the lease lapses (the re-check request invalidated the result it would bind to)", async () => {
+  await check("CONTAINMENT: an engine below generation 7 is refused at begin for EVERY upload — with or without decisions, accepted result or none — before anything is written", async () => {
+    const fresh = await newUpload();
+    const accepted = await newUpload();
+    const first = await certify(accepted, g7({ findings: [clearingFinding("1190")] }));
+    if (first.outcome !== "certified") return { first };
+    await reprocess(accepted);
+    const runsBefore = Number((await one("SELECT count(*) n FROM public.engine_runs WHERE source_record_id = ANY($1::uuid[])", [[fresh.up, accepted.up]])).n);
+    const a = await begin(fresh, 6), b = await begin(accepted, 6), c = await begin(fresh, 3);
+    const runsAfter = Number((await one("SELECT count(*) n FROM public.engine_runs WHERE source_record_id = ANY($1::uuid[])", [[fresh.up, accepted.up]])).n);
+    return [a, b, c].every((r) => r.outcome === "refused" && r.code === "ENGINE_GENERATION_SUPERSEDED") && runsAfter === runsBefore ? true : { a, b, c, runsBefore, runsAfter };
+  });
+  await check("CONTAINMENT: a generation-6 run already in flight when the migration applied (FIXTURE: its run recorded as generation 6) finishes failed (ENGINE_GENERATION_SUPERSEDED) and certifies nothing; the result in force is not replaced", async () => {
+    const u = await newUpload();
+    const first = await certify(u, g7({}));
+    if (first.outcome !== "certified") return { first };
+    const before = await authoritative(u.year);
+    await reprocess(u);
+    const b = await begin(u, 7);
+    if (b.outcome !== "claimed") return { b };
+    await snapshot(b.engine_run_id, u);
+    await admin.query("SET session_replication_role = replica");
+    try { await admin.query("UPDATE public.engine_runs SET engine_generation = 6 WHERE id=$1", [b.engine_run_id]); } finally { await admin.query("SET session_replication_role = origin"); }
+    const accepted = { outcome: "certified", upload: { status: "complete", is_valid: true, processing_result: { status: "x" }, validation_report: { ok: true }, accounting_errors: [] },
+      certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, rows_snapshot: [], exceptions: [] } };
+    const f = await finalize(b.engine_run_id, accepted);
+    const certs = Number((await one("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [u.up])).n);
+    // The re-check request already invalidated the earlier result; the superseded run adds nothing in its place.
+    return f?.outcome === "failed" && f?.error_code === "ENGINE_GENERATION_SUPERSEDED" && certs === 1 && before !== null && (await authoritative(u.year)) === null
+      ? true : { f, certs, before };
+  });
+  await check("a decision never coexists with a running check: refused while a run holds its lease, and still refused once the lease lapses (the re-check request invalidated the result it would bind to)", async () => {
     const u = await newUpload();
     const first = await certify(u, g7({ review: true, findings: [entityFinding("Invented Beta Trading")] }));
     if (first.outcome !== "certified") return { first };
     const cert = await latestCert(u.up);
     await reprocess(u);
-    const b = await begin(u, 6);
+    const b = await begin(u, 7);
     if (b.outcome !== "claimed") return { b };
     const decision = { upload: u.up, cert, code: "ENTITY_NAME_DIFFERS", subject: "invented beta trading", action: "different_entity", payload: ENTITY_OK };
     const live = await decide(U.owner, decision);
     await expire("engine_runs", b.engine_run_id);
     const lapsed = await decide(U.owner, decision);
     return live.code === "IN_PROGRESS" && lapsed.code === "STALE_EVALUATION" && (await current(u.up)).length === 0 ? true : { live, lapsed };
-  });
-  await check("defence in depth: were a decision to appear while a generation-6 run is in flight (FIXTURE: written around the guards), that run finishes failed (DECISIONS_REQUIRE_CURRENT_ENGINE) and certifies nothing", async () => {
-    const u = await newUpload();
-    const first = await certify(u, g7({ review: true, findings: [entityFinding("Invented Beta Trading")] }));
-    if (first.outcome !== "certified") return { first };
-    const cert = await latestCert(u.up);
-    const rec = await decide(U.owner, { upload: u.up, cert, code: "ENTITY_NAME_DIFFERS", subject: "invented beta trading", action: "different_entity", payload: ENTITY_OK });
-    if (rec.outcome !== "recorded") return { rec };
-    // Fixture: lift the decision out so a generation-6 run can begin, then put it back while that run is in flight.
-    const row = (await admin.query("SELECT * FROM public.tb_finding_decisions WHERE id=$1", [rec.decision_id])).rows[0];
-    await admin.query("SET session_replication_role = replica");
-    try { await admin.query("DELETE FROM public.tb_finding_decisions WHERE id=$1", [rec.decision_id]); } finally { await admin.query("SET session_replication_role = origin"); }
-    await reprocess(u);
-    const b = await begin(u, 6);
-    if (b.outcome !== "claimed") return { b };
-    await asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb) r", [b.engine_run_id, JSON.stringify(keys(u).slice(0, 4))]);
-    const cols = Object.keys(row);
-    await admin.query("SET session_replication_role = replica");
-    try {
-      await admin.query(`INSERT INTO public.tb_finding_decisions (${cols.join(",")}) SELECT ${cols.join(",")} FROM jsonb_populate_record(NULL::public.tb_finding_decisions, $1::jsonb)`, [JSON.stringify(row)]);
-    } finally { await admin.query("SET session_replication_role = origin"); }
-    const accepted = { outcome: "certified", upload: { status: "complete", is_valid: true, processing_result: { status: "x" }, validation_report: { ok: true }, accounting_errors: [] },
-      certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, rows_snapshot: [], exceptions: [] } };
-    const f = await finalize(b.engine_run_id, accepted);
-    const newCerts = Number((await one("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1 AND id <> $2", [u.up, cert])).n);
-    return f?.outcome === "failed" && f?.error_code === "DECISIONS_REQUIRE_CURRENT_ENGINE" && newCerts === 0 && (await authoritative(u.year)) === null
-      ? true : { f, newCerts };
-  });
-  await check("generation 6 without a manifest is served as before (no decisions recorded on that upload)", async () => {
-    const u = await newUpload();
-    const r = await certify(u, { ...g7({ review: true }), certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: true, rows_snapshot: [], exceptions: [] } }, 6);
-    return r.outcome === "certified" ? true : r;
   });
 
   group("Policy — explicit, recorded, server-enforced; a change invalidates dependent results at once");
@@ -382,7 +380,7 @@ async function main() {
   });
   await check("an engine that cannot read decisions (generation 6) is refused for this upload, before anything is written", async () => {
     const r = await begin(d, 6);
-    return r.code === "DECISIONS_REQUIRE_CURRENT_ENGINE" ? true : r;
+    return r.code === "ENGINE_GENERATION_SUPERSEDED" ? true : r;
   });
   await check("the snapshot refuses a decisions key that names another upload", async () => {
     const b = await begin(d, 7);

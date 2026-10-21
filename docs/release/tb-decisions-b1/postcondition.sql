@@ -76,12 +76,15 @@ BEGIN
   v_def := pg_get_functiondef('public.tb_finalize_attempt(uuid,jsonb)'::regprocedure);
   IF position('tb-evaluation/1' IN v_def) = 0 OR position('omits a required rule' IN v_def) = 0
      OR position('ENGINE_GENERATION_UNSUPPORTED' IN v_def) = 0 OR position('needs a decision' IN v_def) = 0
-     OR position('requirement the workspace does not have' IN v_def) = 0 OR position('DECISIONS_REQUIRE_CURRENT_ENGINE' IN v_def) = 0 THEN
+     OR position('requirement the workspace does not have' IN v_def) = 0 OR position('ENGINE_GENERATION_SUPERSEDED' IN v_def) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: tb_finalize_attempt does not enforce the evaluation manifest and requirements';
   END IF;
   v_def := pg_get_functiondef('public.tb_begin_attempt(uuid,uuid,text,text,text,text,integer,text,uuid,uuid,integer)'::regprocedure);
-  IF position('DECISIONS_REQUIRE_CURRENT_ENGINE' IN v_def) = 0 OR position('ENGINE_GENERATION_UNSUPPORTED' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'POSTCONDITION: tb_begin_attempt does not refuse engines that cannot read decisions';
+  -- CONTAINMENT: every engine below generation 7 is refused at begin (not only for uploads with decisions).
+  IF position('ENGINE_GENERATION_SUPERSEDED' IN v_def) = 0 OR position('ENGINE_GENERATION_UNSUPPORTED' IN v_def) = 0
+     OR position('DECISIONS_REQUIRE_CURRENT_ENGINE' IN v_def) > 0
+     OR v_def !~ 'IF coalesce\(p_engine_generation, 0\) < 7 THEN' THEN
+    RAISE EXCEPTION 'POSTCONDITION: tb_begin_attempt does not refuse every engine below generation 7';
   END IF;
   v_def := pg_get_functiondef('public.tb_snapshot_dependencies(uuid,jsonb)'::regprocedure);
   IF position('#finding_decisions:' IN v_def) = 0 OR position('#finding_policy' IN v_def) = 0 OR position('#entity' IN v_def) = 0 THEN
@@ -92,6 +95,16 @@ BEGIN
   END IF;
   IF position('SELECT 7' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.tb_max_engine_generation()'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: tb_max_engine_generation is not 7';
+  END IF;
+
+  -- 6. Sign-off on the current rules: the gate on the one sign-off write and its member-only preview share one function.
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_fsp_requires_current_rules' AND tgrelid = 'public.financial_statement_publications'::regclass AND NOT tgisinternal)
+     OR position('_tb_signoff_rules_blocker' IN pg_get_functiondef('public.tb_signoff_requires_current_rules()'::regprocedure)) = 0
+     OR position('TRIAL_BALANCE_RECHECK_REQUIRED' IN pg_get_functiondef('public._tb_signoff_rules_blocker(uuid,text,integer)'::regprocedure)) = 0
+     OR NOT has_function_privilege('authenticated', 'public.tb_signoff_rules_blocker(uuid,text,integer)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.tb_signoff_rules_blocker(uuid,text,integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public._tb_signoff_rules_blocker(uuid,text,integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDITION: the sign-off gate on the current rules is missing or has the wrong privileges';
   END IF;
 
   RAISE NOTICE 'POSTCONDITION OK.';

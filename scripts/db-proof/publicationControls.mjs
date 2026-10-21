@@ -135,6 +135,52 @@ async function main() {
   });
 
   // ── H ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  group("R. Sign-off on the current rules (20261118100000): a period whose trial balance in force predates generation 7 is re-checked before a NEW sign-off");
+  if (!ABSENT) {
+    const auth = async () => (await db.admin.query("SELECT c.id, c.upload_id, er.engine_generation g FROM public.get_authoritative_certification($1,$2) c JOIN public.engine_runs er ON er.id = c.engine_run_id", [A, Y])).rows[0];
+    const preview = (rid, v) => asU(U.partner, "SELECT public.tb_signoff_rules_blocker($1,$2,$3) r", [A, rid, v]).then((r) => r.r);
+    let ridR, vR, before;
+    await check("FIXTURE (a result accepted before the release): the period's result in force recorded as generation 6 — the preview names TRIAL_BALANCE_RECHECK_REQUIRED:6", async () => {
+      before = await auth();
+      await db.admin.query("SET session_replication_role = replica");
+      try { await db.admin.query("UPDATE public.engine_runs SET engine_generation = 6 WHERE id = (SELECT engine_run_id FROM public.tb_certifications WHERE id=$1)", [before.id]); }
+      finally { await db.admin.query("SET session_replication_role = origin"); }
+      ridR = `rpt-rules-${uuid()}`;
+      const r = await attempt(pre, ridR);
+      vR = r.reportVersion;
+      const p = await preview(ridR, vR);
+      return before?.g === 7 && r.outcome === "saved" && p.outcome === "ok" && p.blocker === "TRIAL_BALANCE_RECHECK_REQUIRED:6" ? true : { before, r: r.outcome, p };
+    });
+    await check("a NEW Reviewed state is refused on the one sign-off write, before anything is recorded; the certification, its history and earlier publications are untouched", async () => {
+      const pubs = async () => Number((await db.admin.query("SELECT count(*) n FROM public.financial_statement_publications WHERE company_id=$1", [A])).rows[0].n);
+      const n0 = await pubs();
+      const certs0 = Number((await db.admin.query("SELECT count(*) n FROM public.tb_certifications WHERE company_id=$1", [A])).rows[0].n);
+      const ref = await refusal(() => partner.c.setState(A, ridR, vR, "REVIEWED", "Attempted review on a trial balance checked under earlier rules"));
+      const still = await auth();
+      return /TRIAL_BALANCE_RECHECK_REQUIRED:6/.test(ref ?? "") && (await pubs()) === n0 && still.id === before.id
+        && Number((await db.admin.query("SELECT count(*) n FROM public.tb_certifications WHERE company_id=$1", [A])).rows[0].n) === certs0 ? true : { ref, still };
+    });
+    await check("the re-check (the one reprocess path, the generation-7 engine) clears it: a new generation-7 result is in force and the preview has no blocker", async () => {
+      const src = (await db.admin.query("SELECT source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [before.upload_id])).rows[0].source_file_hash;
+      const acc = (await asU(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [before.upload_id, uuid(), src])).r;
+      await k.certify(A, { id: before.upload_id, year: Y });
+      // A new authority is a new trial balance for everything bound to it (existing controls, unchanged): its Close Review
+      // findings are checked again and the comparatives approved again before the statements can be signed.
+      const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, Y])).r;
+      for (const f of (await db.admin.query("SELECT f.id FROM public.close_review_findings f WHERE f.run_id=$1", [run.runId])).rows)
+        await asU(U.preparer, "SELECT public.close_review_finding_action($1,'explain','Accumulated depreciation is a contra-asset by design','Fixed asset register 2026',$2) r", [f.id, uuid()]);
+      await asU(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed to the signed 2025 statements',$3) r", [A, Y, uuid()]);
+      const after = await auth();
+      const r = await attempt(pre, ridR);
+      const p = await preview(ridR, r.reportVersion);
+      return acc?.outcome === "accepted" && after.id !== before.id && after.g === 7 && p.outcome === "ok" && p.blocker === null ? true : { acc, after, p };
+    });
+    await check("the preview is for members only; an outsider learns nothing", async () => {
+      const p = await asU(U.ownerB, "SELECT public.tb_signoff_rules_blocker($1,$2,$3) r", [A, ridR, vR]).then((r) => r.r);
+      return p.outcome === "not_found" ? true : p;
+    });
+  }
+
   group("H. The supported happy path: every figure of the four statements is the server's, REVIEWED → FINAL, reproducible");
   let vFinal, docFinal, depsFinal;
   await check("a new version binds the current dependencies and is ready (no blocker of any kind)", async () => {

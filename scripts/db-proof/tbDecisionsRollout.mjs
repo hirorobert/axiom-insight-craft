@@ -196,6 +196,11 @@ async function main() {
     const r = await run(old.engine, u1);
     return r.http === 200 && (await authoritative(u1)) !== null ? true : r.body;
   });
+  const u2 = await upload(PLAIN);
+  await check("generation 6 certifies another period (its re-check is attempted by generation 6 after the migration)", async () => {
+    const r = await run(old.engine, u2);
+    return r.http === 200 && (await authoritative(u2)) !== null ? true : r.body;
+  });
   await check("the account home answers from the server with exact totals", async () => {
     const h = (await asUser(U.owner, "SELECT public.get_account_home(ARRAY[]::text[], 5) r"))[0].r;
     return h?.outcome === "ok" && typeof h.engagements?.total === "number" ? true : h;
@@ -208,17 +213,25 @@ async function main() {
   // The same file before the decisions migration: what generation 6 does with it today (the stage-2 baseline).
   const ENT_ROWS = [["1000", "Bank", "1,400.25", ""], ["1190", "Cash in transit", "100.00", ""], ["3000", "Share capital", "", "1,000.00"], ["4000", "Sales", "", "900.25"], ["6000", "Rent", "400.00", ""]];
   const ENT_TITLE = "Invented Rollout Trading Company";
-  let baseline;
-  await check("baseline: generation 6 on a file naming another entity with a clearing balance (recorded for comparison)", async () => {
-    const b = await upload(ENT_ROWS, ENT_TITLE);
-    const r = await run(old.engine, b);
-    const row = await one("SELECT status, is_valid FROM public.trial_balance_uploads WHERE id=$1", [b.id]);
-    const c = await latestCert(b);
-    baseline = { http: r.http, status: row.status, is_valid: row.is_valid, blocking: c?.is_blocking, review: c?.requires_review, authoritative: (await authoritative(b)) !== null };
-    return r.http === 200 ? true : baseline;
+  let entOld;
+  await check("the hazard being closed: today generation 6 ACCEPTS a file naming another entity (no decision asked)", async () => {
+    entOld = await upload(ENT_ROWS, ENT_TITLE);
+    const r = await run(old.engine, entOld);
+    const row = await one("SELECT status FROM public.trial_balance_uploads WHERE id=$1", [entOld.id]);
+    return r.http === 200 && row.status === "complete" && (await authoritative(entOld)) !== null ? true : { http: r.http, status: row.status };
+  });
+  // A generation-6 attempt begun through the database's own begin function BEFORE the decisions migration — in flight
+  // across it (the real pre-migration tb_begin_attempt; no fixture).
+  const flight = await upload(PLAIN);
+  let flightRun = null;
+  await check("an attempt begun by generation 6 before the migration (it will still be running when the migration applies)", async () => {
+    const b = (await one("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r",
+      [flight.id, uuid(), "a".repeat(64), U.owner])).r;
+    flightRun = b?.engine_run_id ?? null;
+    return b?.outcome === "claimed" ? true : b;
   });
 
-  group("Stage 2 — 20261118100000 applied (generation 6 still live; old frontend)");
+  group("Stage 2 — 20261118100000 applied: CONTAINMENT — older engines stop here (old frontend)");
   await check("an interrupted apply (failure after the last statement) rolls back completely: no new object, generation 6 unaffected", async () => {
     await admin.query("BEGIN");
     let failed = false;
@@ -235,18 +248,25 @@ async function main() {
     return (await authoritative(u0)) !== null && (await authoritative(u1)) !== null ? true : "authority lost";
   });
   const ent = await upload(ENT_ROWS, ENT_TITLE);
-  await check("generation 6 serves new uploads exactly as before the migration (the same file, the same outcome and authority)", async () => {
+  await check("CONTAINMENT: generation 6 is refused for every upload before any write — a new file (the wrong-entity file it accepted before) and the re-check of an accepted one", async () => {
+    const before = await footprint(ent);
     const r = await run(old.engine, ent);
-    const row = await one("SELECT status, is_valid FROM public.trial_balance_uploads WHERE id=$1", [ent.id]);
-    const c = await latestCert(ent);
-    const now = { http: r.http, status: row.status, is_valid: row.is_valid, blocking: c?.is_blocking, review: c?.requires_review, authoritative: (await authoritative(ent)) !== null };
-    console.log(`        (generation 6, before and after: ${JSON.stringify(baseline)})`);
-    return JSON.stringify(now) === JSON.stringify(baseline) ? true : { baseline, now };
+    const { op } = await requestRecheck(u2);
+    const before2 = await footprint(u2);
+    const r2 = await run(old.engine, u2, op);
+    return r.http >= 400 && (await footprint(ent)) === before && r2.http >= 400 && (await footprint(u2)) === before2 && (await latestCert(ent)) === null
+      ? true : { http: r.http, body: r.body, http2: r2.http, body2: r2.body };
+  });
+  await check("CONTAINMENT: the generation-6 attempt in flight across the migration finishes failed and certifies nothing", async () => {
+    const f = (await one("SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [flightRun, JSON.stringify({ outcome: "certified",
+      upload: { status: "needs_review", is_valid: false, processing_result: { status: "x" }, validation_report: { ok: true }, accounting_errors: [] },
+      certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: true, rows_snapshot: [], exceptions: [] } })])).r;
+    return f?.outcome === "failed" && f?.error_code === "ENGINE_GENERATION_SUPERSEDED" && (await latestCert(flight)) === null ? true : f;
   });
   await check("a generation-6 result carries no decision identity: no decision can be recorded on it (refused, nothing written)", async () => {
-    const c = await latestCert(ent);
+    const c = await latestCert(entOld);
     const d = (await asUser(U.owner, "SELECT public.record_tb_finding_decision($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9) r",
-      [ent.id, c.id, "ENTITY_NAME_DIFFERS", "invented rollout trading company", "same_entity", JSON.stringify({ confirmed: true }), "Same company, trading name", 0, uuid()]))[0].r;
+      [entOld.id, c.id, "ENTITY_NAME_DIFFERS", "invented rollout trading company", "same_entity", JSON.stringify({ confirmed: true }), "Same company, trading name", 0, uuid()]))[0].r;
     const n = Number((await one("SELECT count(*) n FROM public.tb_finding_decisions")).n);
     return d?.outcome === "refused" && n === 0 ? true : { d, n };
   });
@@ -255,11 +275,11 @@ async function main() {
     return r.http === 200 ? true : { http: r.http, body: r.body };
   });
 
-  group("Stage 3 — frontend published, then generation 7 deployed; generation-6 instances may still answer (mixed fleet)");
+  group("Stage 3 — frontend published, then generation 7 deployed: processing RESUMES (generation-6 instances still refused)");
   let entCert;
-  await check("generation 7 re-checks an upload certified by generation 6: the entity decision is required, the clearing balance is a review note", async () => {
-    const { op, acc } = await requestRecheck(ent);
-    const r = await run(neu.engine, ent, op);
+  await check("processing resumes: generation 7 checks the file generation 6 was refused — the entity decision is required, the clearing balance is a review note", async () => {
+    const acc = { outcome: "accepted" };
+    const r = await run(neu.engine, ent);
     const row = await one("SELECT status, processing_result FROM public.trial_balance_uploads WHERE id=$1", [ent.id]);
     entCert = await latestCert(ent);
     const req = (row.processing_result?.decisions_required ?? []).map((x) => x.code).join();
@@ -288,10 +308,13 @@ async function main() {
       && e?.decision?.action === "same_entity" && e.decision.resolves === true && c?.decision_required === false && !c.decision
       ? true : { http: r.http, body: r.body, status: row.status, e, c };
   });
-  await check("in the same fleet generation 6 still certifies an upload with no decisions (enforcement for it is not yet active)", async () => {
+  await check("a generation-6 instance still answering is refused for an upload with no decisions too (containment holds without the floor)", async () => {
     const u = await upload(PLAIN);
+    const before = await footprint(u);
     const r = await run(old.engine, u);
-    return r.http === 200 && (await authoritative(u)) !== null ? true : r.body;
+    const unchanged = (await footprint(u)) === before;
+    const r7 = await run(neu.engine, u);
+    return r.http >= 400 && unchanged && r7.http === 200 && (await authoritative(u)) !== null ? true : { http: r.http, unchanged, http7: r7.http };
   });
   await check("an existing generation-6 result re-checked by generation 7 gains the evaluation manifest and stays authoritative", async () => {
     const { op } = await requestRecheck(u1);
@@ -344,7 +367,7 @@ async function main() {
     let rows;
     try { rows = (await admin.query(sql)).rows; } finally { await admin.query("ROLLBACK"); }
     const listed = new Set(rows.map((r) => r.upload_id));
-    const gen6InForce = [u0].filter(Boolean);
+    const gen6InForce = [u0, entOld].filter(Boolean);
     return rows.every((r) => Number(r.engine_generation) < 7) && gen6InForce.every((u) => listed.has(u.id))
       && ![u1, ent, late].some((u) => listed.has(u.id)) ? true : { rows: rows.map((r) => [r.period_year, r.engine_generation]) };
   });

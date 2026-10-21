@@ -26,8 +26,15 @@
 --      the findings; every decision-taking finding carries its subject and a decision_required flag that the DATABASE
 --      recomputes from the rule and the workspace policy; a cited decision must be current; a non-resolving decision
 --      makes the result blocking; an accepted result leaves no REQUIRED finding without a current resolving decision.
---      Unknown generations are refused; an engine below 7 is refused for an upload that has decisions (at begin; and at
---      finalize, should a decision exist by then — defence in depth: a re-check invalidates the result decisions bind to).
+--      Unknown generations are refused.
+--   6. CONTAINMENT: from the moment this migration applies no engine below generation 7 begins a check
+--      (ENGINE_GENERATION_SUPERSEDED, before anything is written), and a run below 7 already in flight finishes failed and
+--      certifies nothing. No result can be certified under superseded rules after this point; processing resumes when
+--      generation 7 is deployed. Results already in force are not touched.
+--   7. SIGN-OFF ON THE CURRENT RULES: a NEW Reviewed or Final state of a statement derived from the trial balance needs the
+--      period's trial balance in force to be a generation-7 result (TRIAL_BALANCE_RECHECK_REQUIRED:<generation> otherwise;
+--      previewed by tb_signoff_rules_blocker, enforced on the one sign-off write). Earlier certifications, recorded
+--      sign-offs and issued packs are never touched or re-labelled.
 --   5. tb_investigations + tb_investigation_rows — a durable, unique reservation per upload (partial unique index, not an
 --      advisory lock) with a recoverable lease; the reader's own rows (included and excluded, source location, exact
 --      parsed minor amounts) are stored ONCE and read page by page (get_tb_investigation_rows) — the file is never parsed
@@ -36,12 +43,11 @@
 -- The trusted-handler boundary: the database cannot re-parse the file. It verifies what it can — every rule reported,
 -- outcomes consistent with the findings, requirements recomputed from rule and policy, every cited decision current and
 -- resolving, identities taken from the certification's own stored findings — and trusts the service-role engine
--- (process-trial-balance, generation 7) to have evaluated each rule truthfully. A manifest does not prove that. Generation
--- 7 is not enforced for uploads without decisions until processing_release_control.min_engine_generation is raised to 7.
+-- (process-trial-balance, generation 7) to have evaluated each rule truthfully. A manifest does not prove that.
 --
 -- PREFLIGHT: refuses if any object exists already or a prerequisite is missing; nothing is replaced silently.
--- Release order: this migration → process-trial-balance (generation 7) + trial-balance-layout (investigate) → frontend →
--- minimum generation 7.
+-- Release order: 20261117100000 → this migration (processing by older engines stops here) → frontend → process-trial-
+-- balance generation 7 + trial-balance-layout (processing resumes) → minimum generation 7 (the recorded floor).
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 DO $preflight$
@@ -50,13 +56,16 @@ BEGIN
      OR to_regprocedure('public._tb_bump_dependency(text, text)') IS NULL
      OR to_regprocedure('public._layout_actor(uuid, uuid)') IS NULL
      OR to_regprocedure('public.can_access_workspace(uuid)') IS NULL
-     OR to_regprocedure('public.workspace_capability_allowed(uuid, uuid, text)') IS NULL THEN
+     OR to_regprocedure('public.workspace_capability_allowed(uuid, uuid, text)') IS NULL
+     OR to_regclass('public.financial_statement_publications') IS NULL OR to_regclass('public.financial_statement_reports') IS NULL
+     OR to_regprocedure('public.get_authoritative_certification(uuid, integer)') IS NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: a prerequisite (findings, layouts, dependency revisions, workspace access) is missing; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
   IF to_regclass('public.tb_decision_actions') IS NOT NULL OR to_regclass('public.tb_decision_rules') IS NOT NULL
      OR to_regclass('public.tb_finding_decisions') IS NOT NULL OR to_regclass('public.tb_finding_policies') IS NOT NULL
      OR to_regclass('public.tb_investigations') IS NOT NULL OR to_regclass('public.tb_investigation_rows') IS NOT NULL
-     OR to_regprocedure('public.record_tb_finding_decision(uuid, uuid, text, text, text, jsonb, text, integer, uuid)') IS NOT NULL THEN
+     OR to_regprocedure('public.record_tb_finding_decision(uuid, uuid, text, text, text, jsonb, text, integer, uuid)') IS NOT NULL
+     OR to_regprocedure('public.tb_signoff_rules_blocker(uuid, text, integer)') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: finding decisions are already in force; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END;
@@ -913,10 +922,12 @@ BEGIN
   IF coalesce(p_engine_generation, 0) < 4 AND EXISTS (SELECT 1 FROM public.layout_confirmations lc WHERE lc.upload_id = p_upload_id) THEN
     RETURN jsonb_build_object('outcome', 'refused', 'code', 'LAYOUT_REQUIRES_CURRENT_ENGINE');
   END IF;
-  -- [20261118100000] An engine below generation 7 cannot read finding decisions, and one newer than this database is not
-  -- understood by tb_finalize_attempt: both are refused here, before anything is written.
-  IF coalesce(p_engine_generation, 0) < 7 AND EXISTS (SELECT 1 FROM public.tb_finding_decisions d WHERE d.upload_id = p_upload_id) THEN
-    RETURN jsonb_build_object('outcome', 'refused', 'code', 'DECISIONS_REQUIRE_CURRENT_ENGINE');
+  -- [20261118100000] CONTAINMENT: from the moment this migration applies, no engine below generation 7 begins a check —
+  -- it would evaluate under superseded rules (no required entity decision, no evaluation record). Processing resumes when
+  -- generation 7 is deployed. One newer than this database is not understood by tb_finalize_attempt. Both are refused
+  -- here, before anything is written.
+  IF coalesce(p_engine_generation, 0) < 7 THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'ENGINE_GENERATION_SUPERSEDED');
   END IF;
   IF p_engine_generation > public.tb_max_engine_generation() THEN
     RETURN jsonb_build_object('outcome', 'refused', 'code', 'ENGINE_GENERATION_UNSUPPORTED');
@@ -1190,20 +1201,19 @@ BEGIN
   -- [20261118100000] The requirement each decision-taking finding states is the database's own (rule + workspace policy);
   -- every decision a finding cites is current for this upload; a non-resolving decision makes the result blocking; and an
   -- accepted result leaves no REQUIRED finding without a current, resolving decision.
-  -- A run below generation 7 that BEGAN before a decision was recorded for this upload (tb_begin_attempt refuses one
-  -- that begins after) cannot have read it, and the decision is not one of its dependencies: in a mixed fleet it would
-  -- otherwise certify past the decision. It finishes as a failure instead; the authoritative result is not replaced.
-  IF v_outcome = 'certified' AND coalesce(v_gen, 0) < 7
-     AND EXISTS (SELECT 1 FROM public.tb_finding_decisions d WHERE d.upload_id = v_row.id) THEN
+  -- CONTAINMENT: a run below generation 7 that began before this migration applied (tb_begin_attempt refuses any that
+  -- begins after) evaluated under superseded rules: it finishes as a failure and certifies nothing; the result in force is
+  -- not replaced.
+  IF v_outcome = 'certified' AND coalesce(v_gen, 0) < 7 THEN
     v_outcome := 'failed';
-    v_code := 'DECISIONS_REQUIRE_CURRENT_ENGINE';
+    v_code := 'ENGINE_GENERATION_SUPERSEDED';
     v_up := jsonb_build_object(
       'status', 'error', 'is_valid', false,
-      'accounting_errors', jsonb_build_array(jsonb_build_object('code', 'DECISIONS_REQUIRE_CURRENT_ENGINE',
-        'message', 'A decision was recorded while an older version of the check ran. Run the check again.')),
+      'accounting_errors', jsonb_build_array(jsonb_build_object('code', 'ENGINE_GENERATION_SUPERSEDED',
+        'message', 'This check ran on a version of the checks that has been replaced. Run the check again.')),
       'processing_result', jsonb_build_object('status', 'blocked', 'statements', NULL,
-        'errors', jsonb_build_array(jsonb_build_object('code', 'DECISIONS_REQUIRE_CURRENT_ENGINE',
-          'message', 'A decision was recorded while an older version of the check ran. Run the check again.')),
+        'errors', jsonb_build_array(jsonb_build_object('code', 'ENGINE_GENERATION_SUPERSEDED',
+          'message', 'This check ran on a version of the checks that has been replaced. Run the check again.')),
         'validation_report', '{}'::jsonb),
       'validation_report', NULL);
   END IF;
@@ -1287,8 +1297,69 @@ $$;
 REVOKE ALL ON FUNCTION public.tb_finalize_attempt(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.tb_finalize_attempt(uuid, jsonb) TO service_role;
 
+-- ── 7. Sign-off on the current rules (the re-check gate) ─────────────────────────────────────────────────────────────
+-- A NEW Reviewed or Final state of a statement derived from the trial balance requires the period's trial balance in
+-- force to have been evaluated under the current rules (engine generation 7). A result accepted earlier stays in force
+-- with its history: nothing here invalidates, rewrites or re-labels a certification, a sign-off already recorded or an
+-- issued pack. It is checked again ("Check again under the current checks", the one reprocess path) before a NEW
+-- sign-off; the comparative year is used as reported. The preview (tb_signoff_rules_blocker, read by the sign-off page)
+-- and the enforcement (the trigger on the one sign-off write) share this one function.
+CREATE OR REPLACE FUNCTION public._tb_signoff_rules_blocker(p_company_id uuid, p_report_id text, p_report_version integer)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_report public.financial_statement_reports%ROWTYPE;
+  v_gen integer;
+  v_found boolean;
+BEGIN
+  SELECT * INTO v_report FROM public.financial_statement_reports r
+   WHERE r.company_id = p_company_id AND r.report_id = p_report_id AND r.report_version = p_report_version;
+  IF v_report.id IS NULL OR v_report.provenance_origin IS DISTINCT FROM 'TRIAL_BALANCE_DERIVED' THEN RETURN NULL; END IF;
+  SELECT er.engine_generation, true INTO v_gen, v_found
+    FROM public.get_authoritative_certification(p_company_id, v_report.period_year) c
+    JOIN public.engine_runs er ON er.id = c.engine_run_id;
+  -- No authority: the existing blockers already refuse it (nothing to add here).
+  IF NOT coalesce(v_found, false) THEN RETURN NULL; END IF;
+  IF coalesce(v_gen, 0) < 7 THEN RETURN 'TRIAL_BALANCE_RECHECK_REQUIRED:' || coalesce(v_gen, 0)::text; END IF;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._tb_signoff_rules_blocker(uuid, text, integer) FROM PUBLIC, anon, authenticated;
+
+-- The preview for the sign-off page: the one blocker, or null. Members of the workspace only.
+CREATE OR REPLACE FUNCTION public.tb_signoff_rules_blocker(p_company_id uuid, p_report_id text, p_report_version integer)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN jsonb_build_object('outcome', 'unauthenticated'); END IF;
+  IF NOT public.can_access_workspace(p_company_id) THEN RETURN jsonb_build_object('outcome', 'not_found'); END IF;
+  RETURN jsonb_build_object('outcome', 'ok', 'blocker', public._tb_signoff_rules_blocker(p_company_id, p_report_id, p_report_version));
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tb_signoff_rules_blocker(uuid, text, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.tb_signoff_rules_blocker(uuid, text, integer) TO authenticated;
+
+-- The enforcement: the one sign-off write (fs_set_publication_state inserts the state) refuses a NEW Reviewed or Final
+-- state while the blocker stands, before anything is recorded. Earlier rows are never touched.
+CREATE OR REPLACE FUNCTION public.tb_signoff_requires_current_rules()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_blocker text;
+BEGIN
+  IF NEW.state NOT IN ('REVIEWED', 'FINAL') THEN RETURN NEW; END IF;
+  v_blocker := public._tb_signoff_rules_blocker(NEW.company_id, NEW.report_id, NEW.report_version);
+  IF v_blocker IS NOT NULL THEN
+    RAISE EXCEPTION 'PUBLICATION_BLOCKED: %', v_blocker USING ERRCODE = 'P0001',
+      HINT = 'The trial balance in force was checked before the current checks. Check it again, then save a new version.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.tb_signoff_requires_current_rules() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER trg_fsp_requires_current_rules BEFORE INSERT ON public.financial_statement_publications
+  FOR EACH ROW EXECUTE FUNCTION public.tb_signoff_requires_current_rules();
+
+
 -- ── Rollback (manual; only before any decision or generation-7 certification exists) ─────────────────────────────────
 -- Re-run the 20261107100000 definitions of tb_snapshot_dependencies, tb_begin_attempt and tb_finalize_attempt; then
 -- DROP TRIGGER trg_companies_bump_entity ON public.companies; DROP TABLE public.tb_investigations,
 -- public.tb_finding_decisions, public.tb_decision_actions; restore tb_certification_invalidations_reason_check without
--- 'finding_decision'; and drop the functions this migration created.
+-- 'finding_decision'; DROP TRIGGER trg_fsp_requires_current_rules ON public.financial_statement_publications; and drop
+-- the functions this migration created. Rolling back re-opens processing to older engines.
