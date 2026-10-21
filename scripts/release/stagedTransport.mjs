@@ -190,12 +190,16 @@ ${predecessorCheck("the transport bootstrap")}
   ALTER TABLE cfoclose_release.transport_events ENABLE ROW LEVEL SECURITY;
   REVOKE ALL ON SCHEMA cfoclose_release FROM PUBLIC;
   REVOKE ALL ON ALL TABLES IN SCHEMA cfoclose_release FROM PUBLIC;
-  REVOKE ALL ON ALL FUNCTIONS IN SCHEMA cfoclose_release FROM PUBLIC;
+  REVOKE EXECUTE ON FUNCTION cfoclose_release.approved_artifact(text, text) FROM PUBLIC;
+  REVOKE EXECUTE ON FUNCTION cfoclose_release.staged_artifacts_guard() FROM PUBLIC;
+  REVOKE EXECUTE ON FUNCTION cfoclose_release.append_only_guard() FROM PUBLIC;
   FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
       EXECUTE format('REVOKE ALL ON SCHEMA cfoclose_release FROM %I', v_role);
       EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA cfoclose_release FROM %I', v_role);
-      EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA cfoclose_release FROM %I', v_role);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION cfoclose_release.approved_artifact(text, text) FROM %I', v_role);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION cfoclose_release.staged_artifacts_guard() FROM %I', v_role);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION cfoclose_release.append_only_guard() FROM %I', v_role);
     END IF;
   END LOOP;
 END
