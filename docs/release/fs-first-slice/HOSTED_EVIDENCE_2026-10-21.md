@@ -1,7 +1,52 @@
 # FS first slice — hosted evidence, 2026-10-21 (UTC)
 
-Target: Lovable Cloud backend (one instance serves preview and published app). Frontend NOT published.
-Backup observed by the owner (screenshot): completed 2026-10-20 00:35:28 UTC, Restore available. Nothing restored.
+Target: Lovable Cloud backend (one instance serves preview and published app). The owner confirmed frontend publication
+at the TB release checkpoint. The published entry `/assets/index-DRTL3qa3.js`, inspected on 2026-10-22, references both
+ReportingWorkbenchPage and CloseFindings. No further frontend publication is needed for the company rollout change below.
+Current recovery evidence: owner screenshot, completed backup 2026-10-22 01:23:39 UTC, Restore available. Nothing restored.
+The earlier 2026-10-20 00:35:28 UTC backup observation is retained as historical evidence.
+
+## 2026-10-22 close-out — TB resumed; FS owner testing enabled
+
+- Independently read processing controls: hold=false, minimum generation=7, canaries=[], version=8,
+  reason `Resume after successful generation-7 release test`; changed at 2026-10-22 12:22:46.688792 UTC.
+- Acceptance FY2025 upload `64b8b373-8ae5-4382-a789-f5b7ab1cd708`: status complete, ingestion.rules_generation=7.
+  Run `4f4e15f4-9dba-4aa4-bce1-5c98d7b61dd6`: completed 2026-10-22 12:19:57.210553 UTC, engine_generation=7,
+  duration 749ms, no error_code/error_detail. The owner screenshot shows reviewed and debit=credit 64400.
+- Owner reports both committed TB postconditions re-executed in explicit READ ONLY transactions with no exception.
+  This is owner-supplied execution evidence, not a new agent execution of those scripts.
+- Independent comparison of deployed function source remains **UNAVAILABLE, OWNER-ACCEPTED**, never PASS.
+  The owner explicitly accepted proceeding without this comparison; no function was redeployed in this close-out.
+- Before activation: acceptance and other recorded company gates false; kill_switch=false; 2 complete sign-off rows,
+  digest `de1e521b8731b1fc5f30ee4a15c17a0834838fb0530335696aceb5fda8f78642`.
+- Activated ONLY `659daa94-116c-4803-99f8-157e0bdd4c62` using the committed operator-script pattern:
+  transaction-scoped service_role, service-role claim, then existing `fs_set_company_rollout(uuid,true,reason,operator)`.
+  No direct rollout table write, owner JWT impersonation, permission change or sign-off policy change.
+- Verified audit seq **5**, id `c7e1f6e6-267e-4c27-90e4-165b8312e5d5`, at **2026-10-22 12:26:01.636512 UTC**:
+  scope COMPANY, previous_state=false, new_state=true, operator `Lovable release operator (owner-authorized)`,
+  reason `Owner-authorized FS acceptance access after successful generation-7 canary and processing resume; 2026-10-22`.
+- After activation: exactly one recorded company enabled (acceptance); other recorded company
+  `e18d3218-185c-47cf-a4ef-1de4e02c6a83` stays false; kill_switch stays false.
+- Complete-row sign-off digest and count unchanged. Seq 1 REVIEWED row digest `77bbb1ef…0138` and seq 2 FINAL
+  row digest `d217672c…9fbd` match the original full hashes below. Saved v6 document hash and recomputed hash both
+  remain `ca9c61fe4982845aa055e561a5ff2232ddf6e8539311ad9f24cec1dc9cb016d6`. Sign-off policy events remain 0.
+- Existing frontend gates: WORKBENCH_NAVIGATION_ENABLED=true, REPORTING_PAGES_SHIPPED=true. Close Review,
+  Financial Statements and Sign-off & Exports navigation already derive from the server's per-company rollout answer.
+  The legacy global FINANCIAL_STATEMENTS_WORKSPACE_ENABLED stays false. No service/configuration edit is needed.
+- Relevant navigation/activation tests: **31/31 passed**. No migration, function deployment or automatic publication.
+
+**Owner starting URL:** https://cfoclose.com/workspace/659daa94-116c-4803-99f8-157e0bdd4c62/2025/statements
+
+Close Review: https://cfoclose.com/workspace/659daa94-116c-4803-99f8-157e0bdd4c62/2025/close/findings
+
+Authenticated browser readback was not completed: managed session minting with `--self` found no auth user matching
+the requesting Lovable email. No account was guessed, no identity impersonated, and no permission granted. The owner
+must open the starting URL with their existing accepted owner account. This is **enabled for owner testing**, not
+completed production/accounting acceptance. J1–J6 remain independently exercisable; later role-separated approval is
+not a prerequisite for those steps. Existing REVIEWED/FINAL versions must be preserved; no sign-off policy is selected
+automatically. General customer FS availability remains disabled.
+
+## Historical 2026-10-21 evidence (superseded where noted above)
 
 ## Database (DONE)
 
@@ -75,7 +120,7 @@ so `verifyDeployedClosure.mjs` cannot run here; it needs the CLI (`supabase func
   - Solo owner: on Sign-off (`/workspace/659daa94-116c-4803-99f8-157e0bdd4c62/2025/signoff`) choose "Allow the owner to
     review and approve (solo owner)", give a reason and confirm the statement. This does not test role separation.
 
-## Verdict
+## Historical verdict (2026-10-21; superseded by close-out above)
 
 NOT READY TO PUBLISH. Open: (1) deployed-bundle closure verification of the two functions, which no connected tool can
 do (CLI download, then `verifyDeployedClosure.mjs`); (2) the owner enables the demo company once (1) is done, and runs

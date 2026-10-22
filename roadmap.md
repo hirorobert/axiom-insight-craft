@@ -3,6 +3,15 @@
 This is the ONE status file for this programme. It is updated in place; earlier notes are kept at the bottom.
 `docs/redesign-preview/RELEASE-CANDIDATE-STATUS.md` remains the status of the separate release candidate (#127) only.
 
+## Current hosted release close-out — 2026-10-22
+
+- [x] Read back resumed TB generation-7 controls and the completed FY2025 acceptance run; retain owner postcondition evidence.
+- [x] Enable only acceptance company FS through the audited operator function; verify audit, other gates and original FINAL/bindings.
+- [x] Confirm existing published reporting navigation, pass 31 focused checks, and update hosted evidence with the owner-accepted source-comparison exception.
+- [ ] Authenticated owner FS journey: waiting on the owner opening the existing FY2025 Statements URL; role-separated sign-off remains an explicit owner decision.
+
+The programme descriptions below are historical; current hosted evidence is in `docs/release/fs-first-slice/HOSTED_EVIDENCE_2026-10-21.md`.
+
 **Status words used here, and nothing stronger:**
 - **IMPLEMENTED — UNVERIFIED**: code exists; no passing evidence yet.
 - **VERIFIED IN ISOLATION**: passing unit tests and/or real-PostgreSQL proofs, without the full stack.
