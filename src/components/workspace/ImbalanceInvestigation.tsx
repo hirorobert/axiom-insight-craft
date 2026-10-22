@@ -53,7 +53,7 @@ export function ImbalanceInvestigation({ client, uploadId, certificationId, rpc 
 
   if (state.kind === "done") {
     const r = state.result;
-    const last = r.printed.at(-1) ?? null;
+    const last = r.printed[r.printed.length - 1] ?? null;
     return (
       <section aria-labelledby="investigation-title" className="space-y-3 text-[13px]" data-testid="imbalance-investigation">
         <h3 id="investigation-title" className="font-medium text-foreground">Likely causes in this file</h3>
