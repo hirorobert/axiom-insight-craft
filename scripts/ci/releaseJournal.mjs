@@ -362,6 +362,12 @@ export const RELEASE_JOURNAL = {
   // Hosted id 71; when 1792656911705. Pin the exact source and mirror; earlier TB sources stay pending.
   "0070_customer_checkout_abandon": { kind: "release_verbatim", source: "20261119100000_customer_checkout_abandon.sql",
     bytes: 4839, digest: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", sha256: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", outOfOrder: true },
+  // Trial Balance staged release (scripts/release/tbStagedTransport.mjs, merged d17ba53), applied 2026-10-22 by Lovable's
+  // hosted migrator, each submitted once in its registered no-final-LF form. Hosted id 72: bootstrap (covers no source);
+  // ids 73/74: tb-portfolio-a1 and tb-decisions-b1, each executing its byte-verified ORIGINAL wrapper and postcondition.
+  "0071_tb_release_staged_transport": { kind: "tb_staged_transport", sha256: "b1e2a1351880e13ccfa7823a38433cdfb4118d019fd2a5aeb7ff0a31796cb7d0" },
+  "0072_tb_portfolio_a1_staged_apply": { kind: "tb_staged_transport", sha256: "9076155c3babd11183f7bcb0860e14017c11c61a956a29720f93cdd9643ed323" },
+  "0073_tb_decisions_b1_staged_apply": { kind: "tb_staged_transport", sha256: "a00b66ceaf9aced7b5017e445d9b1c32614ac606d70c0500feb1d10010263b03" },
 };
 
 /**
