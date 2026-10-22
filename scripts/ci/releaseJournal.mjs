@@ -346,6 +346,17 @@ export const RELEASE_JOURNAL = {
   "0063_period_currency_correction": { kind: "release_self_checking_wrapper", source: "20261113100000_period_currency_correction.sql",
     bytes: 34382, digest: "91d098a5e6958ac2529fee1005ddc500e0fdbb072635ba3a1967840d3378466d",
     form: "wrapper_final_lf_removed", submittedBytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc", outOfOrder: true },
+  // Financial-statements staged release (scripts/release/stagedTransport.mjs, reviewed 78e923d; originals from daa23e4),
+  // applied 2026-10-21 by Lovable's hosted migrator, each submitted once in its registered no-final-LF form.
+  // hosted id 65; "when" 1792601984044. Bootstrap of the private cfoclose_release schema; covers no source.
+  "0064_fs_release_staged_transport": { kind: "staged_transport", sha256: "ea6e6ec703b42a9e2d100d2be70c609587d551655a56c89bf605c719afffaf32" },
+  // hosted ids 66–70; "when" 1792602300202 / 1792602338481 / 1792602377600 / 1792602414913 / 1792602453026. Each executed
+  // its batch's staged preflight, ORIGINAL wrapper and postcondition (byte-verified) in one transaction.
+  "0065_fs_controls_r1_staged_apply": { kind: "staged_transport", sha256: "c845a02ca49f43bb5b55e69ad26a77b6af32f3fcda45f9fb0bdb74eee8ce9653" },
+  "0066_fs_journey_r1_staged_apply": { kind: "staged_transport", sha256: "a421b7f9587f54d6c14077976ad2f42f2e5d8641fd2394b682b7cc5092d3217b" },
+  "0067_fs_bounds_r1_staged_apply": { kind: "staged_transport", sha256: "1c6cb96f22e317b35d3c2e2b574ea99786500c5df46ce5d44b61bee418377d54" },
+  "0068_fs_capacity_r1_staged_apply": { kind: "staged_transport", sha256: "0589f056ef0165c6b52adeb5d146a8cc58267682ba6b91c3cd7e2ffc96833008" },
+  "0069_fs_memo_r1_staged_apply": { kind: "staged_transport", sha256: "dbff469ea43ae9c2f364cb602165c727d29cc6a96eade7d7f7217af4b0e2a496" },
 };
 
 /**
