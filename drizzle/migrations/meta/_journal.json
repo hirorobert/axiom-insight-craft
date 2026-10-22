@@ -498,6 +498,13 @@
       "when": 1792656911705,
       "tag": "0070_customer_checkout_abandon",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792669890489,
+      "tag": "0071_tb_release_staged_transport",
+      "breakpoints": true
     }
   ]
 }
