@@ -694,6 +694,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/tbDecisionsRollout.mjs",
       // Trial-balance exact-byte release transport: generator plus loopback-only disposable PostgreSQL proof. No deploy behaviour.
       "scripts/release/tbStagedTransport.mjs", "scripts/db-proof/tbStagedTransport.mjs",
+      // Existing loopback-only FS transport rehearsal: pin its historical source/journal boundary, never hosted execution.
+      "scripts/db-proof/stagedTransport.mjs",
       // The commercial candidate (commercial-c1): enquiry additions and the retirement of browser adjusting-journal writes.
       "scripts/db-proof/commercialEnquiries.mjs", "scripts/db-proof/legacyAdjustmentsRetirement.mjs", "scripts/db-proof/workspacePurpose.mjs", "scripts/db-proof/periodFromCompany.mjs",
       // Online payment (commercial-p1): the loopback-only payment authority proof.
