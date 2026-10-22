@@ -682,8 +682,8 @@ export const SUBMISSION_FORMS = Object.freeze({
   "20261118100000_tb_finding_decisions.sql": Object.freeze({
     identical: Object.freeze({ bytes: 99185, sha256: "223d15e3e7ee2d941af1c4152f7c206b6aceabee96624ae990b8ddf4282db216" }),
     finalLfRemoved: Object.freeze({ bytes: 99184, sha256: "38ae60d9b945b314c5922a44726237dbe0c393ba587c27313fc1199f72ba8a75" }),
-    wrapper: Object.freeze({ bytes: 100747, sha256: "5f1187a8a1724053fc11fefadc952540f74454f88bf3d9aae4600ae32ba03b46" }),
-    wrapperFinalLfRemoved: Object.freeze({ bytes: 100746, sha256: "b89ac445e32a719e0f2180a05a8e9dbf3bd75d3711b6f2f0ff78070d9eafb955" }),
+    wrapper: Object.freeze({ bytes: 100714, sha256: "dab3fa1720468119b5f24f97ed045c2116f7a086c75125e1db9f45f9b5b8e4d8" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 100713, sha256: "2869a20477367df2542676b0bf4c0aadc074a8420107241578f18df325916efa" }),
   }),
 });
 
