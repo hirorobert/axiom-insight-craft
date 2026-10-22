@@ -6752,6 +6752,24 @@ export type Database = {
         }
         Relationships: []
       }
+      portfolio_revisions: {
+        Row: {
+          changed_at: string
+          company_id: string
+          revision: number
+        }
+        Insert: {
+          changed_at?: string
+          company_id: string
+          revision?: number
+        }
+        Update: {
+          changed_at?: string
+          company_id?: string
+          revision?: number
+        }
+        Relationships: []
+      }
       privileged_reauth: {
         Row: {
           consumed_at: string | null
@@ -10183,6 +10201,11 @@ export type Database = {
       }
       _plan_lock_key: { Args: { p_account: string }; Returns: number }
       _plan_write_lock: { Args: { p_account: string }; Returns: undefined }
+      _portfolio_bump: { Args: { p_company_id: string }; Returns: undefined }
+      _portfolio_visible_companies: {
+        Args: { p_user: string }
+        Returns: string[]
+      }
       _processing_control_state: { Args: never; Returns: Json }
       _record_payment_reversal_core: {
         Args: {
@@ -11555,6 +11578,10 @@ export type Database = {
       }
       get_access_matrix: { Args: never; Returns: Json }
       get_access_overview: { Args: never; Returns: Json }
+      get_account_home: {
+        Args: { p_limit?: number; p_withheld: string[] }
+        Returns: Json
+      }
       get_authoritative_certification: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: {
@@ -11823,6 +11850,19 @@ export type Database = {
         }
         Returns: Json
       }
+      list_portfolio_engagements: {
+        Args: {
+          p_cursor: Json
+          p_limit: number
+          p_period_year: number
+          p_purposes: string[]
+          p_search: string
+          p_sort: string
+          p_statuses: string[]
+        }
+        Returns: Json
+      }
+      list_portfolio_entities: { Args: { p_limit?: number }; Returns: Json }
       list_purgeable_trial_balance_sources: {
         Args: { p_company_id: string }
         Returns: {
