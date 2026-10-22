@@ -1,12 +1,12 @@
 /** Shared signed-in frame. Presentation only; permissions remain server-owned. */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Building2, HelpCircle, LayoutGrid, Menu, Settings, Users, CreditCard } from "lucide-react";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { channel, mailtoHref } from "@/lib/contact/contactChannels";
 import { AccountUserMenu, type AccountIdentity } from "./AccountUserMenu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 
 const ACCOUNT_NAV = [
@@ -15,13 +15,13 @@ const ACCOUNT_NAV = [
 ] as const;
 const REPORTING_STEPS = ["Company setup", "Trial Balance", "Close Review", "Financial Statements", "Sign-off & export"] as const;
 
-function AccountRail({ setup = false }: { setup?: boolean }) {
+function AccountRail({ setup = false, onNavigate }: { setup?: boolean; onNavigate?: () => void }) {
   const { pathname, search } = useLocation();
   return <div className="flex h-full flex-col px-3 py-5">
     <nav aria-label="Account navigation" className="space-y-1">
       {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => {
         const active = !setup && (to === "/dashboard" ? pathname === "/dashboard" : pathname === "/settings" && new URLSearchParams(search).get("section") === "companies");
-        return <Link key={to} to={to} state={to === "/dashboard" ? { forceHub: true } : undefined} aria-current={active ? "page" : undefined} className={`account-rail-link ${active ? "account-rail-link-active" : ""}`}>
+        return <Link key={to} to={to} onClick={onNavigate} state={to === "/dashboard" ? { forceHub: true } : undefined} aria-current={active ? "page" : undefined} className={`account-rail-link ${active ? "account-rail-link-active" : ""}`}>
           <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />{label}
         </Link>;
       })}
@@ -36,19 +36,20 @@ function AccountRail({ setup = false }: { setup?: boolean }) {
       </ol>
       <p className="mt-4 px-3 text-xs leading-5 text-white/70">{setup ? "Set up the company and its reporting period to begin." : "Choose an engagement to see its progress."}</p>
     </div>
-    <div className="mt-auto border-t border-white/15 pt-4"><Link to="/contact" className="account-rail-link"><HelpCircle className="h-4 w-4" aria-hidden="true" />Help & support</Link></div>
+    <div className="mt-auto border-t border-white/15 pt-4"><Link to="/contact" onClick={onNavigate} className="account-rail-link"><HelpCircle className="h-4 w-4" aria-hidden="true" />Help & support</Link></div>
   </div>;
 }
 
 export function AccountShell({ children, onSignOut, mainClassName = "w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-7", identity, setup = false }: {
   children: ReactNode; onSignOut: () => void | Promise<void>; mainClassName?: string; identity?: AccountIdentity; setup?: boolean;
 }) {
+  const [navigationOpen, setNavigationOpen] = useState(false);
   return <div className="flex min-h-screen flex-col bg-background" data-testid="account-shell">
     <a href="#account-main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[60] focus:bg-background focus:p-3">Skip to content</a>
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <Sheet><SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></SheetTrigger>
-          <SheetContent side="left" className="account-rail w-64 border-0 p-0 pt-8"><SheetTitle className="sr-only">Navigation</SheetTitle><AccountRail setup={setup} /></SheetContent></Sheet>
+        <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}><SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></SheetTrigger>
+          <SheetContent side="left" className="account-rail w-64 border-0 p-0 pt-8"><SheetTitle className="sr-only">Navigation</SheetTitle><SheetDescription className="sr-only">Choose an account page or reporting workspace.</SheetDescription><AccountRail setup={setup} onNavigate={() => setNavigationOpen(false)} /></SheetContent></Sheet>
         <Link to="/dashboard" state={{ forceHub: true }} aria-label="CFOClose home" className="shrink-0"><CFOCloseWordmark className="text-lg" /></Link>
         <span className="hidden border-l border-border pl-5 text-[13px] font-medium text-muted-foreground lg:block">Your practice</span>
       </div>

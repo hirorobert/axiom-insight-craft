@@ -36,17 +36,22 @@ let db;
 
 async function main() {
   db = await openDatabase("journalled_runner_proof");
+  const journal = JSON.parse(fs.readFileSync(path.join(REPO, "drizzle/migrations/meta/_journal.json"), "utf8"));
+  const last = journal.entries.find((e) => e.tag === "0063_period_currency_correction");
+  if (!last) throw new Error("Historical journal boundary 0063 missing");
+  const historicalJournal = { ...journal, entries: journal.entries.filter((e) => e.idx <= last.idx) };
+  const chain = currentChain(REPO);
+  const sourceEnd = chain.indexOf("20261113100000_period_currency_correction.sql");
+  if (sourceEnd < 0) throw new Error("Historical source boundary missing");
   const fsSources = new Set(RELEASE_BATCHES.filter((b) => FIVE.includes(b.id)).flatMap((b) => b.sources));
   group("Base — main's schema before the slice; the journal head is the hosted 0063 row");
   await check("the chain without the five FS migrations applies; the journal holds exactly the 0063 row", async () => {
-    for (const f of currentChain(REPO)) {
+    for (const f of chain.slice(0, sourceEnd + 1)) {
       if (fsSources.has(f)) continue;
       let t = migrationSql(REPO, f);
       if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
       await db.admin.query(t);
     }
-    const journal = JSON.parse(fs.readFileSync(path.join(REPO, "drizzle/migrations/meta/_journal.json"), "utf8"));
-    const last = journal.entries[journal.entries.length - 1];
     await db.admin.query("CREATE SCHEMA IF NOT EXISTS drizzle; CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)");
     await db.admin.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)", [sha256(fs.readFileSync(path.join(REPO, "drizzle/migrations", `${last.tag}.sql`))), last.when]);
     const n = await db.count("SELECT count(*) n FROM drizzle.__drizzle_migrations");
@@ -60,7 +65,8 @@ async function main() {
   // The repository mirror the runner extends: a copy with the journal and the 0063 mirror.
   const mirror = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-mirror-"));
   fs.mkdirSync(path.join(mirror, "meta"));
-  for (const f of ["0063_period_currency_correction.sql", "meta/_journal.json", "meta/0063_snapshot.json"]) fs.copyFileSync(path.join(REPO, "drizzle/migrations", f), path.join(mirror, f));
+  fs.writeFileSync(path.join(mirror, "meta/_journal.json"), JSON.stringify(historicalJournal));
+  for (const f of ["0063_period_currency_correction.sql", "meta/0063_snapshot.json"]) fs.copyFileSync(path.join(REPO, "drizzle/migrations", f), path.join(mirror, f));
   const journalRows = () => db.admin.query("SELECT id, hash, created_at::text AS created_at FROM drizzle.__drizzle_migrations ORDER BY id").then((r) => r.rows);
   const audits = () => db.count("SELECT count(*) n FROM public.financial_statements_rollout_audit WHERE company_id = $1", [A]);
   const enabled = () => db.one("SELECT enabled FROM public.financial_statements_rollout_companies WHERE company_id = $1", [A]).then((r) => r?.enabled ?? null);
