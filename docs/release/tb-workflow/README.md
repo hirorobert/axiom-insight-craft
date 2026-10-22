@@ -80,7 +80,7 @@ run twice — the old engine as main `daa23e4` and as the hosted `942764f` closu
 | 1 | Apply `tb-portfolio-a1` (`20261117100000`, wrapper; postcondition `docs/release/tb-portfolio-a1/postcondition.sql`) | Generation 6 keeps certifying through the new triggers; results in force stay in force; the old frontend calls none of it |
 | 2 | Apply `tb-decisions-b1` (`20261118100000`, wrapper; postcondition `docs/release/tb-decisions-b1/postcondition.sql`) | **Containment starts here, by construction.** No engine below generation 7 can begin a check (refused before any write, `ENGINE_GENERATION_SUPERSEDED`); an attempt begun before the apply finishes failed and certifies nothing. **Processing pauses** until step 4: a person who uploads sees "This check could not start. Refresh and try again."; nothing is written. Results in force stay in force. An interrupted apply rolls back completely |
 | 3 | **Publish the frontend** | Needs steps 1–2 (without them the home reads "unavailable" — fails closed) |
-| 4 | Deploy `process-trial-balance` generation 7 (closure `01ac6e4e…6bd7`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | **Processing resumes** (§6.1). Generation-6 instances still answering stay refused for every upload; generation 7 completes the requests they were refused |
+| 4 | Deploy `process-trial-balance` generation 7 (closure `89dfebd2…34e3`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | **Processing resumes** (§6.1). Generation-6 instances still answering stay refused for every upload; generation 7 completes the requests they were refused |
 | 5 | Raise `min_engine_generation` to 7 (`admin_set_processing_control`; reason; version-checked; it only rises) | Records the floor in the control row as well; containment does not depend on it |
 
 ### 6.1 Containment and when processing can safely resume
@@ -93,7 +93,7 @@ run twice — the old engine as main `daa23e4` and as the hosted `942764f` closu
 * **The processing pause** is the interval between step 2 and step 4. Perform steps 2–4 back to back. Uploads made
   during it are stored and stay ready; nothing is lost or half-written.
 * **Resume when, and only when, all of these hold** (each is checked, none assumed):
-  1. `scripts/release/verifyDeployedClosure.mjs` reports `process-trial-balance` = `01ac6e4e…6bd7` live;
+  1. `scripts/release/verifyDeployedClosure.mjs` reports `process-trial-balance` = `89dfebd2…34e3` live;
   2. one real check of a test upload in an internal workspace returns 200 and its run records `engine_generation = 7`;
   3. the decisions postcondition reports `POSTCONDITION OK.`
   Until then the system is safe — paused and fail-closed — never degraded into old rules.
