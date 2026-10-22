@@ -30,6 +30,7 @@ import { callCommercialRpc, requestPaymentVerificationRecovery } from "@/lib/com
 import { getCheckoutOptions, getProviderDiagnostics, type CheckoutOptions } from "@/lib/commercial/checkoutClient";
 import { accountEligibility, isCheckoutOptions, parseProviderDiagnostics, platformLabel, providerLine, type ProviderDiagnostic } from "@/lib/commercial/onlinePaymentStatus";
 import { formatMoney } from "@/lib/commercial/planOffers";
+import { ProcessingControlPanel } from "@/components/commercial/ProcessingControlPanel";
 
 type Rpc = (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
 async function rpc(fn: string, args: Record<string, unknown> = {}) {
@@ -130,6 +131,7 @@ export default function CommercialAdmin() {
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
           <TabsTrigger value="platform">Online payment</TabsTrigger>
+          <TabsTrigger value="processing">Processing</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payments" className="space-y-6">
@@ -177,6 +179,7 @@ export default function CommercialAdmin() {
         <TabsContent value="accounts"><Accounts act={act} busy={busy} /></TabsContent>
         <TabsContent value="offers"><Offers act={act} busy={busy} /></TabsContent>
         <TabsContent value="platform"><Platform act={act} busy={busy} /></TabsContent>
+        <TabsContent value="processing"><ProcessingControlPanel /></TabsContent>
       </Tabs>
     </div>
   );
