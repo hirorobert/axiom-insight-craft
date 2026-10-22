@@ -10,7 +10,11 @@
 import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, AlertTriangle, CheckCircle2, CircleDashed, Loader2, RefreshCw, Search, Upload, XCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, CircleDashed, Loader2, RefreshCw, Search, Upload, XCircle, Columns3 } from "lucide-react";
+import { readPortfolioFrameworks } from "@/lib/workspace/portfolioFrameworks";
+import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
+const frameworkName = (value: string | null) => FRAMEWORK_OPTIONS.find((f) => f.value === value)?.label;
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import {
   PORTFOLIO_PAGE_SIZE, PORTFOLIO_PURPOSES, PORTFOLIO_PURPOSE_LABEL, PORTFOLIO_STATUSES, PORTFOLIO_STATUS_VIEW, fetchPortfolioPage, portfolioDestination,
@@ -57,12 +61,14 @@ function UploadCell({ row }: { row: PortfolioRow }) {
   );
 }
 
-export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", uploadHref, renderEntityOptions, rpc = supabaseRpc }: {
+export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", uploadHref, renderEntityOptions, compactHeader = false, readFrameworks = readPortfolioFrameworks, rpc = supabaseRpc }: {
   /** Omitted where the page already offers the upload as its one primary action. */
   onUpload?: () => void;
   /** A quiet link to the focused upload page (used where the page has another primary action). */
   uploadHref?: string;
   headingLevel?: "h1" | "h2";
+  compactHeader?: boolean;
+  readFrameworks?: typeof readPortfolioFrameworks;
   title?: string;
   /** Per-row entity options (e.g. recording the workspace purpose), shown under the entity name. */
   renderEntityOptions?: (row: PortfolioRow) => React.ReactNode;
@@ -70,6 +76,9 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   rpc?: Rpc;
 }) {
   const Heading = headingLevel;
+  const [frameworks, setFrameworks] = useState<Record<string, string | null>>({});
+  const [showUpload, setShowUpload] = useState(false);
+  const [showCurrency, setShowCurrency] = useState(false);
   const ids = { search: useId(), status: useId(), purpose: useId(), year: useId(), sort: useId(), heading: useId() };
   const [searchText, setSearchText] = useState("");
   const [query, setQuery] = useState<PortfolioQuery>({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" });
@@ -105,9 +114,13 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
     if (index === 0) firstToken.current = page.viewToken;
     else if (firstToken.current !== page.viewToken) { setState({ kind: "changed" }); return; }
     cursors.current[index + 1] = page.nextCursor;
+    setFrameworks({});
     setPageIndex(index);
     setState({ kind: "ok", rows: page.rows, total: page.total, counts: page.statusCounts, hasNext: page.nextCursor !== null });
-  }, [query, rpc]);
+    // Supplementary labels never delay or prevent access to the server-authoritative list.
+    const metadata = await readFrameworks(page.rows.map((r) => r.companyId)).catch(() => ({}));
+    if (mine === seq.current) setFrameworks(metadata);
+  }, [query, rpc, readFrameworks]);
 
   useEffect(() => { void load(0, true); }, [load]);
 
@@ -125,19 +138,22 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   const select = "h-10 rounded-none border border-input bg-background px-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
-    <section aria-labelledby={ids.heading} className="space-y-4" data-testid="engagement-portfolio">
+    <section aria-labelledby={ids.heading} className="space-y-3 rounded-sm border border-border bg-card p-3 sm:p-4" data-testid="engagement-portfolio">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Heading id={ids.heading} ref={headingRef} tabIndex={-1}
-          className={headingLevel === "h1" ? "text-2xl font-semibold tracking-tight text-foreground outline-none" : "text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"}>{title}</Heading>
+          className={compactHeader ? "text-sm font-medium text-muted-foreground outline-none" : headingLevel === "h1" ? "text-2xl font-semibold tracking-tight text-foreground outline-none" : "text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"}>{title}</Heading>
         {onUpload && <Button onClick={onUpload} className="h-10 rounded-none" data-testid="portfolio-upload"><Upload className="mr-2 h-4 w-4" aria-hidden="true" />Upload trial balance</Button>}
+        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="ml-auto h-8 gap-2 rounded-sm"><Columns3 className="h-4 w-4" aria-hidden="true" />Columns</Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end"><DropdownMenuLabel>Additional columns</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuCheckboxItem checked={showCurrency} onCheckedChange={setShowCurrency}>Currency</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showUpload} onCheckedChange={setShowUpload}>Latest trial balance</DropdownMenuCheckboxItem></DropdownMenuContent>
+        </DropdownMenu>
         {!onUpload && uploadHref && (
           <Link to={uploadHref} className="inline-flex h-10 items-center gap-2 border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link">
             <Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))]">
-        <div className="relative">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(0,1fr))]">
+        <div className="relative col-span-2 xl:col-span-1">
           <label htmlFor={ids.search} className="sr-only">Search entity or identifier</label>
           <Search className="pointer-events-none absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <input id={ids.search} type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)} maxLength={100}
@@ -198,52 +214,56 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
       {state.kind === "ok" && state.rows.length > 0 && (
         <>
           {/* Desktop: a table. Mobile: one card per engagement. */}
-          <table className="hidden w-full border-collapse text-left text-[13px] md:table" data-testid="portfolio-table">
+          <div className="hidden max-w-full overflow-x-auto rounded-sm border border-border md:block"><table className="hidden w-full min-w-[880px] border-collapse text-left text-[13px] md:table" data-testid="portfolio-table">
             <caption className="sr-only">Engagements, page {pageIndex + 1}</caption>
             <thead>
-              <tr className="border-b border-border text-[12px] uppercase tracking-[0.08em] text-muted-foreground">
-                <th scope="col" className="py-2 pr-4 font-medium">Entity</th>
+              <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground">
+                <th scope="col" className="w-[22%] px-3 py-3 font-medium">Company</th>
+                <th scope="col" className="px-3 py-3 font-medium">Framework</th>
                 <th scope="col" className="py-2 pr-4 font-medium">Period</th>
-                <th scope="col" className="py-2 pr-4 font-medium">Currency</th>
+                <th scope="col" className="px-3 py-3 font-medium">Purpose</th>
+                {showCurrency && <th scope="col" className="px-3 py-3 font-medium">Currency</th>}
                 <th scope="col" className="py-2 pr-4 font-medium">Status</th>
-                <th scope="col" className="py-2 pr-4 font-medium">Latest trial balance</th>
-                <th scope="col" className="py-2 font-medium"><span className="sr-only">Action</span></th>
+                {showUpload && <th scope="col" className="px-3 py-3 font-medium">Latest trial balance</th>}
+                <th scope="col" className="px-3 py-3 font-medium">Next action</th><th scope="col" className="px-2 py-3"><span className="sr-only">Company options</span></th>
               </tr>
             </thead>
             <tbody>
               {state.rows.map((r) => (
-                <tr key={r.engagementId} className="border-b border-border align-top" data-testid={`portfolio-row-${r.engagementId}`}>
-                  <td className="py-3 pr-4">
+                <tr key={r.engagementId} className="border-b border-border align-middle last:border-b-0 hover:bg-muted/20" data-testid={`portfolio-row-${r.engagementId}`}>
+                  <td className="px-3 py-3">
                     <span className="block font-medium text-foreground">{r.companyName}</span>
-                    <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `Tax number ${r.companyTin}` : null, r.purpose !== "client" ? PORTFOLIO_PURPOSE_LABEL[r.purpose] : null].filter(Boolean).join(" · ") || "No identifier recorded"}</span>
-                    {renderEntityOptions?.(r)}
+                    <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `Tax number ${r.companyTin}` : null].filter(Boolean).join(" · ")}</span>
                   </td>
-                  <td className="py-3 pr-4 whitespace-nowrap">{periodWords(r)}</td>
-                  <td className="py-3 pr-4">{r.currency ?? <span className="text-muted-foreground">Not set</span>}</td>
-                  <td className="py-3 pr-4">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <StatusChip status={r.status} />}</td>
-                  <td className="max-w-[16rem] py-3 pr-4"><UploadCell row={r} /></td>
-                  <td className="py-3 text-right">
+                  <td className="px-3 py-3 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Unavailable" : frameworks[r.companyId] === null ? "Not declared" : frameworkName(frameworks[r.companyId]) ?? "Unrecognised"}</td>
+                  <td className="px-3 py-3"><span className="block font-medium">FY{r.periodYear}</span><span className="block whitespace-nowrap text-xs text-muted-foreground">{periodWords(r)}</span></td>
+                  <td className="px-3 py-3 text-xs">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</td>
+                  {showCurrency && <td className="px-3 py-3">{r.currency ?? <span className="text-muted-foreground">Not set</span>}</td>}
+                  <td className="px-3 py-3">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <StatusChip status={r.status} />}</td>
+                  {showUpload && <td className="max-w-[16rem] px-3 py-3"><UploadCell row={r} /></td>}
+                  <td className="px-3 py-3 text-right">
                     {r.serviceWithheld ? null : <Link to={portfolioDestination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       data-testid={`portfolio-action-${r.engagementId}`}>
                       {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                     </Link>}
                   </td>
+                  <td className="px-2 py-3">{renderEntityOptions?.(r)}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <ul className="grid grid-cols-1 gap-2 md:hidden" data-testid="portfolio-cards">
             {state.rows.map((r) => (
-              <li key={r.engagementId} className="border border-border p-4">
-                <div className="flex items-start justify-between gap-3">
+              <li key={r.engagementId} className="rounded-sm border border-border p-4">
+                <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">{r.companyName}</p>
+                    <p className="break-words font-medium text-foreground">{r.companyName}</p>
                     <p className="text-[12px] text-muted-foreground">{periodWords(r)} · {r.currency ?? "Currency not set"}</p>
                   </div>
                   {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <StatusChip status={r.status} />}
                 </div>
-                <div className="mt-2 text-[13px]"><UploadCell row={r} /></div>
-                {renderEntityOptions?.(r)}
+                <div className="mt-2 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Framework unavailable" : frameworkName(frameworks[r.companyId]) ?? "Framework not declared"} · {PORTFOLIO_PURPOSE_LABEL[r.purpose]}</div>
+                <div className="mt-2 flex items-center justify-between gap-2 text-[13px]"><UploadCell row={r} />{renderEntityOptions?.(r)}</div>
                 {!r.serviceWithheld && <Link to={portfolioDestination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                 </Link>}

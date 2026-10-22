@@ -146,7 +146,7 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
 
     // Never a redirect into one of them: the account home with the engagements list. The list itself is read page by page
     // from list_portfolio_engagements (EngagementPortfolio.test.ts covers its rows, paging and counts), not from `entries`.
-    expect(html).toContain("Your engagements");
+    expect(html).toContain("Companies &amp; engagements");
     expect(html).toContain('data-testid="engagement-portfolio"');
     expect(html).toContain("All engagements");
     expect(html).not.toContain('data-testid="engagement-hub-list"');
@@ -174,14 +174,14 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).toContain("Start another service");
   });
 
-  it("zero companies at all: the first upload is the one primary action (Phase 2 P2-3), never a blank or crashing chooser", async () => {
+  it("zero companies: prominent company setup and upload routes, without an inline form", async () => {
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [], fetchFailed: false });
     const html = await renderDashboard();
 
     // Inside the one account frame, the upload itself replaces the "Add your first company" card; the company form is
     // not opened beside it, and stays available as the secondary "Add a company".
     expect(html).toContain('data-testid="account-shell"');
-    expect(html).toContain('data-testid="first-upload"');
+    expect(html).toContain('data-testid="portfolio-upload-link"');
     expect(html).not.toContain('data-kind="add_company"');
     expect(html).not.toContain("first-run-engagement");
     expect(html).toContain('data-testid="add-company"');
@@ -195,7 +195,7 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).not.toContain('data-compact="true"');
     const link = html.match(/<a[^>]*data-testid="portfolio-upload-link"[^>]*>/)?.[0] ?? "";
     expect(link).toContain('href="/upload"');
-    expect(html).toContain('data-testid="account-next-action"');
+    expect(html).toContain('data-testid="portfolio-home-header"');
     // The upload link is an outline link (secondary): the next action keeps at most one filled primary.
     expect((html.match(/data-testid="next-action-primary"/g) ?? []).length).toBeLessThanOrEqual(1);
   });
@@ -207,8 +207,9 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     const html = await renderDashboard();
     expect(html).not.toContain("first-run-engagement");
     // The file can be kept privately as a draft; "Start" then leads to the plans (nothing is processed without a plan).
-    expect(html).toContain('data-testid="first-upload"');
-    expect(html).toContain('data-needs-plan="true"');
+    expect(html).toContain('data-kind="choose_plan"');
+    expect(html).toContain('data-testid="next-action-primary"');
+    expect(html).not.toContain('data-testid="add-company"');
     expect(html).toContain('href="/plans"');
     expect(html).not.toMatch(/<button[^>]*disabled=""/);
     expect((html.match(/No active plan/g) ?? []).length).toBeLessThanOrEqual(1);

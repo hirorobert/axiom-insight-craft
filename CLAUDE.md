@@ -377,6 +377,8 @@ src/
       periodCurrency.ts       ← ONLY client path to the period-currency correction RPCs (get_period_currency_correction / correct_period_currency); server-decided recovery view
       currencyReasons.ts      ← Currency-correction reason presets (explicit choice; none pre-selected)
       checkDetail.ts          ← A check's detail without restating findings the card already lists
+      frameworkOptions.ts     ← persistable framework identities/labels shared by company setup and portfolio
+      portfolioFrameworks.ts  ← bounded, RLS-authorized framework labels for the visible portfolio page (display only)
       portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
       findingDecisions.ts     ← ONLY client path to trial-balance finding decisions (record_tb_finding_decision, get_tb_finding_decisions)
       entityPrecheck.ts       ← Same-entity pre-check before registering a new entity (the engine's name normalisation)

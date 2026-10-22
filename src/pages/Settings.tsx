@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
+import { AccountShell } from "@/components/account/AccountShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, User, Building2, Save, Loader2, CreditCard, ShieldCheck, Users } from "lucide-react";
+import { User, Building2, Save, Loader2, CreditCard, ShieldCheck, Users } from "lucide-react";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
@@ -52,10 +53,13 @@ function SectionDivider({ title }: { title: string }) {
 }
 
 export default function Settings() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
   const isCommercialAdmin = useIsCommercialAdmin(user?.id);
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState<SettingsSection>("profile");
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("section");
+  const activeSection: SettingsSection = SECTIONS.some((s) => s.id === requested) ? requested as SettingsSection : "profile";
+  const setActiveSection = (section: SettingsSection) => setParams({ section });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState("");
@@ -130,14 +134,8 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
-
-        {/* ── Back + title ── */}
-        <Button variant="ghost" onClick={() => navigate("/dashboard")} className="mb-8 gap-2">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Button>
+    <AccountShell onSignOut={signOut} identity={{ name: displayName, email: user?.email }}>
+      <div className="mx-auto w-full max-w-6xl">
 
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-foreground">Settings</h1>
@@ -174,7 +172,7 @@ export default function Settings() {
           </nav>
 
           {/* ── Section content ── */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 rounded-sm border border-border bg-card p-5 sm:p-7">
 
             {/* 1. PROFILE */}
             {activeSection === "profile" && (
@@ -291,6 +289,6 @@ export default function Settings() {
           </div>
         </div>
       </div>
-    </div>
+    </AccountShell>
   );
 }

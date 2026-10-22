@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { BATCHES, renderApply, renderBootstrap, renderStage, transportForms } from "../release/tbStagedTransport.mjs";
-import { releaseServer } from "./lib/releaseBase.mjs";
+import { BATCHES, renderApply, renderBootstrap, renderStage, transportForms, BOOTSTRAP_PREDECESSOR } from "../release/tbStagedTransport.mjs";
+import { releaseServer, hostedJournal } from "./lib/releaseBase.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../..");
@@ -60,7 +60,10 @@ async function main() {
   let base, primary, wrong;
   try {
     await srv.start();
-    base = await srv.buildBase([BATCHES[0].source, BATCHES[1].source]);
+    // Reproduce the release's actual predecessor, not today's already-advanced hosted journal.
+    const journalThrough = "0070_customer_checkout_abandon";
+    base = await srv.buildBase([BATCHES[0].source, BATCHES[1].source], { sourceThrough: "20261119100000_customer_checkout_abandon.sql", journalThrough });
+    check("historical TB predecessor is exactly the reviewed journal id and hash", base.journalRows === BOOTSTRAP_PREDECESSOR.id && hostedJournal(journalThrough).at(-1).hash === BOOTSTRAP_PREDECESSOR.hash);
     primary = await srv.copyOf(base.name, "primary");
     wrong = await srv.copyOf(base.name, "wrong-predecessor");
     const c = new Client({ connectionString: primary, ssl: false }); await c.connect();
@@ -106,6 +109,10 @@ async function main() {
       const existingAfter = await one(c, "SELECT email FROM auth.users WHERE id=$1", [existing.id]);
       check("pre-existing auth record and journal state are preserved", existingAfter?.email === existing.email && JSON.parse(after).journal === 74);
       check("no source or wrapper is re-run on retry", (await one(c, "SELECT count(*)::int AS n FROM cfoclose_tb_release.transport_events WHERE event='applied'")).n === 2);
+
+      const currentPolicy = fs.readFileSync(path.join(REPO, "supabase/migrations/20261122100000_tb_decision_catalogue_read_predicate.sql"), "utf8");
+      await c.query(currentPolicy);
+      check("later catalogue hardening applies after the verified transport without altering its journal", (await one(c, "SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations")).n === 74);
 
       group("concurrent journal writers cannot invalidate an in-flight predecessor");
       const raceUrl = await srv.copyOf(base.name, "journal-race");

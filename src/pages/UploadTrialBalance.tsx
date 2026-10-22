@@ -46,11 +46,11 @@ export default function UploadTrialBalance() {
     billing: { loading: billingLoading, error: !!billingError, summary: billing },
     capacity: { loading: capacityLoading, error: !!capacityError, answer: capacity },
   });
-  const signOutHome = () => { void signOut().then(() => navigate("/auth", { replace: true })); };
+  const signOutHome = async () => { await signOut(); navigate("/auth", { replace: true }); };
   const ready = !authLoading && entities !== null && creation !== "checking";
 
   return (
-    <AccountShell onSignOut={signOutHome}>
+    <AccountShell identity={{ name: user?.user_metadata?.display_name, email: user?.email }} onSignOut={signOutHome}>
       <Link to="/dashboard" className="mb-6 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground" data-testid="upload-back">
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />Engagements
       </Link>

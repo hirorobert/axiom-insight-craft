@@ -184,7 +184,7 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
       j.entries = j.entries.filter((x: { idx: number }) => x.idx <= 32);
       // ...and their reviewed entries hidden for the duration (restored below), as before the close-out.
       const hidden = Object.entries(RELEASE_JOURNAL).filter(([k, e]) => k !== tag
-        && (["release_self_checking_wrapper", "staged_transport"].includes((e as { kind: string }).kind) || k === "0070_customer_checkout_abandon"));
+        && (["release_self_checking_wrapper", "staged_transport", "tb_staged_transport"].includes((e as { kind: string }).kind) || k === "0070_customer_checkout_abandon"));
       for (const [k] of hidden) delete (RELEASE_JOURNAL as Record<string, unknown>)[k];
       restore = () => { for (const [k, e] of hidden) (RELEASE_JOURNAL as Record<string, unknown>)[k] = e; };
       const idx = j.entries.length;
@@ -242,9 +242,9 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     // ...the payment reversal authority (0054, hosted 55: commercial-p4) and verified charge outcomes (0055, hosted 56:
     // commercial-p5). Nothing is pending.
     // Earlier TB, pricing and currency wrappers are applied. The five FS sources use staged transport.
-    // The new Trial Balance workflow wrappers are registered but not yet applied.
-    const STAGED: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"];
-    const PENDING: string[] = ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"];
+    // The installed FS and TB workflow wrappers are covered by their reviewed staged transports.
+    const STAGED: string[] = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql", "20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"];
+    const PENDING: string[] = [];
     expect(entries.map(([, e]) => (e as { source: string }).source)).toEqual(ALL_WRAPPED.filter((x) => !STAGED.includes(x) && !PENDING.includes(x)));
     // The applied milestone was submitted byte for byte; the reporting release's 0043–0044 and the currency correction's 0063
     // with exactly the final LF removed.
@@ -260,6 +260,6 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
     for (const s of ALL_WRAPPED) expect(r.pending.includes(s), s).toBe(PENDING.includes(s));
-    for (const s of STAGED) expect(r.mirrored.some((m) => m.source === s && m.how === "staged_transport"), s).toBe(true);
+    for (const s of STAGED) expect(r.mirrored.some((m) => m.source === s && ["staged_transport", "tb_staged_transport"].includes(m.how)), s).toBe(true);
   }, 120_000);
 });

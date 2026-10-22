@@ -147,8 +147,9 @@ describe("Account home (the CFOClose logo from inside a workspace)", () => {
     render(createElement(EngagementHub, { entries: [], companiesWithoutEngagement: [], onResume: () => {}, onStartService: () => {}, account: acc }));
   it("the one account frame: Home, Plans, Orders, Settings, Sign out; companies and the plan below the next step", () => {
     const html = hub(account({ capacity: 5, used: 2, determined: true }));
-    for (const href of ['href="/dashboard"', 'href="/plans"', 'href="/settings/billing"', 'href="/settings"']) expect(html).toContain(href);
-    expect(html).toContain("Sign out");
+    expect(html).toContain('href="/dashboard"');
+    expect(html).toContain('aria-label="Settings menu"');
+    expect(html).toContain('aria-label="Account menu"');
     expect(html).toContain('data-testid="account-shell"');
     expect(html).toContain('data-testid="account-next-action"');
     // Settings live in the account header (href="/settings" above), never as a link in the middle of the home.

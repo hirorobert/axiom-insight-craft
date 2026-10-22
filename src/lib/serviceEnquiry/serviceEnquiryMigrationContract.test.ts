@@ -90,7 +90,7 @@ describe("migration hygiene", () => {
       "20261116100000_fs_transaction_memo.sql",
       "20261117100000_engagement_portfolio.sql",
       "20261118100000_tb_finding_decisions.sql",
-      "20261119100000_customer_checkout_abandon.sql",
+      "20261119100000_customer_checkout_abandon.sql", "20261122100000_tb_decision_catalogue_read_predicate.sql",
     ]);
     expect(RAW.includes("\u0000")).toBe(false);
     expect(RAW).not.toMatch(/^(<{7}|={7}|>{7})/m);

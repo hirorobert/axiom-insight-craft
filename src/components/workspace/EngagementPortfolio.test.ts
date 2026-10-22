@@ -62,7 +62,7 @@ describe("EngagementPortfolio", () => {
   afterEach(() => { m?.unmount(); m = null; vi.useRealTimers(); });
   const flush = async () => { await act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); }); };
   const render = async (rpc: Rpc) => {
-    m = mount(createElement(MemoryRouter, null, createElement(EngagementPortfolio, { rpc })));
+    m = mount(createElement(MemoryRouter, null, createElement(EngagementPortfolio, { rpc, readFrameworks: async () => ({}) })));
     await flush();
     return m.container;
   };

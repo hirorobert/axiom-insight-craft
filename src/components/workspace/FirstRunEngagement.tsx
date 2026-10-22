@@ -34,7 +34,9 @@
  *   (null, 'ifrs_for_smes', 'full_ifrs', 'ipsas_accrual', 'ipsas_cash')
  */
 
+import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -84,13 +86,7 @@ const CURRENCY_OPTIONS = [
  * "Local GAAP" and "Other/custom" were removed because both would store as null —
  * indistinguishable from "Decide later" on next load (CODEX Phase 3B).
  */
-const FRAMEWORK_OPTIONS: { value: string; label: string; dbValue: string | null }[] = [
-  { value: "decide_later",  label: "Decide later",                        dbValue: null },
-  { value: "full_ifrs",     label: "Full IFRS",                           dbValue: "full_ifrs" },
-  { value: "ifrs_for_smes", label: "IFRS for SMEs",                      dbValue: "ifrs_for_smes" },
-  { value: "ipsas_accrual", label: "IPSAS — public sector (accrual)",    dbValue: "ipsas_accrual" },
-  { value: "ipsas_cash",    label: "IPSAS — public sector (cash basis)", dbValue: "ipsas_cash" },
-];
+
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -99,10 +95,12 @@ type SubmitState = "idle" | "submitting" | "error";
 export default function FirstRunEngagement({
   onCreated,
   headingLevel = "h1",
+  layout = "embedded",
 }: {
   onCreated: (companyId: string, periodYear: number) => void;
   /** "h2" when embedded in a page that already has its own h1 (the account home). */
   headingLevel?: "h1" | "h2";
+  layout?: "embedded" | "page";
 }) {
   const Heading = headingLevel;
   const { user } = useAuth();
@@ -215,26 +213,26 @@ export default function FirstRunEngagement({
   return (
     <form
       onSubmit={submit}
-      className="w-full max-w-[520px] space-y-6"
+      className={layout === "page" ? "company-setup-form w-full space-y-6" : "w-full max-w-[520px] space-y-6"}
       aria-label="Add an entity"
     >
       {/* Header */}
       <div className="space-y-1.5">
         <Heading className="text-xl font-semibold tracking-tight text-foreground">
-          Add the entity you are reporting on
+          {layout === "page" ? "Add company" : "Add the entity you are reporting on"}
         </Heading>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The entity is the business or organisation the trial balance belongs to. Add it with the reporting period
-          you want to work on. You can set reporting requirements later.
+          {layout === "page" ? "Company, public body or other organisation. Add the reporting period you want to work on." : "The entity is the business or organisation the trial balance belongs to. Add it with the reporting period you want to work on. You can set reporting requirements later."}
         </p>
       </div>
 
       {/* Fields */}
-      <div className="space-y-4 border border-border p-5">
+      <div className={layout === "page" ? "grid overflow-hidden rounded-sm border border-border md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]" : "space-y-4 border border-border p-5"}>
 
         {/* Entity name (Phase 2 §5.2: the entity is what is reported on; the workspace/account is who owns and pays) */}
-        <div className="space-y-2">
-          <Label htmlFor="fr-org">Entity name</Label>
+        <div className={layout === "page" ? "space-y-3 border-b border-border p-5 md:border-b-0 md:border-r" : "space-y-2"}>
+          {layout === "page" && <h2 className="mb-6 text-sm font-semibold">Company details</h2>}
+          <Label htmlFor="fr-org">{layout === "page" ? "Company name" : "Entity name"}</Label>
           <Input
             id="fr-org"
             autoFocus
@@ -245,6 +243,9 @@ export default function FirstRunEngagement({
             aria-required="true"
           />
         </div>
+
+        <div className={layout === "page" ? "space-y-5 p-5" : "contents"}>
+        {layout === "page" && <h2 className="text-sm font-semibold">Reporting context</h2>}
 
         {/* Reporting period */}
         <div className="grid grid-cols-2 gap-3">
@@ -310,6 +311,8 @@ export default function FirstRunEngagement({
               are applied once a framework is declared.
             </p>
           )}
+          {layout === "page" && framework !== "decide_later" && framework !== "ifrs_for_smes" && <p className="text-xs leading-5 text-muted-foreground">Trial balance review is available. Financial-statement sign-off for this framework is not yet released.</p>}
+        </div>
         </div>
       </div>
 
@@ -338,20 +341,23 @@ export default function FirstRunEngagement({
       )}
 
       {/* Primary CTA */}
+      <div className={layout === "page" ? "flex flex-wrap items-center justify-end gap-3" : "contents"}>
+      {layout === "page" && <Button asChild variant="outline" disabled={submitState === "submitting"}><Link to="/dashboard" state={{ forceHub: true }} aria-disabled={submitState === "submitting"} onClick={(e) => { if (submitState === "submitting") e.preventDefault(); }}>Cancel</Link></Button>}
       <Button
         type="submit"
         size="lg"
-        className="w-full gap-2"
+        className={layout === "page" ? "gap-2" : "w-full gap-2"}
         disabled={!canSubmit}
         aria-busy={submitState === "submitting"}
       >
         {submitState === "submitting"
           ? "Creating workspace…"
-          : "Create workspace"}
+          : layout === "page" ? "Create company & continue" : "Create workspace"}
         {submitState !== "submitting" && (
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         )}
       </Button>
+      </div>
     </form>
   );
 }

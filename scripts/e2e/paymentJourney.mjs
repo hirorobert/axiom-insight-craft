@@ -259,13 +259,14 @@ async function main() {
     return { id: data.company_id };
   })();
   await signInAs(U.fresh);
-  await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — one next step (the upload, with the plan stated and 'View plans' beside it; Phase 2 P2-4)", async () => {
-    await go("/dashboard", "Check your trial balance");
+  await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — one next step (choose a plan before company creation)", async () => {
+    await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     const t = await page.bodyText();
-    const needsPlan = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-needs-plan"]'));
-    const viewPlans = await page.evaluate(() => !!document.querySelector('[data-testid="first-upload-view-plans"]'));
-    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"], [data-testid="first-upload-choose"]').length);
-    const disabled = await page.evaluate(() => [...document.querySelectorAll("button[disabled]")].map((b) => b.innerText.trim()));
+    const needsPlan = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind") === "choose_plan");
+    const viewPlans = await page.evaluate(() => document.querySelector('[data-testid="next-action-primary"]')?.getAttribute("href") === "/plans");
+    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
+    const disabled = await page.evaluate(() => [...document.querySelectorAll('[data-testid="portfolio-toolbar"] button[disabled], [data-testid="account-next-action"] button[disabled]')].map((b) => b.innerText.trim()));
     const api = await apiAs(U.fresh);
     const companies = (await api.from("companies").select("id")).data ?? [];
     const noPlanCount = (t.match(/No active plan/g) ?? []).length;
@@ -273,40 +274,45 @@ async function main() {
       && !t.includes(`Owner Co ${run}`) && !/demonstration|Your engagements\s*\n\s*\d+ open/i.test(t)
       ? true : { needsPlan, viewPlans, primaries, disabled, companies: companies.length, noPlanCount, text: t.slice(0, 600) };
   });
-  await check("one signed-in frame: Home, Plans, Billing, Settings and Sign out on the home, the plans and the billing pages (the old orders address redirects); no public 'Sign in'", async () => {
+  await check("one signed-in frame: settings, plans, orders, profile and sign out are reachable through the header menus; no public Sign in", async () => {
     const seen = {};
     for (const route of ["/dashboard", "/plans", "/billing/orders", "/settings/billing"]) {
       await go(route);
-      await page.waitFor(() => !!document.querySelector('[data-testid="account-shell"]'), [], { label: `account shell on ${route}` });
-      const nav = await page.evaluate(() => [...document.querySelectorAll('nav[aria-label="Account"] a, nav[aria-label="Account"] button')].map((e) => e.innerText.trim()).filter(Boolean));
+      await page.waitForSelector('[data-testid="account-shell"]');
+      await page.click('[aria-label="Settings menu"]');
+      const settings = await page.evaluate(() => [...document.querySelectorAll('[role="menu"] a')].map((e) => e.getAttribute("href")));
+      await page.press("Escape");
+      await page.click('[aria-label="Account menu"]');
+      const account = await page.evaluate(() => ({ profile: !!document.querySelector('[role="menu"] a[href="/settings?section=profile"]'), signOut: !!document.querySelector('[data-testid="account-sign-out"]') }));
+      await page.press("Escape");
       const signIn = await page.evaluate(() => [...document.querySelectorAll("a")].some((a) => a.innerText.trim() === "Sign in"));
-      seen[route] = { nav, signIn };
+      seen[route] = { settings, account, signIn };
     }
-    return Object.values(seen).every((s) => ["Home", "Plans", "Billing", "Settings", "Sign out"].every((n) => s.nav.includes(n)) && !s.signIn) ? true : seen;
+    return Object.values(seen).every((s) => ["/settings", "/plans", "/settings/billing"].every((href) => s.settings.includes(href)) && s.account.profile && s.account.signOut && !s.signIn) ? true : seen;
   });
-  await check("keyboard: Tab reaches the skip link first, then 'View plans' and the one primary action (choose a file); Enter on 'View plans' opens the plans", async () => {
-    await go("/dashboard", "Check your trial balance");
+  await check("keyboard: Tab reaches the skip link first and the primary plan action; Enter opens plans", async () => {
+    await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="next-action-primary"]');
     await page.press("Tab");
     const first = await page.evaluate(() => document.activeElement?.innerText?.trim());
-    let reached = false, primary = false;
-    for (let i = 0; i < 25 && !(reached && primary); i++) {
+    let reached = false;
+    for (let i = 0; i < 25 && !reached; i++) {
       await page.press("Tab");
       const id = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
-      if (id === "first-upload-choose") primary = true;
-      if (id === "first-upload-view-plans") reached = true;
+      if (id === "next-action-primary") reached = true;
     }
-    if (!reached || !primary) return { first, reached, primary };
-    await page.evaluate(() => document.querySelector('[data-testid="first-upload-view-plans"]').focus());
+    if (!reached) return { first, reached };
+    await page.evaluate(() => document.querySelector('[data-testid="next-action-primary"]').focus());
     await page.press("Enter");
     await page.waitFor(() => location.pathname === "/plans", [], { label: "plans opened by keyboard" });
     return first === "Skip to content" ? true : { first };
   });
   await check("home at 1280 and 375 px (fresh account): no sideways scrolling", async () => {
-    await go("/dashboard", "Check your trial balance");
+    await go("/dashboard", "Companies & engagements");
     return widths("00-fresh-home");
   });
-  await go("/dashboard", "Check your trial balance");
-  await page.click('[data-testid="first-upload-view-plans"]');
+  await go("/dashboard", "Companies & engagements");
+  await page.click('[data-testid="next-action-primary"]');
   await page.waitFor(() => location.pathname === "/plans", [], { label: "plans from the next step" });
   await check("plans (online payment closed, no approved price): 'Proposed', payment shown as unavailable with Contact support — no checkout link, no manual activation, no TZS, no mobile money", async () => {
     await page.waitForText("Choose your plan");
@@ -326,9 +332,9 @@ async function main() {
   await check("back navigation and refresh return to the same home and the same next step", async () => {
     await page.evaluate(() => history.back());
     await page.waitFor(() => location.pathname === "/dashboard", [], { label: "back to home" });
-    await page.waitForText("Check your trial balance");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     await page.evaluate(() => location.reload());
-    await page.waitForText("Check your trial balance");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     return true;
   });
   await check("a failed plan read is a retriable step (never 'no plan'); Try again recovers once the request succeeds", async () => {
@@ -337,7 +343,7 @@ async function main() {
     const failedKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
     await page.send("Network.setBlockedURLs", { urls: [] });
     await page.click('[data-testid="next-action-primary"]');
-    await page.waitForText("Check your trial balance");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     return failedKind === "retry" ? true : { failedKind };
   });
   await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame; payment unavailable, Try again and Contact support", async () => {
@@ -370,19 +376,19 @@ async function main() {
     return outcome !== "created" && outcome !== "already_created" && theirs.length === 0 && !capAccess && mine.length === 0
       ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
   });
-  await check("with a plan granted by an administrator: the home offers the first upload (Phase 2 P2-3) and the company form as the secondary; creating one opens its workspace", async () => {
+  await check("with a plan granted by an administrator: Add company opens focused setup; creating one opens its workspace", async () => {
     await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
-    await go("/dashboard", "Check your trial balance");
-    await page.waitForSelector('[data-testid="first-upload"]');
+    await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="add-company"]');
     await page.click('[data-testid="add-company"]');
-    await page.waitForSelector('[data-testid="add-company-form"]');
+    await page.waitForSelector('[data-testid="company-setup-page"]');
     await page.fill("#fr-org", `Fresh Co ${run}`);
     // The searchable currency selector (an ARIA combobox): type the code, then Enter on the highlighted match.
     await page.evaluate(() => { const el = document.getElementById("fr-currency"); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "USD"); el.dispatchEvent(new Event("input", { bubbles: true })); });
     await sleep(150);
     await page.evaluate(() => document.getElementById("fr-currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     await page.waitFor(() => document.getElementById("fr-currency")?.dataset.value === "USD", [], { label: "USD chosen", timeout: 5000 });
-    await page.click({ text: "Create workspace" });
+    await page.click('form[aria-label="Add an entity"] button[type="submit"]');
     await page.waitFor(() => location.pathname.startsWith("/workspace/"), [], { label: "opened the new workspace", timeout: 30000 });
     const api = await apiAs(U.fresh);
     const mine = (await api.from("companies").select("id, name")).data ?? [];

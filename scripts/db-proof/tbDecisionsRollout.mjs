@@ -32,6 +32,9 @@ const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const PORTFOLIO_FILE = "20261117100000_engagement_portfolio.sql";
 const DECISIONS_FILE = "20261118100000_tb_finding_decisions.sql";
+// This already-installed hardening depends on catalogues created by DECISIONS_FILE.
+// Rehearse the historical cutover first, then advance to the full current chain at stage 5.
+const POST_RELEASE_FILES = ["20261122100000_tb_decision_catalogue_read_predicate.sql"];
 // The engine live before this release: a generation-6 commit, both functions — main daa23e4 by default; the closure
 // deployed hosted on 2026-10-18 (942764f, also generation 6) with ROLLOUT_OLD_COMMIT=942764f… (fetch it first).
 const GENERATION_6_COMMIT = process.env.ROLLOUT_OLD_COMMIT || "daa23e4113dc726fab867480dac6b0b6aba0bbfc";
@@ -117,11 +120,11 @@ async function main() {
 
   console.log(`old engine (generation 6): process-trial-balance and trial-balance-layout at ${GENERATION_6_COMMIT}`);
   group("Stage 0 — the database as on main; generation 6 live");
-  await check("the two TB migrations remain adjacent and pending; every other main migration, including checkout recovery, applies first", async () => {
+  await check("the historical pre-release state includes checkout recovery; TB migrations are adjacent and dependent catalogue hardening waits for its tables", async () => {
     if (iP < 0 || iD !== iP + 1) return files.slice(-3);
-    // Main already applied checkout recovery (20261119) before this release. Replay the actual base state,
-    // withholding only the two TB batches; a later unrelated migration must not truncate the base schema.
-    for (const f of files.filter((f) => f !== PORTFOLIO_FILE && f !== DECISIONS_FILE)) await apply(f);
+    // Checkout recovery preceded the TB release. Defer only the explicitly named later hardening;
+    // unknown/unrelated later migrations still replay here, rather than silently truncating the chain.
+    for (const f of files.filter((f) => f !== PORTFOLIO_FILE && f !== DECISIONS_FILE && !POST_RELEASE_FILES.includes(f))) await apply(f);
     return (await one("SELECT to_regprocedure(\'public.abandon_unpaid_checkout(uuid,uuid)\') IS NOT NULL AS present")).present;
   });
 
@@ -376,6 +379,31 @@ async function main() {
   await check("the floor cannot be lowered again (it only rises)", async () => {
     try { await control(6, "attempt to lower"); return "lowered"; }
     catch (e) { return /FLOOR|lower|rise/i.test(String(e.message)) ? true : String(e.message); }
+  });
+
+  group("Stage 5 — current final schema, including the authenticated catalogue policies");
+  await check("dependent hardening applies after decisions; signed-in catalogue rows are preserved and sessions without an identity see none", async () => {
+    const counts = async () => (await asUser(U.owner, "SELECT (SELECT count(*)::int FROM public.tb_decision_rules) rules, (SELECT count(*)::int FROM public.tb_decision_actions) actions"))[0];
+    const before = await counts();
+    const preserved = await footprint(late);
+    for (const file of POST_RELEASE_FILES) {
+      if (!files.includes(file)) return { missing: file };
+      await apply(file);
+    }
+    const after = await counts();
+    const noIdentity = (await asRole("authenticated", null, "SELECT (SELECT count(*)::int FROM public.tb_decision_rules) rules, (SELECT count(*)::int FROM public.tb_decision_actions) actions"))[0];
+    return before.rules > 0 && before.actions > 0 && JSON.stringify(after) === JSON.stringify(before)
+      && noIdentity.rules === 0 && noIdentity.actions === 0 && (await footprint(late)) === preserved
+      && (await authoritative(late)) !== null && (await authoritative(u0)) !== null
+      ? true : { before, after, noIdentity };
+  });
+  await check("the real generation-7 engine still certifies on the complete current chain", async () => {
+    const up = await upload(PLAIN);
+    const result = await run(neu.engine, up);
+    const certification = await latestCert(up);
+    const generation = certification && Number((await one("SELECT engine_generation g FROM public.engine_runs WHERE id=$1", [certification.engine_run_id]))?.g);
+    return result.http === 200 && generation === 7 && (await authoritative(up)) === certification.id
+      ? true : { http: result.http, generation, body: result.body };
   });
 }
 

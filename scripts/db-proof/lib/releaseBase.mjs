@@ -21,7 +21,11 @@ export const { Pool, Client } = req("pg");
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 export const journal = JSON.parse(fs.readFileSync(path.join(DRIZZLE_DIR, "meta/_journal.json"), "utf8"));
 /** The hosted journal rows as drizzle computes them: SHA-256 of each entry file's text, `when` as created_at. */
-export const hostedJournal = () => journal.entries.map((e) => ({ tag: e.tag, hash: sha256(fs.readFileSync(path.join(DRIZZLE_DIR, `${e.tag}.sql`), "utf8")), when: e.when }));
+export const hostedJournal = (throughTag) => {
+  const end = throughTag === undefined ? journal.entries.length : journal.entries.findIndex((e) => e.tag === throughTag) + 1;
+  if (!end) throw new Error(`Historical journal boundary missing: ${throughTag}`);
+  return journal.entries.slice(0, end).map((e) => ({ tag: e.tag, hash: sha256(fs.readFileSync(path.join(DRIZZLE_DIR, `${e.tag}.sql`), "utf8")), when: e.when }));
+};
 
 export function releaseServer(label) {
   const RUN = `${process.pid}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
@@ -51,7 +55,7 @@ export function releaseServer(label) {
       try { await server?.stop(); } catch { /* */ } try { if (dir) fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ }
     },
     /** The production-equivalent base database, without the release sources `exclude`. */
-    async buildBase(exclude) {
+    async buildBase(exclude, { sourceThrough, journalThrough } = {}) {
       const name = `${label}_base_${RUN}`; await admin(`CREATE DATABASE "${name}"`); created.push(name);
       const db = new Client({ connectionString: dbUrl(name), ssl: false }); await db.connect();
       try {
@@ -63,7 +67,10 @@ export function releaseServer(label) {
           DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sandbox_exec') THEN CREATE ROLE sandbox_exec NOLOGIN; END IF; END $$;
           GRANT USAGE ON SCHEMA public TO sandbox_exec;`);
         const skip = new Set(exclude);
-        const files = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith(".sql") && !skip.has(f)).sort();
+        const chain = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith(".sql")).sort();
+        const end = sourceThrough === undefined ? chain.length : chain.indexOf(sourceThrough) + 1;
+        if (!end) throw new Error(`Historical source boundary missing: ${sourceThrough}`);
+        const files = chain.slice(0, end).filter((f) => !skip.has(f));
         for (const f of files) {
           let t = fs.readFileSync(path.join(SRC_DIR, f), "utf8");
           if (f === PG_CRON_FILE) t = t.split("\n").slice(0, t.split("\n").findIndex((l) => l.includes("CREATE EXTENSION IF NOT EXISTS pg_cron"))).join("\n");
@@ -71,7 +78,7 @@ export function releaseServer(label) {
         }
         await db.query(fs.readFileSync(path.join(DRIZZLE_DIR, "0013_pr34_probe_session_identity.sql"), "utf8"));
         await db.query(fs.readFileSync(path.join(DRIZZLE_DIR, "0014_pr34_release_staging_table.sql"), "utf8"));
-        const rows = hostedJournal();
+        const rows = hostedJournal(journalThrough);
         await db.query("CREATE SCHEMA IF NOT EXISTS drizzle; CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)");
         for (const m of rows) await db.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1,$2)", [m.hash, m.when]);
         return { name, applied: files.length, journalRows: rows.length };

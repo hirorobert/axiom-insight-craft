@@ -577,20 +577,20 @@ describe("generalized replay guard — every migration file, keyed by exact norm
     return afterOk && beforeOk;
   }
 
-  it("finds exactly 91 duplicate policy-name/relation identities across the repository", () => {
-    expect(duplicateKeys.length).toBe(91);
+  it("finds exactly 93 duplicate policy-name/relation identities across the repository", () => {
+    expect(duplicateKeys.length).toBe(93);
   });
 
-  it("finds exactly 253 total CREATE POLICY occurrences among those 91 duplicate identities", () => {
+  it("finds exactly 257 total CREATE POLICY occurrences among those 93 duplicate identities", () => {
     let total = 0;
     for (const [, creates] of duplicateKeys) total += creates.length;
-    expect(total).toBe(253);
+    expect(total).toBe(257);
   });
 
-  it("finds exactly 162 later-creator occurrences — every CREATE POLICY occurrence beyond each identity's first", () => {
+  it("finds exactly 164 later-creator occurrences — every CREATE POLICY occurrence beyond each identity's first", () => {
     let total = 0;
     for (const [, creates] of duplicateKeys) total += creates.length - 1;
-    expect(total).toBe(162);
+    expect(total).toBe(164);
   });
 
   it("every later CREATE POLICY occurrence has its own dedicated DROP POLICY IF EXISTS strictly between it and the immediately preceding CREATE for the same identity — validated occurrence by occurrence, so a single DROP can never incorrectly satisfy more than one later CREATE, even multiple occurrences inside one file", () => {
@@ -612,7 +612,7 @@ describe("generalized replay guard — every migration file, keyed by exact norm
       }
     }
     expect(failures, failures.join("\n")).toEqual([]);
-    expect(guardedCount).toBe(162);
+    expect(guardedCount).toBe(164);
   });
 
   it("zero unguarded later-creator occurrences remain after this correction", () => {

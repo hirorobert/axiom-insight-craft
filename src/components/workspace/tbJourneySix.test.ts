@@ -189,11 +189,11 @@ describe("2. an engagement's button names its next step", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const panel = q('[data-testid="company-options-panel-c1"]')!;
+    const panel = document.querySelector('[data-testid="company-options-panel-c1"]')!;
     expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
     expect(panel.textContent).toMatch(/changes no accounting, records, access or billing/);
     expect(panel.textContent).toMatch(/Only the company's owner can record it, with a reason/);
-    const form = q('[data-testid="set-purpose-c1"]') as HTMLFormElement;
+    const form = panel.querySelector('[data-testid="set-purpose-c1"]') as HTMLFormElement;
     const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     expect(submit.disabled).toBe(true); // a reason is required
     typeInto(form.querySelector<HTMLInputElement>("input")!, "Training cohort");
