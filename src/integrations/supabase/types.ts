@@ -10256,6 +10256,10 @@ export type Database = {
         Args: { p_company_id: string; p_user: string }
         Returns: string
       }
+      abandon_unpaid_checkout: {
+        Args: { p_actor_user_id: string; p_checkout_intent_id: string }
+        Returns: Json
+      }
       accept_workspace_invitations: { Args: never; Returns: Json }
       account_mapping_content: {
         Args: {

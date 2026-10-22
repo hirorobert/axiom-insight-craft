@@ -31,6 +31,7 @@ import { canOpenStage, isPrepareOnly } from "@/lib/workspace/workspaceAccess";
 import { WorkspaceAccessShell } from "@/components/workspace/WorkspaceAccessGate";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
 import { DraftPrintMark } from "@/components/commercial/DraftPrintMark";
+import { PlanChip } from "@/components/commercial/PlanChip";
 import type { CompanyReportingFrameworkDbValue } from "@/lib/accounting/frameworkAdapter";
 import { detectEntityAccountingContext } from "@/lib/accounting/detectEntityContext";
 import { classifyConfirmationPosture } from "@/lib/accounting/confirmationPosture";
@@ -133,6 +134,13 @@ function StatusDot({ status, stage, openFinding }: { status: MissionStatus; stag
 }
 
 // ── User menu — visible sign-out ────────────────────────────────────────────
+
+/** The plan chip, for the person who holds billing for this workspace's account only: a team member of someone else's
+ *  account is never told about their own (unrelated) billing state here. */
+function WorkspacePlanChip({ companyId }: { companyId: string | null | undefined }) {
+  const { state } = useWorkspaceCapabilities(companyId);
+  return state?.manageBilling ? <PlanChip className="hidden sm:inline-flex" /> : null;
+}
 
 function UserMenu({ email }: { email: string }) {
   const { signOut } = useAuth();
@@ -350,6 +358,7 @@ export default function WorkspaceLayout() {
               >
                 <RefreshCw className="w-4 h-4" />
               </Button>
+              {user && <WorkspacePlanChip companyId={companyId} />}
               {user && <UserMenu email={user.email ?? "user"} />}
             </div>
           </div>

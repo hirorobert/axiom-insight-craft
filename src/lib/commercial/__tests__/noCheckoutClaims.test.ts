@@ -79,23 +79,26 @@ describe("payment is offered only where the server says it is open", () => {
       const html = render(createElement(page));
       expect(text(html)).not.toMatch(TRANSACTIONAL);
       expect(html).not.toContain("/billing/checkout");
-      expect(text(html)).toContain("Proposed: USD 490 per year");
+      expect(text(html)).toMatch(/Proposed: USD 490\s+per year/);
       // Not yet read: nothing claims payment is open or closed, and no manual activation is offered.
       expect(text(html)).not.toMatch(/temporarily unavailable|Request activation|activated by our team/);
       expect(html).not.toMatch(/<button[^>]*>[^<]*(Upgrade|Buy|Subscribe|Checkout)/i);
     }
   });
-  it("the catalogue offers 'Choose <plan>' to checkout only for a plan with an approved price while payment is open", () => {
+  it("the catalogue offers 'Get <plan>' to checkout only for a plan with an approved price while payment is open", () => {
     const open = render(createElement(PlanCatalogue, { prices: OPEN }));
     expect(open).toContain('href="/billing/checkout?plan=SOLO"');
-    expect(text(open)).toContain("USD 490 per year by card");
+    // The server's own amount; the payment method is stated once, on the payment step, not on the plan card.
+    expect(text(open)).toMatch(/USD 490\s+per year/);
+    expect(text(open)).not.toContain("Proposed: USD 490");
+    expect(text(open)).toContain("Get Solo");
     expect(open).not.toContain('href="/billing/checkout?plan=PRACTICE"');
     const closed = render(createElement(PlanCatalogue, { prices: CLOSED }));
     expect(closed).not.toContain("/billing/checkout");
     // Approved but not open: the approved amount, never "Proposed", and the activation request.
-    expect(text(closed)).toContain("USD 490 per year");
+    expect(text(closed)).toMatch(/USD 490\s+per year/);
     expect(text(closed)).not.toContain("Proposed: USD 490");
-    expect(text(closed)).toContain("Proposed: USD 990 per year");
+    expect(text(closed)).toMatch(/Proposed: USD 990\s+per year/);
     // The server said closed: say so truthfully, offer support, never manual activation.
     expect(text(closed)).toContain("Online payment is temporarily unavailable");
     expect(closed).toContain("Contact support");

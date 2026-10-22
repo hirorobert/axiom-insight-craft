@@ -21,6 +21,12 @@
 //   delayed     a correctly signed notification 20 minutes old recovers a paid order through the provider, exactly once
 //   refunds     a partial then a full refund are recorded as changes (20,000 then 29,000); a redelivery records nothing
 //   expiry      a card checkout left unpaid expires at the provider → status page: no payment taken → a new payment starts
+//   leaving     (20261119100000) Back from the provider page → /plans names the checkout; Resume (the button) reopens the
+//               SAME session; closing the tab and reopening /plans still names it; Choose another plan states the
+//               consequence, waits out a moments-old provider answer (RETRY_LATER), then closes CFOClose's record only
+//               (CANCELLED, audited; the provider session stays open) → another plan starts; an ended session on the order
+//               page or the plans link returns there after signing in; a review case is never offered for closing and is
+//               recovered by the next checkout once the provider expired it; an unreachable status service is stated
 //   refund      the provider refunds → recorded for review, customer sees "refunded", the administrator records a decision
 //   manual      manual activation from the screen; a manual grant over a paid term is refused
 //   isolation   another account opening the order sees "Order not found"; its API read returns found:false
@@ -119,7 +125,7 @@ const preview = await vite.preview({ root: REPO, configFile: path.join(REPO, "vi
 // ── Accounts (generated test passwords, never printed) ───────────────────────────────────────────────────────────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other"), manual: mk("buyer-manual"), fresh: mk("fresh"), owner: mk("company-owner"), late: mk("buyer-late") };
+const U = { admin: mk("commercial-admin"), card: mk("buyer-card"), mobile: mk("buyer-mobile"), other: mk("buyer-other"), manual: mk("buyer-manual"), fresh: mk("fresh"), owner: mk("company-owner"), late: mk("buyer-late"), leaver: mk("buyer-leaver") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -212,8 +218,10 @@ const setInput = (selector, value) => page.evaluate((sel, val) => {
   el.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
 }, selector, value);
+let signedInContext = null;
 async function signInAs(u) {
-  page = await (await browser.newContext()).newPage();
+  signedInContext = await browser.newContext();
+  page = await signedInContext.newPage();
   await page.setViewport(1280, 900);
   await go("/auth", "Sign in to your CFOClose account");
   await page.fill("#email", u.email);
@@ -311,7 +319,7 @@ async function main() {
     const selfServeActivation = links.filter((h) => /service=plan_activation/.test(h) && !/[?&]plan=ENTERPRISE(&|$)/.test(h));
     const noCheckout = !links.some((h) => h.includes("/billing/checkout")) && selfServeActivation.length === 0;
     const enterpriseEnquiry = links.some((h) => /service=plan_activation/.test(h) && /[?&]plan=ENTERPRISE(&|$)/.test(h));
-    return t.includes("Proposed: USD 490 per year") && t.includes("Contact support") && noCheckout && enterpriseEnquiry
+    return /Proposed: USD 490\s+per year/.test(t) && t.includes("Contact support") && noCheckout && enterpriseEnquiry
       && !/Choose Solo|Request activation|TZS|mobile money/i.test(t) ? true : { noCheckout, enterpriseEnquiry, links: links.filter((h) => /checkout|contact/.test(h)), text: t.slice(0, 800) };
   });
   await check("payments closed: the server itself refuses the purchase (no route offered, the attempt refused, no intent, no licence)", () => serverRefusesCheckout(U.fresh, "SOLO"));
@@ -457,7 +465,7 @@ async function main() {
   let cardRef = null; let cardCheckout = null;
   await check("card → the provider's hosted page; nothing is recorded as paid before the provider confirms", async () => {
     await page.click('[data-testid="route-CARD"] input');
-    await page.waitForText("USD 490 + any sales tax");
+    await page.waitForText("Sales tax may apply");
     await page.click('[data-testid="checkout-continue"]');
     await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
     const [i] = await intentsOf(U.card);
@@ -627,6 +635,160 @@ async function main() {
     return data?.found === false ? true : data;
   });
 
+  startGroup("Leaving the provider's page without paying (20261119100000)");
+  // This journey switches between Solo and Practice. Approve Practice through the same operator UI;
+  // an unavailable offer must never be treated as a checkout-recovery failure.
+  await signInAs(U.admin);
+  await check("approve the Practice USD annual offer for the two-plan abandonment journey", async () => {
+    await go("/commercial/admin");
+    await adminTab("Prices");
+    await page.waitForText("CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL");
+    await setByLabel("Reason (recorded)", "Approved for the two-plan abandonment journey");
+    await acceptConfirms();
+    await page.evaluate(() => {
+      const row = document.querySelector('li[data-offer-code="CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL"]');
+      [...row.querySelectorAll("button")].find((b) => b.textContent === "Approve").click();
+    });
+    await page.waitForText("Price saved.");
+    const { data, error } = await admin.from("commercial_offers").select("is_purchasable, amount_minor")
+      .eq("offer_code", "CFOCLOSE_PRACTICE_GLOBAL_USD_ANNUAL").single();
+    return !error && data?.is_purchasable && Number(data.amount_minor) === 99000 ? true : { data, error };
+  });
+  await signInAs(U.leaver);
+  let leftRef = null; let leftSession = null;
+  const banner = () => page.evaluate(() => {
+    const b = document.querySelector('[data-testid="unfinished-checkout"]');
+    return { text: b?.innerText ?? "", ref: b?.getAttribute("data-ref") ?? null, resume: !!document.querySelector('[data-testid="unfinished-resume"]'),
+      choose: !!document.querySelector('[data-testid="unfinished-choose-another"]'), spinner: /Waiting for payment confirmation/.test(document.body.innerText) };
+  });
+  await check("Back: card → the provider's page → its Back link lands on /plans naming the unfinished checkout (recorded state only: 'No payment has been recorded'), Resume and Choose another plan — never a spinner", async () => {
+    await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
+    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await page.click('[data-testid="checkout-continue"]');
+    await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
+    const [i] = await intentsOf(U.leaver);
+    leftRef = i?.saff_reference; leftSession = i?.provider_checkout_ref;
+    await page.click('[data-testid="mock-back"]');
+    await page.waitFor(() => location.pathname === "/plans" && location.search.includes("unfinished="), [], { label: "back on the plans page" });
+    await page.waitForSelector('[data-testid="unfinished-checkout"]', { timeout: 30000 });
+    const b = await banner();
+    return i?.status === "PENDING" && b.ref === leftRef && /Practice checkout isn't finished/.test(b.text) && /No payment has been recorded/.test(b.text)
+      && b.resume && b.choose && !b.spinner ? true : { i, b };
+  });
+  await check("plans page with the unfinished checkout at 1280 and 375 px", async () => widths("28-plans-unfinished"));
+  await check("Resume (the button): asks the provider at that moment and opens the SAME provider session; its Back link returns to the banner", async () => {
+    await page.click('[data-testid="unfinished-resume"]');
+    await page.waitForUrl(new RegExp(`127\\.0\\.0\\.1:9911/pay/${leftSession}`), { timeout: 30000 });
+    const sessions = (await intentsOf(U.leaver)).length;
+    await page.click('[data-testid="mock-back"]');
+    await page.waitForSelector('[data-testid="unfinished-checkout"]', { timeout: 30000 });
+    return sessions === 1 ? true : { sessions };
+  });
+  await check("close: the tab is closed and the plans page opened again WITHOUT the link — the account's own open checkout is still named", async () => {
+    // Same browser profile (the signed-in session survives), the old tab closed.
+    const old = page;
+    page = await signedInContext.newPage();
+    await page.setViewport(1280, 900);
+    await browser.send("Target.closeTarget", { targetId: old.targetId });
+    await go("/plans", "Choose your plan");
+    await page.waitForSelector('[data-testid="unfinished-checkout"]', { timeout: 30000 });
+    const b = await banner();
+    return b.ref === leftRef ? true : b;
+  });
+  await check("Choose another plan: the consequence is stated before anything changes; Keep it changes nothing", async () => {
+    await page.click('[data-testid="unfinished-choose-another"]');
+    await page.waitForSelector('[data-testid="unfinished-confirm"]');
+    const text = await page.evaluate(() => document.querySelector('[data-testid="unfinished-confirm"]').innerText);
+    await widths("29-leave-confirm");
+    await page.click('[data-testid="unfinished-keep"]');
+    const [i] = await intentsOf(U.leaver);
+    return /payment page itself stays open until it expires/.test(text) && /never applied twice/.test(text) && i.status === "PENDING" ? true : { text, st: i.status };
+  });
+  await check("…Close this checkout: the provider was asked moments ago (Resume), so the page waits visibly (RETRY_LATER) and asks afresh — then CFOClose's record is CANCELLED and audited once, and the Polar session is NOT cancelled", async () => {
+    await page.click('[data-testid="unfinished-choose-another"]');
+    await page.click('[data-testid="unfinished-confirm-close"]');
+    const waited = await page.waitForSelector('[data-testid="unfinished-waiting"]', { timeout: 15000 }).then(() => true, () => false);
+    // Never Resume and a close at once: while the close waits, Resume is disabled.
+    const resumeOff = waited && await page.evaluate(() => document.querySelector('[data-testid="unfinished-resume"]')?.disabled === true);
+    if (waited) await shot("30-leave-waiting-1280");
+    await page.waitForSelector('[data-testid="unfinished-checkout-left"]', { timeout: 150000 });
+    await widths("31-plans-left");
+    const [i] = await intentsOf(U.leaver);
+    const row = (await admin.from("payment_checkout_intents").select("status, metadata").eq("id", i.id).single()).data;
+    const audit = (await admin.from("billing_audit_events").select("id").eq("action", "CHECKOUT_ABANDONED_BY_CUSTOMER").eq("actor_user_id", U.leaver.id)).data ?? [];
+    const providerSession = mock.checkouts.get(leftSession)?.status;
+    return waited && resumeOff && row?.status === "CANCELLED" && row.metadata?.cancel_reason === "CUSTOMER_ABANDONED_UNPAID" && audit.length === 1 && providerSession === "open"
+      ? true : { waited, resumeOff, row, audit: audit.length, providerSession };
+  });
+  await check("…then another plan's payment starts at once (no waiting for the old session to expire)", async () => {
+    await go("/billing/checkout?plan=SOLO", "Card · USD 490");
+    await page.click('[data-testid="route-CARD"] input');
+    await page.click('[data-testid="checkout-continue"]');
+    await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
+    const all = await intentsOf(U.leaver);
+    return all.length === 2 && all[0].status === "CANCELLED" && all[1].status === "PENDING" ? true : all.map((x) => x.status);
+  });
+  await check("sign-in expiry on the order page: the session ends → 'Sign in' → after signing in, back on exactly that order", async () => {
+    const pendingRef = (await intentsOf(U.leaver))[1].saff_reference;
+    await go(`/billing/payment/return?ref=${pendingRef}`);
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("sb-")) localStorage.removeItem(k); });
+    await go(`/billing/payment/return?ref=${pendingRef}`);
+    await page.waitForSelector('[data-testid="payment-sign-in"]', { timeout: 30000 });
+    await widths("33-status-sign-in");
+    await page.click('[data-testid="payment-sign-in-link"]');
+    await page.waitForText("Sign in to your CFOClose account");
+    await page.fill("#email", U.leaver.email);
+    await page.fill("#password", U.leaver.password);
+    await page.press("Enter");
+    await page.waitFor((r) => location.pathname === "/billing/payment/return" && location.search.includes(r), [pendingRef], { label: "back on the order", timeout: 30000 });
+    return true;
+  });
+  await check("sign-in expiry on the plans link: signed out on /plans?unfinished=… → 'Sign in' → after signing in, back on that link with the checkout named", async () => {
+    const pendingRef = (await intentsOf(U.leaver))[1].saff_reference;
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("sb-")) localStorage.removeItem(k); });
+    await go(`/plans?unfinished=${pendingRef}`);
+    await page.waitForSelector('[data-testid="unfinished-sign-in"]', { timeout: 30000 });
+    await widths("32-plans-signed-out-unfinished");
+    await page.click('[data-testid="unfinished-sign-in-link"]');
+    await page.waitForText("Sign in to your CFOClose account");
+    await page.fill("#email", U.leaver.email);
+    await page.fill("#password", U.leaver.password);
+    await page.press("Enter");
+    await page.waitFor((r) => location.pathname === "/plans" && location.search.includes(r), [pendingRef], { label: "back on the plans link", timeout: 30000 });
+    await page.waitForSelector('[data-testid="unfinished-checkout"]', { timeout: 30000 });
+    return (await banner()).ref === pendingRef ? true : await banner();
+  });
+  await check("a review case (MANUAL_REVIEW, provider result uncertain) is never offered for closing; once the provider has expired the session (no webhook), the next checkout re-verifies it, closes it and starts", async () => {
+    const [, pending] = await intentsOf(U.leaver);
+    // Test setup: the outcome the real path writes when the provider created the session but CFOClose could not record it.
+    const meta = (await admin.from("payment_checkout_intents").select("metadata").eq("id", pending.id).single()).data?.metadata ?? {};
+    await admin.from("payment_checkout_intents").update({ status: "MANUAL_REVIEW",
+      metadata: { ...meta, uncertain_reason: "PROVIDER_RESULT_PERSISTENCE_UNCERTAIN", uncertain_at: new Date().toISOString() } }).eq("id", pending.id);
+    await go(`/plans?unfinished=${pending.saff_reference}`);
+    await page.waitForSelector('[data-testid="unfinished-checkout-review"]', { timeout: 30000 });
+    await widths("34-plans-review-case");
+    const offered = await page.evaluate(() => !!document.querySelector('[data-testid="unfinished-choose-another"]'));
+    // The provider expires the session; its notification never arrives.
+    mock.checkouts.get(pending.provider_checkout_ref).status = "expired";
+    await sleep(61_000); // the review page's own read may hold the verification claim
+    await go("/billing/checkout?plan=PRACTICE", "Card, on Polar\'s secure page");
+    await page.waitForSelector('[data-testid="checkout-continue"]:not([disabled])');
+    await page.click('[data-testid="checkout-continue"]');
+    await page.waitForUrl(/127\.0\.0\.1:9911\/pay\//, { timeout: 30000 });
+    const all = await intentsOf(U.leaver);
+    return !offered && all.length === 3 && all[1].status === "EXPIRED" && all[2].status === "PENDING" ? true : { offered, all: all.map((x) => x.status) };
+  });
+  await check("the status page never spins forever: with the status service unreachable it says so, with Try again and Back to plans", async () => {
+    await page.send("Network.setBlockedURLs", { urls: ["*commercial-payment-status*"] });
+    try {
+      await go(`/billing/payment/return?ref=${leftRef}`);
+      await page.waitForSelector('[data-testid="payment-unreachable"]', { timeout: 30000 });
+      await widths("35-status-unreachable");
+      const t = await page.bodyText();
+      return /Do not pay again/.test(t) && /Back to plans/.test(t) ? true : t.slice(0, 600);
+    } finally { await page.send("Network.setBlockedURLs", { urls: [] }); }
+  });
+
   startGroup("An older Polar session paid after CFOClose closed its intent and a replacement started (real functions, mock Polar)");
   // Neither provider can cancel a checkout on request (Polar's checkout update has no expiry or status field), so the old
   // mock session stays payable — exactly as at Polar. Before 20261102100000 its payment was answered DUPLICATE and recorded
@@ -756,7 +918,7 @@ async function main() {
   await check("administrator accounts page at 1280 and 375 px", async () => widths("26-admin-accounts"));
 
   startGroup("Public plans when online payment is open to customers");
-  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved USD price and 'Choose Solo', no mobile money; the other plans stay proposed", async () => {
+  await check("CUSTOMER_PAYMENTS_ENABLED: the landing shows the approved USD price and 'Choose Solo', no mobile money; Firm stays proposed", async () => {
     const ops = await apiAs(U.admin);
     { const { error } = await ops.rpc("admin_transition_platform_state", { p_new_state: "CUSTOMER_PAYMENTS_ENABLED", p_reason: "payment journey: public view" }); if (error) return error.message; }
     page = await (await browser.newContext()).newPage(); await page.setViewport(1280, 900);
@@ -766,7 +928,7 @@ async function main() {
     await page.evaluate(() => document.getElementById("plans")?.scrollIntoView());
     await widths("27-landing-plans-online");
     // Polar card payments only: the approved TZS price is never shown (mobile money is not launched).
-    return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 990 per year") ? true : t.slice(0, 1200);
+    return !/TZS|mobile money/.test(t) && t.includes("Choose Solo") && t.includes("Proposed: USD 2,990 per year") ? true : t.slice(0, 1200);
   });
   await check("…and a sandbox route is then not offered at checkout (the platform matrix): the page shows payment unavailable, and the server refuses the attempt", async () => {
     await signInAs(U.mobile);

@@ -49,6 +49,8 @@ import {
   EFFECTIVE_END_LABEL,
 } from "../billingDisplay";
 import { PRODUCT_OUTCOMES } from "../../product/outcomes";
+import { PRICING_CATALOGUE } from "../pricingCatalogue";
+import { PLAN_GROUPS } from "../purchaseJourney";
 
 const REPO_ROOT = path.join(__dirname, "../../../../");
 
@@ -639,7 +641,9 @@ describe("Ω3-BRAND · Pricing/Settings — H-2 unenforced commercial limits rem
   it("72 · plan names, taglines and features come from the one catalogue, never from page-local copy", () => {
     // Pricing and /plans both render the shared PlanCatalogue, which maps the one catalogue.
     const catalogueSrc = readSource("src/components/commercial/PlanCatalogue.tsx");
-    expect(catalogueSrc).toMatch(/PRICING_CATALOGUE\.map\(/);
+    expect(catalogueSrc).toMatch(/PRICING_CATALOGUE\.filter\(\(plan\) => g\.plans\.includes\(plan\.code\)\)\.map\(/);
+    // The two groups (owner decision 2026-10-20) show every catalogue plan exactly once: none hidden, none repeated.
+    expect(PLAN_GROUPS.flatMap((g) => g.plans).sort()).toEqual(PRICING_CATALOGUE.map((p) => p.code).sort());
     for (const src of [pricingSrc, readSource("src/pages/Plans.tsx")]) expect(src).toMatch(/<PlanCatalogue\b/);
     for (const src of [pricingSrc, catalogueSrc]) expect(src).not.toMatch(/const (FREE|PAID)_(FEATURES|TAGLINE)\b/);
   });

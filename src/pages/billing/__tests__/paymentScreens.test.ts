@@ -16,10 +16,11 @@ const { auth, client, rpcMod, supabaseRpc } = vi.hoisted(() => ({
     getCheckoutOptions: vi.fn(),
     startCheckout: vi.fn(),
     rememberCheckoutPlan: vi.fn(),
+    rememberReturnTo: vi.fn(),
     getMyPayments: vi.fn(async () => []),
     usePublicPlanPrices: () => null,
   },
-  rpcMod: { pollCheckoutStatus: vi.fn(), requestPaymentVerificationRecovery: vi.fn(), callCommercialRpc: vi.fn(async () => ({ data: [], error: null })) },
+  rpcMod: { pollCheckoutStatus: vi.fn(), requestPaymentVerificationRecovery: vi.fn(), abandonUnfinishedCheckout: vi.fn(), NOT_AUTHENTICATED: "Not authenticated", callCommercialRpc: vi.fn(async () => ({ data: [], error: null })) },
   supabaseRpc: vi.fn(),
 }));
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ ...auth, session: null, signOut: async () => undefined }) }));
@@ -81,8 +82,164 @@ describe("checkout", () => {
     expect(t).toContain("starts as soon as the payment is verified");
     expect(byTestId(m, "checkout-total")).toBeNull();
     click(byTestId(m, "route-CARD")!.querySelector("input")!);
-    expect(byTestId(m, "checkout-total")!.textContent).toContain("USD 490 + any sales tax");
+    expect(byTestId(m, "checkout-total")!.textContent).toContain("USD 490");
+    expect(byTestId(m, "checkout-total")!.textContent).toContain("Sales tax may apply and is shown before you pay");
+    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Continue to payment");
     expect(await axeViolations(m.container)).toEqual([]);
+  });
+
+  it("one open route is stated, not offered as a one-option choice; a NEW purchase needs no placement sentence", async () => {
+    client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, options: [BOTH.options[0]] }, error: null });
+    m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
+    await flush();
+    expect(m.container.querySelector('input[type="radio"]')).toBeNull();
+    expect(byTestId(m, "route-CARD")!.textContent).toContain("Card, on Polar's secure page");
+    expect(byTestId(m, "checkout-placement")).toBeNull();
+    expect(byTestId(m, "checkout-continue")!.textContent).toBe("Continue to payment");
+    expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(false);
+    expect(await axeViolations(m.container)).toEqual([]);
+  });
+
+  const openOrder = { ...statusBase, planCode: "PRACTICE", status: "PENDING", providerCheckout: null };
+  const refusedFor = async (error: string) => {
+    client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, options: [BOTH.options[0]] }, error: null });
+    client.startCheckout.mockResolvedValue({ ok: false, error, saffReference: "SAFF-OPEN", previousPlanName: "Practice" });
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: openOrder, error: null });
+    m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
+    await flush();
+    click(byTestId(m, "checkout-continue")!);
+    await flush();
+    return m;
+  };
+
+  it("an open checkout for another plan: stated from the recorded state only (no provider call, no 'nothing was paid' claim), with Resume and Choose another plan; Pay stays off", async () => {
+    await refusedFor("OPEN_CHECKOUT_OTHER_PLAN");
+    const b = byTestId(m!, "unfinished-checkout")!;
+    expect(b.textContent).toContain("Your Practice checkout isn't finished");
+    expect(b.textContent).toContain("No payment has been recorded for it");
+    expect(b.textContent).not.toMatch(/Nothing has been paid/);
+    expect(rpcMod.requestPaymentVerificationRecovery).not.toHaveBeenCalled();
+    expect(byTestId(m!, "unfinished-resume")).not.toBeNull();
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    expect(await axeViolations(m!.container)).toEqual([]);
+  });
+
+  it("Choose another plan first states what it does and does not do; only 'Close this checkout' closes; Keep it changes nothing", async () => {
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "ABANDONED", status: { ...openOrder, status: "CANCELLED" }, error: null });
+    await refusedFor("OPEN_CHECKOUT_OTHER_PLAN");
+    click(byTestId(m!, "unfinished-choose-another")!);
+    const confirm = byTestId(m!, "unfinished-confirm")!;
+    expect(confirm.textContent).toContain("The payment page itself stays open until it expires");
+    expect(confirm.textContent).toContain("never applied twice");
+    expect(confirm.textContent).not.toMatch(/cancel(l)?ed at|automatic(ally)? refund|credit/i);
+    expect(rpcMod.abandonUnfinishedCheckout).not.toHaveBeenCalled();
+    click(byTestId(m!, "unfinished-keep")!);
+    expect(byTestId(m!, "unfinished-confirm")).toBeNull();
+    expect(rpcMod.abandonUnfinishedCheckout).not.toHaveBeenCalled();
+    expect(await axeViolations(m!.container)).toEqual([]);
+  });
+
+  it("closing re-enables payment and keeps the consequence in view (the old payment page may stay open)", async () => {
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "ABANDONED", status: { ...openOrder, status: "CANCELLED" }, error: null });
+    await refusedFor("OPEN_CHECKOUT_OTHER_PLAN");
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledWith("SAFF-OPEN");
+    expect(byTestId(m!, "checkout-left-note")!.textContent).toContain("may stay open until it expires");
+    expect(byTestId(m!, "unfinished-checkout")).toBeNull();
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a provider answer that is moments old is not acted on: RETRY_LATER waits visibly, then asks afresh; nothing closes before that", async () => {
+    vi.useFakeTimers();
+    rpcMod.abandonUnfinishedCheckout
+      .mockResolvedValueOnce({ outcome: "RETRY_LATER", status: openOrder, error: null, retryAfterSeconds: 3 })
+      .mockResolvedValueOnce({ outcome: "ABANDONED", status: { ...openOrder, status: "CANCELLED" }, error: null });
+    await refusedFor("OPEN_CHECKOUT_OTHER_PLAN");
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "unfinished-waiting")!.textContent).toContain("Confirming with the payment provider that nothing was paid");
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    // Never Resume and a close at once: Resume is off for the whole wait.
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(true);
+    expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 4; i++) { await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); await flush(); }
+    expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledTimes(2);
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("closing is refused while the provider shows the payment in progress: says so, nothing changes, never invites a second payment", async () => {
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "PAYMENT_PROCESSING", status: openOrder, error: null });
+    await refusedFor("OPEN_CHECKOUT_UNFINISHED");
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "unfinished-notice")!.textContent).toContain("Do not pay again");
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    // The close attempt ended without closing: Resume is available again.
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("while a close is being asked, Resume is disabled (banner); a request in flight counts as closing", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    rpcMod.abandonUnfinishedCheckout.mockImplementation(() => new Promise((r) => { release = r; }));
+    await refusedFor("OPEN_CHECKOUT_UNFINISHED");
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(true);
+    release({ outcome: "PROVIDER_UNAVAILABLE", status: openOrder, error: null });
+    await flush();
+    expect((byTestId(m!, "unfinished-resume") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a NOT_PENDING answer for an order under review is never reported as closed: the review is shown and payment stays off", async () => {
+    const review = { ...openOrder, status: "MANUAL_REVIEW", reviewReason: "OUTCOME_UNCERTAIN" };
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "NOT_PENDING", status: review, error: null });
+    await refusedFor("OPEN_CHECKOUT_UNFINISHED");
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: review, error: null });
+    click(byTestId(m!, "unfinished-choose-another")!);
+    click(byTestId(m!, "unfinished-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "checkout-left-note")).toBeNull();
+    expect(byTestId(m!, "unfinished-checkout-review")!.textContent).toContain("being confirmed");
+    expect((byTestId(m!, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("Resume asks the provider at the moment it is pressed and opens its page only when the session is open and unpaid", async () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { value: { ...window.location, assign }, configurable: true });
+    await refusedFor("OPEN_CHECKOUT_UNFINISHED");
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValueOnce({ data: { ...openOrder, providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "javascript:alert(1)", expiresAt: null } }, throttled: false, retryAfterSeconds: null, error: null });
+    click(byTestId(m!, "unfinished-resume")!);
+    await flush();
+    expect(assign).not.toHaveBeenCalled();
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValueOnce({ data: { ...openOrder, providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "https://polar.example.test/checkout/s1", expiresAt: null } }, throttled: false, retryAfterSeconds: null, error: null });
+    click(byTestId(m!, "unfinished-resume")!);
+    await flush();
+    expect(assign).toHaveBeenCalledWith("https://polar.example.test/checkout/s1");
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValueOnce({ data: null, throttled: true, retryAfterSeconds: 40, error: null });
+    click(byTestId(m!, "unfinished-resume")!);
+    await flush();
+    expect(byTestId(m!, "unfinished-notice")!.textContent).toContain("Checked moments ago");
+    expect(byTestId(m!, "unfinished-notice")!.querySelector("a")!.getAttribute("href")).toBe("/billing/payment/return?ref=SAFF-OPEN");
+  });
+
+  it("an open checkout whose status cannot be read is never a silent blank: it links to the order", async () => {
+    client.getCheckoutOptions.mockResolvedValue({ data: { ...BOTH, options: [BOTH.options[0]] }, error: null });
+    client.startCheckout.mockResolvedValue({ ok: false, error: "OPEN_CHECKOUT_UNFINISHED", saffReference: "SAFF-OPEN" });
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValue({ data: null, throttled: false, retryAfterSeconds: null, error: "Status check failed" });
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: null, error: "Status check failed" });
+    m = mount(at("/billing/checkout?plan=SOLO", h(Checkout)));
+    await flush();
+    click(byTestId(m, "checkout-continue")!);
+    await flush();
+    const note = byTestId(m, "unfinished-checkout-unreadable")!;
+    expect(note.textContent).toContain("Do not pay again");
+    expect(note.querySelector("a")!.getAttribute("href")).toBe("/billing/payment/return?ref=SAFF-OPEN");
   });
 
   it("mobile money: an invalid number is refused before anything is sent; a valid one starts the payment and opens the order's status page", async () => {
@@ -255,6 +412,71 @@ describe("payment status page", () => {
     await showStatus({ status: "SUCCEEDED", paymentRecorded: true, reversalType: "REFUND" });
     expect(byTestId(m!, "payment-heading")!.textContent).toBe("Payment refunded");
     expect(byTestId(m!, "next-start-review")).toBeNull();
+  });
+  it("the provider reports the session open and unpaid: no spinner; Resume, or Choose another plan → confirm → closed in CFOClose → the plans page", async () => {
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "ABANDONED", status: null, error: null });
+    await showStatus({ status: "PENDING", providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "https://polar.example.test/checkout/s1", expiresAt: null } });
+    expect(byTestId(m!, "payment-explanation")!.textContent).toContain("The payment provider reports this Solo checkout open and unpaid");
+    expect(byTestId(m!, "next-resume-checkout")).not.toBeNull();
+    expect(byTestId(m!, "next-check-again")).toBeNull();
+    expect(await axeViolations(m!.container)).toEqual([]);
+    click(byTestId(m!, "next-choose-another")!);
+    expect(byTestId(m!, "next-confirm")!.textContent).toContain("stays open until it expires");
+    click(byTestId(m!, "next-confirm-close")!);
+    await flush();
+    expect(rpcMod.abandonUnfinishedCheckout).toHaveBeenCalledWith("SAFF-9");
+    expect(where).toBe("/plans");
+  });
+  it("order page: Resume is disabled while the close waits out a moments-old provider answer", async () => {
+    vi.useFakeTimers();
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "RETRY_LATER", status: null, error: null, retryAfterSeconds: 30 });
+    await showStatus({ status: "PENDING", providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "https://polar.example.test/checkout/s1", expiresAt: null } });
+    expect((byTestId(m!, "next-resume-checkout") as HTMLButtonElement).disabled).toBe(false);
+    click(byTestId(m!, "next-choose-another")!);
+    click(byTestId(m!, "next-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "next-waiting")).not.toBeNull();
+    expect((byTestId(m!, "next-resume-checkout") as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("closing a checkout the provider has just completed: not closed; the completed result is shown", async () => {
+    const paid = { ...statusBase, status: "SUCCEEDED", paymentRecorded: true, purchasedEffectiveStart: "2026-10-10T08:01:00Z", purchasedEffectiveEnd: "2027-10-10T08:01:00Z" };
+    rpcMod.abandonUnfinishedCheckout.mockResolvedValue({ outcome: "SETTLED", status: paid, error: null });
+    await showStatus({ status: "PENDING", providerCheckout: { state: "OPEN_UNPAID", resumeUrl: null, expiresAt: null } });
+    click(byTestId(m!, "next-choose-another")!);
+    click(byTestId(m!, "next-confirm-close")!);
+    await flush();
+    expect(byTestId(m!, "payment-heading")!.textContent).toBe("Payment received");
+    expect(where).toBe("/billing/payment/return?ref=SAFF-9");
+  });
+  it("an order under review whose provider session is open: Resume only — it is never offered for closing by the customer", async () => {
+    await showStatus({ status: "MANUAL_REVIEW", reviewReason: "OUTCOME_UNCERTAIN", providerCheckout: { state: "OPEN_UNPAID", resumeUrl: "https://polar.example.test/checkout/s1", expiresAt: null } });
+    expect(byTestId(m!, "next-resume-checkout")).not.toBeNull();
+    expect(byTestId(m!, "next-choose-another")).toBeNull();
+    expect(byTestId(m!, "payment-explanation")!.textContent).toContain("cannot be closed here");
+  });
+});
+
+describe("payment status page · never an endless spinner", () => {
+  it("no session: asks to sign in instead of waiting", async () => {
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValue({ data: null, throttled: false, retryAfterSeconds: null, error: "Not authenticated" });
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: null, error: "Not authenticated" });
+    m = mount(at("/billing/payment/return?ref=SAFF-9", h(PaymentReturn)));
+    await flush();
+    expect(byTestId(m, "payment-sign-in")!.querySelector("a")!.getAttribute("href")).toBe("/auth");
+    // Signing in returns to exactly this order (one use).
+    click(byTestId(m, "payment-sign-in-link")!);
+    expect(client.rememberReturnTo).toHaveBeenCalledWith({ kind: "order", ref: "SAFF-9" });
+  });
+  it("status reads that keep failing: after a few, says so with Try again and Back to plans", async () => {
+    vi.useFakeTimers();
+    rpcMod.requestPaymentVerificationRecovery.mockResolvedValue({ data: null, throttled: false, retryAfterSeconds: null, error: "Status check failed" });
+    rpcMod.pollCheckoutStatus.mockResolvedValue({ data: null, error: "Status check failed" });
+    m = mount(at("/billing/payment/return?ref=SAFF-9", h(PaymentReturn)));
+    for (let i = 0; i < 5 && !byTestId(m, "payment-unreachable"); i++) { await act(async () => { await vi.advanceTimersByTimeAsync(5000); }); await flush(); }
+    const box = byTestId(m, "payment-unreachable")!;
+    expect(box.textContent).toContain("Do not pay again");
+    expect(byTestId(m, "payment-retry")).not.toBeNull();
+    expect(box.querySelector('a[href="/plans"]')).not.toBeNull();
   });
 });
 

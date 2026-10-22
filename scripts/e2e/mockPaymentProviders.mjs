@@ -3,7 +3,8 @@
 //
 //   Polar   POST /v1/checkouts/  GET /v1/checkouts/:id  GET /v1/orders/?checkout_id=  GET /v1/orders/:id
 //           GET /pay/:id — the "hosted checkout" page: a Pay button; paying marks the order paid, sends a signed
-//           order.paid delivery (Standard Webhooks) to the webhook endpoint, then redirects to the success_url.
+//           order.paid delivery (Standard Webhooks) to the webhook endpoint, then redirects to the success_url. Its
+//           "Back" link leaves without paying, to the return_url (Polar's own back link), and the session stays open.
 //   Snippe  POST /v1/payments  GET /v1/payments/:reference
 //
 // Test controls (the journey calls them): complete / fail / expire a payment, refund an order, and send a delivery with
@@ -71,7 +72,8 @@ export function startMockProviders({ port, polar, snippe, webhookBase, organizat
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mock Polar checkout</title></head>
 <body style="font-family:sans-serif;padding:24px"><p><strong>MOCK provider page</strong> (local test — no payment is taken)</p>
-<p data-testid="mock-amount">USD ${(c.amount / 100).toFixed(2)}</p><form method="post"><button type="submit" data-testid="mock-pay">Pay</button></form></body></html>`);
+<p data-testid="mock-amount">USD ${(c.amount / 100).toFixed(2)}</p><form method="post"><button type="submit" data-testid="mock-pay">Pay</button></form>
+${c.returnUrl ? `<p><a href="${encodeURI(c.returnUrl)}" data-testid="mock-back">Back</a></p>` : ""}</body></html>`);
       return;
     }
     const polarAuth = auth === `Bearer ${polar.accessToken}`;
@@ -85,7 +87,7 @@ export function startMockProviders({ port, polar, snippe, webhookBase, organizat
         const productId = b.products?.[0];
         const price = b.prices?.[productId]?.[0];
         const id = crypto.randomUUID();
-        const c = { id, status: "open", amount: price?.price_amount, currency: price?.price_currency ?? "usd", metadata: b.metadata, successUrl: b.success_url,
+        const c = { id, status: "open", amount: price?.price_amount, currency: price?.price_currency ?? "usd", metadata: b.metadata, successUrl: b.success_url, returnUrl: b.return_url ?? null,
           externalCustomerId: b.external_customer_id, productId, orderId: null, refunded: 0, discounts: b.allow_discount_codes, taxBehavior: price?.tax_behavior };
         checkouts.set(id, c);
         return json(res, 201, { id, url: `http://127.0.0.1:${port}/pay/${id}`, status: "open", net_amount: c.amount, currency: c.currency, metadata: c.metadata,
@@ -93,7 +95,8 @@ export function startMockProviders({ port, polar, snippe, webhookBase, organizat
       }
       if (req.method === "GET" && p.startsWith("/v1/checkouts/")) {
         const c = checkouts.get(p.slice("/v1/checkouts/".length));
-        return c ? json(res, 200, { id: c.id, status: c.status, metadata: c.metadata }) : json(res, 404, {});
+        return c ? json(res, 200, { id: c.id, status: c.status, metadata: c.metadata, url: `http://127.0.0.1:${port}/pay/${c.id}`,
+          expires_at: new Date(Date.now() + 3600_000).toISOString() }) : json(res, 404, {});
       }
       if (req.method === "GET" && p === "/v1/orders/") {
         const c = checkouts.get(url.searchParams.get("checkout_id") ?? "");

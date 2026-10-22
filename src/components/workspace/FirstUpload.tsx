@@ -32,6 +32,7 @@ import { ACCEPTED_EXTENSIONS, classifyCheckAnswer, validateFileChoice } from "@/
 import { checkFileCurrency, classifyLabels, describeEvidence, labelsOf, type CurrencyLabelEvidence } from "@/lib/ingestion/fileCurrencyCheck";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 import { openEngagementWithPeriod, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
+import { parseMyWorkspaceCapabilities } from "@/lib/auth/workspaceCapabilities";
 import { UPLOAD_LIMITS_TEXT, fileTooLarge } from "@/lib/workspace/uploadPolicy";
 import { DraftError, cancelDraftCommit, commitDraft, newDraftKey, reserveDraft, sha256Hex, uploadDraft } from "@/lib/workspace/trialBalanceDraft";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
@@ -281,6 +282,11 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
         const r = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId: a.uploadId, clientRequestId: a.requestId });
         return classifyCheckAnswer({ httpStatus: r.httpStatus, body: r.body });
       },
+      access: async (companyId) => {
+        const { data, error } = await supabase.rpc("get_my_workspace_capabilities" as never, { p_company_id: companyId } as never);
+        const caps = error ? null : parseMyWorkspaceCapabilities(data);
+        return caps ? { hasCurrentPlan: caps.hasCurrentPlan, canPrepare: caps.held.includes("prepare_close"), manageBilling: caps.manageBilling } : null;
+      },
     };
     setPhase({ kind: "starting", file, draft, step: progress.current.companyId || confirmed.entity.kind === "existing" ? "period" : "entity" });
     const r = await runStart(deps, confirmed, keys.current, progress.current, (step) => setPhase({ kind: "starting", file, draft, step }));
@@ -505,6 +511,8 @@ export default function FirstUpload({ onChoosePlan, onOpenResult, entities = [],
             <Button type="button" onClick={() => void replace()} data-testid="first-upload-replace">Replace the current trial balance with this file</Button>
           ) : phase.kind === "failed" && phase.result.next === "choose_plan" ? (
             <Button type="button" onClick={onChoosePlan} data-testid="first-upload-choose-plan">Choose a plan</Button>
+          ) : phase.kind === "failed" && phase.result.next === "choose_entity" && entities.length > 1 ? (
+            <Button type="button" variant="outline" onClick={() => document.getElementById(ids.existing)?.focus()} data-testid="first-upload-choose-entity">Choose another entity</Button>
           ) : phase.kind === "failed" && phase.result.next === "upload_again" ? (
             <Button type="button" onClick={reset} data-testid="first-upload-again">Upload the file again</Button>
           ) : phase.kind === "failed" && !phase.result.retryable ? null : (

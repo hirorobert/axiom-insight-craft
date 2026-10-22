@@ -20,6 +20,14 @@
  *          202 with a bounded Retry-After — never silently ignored, never an
  *          unbounded retry loop.
  *
+ *   POST { action: 'abandon' } (20261119100000) — the owner closes
+ *          CFOClose's record of an UNPAID checkout (the provider's session
+ *          is not cancelled): under a fresh claim_verification_attempt
+ *          claim (throttled → RETRY_LATER, nothing changes), settlement
+ *          first (a paid session is committed, never abandoned), then
+ *          abandon_unpaid_checkout only when the provider reports the
+ *          session still open. See abandonUnpaidCheckout below.
+ *
  * The prior revision ran independent provider verification and a
  * commit attempt INSIDE the GET handler itself, gated only by an
  * in-process status check with no durable throttle — an unbounded number
@@ -76,10 +84,13 @@ Deno.serve(async (req: Request) => {
   }
 
   let saffReference = new URL(req.url).searchParams.get('ref');
-  if (!saffReference && req.method === 'POST') {
+  // POST may carry { action: 'abandon' } (20261119100000): the customer leaves an UNPAID checkout to choose another plan.
+  let action: string | null = null;
+  if (req.method === 'POST') {
     try {
       const body = await req.json();
-      saffReference = body.saffReference ?? body.ref ?? null;
+      saffReference = saffReference ?? body.saffReference ?? body.ref ?? null;
+      action = typeof body.action === 'string' ? body.action : null;
     } catch { /* ignore */ }
   }
 
@@ -120,6 +131,10 @@ Deno.serve(async (req: Request) => {
   }
 
   const serviceClient = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  if (action === 'abandon') {
+    return await abandonUnpaidCheckout(serviceClient, readClient, authResult.userId, responseData.intent_id, saffReference, correlationId);
+  }
 
   const { data: claimData, error: claimErr } = await serviceClient.rpc('claim_verification_attempt', {
     p_checkout_intent_id: responseData.intent_id,
@@ -196,3 +211,65 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ ...responseData, recovery: 'ERROR', correlationId }, 200);
   }
 });
+
+/**
+ * The customer leaves an UNPAID checkout (20261119100000). The provider is asked first, through the same settlement path
+ * as a webhook: a paid session is committed (never abandoned); an expired or failed one is already closed. Only a session
+ * the provider reports still OPEN and unpaid is closed, by abandon_unpaid_checkout (owner-scoped, row-locked, audited).
+ *
+ * What this does and does not do: it closes CFOClose's OWN record of the checkout (PENDING → CANCELLED, audited) so that
+ * another plan can be bought. It does NOT cancel the provider's session — neither provider can — so that page stays payable
+ * until the provider expires it. A payment still made there is never lost (20261102100000): with nothing newer it is placed
+ * normally; once a newer attempt exists it is recorded once as a PAYMENT_AFTER_REPLACEMENT_STARTED recovery case for a
+ * commercial administrator to resolve (refund at the provider, or an additional term with the customer's agreement).
+ *
+ * Fresh evidence only: the provider is asked under a claim_verification_attempt claim, every time. A throttled claim is not
+ * evidence — the answer is RETRY_LATER with the wait, and nothing changes.
+ */
+// deno-lint-ignore no-explicit-any
+async function abandonUnpaidCheckout(serviceClient: any, readClient: any, userId: string, intentId: string, saffReference: string, correlationId: string) {
+  const reply = async (outcome: string, extra: Record<string, unknown> = {}) => {
+    const { data: refreshed } = await readClient.rpc('get_checkout_status', { p_saff_reference: saffReference });
+    return jsonResponse({ ...((refreshed ?? {}) as Record<string, unknown>), abandon: { outcome, ...extra }, correlationId }, 200);
+  };
+  try {
+    // Every provider call goes through the durable per-intent throttle, as the recovery POST does.
+    const { data: claim, error: claimErr } = await serviceClient.rpc('claim_verification_attempt', {
+      p_checkout_intent_id: intentId,
+      p_requesting_user_id: userId,
+      p_cooldown_seconds: 30,
+    });
+    if (claimErr || !claim) return await reply('UNAVAILABLE');
+    if (!claim.claimed && claim.reason === 'INTENT_NOT_VERIFIABLE') return await reply('NOT_PENDING', { status: claim.status ?? null });
+    if (!claim.claimed && claim.reason === 'THROTTLED') return await reply('RETRY_LATER', { retryAfterSeconds: claim.retry_after_seconds ?? 30 });
+    if (!claim.claimed) return await reply('REFUSED', { reason: claim.reason ?? null });
+    const { data: intent, error: intentErr } = await serviceClient.from('payment_checkout_intents')
+      .select(SETTLEMENT_INTENT_COLUMNS).eq('id', intentId).maybeSingle();
+    if (intentErr || !intent) return await reply('UNAVAILABLE');
+    // Only an ordinary PENDING checkout is ever left by the customer; a review case stays with the administrator.
+    if (intent.status !== 'PENDING') return await reply('NOT_PENDING', { status: intent.status });
+    const adapter = getAdapterForProvider(intent.provider);
+    if (!adapter || !adapter.describeCheckout) return await reply('PROVIDER_UNAVAILABLE');
+    const outcome = await settleIntent(serviceDbFrom(serviceClient), adapter, intent);
+    if (outcome.result !== 'NOT_FINAL') {
+      // Committed (paid, expired or failed) or not verifiable now: never abandon on anything but a confirmed open session.
+      return await reply(['PROCESSED', 'DUPLICATE', 'PLACEMENT_REVIEW', 'REVERSAL_RECORDED'].includes(outcome.result) ? 'SETTLED' : 'PROVIDER_UNAVAILABLE',
+        { recovery: outcome.result });
+    }
+    const d = await adapter.describeCheckout({ saffReference: intent.saff_reference, providerCheckoutRef: intent.provider_checkout_ref, billingCustomerId: intent.billing_customer_id }).catch(() => null);
+    if (d === null) return await reply('PROVIDER_UNAVAILABLE');
+    if (d.status !== 'open') return await reply('PAYMENT_PROCESSING');
+    // Fresh evidence, seconds old: no order and an open session. A payment made in the moments between this answer and the
+    // close below is still never lost (same row lock as the verified commit; proven by checkoutAbandon.mjs).
+    const { data: r, error: rErr } = await serviceClient.rpc('abandon_unpaid_checkout', { p_checkout_intent_id: intentId, p_actor_user_id: userId });
+    if (rErr) {
+      console.error('abandon_unpaid_checkout failed', { correlationId, error: rErr.message });
+      return await reply('UNAVAILABLE');
+    }
+    const res = (r ?? {}) as { abandoned?: boolean; reason?: string };
+    return await reply(res.abandoned ? 'ABANDONED' : 'REFUSED', { reason: res.reason ?? null });
+  } catch (e) {
+    console.error('abandon threw', { correlationId, error: String(e) });
+    return await reply('UNAVAILABLE');
+  }
+}

@@ -44,6 +44,11 @@ describe("EngagementHub — one primary next action, every instruction actionabl
     expect(h).toContain("Starts once a plan is active.");
     expect((h.match(/No active plan/g) ?? []).length).toBeLessThanOrEqual(1);
     expect(primaries(h)).toBe(1);
+    // One way to the plans in the page body: the next step's "Choose a plan" — never a second "View plans" beside it or in
+    // the plan panel (the header's "Plans" item is navigation, not a call to action).
+    const body = h.slice(h.indexOf('id="account-main"'));
+    expect(body).not.toContain("View plans");
+    expect((body.match(/href="\/plans"/g) ?? []).length).toBe(1);
   });
   it("company with no engagement: the next step starts it, and its row is listed", () => {
     const h = html({ account: withPlan, companiesWithoutEngagement: [company] });

@@ -116,12 +116,34 @@ describe("runStart: an existing entity (P2-4) and the purchase-required path", (
     expect(calls[0]).toContain("period:co-9:");
     expect(calls[1]).toContain('"entity":"Invented Existing Ltd"');
   });
-  it("a refusal to set up the period for an existing entity names permission and plan, and offers no plan as the fix", async () => {
-    const { d } = deps({ openPeriod: async () => { throw new WorkspaceSetupError("NOT_AUTHORISED", "x"); } });
+  const refused = { openPeriod: async () => { throw new WorkspaceSetupError("NOT_AUTHORISED", "x"); } };
+  it("a refusal for an existing entity whose cause the server cannot say names permission and plan, and offers no plan as the fix", async () => {
+    for (const access of [undefined, async () => null, async () => { throw new Error("network"); }]) {
+      const { d } = deps({ ...refused, access });
+      const r = await runStart(d, E, K, {});
+      expect(r).toMatchObject({ kind: "failed", step: "period", retryable: false, next: "choose_entity" });
+      expect((r as { message: string }).message).toMatch(/permission.*active plan/);
+    }
+  });
+  it("the account holder's account has no plan: says so, and the one action is Choose a plan", async () => {
+    const { d } = deps({ ...refused, access: async () => ({ hasCurrentPlan: false, canPrepare: true, manageBilling: true }) });
     const r = await runStart(d, E, K, {});
-    expect(r).toMatchObject({ kind: "failed", step: "period", retryable: false });
-    expect((r as { next?: string }).next).toBeUndefined();
-    expect((r as { message: string }).message).toMatch(/permission/);
+    expect(r).toMatchObject({ kind: "failed", step: "period", retryable: false, next: "choose_plan" });
+    expect((r as { message: string }).message).toMatch(/^Your account has no active plan\./);
+    expect((r as { message: string }).message).not.toMatch(/permission/);
+  });
+  it("someone else's account has no plan: never offers this person a purchase; asks the owner, or another entity", async () => {
+    const { d } = deps({ ...refused, access: async () => ({ hasCurrentPlan: false, canPrepare: true, manageBilling: false }) });
+    const r = await runStart(d, E, K, {});
+    expect(r).toMatchObject({ kind: "failed", next: "choose_entity" });
+    expect((r as { message: string }).message).toMatch(/account has no active plan\. Ask the account's owner/);
+  });
+  it("the plan is current but this person cannot prepare here: a permission refusal only, never a plan", async () => {
+    const { d } = deps({ ...refused, access: async () => ({ hasCurrentPlan: true, canPrepare: false, manageBilling: false }) });
+    const r = await runStart(d, E, K, {});
+    expect(r).toMatchObject({ kind: "failed", next: "choose_entity" });
+    expect((r as { message: string }).message).toMatch(/^You don't have permission to prepare/);
+    expect((r as { message: string }).message).not.toMatch(/plan/);
   });
   it("no plan at all (capacity answer without a plan): a plan is needed; the draft is kept; nothing is created", async () => {
     const { d, calls } = deps({ createEntity: async () => ({ kind: "capacity", capacity: { capacity: 0, used: 0, planCode: null, determined: true } }) });

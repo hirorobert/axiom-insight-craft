@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { callCommercialRpc } from "@/lib/commercial/commercialRpc";
 import type { LicenceStatus } from "@/lib/commercial/entitlementContract";
 import { generateCorrelationId, logWithContext } from "@/lib/observability/correlationId";
 
@@ -47,6 +46,9 @@ export function useBillingSummary(): UseBillingSummaryResult {
       setLoading(true);
       setError(null);
 
+      // Loaded on first use, not at import: the signed-in header (PlanChip) imports this hook, and the Supabase client must
+      // not be constructed merely because a page that renders the header was imported.
+      const { callCommercialRpc } = await import("@/lib/commercial/commercialRpc");
       const { data, error: rpcError } = await callCommercialRpc("get_my_billing_summary");
 
       if (cancelled) return;

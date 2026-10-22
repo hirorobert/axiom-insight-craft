@@ -42,7 +42,6 @@ import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewAction
 import { companyCreation, deriveAccountNextAction, type AccountNextAction } from "@/lib/workspace/accountNextAction";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
-import { SERVICE_ENQUIRY_SURFACES } from "@/lib/serviceEnquiry/serviceEnquiryGate";
 import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
@@ -436,7 +435,8 @@ export default function EngagementHub({
       {/* A plan read in flight or failed is already the next step (checking / try again): never said twice. */}
       {account && !account.billingLoading && !account.billingError && (
         <section className="mt-10" data-testid="account-plan">
-          <CurrentPlanPanel billing={account.billing} capacity={account.capacity} loading={account.billingLoading} error={account.billingError} onRetry={account.onRetry} />
+          <CurrentPlanPanel billing={account.billing} capacity={account.capacity} loading={account.billingLoading} error={account.billingError} onRetry={account.onRetry}
+            hidePlansAction={next?.kind === "choose_plan" || next?.kind === "capacity_reached"} />
         </section>
       )}
     </>
@@ -468,18 +468,14 @@ function NextActionCard({ next, resumeLabel, busy, onRetry, onResume, onStartRev
   addFormId: string;
   pendingLabel: string | null;
 }) {
-  const activation = SERVICE_ENQUIRY_SURFACES.contactRoute
-    ? <Link to="/plans" className="text-[13px] underline underline-offset-4" data-testid="next-action-view-plans">View plans</Link>
-    : null;
   const arrow = <ArrowRight className="w-3.5 h-3.5 ml-1.5" aria-hidden="true" />;
   let primary: ReactNode = null;
-  let secondary: ReactNode = null;
   switch (next.kind) {
     case "retry": primary = <Button onClick={onRetry} className={PRIMARY} data-testid="next-action-primary">Try again</Button>; break;
     case "choose_plan":
     case "capacity_reached":
-      primary = <Button asChild className={PRIMARY} data-testid="next-action-primary"><Link to="/plans">View plans{arrow}</Link></Button>;
-      secondary = activation;
+      // ONE action: the plans page (it states every plan and its price). Never a second link to the same place.
+      primary = <Button asChild className={PRIMARY} data-testid="next-action-primary"><Link to="/plans">{next.kind === "choose_plan" ? "Choose a plan" : "See larger plans"}{arrow}</Link></Button>;
       break;
     case "resume": primary = <Button onClick={onResume} className={PRIMARY} data-testid="next-action-primary">{resumeLabel ?? "Continue"}{arrow}</Button>; break;
     case "start_review": primary = <Button onClick={onStartReview} disabled={busy} aria-busy={!!pendingLabel} className={PRIMARY} data-testid="next-action-primary">{pendingLabel ?? `Start ${TRIAL_BALANCE_REVIEW.title}`}{arrow}</Button>; break;
@@ -493,7 +489,7 @@ function NextActionCard({ next, resumeLabel, busy, onRetry, onResume, onStartRev
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Next step</p>
       <h2 className="mt-1 text-lg font-semibold text-foreground">{next.title}</h2>
       {"detail" in next && <p className="mt-1 text-[13px] text-muted-foreground">{next.detail}</p>}
-      {(primary || secondary) && <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">{primary}{secondary}</div>}
+      {primary && <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">{primary}</div>}
     </div>
   );
 }

@@ -100,9 +100,11 @@ describe("customer copy", () => {
     expect(none.remains).toBe("Every existing entity stays readable.");
     expect(capacityCopy({ capacity: null, used: 3, planCode: "ENTERPRISE", determined: false }).title).toBe("Entity capacity needs confirming");
   });
-  it("PaidActionNotice is neutral: lock icon, no success glyph or colour, links to plan comparison, no checkout", () => {
+  it("PaidActionNotice is neutral: lock icon, no success glyph or colour, one action to the signed-in plans page, no checkout", () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PaidActionNotice, { copy: lockedCopy("CLOSE_INSIGHTS") })));
-    expect(html).toContain('href="/pricing"');
+    expect(html).toContain('href="/plans"');
+    expect(html).toContain("Choose a plan");
+    expect(html.match(/<a /g)?.length).toBe(1);
     expect(html).toContain("A current plan is needed");
     expect(html).toContain("Insights you already generated stay accessible.");
     expect(html).toMatch(/lucide-lock/);

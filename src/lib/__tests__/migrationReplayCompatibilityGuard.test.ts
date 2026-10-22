@@ -266,7 +266,8 @@ describe("migration directory integrity", () => {
     // platform's workspace-access rule, keyset paging, per-company revisions), a NEW forward-only migration pending hosted application.
     // 188 -> 189: 20261118100000_tb_finding_decisions.sql (trial-balance finding decisions, the generation-7 evaluation
     // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(189);
+    // 189 -> 190: 20261119100000_customer_checkout_abandon.sql (owner checkout recovery; applied as 0070).
+    expect(files.length).toBe(190);
   });
 });
 

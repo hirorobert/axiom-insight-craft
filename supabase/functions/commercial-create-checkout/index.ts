@@ -27,7 +27,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuth } from '../_shared/auth.ts';
 import { generateCorrelationId } from '../_shared/correlationId.ts';
-import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
+import { selectPaymentProvider, getConfiguredProviders, getAdapterForProvider, returnUrlFrom, cancelUrlFrom, ROUTE_MARKET, type PaymentRoute } from '../_shared/payments/routing.ts';
+import { SETTLEMENT_INTENT_COLUMNS, serviceDbFrom, settleIntent } from '../_shared/payments/settle.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -254,7 +255,7 @@ Deno.serve(async (req: Request) => {
       .in('status', ['CREATING', 'PROVIDER_CREATING', 'PENDING', 'MANUAL_REVIEW'])
       .neq('commercial_offer_id', offer.offer_id).limit(1);
     const other = (openOthers ?? [])[0] as { saff_reference: string; plan_id: string } | undefined;
-    if (other) {
+    if (other && !(await blockingCheckoutClosed(supabase, { saffReference: other.saff_reference }, billingCustomer.id, user.id))) {
       const { data: otherPlan } = await supabase.from('commercial_plans').select('code, name').eq('id', other.plan_id).maybeSingle();
       return jsonResponse({ error: 'OPEN_CHECKOUT_OTHER_PLAN', previousSaffReference: other.saff_reference,
         previousPlanCode: otherPlan?.code ?? null, previousPlanName: otherPlan?.name ?? null, correlationId }, 409);
@@ -265,7 +266,7 @@ Deno.serve(async (req: Request) => {
   const saffReference = `SAFF-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
   // 9. Atomic acquisition. No network call has been made yet.
-  const { data: acquireData, error: acquireErr } = await supabase.rpc('acquire_checkout_attempt', {
+  const acquire = () => supabase.rpc('acquire_checkout_attempt', {
     p_billing_customer_id: billingCustomer.id,
     p_product_id: plan.product_id,
     p_plan_id: offer.plan_id,
@@ -281,6 +282,17 @@ Deno.serve(async (req: Request) => {
     p_created_by_user_id: user.id,
     p_saff_reference: saffReference,
   });
+  let { data: acquireData, error: acquireErr } = await acquire();
+  // An older checkout blocks a new one — an ordinary PENDING one, or a MANUAL_REVIEW one with no recorded payment (the
+  // provider result was uncertain). Before refusing, ask the provider once (the bounded verification claim): a session that
+  // expired or failed there without a webhook is closed now, and the acquisition runs again. Nothing else is released.
+  const blockingAction = (acquireData as { action?: string } | null)?.action;
+  if (!acquireErr && (blockingAction === 'OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT' || blockingAction === 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT')) {
+    const blockingId = (acquireData as { intent_id?: string }).intent_id ?? null;
+    if (blockingId && await blockingCheckoutClosed(supabase, { id: blockingId }, billingCustomer.id, user.id)) {
+      ({ data: acquireData, error: acquireErr } = await acquire());
+    }
+  }
 
   if (acquireErr) {
     // assert_platform_state_permits raising surfaces here — never a fake checkout when the platform-state matrix
@@ -372,6 +384,7 @@ Deno.serve(async (req: Request) => {
       customerEmail:    user.email,
       customerName:     profile?.display_name ?? null,
       redirectUrl:      `${returnUrl}?ref=${saffReference}`,
+      cancelUrl:        cancelUrlFrom(returnUrl, saffReference),
       phoneNumber,
     });
   } catch {
@@ -443,3 +456,35 @@ Deno.serve(async (req: Request) => {
     correlationId,
   }, 200);
 });
+
+/**
+ * Whether an older, blocking checkout of this customer is closed after ONE bounded re-verification with its provider
+ * (claim_verification_attempt — the same durable throttle as the status page — then the shared settlement path). A
+ * session the provider reports expired or failed is closed here (true); an open, paid or unverifiable one is not (false).
+ * A MANUAL_REVIEW intent is re-verified only when it carries NO recorded payment (an uncertain provider result): a genuine
+ * review case — a payment awaiting placement or a recovery — is never touched here and stays with the administrator.
+ */
+// deno-lint-ignore no-explicit-any
+async function blockingCheckoutClosed(supabase: any, which: { id: string } | { saffReference: string }, billingCustomerId: string, userId: string): Promise<boolean> {
+  try {
+    const base = supabase.from('payment_checkout_intents').select(SETTLEMENT_INTENT_COLUMNS).eq('billing_customer_id', billingCustomerId);
+    const { data: intent } = await ('id' in which ? base.eq('id', which.id) : base.eq('saff_reference', which.saffReference)).maybeSingle();
+    if (!intent || !['PENDING', 'MANUAL_REVIEW'].includes(intent.status)) return false;
+    if (intent.status === 'MANUAL_REVIEW') {
+      const { data: paid } = await supabase.from('payment_events').select('id').eq('checkout_intent_id', intent.id)
+        .eq('event_type', 'PAYMENT_CONFIRMED').limit(1);
+      if (!paid || paid.length > 0) return false;
+    }
+    const { data: claim } = await supabase.rpc('claim_verification_attempt', { p_checkout_intent_id: intent.id, p_requesting_user_id: userId });
+    if (!(claim as { claimed?: boolean } | null)?.claimed) return false;
+    const adapter = getAdapterForProvider(intent.provider);
+    if (!adapter) return false;
+    await settleIntent(serviceDbFrom(supabase), adapter, intent);
+    const { data: after } = await supabase.from('payment_checkout_intents').select('status').eq('id', intent.id).maybeSingle();
+    // Only a session that ended WITHOUT payment releases the block here. One the provider reports paid is now committed:
+    // the customer is told about that order (409) rather than starting another purchase on a placement read before it.
+    return !!after && ['EXPIRED', 'FAILED', 'CANCELLED'].includes((after as { status: string }).status);
+  } catch {
+    return false;
+  }
+}
