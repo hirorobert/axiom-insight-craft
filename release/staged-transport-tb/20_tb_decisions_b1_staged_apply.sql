@@ -4,13 +4,15 @@ DO $cfoclose_tb_transport_tb_decisions_b1$
 DECLARE
   c_batch CONSTANT text := 'tb-decisions-b1';
   c_prior CONSTANT text := 'tb-portfolio-a1';
-  c_predecessor CONSTANT text[] := ARRAY['766d850ae427416d5f06a3d99cfc8ef8d8817f988a086cbfa80bccfb9bd23351', '1256018f69a7e61fdfd38f87d1aea6716a6df24ecdccb50bfd47f065fd3d3088']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['9076155c3babd11183f7bcb0860e14017c11c61a956a29720f93cdd9643ed323', '719d9e90c1f162eb7524992d13a73f83e07229cd3af2231a36dbdb11a76382c9']::text[];
   v_n bigint; v_pred_id bigint; v_source text; v_wrapper text; v_postcondition text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_tb_release_transport', 0));
   IF to_regclass('drizzle.__drizzle_migrations') IS NULL THEN
     RAISE EXCEPTION 'TB_TRANSPORT_JOURNAL_MISSING: drizzle.__drizzle_migrations is not visible; nothing was changed' USING ERRCODE = '55000';
   END IF;
+  -- Serialize the predecessor check and journal append against every writer, including other migration tools.
+  LOCK TABLE drizzle.__drizzle_migrations IN SHARE ROW EXCLUSIVE MODE;
   SELECT count(*), max(j.id) INTO v_n, v_pred_id FROM drizzle.__drizzle_migrations j WHERE j.hash = ANY (c_predecessor);
   IF v_n <> 1
      OR EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations j WHERE j.id > v_pred_id

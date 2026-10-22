@@ -106,6 +106,40 @@ async function main() {
       const existingAfter = await one(c, "SELECT email FROM auth.users WHERE id=$1", [existing.id]);
       check("pre-existing auth record and journal state are preserved", existingAfter?.email === existing.email && JSON.parse(after).journal === 74);
       check("no source or wrapper is re-run on retry", (await one(c, "SELECT count(*)::int AS n FROM cfoclose_tb_release.transport_events WHERE event='applied'")).n === 2);
+
+      group("concurrent journal writers cannot invalidate an in-flight predecessor");
+      const raceUrl = await srv.copyOf(base.name, "journal-race");
+      const applying = new Client({ connectionString: raceUrl, ssl: false });
+      const foreign = new Client({ connectionString: raceUrl, ssl: false });
+      await applying.connect(); await foreign.connect();
+      try {
+        await hosted(applying, "bootstrap", renderBootstrap());
+        await stageBatch(applying, 0);
+        const applyingPid = (await one(applying, "SELECT pg_backend_pid() AS pid")).pid;
+        const foreignPid = (await one(foreign, "SELECT pg_backend_pid() AS pid")).pid;
+        await applying.query("BEGIN");
+        await applying.query(renderApply(0));
+        const foreignInsert = foreign.query(
+          "INSERT INTO drizzle.__drizzle_migrations(hash, created_at) VALUES ($1, $2)",
+          ["foreign-concurrent-migration", Date.now()],
+        );
+        let blocked = false;
+        for (let i = 0; i < 100; i++) {
+          blocked = (await one(applying, "SELECT $1::int = ANY(pg_blocking_pids($2::int)) AS blocked", [applyingPid, foreignPid])).blocked;
+          if (blocked) break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        check("a different migration writer waits until the canonical apply and its journal row commit", blocked);
+        await applying.query("INSERT INTO drizzle.__drizzle_migrations(hash, created_at) VALUES ($1, $2)", [sha(renderApply(0)), Date.now()]);
+        await applying.query("COMMIT");
+        await foreignInsert;
+        const journal = (await applying.query("SELECT hash FROM drizzle.__drizzle_migrations ORDER BY id DESC LIMIT 2")).rows;
+        check("the foreign row follows, never interrupts, the atomic portfolio application", journal[0]?.hash === "foreign-concurrent-migration" && journal[1]?.hash === sha(renderApply(0)));
+        await expectFailure("a committed foreign successor then blocks the next TB batch", () => hosted(applying, "decisions", renderApply(1)), /TB_TRANSPORT_WRONG_PREDECESSOR/);
+      } finally {
+        await applying.query("ROLLBACK").catch(() => {});
+        await applying.end(); await foreign.end();
+      }
     } finally { await c.end(); await w.end(); }
   } catch (e) { check(`${groupName || "proof"} did not throw unexpectedly`, false, String(e?.stack ?? e).split("\n").slice(0, 3).join("\n")); }
   finally { await srv.cleanup(); }

@@ -48,6 +48,7 @@ describe("Trial Balance exact-byte staged transport", () => {
     const bootstrap = renderBootstrap();
     expect(bootstrap).toContain(`c_predecessor CONSTANT text[] := ARRAY['${BOOTSTRAP_PREDECESSOR.hash}']::text[]`);
     expect(bootstrap).toContain("TB_TRANSPORT_WRONG_PREDECESSOR");
+    expect(bootstrap).toContain("LOCK TABLE drizzle.__drizzle_migrations IN SHARE ROW EXCLUSIVE MODE;");
     for (const [i, b] of BATCHES.entries()) {
       const text = renderApply(i);
       expect(text).toContain("c_predecessor CONSTANT text[]");
@@ -56,6 +57,7 @@ describe("Trial Balance exact-byte staged transport", () => {
       expect(text).toContain("TB_TRANSPORT_STAGE_MISSING_OR_MODIFIED");
       expect(text).toContain("TB_TRANSPORT_UNCERTAIN_STATE");
       expect(text).toContain("TB_TRANSPORT_ALREADY_APPLIED");
+      expect(text.indexOf("LOCK TABLE drizzle.__drizzle_migrations")).toBeLessThan(text.indexOf("SELECT count(*), max(j.id)"));
       expect(text.indexOf("TB_TRANSPORT_WRONG_PREDECESSOR")).toBeLessThan(text.indexOf("EXECUTE v_wrapper"));
       expect(text.indexOf("EXECUTE v_wrapper")).toBeLessThan(text.indexOf("UPDATE cfoclose_tb_release.staged_artifacts"));
       expect(text).not.toMatch(/\b(BEGIN\s+TRANSACTION|COMMIT|ROLLBACK)\b/i);
