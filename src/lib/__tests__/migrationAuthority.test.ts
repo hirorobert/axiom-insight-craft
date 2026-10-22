@@ -53,8 +53,8 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(66); // +0065–0069 staged FS applies and 0070 checkout abandon (0064 covers no source)
-    expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction"]);
+    expect(r.mirrored.length).toBe(65); // staged FS applies are in order; 0070 checkout abandon is releaseApplied
+    expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction", "0070_customer_checkout_abandon"]);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
     });

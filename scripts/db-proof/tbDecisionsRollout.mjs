@@ -117,10 +117,12 @@ async function main() {
 
   console.log(`old engine (generation 6): process-trial-balance and trial-balance-layout at ${GENERATION_6_COMMIT}`);
   group("Stage 0 — the database as on main; generation 6 live");
-  await check("the two migrations are the newest of the chain, in this order; everything before applies", async () => {
-    if (iP < 0 || iD !== iP + 1 || iD !== files.length - 1) return files.slice(-3);
-    for (const f of files.slice(0, iP)) await apply(f);
-    return true;
+  await check("the two TB migrations remain adjacent and pending; every other main migration, including checkout recovery, applies first", async () => {
+    if (iP < 0 || iD !== iP + 1) return files.slice(-3);
+    // Main already applied checkout recovery (20261119) before this release. Replay the actual base state,
+    // withholding only the two TB batches; a later unrelated migration must not truncate the base schema.
+    for (const f of files.filter((f) => f !== PORTFOLIO_FILE && f !== DECISIONS_FILE)) await apply(f);
+    return (await one("SELECT to_regprocedure(\'public.abandon_unpaid_checkout(uuid,uuid)\') IS NOT NULL AS present")).present;
   });
 
   const U = { owner: uuid(), ops: uuid() };

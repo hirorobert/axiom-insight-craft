@@ -357,6 +357,10 @@ export const RELEASE_JOURNAL = {
   "0067_fs_bounds_r1_staged_apply": { kind: "staged_transport", sha256: "1c6cb96f22e317b35d3c2e2b574ea99786500c5df46ce5d44b61bee418377d54" },
   "0068_fs_capacity_r1_staged_apply": { kind: "staged_transport", sha256: "0589f056ef0165c6b52adeb5d146a8cc58267682ba6b91c3cd7e2ffc96833008" },
   "0069_fs_memo_r1_staged_apply": { kind: "staged_transport", sha256: "dbff469ea43ae9c2f364cb602165c727d29cc6a96eade7d7f7217af4b0e2a496" },
+  // Checkout recovery (#183), applied verbatim before the two pending Trial Balance workflow batches.
+  // Hosted id 71; when 1792656911705. Pin the exact source and mirror; earlier TB sources stay pending.
+  "0070_customer_checkout_abandon": { kind: "release_verbatim", source: "20261119100000_customer_checkout_abandon.sql",
+    bytes: 4839, digest: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", sha256: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", outOfOrder: true },
 };
 
 /**
@@ -802,7 +806,8 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     if (SUBMISSION_FORMS[entry.source] && submittedForm(entry.source, src, hosted) !== "identical") {
       problems.push(`${tag} is not the registered identical submission form of ${entry.source}`);
     }
-    return { covers: entry.source, how: "release_verbatim", outOfOrder: false, problems };
+    // Explicitly reviewed out-of-order applications retain all byte/hash checks above.
+    return { covers: entry.source, how: "release_verbatim", outOfOrder: entry.outOfOrder === true, problems };
   }
   if (entry.kind === "release_verbatim_final_lf_removed") {
     const src = srcBytes(entry.source);

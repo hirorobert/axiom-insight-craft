@@ -84,7 +84,8 @@ describe("the reviewed release journal", () => {
     // 47: 0062 (unlimited team members, pricing-p1; release_self_checking_wrapper; hosted 63).
     // 48: 0063 (period-currency correction, currency-c1; release_self_checking_wrapper in the final-LF-removed wrapper form; hosted 64).
     // 49–54: 0064–0069 (the applied Financial Statements staged transport batch).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(54);
+    // 55: checkout recovery (0070), reviewed verbatim and applied out of source order.
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(55);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -116,7 +117,8 @@ describe("the reviewed release journal", () => {
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" },
-      { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" }]); // applied ahead of the pending 20261111/20261112 (declared out of order)
+      { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" },
+      { tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
@@ -645,5 +647,37 @@ describe("the reporting release: all four forms of each source registered ahead 
         identical: { bytes: src.length, sha256: sha(src) }, finalLfRemoved: { bytes: src.length - 1, sha256: sha(src.subarray(0, src.length - 1)) },
         wrapper: { bytes: w.length, sha256: sha(w) }, wrapperFinalLfRemoved: { bytes: w.length - 1, sha256: sha(w.subarray(0, w.length - 1)) } });
     }
+  });
+});
+
+
+describe("0070 checkout recovery applied before the pending Trial Balance workflow", () => {
+  const tag = "0070_customer_checkout_abandon";
+  const source = "20261119100000_customer_checkout_abandon.sql";
+  it("pins the exact source and mirror while retaining both pending TB batches", () => {
+    expect(RELEASE_JOURNAL[tag]).toEqual({ kind: "release_verbatim", source, bytes: 4839,
+      digest: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910",
+      sha256: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", outOfOrder: true });
+    expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
+    const r = checkMigrationAuthority(ROOT) as Result;
+    expect(r.errors).toEqual([]);
+    expect(r.pending).toEqual(["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"]);
+    expect(r.releaseApplied).toContainEqual({ tag, source });
+  });
+  it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
+    const entry = RELEASE_JOURNAL[tag] as { outOfOrder?: boolean };
+    const original = entry.outOfOrder;
+    try {
+      delete entry.outOfOrder;
+      const r = checkMigrationAuthority(ROOT) as Result;
+      expect(r.ok).toBe(false);
+      for (const name of ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"])
+        expect(r.errors).toContain(`drizzle: source ${name} was skipped by the hosted apply journal`);
+    } finally { entry.outOfOrder = original; }
+  });
+  it("refuses altered mirror or source bytes even with the out-of-order declaration", () => {
+    expect(checkReleaseEntry(tag, read(tag) + "\n-- altered", srcBytes).problems.length).toBeGreaterThan(0);
+    const changed = (name: string) => { const b = srcBytes(name); return name === source && b ? Buffer.concat([b, Buffer.from("\n-- altered")]) : b; };
+    expect(checkReleaseEntry(tag, read(tag), changed).problems.length).toBeGreaterThan(0);
   });
 });

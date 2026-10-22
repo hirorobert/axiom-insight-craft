@@ -110,11 +110,10 @@ describe("staged release transport", () => {
       fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
       const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
       const j = JSON.parse(fs.readFileSync(jf, "utf8"));
-      // The real hosted transport entries (0064–0069) are removed from the copy, so the simulation re-applies them from the
-      // rendered forms (and their mutations) at the same journal positions; the real registrations are restored afterwards.
-      const names = transportForms().map((f) => f.name);
+      // Rebuild the state immediately before transport (head 0063), removing every later mirror, including
+      // checkout recovery. Re-apply transport at its original positions; restore all real registrations afterwards.
       j.entries = j.entries.filter((e: { tag: string }) => {
-        if (!names.some((n) => e.tag.endsWith(`_${n}`))) return true;
+        if (e.idx < BOOTSTRAP_PREDECESSOR.id) return true;
         fs.rmSync(path.join(dir, "drizzle/migrations", `${e.tag}.sql`));
         const snap = path.join(dir, "drizzle/migrations/meta", `${e.tag.slice(0, 4)}_snapshot.json`);
         if (fs.existsSync(snap)) fs.rmSync(snap);
