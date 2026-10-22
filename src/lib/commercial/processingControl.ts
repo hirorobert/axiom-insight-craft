@@ -63,12 +63,25 @@ export function buildControlArgs(
   return { args: { ...base, p_hold: false, p_canary_company_ids: [], p_min_engine_generation: releaseFloor } };
 }
 
-export function describeControlError(e: { message: string; code?: string }): string {
-  const m = e.message ?? "";
-  if (e.code === "42501" || /NOT_A_COMMERCIAL_ADMIN/.test(m)) return "Your account is not an active commercial administrator. Nothing was changed.";
-  if (e.code === "28000" || /UNAUTHENTICATED/.test(m)) return "Your session has ended. Sign in again. Nothing was changed.";
-  if (e.code === "40001" || /CONTROL_VERSION_CONFLICT/.test(m)) return "Someone changed the control since you loaded it. It has been re-read; check it and try again. Nothing was changed.";
+export const OUTCOME_UNCONFIRMED =
+  "The result could not be confirmed: the change may or may not have been saved. Refresh the state before trying again.";
+
+/** "Nothing was changed" is said only for the server's known atomic refusals; anything else is unconfirmed. */
+export function describeControlError(e: { message?: string; code?: string } | null | undefined): string {
+  const m = e?.message ?? "";
+  const code = e?.code;
+  if (code === "42501" || /NOT_A_COMMERCIAL_ADMIN/.test(m)) return "Your account is not an active commercial administrator. Nothing was changed.";
+  if (code === "28000" || /UNAUTHENTICATED/.test(m)) return "Your session has ended. Sign in again. Nothing was changed.";
+  if (/CONTROL_VERSION_CONFLICT/.test(m)) return "Someone changed the control since you loaded it. Check the current state and try again. Nothing was changed.";
   if (/ENGINE_GENERATION_FLOOR_CANNOT_DECREASE/.test(m)) return "The engine floor can only rise. Nothing was changed.";
   if (/REASON_REQUIRED/.test(m)) return "A reason is required. Nothing was changed.";
-  return `${m.split("\n")[0]} Nothing was changed.`;
+  return OUTCOME_UNCONFIRMED;
+}
+
+/** Text after a write attempt, given the write outcome and whether the authoritative re-read succeeded. */
+export function describeSubmitOutcome(write: { error: { message?: string; code?: string } | null } | "thrown", readBack: boolean): { ok: boolean; text: string } {
+  const after = readBack ? " The state shown was re-read from the server." : " The current state could not be read; refresh before doing anything else.";
+  if (write === "thrown") return { ok: false, text: OUTCOME_UNCONFIRMED + after };
+  if (write.error) return { ok: false, text: describeControlError(write.error) + after };
+  return { ok: true, text: "Saved." + after };
 }

@@ -36,3 +36,30 @@ describe("processing control", () => {
     expect(parseControl({ ...live })).toEqual(live);
   });
 });
+
+import { describeSubmitOutcome, OUTCOME_UNCONFIRMED } from "./processingControl";
+describe("uncertain outcomes", () => {
+  it("never claims nothing changed for an unknown error or lost response", () => {
+    expect(describeControlError({ message: "Failed to fetch" })).toBe(OUTCOME_UNCONFIRMED);
+    expect(describeControlError({ message: "upstream timeout", code: "57014" })).not.toMatch(/Nothing was changed/);
+    expect(describeControlError(undefined)).toBe(OUTCOME_UNCONFIRMED);
+  });
+  it("a thrown write is unconfirmed, and a failed read-back is stated", () => {
+    const r = describeSubmitOutcome("thrown", false);
+    expect(r.ok).toBe(false);
+    expect(r.text).toMatch(/could not be confirmed/);
+    expect(r.text).toMatch(/could not be read/);
+    expect(r.text).not.toMatch(/re-read from the server/);
+  });
+  it("a successful write with a failed read-back is saved but state unconfirmed", () => {
+    const r = describeSubmitOutcome({ error: null }, false);
+    expect(r.ok).toBe(true);
+    expect(r.text).toMatch(/^Saved\./);
+    expect(r.text).toMatch(/could not be read/);
+  });
+  it("a known refusal keeps 'Nothing was changed' and reports the read-back", () => {
+    const r = describeSubmitOutcome({ error: { message: "CONTROL_VERSION_CONFLICT: current version 6", code: "40001" } }, true);
+    expect(r.text).toMatch(/Nothing was changed/);
+    expect(r.text).toMatch(/re-read from the server/);
+  });
+});
