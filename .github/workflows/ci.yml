@@ -1055,6 +1055,14 @@ jobs:
           createdb transaction_memo_proof
           bun scripts/db-proof/transactionMemo.mjs
 
+      - name: Journalled release runner proof (scripts/release/applyJournalledWrappers.mjs on a disposable database - registered bytes only, one transaction per wrapper with its journal row, preflight and postcondition per batch, sign-offs compared, mirrors written, idempotent re-run, installation window and restoration)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/journalled_runner_proof
+        run: |
+          createdb journalled_runner_proof
+          bun scripts/db-proof/journalledRunner.mjs
+
       - name: Reporting release proof (hosted preflight and postcondition; main's surfaces at every stage on real certifications; a partial release; a failed wrapper rolled back and re-submitted; pre-release data composes after the release; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
