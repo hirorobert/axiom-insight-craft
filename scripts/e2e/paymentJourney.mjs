@@ -261,6 +261,7 @@ async function main() {
   await signInAs(U.fresh);
   await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — one next step (choose a plan before company creation)", async () => {
     await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     const t = await page.bodyText();
     const needsPlan = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind") === "choose_plan");
     const viewPlans = await page.evaluate(() => document.querySelector('[data-testid="next-action-primary"]')?.getAttribute("href") === "/plans");
@@ -291,16 +292,16 @@ async function main() {
   });
   await check("keyboard: Tab reaches the skip link first and the primary plan action; Enter opens plans", async () => {
     await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="next-action-primary"]');
     await page.press("Tab");
     const first = await page.evaluate(() => document.activeElement?.innerText?.trim());
-    let reached = false, primary = false;
-    for (let i = 0; i < 25 && !(reached && primary); i++) {
+    let reached = false;
+    for (let i = 0; i < 25 && !reached; i++) {
       await page.press("Tab");
       const id = await page.evaluate(() => document.activeElement?.getAttribute("data-testid"));
-      if (id === "next-action-primary") primary = true;
       if (id === "next-action-primary") reached = true;
     }
-    if (!reached || !primary) return { first, reached, primary };
+    if (!reached) return { first, reached };
     await page.evaluate(() => document.querySelector('[data-testid="next-action-primary"]').focus());
     await page.press("Enter");
     await page.waitFor(() => location.pathname === "/plans", [], { label: "plans opened by keyboard" });
@@ -331,9 +332,9 @@ async function main() {
   await check("back navigation and refresh return to the same home and the same next step", async () => {
     await page.evaluate(() => history.back());
     await page.waitFor(() => location.pathname === "/dashboard", [], { label: "back to home" });
-    await page.waitForText("Companies & engagements");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     await page.evaluate(() => location.reload());
-    await page.waitForText("Companies & engagements");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     return true;
   });
   await check("a failed plan read is a retriable step (never 'no plan'); Try again recovers once the request succeeds", async () => {
@@ -342,7 +343,7 @@ async function main() {
     const failedKind = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind"));
     await page.send("Network.setBlockedURLs", { urls: [] });
     await page.click('[data-testid="next-action-primary"]');
-    await page.waitForText("Companies & engagements");
+    await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     return failedKind === "retry" ? true : { failedKind };
   });
   await check("return from plan selection: signed out on /billing/checkout?plan=PRACTICE → Sign in → back on that checkout, in the account frame; payment unavailable, Try again and Contact support", async () => {

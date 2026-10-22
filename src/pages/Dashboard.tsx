@@ -242,7 +242,7 @@ export default function Dashboard() {
     );
   }
 
-  const signOutHome = () => { void signOut().then(() => navigate("/auth", { replace: true })); };
+  const signOutHome = async () => { await signOut(); navigate("/auth", { replace: true }); };
 
   // ── The read itself failed — never conflated with "no companies"/"no engagements" ─────────────
   if (fetchFailed) {
