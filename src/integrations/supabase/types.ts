@@ -8200,6 +8200,47 @@ export type Database = {
           },
         ]
       }
+      tb_decision_actions: {
+        Row: {
+          action: string
+          code: string
+          resolves: boolean
+        }
+        Insert: {
+          action: string
+          code: string
+          resolves: boolean
+        }
+        Update: {
+          action?: string
+          code?: string
+          resolves?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tda_rule"
+            columns: ["code"]
+            isOneToOne: false
+            referencedRelation: "tb_decision_rules"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      tb_decision_rules: {
+        Row: {
+          code: string
+          requirement: string
+        }
+        Insert: {
+          code: string
+          requirement: string
+        }
+        Update: {
+          code?: string
+          requirement?: string
+        }
+        Relationships: []
+      }
       tb_dependency_revisions: {
         Row: {
           changed_at: string
@@ -8220,6 +8261,292 @@ export type Database = {
           scope?: string
         }
         Relationships: []
+      }
+      tb_finding_decisions: {
+        Row: {
+          action: string
+          actor_type: string
+          actor_user_id: string
+          certification_id: string
+          code: string
+          company_id: string
+          created_at: string
+          entity_revision: number
+          finding_key: string
+          firm_member_id: string | null
+          id: string
+          layout_revision: number
+          payload: Json
+          reason: string
+          request_hash: string
+          request_id: string
+          revision: number
+          source_file_hash: string
+          subject: string
+          upload_id: string
+        }
+        Insert: {
+          action: string
+          actor_type: string
+          actor_user_id: string
+          certification_id: string
+          code: string
+          company_id: string
+          created_at?: string
+          entity_revision: number
+          finding_key: string
+          firm_member_id?: string | null
+          id?: string
+          layout_revision: number
+          payload: Json
+          reason: string
+          request_hash: string
+          request_id: string
+          revision: number
+          source_file_hash: string
+          subject: string
+          upload_id: string
+        }
+        Update: {
+          action?: string
+          actor_type?: string
+          actor_user_id?: string
+          certification_id?: string
+          code?: string
+          company_id?: string
+          created_at?: string
+          entity_revision?: number
+          finding_key?: string
+          firm_member_id?: string | null
+          id?: string
+          layout_revision?: number
+          payload?: Json
+          reason?: string
+          request_hash?: string
+          request_id?: string
+          revision?: number
+          source_file_hash?: string
+          subject?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tfd_action"
+            columns: ["code", "action"]
+            isOneToOne: false
+            referencedRelation: "tb_decision_actions"
+            referencedColumns: ["code", "action"]
+          },
+          {
+            foreignKeyName: "fk_tfd_certification"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tfd_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tfd_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tfd_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tb_finding_policies: {
+        Row: {
+          actor_user_id: string
+          code: string
+          company_id: string
+          created_at: string
+          id: string
+          mode: string
+          reason: string
+          request_id: string
+          revision: number
+        }
+        Insert: {
+          actor_user_id: string
+          code: string
+          company_id: string
+          created_at?: string
+          id?: string
+          mode: string
+          reason: string
+          request_id: string
+          revision: number
+        }
+        Update: {
+          actor_user_id?: string
+          code?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          mode?: string
+          reason?: string
+          request_id?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tfp_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tfp_rule"
+            columns: ["code"]
+            isOneToOne: false
+            referencedRelation: "tb_decision_rules"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      tb_investigation_rows: {
+        Row: {
+          account_code: string | null
+          account_name: string | null
+          credit_minor: number | null
+          debit_minor: number | null
+          disposition: string
+          included: boolean
+          investigation_id: string
+          ordinal: number
+          reason: string | null
+          row_number: number
+        }
+        Insert: {
+          account_code?: string | null
+          account_name?: string | null
+          credit_minor?: number | null
+          debit_minor?: number | null
+          disposition: string
+          included: boolean
+          investigation_id: string
+          ordinal: number
+          reason?: string | null
+          row_number: number
+        }
+        Update: {
+          account_code?: string | null
+          account_name?: string | null
+          credit_minor?: number | null
+          debit_minor?: number | null
+          disposition?: string
+          included?: boolean
+          investigation_id?: string
+          ordinal?: number
+          reason?: string | null
+          row_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tbir_investigation"
+            columns: ["investigation_id"]
+            isOneToOne: false
+            referencedRelation: "tb_investigations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tb_investigations: {
+        Row: {
+          actor_type: string
+          actor_user_id: string
+          certification_id: string
+          company_id: string
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          firm_member_id: string | null
+          id: string
+          lease_expires_at: string
+          request_id: string
+          result: Json | null
+          source_file_hash: string
+          status: string
+          upload_id: string
+        }
+        Insert: {
+          actor_type: string
+          actor_user_id: string
+          certification_id: string
+          company_id: string
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          lease_expires_at: string
+          request_id: string
+          result?: Json | null
+          source_file_hash: string
+          status?: string
+          upload_id: string
+        }
+        Update: {
+          actor_type?: string
+          actor_user_id?: string
+          certification_id?: string
+          company_id?: string
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          firm_member_id?: string | null
+          id?: string
+          lease_expires_at?: string
+          request_id?: string
+          result?: Json | null
+          source_file_hash?: string
+          status?: string
+          upload_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_tbi_certification"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tbi_company"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tbi_member"
+            columns: ["firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_tbi_upload"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "trial_balance_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tb_reprocess_requests: {
         Row: {
@@ -10267,6 +10594,18 @@ export type Database = {
         Args: { p_key: string; p_scope: string }
         Returns: undefined
       }
+      _tb_revision: {
+        Args: { p_key: string; p_scope: string }
+        Returns: number
+      }
+      _tb_signoff_rules_blocker: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: string
+      }
       _title_capability_template: {
         Args: { p_title: string }
         Returns: string[]
@@ -11650,6 +11989,17 @@ export type Database = {
         Returns: Json
       }
       get_public_plan_prices: { Args: never; Returns: Json }
+      get_tb_finding_decisions: { Args: { p_upload_id: string }; Returns: Json }
+      get_tb_finding_policies: { Args: { p_company_id: string }; Returns: Json }
+      get_tb_investigation_rows: {
+        Args: {
+          p_after: number
+          p_filter: string
+          p_investigation_id: string
+          p_limit: number
+        }
+        Returns: Json
+      }
       get_trial_balance_draft: {
         Args: { p_draft_id: string }
         Returns: {
@@ -12073,6 +12423,20 @@ export type Database = {
         Args: { p_nonce: string; p_ttl_seconds?: number; p_user: string }
         Returns: undefined
       }
+      record_tb_finding_decision: {
+        Args: {
+          p_action: string
+          p_certification_id: string
+          p_code: string
+          p_expected_revision: number
+          p_payload: Json
+          p_reason: string
+          p_request_id: string
+          p_subject: string
+          p_upload_id: string
+        }
+        Returns: Json
+      }
       register_trial_balance_upload: {
         Args: {
           p_engagement_id?: string
@@ -12313,6 +12677,17 @@ export type Database = {
         Args: { p_company_id: string; p_jurisdiction: string }
         Returns: string
       }
+      set_tb_finding_policy: {
+        Args: {
+          p_code: string
+          p_company_id: string
+          p_expected_revision: number
+          p_mode: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       set_workspace_purpose: {
         Args: { p_company_id: string; p_purpose: string; p_reason: string }
         Returns: Json
@@ -12375,12 +12750,57 @@ export type Database = {
       }
       tb_certification_findings_limit: { Args: never; Returns: number }
       tb_certification_findings_supported: { Args: never; Returns: boolean }
+      tb_current_finding_decisions: {
+        Args: { p_upload_id: string }
+        Returns: {
+          action: string
+          code: string
+          created_at: string
+          decision_id: string
+          payload: Json
+          reason: string
+          resolves: boolean
+          revision: number
+          subject: string
+        }[]
+      }
       tb_dependency_lock_limit: { Args: never; Returns: number }
+      tb_evaluation_rules: { Args: { p_generation: number }; Returns: string[] }
       tb_expire_attempts: { Args: never; Returns: number }
       tb_finalize_attempt: {
         Args: { p_engine_run_id: string; p_result: Json }
         Returns: Json
       }
+      tb_finding_required: {
+        Args: { p_code: string; p_company_id: string }
+        Returns: boolean
+      }
+      tb_finding_requirements: { Args: { p_company_id: string }; Returns: Json }
+      tb_finding_rule: { Args: { p_code: string }; Returns: string }
+      tb_investigation_add_rows: {
+        Args: { p_investigation_id: string; p_rows: Json }
+        Returns: Json
+      }
+      tb_investigation_complete: {
+        Args: {
+          p_error_code: string
+          p_investigation_id: string
+          p_result: Json
+          p_status: string
+        }
+        Returns: Json
+      }
+      tb_investigation_reserve: {
+        Args: {
+          p_certification_id: string
+          p_lease_seconds: number
+          p_request_id: string
+          p_upload_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      tb_max_engine_generation: { Args: never; Returns: number }
       tb_official_output_lock: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: undefined
@@ -12397,6 +12817,14 @@ export type Database = {
       tb_run_dependencies_current: {
         Args: { p_engine_run_id: string }
         Returns: boolean
+      }
+      tb_signoff_rules_blocker: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
       }
       tb_snapshot_dependencies: {
         Args: { p_engine_run_id: string; p_keys: Json }
