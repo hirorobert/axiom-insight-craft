@@ -672,8 +672,8 @@ describe("0070 checkout recovery applied before the pending Trial Balance workfl
       delete entry.outOfOrder;
       const r = checkMigrationAuthority(ROOT) as Result;
       expect(r.ok).toBe(false);
-      for (const name of ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"])
-        expect(r.errors).toContain(`drizzle: source ${name} was skipped by the hosted apply journal`);
+      // The TB sources were applied after 0070 (0072/0073): without the declaration their order is refused.
+      expect(r.errors).toContain("drizzle: 0072_tb_portfolio_a1_staged_apply mirrors 20261117100000_engagement_portfolio.sql out of source order");
     } finally { entry.outOfOrder = original; }
   });
   it("refuses altered mirror or source bytes even with the out-of-order declaration", () => {
