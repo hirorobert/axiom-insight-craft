@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import { buildControlArgs, describeControlError, parseControl, RELEASE_FLOOR, type ControlOperation, type ProcessingControl } from "@/lib/commercial/processingControl";
+import { buildControlArgs, describeControlError, describeSubmitOutcome, OUTCOME_UNCONFIRMED, parseControl, RELEASE_FLOOR, type ControlOperation, type ProcessingControl } from "@/lib/commercial/processingControl";
 
 /** Trial balance processing control. Every read and change is the server's audited admin RPC under the admin's own session. */
 export function ProcessingControlPanel() {
@@ -16,12 +16,17 @@ export function ProcessingControlPanel() {
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
 
-  const load = useCallback(async () => {
-    const { data, error } = await supabase.rpc("admin_get_processing_control");
-    if (error) { setState(null); setLoadError(describeControlError(error)); return; }
-    const parsed = parseControl(data);
-    if (!parsed) { setState(null); setLoadError("The control could not be read."); return; }
-    setLoadError(null); setState(parsed);
+  /** Returns true only when the authoritative state was read and shown. */
+  const load = useCallback(async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.rpc("admin_get_processing_control");
+      if (error) { setState(null); setLoadError(describeControlError(error).replace(OUTCOME_UNCONFIRMED, "The control could not be read.")); return false; }
+      const parsed = parseControl(data);
+      if (!parsed) { setState(null); setLoadError("The control could not be read."); return false; }
+      setLoadError(null); setState(parsed); return true;
+    } catch {
+      setState(null); setLoadError("The control could not be read. Refresh to try again."); return false;
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -30,12 +35,17 @@ export function ProcessingControlPanel() {
     const built = buildControlArgs(op, state, reason, canaryId);
     if ("error" in built) { setMessage({ ok: false, text: built.error }); return; }
     inFlight.current = true; setBusy(true); setMessage(null);
-    const { error } = await supabase.rpc("admin_set_processing_control", built.args);
-    await load();
-    inFlight.current = false; setBusy(false);
-    if (error) { setMessage({ ok: false, text: describeControlError(error) }); return; }
-    setReason("");
-    setMessage({ ok: true, text: "Saved. The state shown is re-read from the server." });
+    try {
+      let write: { error: { message?: string; code?: string } | null } | "thrown";
+      try { const r = await supabase.rpc("admin_set_processing_control", built.args); write = { error: r.error }; }
+      catch { write = "thrown"; }
+      const readBack = await load();
+      const outcome = describeSubmitOutcome(write, readBack);
+      if (outcome.ok) setReason("");
+      setMessage(outcome);
+    } finally {
+      inFlight.current = false; setBusy(false);
+    }
   };
 
   if (loadError) return <div className="space-y-2 text-sm"><p role="alert" className="text-destructive">{loadError}</p><Button size="sm" variant="outline" onClick={load}>Retry</Button></div>;
