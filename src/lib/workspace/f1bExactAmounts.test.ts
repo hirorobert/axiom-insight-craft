@@ -47,7 +47,7 @@ const readiness = (processing_result: unknown) => computeCertificationReadiness(
 });
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const verdict = (processing_result: unknown) => deriveTrialBalanceVerdict({ upload: { id: U, status: "complete", processing_result: { ingestion: CURRENT_INGESTION, ...(processing_result as object) } }, readiness: readiness(processing_result), canRetry: false });
 const cardText = (processing_result: unknown) => text(renderToStaticMarkup(createElement(BalanceSheetEquationCard, { upload: { processing_result } as never })));
 const preflightEq = (processing_result: unknown) => computePreflight({ status: "complete", processedAt: "now", processingResult: processing_result as never, accountingErrors: [] })

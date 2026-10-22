@@ -20,14 +20,21 @@ export function parseReportVersion(search: string): number | null {
   return Number(raw);
 }
 
-/** The href with the context's report version carried on it (an existing `v` on the target is replaced). */
+/**
+ * The href with the context's report version carried on it (an existing `v` on the target is replaced). A `#fragment`
+ * is kept as the fragment — never parsed into the query, where it would be encoded as `%23` and lost.
+ */
 export function withContext(href: string, ctx: Pick<WorkbenchContext, "reportVersion">): string {
-  const [path, query = ""] = href.split("?");
-  const params = new URLSearchParams(query);
+  const hashAt = href.indexOf("#");
+  const fragment = hashAt >= 0 ? href.slice(hashAt) : "";
+  const beforeHash = hashAt >= 0 ? href.slice(0, hashAt) : href;
+  const queryAt = beforeHash.indexOf("?");
+  const path = queryAt >= 0 ? beforeHash.slice(0, queryAt) : beforeHash;
+  const params = new URLSearchParams(queryAt >= 0 ? beforeHash.slice(queryAt + 1) : "");
   if (ctx.reportVersion === null) params.delete("v");
   else params.set("v", String(ctx.reportVersion));
   const q = params.toString();
-  return q ? `${path}?${q}` : path;
+  return `${q ? `${path}?${q}` : path}${fragment}`;
 }
 
 /** A stable key for the context: responses are bound to it and discarded when it changes (see requestSequence). */

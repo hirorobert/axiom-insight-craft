@@ -6,6 +6,7 @@
 // No table is written from the browser, no actor id is sent, and nothing here decides readiness: the server's
 // fs_report_readiness (with fs_publication_blockers v2) is the authority, and its blockers are shown as returned.
 
+import { withTrialBalanceRules } from "./trialBalanceRules";
 import { z } from "zod";
 import { canonicalStringify } from "@/lib/canonicalStatement/serialization";
 import type { CanonicalFinancialStatementReport } from "@/lib/canonicalStatement/types";
@@ -101,7 +102,12 @@ export function signoffClient(db: ReportingDb) {
     dependencies: async (companyId: string, periodYear: number) => dependenciesSchema.parse(await rpc("fs_reporting_dependencies", { p_company_id: companyId, p_period_year: periodYear })),
     input: async (companyId: string, periodYear: number) => inputSchema.parse(await rpc("fs_reporting_input", { p_company_id: companyId, p_period_year: periodYear })),
     versions: async (companyId: string, periodYear: number) => z.array(versionSchema).parse(await rpc("fs_list_saved_versions", { p_company_id: companyId, p_period_year: periodYear })),
-    readiness: async (companyId: string, reportId: string, reportVersion: number) => readinessSchema.parse(await rpc("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion })),
+    readiness: async (companyId: string, reportId: string, reportVersion: number) => {
+      const r = readinessSchema.parse(await rpc("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion }));
+      // The trial balance in force must have been checked under the current rules (20261118100000); fails closed.
+      const rules = await rpc("tb_signoff_rules_blocker", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion }).catch(() => null);
+      return withTrialBalanceRules(r, rules);
+    },
     evidence: async (companyId: string, reportingPeriodId: string) => (await rows("financial_evidence_batches", { company_id: companyId, reporting_period_id: reportingPeriodId })).map(toStoredEvidence),
     disclosureTexts: async (companyId: string, periodYear: number) => (await rows("fs_disclosure_texts", { company_id: companyId, period_year: periodYear }))
       .filter((r) => r.body != null).map((r) => ({ requirementId: String(r.requirement_id), textId: String(r.id), body: String(r.body), sourceRef: r.source_ref == null ? null : String(r.source_ref) })),

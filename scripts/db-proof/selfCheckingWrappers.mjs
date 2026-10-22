@@ -42,7 +42,11 @@ const N = WRAPPED_SOURCES.length;
 // exist after the rolled-back run (the first wrapper's and that one's).
 // `rolledBack` is the SQL that must answer true after the rolled-back run.
 const tablesAbsent = (a, b) => `SELECT to_regclass('${a}') IS NULL AND to_regclass('${b}') IS NULL AS ok`;
-const DRIZZLE_FAILURE = BATCH.id === "currency-c1"
+const DRIZZLE_FAILURE = BATCH.id === "tb-decisions-b1"
+  ? { object: "public.tb_investigations", rolledBack: "SELECT to_regclass('public.tb_finding_decisions') IS NULL AND to_regclass('public.tb_investigations') IS NULL AND to_regclass('public.tb_decision_actions') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_companies_bump_entity') AND position('DECISIONS_REQUIRE_CURRENT_ENGINE' IN pg_get_functiondef('public.tb_begin_attempt(uuid,uuid,text,text,text,text,integer,text,uuid,uuid,integer)'::regprocedure)) = 0 AND position('tb-evaluation/1' IN pg_get_functiondef('public.tb_finalize_attempt(uuid,jsonb)'::regprocedure)) = 0 AS ok" }
+  : BATCH.id === "tb-portfolio-a1"
+  ? { object: "public.list_portfolio_entities(integer)", rolledBack: "SELECT to_regclass('public.portfolio_revisions') IS NULL AND to_regprocedure('public.list_portfolio_engagements(text,text[],text[],integer,text,integer,jsonb)') IS NULL AND to_regprocedure('public._portfolio_visible_companies(uuid)') IS NULL AND to_regclass('public.idx_engagements_company_status') IS NULL AS ok" }
+  : BATCH.id === "currency-c1"
   ? { object: "public.correct_period_currency(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid)", rolledBack: "SELECT to_regprocedure('public.get_period_currency_correction(uuid)') IS NULL AND to_regclass('public.uq_fpe_currency_request') IS NULL AND position('currency_corrected' IN pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'chk_fpe_action'))) = 0 AND position('axiom.period_currency_correction' IN pg_get_functiondef('public.fiscal_periods_processing_lock()'::regprocedure)) = 0 AS ok" }
   : BATCH.id === "fs-memo-r1"
   ? { object: "public._fs_statement_composition_compute(pg_catalog.uuid,integer)", rolledBack: "SELECT to_regprocedure('public._fs_statement_composition_compute(uuid,integer)') IS NULL AND to_regprocedure('public._fs_memo_get(text)') IS NULL AND position('_fs_memo_get' IN pg_get_functiondef('public.fs_statement_composition(uuid,integer)'::regprocedure)) = 0 AS ok" }

@@ -144,7 +144,9 @@ describe("the shell and Prepare narrow to the grant (source contract)", () => {
   it("Prepare-only: no account review, no mapping, no framework prompt; no evidence gate exists on this page for anyone", () => {
     const prep = src("src/pages/workspace/PrepareWorkspace.tsx");
     expect(prep).toMatch(/\{!prepareOnly && showReviewPanel && upload\.company_id && user && \(/);
-    expect(prep).toMatch(/\{!prepareOnly && <EntityContextSuggestion/);
+    // The framework prompt moved from the page header to the engagement rail, still withheld from a Prepare-only grant.
+    expect(prep).not.toMatch(/<EntityContextSuggestion/);
+    expect(src("src/components/workspace/EngagementContextPanel.tsx")).toMatch(/\{!prepareOnly && <><dt className="text-muted-foreground">Framework<\/dt>/);
     expect(prep).toMatch(/disabled=\{prepareOnly\} onClick=\{\(\) => setMappingModalOpen\(true\)\}/);
     // Supporting-evidence matching is not part of Trial balance review: neither upload path mounts it.
     expect(prep).not.toMatch(/SafishaGate|evidence-by-reconcile|evidenceByReconcileOnly/);

@@ -53,6 +53,8 @@ const PRICING_P1 = ["20261110100000_unlimited_team_members.sql"].map((name) => (
 const FS_CONTROLS = ["20261111100000_fs_publication_controls.sql", "20261112100000_fs_review_workflow_and_rollforward.sql", "20261114100000_fs_work_bounds.sql", "20261115100000_fs_account_capacity.sql", "20261116100000_fs_transaction_memo.sql"].map((name) => ({ name }));
 // Period-currency correction (batch currency-c1): all four forms registered BEFORE application; applied 2026-10-20 as 0063 (hosted 64).
 const CURRENCY_C1 = ["20261113100000_period_currency_correction.sql"].map((name) => ({ name }));
+// Trial Balance workflow (tb-portfolio-a1, tb-decisions-b1): registered (wrapper + all forms) and proven, PENDING hosted application.
+const TB_WORKFLOW = ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"].map((name) => ({ name }));
 const MILESTONE = [
   { name: "20261011100000_two_period_shared_source.sql", bytes: 33926, canonical: "5feb43d1268790f9b1b205d316081759c7912156c77bb34ba51e881b2297a01a", submitted: "e61a38b2de5353bb5f22a9b910bd86b3490746ae6d30ea9fae8bc291c80418a6" },
   { name: "20261012100000_layout_assist_controls.sql", bytes: 26700, canonical: "aa7ae748164aa1a0fd0fffe55fd362db53f10120223b5da81ceaf94ee4c447dd", submitted: "4a9a81b92acdbc2d07a88614676138d40bc93648ec7175a02ec36cbcb5368e39" },
@@ -81,8 +83,9 @@ describe("the reviewed release journal", () => {
     // 46: 0058–0061 (the trial balance release, tb-release-r1; release_self_checking_wrapper; hosted 59–62).
     // 47: 0062 (unlimited team members, pricing-p1; release_self_checking_wrapper; hosted 63).
     // 48: 0063 (period-currency correction, currency-c1; release_self_checking_wrapper in the final-LF-removed wrapper form; hosted 64).
-    // 54: transport infrastructure and five staged FS applications (0064–0069).
-    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(54);
+    // 49–54: 0064–0069 (the applied Financial Statements staged transport batch).
+    // 55: checkout recovery (0070), reviewed verbatim and applied out of source order.
+    expect(Object.keys(RELEASE_JOURNAL)).toHaveLength(55);
   });
   it("pins the prerequisite and 140000 digests exactly as authorised", () => {
     expect(RELEASE_JOURNAL["0016_pr34_apply_prereq_20260915100000"]).toMatchObject({ digest: "e996b26738bce27dea1a7154400ec8828a333e2e0ae99eac91632f93dd0a6712", bytes: 18569 });
@@ -105,7 +108,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual(["20261119100000_customer_checkout_abandon.sql"]); // FS controls/journey/bounds/capacity/memo are covered by staged transport; only checkout abandon remains pending.
+    expect(r.pending).toEqual(["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"]); // FS staged transport and checkout abandon are applied; the two Trial Balance sources remain pending.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -114,7 +117,8 @@ describe("the reviewed release journal", () => {
     expect(r.mirrored.find((m) => m.tag === "0026_apply_20261002100000_refuse_withheld_service_grants")?.how).toBe("release_verbatim");
     expect(r.mirrored.find((m) => m.tag === T25)).toEqual({ tag: T25, source: S25, how: "release_verbatim" });
     expect(r.releaseApplied).toEqual([{ tag: "0016_pr34_apply_prereq_20260915100000", source: "20260915100000_financial_statement_documents.sql" },
-      { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" }]); // applied ahead of the pending 20261111/20261112 (declared out of order)
+      { tag: "0063_period_currency_correction", source: "20261113100000_period_currency_correction.sql" },
+      { tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" }]); // explicitly reviewed out-of-order applications; TB workflow remains pending
     expect(r.mirrored.filter((m) => m.how === "release_wrapper").map((m) => m.source)).toEqual([
       "20260925100000_global_capabilities_entitlements_pricing.sql", "20260925110000_named_user_billing_suspension_and_invitation_lifecycle.sql",
       "20260925120000_reporting_pack_issuance_binding.sql", "20260925130000_solo_plan_no_free_plan_and_plan_feature_matrix.sql",
@@ -375,7 +379,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name)].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name)].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -493,7 +497,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261119100000_customer_checkout_abandon.sql"]); // FS controls/journey/bounds/capacity/memo are covered by staged transport; only checkout abandon remains pending.
+    expect(r.pending).toEqual(["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"]); // FS staged transport and checkout abandon are applied; the two Trial Balance sources remain pending.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -538,7 +542,7 @@ describe("I1-A hosted application: 0031/0032 pinned to the canonical (identical)
 describe("the milestone's seven migrations: both submission forms registered ahead of application (nothing applied)", () => {
   it("registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length;
+    const after = REPORTING.length + READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length + TB_WORKFLOW.length;
     expect(keys.slice(-(MILESTONE.length + after), -after)).toEqual(MILESTONE.map((m) => m.name));
     for (const f of MILESTONE) {
       const src = srcBytes(f.name)!;
@@ -616,7 +620,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual(["20261119100000_customer_checkout_abandon.sql"]); // FS controls/journey/bounds/capacity/memo are covered by staged transport; only checkout abandon remains pending.
+    expect(r.pending).toEqual(["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"]); // FS staged transport and checkout abandon are applied; the two Trial Balance sources remain pending.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
@@ -629,9 +633,9 @@ describe("the milestone's seven migrations: both submission forms registered ahe
 describe("the reporting release: all four forms of each source registered ahead of application (nothing applied)", () => {
   it("registers exactly the five, then the readiness correction last, in release order; each form recomputed here from the repository bytes", () => {
     const keys = Object.keys(SUBMISSION_FORMS);
-    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length;
+    const tail = READINESS.length + SIGNOFF_POLICY.length + COMMERCIAL.length + PAYMENTS.length + ACCESS.length + TB_RELEASE.length + PRICING_P1.length + FS_CONTROLS.length + CURRENCY_C1.length + TB_WORKFLOW.length;
     expect(keys.slice(-(REPORTING.length + tail), -tail)).toEqual(REPORTING.map((m) => m.name));
-    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE, ...PRICING_P1, ...FS_CONTROLS, ...CURRENCY_C1].map((m) => m.name));
+    expect(keys.slice(-tail)).toEqual([...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS, ...ACCESS, ...TB_RELEASE, ...PRICING_P1, ...FS_CONTROLS, ...CURRENCY_C1, ...TB_WORKFLOW].map((m) => m.name));
     for (const { name } of [...REPORTING, ...READINESS, ...SIGNOFF_POLICY, ...COMMERCIAL, ...PAYMENTS]) {
       const src = fs.readFileSync(path.join(ROOT, "supabase/migrations", name));
       const w = fs.readFileSync(path.join(ROOT, "release/wrappers", name.replace(/\.sql$/, ".wrapper.sql")));
@@ -643,5 +647,37 @@ describe("the reporting release: all four forms of each source registered ahead 
         identical: { bytes: src.length, sha256: sha(src) }, finalLfRemoved: { bytes: src.length - 1, sha256: sha(src.subarray(0, src.length - 1)) },
         wrapper: { bytes: w.length, sha256: sha(w) }, wrapperFinalLfRemoved: { bytes: w.length - 1, sha256: sha(w.subarray(0, w.length - 1)) } });
     }
+  });
+});
+
+
+describe("0070 checkout recovery applied before the pending Trial Balance workflow", () => {
+  const tag = "0070_customer_checkout_abandon";
+  const source = "20261119100000_customer_checkout_abandon.sql";
+  it("pins the exact source and mirror while retaining both pending TB batches", () => {
+    expect(RELEASE_JOURNAL[tag]).toEqual({ kind: "release_verbatim", source, bytes: 4839,
+      digest: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910",
+      sha256: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", outOfOrder: true });
+    expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
+    const r = checkMigrationAuthority(ROOT) as Result;
+    expect(r.errors).toEqual([]);
+    expect(r.pending).toEqual(["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"]);
+    expect(r.releaseApplied).toContainEqual({ tag, source });
+  });
+  it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
+    const entry = RELEASE_JOURNAL[tag] as { outOfOrder?: boolean };
+    const original = entry.outOfOrder;
+    try {
+      delete entry.outOfOrder;
+      const r = checkMigrationAuthority(ROOT) as Result;
+      expect(r.ok).toBe(false);
+      for (const name of ["20261117100000_engagement_portfolio.sql", "20261118100000_tb_finding_decisions.sql"])
+        expect(r.errors).toContain(`drizzle: source ${name} was skipped by the hosted apply journal`);
+    } finally { entry.outOfOrder = original; }
+  });
+  it("refuses altered mirror or source bytes even with the out-of-order declaration", () => {
+    expect(checkReleaseEntry(tag, read(tag) + "\n-- altered", srcBytes).problems.length).toBeGreaterThan(0);
+    const changed = (name: string) => { const b = srcBytes(name); return name === source && b ? Buffer.concat([b, Buffer.from("\n-- altered")]) : b; };
+    expect(checkReleaseEntry(tag, read(tag), changed).problems.length).toBeGreaterThan(0);
   });
 });

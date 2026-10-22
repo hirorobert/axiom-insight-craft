@@ -76,8 +76,10 @@ const billingMock = vi.hoisted(() => ({ value: { summary: { hasBillingCustomer: 
 const capacityMock = vi.hoisted(() => ({ value: { capacity: { capacity: 1, used: 0, determined: true, planCode: "SOLO" }, loading: false, error: false, retry: vi.fn() } }));
 vi.mock("@/hooks/useBillingSummary", () => ({ useBillingSummary: () => billingMock.value }));
 vi.mock("@/hooks/useMyEntityCapacity", () => ({ useMyEntityCapacity: () => capacityMock.value }));
-vi.mock("@/hooks/useActiveEngagements", () => ({
-  useActiveEngagements: () => activeEngagementsMock.value,
+// The home reads ONE bounded server answer with exact counts (useAccountHome → get_account_home). The fixtures below are
+// complete lists, so each total is the list's length; totals larger than a sample are covered by accountHome.test.ts.
+vi.mock("@/hooks/useAccountHome", () => ({
+  useAccountHome: () => activeEngagementsMock.value,
 }));
 
 function setActiveEngagements(v: {
@@ -86,7 +88,14 @@ function setActiveEngagements(v: {
   companiesWithoutEngagement: WorkspaceCompany[];
   fetchFailed: boolean;
 }) {
-  activeEngagementsMock.value = { ...v, refresh: vi.fn() };
+  const counted = <T,>(rows: T[]) => ({ total: rows.length, rows, complete: true });
+  activeEngagementsMock.value = {
+    loading: v.loading, fetchFailed: v.fetchFailed, refresh: vi.fn(),
+    home: v.fetchFailed ? null : {
+      engagements: counted(v.entries.map((e) => ({ engagementId: e.engagementId, companyId: e.companyId, companyName: e.companyName, periodYear: e.periodYear, openedAt: e.openedAt }))),
+      withheld: counted([]), companiesWithoutEngagement: counted(v.companiesWithoutEngagement), shared: counted([]),
+    },
+  };
 }
 
 async function renderDashboard(): Promise<string> {
@@ -126,7 +135,7 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).not.toContain("Beta Co");
   });
 
-  it("more than one open engagement always renders the deterministic chooser, listing every engagement", async () => {
+  it("more than one open engagement always renders the deterministic chooser, with every engagement listed by the server", async () => {
     setActiveEngagements({
       loading: false,
       entries: [entry("e1", "c1", "Acme Ltd"), entry("e2", "c2", "Beta Co", 2026)],
@@ -135,9 +144,12 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     });
     const html = await renderDashboard();
 
-    expect(html).toContain("Acme Ltd");
-    expect(html).toContain("Beta Co");
+    // Never a redirect into one of them: the account home with the engagements list. The list itself is read page by page
+    // from list_portfolio_engagements (EngagementPortfolio.test.ts covers its rows, paging and counts), not from `entries`.
     expect(html).toContain("Your engagements");
+    expect(html).toContain('data-testid="engagement-portfolio"');
+    expect(html).toContain("All engagements");
+    expect(html).not.toContain('data-testid="engagement-hub-list"');
   });
 
   it("zero open engagements, exactly one company: shows the loading/redirect state, never the chooser", async () => {
@@ -175,13 +187,16 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
     expect(html).toContain('data-testid="add-company"');
   });
 
-  it("returning user with entities: a compact upload sits above the one next action (P2-4); one filled primary remains", async () => {
-    // (One company alone routes straight into its workspace; the home shows from two.)
+  it("returning user with entities: uploading is its own focused page (/upload), linked quietly from the engagements list; one filled primary remains", async () => {
+    // (One company alone routes straight into its workspace; the home shows from two.) The compact upload card of P2-4
+    // is replaced by the focused upload page (Trial Balance workflow, Track A): the home links to it, it does not embed it.
     setActiveEngagements({ loading: false, entries: [], companiesWithoutEngagement: [company("c1", "Acme Ltd"), company("c2", "Beta Co")], fetchFailed: false });
     const html = await renderDashboard();
-    expect(html).toContain('data-compact="true"');
+    expect(html).not.toContain('data-compact="true"');
+    const link = html.match(/<a[^>]*data-testid="portfolio-upload-link"[^>]*>/)?.[0] ?? "";
+    expect(link).toContain('href="/upload"');
     expect(html).toContain('data-testid="account-next-action"');
-    // The compact upload's button is an outline (secondary): the next action keeps at most one filled primary.
+    // The upload link is an outline link (secondary): the next action keeps at most one filled primary.
     expect((html.match(/data-testid="next-action-primary"/g) ?? []).length).toBeLessThanOrEqual(1);
   });
 

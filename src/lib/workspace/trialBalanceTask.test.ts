@@ -90,3 +90,15 @@ describe("the verdict reads what the exact ingestion core recorded", () => {
     expect(accepted.issues).toEqual([]);
   });
 });
+
+describe("finding decisions (20261118100000)", () => {
+  it("findings waiting for a decision: decide each, then the file is checked again — no classification step", () => {
+    const t = currentTrialBalanceTask({ status: "needs_review", statusLabel: "Needs your decision", failedCheckId: null, issues: [] });
+    expect(t.instruction).toBe("Record a decision on each finding listed below. The file is then checked again with your decisions.");
+  });
+  it("a file recorded as another entity's: move it, never 'correct the issue in your file'", () => {
+    const t = currentTrialBalanceTask({ status: "blocked", failedCheckId: null,
+      issues: [{ code: "ENTITY_WRONG_DESTINATION", message: "x", rows: [1], kind: "blocking" }] });
+    expect(t.instruction).toBe("You recorded that this file belongs to another entity. Remove it from this engagement and upload it to the right one.");
+  });
+});

@@ -51,7 +51,7 @@ const snapshot = (safishaStatus: string | null, hesabuPassedAt: string | null = 
 const taxAfterStatements = (safishaStatus: string | null) => deriveWorkspaceState("c1", "Co", 2025, snapshot(safishaStatus, "2026-01-02T00:00:00Z")).missions.tax.status;
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const verdictFor = () => deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete", processing_result: { ingestion: CURRENT_INGESTION } }, readiness: { verdict: "certified", blocker: null, checks: [] }, canRetry: true });
 
 describe("a raw 'clean' over incomplete evidence unlocks nothing that depends on a reconciliation", () => {

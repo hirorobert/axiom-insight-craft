@@ -43,6 +43,8 @@ describe("entity confirmation (§3.3)", () => {
     const r = read([["MFANO TRADERS LTD"], []], "Kilele Enterprises Limited");
     expect(r.issues).toEqual([{
       code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [1], field: "entity",
+      // The identity a recorded decision binds to (20261118100000): the normalised entity, and the file's own text.
+      subject: "mfano traders ltd", fileEntity: "MFANO TRADERS LTD",
       message: "This file names MFANO TRADERS LTD; this workspace is Kilele Enterprises Limited. Same entity? (From your file: “MFANO TRADERS LTD”, cell A1.)",
     }]);
     expect(r.blocking).toBe(false);

@@ -262,9 +262,12 @@ describe("migration directory integrity", () => {
     // 186 -> 187: 20261116100000_fs_transaction_memo.sql (the composition and the reporting input computed once per transaction:
     // the heavy bodies under _fs_*_compute names, the public names memoising wrappers with the same signatures and grants),
     // a NEW forward-only migration pending hosted application.
-    // 187 -> 188: 20261119100000_customer_checkout_abandon.sql (abandon_unpaid_checkout: the owner leaves a provider-verified
-    // unpaid PENDING checkout, audited once; service role only), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(188);
+    // 187 -> 188: 20261117100000_engagement_portfolio.sql (the engagements portfolio read: one definer function under the
+    // platform's workspace-access rule, keyset paging, per-company revisions), a NEW forward-only migration pending hosted application.
+    // 188 -> 189: 20261118100000_tb_finding_decisions.sql (trial-balance finding decisions, the generation-7 evaluation
+    // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
+    // 189 -> 190: 20261119100000_customer_checkout_abandon.sql (owner checkout recovery; applied as 0070).
+    expect(files.length).toBe(190);
   });
 });
 

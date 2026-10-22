@@ -41,7 +41,7 @@ const render = (node: ReturnType<typeof createElement>) => renderToStaticMarkup(
 const EQ_FAIL = { code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null, message: "Assets (10000.00) != Liabilities + Closing Equity (8000.00). Difference: 2000.00" };
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const BALANCED_EXACT = { ingestion: CURRENT_INGESTION, validation_report: { tb_balance_check: { passed: true, total_debits: 60500, total_credits: 60500, difference: 0, exact: { currency: "TZS", currency_exponent: 2, total_debits: "60500.00", total_credits: "60500.00", difference: "0.00" } } } };
 const BLAMING_WORDS = /every check passed|checks passed|checks have passed|Balanced|VALID\b/;
 

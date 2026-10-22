@@ -43,7 +43,7 @@ export function cardVerdictForAccess<V extends { primaryAction: { kind: string }
 }
 
 export function currentTrialBalanceTask(
-  verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues"> & { equationExact?: boolean },
+  verdict: Pick<TrialBalanceVerdict, "status" | "failedCheckId" | "issues"> & { equationExact?: boolean; statusLabel?: string },
   options: { reviewAccess?: boolean } = {},
 ): TrialBalanceTask {
   const classify = options.reviewAccess === false ? CLASSIFICATION_NEEDS_REVIEW_ACCESS : "Confirm the classification of the accounts listed below.";
@@ -67,12 +67,20 @@ export function currentTrialBalanceTask(
       // A failed read, or recorded findings that cannot be read: the card states which.
       return task(1, "The result could not be confirmed. The reason is shown below.");
     case "blocked":
+      // A file recorded as another entity's: the next step is moving it, not correcting it.
+      if (verdict.issues.some((i) => i.code === "ENTITY_WRONG_DESTINATION")) {
+        return task(1, "You recorded that this file belongs to another entity. Remove it from this engagement and upload it to the right one.");
+      }
       return verdict.failedCheckId === "l4_classification"
         ? task(2, classify)
         : task(1, verdict.issues.length > 0
           ? `Correct ${verdict.issues.length === 1 ? "the issue" : `the ${verdict.issues.length} issues`} shown below in your file, then replace it.`
           : "Correct the file, then replace it.");
     case "needs_review":
+      // Findings that need a recorded decision (and no classification): decide each one; the file is then checked again.
+      if (verdict.statusLabel === "Needs your decision") {
+        return task(1, "Record a decision on each finding listed below. The file is then checked again with your decisions.");
+      }
       // Held by an arithmetic check (debits/credits, statement equation or an unknown check), not a classification.
       return verdict.failedCheckId === "l3_arithmetic"
         ? task(1, "An arithmetic check needs attention before this trial balance can be reviewed. See the checks below.")

@@ -12,7 +12,7 @@ import type { UploadSnapshot } from "./types";
 
 const passed = (id: string): PreflightCheck => ({ id, label: id, state: "passed", detail: "recorded detail" });
 const CHECKS = ["l1_structure", "l2_data_quality", "l3_arithmetic", "l4_classification"].map(passed);
-const CURRENT = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const TOTALS = { validation_report: { tb_balance_check: { passed: true, total_debits: 10, total_credits: 10, difference: 0 } } };
 const verdict = (processing_result: unknown) =>
   deriveTrialBalanceVerdict({ upload: { id: "u1", status: "complete", processing_result }, readiness: { verdict: "certified", blocker: null, checks: CHECKS }, canRetry: true });
@@ -59,5 +59,28 @@ describe("an earlier version's result", () => {
   it("a blocked or failing earlier result is still shown as what it recorded (never softened)", () => {
     const blocked = deriveTrialBalanceVerdict({ upload: { id: "u1", status: "blocked", processing_result: TOTALS }, readiness: { verdict: "blocked", blocker: "Debits do not equal credits", checks: CHECKS.map((c) => (c.id === "l3_arithmetic" ? { ...c, state: "failed" as const } : c)) }, canRetry: true });
     expect(blocked.statusLabel).toBe("Blocked");
+  });
+});
+
+// Generation 7 (20261118100000): a result evaluated before the current finding rules — milestones but no rules_generation
+// (the generation-6 engine) — stays in force with its history, but is never presented as passing today's checks; the
+// re-check (the one reprocess path) applies them.
+describe("a result accepted under earlier finding rules", () => {
+  const { rules_generation: _g, ...generation6 } = CURRENT;
+  it("isCurrentCheckSet requires the milestones AND the current rules generation", async () => {
+    const { isCurrentCheckSet, rulesGeneration, CURRENT_RULES_GENERATION } = await import("./resultVersion");
+    expect(CURRENT_RULES_GENERATION).toBe(7);
+    expect(isCurrentCheckSet({ ingestion: CURRENT })).toBe(true);
+    expect(isCurrentCheckSet({ ingestion: generation6 })).toBe(false);
+    expect(isCurrentCheckSet({ ingestion: { ...CURRENT, rules_generation: 6 } })).toBe(false);
+    expect(isCurrentCheckSet({ ingestion: { ...CURRENT, rules_generation: "7" } })).toBe(false);
+    expect(rulesGeneration({ ingestion: generation6 })).toBeNull();
+  });
+  it("Prepare: still accepted (history and downstream use preserved) but labelled as an earlier version, no balance claim, with the re-check offered", () => {
+    const v = verdict({ ...TOTALS, ingestion: generation6 });
+    expect([v.status, v.statusLabel, v.reason]).toEqual(["accepted", EARLIER_VERSION_LABEL, EARLIER_VERSION_REASON]);
+    expect(v.primaryAction).toEqual({ kind: "recheck", label: "Check again under the current checks" });
+    expect(v.balanceStatement).toBeNull();
+    expect(JSON.stringify(v)).not.toMatch(/Reviewed trial balance|ready for statement preparation/);
   });
 });

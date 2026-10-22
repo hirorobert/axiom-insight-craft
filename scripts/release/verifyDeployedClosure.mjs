@@ -14,11 +14,14 @@ import { closureOf } from "./functionClosure.mjs";
 
 /** Reviewed closures: the one the current release requires, and the ones known to have been deployed before. */
 export const KNOWN_CLOSURES = Object.freeze({
+  // Trial Balance workflow: generation 7 (finding decisions, evaluation manifest) supersedes the PR #176 closure, which
+  // remains the newest KNOWN closure (it needs no 20261118100000). Neither is evidence of hosted deployment.
   // PR #176 (FS first slice): the mapping read is paged (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001). The closure deployed hosted on
   // 2026-10-18 (tb-release-r1, EVIDENCE.md) read at most 1,000 mappings and must be redeployed.
   "process-trial-balance": Object.freeze({
-    required: { sha256: "e2553c3b559a9bead72f5afd022d568419c0a6ea1b542ea25a6ade1a7b975bd8", source: "PR #176: account_mappings read page by page by KEYSET on the immutable id (_shared/pagedSelect.ts selectAllRowsByKey; Codex review blocker 2)" },
-    known: [{ sha256: "67cbf27b09e68fbfb70c8d1562a5fdd7063f284bf7cdda9280a81edbf25607fd", source: "main through 942764f (deployed hosted 2026-10-18, tb-release-r1): one unpaged select, at most 1,000 mappings applied" },
+    required: { sha256: "89dfebd2bfc96c73cf766468881db73eb1290f37cd34164880fba64d6cd934e3", source: "Trial Balance workflow: generation 7 with exhaustive finding/rule agreement and final-schema certification enforcement (20261118100000)" },
+    known: [{ sha256: "e2553c3b559a9bead72f5afd022d568419c0a6ea1b542ea25a6ade1a7b975bd8", source: "main daa23e4 (PR #176 merged; generation 6): PR #176: account_mappings read page by page by KEYSET on the immutable id (_shared/pagedSelect.ts selectAllRowsByKey; Codex review blocker 2)" },
+      { sha256: "67cbf27b09e68fbfb70c8d1562a5fdd7063f284bf7cdda9280a81edbf25607fd", source: "main through 942764f (deployed hosted 2026-10-18, tb-release-r1): one unpaged select, at most 1,000 mappings applied" },
       { sha256: "85670e5ae5bd01a737ca7a30f90f9b779784d272ad4422c5d94f36e2f7ba8a6e", source: "PR #176 bbb9ad2-018f1f4 (never deployed): OFFSET-window pages, unsafe against a concurrent unrelated mapping change" }],
   }),
   // PR #176: the official Reporting Pack gains the `retrieve` action; `issue` and `verify` unchanged.

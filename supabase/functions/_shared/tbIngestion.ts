@@ -83,6 +83,15 @@ export interface IngestIssue {
   message: string;
   rows?: number[];
   field?: string;
+  /**
+   * A finding that takes a recorded decision (tb_decision_actions) names WHAT it is about, stably: the identity a decision
+   * binds to (code + subject), checked by the database against the certification's own findings.
+   */
+  subject?: string;
+  /** ENTITY_NAME_DIFFERS: the entity as the file names it (the confirmation must repeat it exactly). */
+  fileEntity?: string;
+  /** CLEARING_ACCOUNT_BALANCE: the account the finding is about. */
+  accountCode?: string | null;
 }
 
 const MAX_LISTED_ROWS = 10;
@@ -575,6 +584,7 @@ export function entityConfirmation(evidence: TitleBlockEvidence, workspaceEntity
   if (normaliseEntityName(fileEntity.text) === normaliseEntityName(workspace)) return null;
   return {
     code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [fileEntity.row], field: "entity",
+    subject: normaliseEntityName(fileEntity.text), fileEntity: fileEntity.text,
     message: `This file names ${fileEntity.text}; this workspace is ${workspace}. Same entity? (From your file: “${fileEntity.text}”, cell ${fileEntity.column}${fileEntity.row}.)`,
   };
 }
@@ -590,6 +600,9 @@ export interface RowLineage {
   /** The account identity for an "account" row. */
   identity?: string;
   reason?: string;
+  /** Total and excluded rows: the amounts the reader parsed from them (exact minor units), for investigation. */
+  debitMinor?: bigint;
+  creditMinor?: bigint;
 }
 
 export interface IngestedAccount {
@@ -838,11 +851,12 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       if (useDebitCredit && typeof d === "bigint" && typeof c === "bigint" && b !== "bad"
         && accounts.length > 0 && onlyAmounts && i === lastSubstantive) {
         totalRowsChecked.push({ row: row.rowNumber, debit: d, credit: c, accountsDebit: runningDebit, accountsCredit: runningCredit });
-        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows" });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows", debitMinor: d, creditMinor: c });
         continue;
       }
       lineage.push(anyAmount
-        ? { rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code or name" }
+        ? { rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code or name",
+            ...(typeof d === "bigint" ? { debitMinor: d } : {}), ...(typeof c === "bigint" ? { creditMinor: c } : {}) }
         : { rowNumber: row.rowNumber, disposition: "blank" });
       if (anyAmount) missingCode.push(row.rowNumber);
       continue;
@@ -870,7 +884,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
         if (GRAND_TOTAL_PATTERN.test(name) && !allBlank) {
           totalRowsChecked.push({ row: row.rowNumber, debit, credit, accountsDebit: runningDebit, accountsCredit: runningCredit });
         }
-        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: name });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: name, ...(allBlank ? {} : { debitMinor: debit, creditMinor: credit }) });
         continue;
       }
     }
@@ -878,7 +892,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
     if (allBlank) { lineage.push({ rowNumber: row.rowNumber, disposition: code ? "zero_balance" : "heading", reason: name || code }); continue; }
     if (hasCodeColumn && !code) {
       missingCode.push(row.rowNumber);
-      lineage.push({ rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code" });
+      lineage.push({ rowNumber: row.rowNumber, disposition: "rejected", reason: "amounts without an account code", debitMinor: debit, creditMinor: credit });
       continue;
     }
     if (debit === 0n && credit === 0n) { lineage.push({ rowNumber: row.rowNumber, disposition: "zero_balance", reason: name || code }); continue; }
@@ -950,7 +964,7 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   }
   if (unrecognisedTrailing.length > 0) {
     const one = unrecognisedTrailing.length === 1;
-    issues.push({ code: "UNRECOGNISED_TRAILING_TEXT", severity: "review", rows: unrecognisedTrailing, message: `Row${one ? "" : "s"} ${listRows(unrecognisedTrailing)} after the last account contain${one ? "s" : ""} text that is not a recognised report footer and no amounts. Confirm ${one ? "it is" : "they are"} not part of the trial balance.` });
+    issues.push({ code: "UNRECOGNISED_TRAILING_TEXT", severity: "review", rows: unrecognisedTrailing, subject: `rows:${[...unrecognisedTrailing].sort((a, b) => a - b).join(",")}`, message: `Row${one ? "" : "s"} ${listRows(unrecognisedTrailing)} after the last account contain${one ? "s" : ""} text that is not a recognised report footer and no amounts. Confirm ${one ? "it is" : "they are"} not part of the trial balance.` });
   }
   if (exampleRows.length > 0) {
     issues.push({ code: "TEMPLATE_EXAMPLE_UPLOADED", severity: "blocking", rows: exampleRows, message: "This file still contains the example rows from the CFOClose sample. Replace them with your own accounts before uploading." });
@@ -995,9 +1009,15 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
   reviewChecks.push({ id: "residual_balances", label: "Residual balances", outcome: "not_run", reason: "No residual-balance policy is configured, so residual balances are not assessed." });
   reviewChecks.push({ id: "unexpected_side_balances", label: "Balances on an unexpected side", outcome: "not_run", reason: "Needs an approved classification or a verified chart rule, which this check does not have yet." });
   const clearing = accounts.filter((a) => CLEARING_ACCOUNT_NAME.test(a.accountName) && a.debitMinor !== a.creditMinor);
-  if (clearing.length > 0) {
-    const rowsC = clearing.map((a) => a.sourceRowNumber);
-    issues.push({ code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: rowsC, message: `Clearing, suspense or in-transit account${rowsC.length === 1 ? "" : "s"} on row${rowsC.length === 1 ? "" : "s"} ${listRows(rowsC)} ${rowsC.length === 1 ? "has" : "have"} a balance. ${rowsC.length === 1 ? "It needs" : "They need"} reconciliation evidence.` });
+  // One finding per account: each balance is explained (with evidence) on its own.
+  for (const a of clearing) {
+    const label = a.codeProvided ? `${a.accountCode} ${a.accountName}` : a.accountName;
+    issues.push({
+      code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: [a.sourceRowNumber], accountCode: a.codeProvided ? a.accountCode : null,
+      // The account's identity in this file (code or normalised name, with any dimensions): unique, and stable across checks.
+      subject: a.identity,
+      message: `${label} (row ${a.sourceRowNumber}) is a clearing, suspense or in-transit account with a balance. It needs an explanation and reconciliation evidence.`,
+    });
   }
   reviewChecks.push({
     id: "clearing_account_balances", label: "Clearing, suspense and in-transit balances",

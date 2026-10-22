@@ -14,8 +14,10 @@ import { lifecycleLabel, resultLabel } from "@/lib/workspace/trialBalanceVerdict
 
 import type { HistoryUpload } from "@/lib/workspace/trialBalanceVerdict";
 
-export function UploadHistory({ uploads, currentId, viewingId, onOpen, openRequest = 0 }: {
+export function UploadHistory({ uploads, total, currentId, viewingId, onOpen, openRequest = 0 }: {
   uploads: HistoryUpload[];
+  /** The exact number of this period's uploads; the list holds at most the most recent ones. */
+  total?: number;
   currentId: string | null;
   /** The upload on screen (may be an earlier one opened from here). */
   viewingId: string | null;
@@ -36,9 +38,12 @@ export function UploadHistory({ uploads, currentId, viewingId, onOpen, openReque
   return (
     <section id={UPLOAD_HISTORY_ANCHOR} className="border border-border bg-card" data-testid="upload-history">
       <Button ref={toggle} type="button" variant="ghost" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="h-auto w-full justify-between rounded-none px-5 py-3.5 sm:px-7">
-        <span className="text-[13px] font-semibold text-foreground">Upload history <span className="font-normal text-muted-foreground">· {rows.length}</span></span>
+        <span className="text-[13px] font-semibold text-foreground">Upload history <span className="font-normal text-muted-foreground">· {total ?? rows.length}</span></span>
         <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </Button>
+      {open && total !== undefined && total > rows.length && (
+        <p className="px-5 pb-2 text-[12px] text-muted-foreground sm:px-7" data-testid="upload-history-truncated">Showing the {rows.length} most recent of {total} uploads for this period.</p>
+      )}
       {open && (
         <ul className="border-t border-border">
           {rows.map((u) => {

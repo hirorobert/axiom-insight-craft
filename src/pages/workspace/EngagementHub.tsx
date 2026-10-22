@@ -34,6 +34,8 @@ import { customerCapabilityTitle } from "@/lib/workspace/mandate";
 import { customerVisibleCapabilities, isStageCustomerVisible, TRIAL_BALANCE_REVIEW } from "@/lib/workspace/moduleAvailability";
 import { NO_VISIBLE_NEXT_ACTION, trialBalanceReviewStep } from "@/lib/workspace/deriveOrientationSummary";
 import type { ActiveEngagementEntry } from "@/hooks/useActiveEngagements";
+/** An engagement as the home knows it: the bounded read gives identity only; the legacy list also carried its state. */
+type HubEntry = Pick<ActiveEngagementEntry, "engagementId" | "companyId" | "companyName" | "periodYear"> & Partial<Omit<ActiveEngagementEntry, "engagementId" | "companyId" | "companyName" | "periodYear">>;
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
@@ -44,9 +46,12 @@ import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { engagementNextAction } from "@/lib/workspace/engagementNextAction";
+import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio";
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
 export interface AccountHome {
+  /** Exact totals when the lists are bounded samples (get_account_home); count-based decisions use these. */
+  totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number; shared: number };
   billing: BillingSummary | null;
   billingLoading: boolean;
   billingError: boolean;
@@ -81,10 +86,11 @@ export default function EngagementHub({
   reviewGates = {},
   account,
   onSetPurpose,
+  portfolio = false,
 }: {
-  entries: ActiveEngagementEntry[];
+  entries: HubEntry[];
   companiesWithoutEngagement: WorkspaceCompany[];
-  onResume: (entry: ActiveEngagementEntry) => void;
+  onResume: (entry: HubEntry) => void;
   onStartService: (company: WorkspaceCompany) => void;
   /** Workspaces shared through an explicit Prepare grant (PR #32). They open into Prepare Data only. */
   sharedWorkspaces?: SharedWorkspace[];
@@ -97,6 +103,8 @@ export default function EngagementHub({
   account?: AccountHome;
   /** Records a company's purpose (set_workspace_purpose: owner only); resolves to the outcome in words. Absent: no control. */
   onSetPurpose?: (companyId: string, purpose: WorkspacePurpose, reason: string) => Promise<string>;
+  /** The engagements are listed by the server, page by page (EngagementPortfolio), instead of from `entries`. */
+  portfolio?: boolean;
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -133,10 +141,11 @@ export default function EngagementHub({
     ? deriveAccountNextAction({
         ...reads,
         entries: entries.map((e) => ({ engagementId: e.engagementId, companyName: e.companyName, periodYear: e.periodYear })),
+        totals: account?.totals ? { entries: account.totals.entries, unavailable: account.totals.unavailable, companiesWithoutEngagement: account.totals.companiesWithoutEngagement } : undefined,
         unavailable: onAddTrialBalanceReview ? unavailableEngagements : [],
         reviewGates,
         companiesWithoutEngagement,
-        sharedCount: onOpenShared ? sharedWorkspaces.length : 0,
+        sharedCount: onOpenShared ? (account?.totals?.shared ?? sharedWorkspaces.length) : 0,
       })
     : null;
   const creation = reads ? companyCreation(reads) : null;
@@ -152,7 +161,8 @@ export default function EngagementHub({
     : uploadEntities.length > 0 && !["checking", "retry"].includes(next.kind) ? "compact"
     : null;
 
-  const renderEntry = (entry: ActiveEngagementEntry) => {
+  const renderEntry = (entry: HubEntry) => {
+    if (!entry.workspaceState) return null;
     const nextVisible = isStageCustomerVisible(entry.workspaceState.nextAction.mission);
     const stageLabel = nextVisible ? STAGE_CONFIGS[entry.workspaceState.nextAction.mission].label : TRIAL_BALANCE_REVIEW.title;
     const nextLabel = nextVisible
@@ -234,7 +244,8 @@ export default function EngagementHub({
       {account && next && (
         <section className="mb-10" aria-labelledby="account-home-title">
           <h1 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h1>
-          {uploadHome === "compact" && account.onOpenTrialBalance && (
+          {/* With the engagements list, uploading lives on its own page (/upload), linked from the list. */}
+          {uploadHome === "compact" && account.onOpenTrialBalance && !portfolio && (
             <div className="mb-4">
               <FirstUpload compact entities={uploadEntities} canCreateEntity={creation === "allowed"} needsPlan={next.kind === "choose_plan"}
                 onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
@@ -245,7 +256,7 @@ export default function EngagementHub({
           ) : (
           <NextActionCard
             next={next}
-            resumeLabel={(() => { const e = next.kind === "resume" ? entries.find((x) => x.engagementId === next.engagementId) : undefined; return e ? engagementNextAction(e.workspaceState).label : null; })()}
+            resumeLabel={(() => { const e = next.kind === "resume" ? entries.find((x) => x.engagementId === next.engagementId) : undefined; return e?.workspaceState ? engagementNextAction(e.workspaceState).label : e ? "Open engagement" : null; })()}
             busy={pending !== null}
             onRetry={account.onRetry}
             onResume={() => { const e = entries.find((x) => next.kind === "resume" && x.engagementId === next.engagementId); if (e) onResume(e); }}
@@ -259,7 +270,10 @@ export default function EngagementHub({
           )}
         </section>
       )}
-      {entries.length > 0 && (
+      {portfolio && account && (
+        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" uploadHref={uploadHome === "compact" ? "/upload" : undefined} renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+      )}
+      {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">
           {account ? (
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
@@ -277,7 +291,7 @@ export default function EngagementHub({
           {/* Grouped by company, each period with its dates and service; test and training workspaces (explicit, recorded
               purpose — never inferred from a name) are listed apart from client work. */}
           {(() => {
-            const { client, test } = groupEngagements(entries);
+            const { client, test } = groupEngagements(entries as ActiveEngagementEntry[]);
             const renderGroup = (g: CompanyGroup<ActiveEngagementEntry>) => (
               <li key={g.companyId} data-testid={`company-group-${g.companyId}`}>
                 <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -356,6 +370,9 @@ export default function EngagementHub({
               </li>
             ))}
           </ul>
+          {account?.totals && account.totals.companiesWithoutEngagement > companiesWithoutEngagement.length && (
+            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="companiesWithoutEngagement-more">And {account.totals.companiesWithoutEngagement - companiesWithoutEngagement.length} more — open them from Settings › Companies.</p>
+          )}
         </section>
       )}
       {sharedWorkspaces.length > 0 && onOpenShared && (
@@ -382,6 +399,9 @@ export default function EngagementHub({
               </li>
             ))}
           </ul>
+          {account?.totals && account.totals.shared > sharedWorkspaces.length && (
+            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="shared-more">And {account.totals.shared - sharedWorkspaces.length} more — each is also listed under Engagements.</p>
+          )}
         </section>
       )}
       {account && (
@@ -393,9 +413,7 @@ export default function EngagementHub({
                 Add a company
               </Button>
             )}
-            <Link to="/settings" data-testid="manage-companies" className="text-[13px] underline underline-offset-4 text-foreground">
-              Manage companies in Settings
-            </Link>
+            {/* Company settings live in Settings (the account header), not in the middle of the home. */}
           </div>
           {canCreate && addOpen && account.onCompanyCreated && (
             <div id={addFormId} className="mt-4" data-testid="add-company-form">

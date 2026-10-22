@@ -404,6 +404,27 @@ async function adjustmentsProof({ U, A }, kit) {
       return r.outcome === outcome && (await count("SELECT count(*) n FROM public.close_review_adjustments")) === n ? true : r;
     });
   }
+  await check("an out-of-balance source stays BLOCKED despite a balanced draft journal: the real engine blocks it, a balanced proposal for that period is refused (no_authority), nothing is recorded, nothing becomes authoritative", async () => {
+    const ptb = (await loadFunctionTree(REPO, "process-trial-balance")).handler;
+    const y = 2090;
+    const text = CSV_TB.replace("\n6000,", "\n6050,Invented unexplained,120.00,\n6000,");
+    const pid = (await one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,'TZS',$5,$2) RETURNING id",
+      [A, `${y}-12-31`, `FY${y}`, U.owner, `${y}-01-01`])).id;
+    const filePath = `${U.owner}/${uuid()}.csv`;
+    const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
+      VALUES ('tb.csv',$1,$2,'processing',$3,$4,$5,$6) RETURNING id`, [filePath, text.length, A, y, pid, U.owner])).id;
+    shim.storage.set(`trial-balance-files/${filePath}`, new TextEncoder().encode(text));
+    const r = await call(ptb, pool, mintTestJwt(U.owner), { uploadId: up, clientRequestId: uuid() });
+    const cert = await one("SELECT id, is_blocking FROM public.tb_certifications WHERE upload_id=$1 ORDER BY sequence_no DESC LIMIT 1", [up]);
+    const imbalance = await count("SELECT count(*) n FROM public.tb_certification_findings WHERE certification_id=$1 AND finding->>'code' = 'TRIAL_BALANCE_IMBALANCE'", [cert?.id]);
+    const n = await count("SELECT count(*) n FROM public.close_review_adjustments");
+    // A balanced journal for the whole difference: it would make the adjusted totals balance, and it is still refused.
+    const p = await asUser(U.preparer, "SELECT public.close_review_propose_adjustment($1,$2,$3,$4,$5::jsonb,$6::uuid[],$7,$8) r",
+      [A, y, "Clear the difference", null, JSON.stringify([L("2000", 12000, 0), L("6000", 0, 12000)]), [], uuid(), null]).then((x) => x.r);
+    const auth = await one("SELECT id FROM public.get_authoritative_certification($1,$2)", [A, y]);
+    return r.http === 200 && cert?.is_blocking === true && imbalance === 1 && p.outcome === "no_authority" && (await count("SELECT count(*) n FROM public.close_review_adjustments")) === n && !auth
+      ? true : { http: r.http, cert, imbalance, p, auth };
+  });
   await check("a member without prepare_close cannot propose; a finding that is not current is refused", async () => {
     const a = await propose(U.viewer, [L("6000", 1, 0), L("2000", 0, 1)]);
     const b = await propose(U.preparer, [L("6000", 1, 0), L("2000", 0, 1)], { findings: [uuid()] });

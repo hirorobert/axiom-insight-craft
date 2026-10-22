@@ -21,6 +21,12 @@
 //   first upload the second account's first visit: drop zone → private draft → confirmation card (entity, 'Year ended
 //               30 June 2026', TZS) → entity, dated period and file saved through the existing authorities → the
 //               server's check on the same page → its result page (Phase 2 P2-3)
+//   tb workflow a title naming the entity differently and a cash-in-transit balance are decided through the findings list
+//               (same entity with confirmation and reason; an explanation with evidence), the evaluation invalidated at once,
+//               re-checked and ACCEPTED citing both decisions; a rename removes authority at once; an out-of-balance year
+//               uploaded on /upload is investigated (leads, never a plug); the engagements list (status, count, search,
+//               filter) is the server's; a saved upload is removed only on confirmation; another entity's file is blocked
+//               with its recovery
 //   widths      every page checked at 1280 px and 375 px for horizontal overflow, cut-off controls and unlabeled fields
 //
 //   node scripts/e2e/localStackJourney.mjs <evidence-dir>       (after `supabase start`; reads `supabase status -o json`)
@@ -94,7 +100,7 @@ const APP = "http://127.0.0.1:4173";
 // ── Accounts: four real users with generated test passwords; plans granted the way an operator records them ───────────
 const run = Date.now().toString(36);
 const mk = (who) => ({ email: `${who}.${run}@e2e-local.test`, password: `E2e!${crypto.randomBytes(12).toString("base64url")}` });
-const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb"), noPlan: mk("noplan"), ownerC: mk("ownerc") };
+const U = { owner: mk("owner"), preparer: mk("preparer"), partner: mk("partner"), ownerB: mk("ownerb"), noPlan: mk("noplan"), ownerC: mk("ownerc"), ownerT: mk("ownert") };
 for (const u of Object.values(U)) {
   const { data, error } = await admin.auth.admin.createUser({ email: u.email, password: u.password, email_confirm: true });
   if (error) throw new Error(`creating a test user failed: ${error.message}`);
@@ -112,6 +118,7 @@ async function grantPlan(userId) {
 await grantPlan(U.owner.id);
 await grantPlan(U.ownerB.id);
 await grantPlan(U.ownerC.id);
+await grantPlan(U.ownerT.id);
 const asUser = async (u) => {
   const c = createClient(apiUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { error } = await c.auth.signInWithPassword({ email: u.email, password: u.password });
@@ -211,6 +218,14 @@ const tbLabelledTzs = writeFile("mlima-invented-tb-labelled-tzs.csv", relabel("D
 const tbLabelledUsd = writeFile("mlima-invented-tb-labelled-usd.csv", relabel("Debit USD", "Credit USD"));
 const tbMixed = writeFile("mlima-invented-tb-mixed-labels.csv", relabel("Debit TZS", "Credit USD"));
 const tbUnbalanced = writeFile("mlima-invented-tb-unbalanced.csv", "Account code,Account name,Debit,Credit\n10457,Invented bank,1000,\n30111,Invented capital,,900\n");
+// The Trial Balance workflow (invented): the balanced trial balance whose title names the entity differently and which
+// carries a cash-in-transit balance (with its counterpart, so it still balances); the same without a title but with one
+// unmatched amount (out of balance by 120.00); and one whose title names another entity.
+const withRows = (extra, title = null) => (title ? `${title}\n\n` : "") + tbCsv(CURRENT) + extra;
+const tbKilimo = writeFile("kilimo-invented-tb-fy2026.csv", withRows("10990,Cash in transit,500.00,\n20990,Invented accrued charges,,500.00\n", "Kilimo Invented Trading Co"));
+const tbKilimoImbalanced = writeFile("kilimo-invented-tb-fy2025.csv", withRows("11990,Invented deposits,120.00,\n"));
+const tbOtherEntity = writeFile("kilimo-invented-tb-fy2027.csv", withRows("", "Pwani Invented Other Enterprises Ltd"));
+const tbKilimoReplacement = writeFile("kilimo-invented-tb-fy2026-corrected.csv", withRows("10990,Cash in transit,650.00,\n20990,Invented accrued charges,,650.00\n", "Kilimo Invented Trading Co"));
 const evidenceFiles = Object.fromEntries(EVIDENCE_SLOTS.map(([slot, y, k]) => [slot, writeFile(`${y}-${k.toLowerCase()}.csv`, EVIDENCE[y][k])]));
 
 let A = null;      // company id
@@ -979,6 +994,8 @@ async function main() {
     try {
       await page.click('[data-testid="currency-correction-start"]');
       await page.waitForSelector('[data-testid="currency-correction-reason"]', { timeout: 10000 });
+      // The reason is picked explicitly (none is pre-selected); "Other" with the person's own words.
+      await page.click('[data-testid="currency-correction-preset-other"]');
       await page.fill('[data-testid="currency-correction-reason"]', "The invented ledger is kept in TZS; USD was chosen by mistake.");
       await sleep(200);
       await page.evaluate(() => { const b = document.querySelector('[data-testid="currency-correction-confirm"]'); b.click(); b.click(); b.click(); });
@@ -1032,6 +1049,319 @@ async function main() {
     const anyway = await page.evaluate(() => !!document.querySelector('[data-testid="replace-currency-anyway"]'));
     await widths("31-currency-blocked-accepted");
     return certs.some((c) => c.is_blocking === false) && /labelled USD/.test(t) && /already accepted in TZS/.test(t) && !anyway ? true : { certs, t, anyway };
+  });
+
+  startGroup("Trial Balance workflow: decisions, investigation, portfolio, focused upload (invented data)");
+  await signOut(); await signIn(U.ownerT);
+  const ownerTApi = await asUser(U.ownerT);
+  let K = null;
+  const tText = (id) => page.evaluate((i) => document.querySelector(`[data-testid="${i}"]`)?.textContent ?? null, id);
+  const kUpload = async (year) => ((await admin.from("trial_balance_uploads").select("id, status, processing_attempt").eq("company_id", K).eq("period_year", year)
+    .order("uploaded_at", { ascending: false }).limit(1)).data ?? [])[0] ?? null;
+  const certCount = async (uploadId) => ((await admin.from("tb_certifications").select("id").eq("upload_id", uploadId)).data ?? []).length;
+  /** Waits until the upload has one more certification than `before` and is no longer being checked. */
+  const settledAfter = async (year, before, label) => {
+    for (let i = 0; i < 120; i++) {
+      const u = await kUpload(year);
+      if (u && !["pending", "processing", "queued", "validating"].includes(u.status) && (await certCount(u.id)) > before) return u;
+      await sleep(1500);
+    }
+    throw new Error(`${label}: the new check did not finish`);
+  };
+  const authoritativeK = async (year) => { const { data } = await ownerTApi.rpc("get_authoritative_certification", { p_company_id: K, p_period_year: year }); return (Array.isArray(data) ? data[0] : data)?.id ?? null; };
+  const reviewK = (year) => `/workspace/${K}/${year}/trial-balance/review`;
+  const recheckK = async (uploadId) => {
+    const op = uuid();
+    const { data: src } = await ownerTApi.from("trial_balance_uploads").select("source_file_hash").eq("id", uploadId).single();
+    const accepted = await rpc(ownerTApi, "tbu_request_reprocess", { p_upload_id: uploadId, p_operation_id: op, p_expected_source_hash: src?.source_file_hash ?? null });
+    if (accepted?.outcome !== "accepted" && accepted?.outcome !== "replayed") throw new Error(`re-check refused: ${JSON.stringify(accepted)}`);
+    const { error } = await ownerTApi.functions.invoke("process-trial-balance", { body: { uploadId, clientRequestId: op } });
+    if (error) throw new Error(`process-trial-balance: ${error.message}`);
+  };
+  const decisionCount = async (uploadId, code) => ((await admin.from("tb_finding_decisions").select("id").eq("upload_id", uploadId).eq("code", code)).data ?? []).length;
+  /** Records one decision through the control and waits for it in the database (the "Recorded" note is transient). */
+  const decide = async (uploadId, code, steps) => {
+    const n0 = await decisionCount(uploadId, code);
+    await page.click(`[data-testid="decision-open-${code}"]`);
+    await page.waitForSelector(`[data-testid="decision-form-${code}"]`, { timeout: 10000 });
+    await steps();
+    await page.click('[data-testid="decision-record"]');
+    for (let i = 0; i < 80; i++) {
+      if ((await decisionCount(uploadId, code)) > n0) return;
+      const refused = await tText("decision-error");
+      if (refused) throw new Error(`the decision was refused: ${refused}`);
+      await sleep(750);
+    }
+    throw new Error(`${code}: the decision was not recorded`);
+  };
+  const citedCodes = async (certId) => (certId ? ((await admin.from("tb_certification_findings").select("finding").eq("certification_id", certId)).data ?? []).map((r) => r.finding) : [])
+    .filter((f) => f.decision).map((f) => f.code).sort().join();
+  const openSettings = async () => {
+    await page.evaluate(() => { const d = document.querySelector('[data-testid="engagement-settings"]'); if (d && !d.open) d.open = true; });
+    await sleep(200);
+  };
+  const fillFirstCard = async (entity, ends) => {
+    if (entity.existing) {
+      await page.click('[data-testid="confirm-entity-existing"]'); await sleep(200);
+      await setByLabel("Existing entity", entity.existing);
+    } else await setByLabel("Entity name", entity.name);
+    await page.click('[data-testid="confirm-period-year"]'); await sleep(200);
+    await setByLabel("Ends on", ends);
+    const ok = await chooseCurrency("Trial balance currency", "TZS");
+    await sleep(400);
+    return ok;
+  };
+  const startFirstCheck = async () => {
+    await page.click('[data-testid="first-upload-start"]');
+    await page.waitFor(() => /\/trial-balance\/review\?upload=/.test(location.pathname + location.search) || !!document.querySelector('[data-testid="first-upload-failure"]'), [], { timeout: 180000, label: "the result or a refusal" });
+    return tText("first-upload-failure");
+  };
+
+  await check("a file whose title names the entity differently and carries a cash-in-transit balance: the entity decision is REQUIRED, the clearing balance is an optional review note; each finding listed once; nothing authoritative; the engagement and its settings are stated in the rail, not in the task", async () => {
+    await go("/dashboard", "");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await page.setFiles('[data-testid="first-upload-input"]', [tbKilimo]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    if (!(await fillFirstCard({ name: "Kilimo Invented Holdings Ltd" }, "2026-06-30"))) return "the currency could not be chosen";
+    const failure = await startFirstCheck();
+    if (failure) return { failure };
+    K = ((await ownerTApi.from("companies").select("id")).data ?? [])[0]?.id ?? null;
+    // Reporting is enabled for this company, as the financial-statements group does for its own: the handoff is offered.
+    { const { error } = await admin.rpc("fs_set_company_rollout", { p_company_id: K, p_enabled: true, p_reason: "Local end-to-end journey", p_operator_label: "e2e" }); if (error) return { rollout: error.message }; }
+    await page.waitForSelector('[data-testid="decision-open-ENTITY_NAME_DIFFERS"]', { timeout: 120000 });
+    const entity = await page.evaluate(() => document.querySelectorAll('[data-code="ENTITY_NAME_DIFFERS"]').length);
+    const clearing = await page.evaluate(() => document.querySelectorAll('[data-code="CLEARING_ACCOUNT_BALANCE"]').length);
+    const reqEntity = await tText("decision-requirement-ENTITY_NAME_DIFFERS");
+    const reqClearing = await tText("decision-requirement-CLEARING_ACCOUNT_BALANCE");
+    const rail = { entity: await tText("engagement-context-entity"), period: await tText("engagement-context-period"), settings: await page.evaluate(() => !!document.querySelector('[data-testid="engagement-settings"]')) };
+    const settingsInTask = await page.evaluate(() => !!document.querySelector('main a[href="/settings"]'));
+    await widths("30-tb-findings-required-vs-review");
+    return K && entity === 1 && clearing === 1 && /^Needed before/.test(reqEntity ?? "") && /^Optional/.test(reqClearing ?? "")
+      && rail.entity === "Kilimo Invented Holdings Ltd" && /2026/.test(rail.period ?? "") && rail.settings && !settingsInTask && (await authoritativeK(2026)) === null
+      ? true : { K, entity, clearing, reqEntity, reqClearing, rail, settingsInTask };
+  });
+  await check("same entity: nothing pre-selected; recorded only with its confirmation and a reason; the evaluation is invalidated at once and the file is checked again", async () => {
+    const up = await kUpload(2026); const before = await certCount(up.id);
+    const lastCert = ((await admin.from("tb_certifications").select("id").eq("upload_id", up.id).order("sequence_no", { ascending: false }).limit(1)).data ?? [])[0]?.id;
+    let preselected = null, disabledBefore = null;
+    await decide(up.id, "ENTITY_NAME_DIFFERS", async () => {
+      preselected = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="decision-choice-"]')].some((r) => r.checked));
+      disabledBefore = await page.evaluate(() => document.querySelector('[data-testid="decision-record"]').disabled);
+      await page.click('[data-testid="decision-choice-same_entity"]');
+      await page.click('[data-testid="decision-confirm"]');
+      await setByLabel("Reason", "The trading name of the same company (engagement letter)");
+      await widths("31-tb-decision-entity");
+    });
+    const inv = (await admin.from("tb_certification_invalidations").select("reason").eq("certification_id", lastCert)).data ?? [];
+    const d = (await admin.from("tb_finding_decisions").select("code, action, revision").eq("upload_id", up.id)).data ?? [];
+    await settledAfter(2026, before, "after the entity decision");
+    return preselected === false && disabledBefore === true && inv[0]?.reason === "finding_decision"
+      && d.length === 1 && d[0].action === "same_entity" ? true : { preselected, disabledBefore, inv, d };
+  });
+  await check("accounts classified: the re-check is ACCEPTED with the cash-in-transit balance left as a review note (no explanation needed); the statements handoff is offered", async () => {
+    const up = await kUpload(2026);
+    const decisions = [...reviewDecisions(),
+      { account_code: "10990", account_name: "Cash in transit", proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: "balance_sheet", classification: "current_assets", normal_balance: "debit" },
+      { account_code: "20990", account_name: "Invented accrued charges", proposal_type: "NONE", decision_action: "USER_MANUAL_CLASSIFICATION", statement: "balance_sheet", classification: "current_liabilities", normal_balance: "credit" }];
+    await rpc(ownerTApi, "resolve_account_review_batch", { p_company_id: K, p_upload_id: up.id, p_client_request_id: uuid(), p_decisions: decisions });
+    const before = await certCount(up.id);
+    await recheckK(up.id);
+    await settledAfter(2026, before, "after classification");
+    const cert = await authoritativeK(2026);
+    await go(reviewK(2026), "ready for statement preparation", 120000);
+    await page.waitForSelector('[data-testid="decision-open-CLEARING_ACCOUNT_BALANCE"]', { timeout: 30000 });
+    const reqClearing = await tText("decision-requirement-CLEARING_ACCOUNT_BALANCE");
+    const handoff = await page.evaluate(() => document.querySelector('[data-testid="statements-handoff"] a')?.getAttribute("href") ?? null);
+    await widths("32-tb-accepted-review-note");
+    return cert && (await citedCodes(cert)) === "ENTITY_NAME_DIFFERS" && /^Optional/.test(reqClearing ?? "") && handoff === `/workspace/${K}/2026/statements`
+      ? true : { cert, cited: await citedCodes(cert), reqClearing, handoff };
+  });
+  await check("the optional explanation: evidence reference labelled as a recorded reference, not a matched bank transaction; Reconcile offered; the re-check stays accepted and cites both decisions", async () => {
+    const up = await kUpload(2026); const before = await certCount(up.id);
+    let reconcileLink = null, hint = null;
+    await decide(up.id, "CLEARING_ACCOUNT_BALANCE", async () => {
+      await page.click('[data-testid="decision-nature-in_transit"]');
+      await setByLabel("Explanation", "Deposit of 30 June banked after hours; cleared on 1 July");
+      await page.click('[data-testid="decision-evidence-reconciliation"]');
+      reconcileLink = await page.evaluate(() => !![...document.querySelectorAll('a')].find((a) => /\/reconcile$/.test(a.getAttribute("href") ?? "")));
+      await setByLabel("Reference", "June bank reconciliation, deposit line 4");
+      hint = await tText("decision-reference-hint");
+      await setByLabel("Reason", "Timing of the period-end deposit");
+      await widths("33-tb-clearing-explanation");
+    });
+    await settledAfter(2026, before, "after the clearing explanation");
+    const cert = await authoritativeK(2026);
+    await go(reviewK(2026), "ready for statement preparation", 120000);
+    await page.waitForSelector('[data-testid="decision-current-CLEARING_ACCOUNT_BALANCE"]', { timeout: 30000 });
+    const decided = await tText("decision-current-CLEARING_ACCOUNT_BALANCE");
+    return reconcileLink === true && /not matched to a bank transaction/.test(hint ?? "") && /not a matched bank transaction/.test(decided ?? "")
+      && cert && (await citedCodes(cert)) === "CLEARING_ACCOUNT_BALANCE,ENTITY_NAME_DIFFERS" ? true : { reconcileLink, hint, decided, cert, cited: await citedCodes(cert) };
+  });
+  await check("engagement settings in the rail: requiring an explanation for clearing balances needs a reason, removes the result's authority at once, and the re-check is accepted on the recorded explanation", async () => {
+    await openSettings();
+    const before = await tText("clearing-policy-mode");
+    await page.click('[data-testid="clearing-policy-change"]');
+    await page.waitForSelector('[data-testid="clearing-policy-reason"]', { timeout: 10000 });
+    const disabled = await page.evaluate(() => document.querySelector('[data-testid="clearing-policy-save"]').disabled);
+    await setByLabel("Reason", "Engagement letter requires evidence for clearing balances");
+    await page.click('[data-testid="clearing-policy-save"]');
+    await page.waitFor(() => /explanation with evidence is required/.test(document.querySelector('[data-testid="clearing-policy-mode"]')?.textContent ?? ""), [], { timeout: 30000, label: "the policy saved" });
+    await widths("34-engagement-settings-rail");
+    const lost = await authoritativeK(2026);
+    const up = await kUpload(2026); const n = await certCount(up.id);
+    await recheckK(up.id);
+    await settledAfter(2026, n, "after the policy change");
+    const restored = await authoritativeK(2026);
+    return /Review note/.test(before ?? "") && disabled === true && lost === null && restored && (await citedCodes(restored)) === "CLEARING_ACCOUNT_BALANCE,ENTITY_NAME_DIFFERS"
+      ? true : { before, disabled, lost, restored };
+  });
+  await check("renaming the entity removes the result's authority at once, and the re-check asks for the entity decision AGAIN (a decision about the old name is not carried); deciding again restores it", async () => {
+    const { error } = await ownerTApi.from("companies").update({ name: "Kilimo Invented Holdings Limited" }).eq("id", K);
+    if (error) return { error: error.message };
+    const after = await authoritativeK(2026);
+    const up = await kUpload(2026); let n = await certCount(up.id);
+    await recheckK(up.id);
+    await settledAfter(2026, n, "after the rename");
+    const pending = await authoritativeK(2026);
+    await go(reviewK(2026), "");
+    await page.waitForSelector('[data-testid="decision-open-ENTITY_NAME_DIFFERS"]', { timeout: 60000 });
+    const req = await tText("decision-requirement-ENTITY_NAME_DIFFERS");
+    n = await certCount(up.id);
+    await decide(up.id, "ENTITY_NAME_DIFFERS", async () => {
+      await page.click('[data-testid="decision-choice-same_entity"]');
+      await page.click('[data-testid="decision-confirm"]');
+      await setByLabel("Reason", "Same company after the change of name");
+    });
+    await settledAfter(2026, n, "after deciding again");
+    const restored = await authoritativeK(2026);
+    return after === null && pending === null && /^Needed before/.test(req ?? "") && restored ? true : { after, pending, req, restored };
+  });
+  await check("a corrected replacement file: no decision is carried to it (entity and — under the policy — the clearing balance are required again); the earlier upload and its decisions stay in the upload history", async () => {
+    const prior = await kUpload(2026);
+    const priorDecisions = await decisionCount(prior.id, "ENTITY_NAME_DIFFERS");
+    await go(reviewK(2026), "");
+    await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 }); await sleep(800);
+    await page.setFiles('[data-testid="trial-balance-replace-input"]', [tbKilimoReplacement]);
+    let next = null;
+    for (let i = 0; i < 120 && !next; i++) { const u = await kUpload(2026); if (u && u.id !== prior.id) next = u; else await sleep(1000); }
+    if (!next) return "the replacement was not created";
+    await settledAfter(2026, 0, "the replacement's first check");
+    await go(reviewK(2026), "");
+    await page.waitForSelector('[data-testid="decision-open-ENTITY_NAME_DIFFERS"]', { timeout: 120000 });
+    const reqE = await tText("decision-requirement-ENTITY_NAME_DIFFERS"), reqC = await tText("decision-requirement-CLEARING_ACCOUNT_BALANCE");
+    const carried = (await decisionCount(next.id, "ENTITY_NAME_DIFFERS")) + (await decisionCount(next.id, "CLEARING_ACCOUNT_BALANCE"));
+    const history = await tText("upload-history");
+    await widths("35-tb-replacement-history");
+    const kept = await decisionCount(prior.id, "ENTITY_NAME_DIFFERS");
+    // Decide both so the period is accepted again (the engagements list below expects it ready).
+    let n = await certCount(next.id);
+    await decide(next.id, "ENTITY_NAME_DIFFERS", async () => {
+      await page.click('[data-testid="decision-choice-same_entity"]');
+      await page.click('[data-testid="decision-confirm"]');
+      await setByLabel("Reason", "Same company; corrected export");
+    });
+    await settledAfter(2026, n, "after the replacement's entity decision");
+    await go(reviewK(2026), "");
+    await page.waitForSelector('[data-testid="decision-open-CLEARING_ACCOUNT_BALANCE"]', { timeout: 60000 });
+    n = await certCount(next.id);
+    await decide(next.id, "CLEARING_ACCOUNT_BALANCE", async () => {
+      await page.click('[data-testid="decision-nature-in_transit"]');
+      await setByLabel("Explanation", "Deposit of 30 June banked after hours; cleared on 1 July");
+      await page.click('[data-testid="decision-evidence-document"]');
+      await setByLabel("Reference", "July bank statement, line 2");
+      await setByLabel("Reason", "Timing of the period-end deposit");
+    });
+    await settledAfter(2026, n, "after the replacement's clearing explanation");
+    return /^Needed before/.test(reqE ?? "") && /^Needed before/.test(reqC ?? "") && carried === 0 && /Upload history\s*·\s*2/.test(history ?? "")
+      && kept === priorDecisions && priorDecisions >= 1 && (await authoritativeK(2026)) ? true : { reqE, reqC, carried, history, kept, priorDecisions };
+  });
+  await check("the financial-statements handoff: from the accepted trial balance, 'Continue to financial statements' opens this engagement's statements", async () => {
+    await go(reviewK(2026), "ready for statement preparation", 120000);
+    await page.click('[data-testid="statements-handoff"] a');
+    await page.waitFor((k) => location.pathname === `/workspace/${k}/2026/statements`, [K], { timeout: 30000, label: "the statements page" });
+    await sleep(1500);
+    const heading = await page.evaluate(() => document.querySelector("main h1, main h2")?.textContent ?? null);
+    await widths("36-fs-handoff");
+    return heading ? true : { heading };
+  });
+  await check("the focused upload page (/upload): an out-of-balance file for another year is blocked, and 'Look for likely causes' names the row equal to the difference, the possible cause and every row read — leads, never a plug", async () => {
+    // (With one engagement the home opens it directly; the link from the engagements list is checked once there are two.)
+    await go("/upload", "");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await widths("38-upload-page");
+    await page.setFiles('[data-testid="first-upload-input"]', [tbKilimoImbalanced]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    if (!(await fillFirstCard({ existing: K }, "2025-06-30"))) return "the currency could not be chosen";
+    const failure = await startFirstCheck();
+    if (failure) return { failure };
+    await page.waitForSelector('[data-testid="investigation-run"]', { timeout: 120000 });
+    await page.click('[data-testid="investigation-run"]');
+    await page.waitForSelector('[data-testid="investigation-leads"], [data-testid="investigation-no-leads"]', { timeout: 120000 });
+    const leads = await tText("investigation-leads");
+    const statement = await tText("investigation-statement");
+    const cause = await page.evaluate(() => document.querySelector('[data-testid="investigation-cause"]')?.dataset.cause ?? null);
+    const totals = await tText("investigation-totals");
+    await page.waitForSelector('[data-testid="investigation-rows-count"]', { timeout: 30000 });
+    const deposit = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="investigation-row-"][data-included="true"]')].find((r) => /11990/.test(r.textContent ?? ""))?.textContent ?? null);
+    await page.click('[data-testid="investigation-filter-excluded"]');
+    await page.waitFor(() => [...document.querySelectorAll('[data-testid^="investigation-row-"][data-included]')].every((r) => r.dataset.included === "false"), [], { timeout: 30000, label: "excluded rows only" });
+    await widths("37-tb-investigation");
+    const inv = (await admin.from("tb_investigations").select("status").eq("company_id", K)).data ?? [];
+    return /120\.00/.test(leads ?? "") && /not conclusions/.test(statement ?? "") && !/plug|suspense entry/i.test(`${leads}${statement}`)
+      && cause === "no_printed_totals" && /Rows read as accounts/.test(totals ?? "") && /120\.00/.test(deposit ?? "")
+      && inv.length === 1 && inv[0].status === "completed" ? true : { leads, statement, cause, totals, deposit, inv };
+  });
+  await check("the engagements list: both periods with their status in words, exact count, a literal search and a status filter, all from the server; uploading is linked to /upload", async () => {
+    await go("/dashboard", "");
+    await page.waitForSelector('[data-testid="portfolio-count"]', { timeout: 30000 });
+    const uploadLink = await page.evaluate(() => document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href") ?? null);
+    await page.waitFor(() => /of 2 engagement/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "two engagements" });
+    const statuses = await page.evaluate(() => [...document.querySelectorAll('[data-testid="portfolio-table"] [data-testid="portfolio-status"]')].map((e) => e.dataset.status).sort());
+    await setByLabel("Status", "blocked");
+    await page.waitFor(() => /of 1 engagement/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "one blocked" });
+    await setByLabel("Status", "");
+    await setByLabel("Search entity or identifier", "Nothing_like_this%");
+    await page.waitFor(() => /No engagements match/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "no match" });
+    await widths("39-portfolio");
+    return JSON.stringify(statuses) === JSON.stringify(["blocked", "ready"]) && uploadLink === "/upload" ? true : { statuses, uploadLink };
+  });
+  await check("saved uploads: a file stored but not started is listed on /upload and removed only after an explicit confirmation", async () => {
+    await go("/upload", "");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await page.setFiles('[data-testid="first-upload-input"]', [tbOtherEntity]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    await go("/upload", "");
+    await page.waitForSelector('[data-testid="saved-drafts"]', { timeout: 30000 });
+    const rowId = await page.evaluate(() => [...document.querySelectorAll('[data-testid^="saved-draft-"]')].map((e) => e.dataset.testid).find((t) => /^saved-draft-[0-9a-f-]{36}$/.test(t))?.replace("saved-draft-", "") ?? null);
+    if (!rowId) return "no saved upload listed";
+    await page.click(`[data-testid="saved-draft-remove-${rowId}"]`);
+    const stillThere = (await ownerTApi.rpc("list_trial_balance_drafts")).data?.some((d) => d.draft_id === rowId);
+    await page.click(`[data-testid="saved-draft-confirm-${rowId}"]`);
+    await page.waitFor((rid) => !document.querySelector(`[data-testid="saved-draft-${rid}"]`), [rowId], { timeout: 30000, label: "the row removed" });
+    const gone = !((await ownerTApi.rpc("list_trial_balance_drafts")).data ?? []).some((d) => d.draft_id === rowId);
+    return stillThere === true && gone ? true : { stillThere, gone };
+  });
+  await check("a file recorded as another entity's is BLOCKED with its recovery (remove it here; find the right engagement), never accepted", async () => {
+    await go("/upload", "");
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    await page.setFiles('[data-testid="first-upload-input"]', [tbOtherEntity]);
+    await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
+    if (!(await fillFirstCard({ existing: K }, "2027-06-30"))) return "the currency could not be chosen";
+    const failure = await startFirstCheck();
+    if (failure) return { failure };
+    await page.waitForSelector('[data-testid="decision-open-ENTITY_NAME_DIFFERS"]', { timeout: 120000 });
+    const up = await kUpload(2027); const before = await certCount(up.id);
+    await decide(up.id, "ENTITY_NAME_DIFFERS", async () => {
+      await page.click('[data-testid="decision-choice-different_entity"]');
+      await page.click('[data-testid="decision-confirm"]');
+      await setByLabel("Reason", "This file is the sister company's trial balance");
+    });
+    await settledAfter(2027, before, "after the wrong-entity decision");
+    await go(reviewK(2027), "");
+    await page.waitForSelector('[data-testid="wrong-entity-recovery"]', { timeout: 60000 });
+    const recovery = await tText("wrong-entity-recovery");
+    await widths("40-tb-wrong-entity");
+    return /right engagement/.test(recovery ?? "") && (await authoritativeK(2027)) === null && (await kUpload(2027)).status === "blocked" ? true : { recovery };
   });
 
   startGroup("Every request stayed on loopback");

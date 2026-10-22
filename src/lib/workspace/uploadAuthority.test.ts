@@ -113,7 +113,9 @@ describe("Prepare Data wiring", () => {
     expect(at).toBeGreaterThan(-1);
     const block = prep.slice(at, at + 900);
     expect(block).toMatch(/onAction=\{\(\) => void handleRetry\(\)\}/);
-    expect(block).toMatch(/canAct=\{mayRequestReprocess\(upload, capabilityState, commercialState\) && verdict\.primaryAction\?\.kind !== "retry"\}/);
+    // One action per state: the notice only explains when the card already offers the same reprocess (retry or re-check).
+    expect(block).toMatch(/canAct=\{mayRequestReprocess\(upload, capabilityState, commercialState\) && verdict\.primaryAction\?\.kind !== "retry" && verdict\.primaryAction\?\.kind !== "recheck"\}/);
+    expect(prep).toMatch(/else if \(kind === "retry" \|\| kind === "recheck"\) void handleRetry\(\);/);
     const retry = prep.slice(prep.indexOf("const handleRetry"), prep.indexOf("const onPrimary"));
     expect(retry).toMatch(/requestReprocess\(supabase as unknown as ReprocessClient, upload\.id/);
   });

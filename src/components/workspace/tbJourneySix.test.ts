@@ -59,7 +59,10 @@ describe("1. first upload → that exact upload's result", () => {
     const dash = src("src/pages/Dashboard.tsx");
     expect(dash).toMatch(/onOpenTrialBalance: \(companyId, year, uploadId\) => navigate\(firstUploadResultRoute\(companyId, year, uploadId\)\),/);
     expect(dash).not.toMatch(/onOpenTrialBalance:[^\n]*replace: true/);
-    expect(dash).toMatch(/navigate\(engagementNextAction\(entry\.workspaceState\)\.href\)/);
+    // Resuming opens the engagement itself (its overview states the one next step), as the single-engagement route does;
+    // each engagements-list row opens its own next step (portfolioDestination).
+    expect(dash).toMatch(/navigate\(`\/workspace\/\$\{entry\.companyId\}\/\$\{entry\.periodYear\}`\)/);
+    expect(src("src/components/workspace/EngagementPortfolio.tsx")).toMatch(/<Link to=\{portfolioDestination\(r\)\}/);
   });
 
   it("a check already running elsewhere is not a failure: the start reports it running, for that upload", async () => {

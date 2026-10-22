@@ -11,7 +11,7 @@
  * component state, owned by useWorkspaceData. A hub summary is a point-in-time read.
  */
 
-import { hasMilestoneRecord } from "./resultVersion";
+import { isCurrentCheckSet } from "./resultVersion";
 import { openFindingKind } from "./resultStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { deriveWorkspaceState } from "./deriveWorkspaceState";
@@ -75,6 +75,8 @@ export interface WorkspaceCompany {
 export interface WorkspaceSnapshot {
   company: WorkspaceCompany | null;
   uploads: WorkspaceUpload[];
+  /** The exact number of this period's uploads (the list holds at most the 50 most recent). */
+  uploadsTotal: number;
   upload: WorkspaceUpload | null;
   hesabuPassedAt: string | null;
   kingaSignedAt: string | null;
@@ -139,7 +141,7 @@ function toUploadSnapshot(
     certificationBlocker,
     trialBalanceTotals: readTrialBalanceTotals(upload.processing_result),
     recordedEquation: readRecordedEquation(upload.processing_result),
-    hasMilestoneRecord: hasMilestoneRecord(upload.processing_result),
+    hasMilestoneRecord: isCurrentCheckSet(upload.processing_result),
     openFinding: openFindingKind(upload.processing_result),
   };
 }
@@ -167,16 +169,24 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
             .single()
         ).data as WorkspaceCompany | null);
 
-  const uploads =
-    args.uploadsOverride ??
-    (((
-      await supabase
-        .from("trial_balance_uploads")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("uploaded_at", { ascending: false })
-        .limit(50)
-    ).data ?? []) as WorkspaceUpload[]);
+  // This period's uploads only (and legacy rows that record no period year), newest first, at most 50, with the exact
+  // count: the active upload is decided from THIS period's files, never from a company-wide window that a long history
+  // could have pushed the current file out of.
+  let uploadsTotal = args.uploadsOverride?.length ?? 0;
+  let uploads: WorkspaceUpload[];
+  if (args.uploadsOverride) {
+    uploads = args.uploadsOverride;
+  } else {
+    const res = await supabase
+      .from("trial_balance_uploads")
+      .select("*", { count: "exact" })
+      .eq("company_id", companyId)
+      .or(`period_year.eq.${Number(periodYear)},period_year.is.null`)
+      .order("uploaded_at", { ascending: false })
+      .limit(50);
+    uploads = (res.data ?? []) as WorkspaceUpload[];
+    uploadsTotal = typeof res.count === "number" ? res.count : uploads.length;
+  }
 
   const match: WorkspaceUpload | null = resolveActiveUpload<WorkspaceUpload>({
     uploads,
@@ -259,5 +269,5 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
 
   const workspaceState = deriveWorkspaceState(companyId, company?.name ?? "", periodYear, snapshot);
 
-  return { company, uploads, upload: match, hesabuPassedAt, kingaSignedAt, filingSubmittedAt, workspaceState };
+  return { company, uploads, uploadsTotal, upload: match, hesabuPassedAt, kingaSignedAt, filingSubmittedAt, workspaceState };
 }

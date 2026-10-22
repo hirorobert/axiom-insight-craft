@@ -41,6 +41,11 @@ export interface AccountNextActionInput {
   reviewGates: Readonly<Record<string, ReviewActionGate | undefined>>;
   companiesWithoutEngagement: readonly { id: string; name: string }[];
   sharedCount: number;
+  /**
+   * The EXACT totals (get_account_home) when the lists above are bounded samples. Every count-based decision uses these,
+   * never a sample's length; absent, the lists are complete and their lengths are the counts.
+   */
+  totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number };
 }
 
 export const hasCurrentPlan = (b: BillingSummary | null): boolean => b?.licenceStatus === "ACTIVE" || b?.licenceStatus === "GRACE";
@@ -67,7 +72,10 @@ export function deriveAccountNextAction(i: AccountNextActionInput): AccountNextA
   if (i.billing.error || !i.billing.summary) {
     return { kind: "retry", title: "We couldn’t confirm your plan", detail: "This is a connection problem, not a change to your account. Try again." };
   }
-  const ownWork = i.entries.length + i.unavailable.length + i.companiesWithoutEngagement.length;
+  const nEntries = i.totals?.entries ?? i.entries.length;
+  const nUnavailable = i.totals?.unavailable ?? i.unavailable.length;
+  const nCompanies = i.totals?.companiesWithoutEngagement ?? i.companiesWithoutEngagement.length;
+  const ownWork = nEntries + nUnavailable + nCompanies;
   if (!hasCurrentPlan(i.billing.summary)) {
     if (ownWork === 0 && i.sharedCount > 0) {
       return { kind: "open_shared", title: "Open a workspace shared with you", detail: "Access to a shared workspace comes from its owner’s plan. To start work of your own, choose a plan." };
@@ -78,26 +86,26 @@ export function deriveAccountNextAction(i: AccountNextActionInput): AccountNextA
       detail: ownWork > 0 ? NO_PLAN_KEEPS : "A plan sets how many companies you can add. Choose one, or ask us to activate a plan for you; you can then add your first company.",
     };
   }
-  if (i.entries.length === 1) {
+  if (nEntries === 1 && i.entries[0]) {
     const e = i.entries[0];
     return { kind: "resume", title: `Continue ${e.companyName} · FY${e.periodYear}`, detail: "Pick up where the work stopped.", engagementId: e.engagementId };
   }
-  if (i.entries.length > 1) return { kind: "choose_engagement", title: "Choose an engagement to continue", detail: "Each open engagement is listed below with its next step." };
+  if (nEntries >= 1) return { kind: "choose_engagement", title: "Choose an engagement to continue", detail: "Each open engagement is listed below with its next step." };
 
   const startable = i.unavailable.filter((u) => i.reviewGates[u.companyId]?.state === "allowed");
-  if (startable.length === 1) {
+  if (startable.length === 1 && nUnavailable === 1) {
     const u = startable[0];
     return { kind: "start_review", title: `Start Trial balance review for ${u.companyName} · ${u.periodYear}`, detail: "The earlier service is no longer offered. Its records are kept; the review uses the same period.", engagementId: u.engagementId };
   }
-  if (startable.length > 1) return { kind: "choose_engagement", title: "Choose a company to continue with Trial balance review", detail: "Each one is listed below." };
+  if (startable.length >= 1) return { kind: "choose_engagement", title: "Choose a company to continue with Trial balance review", detail: "Each one is listed below." };
 
-  if (i.companiesWithoutEngagement.length === 1) {
+  if (nCompanies === 1 && i.companiesWithoutEngagement[0]) {
     const c = i.companiesWithoutEngagement[0];
     return { kind: "start_service", title: `Start work for ${c.name}`, detail: "Choose the period and the service.", companyId: c.id };
   }
-  if (i.companiesWithoutEngagement.length > 1) return { kind: "choose_company", title: "Choose a company to start work", detail: "Your companies without an open engagement are listed below." };
+  if (nCompanies >= 1) return { kind: "choose_company", title: "Choose a company to start work", detail: "Your companies without an open engagement are listed below." };
 
-  if (i.unavailable.length > 0) {
+  if (nUnavailable > 0) {
     if (i.unavailable.some((u) => !i.reviewGates[u.companyId] || i.reviewGates[u.companyId]?.state === "checking")) return { kind: "checking", title: "Checking your access…" };
     return { kind: "ask_owner", title: "Ask the company’s owner to continue", detail: "Your access doesn’t include starting work for the companies listed below. Their records are kept." };
   }

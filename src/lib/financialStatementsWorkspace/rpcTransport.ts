@@ -17,6 +17,7 @@
 // single adapter — so the transport is testable against a fake or a disposable
 // PostgreSQL without any hosted project.
 
+import { withTrialBalanceRules } from "@/lib/reporting/trialBalanceRules";
 import { canonicalStringify, sha256Hex } from "@/lib/canonicalStatement/serialization";
 import type { CanonicalFinancialStatementReport, ReviewerDecision, RuleEvaluationRecord } from "@/lib/canonicalStatement/types";
 import type { EvidenceBatch, EvidenceDiagnostic } from "@/lib/financialEvidence/types";
@@ -352,7 +353,9 @@ export class FsRpcTransport {
   /** The server's own answer to "could this version be marked REVIEWED/FINAL?" — a preview; fs_set_publication_state re-checks it. */
   async reportReadiness(companyId: string, reportId: string, reportVersion: number): Promise<ReportReadiness> {
     const r = await this.call<{ ready?: boolean; blockers?: unknown[] } | null>("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion });
-    return { ready: r?.ready === true, blockers: (r?.blockers ?? []).map(String) };
+    // The trial balance in force must have been checked under the current rules (20261118100000); fails closed.
+    const rules = await this.call<unknown>("tb_signoff_rules_blocker", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion }).catch(() => null);
+    return withTrialBalanceRules({ ready: r?.ready === true, blockers: (r?.blockers ?? []).map(String) }, rules);
   }
 
   /** Reads one exact immutable version. A row that does not belong to `companyId` is treated as not found, whatever the server returned. */

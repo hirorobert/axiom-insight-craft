@@ -11,6 +11,7 @@
  *   · where the server refuses a correction, the record that prevents it and the route that still works — no control.
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { CURRENCY_REASON_PRESETS, composeCurrencyReason, currencyReasonText, type CurrencyReasonPreset } from "@/lib/workspace/currencyReasons";
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -49,6 +50,8 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [reason, setReason] = useState("");
+  // A reason is chosen explicitly (never pre-selected); "Other" needs the person's own words.
+  const [preset, setPreset] = useState<CurrencyReasonPreset | null>(null);
   const requestId = useRef<string | null>(null);
   const inFlight = useRef(false);
   // A re-check without a recorded id (the period was set to this currency some other way): one id for this panel.
@@ -87,8 +90,8 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
 
   const confirm = async (from: string, to: string) => {
     if (inFlight.current) return;
-    const trimmed = reason.trim();
-    if (trimmed.length < 3) return;
+    const trimmed = composeCurrencyReason(preset, reason, from, to);
+    if (trimmed === null) return;
     inFlight.current = true;
     requestId.current ??= crypto.randomUUID();
     onEngaged?.();
@@ -127,6 +130,7 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
 
   const shell = (children: ReactNode, tone: "info" | "alert" = "info") => (
     <div role={tone === "alert" ? "alert" : "region"} aria-label="Reporting currency" data-testid="currency-correction"
+      aria-live="polite" aria-busy={step.kind === "saving" || step.kind === "rechecking"}
       data-view={view.kind} data-step={step.kind} className="space-y-3 text-[13px] text-foreground">
       {children}
     </div>
@@ -180,16 +184,26 @@ export function PeriodCurrencyCorrection({ periodId, uploadId, processingResult,
           <li>The change is recorded with your name, the reason and the time.</li>
           <li>The trial balance is then checked again in {view.to}.</li>
         </ul>
-        <div className="space-y-1">
-          <label htmlFor={reasonId} className="block font-medium">Reason</label>
-          <textarea id={reasonId} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={saving}
+        <fieldset className="space-y-2" disabled={saving}>
+          <legend className="font-medium">Reason</legend>
+          <div className="flex flex-col gap-1.5" data-testid="currency-correction-presets">
+            {CURRENCY_REASON_PRESETS.map((p) => (
+              <label key={p} className="flex items-start gap-2">
+                <input type="radio" name={`${reasonId}-preset`} value={p} checked={preset === p} onChange={() => setPreset(p)}
+                  className="mt-0.5" data-testid={`currency-correction-preset-${p}`} />
+                <span>{currencyReasonText(p, view.from, view.to)}</span>
+              </label>
+            ))}
+          </div>
+          <label htmlFor={reasonId} className="block text-muted-foreground">{preset === "other" ? "Your reason (required)" : "Details (optional)"}</label>
+          <textarea id={reasonId} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={400} rows={2}
             aria-describedby={reasonHelpId} data-testid="currency-correction-reason"
             className="w-full rounded-none border border-input bg-background px-3 py-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-          <p id={reasonHelpId} className="text-muted-foreground">For example: “The ledger is kept in {view.to}; {view.from} was chosen by mistake.”</p>
-        </div>
+          <p id={reasonHelpId} className="text-muted-foreground">The chosen reason and any details are recorded with the change.</p>
+        </fieldset>
         {step.kind === "error" && <p role="alert" className="flex items-start gap-2" data-testid="currency-correction-error"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />{step.message}</p>}
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" className="h-10 rounded-none" disabled={saving || reason.trim().length < 3}
+          <Button type="button" className="h-10 rounded-none" disabled={saving || composeCurrencyReason(preset, reason, view.from, view.to) === null}
             onClick={() => void confirm(view.from, view.to)} data-testid="currency-correction-confirm">
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}Change to {view.to}</Button>
           <Button type="button" variant="outline" className="h-10 rounded-none" disabled={saving}

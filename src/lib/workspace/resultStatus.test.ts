@@ -18,7 +18,7 @@ const MILESTONES = ["read", "columns", "rows", "amounts", "balance", "classifica
 const CONFIRM = { code: "ENTITY_NAME_DIFFERS", severity: "review", rows: [1], message: "This file names Mfano Traders Ltd; this workspace is Kilele Ltd. Same entity? (From your file: “Mfano Traders Ltd”, cell A1.)" };
 const REVIEW = { code: "CLEARING_ACCOUNT_BALANCE", severity: "review", rows: [7], message: "Clearing, suspense or in-transit account on row 7 has a balance. It needs reconciliation evidence." };
 const BLOCK = { code: "TRIAL_BALANCE_IMBALANCE", severity: "blocking", message: "Debits (10.00) do not equal credits (9.00); the difference is 1.00." };
-const result = (issues: unknown[]) => ({ ingestion: { milestones: MILESTONES, issues }, validation_report: { tb_balance_check: { passed: true, total_debits: 10, total_credits: 10, difference: 0 } } });
+const result = (issues: unknown[]) => ({ ingestion: { milestones: MILESTONES, issues, rules_generation: 7 }, validation_report: { tb_balance_check: { passed: true, total_debits: 10, total_credits: 10, difference: 0 } } });
 const check = (id: string, state: PreflightCheck["state"]): PreflightCheck => ({ id, label: id, state, detail: "recorded" });
 // A certified row carrying the ingestion review findings as layer-2 warnings (process-trial-balance, §3.1 wiring).
 const certifiedWithFindings = [check("l1_structure", "passed"), check("l2_data_quality", "review"), check("l3_arithmetic", "passed"), check("l4_classification", "passed")];

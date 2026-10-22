@@ -51,7 +51,7 @@ const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").r
 const EXACT = { tb_balance_check: { passed: true, total_debits: 2000, total_credits: 2000, difference: 0, exact: { currency: "TZS", currency_exponent: 2, total_debits: "2000.00", total_credits: "2000.00", difference: "0.00" } } };
 // A result from the current engine records its processing milestones (resultVersion.ts); one without them is shown as
 // checked by an earlier version. These fixtures model current results.
-const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })) };
+const CURRENT_INGESTION = { milestones: ["read", "columns", "rows", "amounts", "balance", "classification", "recorded"].map((id) => ({ id, status: "passed" })), rules_generation: 7 };
 const EQ_FAIL = { code: "BALANCE_SHEET_EQUATION_FAILED", layer: 3, severity: "warning", accountCode: null, message: "Assets (2000.00) != Liabilities + Closing Equity (1900.00). Difference: 100.00" };
 const cert = (exceptions: unknown, over: Partial<TbCertificationRow> = {}): TbCertificationRow =>
   ({ id: "c1", sequence_no: 1, company_id: COMPANY, upload_id: U, period_year: 2025, is_blocking: false, requires_review: false, exceptions, certified_at: "2026-01-02T00:00:00Z", ...over }) as TbCertificationRow;

@@ -31,6 +31,8 @@ export interface UseWorkspaceDataReturn {
   company: WorkspaceCompany | null;
   upload: WorkspaceUpload | null;
   uploads: WorkspaceUpload[];
+  /** The exact number of this period's uploads (`uploads` holds at most the 50 most recent). */
+  uploadsTotal: number;
   workspaceState: WorkspaceState;
   loading: boolean;
   /** True while a background re-read is in flight. Never blanks the UI. */
@@ -80,6 +82,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
 
   const [company, setCompany] = useState<WorkspaceCompany | null>(null);
   const [uploads, setUploads] = useState<WorkspaceUpload[]>([]);
+  const [uploadsTotal, setUploadsTotal] = useState(0);
   const [upload, setUpload] = useState<WorkspaceUpload | null>(null);
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(EMPTY_STATE);
   // `loading` is the FIRST-PAINT gate only. Background polls set `refreshing`
@@ -122,6 +125,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     };
     if (resolvedCompany) setCompany(resolvedCompany);
     setUploads(snapshot.uploads);
+    setUploadsTotal(snapshot.uploadsTotal);
     setUpload(snapshot.upload);
     setWorkspaceState(snapshot.workspaceState);
     // Revealed together with the data it authorizes: the shell never shows a granted workspace whose uploads have not
@@ -199,6 +203,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     company,
     upload,
     uploads,
+    uploadsTotal,
     workspaceState,
     loading,
     refreshing,

@@ -21,9 +21,13 @@ const EXACT: Readonly<Record<string, string>> = {
   FRAMEWORK_EDITION_UNRECORDED: "The version does not record the edition it applies.",
   CASHFLOW_OPENING_CASH_CONFLICT: "Two authorities state different opening cash; nothing is chosen between them.",
   CASH_PERIMETER_NOT_ESTABLISHED: "The cash perimeter of the current period could not be established from the cash account map.",
+  // 20261118100000 — sign-off on the current rules.
+  TRIAL_BALANCE_RULES_UNAVAILABLE: "Whether the trial balance was checked under the current rules could not be read. Try again.",
 };
 
 const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
+  // 20261118100000 — the trial balance in force predates the current checks (engine generation <rest>).
+  ["TRIAL_BALANCE_RECHECK_REQUIRED", () => "The trial balance in force for this period was checked before the current checks. Check it again on the Trial balance page (\"Check again under the current checks\"), then save a new version. Statements already signed and packs already issued are unchanged."],
   // 20261112100000 — the reviewer workflow.
   // 20261115100000 — the account capacity (fs_account_capacity): <total>/<bound>.
   ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.`; }],

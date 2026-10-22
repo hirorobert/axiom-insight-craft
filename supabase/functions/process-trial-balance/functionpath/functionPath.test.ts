@@ -385,7 +385,7 @@ Deno.test("E1 exact amounts: tb-amounts/1 validates, equation exact, cash claime
   const rows = w.tables.tb_certifications[0].p_rows_snapshot as Record<string, unknown>[];
   const sales = rows.find((r) => r.accountCode === "4000")!;
   assertEquals([sales.rowContract, sales.debitMinor, sales.creditMinor, sales.classSideMinor, sales.netBalance], ["tb-row/1", "0", "90025", "90025", 900.25]);
-  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v6", 6]]);
+  assertEquals(w.tables.engine_runs.map((r) => [r.engine_version, r.engine_generation]), [["safisha-tb-certification-v7", 7]]);
 });
 
 Deno.test("E1 contra asset: accumulated depreciation (credit normal) reduces assets; balanced and certified (R3c)", async () => {
@@ -515,8 +515,10 @@ Deno.test("E2 the snapshot names every account by code and by name, in the compa
   const w = setup({ csv: BALANCED, mappings: REVIEWED });
   await call({ uploadId: UPLOAD, clientRequestId: crypto.randomUUID() });
   const keys = (w.tables.engine_run_dependencies as { scope: string; dep_key: string }[]).map((d) => `${d.scope === COMPANY ? "C" : d.scope}|${d.dep_key}`).sort();
-  for (const k of ["C|code:1000", "global|code:1000", "C|name:cash at bank", "global|name:cash at bank", "C|#framework", "C|#currency", "global|#dictionary", `C|#layout_confirmation:${UPLOAD}`]) assert(keys.includes(k), k);
-  assertEquals(keys.length, 4 * 4 + 4);
+  // v7 (20261118100000) adds the upload's decisions, the entity identity and the workspace's finding policy.
+  for (const k of ["C|code:1000", "global|code:1000", "C|name:cash at bank", "global|name:cash at bank", "C|#framework", "C|#currency", "global|#dictionary", `C|#layout_confirmation:${UPLOAD}`,
+    `C|#finding_decisions:${UPLOAD}`, "C|#entity", "C|#finding_policy"]) assert(keys.includes(k), k);
+  assertEquals(keys.length, 4 * 4 + 7);
 });
 
 Deno.test("E2 a preempted attempt (not current at finalize) records nothing and answers ATTEMPT_SUPERSEDED", async () => {
@@ -634,7 +636,7 @@ Deno.test("A2 a confirmed European layout: read exactly as confirmed, certified,
   assertEquals(amounts.equation.status, "balanced");
   assertEquals(amounts.classes.assets_minor, "150025");
   const run = w.tables.engine_runs[0];
-  assertEquals([run.engine_version, run.engine_generation], ["safisha-tb-certification-v6", 6]);
+  assertEquals([run.engine_version, run.engine_generation], ["safisha-tb-certification-v7", 7]);
   assert(String(w.tables.tb_certifications[0].p_normalized_input_hash) === String(run.input_hash));
 });
 

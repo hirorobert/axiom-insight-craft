@@ -82,13 +82,25 @@ const count = async (sql, p = []) => Number((await one(sql, p)).n);
 const asService = (sql, params) => asRole("service_role", null, sql, params);
 
 const SRC = crypto.createHash("sha256").update("period-currency-correction-proof").digest("hex");
+const G7_RULES = [
+  "source_read", "columns", "period_and_currency", "duplicate_identities", "balance",
+  "entity_name", "trailing_text", "clearing_accounts", "classification",
+];
+const findingRule = (code) => code === "CURRENCY_MISMATCH" ? "period_and_currency" : null;
+const evaluationFor = (findings) => ({
+  format: "tb-evaluation/1",
+  rules: G7_RULES.map((rule) => ({ rule, outcome: findings.some((f) => findingRule(f.code) === rule) ? "finding" : "passed" })),
+});
 const blockingResult = () => ({ outcome: "certified",
   upload: { status: "blocked", is_valid: false, processing_result: { status: "blocked" }, validation_report: { ok: false }, accounting_errors: [] },
-  certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: true, requires_review: false, rows_snapshot: [],
-    exceptions: [{ code: "CURRENCY_MISMATCH", layer: 2, severity: "error", accountCode: null, message: "The currency labels on row 11 do not match the selected currency USD." }] } });
+  certification: (() => {
+    const findings = [{ code: "CURRENCY_MISMATCH", layer: 2, severity: "error", accountCode: null, message: "The currency labels on row 11 do not match the selected currency USD." }];
+    return { normalized_input_hash: "n", output_hash: "o", is_blocking: true, requires_review: false, rows_snapshot: [],
+      exceptions: findings, findings, evaluation: evaluationFor(findings) };
+  })() });
 const acceptedResult = (requiresReview) => ({ outcome: "certified",
   upload: { status: requiresReview ? "needs_review" : "complete", is_valid: !requiresReview, processing_result: { status: "x" }, validation_report: { ok: true }, accounting_errors: [] },
-  certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: requiresReview, rows_snapshot: [], exceptions: [] } });
+  certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: requiresReview, rows_snapshot: [], exceptions: [], findings: [], evaluation: evaluationFor([]) } });
 
 async function main() {
   const url = await startDatabase();
@@ -108,6 +120,7 @@ async function main() {
     await admin.query(t);
   };
   const cut = files.indexOf(REPAIR_FILE);
+  let attemptGeneration = 6;
 
   group("Replay — the chain up to (not including) the repair");
   await check(`${REPAIR_FILE} is in the chain and everything before it applies`, async () => {
@@ -130,13 +143,13 @@ async function main() {
 
   let year = 2000;
   /** A period in `company` reporting in `currency`, with one upload and a claimed attempt. */
-  async function periodWithAttempt(company = A, owner = U.owner, currency = "USD") {
+  async function periodWithAttempt(company = A, owner = U.owner, currency = "USD", generation = attemptGeneration) {
     const y = ++year;
     const period = (await one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
       [company, `${y}-12-31`, `FY${y}`, owner, currency, `${y}-01-01`, `${y}-12-31`])).id;
     const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id, source_file_hash)
       VALUES ('tb-tzs.csv',$1,10,'processing',$2,$3,$4,$5,$6) RETURNING id`, [`${owner}/${uuid()}.csv`, company, y, period, owner, SRC])).id;
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, owner]))[0].r;
+    const b = (await asService(`SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v${generation}',${generation},'workspace_user',NULL,$4,600) r`, [up, uuid(), SRC, owner]))[0].r;
     if (b.outcome !== "claimed") throw new Error(`begin: ${JSON.stringify(b)}`);
     return { period, up, run: b.engine_run_id, company, year: y };
   }
@@ -144,8 +157,8 @@ async function main() {
     [run, JSON.stringify([{ scope: company, key: "#framework" }, { scope: company, key: "#currency" }, { scope: "global", key: "#dictionary" }])]);
   const finalize = async (run, result) => (await asService("SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [run, JSON.stringify(result)]))[0].r;
   /** The scenario the repair exists for: a check refused because the file's currency contradicted the period's. */
-  async function blockedPeriod(company = A, owner = U.owner) {
-    const t = await periodWithAttempt(company, owner, "USD");
+  async function blockedPeriod(company = A, owner = U.owner, generation = attemptGeneration) {
+    const t = await periodWithAttempt(company, owner, "USD", generation);
     await snapshot(t.run, company);
     const f = await finalize(t.run, blockingResult());
     if (f.outcome !== "certified") throw new Error(`finalize: ${JSON.stringify(f)}`);
@@ -186,6 +199,7 @@ async function main() {
     for (const k of keyed) console.log(`        ${allow.includes(k.rel) ? "bookkeeping" : "BLOCKS     "}  ${k.rel} (company + period key)`);
     return fks.length > 0 && keyed.length > 0 ? true : { fks, keyed };
   });
+  attemptGeneration = 7;
   await check("privileges: the read and the operation for authenticated only; the internal helpers for nobody", async () => {
     const r = await one(`SELECT has_function_privilege('authenticated','public.correct_period_currency(uuid,text,text,text,uuid)','EXECUTE') a,
         has_function_privilege('anon','public.correct_period_currency(uuid,text,text,text,uuid)','EXECUTE') b,
@@ -414,7 +428,7 @@ async function main() {
     // The normal re-check certifies under the corrected currency; the statements read their currency from the period.
     const op = c1r.rechecks[0].operation_id;
     const rq = (await asUser(U.owner, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [t.up, op, SRC])).r;
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [t.up, op, SRC, U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [t.up, op, SRC, U.owner]))[0].r;
     await snapshot(b.engine_run_id, A);
     const f = await finalize(b.engine_run_id, acceptedResult(false));
     const meta = (await one("SELECT public._fs_period_meta($1,$2) m", [A, f.certification_id])).m;
@@ -715,7 +729,7 @@ async function main() {
     return r.outcome === "replayed" && inv === 1 ? true : { r, inv };
   });
   await check("a new attempt on the same upload and source runs under the corrected currency and certifies (attempt 2)", async () => {
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [R.up, op, SRC, U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [R.up, op, SRC, U.owner]))[0].r;
     if (b.outcome !== "claimed") return b;
     await snapshot(b.engine_run_id, A);
     const f = await finalize(b.engine_run_id, acceptedResult(false));
@@ -723,7 +737,7 @@ async function main() {
     return f.outcome === "certified" && att.attempt_no >= 2 && (await currencyOf(R.period)) === "TZS" ? true : { f, att };
   });
   await check("the same attempt request again is answered as a replay, never a second attempt", async () => {
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v6',6,'workspace_user',NULL,$4,600) r", [R.up, op, SRC, U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [R.up, op, SRC, U.owner]))[0].r;
     return b.outcome === "replay" ? true : b;
   });
   await check("once the corrected period has an accepted certification, its currency can no longer be corrected", async () => {

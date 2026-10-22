@@ -171,15 +171,18 @@ export function deriveWorkbenchNavigation(basePath: string, items: readonly NavI
 export function canonicalWorkbenchHref(href: string, basePath: string): string {
   if (!href.startsWith(basePath)) return href;
   const rest = href.slice(basePath.length).replace(/^\//, "");
-  const [segment, ...tail] = rest.split("?");
+  const cut = rest.search(/[?#]/);
+  const segment = cut >= 0 ? rest.slice(0, cut) : rest;
   const target = WORKBENCH_LEGACY_ALIASES[segment];
   if (!target) return href;
-  return join(basePath, target) + (tail.length ? `?${tail.join("?")}` : "");
+  return join(basePath, target) + (cut >= 0 ? rest.slice(cut) : "");
 }
 
 /** The page a pathname is showing (null when it is not a workbench page). */
 export function activeWorkbenchPage(pathname: string, basePath: string): WorkbenchPageId | null {
-  const rest = pathname.startsWith(basePath) ? pathname.slice(basePath.length).replace(/^\/|\/$/g, "") : null;
+  // An href may carry a query or fragment; only its path names the page.
+  const path = pathname.split(/[?#]/)[0];
+  const rest = path.startsWith(basePath) ? path.slice(basePath.length).replace(/^\/|\/$/g, "") : null;
   if (rest === null) return null;
   for (const g of WORKBENCH_GROUPS) for (const p of g.pages) if (p.segment === rest) return p.id;
   return null;

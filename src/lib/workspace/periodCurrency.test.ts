@@ -130,7 +130,11 @@ describe("the panel (real component)", () => {
     expect(s.q("currency-correction-offer")?.textContent).toMatch(/labelled TZS; the period reports in USD/);
     click(s.q("currency-correction-start")!);
     expect((s.q("currency-correction-confirm") as HTMLButtonElement).disabled).toBe(true);
+    // Typed words alone are not a choice: a reason must be picked explicitly (none is pre-selected).
     typeInto(s.q("currency-correction-reason") as HTMLTextAreaElement, "Ledger kept in TZS");
+    expect((s.q("currency-correction-confirm") as HTMLButtonElement).disabled).toBe(true);
+    expect([...mounted!.container.querySelectorAll('input[type="radio"]')].some((r) => (r as HTMLInputElement).checked)).toBe(false);
+    click(s.q("currency-correction-preset-other")!);
     const confirm = s.q("currency-correction-confirm")!;
     click(confirm); click(confirm); click(confirm);
     await until(() => !!s.q("currency-correction-done"));
@@ -150,7 +154,7 @@ describe("the panel (real component)", () => {
     let fail = true;
     const s = await setup(async () => { if (fail) throw new Error("offline"); return { outcome: "replayed" }; });
     click(s.q("currency-correction-start")!);
-    typeInto(s.q("currency-correction-reason") as HTMLTextAreaElement, "Ledger kept in TZS");
+    click(s.q("currency-correction-preset-chosen_by_mistake")!);
     click(s.q("currency-correction-confirm")!);
     await until(() => !!s.q("currency-correction-recheck-failed"));
     expect(s.q("currency-correction-recheck-failed")?.textContent).toMatch(/now reports in TZS \(saved\)/);
@@ -160,5 +164,16 @@ describe("the panel (real component)", () => {
     expect(s.ids).toEqual([OP, OP]);
     expect(s.q("currency-correction-done")).not.toBeNull();
     expect(s.corrections).toHaveLength(1);
+  });
+});
+
+describe("correction reason presets", () => {
+  it("nothing is sent until a reason is picked; Other needs the person's own words", async () => {
+    const { composeCurrencyReason } = await import("@/lib/workspace/currencyReasons");
+    expect(composeCurrencyReason(null, "anything", "USD", "TZS")).toBeNull();
+    expect(composeCurrencyReason("other", " a ", "USD", "TZS")).toBeNull();
+    expect(composeCurrencyReason("other", "Group policy", "USD", "TZS")).toBe("Group policy");
+    expect(composeCurrencyReason("chosen_by_mistake", "", "USD", "TZS")).toBe("The ledger is kept in TZS; USD was chosen by mistake.");
+    expect(composeCurrencyReason("client_reports_in", "per engagement letter", "USD", "TZS")).toBe("The client reports in TZS. per engagement letter");
   });
 });

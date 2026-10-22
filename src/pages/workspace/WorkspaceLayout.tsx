@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { EngagementContextPanel } from "@/components/workspace/EngagementContextPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceContext } from "@/contexts/WorkspaceContext";
 import { EngagementContext } from "@/contexts/EngagementContext";
@@ -374,6 +375,8 @@ export default function WorkspaceLayout() {
             missionStatus={(stage) => workspaceState.missions[stage]?.status ?? null}
             nextAction={loading ? null : workspaceState.nextAction}
             withheld={withheld}
+            context={{ companyName: company?.name ?? null, framework: company?.reporting_framework, companyCreatedAt: company?.created_at,
+              fiscalPeriodId: engagementApi.engagement?.fiscal_period_id ?? null, prepareOnly }}
           />
         ) : (
         <>
@@ -476,6 +479,8 @@ function WorkbenchShell(props: {
   missionStatus: (stage: WorkspaceMission) => MissionStatus | null;
   nextAction: { label: string; href: string; mission: WorkspaceMission } | null;
   withheld: boolean;
+  /** The engagement stated once in the rail, with its settings (EngagementContextPanel). */
+  context: { companyName: string | null; framework: string | null | undefined; companyCreatedAt: string | null | undefined; fiscalPeriodId: string | null; prepareOnly: boolean };
 }) {
   const reporting = useReportingAccess(props.companyId);
   const { state: caps } = useWorkspaceCapabilities(props.companyId);
@@ -496,6 +501,9 @@ function WorkbenchShell(props: {
   return (
     <div className="mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-1 md:grid-cols-[232px_1fr]">
       <div className="border-b border-border bg-muted/40 px-2 py-3 md:border-b-0 md:border-r">
+        {props.withheld ? null : (
+          <EngagementContextPanel companyId={props.companyId} periodYear={props.periodYear} {...props.context} />
+        )}
         {props.withheld ? null : (
           <WorkbenchNav
             model={model}

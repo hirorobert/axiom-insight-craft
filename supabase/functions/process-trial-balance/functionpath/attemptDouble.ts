@@ -50,6 +50,9 @@ export function installAttemptDoubles(w: World): void {
 
   // 20261107100000: the complete-findings store is present.
   w.rpc.tb_certification_findings_supported = () => ok(true);
+  // 20261118100000: the decision authority is present; no decisions recorded (a test may install its own).
+  w.rpc.tb_current_finding_decisions = () => ok([]);
+  w.rpc.tb_finding_requirements = () => ok({ ENTITY_NAME_DIFFERS: true, CLEARING_ACCOUNT_BALANCE: false, UNRECOGNISED_TRAILING_TEXT: false });
 
   w.rpc.tb_finalize_attempt = (a) => {
     const r = a.p_result as {

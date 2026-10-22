@@ -18,6 +18,8 @@ import { formatTotal, isOutOfBalance, type TrialBalanceVerdict } from "@/lib/wor
 import { FINDING_HEADING, FINDING_ORDER } from "@/lib/workspace/resultStatus";
 
 export const TRIAL_BALANCE_CHECKS_ANCHOR = "trial-balance-checks";
+/** The card's findings list: the ONE place each finding is stated (the checks list points here instead of repeating it). */
+export const TRIAL_BALANCE_FINDINGS_ANCHOR = "trial-balance-findings";
 const MAX_FIXES = 5;
 
 const TONE: Record<TrialBalanceVerdict["tone"], { badge: string; rule: string }> = {
@@ -30,6 +32,7 @@ const TONE: Record<TrialBalanceVerdict["tone"], { badge: string; rule: string }>
 const ACTION_ICON: Record<NonNullable<TrialBalanceVerdict["primaryAction"]>["kind"], JSX.Element> = {
   replace: <Upload className="mr-2 h-4 w-4" />,
   retry: <RefreshCw className="mr-2 h-4 w-4" />,
+  recheck: <RefreshCw className="mr-2 h-4 w-4" />,
   review_classifications: <ArrowRight className="mr-2 h-4 w-4" />,
 };
 
@@ -58,6 +61,7 @@ export function CurrentTrialBalanceCard({
   fileOptionsOpen = false,
   onShowHistory,
   historyCount,
+  findingAction,
   replaceRefusal = null,
   onDismissReplaceRefusal,
   resolution,
@@ -78,6 +82,8 @@ export function CurrentTrialBalanceCard({
   /** Opens and focuses the upload history section. Absent: no history control. */
   onShowHistory?: () => void;
   historyCount?: number;
+  /** What can be done about one finding, rendered under it (null: nothing to offer). */
+  findingAction?: (issue: TrialBalanceVerdict["issues"][number]) => ReactNode | null;
   /** A replacement file refused before upload, in words; shown persistently next to Replace (role="alert"). */
   replaceRefusal?: string | null;
   onDismissReplaceRefusal?: () => void;
@@ -95,6 +101,11 @@ export function CurrentTrialBalanceCard({
   const outOfBalance = isOutOfBalance(totals);
   // Row-level corrections the server recorded; the one already stated as the reason is not repeated.
   const fixes = verdict.issues.filter((i) => i.message !== verdict.reason);
+  // The finding already stated as the reason keeps its action (for example the wrong-entity recovery) under the reason.
+  const reasonFinding = verdict.issues.find((i) => i.message === verdict.reason) ?? null;
+  const reasonAction = reasonFinding && findingAction ? findingAction(reasonFinding) : null;
+  // The first few of each kind, plus every finding that has an action here (a decision is never hidden in the details).
+  const shownOf = (group: typeof fixes) => group.filter((i, n) => n < MAX_FIXES || (findingAction ? findingAction(i) !== null : false));
   const unit = totals?.currency ? ` (${totals.currency})` : "";
   const goToChecks = () => {
     const el = document.getElementById(TRIAL_BALANCE_CHECKS_ANCHOR);
@@ -133,8 +144,9 @@ export function CurrentTrialBalanceCard({
           </button>
         </div>
         <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-foreground" data-testid="trial-balance-reason">{verdict.reason}</p>
+        {reasonAction && <div className="max-w-3xl" data-code={reasonFinding?.code}>{reasonAction}</div>}
         {fixes.length > 0 && (
-          <div className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
+          <div id={TRIAL_BALANCE_FINDINGS_ANCHOR} className="mt-4 max-w-3xl space-y-4" data-testid="trial-balance-issues">
             {/* One group per kind, in order: blocking, needs confirmation, review (resultStatus.ts, §3.5). */}
             {FINDING_ORDER.map((kind) => {
               const group = fixes.filter((i) => i.kind === kind);
@@ -143,14 +155,15 @@ export function CurrentTrialBalanceCard({
                 <div key={kind} data-finding-kind={kind}>
                   <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{FINDING_HEADING[kind]}</p>
                   <ul className="mt-2 space-y-2">
-                    {group.slice(0, MAX_FIXES).map((i) => (
-                      <li key={`${i.code}-${i.rows.join(",")}`} className={`border-l-2 pl-3 text-[13px] leading-relaxed text-foreground ${kind === "blocking" ? "border-destructive/60" : "border-amber-500/70"}`} data-code={i.code}>
+                    {shownOf(group).map((i) => (
+                      <li key={`${i.code}-${i.subject ?? ""}-${i.rows.join(",")}`} className={`border-l-2 pl-3 text-[13px] leading-relaxed text-foreground ${kind === "blocking" ? "border-destructive/60" : "border-amber-500/70"}`} data-code={i.code}>
                         {i.message}
+                        {findingAction?.(i)}
                       </li>
                     ))}
                   </ul>
-                  {group.length > MAX_FIXES && (
-                    <p className="mt-2 text-[12px] text-muted-foreground">and {group.length - MAX_FIXES} more — listed under Technical processing details.</p>
+                  {group.length > shownOf(group).length && (
+                    <p className="mt-2 text-[12px] text-muted-foreground">and {group.length - shownOf(group).length} more — listed under Technical processing details.</p>
                   )}
                 </div>
               );

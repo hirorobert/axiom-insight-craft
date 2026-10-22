@@ -183,7 +183,7 @@ async function main() {
     const Q = await pair(); const res = await reserve();
     const g = await register2(U.owner, res.reservation_id, uuid(), Q.cur, Q.pri);
     const before = await row(g.current_upload_id);
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v4',4,'workspace_user',NULL,$4,600) r", [g.prior_upload_id, uuid(), "b".repeat(64), U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [g.prior_upload_id, uuid(), "b".repeat(64), U.owner]))[0].r;
     const c = await row(g.current_upload_id), p = await row(g.prior_upload_id);
     return b.outcome === "claimed" && p.processing_attempt === 1 && c.processing_attempt === 0
       && JSON.stringify(c) === JSON.stringify(before) ? true : { b, c: c.processing_attempt, p: p.processing_attempt };

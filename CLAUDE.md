@@ -375,6 +375,14 @@ src/
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
       periodCurrency.ts       ← ONLY client path to the period-currency correction RPCs (get_period_currency_correction / correct_period_currency); server-decided recovery view
+      currencyReasons.ts      ← Currency-correction reason presets (explicit choice; none pre-selected)
+      checkDetail.ts          ← A check's detail without restating findings the card already lists
+      portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
+      findingDecisions.ts     ← ONLY client path to trial-balance finding decisions (record_tb_finding_decision, get_tb_finding_decisions)
+      entityPrecheck.ts       ← Same-entity pre-check before registering a new entity (the engine's name normalisation)
+      savedDrafts.ts          ← Saved (unchecked) uploads: list and explicit removal (list/delete_trial_balance_draft)
+      accountHome.ts          ← ONLY client path to get_account_home: routing from exact server counts, bounded samples
+      investigationRows.ts    ← ONLY client path to get_tb_investigation_rows: stored investigation rows, keyset pages, exact minor amounts
       engagementNextAction.ts ← Account-home engagement button: the actual next step's words + destination (same entity/period/upload)
       processingInvoke.ts     ← ONLY browser path to process-trial-balance (bounded, jittered retry of PROCESSING_BUSY as the same request)
       engagementGroups.ts     ← Account home grouping: by company, period dates, test/training workspaces from recorded purpose (never inferred)

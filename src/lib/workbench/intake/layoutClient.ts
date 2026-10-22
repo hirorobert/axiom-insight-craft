@@ -60,6 +60,28 @@ export interface LayoutReport {
   } | null;
 }
 
+/** tb-investigation/2 (supabase/functions/_shared/tbInvestigation.ts): leads in the file, never conclusions. */
+export interface InvestigationResult {
+  format: "tb-investigation/2";
+  currency: string | null;
+  /** Minor-unit exponent of the stored rows' amounts. */
+  exponent: number;
+  difference: string;
+  larger: "debits" | "credits";
+  /** The totals of the rows read as accounts. */
+  read: { debit: string; credit: string };
+  /** The file's own printed total rows, as read. */
+  printed: { row: number; debit: string; credit: string }[];
+  cause: "export_totals_do_not_balance" | "reading_differs_from_printed_totals" | "reading_agrees_with_printed_totals" | "no_printed_totals";
+  causeText: string;
+  leads: { kind: string; rows: number[]; check: string }[];
+  more: number;
+  row_count: number;
+  included_count: number;
+  excluded_count: number;
+  statement: string;
+}
+
 export type LayoutAnswer<T> =
   | { kind: "ok"; value: T }
   | { kind: "unavailable" }
@@ -107,6 +129,10 @@ export function layoutClient(invoke: LayoutInvoke) {
     confirm: (uploadId: string, layout: LayoutProfile, expectedConfirmationNo: number, templateId: string | null, numberFormatConfirmed = false) =>
       send<{ status: "confirmed"; confirmationId: string; confirmationNo: number; replay: boolean; unchanged: boolean; report: LayoutReport }>(
         { action: "confirm", uploadId, layout, expectedConfirmationNo, templateId, numberFormatConfirmed }),
+    /** Leads in an out-of-balance file, for the upload's current blocking result (20261118100000). */
+    investigate: (uploadId: string, certificationId: string, requestId: string) =>
+      send<{ status: "completed" | "in_progress" | "failed"; investigationId: string | null; result?: InvestigationResult }>(
+        { action: "investigate", uploadId, certificationId, requestId }),
     saveTemplate: (companyId: string, templateKey: string, expectedVersion: number, name: string, layout: LayoutProfile) =>
       send<{ status: "saved"; templateId: string; templateKey: string; version: number; replay: boolean; unchanged: boolean }>(
         { action: "save_template", companyId, templateKey, expectedVersion, name, layout }),

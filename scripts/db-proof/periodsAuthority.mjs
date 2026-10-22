@@ -23,6 +23,10 @@ const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const A1_FILE = "20261009100000_currency_registry_and_reporting_periods.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const CONCURRENCY = 25;
+const G7_RULES = [
+  "source_read", "columns", "period_and_currency", "duplicate_identities", "balance",
+  "entity_name", "trailing_text", "clearing_accounts", "classification",
+];
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
 const uuid = () => crypto.randomUUID();
@@ -319,16 +323,17 @@ async function main() {
 
   group("Processing lock — a processed period's currency and dates are fixed for every role");
   const SRC = crypto.createHash("sha256").update("periods-proof").digest("hex");
+  const evaluation = { format: "tb-evaluation/1", rules: G7_RULES.map((rule) => ({ rule, outcome: "passed" })) };
   async function processedUpload(periodId, year, { certify = false } = {}) {
     const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
       VALUES ('tb.csv',$1,10,'processing',$2,$3,$4,$5) RETURNING id`, [`${U.owner}/${uuid()}.csv`, A, year, periodId, U.owner])).id;
-    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v3',3,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]))[0].r;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]))[0].r;
     if (b.outcome !== "claimed") throw new Error(`begin: ${JSON.stringify(b)}`);
     if (certify) {
       await asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb)", [b.engine_run_id, JSON.stringify([{ scope: A, key: "#currency" }])]);
       const f = (await asService("SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [b.engine_run_id, JSON.stringify({ outcome: "certified",
         upload: { status: "complete", is_valid: true, processing_result: { status: "valid" }, validation_report: { ok: true }, accounting_errors: [] },
-        certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, exceptions: [], rows_snapshot: [] } })]))[0].r;
+        certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, exceptions: [], rows_snapshot: [], findings: [], evaluation } })]))[0].r;
       if (f.outcome !== "certified") throw new Error(`finalize: ${JSON.stringify(f)}`);
       return { up, cert: f.certification_id };
     }

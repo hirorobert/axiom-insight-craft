@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyChainBefore, assignmentPairs, ASSIGN, certifier, clientDb, COMPREHENSIVE_INCOME_DECISIONS, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, WORDS_1_2_0,
+import { applyChainBefore, assignmentPairs, ASSIGN, certifier, chainFiles, clientDb, COMPREHENSIVE_INCOME_DECISIONS, csv, DECISIONS_1_2_0, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, migrationText, prepareReporting, WORDS_1_2_0,
   FY2025, FY2026, makeWorld, openDatabase, reporter, uuid } from "./lib/reportingKit.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
@@ -39,6 +39,18 @@ const POSTCONDITION = fs.readFileSync(path.join(REPO, "docs/release/reporting-r2
 const { group, check, finish } = reporter();
 let db;
 
+// The pre-20261118100000 browser client had no trial-balance rules preview. Keep that exact stage behavior here so the
+// historical volatility proof does not accidentally use today's client against yesterday's schema. The current client is
+// exercised separately below and must fail closed while its required RPC is absent.
+const historicalReadinessClient = (d) => ({
+  readiness: async (companyId, reportId, reportVersion) => {
+    const { data, error } = await d.rpc("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion });
+    if (error) throw Object.assign(new Error(error.message), { code: error.code ?? null });
+    if (!data || typeof data !== "object" || typeof data.ready !== "boolean" || !Array.isArray(data.blockers)) throw new Error("historical readiness response is malformed");
+    return data;
+  },
+});
+
 async function main() {
   db = await openDatabase("readiness_proof");
   group("Replay up to (not including) the fix");
@@ -50,9 +62,9 @@ async function main() {
   const Y = 2026;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
-  let pre, partner, owner, viewer;
+  let pre, partner, owner, viewer, historicalPartner;
   // A new client = PostgREST after a schema reload (it caches each function's volatility).
-  const reload = () => { pre = as(U.preparer); partner = as(U.partner); owner = as(U.owner); viewer = as(U.viewer); };
+  const reload = () => { pre = as(U.preparer); partner = as(U.partner); owner = as(U.owner); viewer = as(U.viewer); historicalPartner = historicalReadinessClient(partner.d); };
   reload();
   const rid = `fsr-${Y}-${A}`;
   const save = (newEvidence) => prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid,
@@ -132,8 +144,12 @@ async function main() {
     const rw = await partner.d.rpc("fs_report_readiness", { p_company_id: A, p_report_id: rid, p_report_version: 2 });
     return ro === "25006" && !rw.error ? true : { ro, rw: rw.error };
   });
-  await check("both drafts' readiness reads; each names CLOSE_REVIEW_FINDINGS_NOT_CHECKED and is not ready", async () => {
-    const r1 = await partner.c.readiness(A, rid, 1), r2 = await partner.c.readiness(A, rid, 2);
+  await check("the current client fails closed when its later trial-balance rules RPC is absent at this historical stage", async () => {
+    const r = await partner.c.readiness(A, rid, 2);
+    return !r.ready && r.blockers.includes("TRIAL_BALANCE_RULES_UNAVAILABLE") ? true : r;
+  });
+  await check("the historical-stage client still reads both drafts; each names CLOSE_REVIEW_FINDINGS_NOT_CHECKED and is not ready", async () => {
+    const r1 = await historicalPartner.readiness(A, rid, 1), r2 = await historicalPartner.readiness(A, rid, 2);
     return !r1.ready && !r2.ready && r1.blockers.includes("CLOSE_REVIEW_FINDINGS_NOT_CHECKED") && r2.blockers.includes("CLOSE_REVIEW_FINDINGS_NOT_CHECKED") ? true : { r1, r2 };
   });
   await check("REVIEWED is refused for both drafts by the server; no publication is recorded", async () => {
@@ -159,9 +175,9 @@ async function main() {
     const run = (await asU(U.preparer, "SELECT public.close_review_refresh_findings($1,$2) r", [A, Y])).r;
     for (const f of (await db.admin.query("SELECT id FROM public.close_review_findings WHERE run_id=$1", [run.runId])).rows)
       await asU(U.preparer, "SELECT public.close_review_finding_action($1,'explain','Contra-asset by design','Fixed asset register',$2) r", [f.id, uuid()]);
-    const r2 = await partner.c.readiness(A, rid, 2);
+    const r2 = await historicalPartner.readiness(A, rid, 2);
     const s = await save([]);
-    const r3 = await partner.c.readiness(A, rid, 3);
+    const r3 = await historicalPartner.readiness(A, rid, 3);
     return r2.blockers.includes("REPORTING_DEPENDENCIES_STALE") && s.reportVersion === 3 && r3.ready && r3.blockers.length === 0 ? true : { r2: r2.blockers, s: s.outcome, v: s.reportVersion, r3 };
   });
   await check("a viewer and a preparer are refused REVIEWED; the partner records REVIEWED and the owner FINAL", async () => {
@@ -174,7 +190,7 @@ async function main() {
   });
   await check("stale-result refusal: a later change leaves version 3 FINAL but stale; signing a stale draft is refused by name", async () => {
     await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,'smes.note.estimates','Useful lives and residual values.','Notes v2',$3)", [A, Y, uuid()]);
-    const r3 = await partner.c.readiness(A, rid, 3);
+    const r3 = await historicalPartner.readiness(A, rid, 3);
     const m = await refusedReviewed(2);
     const pub = (await owner.c.publications(rid)).map((p) => `${p.reportVersion}:${p.state}`);
     return r3.blockers.includes("REPORTING_DEPENDENCIES_STALE") && /REPORTING_DEPENDENCIES_STALE/.test(m || "") && pub.includes("3:FINAL") ? true : { r3: r3.blockers, m, pub };
@@ -197,6 +213,66 @@ async function main() {
       catch (e) { if (e.code === "25006") bad.push(`${f.proname}: ${e.message}`); else ran.push(`${f.proname} (refused ${e.code})`); }
     }
     return bad.length === 0 && ran.length >= 5 ? true : { bad, ran };
+  });
+
+  group("Final schema: the current rules RPC exists, generation-7 is required, and a valid current-rules report reaches REVIEWED and FINAL");
+  await check("the remaining migration chain applies after the historical proof, including the trial-balance rules gate", async () => {
+    const chain = chainFiles();
+    const at = chain.indexOf(FIX);
+    if (at < 0) return `${FIX} is not in the migration chain`;
+    for (const f of chain.slice(at + 1)) await db.admin.query(migrationText(f));
+    const exists = (await db.one("SELECT to_regprocedure('public.tb_signoff_rules_blocker(uuid,text,integer)') IS NOT NULL AS ok")).ok;
+    return exists === true ? true : "tb_signoff_rules_blocker is absent after the final chain";
+  });
+  reload();
+  await check("a pre-existing generation-6 report is visible but the current client names the generation-7 re-check requirement", async () => {
+    const r = await partner.c.readiness(A, rid, 3);
+    return r.blockers.includes("TRIAL_BALANCE_RECHECK_REQUIRED:6") ? true : r;
+  });
+  await check("the sign-off write refuses that pre-existing generation-6 report without recording a new publication", async () => {
+    await prepareReporting(db, W, k, { year: Y, uploads: false });
+    const s = await save([]);
+    if (s.outcome !== "saved") return s;
+    let refused = null;
+    try { await partner.c.setState(A, rid, s.reportVersion, "REVIEWED", "must be blocked until the trial balance is rechecked"); }
+    catch (e) { refused = String(e.message); }
+    const n = await db.count("SELECT count(*) n FROM public.financial_statement_publications WHERE report_id=$1 AND report_version=$2", [rid, s.reportVersion]);
+    return /TRIAL_BALANCE_RECHECK_REQUIRED:6/.test(refused ?? "") && n === 0 ? true : { refused, n, version: s.reportVersion };
+  });
+
+  const W2 = await makeWorld(db);
+  const { U: U2, A: A2 } = W2;
+  await W2.rollout(A2, true);
+  const k2 = await certifier(db, U2);
+  const Y2 = 2026;
+  const as2 = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+  const finalPre = as2(U2.preparer), finalPartner = as2(U2.partner), finalOwner = as2(U2.owner);
+  const finalRid = `fsr-final-${Y2}-${A2}`;
+  const finalParse = (type, role) => {
+    const y = role === "CURRENT" ? Y2 : Y2 - 1;
+    const source = role === "CURRENT" ? EVIDENCE_FY2026 : EVIDENCE_FY2025_COMPARATIVE;
+    const r = ingestEvidence({ companyId: A2, evidenceType: type, periodRole: role, reportingPeriodId: `FY${Y2}`, currency: "TZS", scale: 2,
+      text: source[type], fileName: `${type.toLowerCase()}-${y}.csv`, periodStart: `${y}-01-01`, periodEnd: `${y}-12-31` });
+    if (r.outcome !== "PARSED") throw new Error(`${type} rejected for final schema`);
+    return r.batch;
+  };
+  const finalSave = (newEvidence) => prepareReportVersion(finalPre.d, finalPre.c, { companyId: A2, periodYear: Y2, legalName: "Synthetic Final Schema SME", reportId: finalRid,
+    newEvidence, idempotencyKey: `final-prep-${uuid()}`, evaluatedAt: new Date().toISOString() });
+  await check("the final-schema workspace is certified by the real generation-7 handler and prepared through the current reporting functions", async () => {
+    await prepareReporting(db, W2, k2, { year: Y2 });
+    return true;
+  });
+  await check("the real current-rules RPC returns an unobstructed answer for a valid generation-7 report, then REVIEWED and FINAL both succeed", async () => {
+    const saved = await finalSave([...['TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS', 'CASH_ACCOUNT_MAP'].map((t) => finalParse(t, 'CURRENT')),
+      ...['TRANSACTION_LEDGER', 'EQUITY_MOVEMENTS', 'PRIOR_PERIOD_STATEMENTS'].map((t) => finalParse(t, 'COMPARATIVE'))]);
+    if (saved.outcome !== "saved") return saved;
+    const rules = await finalPartner.d.rpc("tb_signoff_rules_blocker", { p_company_id: A2, p_report_id: finalRid, p_report_version: saved.reportVersion });
+    const ready = await finalPartner.c.readiness(A2, finalRid, saved.reportVersion);
+    if (rules.error || rules.data?.outcome !== "ok" || rules.data?.blocker !== null || !ready.ready || ready.blockers.length !== 0) return { saved, rules: rules.data ?? rules.error, ready };
+    await finalPartner.c.setState(A2, finalRid, saved.reportVersion, "REVIEWED", "Reviewed under current trial-balance rules");
+    await finalOwner.c.setState(A2, finalRid, saved.reportVersion, "FINAL", "Approved under current trial-balance rules");
+    const pub = (await finalOwner.c.publications(finalRid)).map((p) => `${p.reportVersion}:${p.state}`);
+    return JSON.stringify(pub) === JSON.stringify([`${saved.reportVersion}:REVIEWED`, `${saved.reportVersion}:FINAL`]) ? true : { pub };
   });
 }
 

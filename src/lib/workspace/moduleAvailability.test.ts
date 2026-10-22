@@ -339,11 +339,11 @@ describe("6. historical engagements never become first-run accounts", () => {
   it("the account home keeps it out of the list and routes the account to the chooser, never to first run", () => {
     expect(decideReturningUserRoute([], [], [], 1)).toEqual({ kind: "chooser" });
     expect(decideReturningUserRoute([], [], [], 0)).toEqual({ kind: "first_run" });
-    const hook = code("src/hooks/useActiveEngagements.ts");
-    expect(hook).toMatch(/const \{ visible, unavailable \} = partitionEngagements\(resolved\);/);
-    expect(hook).toMatch(/setEntries\(visible\);/);
-    expect(hook).toMatch(/const companyIdsWithEngagement = new Set\(openEngagements\.map\(\(e\) => e\.company_id\)\);/);
-    expect(code("src/pages/Dashboard.tsx")).toMatch(/decideReturningUserRoute\(entries, companiesWithoutEngagement, sharedWorkspaces, withheldEngagementCount\)/);
+    // The home now routes from the server's exact counts (get_account_home): withheld engagements are counted apart and an
+    // account holding only them is a choice, never a first run (accountHome.test.ts covers decideAccountHomeRoute).
+    expect(code("src/lib/workspace/accountHome.ts")).toMatch(/if \(w > 0 && s === 0\) route = \{ kind: "chooser" \};/);
+    expect(code("src/lib/workspace/accountHome.ts")).toMatch(/p_withheld: \[\.\.\.CUSTOMER_HIDDEN_CAPABILITIES\]/);
+    expect(code("src/pages/Dashboard.tsx")).toMatch(/decideAccountHomeRoute\(home, forceHub\)/);
   });
 });
 

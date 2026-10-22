@@ -220,14 +220,26 @@ async function main() {
 
   // ── helpers over the attempt RPCs ──
   const SRC = hex64("source-bytes");
-  const begin = (up, { reqId = uuid(), hash = "h-" + reqId, src = SRC, lease = 600, actor = U.owner, generation = 2 } = {}) =>
-    asService("SELECT public.tb_begin_attempt($1,$2,$3,'in',$4,'safisha-tb-certification-v3',$5,'workspace_user',NULL,$6,$7) r",
+  const G7_RULES = ["source_read", "columns", "period_and_currency", "duplicate_identities", "balance", "entity_name", "trailing_text", "clearing_accounts", "classification"];
+  const evaluation = () => ({ format: "tb-evaluation/1", rules: G7_RULES.map((rule) => ({ rule, outcome: "passed" })) });
+  const begin = (up, { reqId = uuid(), hash = "h-" + reqId, src = SRC, lease = 600, actor = U.owner, generation = 7 } = {}) =>
+    asService("SELECT public.tb_begin_attempt($1,$2,$3,'in',$4,'safisha-tb-certification-v7',$5,'workspace_user',NULL,$6,$7) r",
       [up, reqId, hash, src, generation, actor, lease]).then((x) => x[0].r);
   const keysFor = (company, codes) => [...codes.flatMap((c) => [{ scope: company, key: `code:${c}` }, { scope: "global", key: `code:${c}` }]),
     { scope: company, key: "#framework" }, { scope: company, key: "#currency" }, { scope: "global", key: "#dictionary" }];
   const snapshot = (run, keys) => asService("SELECT public.tb_snapshot_dependencies($1,$2::jsonb) r", [run, JSON.stringify(keys)]).then((x) => x[0].r);
   const uploadFields = (status = "complete", isValid = true) => ({ status, is_valid: isValid, processing_result: { status: status === "complete" ? "valid" : status }, validation_report: { ok: true }, accounting_errors: [] });
-  const certified = (extra = {}) => ({ outcome: "certified", upload: uploadFields(), certification: { normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false, exceptions: [], rows_snapshot: [], ...extra } });
+  const certified = (extra = {}) => {
+    const { findings = [], exceptions = findings, ...rest } = extra;
+    return {
+      outcome: "certified",
+      upload: uploadFields(),
+      certification: {
+        normalized_input_hash: "n", output_hash: "o", is_blocking: false, requires_review: false,
+        exceptions, findings, evaluation: evaluation(), rows_snapshot: [], ...rest,
+      },
+    };
+  };
   const finalize = (run, result) => asService("SELECT public.tb_finalize_attempt($1,$2::jsonb) r", [run, JSON.stringify(result)]).then((x) => x[0].r);
   const row = (id) => one("SELECT * FROM public.trial_balance_uploads WHERE id=$1", [id]);
   const run = (id) => one("SELECT * FROM public.engine_runs WHERE id=$1", [id]);
@@ -276,7 +288,7 @@ async function main() {
     await asService("UPDATE public.engine_runs SET status='completed', completed_at=now() WHERE id=$1", [r[0].id]);
     return (await run(r[0].id)).status === "completed";
   });
-  await refused("the attempt RPCs are not callable by a signed-in user", "42501", () => asUser(U.owner, "SELECT public.tb_begin_attempt($1,$2,'h','i',$3,'v',2,'workspace_user',NULL,$4,600)", [fenceUp, uuid(), SRC, U.owner]));
+  await refused("the attempt RPCs are not callable by a signed-in user", "42501", () => asUser(U.owner, "SELECT public.tb_begin_attempt($1,$2,'h','i',$3,'v',7,'workspace_user',NULL,$4,600)", [fenceUp, uuid(), SRC, U.owner]));
 
   section("Begin — outcomes");
   const up1 = await upload(A);
@@ -285,7 +297,7 @@ async function main() {
   await check("claimed: run running as attempt 1 with a lease; the upload points at it (validating, source hash set)", async () => {
     b1 = await begin(up1, { reqId: req1 });
     const r = await run(b1.engine_run_id); const u = await row(up1);
-    return b1.outcome === "claimed" && r.status === "running" && r.attempt_no === 1 && r.lease_expires_at !== null && r.engine_generation === 2
+    return b1.outcome === "claimed" && r.status === "running" && r.attempt_no === 1 && r.lease_expires_at !== null && r.engine_generation === 7
       && u.current_engine_run_id === b1.engine_run_id && u.processing_attempt === 1 && u.status === "validating" && u.source_file_hash === SRC ? true : { b1, r, u };
   });
   await check("the same request while running: in_progress (nothing new)", async () => {
@@ -319,6 +331,28 @@ async function main() {
   await check("an upload with no company: refused COMPANY_REQUIRED", async () => {
     const id = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, user_id, period_year) VALUES ('p.csv',$1,10,'processing',$2,2090) RETURNING id`, [`${U.owner}/${uuid()}.csv`, U.owner])).id;
     const r = await begin(id); return r.code === "COMPANY_REQUIRED" ? true : r;
+  });
+  await check("generation 2 and 6 are refused before a run or upload mutation", async () => {
+    const up = await upload(A);
+    const before = JSON.stringify(await row(up));
+    const two = await begin(up, { generation: 2 });
+    const six = await begin(up, { generation: 6 });
+    return two.outcome === "refused" && two.code === "ENGINE_GENERATION_SUPERSEDED"
+      && six.outcome === "refused" && six.code === "ENGINE_GENERATION_SUPERSEDED"
+      && (await count("SELECT count(*) n FROM public.engine_runs WHERE source_record_id=$1", [up])) === 0
+      && JSON.stringify(await row(up)) === before ? true : { two, six, row: await row(up) };
+  });
+  await check("a generation-7 attempt that becomes legacy in flight finishes failed without certification", async () => {
+    const up = await upload(A); const b = await begin(up);
+    await snapshot(b.engine_run_id, keysFor(A, ["1000"]));
+    await admin.query("SET session_replication_role = replica");
+    try { await admin.query("UPDATE public.engine_runs SET engine_generation=6 WHERE id=$1", [b.engine_run_id]); }
+    finally { await admin.query("SET session_replication_role = origin"); }
+    const f = await finalize(b.engine_run_id, certified());
+    const r = await run(b.engine_run_id);
+    return f.outcome === "failed" && f.error_code === "ENGINE_GENERATION_SUPERSEDED"
+      && r.status === "failed" && r.error_code === "ENGINE_GENERATION_SUPERSEDED"
+      && (await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [up])) === 0 ? true : { f, r };
   });
   await check("invalid inputs are refused (lease bound, source hash form)", async () => {
     let n = 0;
@@ -471,15 +505,15 @@ async function main() {
     await asUser(U.opsAdmin, "SELECT public.admin_set_processing_control(false,'{}'::uuid[],NULL,'release',$1)", [ver2]);
     return r.status === "abandoned" && r.error_code === "DRAINED_AT_CUTOVER" && d.run_ids.includes(b.engine_run_id) && (await row(up)).status === "processing" ? true : { d, r };
   });
-  await check("while held, begin is refused for the service role (PT503) and the floor still applies (PT410)", async () => {
+  await check("while held, begin is refused for the service role (PT503) and a below-7 generation is still refused before any write", async () => {
     const up = await upload(A);
     let ver = Number((await one("SELECT version FROM public.processing_release_control")).version);
     await asUser(U.opsAdmin, "SELECT public.admin_set_processing_control(true,'{}'::uuid[],NULL,'hold',$1)", [ver]);
     let held = null; try { await begin(up); } catch (e) { held = e.code; }
     ver = Number((await one("SELECT version FROM public.processing_release_control")).version);
     await asUser(U.opsAdmin, "SELECT public.admin_set_processing_control(false,'{}'::uuid[],2,'floor 2',$1)", [ver]);
-    let floor = null; try { await begin(up, { generation: 1 }); } catch (e) { floor = e.code; }
-    return held === "PT503" && floor === "PT410" ? true : { held, floor };
+    const floor = await begin(up, { generation: 1 });
+    return held === "PT503" && floor.outcome === "refused" && floor.code === "ENGINE_GENERATION_SUPERSEDED" ? true : { held, floor };
   });
 
   section("Fault injection — a failure at each statement of finalize leaves every row unchanged");
@@ -515,9 +549,9 @@ async function main() {
   await check("two begins on one upload: the second waits on the first, then sees it (IN_PROGRESS); one run", async () => {
     const up = await upload(A);
     const s1 = await session("service_role");
-    await s1.c.query("SELECT public.tb_begin_attempt($1,$2,'h1','i',$3,'v',2,'workspace_user',NULL,$4,600)", [up, uuid(), SRC, U.owner]);
+    await s1.c.query("SELECT public.tb_begin_attempt($1,$2,'h1','i',$3,'v',7,'workspace_user',NULL,$4,600)", [up, uuid(), SRC, U.owner]);
     const s2 = await session("service_role");
-    const p2 = s2.c.query("SELECT public.tb_begin_attempt($1,$2,'h2','i',$3,'v',2,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]);
+    const p2 = s2.c.query("SELECT public.tb_begin_attempt($1,$2,'h2','i',$3,'v',7,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]);
     await waitBlocked(s2.pid);
     await s1.end(true);
     const r2 = (await p2).rows[0].r; await s2.end(true);
@@ -552,9 +586,9 @@ async function main() {
   await check("one request id on two uploads at once: the second waits on the first's key, then answers conflict — nothing left behind", async () => {
     const upX = await upload(A); const upY = await upload(A); const reqId = uuid();
     const s1 = await session("service_role");
-    const r1 = (await s1.c.query("SELECT public.tb_begin_attempt($1,$2,'hx','i',$3,'v',2,'workspace_user',NULL,$4,600) r", [upX, reqId, SRC, U.owner])).rows[0].r;
+    const r1 = (await s1.c.query("SELECT public.tb_begin_attempt($1,$2,'hx','i',$3,'v',7,'workspace_user',NULL,$4,600) r", [upX, reqId, SRC, U.owner])).rows[0].r;
     const s2 = await session("service_role");
-    const p2 = s2.c.query("SELECT public.tb_begin_attempt($1,$2,'hy','i',$3,'v',2,'workspace_user',NULL,$4,600) r", [upY, reqId, SRC, U.owner]);
+    const p2 = s2.c.query("SELECT public.tb_begin_attempt($1,$2,'hy','i',$3,'v',7,'workspace_user',NULL,$4,600) r", [upY, reqId, SRC, U.owner]);
     const waited = await waitBlocked(s2.pid);
     await s1.end(true);
     const r2 = (await p2).rows[0].r; await s2.end(true);

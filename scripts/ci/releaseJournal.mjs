@@ -357,6 +357,10 @@ export const RELEASE_JOURNAL = {
   "0067_fs_bounds_r1_staged_apply": { kind: "staged_transport", sha256: "1c6cb96f22e317b35d3c2e2b574ea99786500c5df46ce5d44b61bee418377d54" },
   "0068_fs_capacity_r1_staged_apply": { kind: "staged_transport", sha256: "0589f056ef0165c6b52adeb5d146a8cc58267682ba6b91c3cd7e2ffc96833008" },
   "0069_fs_memo_r1_staged_apply": { kind: "staged_transport", sha256: "dbff469ea43ae9c2f364cb602165c727d29cc6a96eade7d7f7217af4b0e2a496" },
+  // Checkout recovery (#183), applied verbatim before the two pending Trial Balance workflow batches.
+  // Hosted id 71; when 1792656911705. Pin the exact source and mirror; earlier TB sources stay pending.
+  "0070_customer_checkout_abandon": { kind: "release_verbatim", source: "20261119100000_customer_checkout_abandon.sql",
+    bytes: 4839, digest: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", sha256: "0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910", outOfOrder: true },
 };
 
 /**
@@ -669,6 +673,22 @@ export const SUBMISSION_FORMS = Object.freeze({
     wrapper: Object.freeze({ bytes: 35956, sha256: "723baa6cc28cefd0e82ffacb40ff2514aec8f0666d4b28a2c06e268214fb528a" }),
     wrapperFinalLfRemoved: Object.freeze({ bytes: 35955, sha256: "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc" }),
   }),
+  // Trial Balance workflow, Track A (batch tb-portfolio-a1; source commit ac8a396): all four forms registered BEFORE
+  // application. PENDING hosted application (a separate, approved release step).
+  "20261117100000_engagement_portfolio.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 26579, sha256: "a9eb6ca77c26a29e7c6f4230e0466fa4320e07d5537ec1f2a6baafaf989873f7" }),
+    finalLfRemoved: Object.freeze({ bytes: 26578, sha256: "9c3302a0020e3f1c1ab5933ba4e085204c7c3f415fc7ffad6ef4c6a0efb803e3" }),
+    wrapper: Object.freeze({ bytes: 28141, sha256: "c07611e571c7c65bf986a47ea6105b9c99e7c898d65c18f53c9afc652d34e08d" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 28140, sha256: "162393795b77f4c442a246665377c20166978b8e2a959448d8e74b3de90a9756" }),
+  }),
+  // Trial Balance workflow, Track B (batch tb-decisions-b1): all four forms are registered BEFORE application;
+  // regenerated after the final-schema manifest, exhaustive finding-rule and capacity-proof corrections. PENDING hosted application.
+  "20261118100000_tb_finding_decisions.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 99185, sha256: "223d15e3e7ee2d941af1c4152f7c206b6aceabee96624ae990b8ddf4282db216" }),
+    finalLfRemoved: Object.freeze({ bytes: 99184, sha256: "38ae60d9b945b314c5922a44726237dbe0c393ba587c27313fc1199f72ba8a75" }),
+    wrapper: Object.freeze({ bytes: 100714, sha256: "dab3fa1720468119b5f24f97ed045c2116f7a086c75125e1db9f45f9b5b8e4d8" }),
+    wrapperFinalLfRemoved: Object.freeze({ bytes: 100713, sha256: "2869a20477367df2542676b0bf4c0aadc074a8420107241578f18df325916efa" }),
+  }),
 });
 
 /**
@@ -786,7 +806,8 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     if (SUBMISSION_FORMS[entry.source] && submittedForm(entry.source, src, hosted) !== "identical") {
       problems.push(`${tag} is not the registered identical submission form of ${entry.source}`);
     }
-    return { covers: entry.source, how: "release_verbatim", outOfOrder: false, problems };
+    // Explicitly reviewed out-of-order applications retain all byte/hash checks above.
+    return { covers: entry.source, how: "release_verbatim", outOfOrder: entry.outOfOrder === true, problems };
   }
   if (entry.kind === "release_verbatim_final_lf_removed") {
     const src = srcBytes(entry.source);

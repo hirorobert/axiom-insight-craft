@@ -18,3 +18,27 @@ export function hasMilestoneRecord(processingResult: unknown): boolean {
     ? pr.ingestion as Record<string, unknown> : null;
   return !!ingestion && Array.isArray(ingestion.milestones);
 }
+
+/**
+ * The finding rules a result was evaluated under (processing_result.ingestion.rules_generation, written by
+ * process-trial-balance from generation 7). A result without it was evaluated by an earlier engine: it is NOT a result
+ * of the current checks (the required entity decision, the database-computed requirements and the evaluation record).
+ */
+export const CURRENT_RULES_GENERATION = 7;
+export function rulesGeneration(processingResult: unknown): number | null {
+  const pr = processingResult !== null && typeof processingResult === "object" && !Array.isArray(processingResult)
+    ? processingResult as Record<string, unknown> : null;
+  const ingestion = pr && pr.ingestion !== null && typeof pr.ingestion === "object" && !Array.isArray(pr.ingestion)
+    ? pr.ingestion as Record<string, unknown> : null;
+  const g = ingestion?.rules_generation;
+  return typeof g === "number" && Number.isInteger(g) ? g : null;
+}
+
+/**
+ * True only for a result of the CURRENT check set: the processing milestones AND the current finding rules. Anything else
+ * keeps its recorded history and approvals and stays in force, but is shown as checked by an earlier version — never as
+ * having passed today's checks — with the re-check that applies them.
+ */
+export function isCurrentCheckSet(processingResult: unknown): boolean {
+  return hasMilestoneRecord(processingResult) && (rulesGeneration(processingResult) ?? 0) >= CURRENT_RULES_GENERATION;
+}
