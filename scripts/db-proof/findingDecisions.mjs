@@ -76,12 +76,25 @@ async function asRole(role, uid, sql, params) {
   } catch (e) { try { await c.query("ROLLBACK"); } catch { /* */ } throw e; } finally { c.release(); }
 }
 const one = async (sql, p = []) => (await pool.query(sql, p)).rows[0];
+const count = async (sql, p = []) => Number((await one(sql, p)).n);
 const asService = (sql, params) => asRole("service_role", null, sql, params);
 const refusedWith = (re) => (e) => (re.test(String(e.message)) ? true : String(e.message));
 
 const RULES = ["source_read", "columns", "period_and_currency", "duplicate_identities", "balance", "entity_name", "trailing_text", "clearing_accounts", "classification"];
-const RULE_OF = { ENTITY_NAME_DIFFERS: "entity_name", ENTITY_WRONG_DESTINATION: "entity_name", UNRECOGNISED_TRAILING_TEXT: "trailing_text",
-  LAYOUT_CORRECTION_REQUIRED: "trailing_text", CLEARING_ACCOUNT_BALANCE: "clearing_accounts", TRIAL_BALANCE_IMBALANCE: "balance" };
+const codes = (rule, values) => Object.fromEntries(values.map((code) => [code, rule]));
+// Mirrors _shared/tbFindingDecisions.ts and public.tb_finding_rule. This is the finite set process-trial-balance can
+// put into a certified result; other codes must fail closed at tb_finalize_attempt.
+const RULE_OF = Object.freeze({
+  ...codes("source_read", ["FILE_TOO_LARGE", "WORKBOOK_TOO_LARGE_EXPANDED", "WORKBOOK_TOO_MANY_PARTS", "TOO_MANY_ROWS", "TOO_MANY_CELLS", "TOO_MANY_ACCOUNTS", "FILE_EMPTY", "UNSUPPORTED_FORMAT", "ENCODING_NOT_UTF8", "CSV_UNTERMINATED_QUOTE", "MULTIPLE_TRIAL_BALANCE_SHEETS", "UNSUPPORTED_LAYOUT"]),
+  ...codes("columns", ["MISSING_COLUMN", "AMBIGUOUS_AMOUNT_COLUMNS", "MALFORMED_NUMERIC_VALUE", "PRECISION_EXCEEDS_CURRENCY", "AMOUNT_OUT_OF_RANGE", "BALANCE_COLUMN_MISMATCH", "MISSING_ACCOUNT_CODE", "TOTAL_ROW_MISMATCH", "TEMPLATE_EXAMPLE_UPLOADED", "NO_ACCOUNT_ROWS", "LAYOUT_SHEET_NOT_FOUND", "LAYOUT_HEADER_NOT_FOUND", "LAYOUT_COLUMN_NOT_FOUND", "LAYOUT_COLUMN_DUPLICATED", "LAYOUT_NUMBER_FORMAT_MISMATCH"]),
+  ...codes("period_and_currency", ["PERIOD_NOT_SELECTED", "PERIOD_MISMATCH", "CURRENCY_UNRESOLVED", "CURRENCY_UNSUPPORTED", "CURRENCY_MISMATCH"]),
+  ...codes("duplicate_identities", ["DUPLICATE_ACCOUNT_CODE", "DUPLICATE_ACCOUNT_NAME"]),
+  ...codes("balance", ["TRIAL_BALANCE_IMBALANCE"]),
+  ...codes("entity_name", ["ENTITY_NAME_DIFFERS", "ENTITY_WRONG_DESTINATION"]),
+  ...codes("trailing_text", ["UNRECOGNISED_TRAILING_TEXT", "LAYOUT_CORRECTION_REQUIRED"]),
+  ...codes("clearing_accounts", ["CLEARING_ACCOUNT_BALANCE"]),
+  ...codes("classification", ["NEEDS_REVIEW", "L5_SUPPORTING_EVIDENCE", "L6_PRIOR_PERIOD_SIGNAL"]),
+});
 /** A generation-7 result: the manifest derived from the findings unless overridden. */
 function g7({ blocking = false, review = false, findings = [], manifest, omitFindings = false }) {
   const rules = manifest ?? RULES.map((rule) => ({ rule, outcome: findings.some((f) => RULE_OF[f.code] === rule) ? "finding" : "passed" }));
@@ -98,6 +111,14 @@ const entityFinding = (fileEntity, extra = {}) => ({ code: "ENTITY_NAME_DIFFERS"
 const trailingFinding = (rows, extra = {}) => ({ code: "UNRECOGNISED_TRAILING_TEXT", layer: 2, severity: "warning", accountCode: null, message: "Text after the last amount row.", rows, subject: `rows:${rows.join(",")}`, decision_required: false, ...extra });
 const clearingFinding = (code, extra = {}) => ({ code: "CLEARING_ACCOUNT_BALANCE", layer: 2, severity: "warning", accountCode: code, message: "Clearing account has a balance.", rows: [9], subject: `code:${code}`, decision_required: false, ...extra });
 const imbalanceFinding = () => ({ code: "TRIAL_BALANCE_IMBALANCE", layer: 3, severity: "error", accountCode: null, message: "Debits do not equal credits." });
+function findingForCode(code) {
+  if (code === "ENTITY_NAME_DIFFERS") return entityFinding("Invented Beta Trading");
+  if (code === "UNRECOGNISED_TRAILING_TEXT") return trailingFinding([41]);
+  if (code === "CLEARING_ACCOUNT_BALANCE") return clearingFinding("1190");
+  const rule = RULE_OF[code];
+  return { code, layer: code === "TRIAL_BALANCE_IMBALANCE" ? 3 : rule === "classification" ? 4 : 2,
+    severity: rule === "classification" ? "warning" : "error", accountCode: null, message: `Synthetic ${code}.` };
+}
 
 async function main() {
   const url = await startDatabase();
@@ -163,9 +184,9 @@ async function main() {
   await admin.query(`INSERT INTO public.engagements (fiscal_period_id, company_id, engagement_type, created_by_member_id) VALUES ($1,$2,'composite',$3)`, [period, C, ownerMember]);
 
   let fileNo = 0;
-  // One active upload per period: every upload after the first gets a period of its own (an earlier year), so the
-  // workspace's 2025 period keeps exactly the upload the authority checks below are about.
-  async function newUpload(year = 2025 - fileNo) {
+  // One active upload per period: each generated fixture gets its own in-range later year, so exhaustive manifest cases
+  // never exhaust the 2000–2100 engine-run period constraint or collide with the authority fixture's FY2025.
+  async function newUpload(year = 2025 + fileNo) {
     fileNo++;
     const per = year === 2025 ? period : (await one(`INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end)
       VALUES ($1,$2,$3,$4,'TZS',$5,$6) RETURNING id`, [C, `${year}-12-31`, `FY${year}`, U.owner, `${year}-01-01`, `${year}-12-31`])).id;
@@ -213,6 +234,7 @@ async function main() {
   group("Manifest — generation 7 reports every rule once and agrees with its findings; unknown generations are refused");
   const d = await newUpload(2025);
   const m = await newUpload();
+  let reviewIndicatorCertification = null;
   await check("no manifest → refused (malformed)", async () => { const base = g7({ review: true, findings: [entityFinding("Invented Beta Trading")] }); const r = await certify(m, { ...base, certification: { ...base.certification, evaluation: undefined } }); return /manifest is malformed/.test(r.error ?? "") ? true : r; });
   await check("a required rule omitted (an older handler that never evaluates it) → refused", async () => { const r = await certify(m, g7({ manifest: RULES.filter((x) => x !== "trailing_text").map((rule) => ({ rule, outcome: "passed" })) })); return /omits a required rule/.test(r.error ?? "") ? true : r; });
   await check("an unknown rule, or a rule repeated → refused", async () => {
@@ -225,6 +247,55 @@ async function main() {
     const a = await certify(m, g7({ review: true, findings: [entityFinding("Invented Beta Trading")], manifest: RULES.map((rule) => ({ rule, outcome: "passed" })) }));
     const b = await certify(m, g7({ manifest: RULES.map((rule) => ({ rule, outcome: rule === "balance" ? "finding" : "passed" })) }));
     return /does not agree/.test(a.error ?? "") && /does not agree/.test(b.error ?? "") ? true : { a, b };
+  });
+  await check("every process-trial-balance certified finding code has exactly one database rule, and no unsupported code has one", async () => {
+    const expected = Object.entries(RULE_OF).sort(([a], [b]) => a.localeCompare(b));
+    const got = (await admin.query("SELECT c code, public.tb_finding_rule(c) rule FROM unnest($1::text[]) c ORDER BY c", [Object.keys(RULE_OF)])).rows
+      .map((r) => [r.code, r.rule]);
+    const unknown = await one("SELECT public.tb_finding_rule('UNSUPPORTED_SYNTHETIC_FINDING') rule");
+    return JSON.stringify(got) === JSON.stringify(expected) && unknown.rule === null ? true : { got, expected, unknown };
+  });
+  await check("every finding→rule mapping is accepted only with its exact 'finding' outcome; the reported duplicate, period and review bypasses leave no partial certification", async () => {
+    let checked = 0;
+    for (const [code, rule] of Object.entries(RULE_OF)) {
+      const u = await newUpload();
+      const valid = await certify(u, g7({ blocking: true, findings: [findingForCode(code)] }));
+      if (valid.outcome !== "certified") return { code, rule, valid };
+      if ((await reprocess(u)).outcome !== "accepted") return { code, stage: "recheck" };
+      const before = await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [u.up]);
+      const bad = await certify(u, g7({ blocking: true, findings: [findingForCode(code)], manifest: RULES.map((r) => ({ rule: r, outcome: "passed" })) }));
+      const persisted = await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [u.up]);
+      const authoritativeCert = await authoritative(u.year);
+      if (!/does not agree/.test(bad.error ?? "") || persisted !== before || authoritativeCert !== null) return { code, rule, bad, before, persisted, authoritativeCert };
+      checked++;
+    }
+    return checked === Object.keys(RULE_OF).length;
+  });
+  await check("every manifest 'finding' outcome has a mapped finding, including source, columns, period/currency, duplicates and classification", async () => {
+    const u = await newUpload();
+    for (const rule of RULES) {
+      const r = await certify(u, g7({ blocking: true, manifest: RULES.map((x) => ({ rule: x, outcome: x === rule ? "finding" : "passed" })) }));
+      const persisted = await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [u.up]);
+      if (!/does not agree/.test(r.error ?? "") || persisted !== 0) return { rule, r, persisted };
+    }
+    return true;
+  });
+  await check("unknown finding codes, malformed rules, omitted rules and duplicate rules refuse atomically", async () => {
+    const attempts = [
+      g7({ blocking: true, findings: [findingForCode("UNSUPPORTED_SYNTHETIC_FINDING")] }),
+      g7({ blocking: true, manifest: RULES.map((rule) => ({ rule, outcome: rule === "source_read" ? "not-an-outcome" : "passed" })) }),
+      g7({ blocking: true, manifest: RULES.slice(1).map((rule) => ({ rule, outcome: "passed" })) }),
+      g7({ blocking: true, manifest: [...RULES.map((rule) => ({ rule, outcome: "passed" })), { rule: "balance", outcome: "passed" }] }),
+    ];
+    const expected = [/unsupported by this engine generation/, /manifest is malformed/, /omits a required rule/, /unknown rule or repeats/];
+    const u = await newUpload();
+    for (let i = 0; i < attempts.length; i++) {
+      const r = await certify(u, attempts[i]);
+      const certifications = await count("SELECT count(*) n FROM public.tb_certifications WHERE upload_id=$1", [u.up]);
+      const findings = await count("SELECT count(*) n FROM public.tb_certification_findings f JOIN public.tb_certifications c ON c.id=f.certification_id WHERE c.upload_id=$1", [u.up]);
+      if (!expected[i].test(r.error ?? "") || certifications !== 0 || findings !== 0 || (await authoritative(u.year)) !== null) return { i, r, certifications, findings };
+    }
+    return true;
   });
   await check("a decision-taking finding without a subject or without its requirement flag → refused", async () => {
     const f1 = entityFinding("Invented Beta Trading"); delete f1.subject;
@@ -241,6 +312,7 @@ async function main() {
   await check("review indicators do not block: an accepted result with an undecided clearing balance and amount-free trailing text is accepted (default policy)", async () => {
     const u = await newUpload();
     const r = await certify(u, g7({ findings: [clearingFinding("1190"), trailingFinding([41, 42])] }));
+    if (r.outcome === "certified") reviewIndicatorCertification = r.certification_id;
     return r.outcome === "certified" && (await authoritative(u.year)) !== null ? true : r;
   });
   await check("generation 7 without its complete findings → refused", async () => { const r = await certify(m, g7({ omitFindings: true })); return /complete findings/.test(r.error ?? "") ? true : r; });
@@ -310,7 +382,7 @@ async function main() {
     const refusedFlagFalse = await certify(u, g7({ findings: [clearingFinding("1190")] }));
     const refusedUndecided = await certify(u, g7({ findings: [clearingFinding("1190", { decision_required: true })] }));
     const review = await certify(u, g7({ review: true, findings: [clearingFinding("1190", { decision_required: true })] }));
-    const earlier = (await admin.query("SELECT public.tb_run_authoritative(c.engine_run_id) a FROM public.tb_certifications c JOIN public.trial_balance_uploads t ON t.id=c.upload_id WHERE t.period_year = 2023 ORDER BY c.sequence_no DESC LIMIT 1")).rows[0]?.a;
+    const earlier = reviewIndicatorCertification === null ? null : (await one("SELECT public.tb_run_authoritative(engine_run_id) a FROM public.tb_certifications WHERE id=$1", [reviewIndicatorCertification])).a;
     return /requirement the workspace does not have/.test(refusedFlagFalse.error ?? "") && /needs a decision/.test(refusedUndecided.error ?? "")
       && review.outcome === "certified" && earlier === false ? true : { refusedFlagFalse, refusedUndecided, review, earlier };
   });

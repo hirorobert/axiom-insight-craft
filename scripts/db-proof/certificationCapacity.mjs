@@ -32,6 +32,7 @@ const REPO = path.resolve(HERE, "../..");
 const PRODUCTION_REF = "bvyivmmfjejbmqoydezk";
 const PG_CRON_FILE = "20260810044930_fcf7b034-7dc7-445d-a77d-99be66c3c4f4.sql";
 const REPAIR_FILE = "20261107100000_certification_findings_capacity.sql";
+const DECISIONS_FILE = "20261118100000_tb_finding_decisions.sql";
 const MODULES_DIR = process.env.DB_PROOF_MODULES_DIR;
 const req = createRequire(MODULES_DIR ? path.join(path.resolve(MODULES_DIR), "noop.js") : import.meta.url);
 const { Pool, Client } = req("pg");
@@ -201,9 +202,9 @@ async function main() {
   // (containment), and this proof's subject — the capacity repair and the refused-replacement restore as served to the
   // engines of their release — is the stage before it. Containment is proven by tbDecisionsRollout.mjs and
   // findingDecisions.mjs.
-  const decisionsAt = files.indexOf("20261118100000_tb_finding_decisions.sql");
+  const decisionsAt = files.indexOf(DECISIONS_FILE);
   await check("every later migration up to the finding-decisions release applies on top", async () => {
-    if (decisionsAt <= cut) return "20261118100000 missing from the chain";
+    if (decisionsAt <= cut) return `${DECISIONS_FILE} missing from the chain`;
     for (const f of files.slice(cut + 1, decisionsAt)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
     return true;
   });
@@ -628,6 +629,90 @@ async function main() {
     const active = await activeIn(s.year);
     return h.rows[0].outcome === "replaced" && waited >= 1 && r.outcome !== "restored" && JSON.stringify(active) === JSON.stringify([newer])
       && (await upRow(s.prev)).lifecycle_state === "superseded" ? true : { replace: h.rows[0], waited, r, active };
+  });
+
+  // The historical proof above deliberately exercises the capacity repair in the schema that introduced it. The final
+  // release also replaces finalization with the generation-7 decision contract, so replay the capacity boundary there too.
+  group("Final schema — generation-7 capacity, manifest and decision enforcement");
+  await check(`${DECISIONS_FILE} applies after the historical capacity coverage`, async () => {
+    if (decisionsAt < 0) return `${DECISIONS_FILE} missing from the chain`;
+    for (const f of files.slice(decisionsAt)) { try { await applyFile(f); } catch (e) { return `${f}: ${String(e.message).split("\n")[0]}`; } }
+    return true;
+  });
+  const G7_RULES = ["source_read", "columns", "period_and_currency", "duplicate_identities", "balance", "entity_name", "trailing_text", "clearing_accounts", "classification"];
+  const ruleFor = (finding) => {
+    if (finding.code === "NEEDS_REVIEW" || finding.code === "L5_SUPPORTING_EVIDENCE" || finding.code === "L6_PRIOR_PERIOD_SIGNAL") return "classification";
+    if (finding.code === "ENTITY_NAME_DIFFERS" || finding.code === "ENTITY_WRONG_DESTINATION") return "entity_name";
+    if (finding.code === "UNRECOGNISED_TRAILING_TEXT" || finding.code === "LAYOUT_CORRECTION_REQUIRED") return "trailing_text";
+    if (finding.code === "CLEARING_ACCOUNT_BALANCE") return "clearing_accounts";
+    if (finding.code === "TRIAL_BALANCE_IMBALANCE") return "balance";
+    return null;
+  };
+  const g7Manifest = (findings) => ({ format: "tb-evaluation/1", rules: G7_RULES.map((rule) => ({
+    rule, outcome: findings.some((finding) => ruleFor(finding) === rule) ? "finding" : "passed",
+  })) });
+  async function finalAttempt() {
+    const y = ++year;
+    const period = (await one("INSERT INTO public.fiscal_periods (company_id, fiscal_year_end, period_label, created_by, reporting_currency, reporting_start, reporting_end) VALUES ($1,$2,$3,$4,'TZS',$5,$6) RETURNING id",
+      [A, `${y}-12-31`, `FY${y}`, U.owner, `${y}-01-01`, `${y}-12-31`])).id;
+    const up = (await one(`INSERT INTO public.trial_balance_uploads (file_name, file_path, file_size, status, company_id, period_year, period_id, user_id)
+      VALUES ('tb-generation-7.csv',$1,10,'processing',$2,$3,$4,$5) RETURNING id`, [`${U.owner}/${uuid()}.csv`, A, y, period, U.owner])).id;
+    const b = (await asService("SELECT public.tb_begin_attempt($1,$2,'h','in',$3,'safisha-tb-certification-v7',7,'workspace_user',NULL,$4,600) r", [up, uuid(), SRC, U.owner]))[0].r;
+    if (b.outcome !== "claimed") throw new Error(`generation-7 begin: ${JSON.stringify(b)}`);
+    return { up, run: b.engine_run_id };
+  }
+  const finalCertified = (findings, { exceptions = summarizeFindings(findings).exceptions, manifest = g7Manifest(findings), findingsHash } = {}) => ({
+    outcome: "certified",
+    upload,
+    certification: {
+      normalized_input_hash: "generation-7-normalized", output_hash: "generation-7-output", is_blocking: false,
+      requires_review: true, rows_snapshot: [], exceptions, findings, evaluation: manifest,
+      ...(findingsHash === undefined ? {} : { findings_sha256: findingsHash }),
+    },
+  });
+  await check("2,000 generation-7 findings persist in exact order with a bounded summary and the recomputed database hash", async () => {
+    const t = await finalAttempt();
+    const r = await finalize(t.run, finalCertified(big));
+    const c = await one(`SELECT c.findings_count, c.findings_summarized, c.findings_sha256,
+        (SELECT count(*) FROM public.tb_certification_findings f WHERE f.certification_id=c.id) stored,
+        (SELECT jsonb_agg(f.finding ORDER BY f.ordinal) FROM public.tb_certification_findings f WHERE f.certification_id=c.id) = $2::jsonb exact_order,
+        (SELECT encode(sha256(convert_to(string_agg(f.finding::text, E'\\n' ORDER BY f.ordinal), 'UTF8')), 'hex')
+           FROM public.tb_certification_findings f WHERE f.certification_id=c.id) recomputed,
+        pg_column_size(c.exceptions) summary_bytes
+      FROM public.tb_certifications c WHERE c.id=$1`, [r.certification_id, JSON.stringify(big)]);
+    const er = await one("SELECT engine_generation FROM public.engine_runs WHERE id=$1", [t.run]);
+    return r.outcome === "certified" && Number(c.findings_count) === 2000 && Number(c.stored) === 2000
+      && c.findings_summarized === true && c.exact_order === true
+      && c.findings_sha256 === c.recomputed && Number(c.summary_bytes) <= 65536 && Number(er.engine_generation) === 7 ? true : { r, c, er };
+  });
+  await check("at capacity, a manifest that hides the classification finding refuses atomically", async () => {
+    const t = await finalAttempt();
+    const manifest = g7Manifest(big);
+    manifest.rules.find((rule) => rule.rule === "classification").outcome = "passed";
+    await refused("generation-7 manifest disagreement", "22023", () => finalize(t.run, finalCertified(big, { manifest })), "does not agree");
+    return nothingRecorded(t);
+  });
+  await check("at capacity, a summary with an altered count refuses atomically", async () => {
+    const t = await finalAttempt();
+    const exceptions = summarizeFindings(big).exceptions.map((entry) => isFindingCountRecord(entry)
+      ? { ...entry, summary: { ...entry.summary, total: entry.summary.total - 1, omitted: entry.summary.omitted - 1 } }
+      : entry);
+    await refused("generation-7 summary disagreement", "22023", () => finalize(t.run, finalCertified(big, { exceptions })), "does not agree");
+    return nothingRecorded(t);
+  });
+  await check("at capacity, a fabricated findings hash refuses atomically", async () => {
+    const t = await finalAttempt();
+    await refused("generation-7 findings hash disagreement", "22023", () => finalize(t.run, finalCertified(big, { findingsHash: "0".repeat(64) })), "findings hash does not agree");
+    return nothingRecorded(t);
+  });
+  await check("at capacity, the database still enforces the entity decision requirement", async () => {
+    const findings = [...findingsFor(1999), {
+      code: "ENTITY_NAME_DIFFERS", layer: 2, severity: "warning", accountCode: null, message: "Synthetic entity mismatch.",
+      subject: "synthetic entity", file_entity: "Synthetic Entity", decision_required: false,
+    }];
+    const t = await finalAttempt();
+    await refused("generation-7 entity requirement mismatch", "22023", () => finalize(t.run, finalCertified(findings)), "requirement the workspace does not have");
+    return nothingRecorded(t);
   });
 }
 

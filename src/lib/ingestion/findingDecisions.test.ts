@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  EVALUATION_RULES, applyDecisions, evaluationManifest, manifestAgrees, readCurrentDecisions, readRequirements, sameDecisions,
+  EVALUATION_RULES, FINDING_RULE, applyDecisions, evaluationManifest, manifestAgrees, readCurrentDecisions, readRequirements, sameDecisions,
   sameRequirements, type CurrentDecision, type DecisionFinding,
 } from "../../../supabase/functions/_shared/tbFindingDecisions";
 
@@ -78,6 +78,13 @@ describe("evaluationManifest", () => {
     const m = evaluationManifest([entity], "complete", true).rules;
     expect(manifestAgrees([entity], m.filter((r) => r.rule !== "trailing_text"))).toBe(false);
     expect(manifestAgrees([entity], m.map((r) => (r.rule === "entity_name" ? { ...r, outcome: "passed" } : r)))).toBe(false);
+  });
+  it("maps the duplicate, period and review codes that must not bypass a generation-7 manifest, and rejects unknown codes", () => {
+    expect(FINDING_RULE.DUPLICATE_ACCOUNT_CODE).toBe("duplicate_identities");
+    expect(FINDING_RULE.PERIOD_MISMATCH).toBe("period_and_currency");
+    expect(FINDING_RULE.NEEDS_REVIEW).toBe("classification");
+    const rules = evaluationManifest([], "complete", true).rules;
+    expect(manifestAgrees([{ ...other, code: "UNSUPPORTED_SYNTHETIC_FINDING" }], rules)).toBe(false);
   });
 });
 

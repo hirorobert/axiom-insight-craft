@@ -96,7 +96,12 @@ describe("staged release transport", () => {
 
   describe("migration authority with the six transport mirrors", () => {
     const added: string[] = [];
-    afterEach(() => { for (const t of added.splice(0)) delete (RELEASE_JOURNAL as Record<string, unknown>)[t]; });
+    const saved = new Map<string, unknown>();
+    afterEach(() => {
+      for (const t of added.splice(0)) delete (RELEASE_JOURNAL as Record<string, unknown>)[t];
+      for (const [t, e] of saved) (RELEASE_JOURNAL as Record<string, unknown>)[t] = e;
+      saved.clear();
+    });
 
     function simulate(mutate?: (name: string, text: string) => string) {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "transport-authority-"));
@@ -105,6 +110,18 @@ describe("staged release transport", () => {
       fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
       const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
       const j = JSON.parse(fs.readFileSync(jf, "utf8"));
+      // The real hosted transport entries (0064–0069) are removed from the copy, so the simulation re-applies them from the
+      // rendered forms (and their mutations) at the same journal positions; the real registrations are restored afterwards.
+      const names = transportForms().map((f) => f.name);
+      j.entries = j.entries.filter((e: { tag: string }) => {
+        if (!names.some((n) => e.tag.endsWith(`_${n}`))) return true;
+        fs.rmSync(path.join(dir, "drizzle/migrations", `${e.tag}.sql`));
+        const snap = path.join(dir, "drizzle/migrations/meta", `${e.tag.slice(0, 4)}_snapshot.json`);
+        if (fs.existsSync(snap)) fs.rmSync(snap);
+        if (!saved.has(e.tag)) saved.set(e.tag, (RELEASE_JOURNAL as Record<string, unknown>)[e.tag]);
+        delete (RELEASE_JOURNAL as Record<string, unknown>)[e.tag];
+        return false;
+      });
       let when = j.entries.at(-1).when;
       transportForms().forEach((f, i) => {
         const idx = j.entries.length;

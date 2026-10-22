@@ -54,17 +54,26 @@ export type RuleOutcome = "passed" | "finding" | "not_applicable" | "not_reached
 
 /** The manifest rule a finding code is reported under (mirrors public.tb_finding_rule). */
 export const FINDING_RULE: Readonly<Record<string, EvaluationRule>> = {
+  // Keep this exhaustive for every code that process-trial-balance can include in a certified result. The database
+  // function public.tb_finding_rule is the enforcement authority; findingDecisions.mjs proves this mirror exactly.
+  FILE_TOO_LARGE: "source_read", WORKBOOK_TOO_LARGE_EXPANDED: "source_read", WORKBOOK_TOO_MANY_PARTS: "source_read",
+  TOO_MANY_ROWS: "source_read", TOO_MANY_CELLS: "source_read", TOO_MANY_ACCOUNTS: "source_read", FILE_EMPTY: "source_read",
+  UNSUPPORTED_FORMAT: "source_read", ENCODING_NOT_UTF8: "source_read", CSV_UNTERMINATED_QUOTE: "source_read",
+  MULTIPLE_TRIAL_BALANCE_SHEETS: "source_read", UNSUPPORTED_LAYOUT: "source_read",
+  MISSING_COLUMN: "columns", AMBIGUOUS_AMOUNT_COLUMNS: "columns", MALFORMED_NUMERIC_VALUE: "columns",
+  PRECISION_EXCEEDS_CURRENCY: "columns", AMOUNT_OUT_OF_RANGE: "columns", BALANCE_COLUMN_MISMATCH: "columns",
+  MISSING_ACCOUNT_CODE: "columns", TOTAL_ROW_MISMATCH: "columns", TEMPLATE_EXAMPLE_UPLOADED: "columns",
+  NO_ACCOUNT_ROWS: "columns", LAYOUT_SHEET_NOT_FOUND: "columns", LAYOUT_HEADER_NOT_FOUND: "columns",
+  LAYOUT_COLUMN_NOT_FOUND: "columns", LAYOUT_COLUMN_DUPLICATED: "columns", LAYOUT_NUMBER_FORMAT_MISMATCH: "columns",
+  PERIOD_NOT_SELECTED: "period_and_currency", PERIOD_MISMATCH: "period_and_currency",
+  CURRENCY_UNRESOLVED: "period_and_currency", CURRENCY_UNSUPPORTED: "period_and_currency", CURRENCY_MISMATCH: "period_and_currency",
+  DUPLICATE_ACCOUNT_CODE: "duplicate_identities", DUPLICATE_ACCOUNT_NAME: "duplicate_identities",
+  TRIAL_BALANCE_IMBALANCE: "balance",
   ENTITY_NAME_DIFFERS: "entity_name", ENTITY_WRONG_DESTINATION: "entity_name",
   UNRECOGNISED_TRAILING_TEXT: "trailing_text", LAYOUT_CORRECTION_REQUIRED: "trailing_text",
   CLEARING_ACCOUNT_BALANCE: "clearing_accounts",
-  TRIAL_BALANCE_IMBALANCE: "balance",
-  DUPLICATE_ACCOUNT_CODE: "duplicate_identities", DUPLICATE_ACCOUNT_NAME: "duplicate_identities",
-  PERIOD_MISMATCH: "period_and_currency", CURRENCY_MISMATCH: "period_and_currency", PERIOD_MISSING: "period_and_currency",
-  CURRENCY_MISSING: "period_and_currency", CURRENCY_UNSUPPORTED: "period_and_currency",
-  NEEDS_REVIEW: "classification",
+  NEEDS_REVIEW: "classification", L5_SUPPORTING_EVIDENCE: "classification", L6_PRIOR_PERIOD_SIGNAL: "classification",
 };
-/** The rules whose outcome the database cross-checks against the findings (both directions). */
-const STRICT_RULES: ReadonlySet<EvaluationRule> = new Set(["entity_name", "trailing_text", "clearing_accounts", "balance"]);
 
 const key = (code: string, subject: string) => `${code}\u0000${subject}`;
 
@@ -129,8 +138,8 @@ export function evaluationManifest(findings: readonly DecisionFinding[], reached
 export function manifestAgrees(findings: readonly DecisionFinding[], rules: readonly { rule: string; outcome: string }[]): boolean {
   const outcome = new Map(rules.map((r) => [r.rule, r.outcome]));
   if (rules.length !== EVALUATION_RULES.length || EVALUATION_RULES.some((r) => !outcome.has(r))) return false;
-  for (const f of findings) { const r = FINDING_RULE[f.code]; if (r && STRICT_RULES.has(r) && outcome.get(r) !== "finding") return false; }
-  for (const r of STRICT_RULES) {
+  for (const f of findings) { const r = FINDING_RULE[f.code]; if (!r || outcome.get(r) !== "finding") return false; }
+  for (const r of EVALUATION_RULES) {
     if (outcome.get(r) === "finding" && !findings.some((f) => FINDING_RULE[f.code] === r)) return false;
   }
   return true;

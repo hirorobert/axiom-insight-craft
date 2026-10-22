@@ -449,6 +449,48 @@
       "when": 1792470872315,
       "tag": "0063_period_currency_correction",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1792601984044,
+      "tag": "0064_fs_release_staged_transport",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1792602300202,
+      "tag": "0065_fs_controls_r1_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792602338481,
+      "tag": "0066_fs_journey_r1_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792602377600,
+      "tag": "0067_fs_bounds_r1_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1792602414913,
+      "tag": "0068_fs_capacity_r1_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792602453026,
+      "tag": "0069_fs_memo_r1_staged_apply",
+      "breakpoints": true
     }
   ]
 }

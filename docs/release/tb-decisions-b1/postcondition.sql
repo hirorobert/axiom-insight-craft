@@ -97,6 +97,23 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: tb_max_engine_generation is not 7';
   END IF;
 
+  -- 5b. The database map is exhaustive for the bypass-prone emitted codes, rejects an unknown code, and the finalizer
+  -- enforces both directions of the manifest plus the complete-findings digest claimed by an engine.
+  IF public.tb_finding_rule('DUPLICATE_ACCOUNT_CODE') IS DISTINCT FROM 'duplicate_identities'
+     OR public.tb_finding_rule('PERIOD_MISMATCH') IS DISTINCT FROM 'period_and_currency'
+     OR public.tb_finding_rule('NEEDS_REVIEW') IS DISTINCT FROM 'classification'
+     OR public.tb_finding_rule('L5_SUPPORTING_EVIDENCE') IS DISTINCT FROM 'classification'
+     OR public.tb_finding_rule('L6_PRIOR_PERIOD_SIGNAL') IS DISTINCT FROM 'classification'
+     OR public.tb_finding_rule('UNSUPPORTED_SYNTHETIC_FINDING') IS NOT NULL THEN
+    RAISE EXCEPTION 'POSTCONDITION: the emitted finding-code map is incomplete or accepts an unsupported code';
+  END IF;
+  v_def := pg_get_functiondef('public.tb_finalize_attempt(uuid,jsonb)'::regprocedure);
+  IF position('a finding code is unsupported by this engine generation' IN v_def) = 0
+     OR position('the evaluation does not agree with the findings' IN v_def) = 0
+     OR position('findings hash does not agree with the complete findings' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'POSTCONDITION: finalization does not enforce the complete finding contract';
+  END IF;
+
   -- 6. Sign-off on the current rules: the gate on the one sign-off write and its member-only preview share one function.
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_fsp_requires_current_rules' AND tgrelid = 'public.financial_statement_publications'::regclass AND NOT tgisinternal)
      OR position('_tb_signoff_rules_blocker' IN pg_get_functiondef('public.tb_signoff_requires_current_rules()'::regprocedure)) = 0
