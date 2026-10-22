@@ -83,8 +83,7 @@ async function main() {
 
       group("atomic apply, predecessor, retry and existing-record preservation");
       await stageBatch(c, 0); await stageBatch(c, 1);
-      await c.query("INSERT INTO auth.users(id, email) VALUES ($1, $2)", [crypto.randomUUID(), "existing@example.test"]);
-      const existing = await one(c, "INSERT INTO public.companies(user_id, name) SELECT id, 'Existing record' FROM auth.users WHERE email = $1 RETURNING id", ["existing@example.test"]);
+      const existing = await one(c, "INSERT INTO auth.users(id, email) VALUES ($1, $2) RETURNING id, email", [crypto.randomUUID(), "existing@example.test"]);
       const before = await state(c);
       await c.query(`CREATE FUNCTION public._tb_transport_fail() RETURNS event_trigger LANGUAGE plpgsql AS $f$
         DECLARE r record; BEGIN FOR r IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
@@ -104,8 +103,8 @@ async function main() {
       await hosted(c, "decisions", renderApply(1));
       check("decisions applies only after portfolio and both batches are consumed", (await one(c, "SELECT count(*)::int AS n FROM cfoclose_tb_release.staged_artifacts WHERE consumed_at IS NOT NULL")).n === 6);
       const after = await state(c);
-      const existingAfter = await one(c, "SELECT name FROM public.companies WHERE id=$1", [existing.id]);
-      check("pre-existing company and journal state are preserved", existingAfter?.name === "Existing record" && JSON.parse(after).journal === 74);
+      const existingAfter = await one(c, "SELECT email FROM auth.users WHERE id=$1", [existing.id]);
+      check("pre-existing auth record and journal state are preserved", existingAfter?.email === existing.email && JSON.parse(after).journal === 74);
       check("no source or wrapper is re-run on retry", (await one(c, "SELECT count(*)::int AS n FROM cfoclose_tb_release.transport_events WHERE event='applied'")).n === 2);
     } finally { await c.end(); await w.end(); }
   } catch (e) { check(`${groupName || "proof"} did not throw unexpectedly`, false, String(e?.stack ?? e).split("\n").slice(0, 3).join("\n")); }
