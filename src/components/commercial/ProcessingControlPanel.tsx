@@ -48,7 +48,13 @@ export function ProcessingControlPanel() {
     }
   };
 
-  if (loadError) return <div className="space-y-2 text-sm"><p role="alert" className="text-destructive">{loadError}</p><Button size="sm" variant="outline" onClick={load}>Retry</Button></div>;
+  if (loadError) return (
+    <div className="space-y-2 text-sm">
+      {message && <p role="alert" className={message.ok ? "" : "text-destructive"} data-testid="processing-outcome">{message.text}</p>}
+      <p role="alert" className="text-destructive">{loadError}</p>
+      <Button size="sm" variant="outline" onClick={() => { load(); }}>Refresh</Button>
+    </div>
+  );
   if (!state) return <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" />;
 
   const floor = state.min_engine_generation ?? 0;
