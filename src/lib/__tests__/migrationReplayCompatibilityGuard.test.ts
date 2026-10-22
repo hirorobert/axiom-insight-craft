@@ -267,7 +267,8 @@ describe("migration directory integrity", () => {
     // 188 -> 189: 20261118100000_tb_finding_decisions.sql (trial-balance finding decisions, the generation-7 evaluation
     // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
     // 189 -> 190: 20261119100000_customer_checkout_abandon.sql (owner checkout recovery; applied as 0070).
-    expect(files.length).toBe(190);
+    // 190 -> 191: 20261122100000 catalogue authenticated-session read predicates (hosted 0074).
+    expect(files.length).toBe(191);
   });
 });
 

@@ -22,7 +22,8 @@
 
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Building2 } from "lucide-react";
+import { ArrowRight, Building2, Plus, Upload, MoreHorizontal } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -51,6 +52,7 @@ import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio"
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
 export interface AccountHome {
   /** Exact totals when the lists are bounded samples (get_account_home); count-based decisions use these. */
+  identity?: { name?: string | null; email?: string | null };
   totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number; shared: number };
   billing: BillingSummary | null;
   billingLoading: boolean;
@@ -241,9 +243,17 @@ export default function EngagementHub({
   const hasUnavailable = unavailableEngagements.length > 0;
   const body = (
     <>
-      {account && next && (
-        <section className="mb-10" aria-labelledby="account-home-title">
-          <h1 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h1>
+      {account && portfolio && <header className="mb-5" data-testid="portfolio-home-header">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[28px]">Companies &amp; engagements</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Choose an engagement or add a company.</p>
+        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-t-sm border border-border bg-card px-3 py-3" data-testid="portfolio-toolbar">
+          {canCreate && <Button asChild className="h-9 gap-2 rounded-sm text-[13px]" data-testid="add-company"><Link to="/companies/new"><Plus className="h-4 w-4" aria-hidden="true" />Add company</Link></Button>}
+          {account.onOpenTrialBalance && <Link to="/upload" className="inline-flex h-9 items-center gap-2 rounded-sm border border-border px-3 text-[13px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link"><Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>}
+        </div>
+      </header>}
+      {account && next && (!portfolio || ["checking", "retry", "choose_plan", "capacity_reached", "ask_owner", "start_review"].includes(next.kind)) && (
+        <section className="mb-6" aria-label="Account next step">
+          {!portfolio && <h2 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h2>}
           {/* With the engagements list, uploading lives on its own page (/upload), linked from the list. */}
           {uploadHome === "compact" && account.onOpenTrialBalance && !portfolio && (
             <div className="mb-4">
@@ -251,7 +261,7 @@ export default function EngagementHub({
                 onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
             </div>
           )}
-          {(uploadHome === "full" || uploadHome === "full_needs_plan") && account.onOpenTrialBalance ? (
+          {(uploadHome === "full" || uploadHome === "full_needs_plan") && account.onOpenTrialBalance && !portfolio ? (
             <FirstUpload needsPlan={uploadHome === "full_needs_plan"} onChoosePlan={() => navigate("/plans")} onOpenResult={account.onOpenTrialBalance} />
           ) : (
           <NextActionCard
@@ -263,7 +273,7 @@ export default function EngagementHub({
             onStartReview={() => { const u = unavailableEngagements.find((x) => next.kind === "start_review" && x.engagementId === next.engagementId); if (u) addReview(u); }}
             onStartService={() => { const c = companiesWithoutEngagement.find((x) => next.kind === "start_service" && x.id === next.companyId); if (c) onStartService(c); }}
             onOpenShared={sharedWorkspaces.length === 1 && onOpenShared ? () => onOpenShared(sharedWorkspaces[0]) : undefined}
-            onAddCompany={canCreate ? () => setAddOpen(true) : undefined}
+            onAddCompany={canCreate ? () => portfolio ? navigate("/companies/new") : setAddOpen(true) : undefined}
             addFormId={addFormId}
             pendingLabel={next.kind === "start_review" && pending === next.engagementId ? "Starting…" : null}
           />
@@ -271,7 +281,7 @@ export default function EngagementHub({
         </section>
       )}
       {portfolio && account && (
-        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" uploadHref={uploadHome === "compact" ? "/upload" : undefined} renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
       )}
       {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">
@@ -404,7 +414,7 @@ export default function EngagementHub({
           )}
         </section>
       )}
-      {account && (
+      {account && !portfolio && (
         <section className="mb-10" data-testid="account-companies" aria-labelledby="account-companies-title">
           <h2 id="account-companies-title" className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">Companies</h2>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -433,7 +443,7 @@ export default function EngagementHub({
         </section>
       )}
       {/* A plan read in flight or failed is already the next step (checking / try again): never said twice. */}
-      {account && !account.billingLoading && !account.billingError && (
+      {account && !portfolio && !account.billingLoading && !account.billingError && (
         <section className="mt-10" data-testid="account-plan">
           <CurrentPlanPanel billing={account.billing} capacity={account.capacity} loading={account.billingLoading} error={account.billingError} onRetry={account.onRetry}
             hidePlansAction={next?.kind === "choose_plan" || next?.kind === "capacity_reached"} />
@@ -442,7 +452,7 @@ export default function EngagementHub({
     </>
   );
 
-  if (account) return <AccountShell onSignOut={account.onSignOut}>{body}</AccountShell>;
+  if (account) return <AccountShell identity={account.identity} onSignOut={account.onSignOut}>{body}</AccountShell>;
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border h-14 flex items-center justify-between gap-3 px-4 sm:px-6">
@@ -507,19 +517,14 @@ function CompanyOptions({ companyId, companyName, current, onSet }: { companyId:
   const [notice, setNotice] = useState<string | null>(null);
   const ids = { panel: useId(), heading: useId(), purpose: useId(), reason: useId(), help: useId() };
   return (
-    <div className="mb-2">
-      <button type="button" aria-expanded={open} aria-controls={ids.panel} onClick={() => setOpen((o) => !o)}
-        className="text-[12px] text-muted-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        data-testid={`company-options-${companyId}`}>
-        Company options{open ? "" : "…"}
-      </button>
-      {open && (
-        <section id={ids.panel} aria-labelledby={ids.heading} className="mt-2 border border-border bg-card p-4" data-testid={`company-options-panel-${companyId}`}>
-          <h4 id={ids.heading} className="text-[13px] font-semibold text-foreground">Workspace purpose · {companyName}</h4>
+    <Dialog open={open} onOpenChange={(value) => { if (!busy) setOpen(value); }}>
+      <DialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Company options: ${companyName}`} data-testid={`company-options-${companyId}`}><MoreHorizontal className="h-4 w-4" aria-hidden="true" /></Button></DialogTrigger>
+        <DialogContent className="sm:max-w-xl" data-testid={`company-options-panel-${companyId}`}>
+          <DialogHeader><DialogTitle>Workspace purpose · {companyName}</DialogTitle><DialogDescription>Record how this workspace is used.</DialogDescription></DialogHeader>
           <p className="mt-1 text-[13px] text-foreground">Recorded: {current ? PURPOSE_WORDS[current] : "Not stated"}</p>
           <p id={ids.help} className="mt-1 max-w-prose text-[12px] text-muted-foreground" data-testid={`purpose-explanation-${companyId}`}>{PURPOSE_EXPLANATION}</p>
           <form className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end" aria-describedby={ids.help} data-testid={`set-purpose-${companyId}`}
-            onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; setBusy(true); try { setNotice(await onSet(companyId, purpose, reason.trim())); } finally { setBusy(false); } }}>
+            onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; setBusy(true); try { setNotice(await onSet(companyId, purpose, reason.trim())); } catch { setNotice("Purpose could not be recorded. Try again."); } finally { setBusy(false); } }}>
             <div>
               <label htmlFor={ids.purpose} className="block text-[12px] font-medium text-foreground">Purpose</label>
               <select id={ids.purpose} className="mt-1 h-9 w-full border border-input bg-background px-2 text-[13px]" value={purpose} onChange={(e) => setPurpose(e.target.value as WorkspacePurpose)}>
@@ -536,8 +541,7 @@ function CompanyOptions({ companyId, companyName, current, onSet }: { companyId:
             </div>
           </form>
           {notice ? <p role="status" className="mt-2 text-[12px] text-muted-foreground">{notice}</p> : null}
-        </section>
-      )}
-    </div>
+        </DialogContent>
+    </Dialog>
   );
 }

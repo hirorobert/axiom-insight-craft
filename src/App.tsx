@@ -81,6 +81,7 @@ const Orders = lazy(() => import("@/pages/billing/Orders"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
 const UploadTrialBalance = lazy(() => import("@/pages/UploadTrialBalance"));
+const AddCompany = lazy(() => import("@/pages/AddCompany"));
 // Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
 // A literal gate (REPORTING_PAGES_SHIPPED): while it is false the chunk is not in the build at all.
 const ReportingWorkbenchPage = REPORTING_PAGES_SHIPPED
@@ -180,6 +181,7 @@ const App = () => (
 
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/companies/new" element={<PageErrorBoundary pageName="Add company"><Suspense fallback={null}><AddCompany /></Suspense></PageErrorBoundary>} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/request-access" element={<Navigate to="/pricing" replace />} />
                 <Route path="/plans" element={<Plans />} />

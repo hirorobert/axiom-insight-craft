@@ -260,15 +260,14 @@ async function main() {
   });
 
   startGroup("New user: first run");
-  await check("first visit: the upload is the one primary action, with formats and the size limit visible (Phase 2 P2-3)", async () => {
-    await go("/dashboard", "Check your trial balance");
-    await page.waitForSelector('[data-testid="first-upload-dropzone"]', { timeout: 30000 });
-    await widths("02-first-visit");
-    const t = await page.bodyText();
-    const primaries = await page.evaluate(() => document.querySelectorAll('[data-testid="next-action-primary"]').length);
-    return /CSV or Excel \(\.csv, \.xlsx, \.xls\), up to 10 MB/.test(t) && primaries === 0 ? true : { primaries, t: t.slice(0, 300) };
+  await check("first visit: company setup is prominent, with upload on its own page and no inline company form", async () => {
+    await go("/dashboard", "Companies & engagements");
+    await page.waitForSelector('[data-testid="add-company"]', { timeout: 30000 });
+    const layout = await widths("02-first-visit");
+    const entry = await page.evaluate(() => ({ add: document.querySelector('[data-testid="add-company"]')?.getAttribute("href"), upload: document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href"), inline: !!document.getElementById("fr-org") }));
+    return layout === true && entry.add === "/companies/new" && entry.upload === "/upload" && !entry.inline ? true : { entry, layout };
   });
-  await check("first run creates the company through the real form, reached by the secondary 'Add a company' (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
+  await check("first run creates the company through the real form, reached by Add company (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
     await page.click('[data-testid="add-company"]');
     await page.waitForSelector("#fr-org", { timeout: 30000 });
     await widths("02-first-run");
@@ -711,7 +710,8 @@ async function main() {
   // The second account has a plan and no entity yet: its first visit is the upload itself. Invented file and names only.
   let B = null;
   await check("the drop zone takes the file; it is stored privately as a draft, not yet in any entity", async () => {
-    await go("/dashboard", "Check your trial balance");
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[data-testid="portfolio-upload-link"]');
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -776,7 +776,8 @@ async function main() {
   await signOut(); await signIn(U.noPlan);
   const noPlanApi = await asUser(U.noPlan);
   await check("no plan: the upload is offered with the plan stated up front; the file is stored as a draft", async () => {
-    await go("/dashboard", "Check your trial balance");
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[data-testid="portfolio-upload-link"]');
     await page.waitForSelector('[data-testid="first-upload-needs-plan"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -800,7 +801,8 @@ async function main() {
   });
   await check("after a plan exists, the home offers 'Continue saved upload' for the same draft, with the card as it was; the check completes", async () => {
     await grantPlan(U.noPlan.id);
-    await go("/dashboard", "Check your trial balance");
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[data-testid="portfolio-upload-link"]');
     await page.waitForSelector('[data-testid="first-upload-continue-draft"]', { timeout: 30000 });
     await page.click('[data-testid="first-upload-continue-draft"]');
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 30000 });
@@ -859,7 +861,8 @@ async function main() {
   };
 
   await check("first upload: the file's TZS labels are shown against the chosen USD before anything runs; 'Start' lists the conflict and creates nothing", async () => {
-    await go("/dashboard", "Check your trial balance");
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[data-testid="portfolio-upload-link"]');
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await chooseFirstFile(tbLabelledTzs);
     if (!(await fillCard("USD"))) return "the currency could not be chosen";
@@ -1118,7 +1121,8 @@ async function main() {
   };
 
   await check("a file whose title names the entity differently and carries a cash-in-transit balance: the entity decision is REQUIRED, the clearing balance is an optional review note; each finding listed once; nothing authoritative; the engagement and its settings are stated in the rail, not in the task", async () => {
-    await go("/dashboard", "");
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[data-testid="portfolio-upload-link"]');
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbKilimo]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });

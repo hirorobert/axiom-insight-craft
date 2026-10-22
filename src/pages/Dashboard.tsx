@@ -286,6 +286,7 @@ export default function Dashboard() {
         return data?.outcome === "unchanged" ? "That purpose is already recorded." : data?.outcome === "forbidden" ? "Only the company's owner can record its purpose." : "Not recorded: a reason of at least 3 characters is required.";
       }}
       account={{
+        identity: { name: user?.user_metadata?.display_name, email: user?.email },
         totals: homeTotals,
         billing,
         billingLoading,
