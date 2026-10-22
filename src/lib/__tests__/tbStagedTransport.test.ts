@@ -125,7 +125,7 @@ describe("TB transport integration with the real migration-authority guard", () 
     withMirrors((dir) => {
       const r = checkMigrationAuthority(dir);
       expect(r.errors).toEqual([]);
-      expect(r.pending).toEqual([]);
+      expect(r.pending).toEqual(["20261122100000_tb_decision_catalogue_read_predicate.sql"]); // applied after the TB batches; the simulation truncates the journal before them
       expect(r.mirrored.filter((m: { how: string }) => m.how === "tb_staged_transport").map((m: { source: string }) => m.source))
         .toEqual(BATCHES.map((b) => b.source));
       for (const b of FS_BATCHES) expect(r.mirrored.some((m: { source: string; how: string }) => m.source === b.source && m.how === "staged_transport")).toBe(true);
