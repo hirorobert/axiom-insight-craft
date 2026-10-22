@@ -1,5 +1,5 @@
-// The deployed-bundle verifier (scripts/release/verifyDeployedClosure.mjs) recognises the required storage-cleanup
-// closure, the known older one (before PR #76) and anything else — from a downloaded tree, read-only.
+// The deployed-bundle verifier (scripts/release/verifyDeployedClosure.mjs) recognises the required TB/FS closures,
+// known older closures and anything else — from a downloaded tree, read-only.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,24 @@ import { classify, deployedClosure, KNOWN_CLOSURES } from "../../../scripts/rele
 
 const ROOT = path.join(__dirname, "../../..");
 const FILES = ["supabase/functions/trial-balance-storage-cleanup/index.ts", "supabase/functions/_shared/storageCleanup.ts"];
+const LAYOUT_FILES = [
+  "supabase/functions/trial-balance-layout/index.ts",
+  "supabase/functions/_shared/auth.ts",
+  "supabase/functions/_shared/currencyRegistry.ts",
+  "supabase/functions/_shared/hash.ts",
+  "supabase/functions/_shared/layoutConfirmationRead.ts",
+  "supabase/functions/_shared/layoutProfile.ts",
+  "supabase/functions/_shared/namedUserAccess.ts",
+  "supabase/functions/_shared/paidAction.ts",
+  "supabase/functions/_shared/printedReportMetadata.ts",
+  "supabase/functions/_shared/processingActor.ts",
+  "supabase/functions/_shared/tbIngestion.ts",
+  "supabase/functions/_shared/tbInvestigation.ts",
+  "supabase/functions/_shared/tbSource.ts",
+  "supabase/functions/_shared/trialBalanceLayout.ts",
+  "supabase/functions/_shared/uploadLifecycle.ts",
+  "supabase/functions/_shared/uploadPolicy.ts",
+];
 const tree = (contents: Record<string, Buffer>) => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "deployed-"));
   for (const [f, b] of Object.entries(contents)) { fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true }); fs.writeFileSync(path.join(d, f), b); }
@@ -34,6 +52,21 @@ describe("which storage-cleanup bundle is deployed", () => {
       expect(classify(fn, digest).verdict, fn).toBe("REQUIRED");
       expect(classify(fn, KNOWN_CLOSURES[fn].known[0].sha256).verdict, fn).toBe("KNOWN_OLDER");
     }
+  });
+  it("the generation-7 process and layout closures are recomputed from the committed source and both classify as REQUIRED", () => {
+    for (const fn of ["process-trial-balance", "trial-balance-layout"] as const) {
+      const digest = deployedClosure(fn, ROOT);
+      expect(digest, fn).toBe(KNOWN_CLOSURES[fn].required.sha256);
+      expect(classify(fn, digest).verdict, fn).toBe("REQUIRED");
+    }
+  });
+  it("a complete layout bundle with one changed byte is UNKNOWN, never accepted by a substring match", () => {
+    const files = Object.fromEntries(LAYOUT_FILES.map((f) => {
+      const body = fs.readFileSync(path.join(ROOT, f));
+      return [f, Buffer.concat([body, f.endsWith("index.ts") ? Buffer.from(" ") : Buffer.alloc(0)])];
+    }));
+    const d = tree(files);
+    expect(classify("trial-balance-layout", deployedClosure("trial-balance-layout", d)).verdict).toBe("UNKNOWN");
   });
   it("a bundle with the current sources IS the required closure (reuse)", () => {
     const d = tree(Object.fromEntries(FILES.map((f) => [f, fs.readFileSync(path.join(ROOT, f))])));

@@ -647,6 +647,14 @@ jobs:
           dropdb tb_rollout_proof && createdb tb_rollout_proof
           ROLLOUT_OLD_COMMIT=942764f10506b54d5f0b37c93fecaabc371444fe bun scripts/db-proof/tbDecisionsRollout.mjs
 
+      - name: Trial-balance exact-byte transport proof (tampered bytes, wrong predecessor, atomic rollback, uncertain target, duplicate retry, journal sequencing and preservation of existing records; local throwaway database only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_transport_proof
+        run: |
+          createdb tb_transport_proof
+          bun scripts/db-proof/tbStagedTransport.mjs
+
       - name: Milestone release-order proof (one database upgraded from the schema of main through the seven release migrations one at a time, with legacy personal and workspace uploads, an in-window discard and the real sweeper at every stage; the new storage-cleanup function on the old schema; old and new cleanup handlers on a shared source; retiring or discarding one year never deletes a file its sibling needs; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
