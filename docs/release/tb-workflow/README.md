@@ -90,6 +90,12 @@ then records the actual predecessor id in its event evidence; PostgreSQL sequenc
 allowed because they add no committed journal row. Read the actual row after each submission and derive the next id from
 that row; if the committed predecessor hash or journal tail differs, stop rather than guessing or replaying.
 
+The migration-authority guard recognizes these through the dedicated `tb_staged_transport` release kind. Do not register
+unexecuted migrations as applied. After each actual canonical submission, retain its generated mirror and metadata,
+add a `RELEASE_JOURNAL` entry for the actual tag with `kind: "tb_staged_transport"` and the observed registered submission
+hash, then run `node scripts/ci/assertMigrationAuthority.mjs`. Bootstrap covers no source; the two apply mirrors cover
+only their respective TB sources. Both source and transport bytes are checked; no earlier journal entry is changed.
+
 The transport refuses an absent or modified artifact, wrong predecessor, duplicate/consumed batch, pre-existing target
 object without a consumed transport record, incomplete staging and any postcondition failure. Each apply is one atomic
 DO statement; a failed wrapper, postcondition or journal insert rolls back the schema objects, stage consumption,
@@ -105,10 +111,11 @@ role, service-role key in a shell history, or undocumented direct SQL is an acce
 
 | Step | Action | What happens, and why it is safe |
 |---|---|---|
+| 0 | **Hold processing before either TB apply or function deployment.** Capture `admin_get_processing_control()`; call `admin_set_processing_control(p_hold => true, p_canary_company_ids => ARRAY[]::uuid[], p_min_engine_generation => <current floor>, p_reason => <release reason>, p_expected_version => <current version>)` | Verify the returned/read-back control has hold=true and no canary companies. Keep the hold through steps 1–4; no new generation-7 request is admitted before the canary is deliberately allowed in step 5 |
 | 1 | Install `tb-portfolio-a1` with the exact-byte transport (`20261117100000`; wrapper and postcondition) | Generation 6 keeps certifying through the new triggers; results in force stay in force; the old frontend calls none of it |
 | 2 | Install `tb-decisions-b1` with the exact-byte transport (`20261118100000`; wrapper and postcondition) | **Containment starts here, by construction.** No engine below generation 7 can begin a check (refused before any write, `ENGINE_GENERATION_SUPERSEDED`); an attempt begun before the apply finishes failed and certifies nothing. **Processing pauses** until step 5: a person who uploads sees "This check could not start. Refresh and try again."; nothing is written. Results in force stay in force. An interrupted apply rolls back completely |
 | 3 | **Publish the frontend** | Needs steps 1–2 (without them the home reads "unavailable" — fails closed) |
-| 4 | Deploy `process-trial-balance` generation 7 (closure `89dfebd2…34e3`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | **Processing resumes** (§6.1). Generation-6 instances still answering stay refused for every upload; generation 7 completes the requests they were refused |
+| 4 | Deploy `process-trial-balance` generation 7 (closure `89dfebd2…34e3`) and `trial-balance-layout` with `investigate` (closure `aec4b928…3dab`) | **Processing remains held.** Verify both deployed closures before admitting only the canary in step 5. Generation-6 instances remain refused after the decisions migration |
 | 5 | Hold, canary and resume with `admin_set_processing_control(boolean, uuid[], integer, text, bigint)` | Keep the hold during steps 2–4; then set `p_hold=true`, `p_canary_company_ids=[canary]`, `p_min_engine_generation=7` for the canary check, and only after a successful generation-7 canary set `p_hold=false`, `p_canary_company_ids=[]`, `p_min_engine_generation=7` with the current version. The floor only rises |
 
 ### 6.1 Containment and when processing can safely resume
@@ -118,8 +125,9 @@ role, service-role key in a shell history, or undocumented direct SQL is an acce
   certified under superseded rules after that instant — including a file naming another entity, which generation 6 accepts
   today (proven at stage 1 and refused at stage 2). Mutation-checked: restoring the old "only uploads with decisions"
   condition fails two rollout checks.
-* **The processing pause** is the interval between step 2 and the successful generation-7 canary in step 5. Perform
-  steps 2–5 back to back. Uploads made
+* **The processing pause** starts with the verified hold in step 0 and ends only after the successful generation-7
+  canary and explicit hold release in step 5. Prepare all submissions and deployment capabilities first, then perform
+  steps 0–5 back to back. Uploads made
   during it are stored and stay ready; nothing is lost or half-written.
 * **Resume when, and only when, all of these hold** (each is checked, none assumed):
   1. `scripts/release/verifyDeployedClosure.mjs` reports `process-trial-balance` = `89dfebd2…34e3` and

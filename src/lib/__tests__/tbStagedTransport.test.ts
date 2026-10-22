@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain ESM release tool without type declarations
@@ -8,6 +9,9 @@ import {
   checkTransportMirror, committedBytes, renderAll, renderApply, renderBootstrap, renderStage, transportForms,
 } from "../../../scripts/release/tbStagedTransport.mjs";
 import { BATCHES as FS_BATCHES, renderAll as renderFsAll } from "../../../scripts/release/stagedTransport.mjs";
+
+import { RELEASE_JOURNAL } from "../../../scripts/ci/releaseJournal.mjs";
+import { checkMigrationAuthority } from "../../../scripts/ci/assertMigrationAuthority.mjs";
 
 const ROOT = path.resolve(__dirname, "../../..");
 
@@ -65,5 +69,96 @@ describe("Trial Balance exact-byte staged transport", () => {
     expect(checkTransportMirror(`0072_${f.name}`, f.text.replace("Exact source", "Tampered source")).problems.length).toBeGreaterThan(0);
     expect(checkTransportMirror("0072_unregistered", f.text).problems.length).toBeGreaterThan(0);
     expect(path.join(ROOT, TRANSPORT_DIR)).toContain("staged-transport-tb");
+  });
+});
+
+
+describe("TB transport integration with the real migration-authority guard", () => {
+  function withMirrors(run: (dir: string, tags: string[]) => void, register = true) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tb-transport-authority-"));
+    const added: string[] = [];
+    const registry = RELEASE_JOURNAL as Record<string, unknown>;
+    try {
+      fs.cpSync(path.join(ROOT, "supabase/migrations"), path.join(dir, "supabase/migrations"), { recursive: true });
+      fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
+      const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
+      const journal = JSON.parse(fs.readFileSync(jf, "utf8"));
+      let when = journal.entries.at(-1).when;
+      const tags: string[] = [];
+      for (const form of transportForms()) {
+        const idx = journal.entries.length;
+        const tag = `${String(idx).padStart(4, "0")}_${form.name}`;
+        if (tag in registry) throw new Error(`refuse to replace an existing registration: ${tag}`);
+        fs.writeFileSync(path.join(dir, "drizzle/migrations", `${tag}.sql`), form.text);
+        fs.copyFileSync(
+          path.join(dir, "drizzle/migrations/meta", `${String(idx - 1).padStart(4, "0")}_snapshot.json`),
+          path.join(dir, "drizzle/migrations/meta", `${String(idx).padStart(4, "0")}_snapshot.json`),
+        );
+        journal.entries.push({ idx, version: "7", when: (when += 1000), tag, breakpoints: true });
+        if (register) { registry[tag] = { kind: "tb_staged_transport", sha256: form.hashes[0] }; added.push(tag); }
+        tags.push(tag);
+      }
+      fs.writeFileSync(jf, JSON.stringify(journal, null, 2));
+      run(dir, tags);
+    } finally {
+      for (const tag of added) delete registry[tag];
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("accepts all three registered canonical mirrors, covers both TB sources and retains existing FS/payment coverage", () => {
+    withMirrors((dir) => {
+      const r = checkMigrationAuthority(dir);
+      expect(r.errors).toEqual([]);
+      expect(r.pending).toEqual([]);
+      expect(r.mirrored.filter((m: { how: string }) => m.how === "tb_staged_transport").map((m: { source: string }) => m.source))
+        .toEqual(BATCHES.map((b) => b.source));
+      for (const b of FS_BATCHES) expect(r.mirrored.some((m: { source: string; how: string }) => m.source === b.source && m.how === "staged_transport")).toBe(true);
+      expect(r.releaseApplied).toContainEqual({ tag: "0070_customer_checkout_abandon", source: "20261119100000_customer_checkout_abandon.sql" });
+    });
+  }, 120_000);
+
+  it("refuses unregistered canonical-looking mirrors rather than silently trusting their names", () => {
+    withMirrors((dir, tags) => {
+      const r = checkMigrationAuthority(dir);
+      expect(r.ok).toBe(false);
+      for (const tag of tags) expect(r.errors.some((e: string) => e.includes(tag))).toBe(true);
+    }, false);
+  }, 120_000);
+
+  it("refuses a modified mirror through checkMigrationAuthority itself", () => {
+    withMirrors((dir, tags) => {
+      fs.appendFileSync(path.join(dir, "drizzle/migrations", `${tags[1]}.sql`), "\n-- altered");
+      const r = checkMigrationAuthority(dir);
+      expect(r.ok).toBe(false);
+      expect(r.errors.some((e: string) => e.includes(tags[1]) && /reviewed content|registered/.test(e))).toBe(true);
+    });
+  }, 120_000);
+
+  it("refuses a changed covered source even when the transport mirror and registration are untouched", () => {
+    withMirrors((dir) => {
+      fs.appendFileSync(path.join(dir, "supabase/migrations", BATCHES[1].source), "\n-- altered");
+      const r = checkMigrationAuthority(dir);
+      expect(r.ok).toBe(false);
+      expect(r.errors.some((e: string) => e.includes("covered TB source") && e.includes(BATCHES[1].source))).toBe(true);
+    });
+  }, 120_000);
+
+  it("revokes only the three newly created helper signatures and starts the documented cutover with a hold", () => {
+    const bootstrap = renderBootstrap();
+    expect(bootstrap).not.toMatch(/ON\s+ALL\s+FUNCTIONS\s+IN\s+SCHEMA/i);
+    for (const signature of [
+      "cfoclose_tb_release.approved_artifact(text, text)",
+      "cfoclose_tb_release.staged_artifacts_guard()",
+      "cfoclose_tb_release.append_only_guard()",
+    ]) {
+      expect(bootstrap).toContain(`REVOKE EXECUTE ON FUNCTION ${signature} FROM PUBLIC`);
+      expect(bootstrap).toContain(`REVOKE EXECUTE ON FUNCTION ${signature} FROM %I`);
+    }
+    const doc = fs.readFileSync(path.join(ROOT, "docs/release/tb-workflow/README.md"), "utf8");
+    expect(doc.indexOf("| 0 | **Hold processing")).toBeGreaterThan(-1);
+    expect(doc.indexOf("| 0 | **Hold processing")).toBeLessThan(doc.indexOf("| 1 | Install"));
+    expect(doc).toContain("p_hold => true, p_canary_company_ids => ARRAY[]::uuid[]");
+    expect(doc).toContain("**Processing remains held.**");
   });
 });

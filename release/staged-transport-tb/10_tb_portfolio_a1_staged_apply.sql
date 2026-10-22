@@ -4,7 +4,7 @@ DO $cfoclose_tb_transport_tb_portfolio_a1$
 DECLARE
   c_batch CONSTANT text := 'tb-portfolio-a1';
   c_prior CONSTANT text := NULL;
-  c_predecessor CONSTANT text[] := ARRAY['cfede1ff678593d2011080f34cabb4db8bc3b11754683f1a3287d3d35de63fb3', '994b0695c800062ae0e3f3a709b86b3b13969967db2d964f20535765fc1bf7fc']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['01c48cfaaa461db09894af265adc6c23824216bcb2cf384b3e943d4f453a86f7', 'ed2fa115521a1770877fde076f888a945d2edcd7dc488d39b25f5869bd90da44']::text[];
   v_n bigint; v_pred_id bigint; v_source text; v_wrapper text; v_postcondition text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_tb_release_transport', 0));
