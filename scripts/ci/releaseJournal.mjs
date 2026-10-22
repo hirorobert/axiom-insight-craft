@@ -29,6 +29,7 @@ import { lexSql } from "./atomicEnvelope.mjs";
 import { checkGuardedEntry } from "../release/guardedEntry.mjs";
 import { render as renderSelfCheckingWrapper } from "../release/selfCheckingWrapper.mjs";
 import { checkTransportMirror } from "../release/stagedTransport.mjs";
+import { BATCHES as TB_TRANSPORT_BATCHES, checkTransportMirror as checkTbTransportMirror } from "../release/tbStagedTransport.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -840,6 +841,19 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     // A reviewed entry may declare itself applied OUT OF SOURCE ORDER (ahead of authored, still-pending sources): the parity
     // checker then counts it as applied without treating the earlier sources as skipped (the 0016 precedent).
     return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: entry.outOfOrder === true, problems };
+  }
+  if (entry.kind === "tb_staged_transport") {
+    const r = checkTbTransportMirror(tag, text);
+    problems.push(...r.problems);
+    if (r.covers) {
+      const batch = TB_TRANSPORT_BATCHES.find((b) => b.source === r.covers);
+      const src = srcBytes(r.covers);
+      if (!batch || !src || src.length !== batch.sourceArtifact.bytes || sha256(src) !== batch.sourceArtifact.sha256) {
+        problems.push(`${tag}: the covered TB source ${r.covers} differs from its approved byte identity`);
+      }
+      return { covers: r.covers, how: "tb_staged_transport", outOfOrder: false, problems };
+    }
+    return { problems };
   }
   if (entry.kind === "staged_transport") {
     // A staged-transport entry (scripts/release/stagedTransport.mjs): the mirror must be exactly a REGISTERED transport
