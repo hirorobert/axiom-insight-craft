@@ -918,7 +918,7 @@ jobs:
           createdb tb_portfolio_wrappers_proof
           node scripts/db-proof/selfCheckingWrappers.mjs
 
-      - name: Finding decisions wrapper proof (the same reviewed apply-and-register proof for the tb-decisions-b1 wrapper, 20261118100000 at e897887; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
+      - name: Finding decisions wrapper proof (the same reviewed apply-and-register proof for the tb-decisions-b1 wrapper, 20261118100000 at e2c4fd4; every refusal before any statement, injected failures rolled back with no journal row, the hosted-executor model, re-application refused, the read-only postcondition, drizzle-orm migrate())
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/tb_decisions_wrappers_proof
