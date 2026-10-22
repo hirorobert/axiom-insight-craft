@@ -79,12 +79,24 @@ describe("TB transport integration with the real migration-authority guard", () 
   function withMirrors(run: (dir: string, tags: string[]) => void, register = true) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tb-transport-authority-"));
     const added: string[] = [];
+    const removed: [string, unknown][] = [];
     const registry = RELEASE_JOURNAL as Record<string, unknown>;
     try {
       fs.cpSync(path.join(ROOT, "supabase/migrations"), path.join(dir, "supabase/migrations"), { recursive: true });
       fs.cpSync(path.join(ROOT, "drizzle"), path.join(dir, "drizzle"), { recursive: true });
       const jf = path.join(dir, "drizzle/migrations/meta/_journal.json");
       const journal = JSON.parse(fs.readFileSync(jf, "utf8"));
+      // The hosted mirrors (0071–0073) now exist; re-simulate them from a journal truncated before the first one.
+      const names = transportForms().map((f) => f.name);
+      const firstHosted = journal.entries.findIndex((e: { tag: string }) => names.some((n) => e.tag.endsWith(`_${n}`)));
+      if (firstHosted >= 0) {
+        for (const e of journal.entries.slice(firstHosted)) {
+          fs.rmSync(path.join(dir, "drizzle/migrations", `${e.tag}.sql`), { force: true });
+          fs.rmSync(path.join(dir, "drizzle/migrations/meta", `${String(e.idx).padStart(4, "0")}_snapshot.json`), { force: true });
+          if (e.tag in registry) { removed.push([e.tag, registry[e.tag]]); delete registry[e.tag]; }
+        }
+        journal.entries = journal.entries.slice(0, firstHosted);
+      }
       let when = journal.entries.at(-1).when;
       const tags: string[] = [];
       for (const form of transportForms()) {
@@ -104,6 +116,7 @@ describe("TB transport integration with the real migration-authority guard", () 
       run(dir, tags);
     } finally {
       for (const tag of added) delete registry[tag];
+      for (const [tag, v] of removed) registry[tag] = v;
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
