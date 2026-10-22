@@ -92,7 +92,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "transport-dz-"));
 /** A drizzle migrations folder holding the first n transport entries, with `when` after hosted 0063. */
 function folder(n) {
   const dir = path.join(tmp, `f${n}`); fs.mkdirSync(path.join(dir, "meta"), { recursive: true });
-  const last = hostedJournal().at(-1).when;
+  const last = hostedJournal("0063_period_currency_correction").at(-1).when;
   const entries = FORMS.slice(0, n).map((f, i) => ({ idx: 64 + i, version: "7", when: last + 1000 * (i + 1), tag: `${String(64 + i).padStart(4, "0")}_${f.name}`, breakpoints: true }));
   for (const [i, e] of entries.entries()) fs.writeFileSync(path.join(dir, `${e.tag}.sql`), ENTRY[i]);
   fs.writeFileSync(path.join(dir, "meta/_journal.json"), JSON.stringify({ version: "7", dialect: "postgresql", entries }));
@@ -102,9 +102,9 @@ function folder(n) {
 try {
   await srv.start();
   console.log("building the production-equivalent base (this replays the migration chain)…");
-  const base = await srv.buildBase(EXCLUDE);
+  const base = await srv.buildBase(EXCLUDE, { sourceThrough: "20261113100000_period_currency_correction.sql", journalThrough: "0063_period_currency_correction" });
   console.log(`base: ${base.applied} source migrations, ${base.journalRows} journal rows`);
-  const tail = hostedJournal().at(-1);
+  const tail = hostedJournal("0063_period_currency_correction").at(-1);
   check("base journal tail is hosted id 64 / 8122917c…", base.journalRows === 64 && tail.hash === "8122917c23abca8726e7ee763796ffae568179233c9537b61a5aff35310f17bc");
 
   // ── T1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────

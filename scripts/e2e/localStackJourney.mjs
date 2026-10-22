@@ -4,7 +4,7 @@
 // bridge: the production build of the app is served on loopback and driven in headless Chrome by real signed-in users.
 //
 //   routing     an unauthenticated deep link lands on sign-in; a wrong password is refused; sign-in by keyboard
-//   new user    first visit offers the upload as the one primary action; the company form (secondary) creates the company (FY ending 30 June); with one service the entry card
+//   new user    first visit offers Add company and a focused upload link; dedicated company setup creates the company (FY ending 30 June); with one service the entry card
 //               ("Check your trial balance") replaces the launchpad and the data choice (Phase 2 §5.1); previously the launchpad and data choice
 //   periods     explicit non-calendar periods (1 Jul – 30 Jun) with the prior period, through Trial Balance › Intake
 //   trial bal.  both years uploaded through the real uploader and checked by the real edge function; classifications
@@ -707,7 +707,7 @@ async function main() {
   });
 
   startGroup("Second account: the first upload on one page (Phase 2 P2-3; real components and server operations)");
-  // The second account has a plan and no entity yet: its first visit is the upload itself. Invented file and names only.
+  // The second account has a plan and no entity yet: the home links to the focused upload. Invented data only.
   let B = null;
   await check("the drop zone takes the file; it is stored privately as a draft, not yet in any entity", async () => {
     await go("/dashboard", "Companies & engagements");
@@ -759,15 +759,19 @@ async function main() {
       && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
       && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, resultUrl, period, ups, draft };
   });
-  await check("refresh keeps that exact upload; Back returns to the account home, which continues to the same entity and period", async () => {
+  await check("refresh keeps the exact upload; Back returns to focused upload, then the prior home continues to the same entity and period", async () => {
     await page.evaluate(() => location.reload()); // a refresh, not a new history entry
     await sleep(1500);
     await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
     const afterRefresh = await page.evaluate(() => location.pathname + location.search);
     await page.evaluate(() => history.back());
+    await page.waitFor(() => location.pathname === "/upload", [], { timeout: 30000, label: "back to the focused upload page" });
+    await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
+    const afterFirstBack = await page.evaluate(() => location.pathname);
+    await page.evaluate(() => history.back());
     await page.waitFor((b) => location.pathname.startsWith(`/workspace/${b}/2026`) && !location.search.includes("upload="), [B], { timeout: 45000, label: "back to the same entity and period" });
     const afterBack = await page.evaluate(() => location.pathname);
-    return afterRefresh === resultUrl ? true : { resultUrl, afterRefresh, afterBack };
+    return afterRefresh === resultUrl && afterFirstBack === "/upload" ? true : { resultUrl, afterRefresh, afterFirstBack, afterBack };
   });
 
   startGroup("Purchase required: the draft is kept and the customer continues after choosing a plan (Phase 2 P2-4)");
