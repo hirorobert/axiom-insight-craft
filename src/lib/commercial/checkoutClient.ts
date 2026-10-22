@@ -110,6 +110,31 @@ const INTENT_KEY = "cfoclose.checkoutPlan";
 export function rememberCheckoutPlan(plan: PlanCode): void {
   try { localStorage.setItem(INTENT_KEY, plan); } catch { /* storage unavailable: the visitor chooses the plan again */ }
 }
+// ── Return to an unfinished order across sign-in ─────────────────────────────────────────────────────────────────────
+// A signed-out visitor on an order page, or on the plans page naming an unfinished checkout, comes back to exactly that
+// page after signing in. Only one of two fixed destinations is ever stored, with a validated order reference — never a
+// free-form path (no open redirect) — and only for one use.
+const RETURN_KEY = "cfoclose.returnTo";
+const ORDER_REF = /^SAFF-[A-Za-z0-9-]{4,64}$/;
+export type ReturnTo = { kind: "order" | "plans"; ref: string };
+export function rememberReturnTo(r: ReturnTo): void {
+  if (!ORDER_REF.test(r.ref) || (r.kind !== "order" && r.kind !== "plans")) return;
+  try { localStorage.setItem(RETURN_KEY, JSON.stringify({ kind: r.kind, ref: r.ref })); } catch { /* storage unavailable: the visitor opens the order again */ }
+}
+/** The stored destination as an app path (one use), or null. */
+export function takeReturnTo(): string | null {
+  try {
+    const raw = localStorage.getItem(RETURN_KEY);
+    localStorage.removeItem(RETURN_KEY);
+    const v = raw ? (JSON.parse(raw) as Partial<ReturnTo>) : null;
+    if (!v || typeof v.ref !== "string" || !ORDER_REF.test(v.ref)) return null;
+    if (v.kind === "order") return `/billing/payment/return?ref=${encodeURIComponent(v.ref)}`;
+    if (v.kind === "plans") return `/plans?unfinished=${encodeURIComponent(v.ref)}`;
+    return null;
+  } catch {
+    return null;
+  }
+}
 export function takeCheckoutPlan(isPlan: (v: string | null) => PlanCode | null): PlanCode | null {
   try {
     const v = localStorage.getItem(INTENT_KEY);

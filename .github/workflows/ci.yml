@@ -888,6 +888,14 @@ jobs:
           createdb verified_charge_proof
           bun scripts/db-proof/verifiedChargeOutcomes.mjs
 
+      - name: Customer checkout abandon proof (20261119100000 - the defect reproduced first, an unpaid PENDING checkout blocking every new attempt; service role only; owner only; PENDING and unpaid only; audited once and idempotent; another plan acquired afterwards; a late payment on the abandoned session placed normally or recorded once as a recovery case; 12 concurrent abandons give one transition; an abandon racing a verified payment never loses the charge)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/checkout_abandon_proof
+        run: |
+          createdb checkout_abandon_proof
+          bun scripts/db-proof/checkoutAbandon.mjs
+
       - name: Sandbox licence isolation proof (20261031110000 superseding 20261031100000, DEFECT-SANDBOX-LICENCE-PRODUCTION-LEAK-001; the hosted scenario through the exact wrappers with a 53-row journal, the superseded wrapper failing atomically with CANCELLED_LICENCE_IMMUTABLE and an injected failure rolled back; cancelled sandbox licences stay cancelled; the defect reproduced first; provenance backfilled only from authoritative records; audited containment and term restoration; a sandbox payment grants nothing through any consumer in any platform state; production and manual terms intact; duplicates, refunds and renewals keep their environment; reporting stays behind the rollout)
         env:
           DB_PROOF_MODE: external

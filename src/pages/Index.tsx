@@ -13,7 +13,7 @@ import { LandingFinalCTA } from "@/components/landing/LandingFinalCTA";
 import { currentServiceIntent } from "@/lib/commercial/serviceIntent";
 import { Footer } from "@/components/Footer";
 import { AuthLinkErrorScreen, getAuthLinkError } from "@/components/AuthLinkErrorScreen";
-import { takeCheckoutPlan, usePublicPlanPrices } from "@/lib/commercial/checkoutClient";
+import { takeCheckoutPlan, takeReturnTo, usePublicPlanPrices } from "@/lib/commercial/checkoutClient";
 import { checkoutHref, parseCheckoutPlan } from "@/lib/commercial/planOffers";
 
 // ─── Page composition ────────────────────────────────────────────────────────
@@ -46,6 +46,9 @@ const Index = () => {
       // A visitor who chose a plan before signing up / in continues to that plan's checkout (plan code only, one use).
       const checkoutPlan = takeCheckoutPlan(parseCheckoutPlan);
       if (checkoutPlan) { navigate(checkoutHref(checkoutPlan), { replace: true }); return; }
+      // A visitor whose session ended on an unfinished order returns to that order (validated reference, one use).
+      const returnTo = takeReturnTo();
+      if (returnTo) { navigate(returnTo, { replace: true }); return; }
       // A validated service intent (e.g. from the confirmation link) is forwarded to the gateway.
       const intent = currentServiceIntent(window.location.search);
       navigate(intent ? `/dashboard?service=${intent.service}${intent.plan ? `&plan=${intent.plan.toLowerCase()}` : ""}` : "/dashboard", { replace: true });

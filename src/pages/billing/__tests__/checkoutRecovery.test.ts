@@ -24,4 +24,17 @@ describe("abandoned checkout recovery", () => {
     expect(checkout).toContain('error?.kind === "previous"');
     expect(checkout).toContain("OPEN_CHECKOUT_UNFINISHED");
   });
+  it("only an ordinary PENDING checkout is offered for closing on the order page; a review case only Resume", () => {
+    expect(page).toMatch(/const canLeave = openUnpaid && status\?\.status === "PENDING"/);
+    expect(page).toMatch(/\{canLeave && saffRef && \(\s*<LeaveCheckout/);
+  });
+  it("before refusing a new checkout the server re-verifies the blocking one once — a review case only when it carries NO recorded payment, and only an unpaid final state releases it", () => {
+    const fn = edge.slice(edge.indexOf("async function blockingCheckoutClosed"));
+    expect(edge).toMatch(/blockingAction === 'OPEN_CHECKOUT_BLOCKS_NEW_ATTEMPT' \|\| blockingAction === 'MANUAL_REVIEW_BLOCKS_NEW_ATTEMPT'/);
+    expect(fn).toMatch(/\['PENDING', 'MANUAL_REVIEW'\]\.includes\(intent\.status\)/);
+    expect(fn).toMatch(/if \(intent\.status === 'MANUAL_REVIEW'\) \{[\s\S]*?\.eq\('event_type', 'PAYMENT_CONFIRMED'\)[\s\S]*?if \(!paid \|\| paid\.length > 0\) return false;/);
+    expect(fn.indexOf("claim_verification_attempt")).toBeLessThan(fn.indexOf("settleIntent("));
+    expect(fn).toMatch(/\['EXPIRED', 'FAILED', 'CANCELLED'\]\.includes\(/);
+    expect(fn).not.toMatch(/SUCCEEDED/);
+  });
 });

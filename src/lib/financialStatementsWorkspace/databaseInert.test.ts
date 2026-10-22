@@ -383,6 +383,10 @@ describe("database inertness — schema and functions", () => {
       // _fs_*_compute names (their latest texts, name changed), the public names as transaction-local memo wrappers, two
       // internal memo helpers. No table, column, index, policy or grant of an existing object changes. Proven by transactionMemo.mjs.
       "supabase/migrations/20261116100000_fs_transaction_memo.sql",
+      // Customer checkout abandon (20261119100000): a NEW forward-only migration — one service-role-only function that closes
+      // the caller's own provider-verified unpaid PENDING checkout as CANCELLED, audited once. No table, column, index, policy
+      // or existing function changes. Proven on PostgreSQL by checkoutAbandon.mjs.
+      "supabase/migrations/20261119100000_customer_checkout_abandon.sql",
       // Period-currency correction (owner-approved recovery repair, 20261113100000): a NEW forward-only migration — one
       // history action and request index, the processing lock redefined with one marked branch, a read and one authorised
       // operation. No row changed. Proven on PostgreSQL by periodCurrencyCorrection.mjs. The pure currency-label reader the
@@ -679,6 +683,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/p4HostedBaseline.mjs",
       // Verified charge outcomes: the loopback-only proof.
       "scripts/db-proof/verifiedChargeOutcomes.mjs",
+      // Customer checkout abandon (20261119100000): the loopback-only proof.
+      "scripts/db-proof/checkoutAbandon.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).

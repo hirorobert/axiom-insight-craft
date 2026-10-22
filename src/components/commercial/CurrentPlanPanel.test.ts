@@ -39,7 +39,7 @@ describe("plan presentation is read-only", () => {
   });
   it("catalogue states the common services once, annual pricing only, proposed, and never claims saved selection or activation", () => {
     const html = render(createElement(PlanCatalogue));
-    const common = html.slice(html.indexOf('data-testid="common-services"'), html.indexOf('aria-label="Plans"'));
+    const common = html.slice(html.indexOf('data-testid="common-services"'), html.indexOf('data-testid="plan-groups"'));
     // Only the customer-visible service is listed (moduleAvailability.ts); withheld services never appear.
     for (const withheld of ["Close Certification", "Reporting Pack", "Close Insights", "Multi-entity reporting"]) expect(html).not.toContain(withheld);
     for (const name of ["Trial balance review"]) {
@@ -51,12 +51,12 @@ describe("plan presentation is read-only", () => {
     // No customer manual activation: until the server answers, plans show proposed figures and a support link only.
     expect(html).not.toContain("Request activation");
     expect(html.split(">Contact support<").length - 1).toBe(3);
-    expect(html).toContain("Discuss Enterprise");
+    expect(html).toContain("Talk to us");
     expect(html).not.toContain("temporarily unavailable");
     expect(html).not.toMatch(/Choose (Solo|Practice|Firm)/);
     expect(html).not.toMatch(/Talk to sales|XBRL|filing pack|Management letters|Regional packs/i);   // no unreachable output is advertised
     expect(html).toContain("12-month term · no automatic renewal");
-    expect(html).toMatch(/data-testid="price-SOLO"><p[^>]*>Proposed: USD 490 per year<\/p>/);
+    expect(html).toMatch(/data-testid="price-SOLO"><p[^>]*>Proposed: USD 490<\/p><p[^>]*>per year<\/p>/);
     expect(html).not.toMatch(/selected plan has been saved|deactivation/i);
   });
   it('shows a prepaid next term as its own scheduled period, never relabelled as current', () => {
