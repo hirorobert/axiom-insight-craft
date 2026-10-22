@@ -84,9 +84,11 @@ source file. Run `node scripts/release/tbStagedTransport.mjs --check` first. The
 `10_tb_portfolio_a1_staged_apply.sql` and `20_tb_decisions_b1_staged_apply.sql` through the canonical migration
 runner in that order. The runner must record each SQL text in `drizzle.__drizzle_migrations` in the same transaction as
 its execution. The bootstrap requires the current journal tail `0070_customer_checkout_abandon` (id 71, hash
-`0eb1405d…19910`); the final transport sequence therefore expects the next journal ids to be 72, 73 and 74 for
-bootstrap, portfolio and decisions respectively. Read the actual row after each submission and derive the next id from
-that row; if the id or hash differs, stop rather than guessing or replaying.
+`0eb1405d…19910`); with no earlier failed submissions, the nominal next journal ids are 72, 73 and 74 for bootstrap,
+portfolio and decisions respectively. The transport validates the committed predecessor hash and exact journal tail,
+then records the actual predecessor id in its event evidence; PostgreSQL sequence gaps from rolled-back attempts are
+allowed because they add no committed journal row. Read the actual row after each submission and derive the next id from
+that row; if the committed predecessor hash or journal tail differs, stop rather than guessing or replaying.
 
 The transport refuses an absent or modified artifact, wrong predecessor, duplicate/consumed batch, pre-existing target
 object without a consumed transport record, incomplete staging and any postcondition failure. Each apply is one atomic

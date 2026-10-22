@@ -4,8 +4,7 @@ DO $cfoclose_tb_transport_tb_decisions_b1$
 DECLARE
   c_batch CONSTANT text := 'tb-decisions-b1';
   c_prior CONSTANT text := 'tb-portfolio-a1';
-  c_predecessor CONSTANT text[] := ARRAY['129d300ede40cd926911e3d3b2fa185b2de6b6b5306feecb009866be5046bcf2', 'ba29610cf95e0d8df4cb6b628de85f8b7670a21e62197f034f40b133914dc3cc']::text[];
-  c_expected_predecessor CONSTANT bigint := 73;
+  c_predecessor CONSTANT text[] := ARRAY['2a4e89acf13ddf0d68659128092def77d483f9b3b7794ebd4c3b5bcd7f37f7c9', '63de72e4e6b7464a89db722d8b1beb0b917c3395caf589dc3960cc6df7a708a0']::text[];
   v_n bigint; v_pred_id bigint; v_source text; v_wrapper text; v_postcondition text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_tb_release_transport', 0));
@@ -13,7 +12,7 @@ BEGIN
     RAISE EXCEPTION 'TB_TRANSPORT_JOURNAL_MISSING: drizzle.__drizzle_migrations is not visible; nothing was changed' USING ERRCODE = '55000';
   END IF;
   SELECT count(*), max(j.id) INTO v_n, v_pred_id FROM drizzle.__drizzle_migrations j WHERE j.hash = ANY (c_predecessor);
-  IF v_n <> 1 OR v_pred_id <> c_expected_predecessor
+  IF v_n <> 1
      OR EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations j WHERE j.id > v_pred_id
                 AND j.xmin::text <> (pg_current_xact_id()::text::bigint % 4294967296)::text) THEN
     RAISE EXCEPTION 'TB_TRANSPORT_WRONG_PREDECESSOR: journal is not exactly the approved predecessor; nothing was changed' USING ERRCODE = '55000';

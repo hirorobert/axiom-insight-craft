@@ -56,7 +56,7 @@ const predecessorCheck = () => `  IF to_regclass('drizzle.__drizzle_migrations')
     RAISE EXCEPTION 'TB_TRANSPORT_JOURNAL_MISSING: drizzle.__drizzle_migrations is not visible; nothing was changed' USING ERRCODE = '55000';
   END IF;
   SELECT count(*), max(j.id) INTO v_n, v_pred_id FROM drizzle.__drizzle_migrations j WHERE j.hash = ANY (c_predecessor);
-  IF v_n <> 1 OR v_pred_id <> c_expected_predecessor
+  IF v_n <> 1
      OR EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations j WHERE j.id > v_pred_id
                 AND j.xmin::text <> (pg_current_xact_id()::text::bigint % 4294967296)::text) THEN
     RAISE EXCEPTION 'TB_TRANSPORT_WRONG_PREDECESSOR: journal is not exactly the approved predecessor; nothing was changed' USING ERRCODE = '55000';
@@ -72,7 +72,6 @@ export function renderBootstrap() {
 DO $cfoclose_tb_transport_bootstrap$
 DECLARE
   c_predecessor CONSTANT text[] := ARRAY[${q(BOOTSTRAP_PREDECESSOR.hash)}]::text[];
-  c_expected_predecessor CONSTANT bigint := ${BOOTSTRAP_PREDECESSOR.id};
   v_n bigint;
   v_pred_id bigint;
   v_role name;
@@ -171,7 +170,6 @@ DECLARE
   c_batch CONSTANT text := ${q(b.batch)};
   c_prior CONSTANT text := ${prior ? q(prior) : "NULL"};
   c_predecessor CONSTANT text[] := ${arr(entryHashes(index - 1))};
-  c_expected_predecessor CONSTANT bigint := ${72 + index};
   v_n bigint; v_pred_id bigint; v_source text; v_wrapper text; v_postcondition text;
 BEGIN
   ${LOCK}

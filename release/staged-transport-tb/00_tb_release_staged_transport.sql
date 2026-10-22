@@ -3,7 +3,6 @@
 DO $cfoclose_tb_transport_bootstrap$
 DECLARE
   c_predecessor CONSTANT text[] := ARRAY['0eb1405df641e956ca43b4ad652f9ca263029352637e98d1ce482d5c2bb19910']::text[];
-  c_expected_predecessor CONSTANT bigint := 71;
   v_n bigint;
   v_pred_id bigint;
   v_role name;
@@ -13,7 +12,7 @@ BEGIN
     RAISE EXCEPTION 'TB_TRANSPORT_JOURNAL_MISSING: drizzle.__drizzle_migrations is not visible; nothing was changed' USING ERRCODE = '55000';
   END IF;
   SELECT count(*), max(j.id) INTO v_n, v_pred_id FROM drizzle.__drizzle_migrations j WHERE j.hash = ANY (c_predecessor);
-  IF v_n <> 1 OR v_pred_id <> c_expected_predecessor
+  IF v_n <> 1
      OR EXISTS (SELECT 1 FROM drizzle.__drizzle_migrations j WHERE j.id > v_pred_id
                 AND j.xmin::text <> (pg_current_xact_id()::text::bigint % 4294967296)::text) THEN
     RAISE EXCEPTION 'TB_TRANSPORT_WRONG_PREDECESSOR: journal is not exactly the approved predecessor; nothing was changed' USING ERRCODE = '55000';

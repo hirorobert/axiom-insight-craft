@@ -42,11 +42,12 @@ describe("Trial Balance exact-byte staged transport", () => {
 
   it("pins predecessor identity and refusal ordering before every executable step", () => {
     const bootstrap = renderBootstrap();
-    expect(bootstrap).toContain(`c_expected_predecessor CONSTANT bigint := ${BOOTSTRAP_PREDECESSOR.id}`);
+    expect(bootstrap).toContain(`c_predecessor CONSTANT text[] := ARRAY['${BOOTSTRAP_PREDECESSOR.hash}']::text[]`);
     expect(bootstrap).toContain("TB_TRANSPORT_WRONG_PREDECESSOR");
     for (const [i, b] of BATCHES.entries()) {
       const text = renderApply(i);
-      expect(text).toContain(`c_expected_predecessor CONSTANT bigint := ${72 + i}`);
+      expect(text).toContain("c_predecessor CONSTANT text[]");
+      expect(text).not.toContain("c_expected_predecessor");
       expect(text).toContain("TB_TRANSPORT_WRONG_PREDECESSOR");
       expect(text).toContain("TB_TRANSPORT_STAGE_MISSING_OR_MODIFIED");
       expect(text).toContain("TB_TRANSPORT_UNCERTAIN_STATE");
