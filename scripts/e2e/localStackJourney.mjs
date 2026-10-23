@@ -260,12 +260,12 @@ async function main() {
   });
 
   startGroup("New user: first run");
-  await check("first visit: company setup is prominent, with upload on its own page and no inline company form", async () => {
-    await go("/dashboard", "Companies & engagements");
+  await check("first visit: the company directory offers Add company without a workflow rail, global upload or inline form", async () => {
+    await go("/dashboard", "Your companies");
     await page.waitForSelector('[data-testid="add-company"]', { timeout: 30000 });
     const layout = await widths("02-first-visit");
-    const entry = await page.evaluate(() => ({ add: document.querySelector('[data-testid="add-company"]')?.getAttribute("href"), upload: document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href"), inline: !!document.getElementById("fr-org") }));
-    return layout === true && entry.add === "/companies/new" && entry.upload === "/upload" && !entry.inline ? true : { entry, layout };
+    const entry = await page.evaluate(() => ({ add: document.querySelector('[data-testid="add-company"]')?.getAttribute("href"), upload: document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href") ?? null, inline: !!document.getElementById("fr-org") }));
+    return layout === true && entry.add === "/companies/new" && entry.upload === null && !entry.inline ? true : { entry, layout };
   });
   await check("first run creates the company through the real form, reached by Add company (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
     await page.click('[data-testid="add-company"]');
@@ -289,6 +289,18 @@ async function main() {
     await page.click('[data-testid="entry-upload"]');
     await page.waitForUrl(/trial-balance|prepare/, { timeout: 30000 });
     return removed ? { removedScreenShown: true } : true;
+  });
+
+  await check("selecting a company opens its task menu for the same year without creating another engagement", async () => {
+    const before = (await admin.from("engagements").select("id").eq("company_id", A)).data ?? [];
+    await go(`${base}?view=company`, "Select a task for this reporting period");
+    await page.waitForSelector('[data-testid="company-workspace-home"]');
+    const href = await page.evaluate(() => document.querySelector('[data-testid="company-workspace-home"] a[href$="/trial-balance/review"]')?.getAttribute("href") ?? null);
+    await shot("03-company-menu");
+    await page.click('[data-testid="company-workspace-home"] a[href$="/trial-balance/review"]');
+    await page.waitForUrl(/trial-balance\/review/, { timeout: 30000 });
+    const after = (await admin.from("engagements").select("id").eq("company_id", A)).data ?? [];
+    return href === `${base}/trial-balance/review` && before.length === after.length ? true : { href, before, after };
   });
 
   startGroup("Explicit non-calendar periods");
@@ -715,8 +727,10 @@ async function main() {
   // The second account has a plan and no entity yet: the home links to the focused upload. Invented data only.
   let B = null;
   await check("the drop zone takes the file; it is stored privately as a draft, not yet in any entity", async () => {
-    await go("/dashboard", "Companies & engagements");
-    await page.click('[data-testid="portfolio-upload-link"]');
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
+    // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
+    await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -764,7 +778,7 @@ async function main() {
       && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
       && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, resultUrl, period, ups, draft };
   });
-  await check("refresh keeps the exact upload; Back returns to focused upload, then the prior home continues to the same entity and period", async () => {
+  await check("refresh keeps the exact upload; Back returns through upload to the company directory; explicit selection resumes the same company/year without another upload", async () => {
     await page.evaluate(() => location.reload()); // a refresh, not a new history entry
     await sleep(1500);
     await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
@@ -774,9 +788,14 @@ async function main() {
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     const afterFirstBack = await page.evaluate(() => location.pathname);
     await page.evaluate(() => history.back());
-    await page.waitFor((b) => location.pathname.startsWith(`/workspace/${b}/2026`) && !location.search.includes("upload="), [B], { timeout: 45000, label: "back to the same entity and period" });
+    await page.waitFor(() => location.pathname === "/dashboard", [], { timeout: 45000, label: "Back to company selection without auto-resume" });
+    await page.waitForSelector('[data-testid="portfolio-count"]', { timeout: 30000 });
+    await page.click({ text: "Open workspace" });
+    await page.waitFor((b) => location.pathname === `/workspace/${b}/2026` && location.search === "?view=company", [B], { timeout: 45000, label: "selected company and period" });
+    await page.waitForSelector('[data-testid="company-workspace-home"]');
     const afterBack = await page.evaluate(() => location.pathname);
-    return afterRefresh === resultUrl && afterFirstBack === "/upload" ? true : { resultUrl, afterRefresh, afterFirstBack, afterBack };
+    const uploadsAfterBack = (await admin.from("trial_balance_uploads").select("id").eq("company_id", B)).data ?? [];
+    return afterRefresh === resultUrl && afterFirstBack === "/upload" && uploadsAfterBack.length === 1 && resultUrl.includes(uploadsAfterBack[0].id) ? true : { resultUrl, afterRefresh, afterFirstBack, afterBack, uploadsAfterBack };
   });
 
   startGroup("Purchase required: the draft is kept and the customer continues after choosing a plan (Phase 2 P2-4)");
@@ -785,8 +804,10 @@ async function main() {
   await signOut(); await signIn(U.noPlan);
   const noPlanApi = await asUser(U.noPlan);
   await check("no plan: the upload is offered with the plan stated up front; the file is stored as a draft", async () => {
-    await go("/dashboard", "Companies & engagements");
-    await page.click('[data-testid="portfolio-upload-link"]');
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
+    // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
+    await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-needs-plan"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbCurrent]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -810,8 +831,10 @@ async function main() {
   });
   await check("after a plan exists, the home offers 'Continue saved upload' for the same draft, with the card as it was; the check completes", async () => {
     await grantPlan(U.noPlan.id);
-    await go("/dashboard", "Companies & engagements");
-    await page.click('[data-testid="portfolio-upload-link"]');
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
+    // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
+    await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-continue-draft"]', { timeout: 30000 });
     await page.click('[data-testid="first-upload-continue-draft"]');
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 30000 });
@@ -870,8 +893,10 @@ async function main() {
   };
 
   await check("first upload: the file's TZS labels are shown against the chosen USD before anything runs; 'Start' lists the conflict and creates nothing", async () => {
-    await go("/dashboard", "Companies & engagements");
-    await page.click('[data-testid="portfolio-upload-link"]');
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
+    // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
+    await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await chooseFirstFile(tbLabelledTzs);
     if (!(await fillCard("USD"))) return "the currency could not be chosen";
@@ -1130,8 +1155,10 @@ async function main() {
   };
 
   await check("a file whose title names the entity differently and carries a cash-in-transit balance: the entity decision is REQUIRED, the clearing balance is an optional review note; each finding listed once; nothing authoritative; the engagement and its settings are stated in the rail, not in the task", async () => {
-    await go("/dashboard", "Companies & engagements");
-    await page.click('[data-testid="portfolio-upload-link"]');
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
+    // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
+    await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     await page.setFiles('[data-testid="first-upload-input"]', [tbKilimo]);
     await page.waitForSelector('[data-testid="first-upload-confirm"]', { timeout: 60000 });
@@ -1324,7 +1351,7 @@ async function main() {
       && cause === "no_printed_totals" && /Rows read as accounts/.test(totals ?? "") && /120\.00/.test(deposit ?? "")
       && inv.length === 1 && inv[0].status === "completed" ? true : { leads, statement, cause, totals, deposit, inv };
   });
-  await check("the engagements list: both periods with their status in words, exact count, a literal search and a status filter, all from the server; uploading is linked to /upload", async () => {
+  await check("the engagements list: both periods with their status in words, exact count, a literal search and a status filter, all from the server; company selection precedes task actions", async () => {
     await go("/dashboard", "");
     await page.waitForSelector('[data-testid="portfolio-count"]', { timeout: 30000 });
     const uploadLink = await page.evaluate(() => document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href") ?? null);
@@ -1338,7 +1365,7 @@ async function main() {
     await setByLabel("Search entity or identifier", "Nothing_like_this%");
     await page.waitFor(() => /No engagements match/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "no match" });
     await widths("39-portfolio");
-    return JSON.stringify(statuses) === JSON.stringify(["blocked", "ready"]) && uploadLink === "/upload" ? true : { statuses, uploadLink };
+    return JSON.stringify(statuses) === JSON.stringify(["blocked", "ready"]) && uploadLink === null ? true : { statuses, uploadLink };
   });
   await check("saved uploads: a file stored but not started is listed on /upload and removed only after an explicit confirmation", async () => {
     await go("/upload", "");

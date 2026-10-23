@@ -50,7 +50,7 @@ function StatusChip({ status }: { status: PortfolioStatus }) {
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const periodWords = (r: PortfolioRow) => (r.periodStart && r.periodEnd
-  ? `${new Date(r.periodStart).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – ${new Date(r.periodEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
+  ? `${new Date(r.periodStart).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })} – ${new Date(r.periodEnd).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`
   : `FY${r.periodYear}`);
 
 function UploadCell({ row }: { row: PortfolioRow }) {
@@ -63,13 +63,15 @@ function UploadCell({ row }: { row: PortfolioRow }) {
   );
 }
 
-export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", uploadHref, renderEntityOptions, compactHeader = false, readFrameworks = readPortfolioFrameworks, rpc = supabaseRpc }: {
+export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "Engagements", uploadHref, renderEntityOptions, compactHeader = false, companyFirst = false, readFrameworks = readPortfolioFrameworks, rpc = supabaseRpc }: {
   /** Omitted where the page already offers the upload as its one primary action. */
   onUpload?: () => void;
   /** A quiet link to the focused upload page (used where the page has another primary action). */
   uploadHref?: string;
   headingLevel?: "h1" | "h2";
   compactHeader?: boolean;
+  /** Company directory opens the selected book; task shortcuts stay inside that workspace. */
+  companyFirst?: boolean;
   readFrameworks?: typeof readPortfolioFrameworks;
   title?: string;
   /** Per-row entity options (e.g. recording the workspace purpose), shown under the entity name. */
@@ -77,6 +79,9 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   /** The server call; tests pass their own. */
   rpc?: Rpc;
 }) {
+  const destination = (r: PortfolioRow) => companyFirst ? `/workspace/${r.companyId}/${r.periodYear}?view=company` : portfolioDestination(r);
+  const action = (r: PortfolioRow) => companyFirst ? "Open workspace" : PORTFOLIO_STATUS_VIEW[r.status].action;
+  const companyLabel = (r: PortfolioRow) => r.serviceWithheld ? r.companyName : <Link to={destination(r)} className="underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" aria-label={`Open ${r.companyName}, FY${r.periodYear}`}>{r.companyName}</Link>;
   const Heading = headingLevel;
   const [frameworks, setFrameworks] = useState<Record<string, string | null>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -86,7 +91,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   const [showCurrency, setShowCurrency] = useState(false);
   const ids = { search: useId(), status: useId(), purpose: useId(), year: useId(), sort: useId(), heading: useId() };
   const [searchText, setSearchText] = useState("");
-  const [query, setQuery] = useState<PortfolioQuery>({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" });
+  const [query, setQuery] = useState<PortfolioQuery>({ search: "", statuses: [], purposes: [], periodYear: null, sort: companyFirst ? "opened" : "entity" });
   // pages[i] is the cursor that loads page i (page 0: null); the token is the first page's.
   const [pageIndex, setPageIndex] = useState(0);
   const cursors = useRef<(PortfolioCursor | null)[]>([null]);
@@ -164,7 +169,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
             placeholder="Search entity or identifier" className={`${select} w-full pl-8`} data-testid="portfolio-search" />
         </div>
         <Button variant="outline" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls={`${ids.heading}-filters`} className="h-10 gap-2"><SlidersHorizontal className="h-4 w-4" aria-hidden="true" />Filters{(query.statuses.length > 0 || query.purposes.length > 0 || query.periodYear !== null) ? " · active" : ""}</Button>
-        <Button variant={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? "secondary" : "outline"} className="h-10" data-testid="portfolio-attention" aria-pressed={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck"} onClick={() => setFilter({ statuses: query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? [] : ["needs_decision", "blocked", "processing_failed", "needs_recheck"] })}>Needs attention</Button>
+        {!companyFirst && <Button variant={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? "secondary" : "outline"} className="h-10" data-testid="portfolio-attention" aria-pressed={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck"} onClick={() => setFilter({ statuses: query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? [] : ["needs_decision", "blocked", "processing_failed", "needs_recheck"] })}>Needs attention</Button>}
       </div>
       {filtersOpen && <div id={`${ids.heading}-filters`} className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-4">
         <div>
@@ -200,7 +205,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
         </div>
         <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="ml-auto h-8 gap-2 rounded-sm"><Columns3 className="h-4 w-4" aria-hidden="true" />Columns</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end"><DropdownMenuLabel>Visible columns</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuCheckboxItem checked={showFramework} onCheckedChange={setShowFramework}>Framework</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showPurpose} onCheckedChange={setShowPurpose}>Purpose</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showCurrency} onCheckedChange={setShowCurrency}>Currency</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showUpload} onCheckedChange={setShowUpload}>Latest trial balance</DropdownMenuCheckboxItem></DropdownMenuContent>
-        </DropdownMenu><Button variant="ghost" size="sm" onClick={() => { setSearchText(""); setQuery({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" }); }}>Clear filters</Button>
+        </DropdownMenu><Button variant="ghost" size="sm" onClick={() => { setSearchText(""); setQuery({ search: "", statuses: [], purposes: [], periodYear: null, sort: companyFirst ? "opened" : "entity" }); }}>Clear filters</Button>
       </div>}
 
       <p className="text-[13px] text-muted-foreground" aria-live="polite" data-testid="portfolio-count">
@@ -237,26 +242,26 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                 {showCurrency && <th scope="col" className="px-3 py-3 font-medium">Currency</th>}
                 <th scope="col" className="py-2 pr-4 font-medium">Status</th>
                 {showUpload && <th scope="col" className="px-3 py-3 font-medium">Latest trial balance</th>}
-                <th scope="col" className="px-3 py-3 font-medium">Next action</th><th scope="col" className="px-2 py-3"><span className="sr-only">Company options</span></th>
+                <th scope="col" className="px-3 py-3 font-medium">{companyFirst ? "Workspace" : "Next action"}</th><th scope="col" className="px-2 py-3"><span className="sr-only">Company options</span></th>
               </tr>
             </thead>
             <tbody>
               {state.rows.map((r) => (
                 <tr key={r.engagementId} className="border-b border-border align-middle last:border-b-0 hover:bg-muted/20" data-testid={`portfolio-row-${r.engagementId}`}>
                   <td className="px-3 py-3">
-                    <span className="block font-medium text-foreground">{r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</span>
+                    <span className="block font-medium text-foreground">{companyFirst ? companyLabel(r) : r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</span>
                     <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `Tax number ${r.companyTin}` : null].filter(Boolean).join(" · ")}</span>
                   </td>
                   {showFramework && <td className="px-3 py-3 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Unavailable" : frameworks[r.companyId] === null ? "Not declared" : frameworkName(frameworks[r.companyId]) ?? "Unrecognised"}</td>}
                   <td className="px-3 py-3"><span className="block font-medium">FY{r.periodYear}</span><span className="block whitespace-nowrap text-xs text-muted-foreground">{periodWords(r)}</span></td>
                   {showPurpose && <td className="px-3 py-3 text-xs">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</td>}
                   {showCurrency && <td className="px-3 py-3">{r.currency ?? <span className="text-muted-foreground">Not set</span>}</td>}
-                  <td className="px-3 py-3">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <StatusChip status={r.status} />}</td>
+                  <td className="px-3 py-3">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <>{companyFirst && r.status === "no_trial_balance" && <span className="mr-1 text-xs font-medium">Draft ·</span>}<StatusChip status={r.status} /></>}</td>
                   {showUpload && <td className="max-w-[16rem] px-3 py-3"><UploadCell row={r} /></td>}
                   <td className="px-3 py-3 text-right">
-                    {r.serviceWithheld ? null : <Link to={portfolioDestination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    {r.serviceWithheld ? null : <Link to={destination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       data-testid={`portfolio-action-${r.engagementId}`}>
-                      {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
+                      {action(r)}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                     </Link>}
                   </td>
                   <td className="px-2 py-3">{renderEntityOptions?.(r)}</td>
@@ -269,15 +274,15 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
               <li key={r.engagementId} className="rounded-sm border border-border p-4">
                 <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
                   <div className="min-w-0">
-                    <p className="break-words font-medium text-foreground">{r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</p>
+                    <p className="break-words font-medium text-foreground">{companyFirst ? companyLabel(r) : r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</p>
                     <p className="text-[12px] text-muted-foreground">{periodWords(r)} · {r.currency ?? "Currency not set"}</p>
                   </div>
-                  {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <StatusChip status={r.status} />}
+                  {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <>{companyFirst && r.status === "no_trial_balance" && <span className="mr-1 text-xs font-medium">Draft ·</span>}<StatusChip status={r.status} /></>}
                 </div>
                 {(showFramework || showPurpose) && <div className="mt-2 text-xs text-muted-foreground">{showFramework && (frameworks[r.companyId] === undefined ? "Framework unavailable" : frameworkName(frameworks[r.companyId]) ?? "Framework not declared")} {showPurpose && PORTFOLIO_PURPOSE_LABEL[r.purpose]}</div>}
-                <div className="mt-2 flex items-center justify-between gap-2 text-[13px]"><UploadCell row={r} />{renderEntityOptions?.(r)}</div>
-                {!r.serviceWithheld && <Link to={portfolioDestination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
+                <div className="mt-2 flex items-center justify-between gap-2 text-[13px]">{(!companyFirst || showUpload) && <UploadCell row={r} />}{renderEntityOptions?.(r)}</div>
+                {!r.serviceWithheld && <Link to={destination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {action(r)}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                 </Link>}
               </li>
             ))}

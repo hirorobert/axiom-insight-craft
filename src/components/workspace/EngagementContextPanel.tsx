@@ -21,7 +21,7 @@ import { readClearingPolicy, setClearingPolicy, type ClearingPolicy } from "@/li
 type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
 const rpc: Rpc = (fn, args) => (supabase.rpc as unknown as Rpc)(fn, args);
 
-const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null);
+const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null);
 
 export function EngagementContextPanel({ companyId, periodYear, companyName, framework, companyCreatedAt, fiscalPeriodId, prepareOnly }: {
   companyId: string;

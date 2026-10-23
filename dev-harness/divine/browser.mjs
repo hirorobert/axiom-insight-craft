@@ -28,10 +28,16 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   await page.waitForTimeout(200);
   await page.locator('form[aria-label="Add an entity"] button[type=submit]').dblclick();
   await page.getByTestId('entry-upload').waitFor(); assert.equal(await calls('create_entity'), 1);
+  await page.getByRole('link', { name: 'All engagements', exact: true }).click();
+  await page.getByTestId('start-service-cccccccc-cccc-4ccc-8ccc-cccccccccccc').click();
+  await page.getByTestId('company-workspace-home').waitFor();
+  assert.equal(await calls('open_engagement_with_scope'), 0);
   await page.getByTestId('entry-upload').dblclick(); await page.waitForURL('**/trial-balance/review');
   assert.equal(await calls('open_engagement_with_scope'), 1);
   const task = page.url();
-  await page.goBack(); await page.waitForURL(task); assert.equal(await calls('open_engagement_with_scope'), 1);
+  await page.goBack(); await page.getByTestId('company-workspace-home').waitFor();
+  await page.getByRole('list', { name: 'Company tasks' }).getByRole('link', { name: 'Trial Balance', exact: true }).click();
+  await page.waitForURL(task); assert.equal(await calls('open_engagement_with_scope'), 1);
   const openPeriod = async () => { const settings = page.getByTestId('engagement-settings'); if (!(await settings.locator('summary').evaluate(e => e.parentElement.open))) await settings.locator('summary').click(); await page.getByTestId('open-period-settings').click(); await page.getByRole('dialog').getByLabel('Start date', { exact: true }).waitFor(); };
   await openPeriod();
   await page.getByRole('dialog').getByLabel('Start date', { exact: true }).fill('2025-02-01');
@@ -73,10 +79,19 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   await page.waitForFunction(() => window.__divine.tb.tables.tb_certifications.some(c => !c.is_blocking && !c.requires_review));
   // Leaving while a server check finishes must resume from the recorded outcome.
   await page.getByRole('link', { name: 'All engagements', exact: true }).click();
-  await page.getByTestId('continue-status').filter({ hasText: 'Trial balance accepted' }).waitFor();
-  await page.getByTestId('continue-action').click();
+  await page.locator('[data-testid=portfolio-status][data-status=ready]:visible').waitFor();
+  assert.equal(await page.getByTestId('continue-engagement').count(), 0);
+  assert.equal(await page.getByRole('complementary').count(), 0);
+  await page.screenshot({ path: `${out}/${device}-directory.png`, fullPage: true });
+  await page.getByRole('link', { name: /^Open workspace/ }).click();
+  await page.getByTestId('company-workspace-home').waitFor();
+  await page.screenshot({ path: `${out}/${device}-company.png`, fullPage: true });
+  await page.getByRole('list', { name: 'Company tasks' }).getByRole('link', { name: 'Trial Balance', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Engagement', exact: true }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByTestId('company-workspace-home').waitFor();
+  await page.getByRole('list', { name: 'Company tasks' }).getByRole('link', { name: 'Trial Balance', exact: true }).click();
   await page.reload();
-  await page.getByText('Checked by an earlier version.', { exact: true }).first().waitFor();
+  await page.getByText(/Checked by an earlier version/).first().waitFor();
   await page.waitForTimeout(500);
   assert.equal(await page.evaluate(() => window.__divine.tb.tables.engagements.length), 1);
   assert.equal(await page.getByRole('dialog').count(), 0);
@@ -84,7 +99,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   assert.ok(await page.getByRole('link', { name: 'All engagements', exact: true }).isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow');
   assert.deepEqual(errors, []);
-  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
+  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'company-directory-without-sidebar', 'company-menu-with-authorised-features', 'Overview-returns-to-company-menu', 'server-accepted-reopen', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
   await context.close();
 }
 console.log(JSON.stringify(results, null, 2));

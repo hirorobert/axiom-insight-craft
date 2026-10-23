@@ -119,7 +119,8 @@ describe("navigation: derived from the existing model; unavailable modules hidde
     const hrefs = [...m.container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
     expect(hrefs).not.toContain(`${base}/trial-balance/intake?v=3`);
     expect(hrefs).toContain(`${base}/trial-balance/review?v=3`);
-    expect(hrefs.every((x) => x?.endsWith("?v=3"))).toBe(true);
+    expect(hrefs.every((x) => new URL(x!, "https://fixture.invalid").searchParams.get("v") === "3")).toBe(true);
+    expect(hrefs).toContain(`${base}?view=company&v=3`);
     expect(await axeViolations(m.container)).toEqual([]);
   });
 });

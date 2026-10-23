@@ -70,6 +70,20 @@ describe("EngagementPortfolio", () => {
   const first25 = Array.from({ length: 25 }, (_, i) => row(i + 1));
   const last5 = Array.from({ length: 5 }, (_, i) => row(i + 26));
 
+  it("company directory opens the selected company AND period without replaying an action or merging years", async () => {
+    const rpc = vi.fn(async () => page([row(1), row(2, "no_trial_balance", { company_id: C(1), company_name: "Invented Entity 1", period_year: 2026 })], null, "t1", 2));
+    m = mount(createElement(MemoryRouter, null, createElement(EngagementPortfolio, { companyFirst: true, rpc, readFrameworks: async () => ({}) })));
+    await flush();
+    const links = [...m.container.querySelectorAll('a')].map(a => a.getAttribute("href"));
+    expect(links).toContain(`/workspace/${C(1)}/2025?view=company`);
+    expect(links).toContain(`/workspace/${C(1)}/2026?view=company`);
+    expect(links.every(h => !h?.includes("trial-balance/review"))).toBe(true);
+    expect(m.container.textContent).toContain("Draft");
+    expect(m.container.textContent).toContain("Open workspace");
+    expect(rpc.mock.calls).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith("list_portfolio_engagements", expect.objectContaining({ p_sort: "opened" }));
+  });
+
   it("pages forwards and back by the server's cursor, with the exact count line", async () => {
     const rpc = vi.fn(async (_f: string, a: Args) => (a.p_cursor ? page(last5, null) : page(first25, { id: "c25" })));
     const el = await render(rpc);

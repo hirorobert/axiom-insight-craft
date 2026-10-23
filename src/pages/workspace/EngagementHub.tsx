@@ -1,4 +1,4 @@
-import { ContinueEngagement } from "@/components/workspace/ContinueEngagement";
+
 import { useBusyState } from "@/hooks/useBusyState";
 /**
  * EngagementHub — the deterministic workspace chooser, and the ACCOUNT HOME.
@@ -24,7 +24,7 @@ import { useBusyState } from "@/hooks/useBusyState";
 
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Building2, Plus, Upload, MoreHorizontal } from "lucide-react";
+import { ArrowRight, Building2, Plus, MoreHorizontal } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
@@ -249,16 +249,17 @@ export default function EngagementHub({
   const hasUnavailable = unavailableEngagements.length > 0;
   const body = (
     <>
-      {account && portfolio && <header className="mb-5" data-testid="portfolio-home-header">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[28px]">Companies &amp; engagements</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Choose an engagement or add a company.</p>
-        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-t-sm border border-border bg-card px-3 py-3" data-testid="portfolio-toolbar">
+      {account && portfolio && <header className="mb-5 flex flex-wrap items-start justify-between gap-4" data-testid="portfolio-home-header">
+        <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[28px]">Your companies</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Select a company and reporting period to open its workspace.</p></div>
+        <div className="flex shrink-0 items-center gap-3" data-testid="portfolio-toolbar">
           {canCreate && <Button asChild className="h-9 gap-2 rounded-sm text-[13px]" data-testid="add-company"><Link to="/companies/new"><Plus className="h-4 w-4" aria-hidden="true" />Add company</Link></Button>}
-          {account.onOpenTrialBalance && <Link to="/upload" className="inline-flex h-9 items-center gap-2 rounded-sm border border-border px-3 text-[13px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link"><Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>}
+
         </div>
-        {account.onOpenTrialBalance && <p className="mt-2 text-xs text-muted-foreground">For a new upload, confirm the company and reporting period before starting the checks.</p>}
+
       </header>}
-      {account && next && (!portfolio || ["checking", "retry", "choose_plan", "capacity_reached", "ask_owner", "start_review"].includes(next.kind)) && (
+      {account && next && (!portfolio || ["checking", "retry", "start_review"].includes(next.kind) || ((!account.totals || account.totals.entries + account.totals.companiesWithoutEngagement + account.totals.shared + account.totals.unavailable === 0) && ["choose_plan", "capacity_reached", "ask_owner"].includes(next.kind))) && (
         <section className="mb-6" aria-label="Account next step">
           {!portfolio && <h2 id="account-home-title" className="text-2xl sm:text-[1.75rem] font-semibold tracking-tight text-foreground mb-4">Your engagements</h2>}
           {/* With the engagements list, uploading lives on its own page (/upload), linked from the list. */}
@@ -287,7 +288,7 @@ export default function EngagementHub({
           )}
         </section>
       )}
-      {account && portfolio && <ContinueEngagement key={account.identity?.email ?? "account"} />}
+
       {!portfolio && (() => {
         // "Continue where you left off": the latest accessible engagement whose trial balance is not finished, from the
         // persisted workspace state only. Not shown when the next-step card above already resumes that engagement.
@@ -310,7 +311,7 @@ export default function EngagementHub({
       {companiesWithoutEngagement.length > 0 && (
         <section className="mb-10">
           <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
-            Companies without a service yet
+            Company drafts
           </h2>
           <ul className="grid gap-2" data-testid="companies-without-engagement-list">
             {companiesWithoutEngagement.map((company) => (
@@ -322,8 +323,8 @@ export default function EngagementHub({
                   className="w-full text-left p-3.5 border border-border hover:border-primary/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring transition-colors flex items-center gap-3"
                 >
                   <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-foreground">{company.name}</span><span className="block text-xs text-muted-foreground">Company created · No engagement started</span></span>
-                  <span className="text-[12px] text-muted-foreground shrink-0">Start trial balance review</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-foreground">{company.name}</span><span className="block text-xs text-muted-foreground">Setup draft · Company saved</span></span>
+                  <span className="text-[12px] text-muted-foreground shrink-0">Open workspace</span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
                 </button>
               </li>
@@ -335,7 +336,7 @@ export default function EngagementHub({
         </section>
       )}
       {portfolio && account && (
-        <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+        <div className="mb-10"><EngagementPortfolio companyFirst headingLevel="h2" title="Company workspaces" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
       )}
       {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">
@@ -480,7 +481,7 @@ export default function EngagementHub({
     </>
   );
 
-  if (account) return <AccountShell identity={account.identity} onSignOut={account.onSignOut}>{body}</AccountShell>;
+  if (account) return <AccountShell directory={portfolio} identity={account.identity} onSignOut={account.onSignOut}>{body}</AccountShell>;
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border h-14 flex items-center justify-between gap-3 px-4 sm:px-6">
