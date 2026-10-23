@@ -580,6 +580,42 @@ async function main() {
     const r = await refusal(() => partner.c.setState(A, rid1, vFinal, "REVIEWED", "reopen attempt"));
     return /PT409/.test(r ?? "") ? true : r;
   });
+  await check("a company rename creates a fresh checked version on Save; earlier snapshots are never relabelled", async () => {
+    // An independent company avoids the deliberately stale authority left by the earlier roll-forward cases.
+    const world = await makeWorld(db); await world.rollout(world.A,true);
+    const engine = await certifier(db,world.U); await prepareReporting(db,world,engine,{year:Y});
+    const d = clientDb(db,world.U.preparer); const c = signoffClient(d); const rid = `rpt-rename-${uuid()}`;
+    const evidence = [];
+    for (const [role,types] of [["CURRENT",["TRANSACTION_LEDGER","EQUITY_MOVEMENTS","CASH_ACCOUNT_MAP"]],["COMPARATIVE",["TRANSACTION_LEDGER","EQUITY_MOVEMENTS","PRIOR_PERIOD_STATEMENTS"]]]) {
+      const y=role==="CURRENT"?Y:Y-1;
+      for (const type of types) {
+        const parsed=ingestEvidence({companyId:world.A,evidenceType:type,periodRole:role,reportingPeriodId:`FY${Y}`,currency:"TZS",scale:2,
+          text:(role==="CURRENT"?EVIDENCE_FY2026:EVIDENCE_FY2025_COMPARATIVE)[type],periodStart:`${y}-01-01`,periodEnd:`${y}-12-31`});
+        if(parsed.outcome!=="PARSED") throw Error("Rename fixture rejected"); evidence.push(parsed.batch);
+      }
+    }
+    const input={companyId:world.A,periodYear:Y,legalName:"Untrusted caller name",reportId:rid,idempotencyKey:"rename-attempt",evaluatedAt:"2027-02-02T09:00:00Z"};
+    const first=await prepareReportVersion(d,c,{...input,newEvidence:evidence}); if(first.outcome!=="saved") return {stage:"before rename",result:first};
+    const old=await stored(rid,first.reportVersion);
+    await db.admin.query("UPDATE public.companies SET name='Renamed synthetic company' WHERE id=$1",[world.A]);
+    let next=await prepareReportVersion(d,c,{...input,newEvidence:[]});
+    if(next.outcome==="refused" && next.reason.includes("no_authority")) {
+      // Company metadata is part of the Trial Balance authority. A rename never bypasses its required re-check.
+      const uploads=(await db.admin.query("SELECT id,period_year,source_file_hash FROM public.trial_balance_uploads WHERE company_id=$1 ORDER BY period_year",[world.A])).rows;
+      for(const u of uploads) {
+        await db.asUser(world.U.owner,"SELECT public.tbu_request_reprocess($1,$2,$3)",[u.id,uuid(),u.source_file_hash]);
+        await engine.certify(world.A,{id:u.id,year:u.period_year});
+      }
+      await prepareReporting(db,world,engine,{year:Y,uploads:false});
+      next=await prepareReportVersion(d,c,{...input,newEvidence:[]});
+    }
+    if(next.outcome!=="saved") return {stage:"after rename",result:next};
+    const saved=await stored(rid,next.reportVersion); const prior=await stored(rid,first.reportVersion);
+    const issued=await stored(rid1,vFinal);
+    return next.reportVersion===first.reportVersion+1 && !next.alreadyCurrent && saved.report_document.entity.legalName==="Renamed synthetic company"
+      && prior.doc_sha===old.doc_sha && prior.report_document.entity.legalName!=="Renamed synthetic company" && issued.doc_sha===storedFinal.doc_sha;
+  });
+
 }
 
 let crashed = false;

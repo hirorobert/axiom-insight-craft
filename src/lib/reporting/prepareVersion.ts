@@ -36,6 +36,7 @@ export type PrepareOutcome =
 export interface PrepareInput {
   readonly companyId: string;
   readonly periodYear: number;
+  /** Compatibility input only. The company name is read from the server, never trusted from the caller. */
   readonly legalName: string;
   /** The report lineage to extend; a new one is started when there is none for the period. */
   readonly reportId: string;
@@ -77,8 +78,10 @@ export async function prepareReportVersion(db: ReportingDb, client: SignoffClien
   const latest = await latestVersion(client, p);
   const current = dependenciesRef(await client.dependencies(p.companyId, p.periodYear));
   if (latest > 0 && current) {
-    const doc = (await client.report(p.reportId, latest))?.document as { reportingDependencies?: { dependenciesSha256?: string } } | undefined;
-    if (doc?.reportingDependencies?.dependenciesSha256 === current.dependenciesSha256) {
+    const doc = (await client.report(p.reportId, latest))?.document as { entity?: { legalName?: string }; reportingDependencies?: { dependenciesSha256?: string } } | undefined;
+    const legalName = await savedCompanyName(db, p.companyId);
+    if (!legalName) return { outcome: "refused", reason: "The saved company's name could not be read.", diagnostics: none };
+    if (doc?.entity?.legalName === legalName && doc?.reportingDependencies?.dependenciesSha256 === current.dependenciesSha256) {
       return finish({ outcome: "saved", reportId: p.reportId, reportVersion: latest, diagnostics: none, use: [], ...(evidenceVersion !== undefined && evidenceVersion !== latest ? { evidenceVersion } : {}), alreadyCurrent: evidenceVersion === undefined });
     }
   }
@@ -124,10 +127,8 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
   const newWithPrev = newEvidence.map((b) => ({ batch: b, expectedPreviousBatchId: stored.find((s) => series(s.batch) === series(b))?.batch.evidenceBatchId ?? null }));
   const evidence = [...kept.map((s) => s.batch), ...newEvidence];
 
-  const company = await db.rpc("get_workspace_access", { p_company_id: p.companyId });
-  const meta = (Array.isArray(company.data) ? company.data[0] : company.data) as { company_id?: string; name?: string } | null;
-  const legalName = meta?.company_id === p.companyId ? meta.name : null;
-  if (company.error || !legalName) return { outcome: "refused", reason: "The saved company's name could not be read.", diagnostics: none };
+  const legalName = await savedCompanyName(db, p.companyId);
+  if (!legalName) return { outcome: "refused", reason: "The saved company's name could not be read.", diagnostics: none };
   const assembled = assembleComposedReport({
     reportId: p.reportId, reportVersion: expected + 1, companyId: p.companyId, legalName, composition,
     currentDates: { start: cur.reportingStart, end: cur.reportingEnd }, comparativeDates, dependencies: ref, notes,
@@ -144,4 +145,10 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
     evidenceBatchIds: used, evaluation,
   });
   return { outcome: "saved", reportId: p.reportId, reportVersion: saved.reportVersion, diagnostics: assembled.diagnostics, use: assembled.use };
+}
+
+async function savedCompanyName(db: ReportingDb, companyId: string): Promise<string | null> {
+  const company = await db.rpc("get_workspace_access", { p_company_id: companyId });
+  const meta = (Array.isArray(company.data) ? company.data[0] : company.data) as { company_id?: string; name?: string } | null;
+  return !company.error && meta?.company_id === companyId && typeof meta.name === "string" && meta.name.length > 0 ? meta.name : null;
 }

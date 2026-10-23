@@ -48,7 +48,9 @@ async function main() {
   const Y = 2026;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   let pre, partner, owner, viewer;
-  const reload = () => { const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; }; pre = as(U.preparer); partner = as(U.partner); owner = as(U.owner); viewer = as(U.viewer); };
+  // Historical policy release: this database stops before 20261024. Its client predates the later server compiler.
+  // Current full-chain compilation/approval is independently exercised by publicationControls and the real-stack journey.
+  const reload = () => { const as = (uid) => { const { invoke: _laterCompiler, ...d } = clientDb(db, uid); return { d, c: signoffClient(d) }; }; pre = as(U.preparer); partner = as(U.partner); owner = as(U.owner); viewer = as(U.viewer); };
   reload();
   const rid = `fsr-${Y}-${A}`;
   const save = (newEvidence) => prepareReportVersion(pre.d, pre.c, { companyId: A, periodYear: Y, legalName: "Synthetic SME Limited", reportId: rid, newEvidence, idempotencyKey: `sp-${uuid()}`, evaluatedAt: new Date().toISOString() });
@@ -240,7 +242,7 @@ async function main() {
     const legacyDoc = readStoredReport(oldDoc);
     const legacy = buildReportPack(sealedPackInput({ document: { ...legacyDoc, framework: { kind: legacyDoc.framework.kind } }, versionState: "FINAL", bindings, adjustments: [], soloOwnerEvent: null })).html;
     return newDoc.framework?.version === "ifrs-for-smes/2015" && legacy === before.old
-      && before.old.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("<h1>Synthetic SME Limited</h1>")
+      && before.old.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("IFRS for SMEs (2015 edition)") && before.neu.includes("<h1>Synthetic SME</h1>")
       ? true : { neu: newDoc.framework, old: oldDoc.framework, legacySame: legacy === before.old };
   });
   await check("renaming the company, electing early application of the third edition and changing the recorded framework leave both exports byte-identical", async () => {

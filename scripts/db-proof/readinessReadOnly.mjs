@@ -61,7 +61,8 @@ async function main() {
   const k = await certifier(db, U);
   const Y = 2026;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
-  const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+  // The historical stage before 20261023 has no server compiler; as2 below uses the full current transport.
+  const as = (uid) => { const { invoke: _laterCompiler, ...d } = clientDb(db, uid); return { d, c: signoffClient(d) }; };
   let pre, partner, owner, viewer, historicalPartner;
   // A new client = PostgREST after a schema reload (it caches each function's volatility).
   const reload = () => { pre = as(U.preparer); partner = as(U.partner); owner = as(U.owner); viewer = as(U.viewer); historicalPartner = historicalReadinessClient(partner.d); };

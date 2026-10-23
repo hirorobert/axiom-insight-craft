@@ -172,10 +172,12 @@ GRANT EXECUTE ON FUNCTION public.fs_record_server_compilation(uuid,uuid,text,int
 -- adding a browser reviewer decision. Existing, more specific accounting and approval blockers continue to run too.
 CREATE FUNCTION public.fs_server_compilation_blocker(p_company_id uuid,p_report_id text,p_report_version integer)
 RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE r public.financial_statement_reports; c public.fs_server_compilations; d jsonb;
+DECLARE r public.financial_statement_reports; c public.fs_server_compilations; d jsonb; tb_blocker text;
 BEGIN
   SELECT * INTO r FROM public.financial_statement_reports WHERE company_id=p_company_id AND report_id=p_report_id AND report_version=p_report_version;
   IF r.id IS NULL THEN RETURN 'REPORT_VERSION_NOT_FOUND'; END IF;
+  tb_blocker := public._tb_signoff_rules_blocker(p_company_id,p_report_id,p_report_version);
+  IF tb_blocker IS NOT NULL THEN RETURN tb_blocker; END IF;
   SELECT * INTO c FROM public.fs_server_compilations WHERE company_id=p_company_id AND report_id=p_report_id AND report_version=p_report_version
     AND compiler_version='financial-report-compiler/1' AND document_hash=r.document_hash ORDER BY id DESC LIMIT 1;
   IF c.id IS NULL THEN RETURN 'SERVER_COMPILATION_REQUIRED'; END IF;
