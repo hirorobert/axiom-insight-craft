@@ -91,7 +91,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   const [showCurrency, setShowCurrency] = useState(false);
   const ids = { search: useId(), status: useId(), purpose: useId(), year: useId(), sort: useId(), heading: useId() };
   const [searchText, setSearchText] = useState("");
-  const [query, setQuery] = useState<PortfolioQuery>({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" });
+  const [query, setQuery] = useState<PortfolioQuery>({ search: "", statuses: [], purposes: [], periodYear: null, sort: companyFirst ? "opened" : "entity" });
   // pages[i] is the cursor that loads page i (page 0: null); the token is the first page's.
   const [pageIndex, setPageIndex] = useState(0);
   const cursors = useRef<(PortfolioCursor | null)[]>([null]);
@@ -205,7 +205,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
         </div>
         <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="ml-auto h-8 gap-2 rounded-sm"><Columns3 className="h-4 w-4" aria-hidden="true" />Columns</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end"><DropdownMenuLabel>Visible columns</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuCheckboxItem checked={showFramework} onCheckedChange={setShowFramework}>Framework</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showPurpose} onCheckedChange={setShowPurpose}>Purpose</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showCurrency} onCheckedChange={setShowCurrency}>Currency</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showUpload} onCheckedChange={setShowUpload}>Latest trial balance</DropdownMenuCheckboxItem></DropdownMenuContent>
-        </DropdownMenu><Button variant="ghost" size="sm" onClick={() => { setSearchText(""); setQuery({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" }); }}>Clear filters</Button>
+        </DropdownMenu><Button variant="ghost" size="sm" onClick={() => { setSearchText(""); setQuery({ search: "", statuses: [], purposes: [], periodYear: null, sort: companyFirst ? "opened" : "entity" }); }}>Clear filters</Button>
       </div>}
 
       <p className="text-[13px] text-muted-foreground" aria-live="polite" data-testid="portfolio-count">

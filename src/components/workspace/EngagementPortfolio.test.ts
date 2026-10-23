@@ -81,6 +81,7 @@ describe("EngagementPortfolio", () => {
     expect(m.container.textContent).toContain("Draft");
     expect(m.container.textContent).toContain("Open workspace");
     expect(rpc.mock.calls).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith("list_portfolio_engagements", expect.objectContaining({ p_sort: "opened" }));
   });
 
   it("pages forwards and back by the server's cursor, with the exact count line", async () => {
