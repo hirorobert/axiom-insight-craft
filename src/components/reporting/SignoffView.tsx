@@ -99,7 +99,7 @@ function Versions(p: PageProps & { selected: SavedVersion | null }) {
   if (p.state.versions.length === 0) return null;
   const columns: DataColumn<VRow>[] = [
     { id: "v", header: "Version", render: (v) => <Link to={p.hrefFor("signoff", v.reportVersion)} aria-current={p.selected?.reportVersion === v.reportVersion ? "true" : undefined} className="text-primary underline">Version {v.reportVersion}</Link> },
-    { id: "state", header: "State", render: (v) => (v.state === "DRAFT" ? "Draft" : v.state === "REVIEWED" ? "Reviewed" : "Final (sealed)") },
+    { id: "state", header: "State", render: (v) => (v.state === "DRAFT" ? "Draft" : v.state === "REVIEWED" ? "Reviewed" : v.supersededByFinal != null ? `Final (superseded by version ${v.supersededByFinal})` : "Final (sealed)") },
     { id: "at", header: "Saved", render: (v) => v.createdAt.slice(0, 16).replace("T", " ") },
     { id: "by", header: "By", render: (v) => `${v.creatorRole ?? "member"} ${v.creatorRef}` },
     { id: "latest", header: "", render: (v) => (v.isLatest ? "Latest" : "") },

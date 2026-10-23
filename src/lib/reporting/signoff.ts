@@ -34,6 +34,8 @@ export type ReportingDependencies = z.infer<typeof dependenciesSchema>;
 const versionSchema = z.object({
   reportId: z.string(), reportVersion: z.number().int(), createdAt: z.string(), creatorRole: z.string().nullable(), creatorRef: z.string(),
   contentHash: z.string(), evidenceBatchIds: z.array(z.string()), state: z.enum(["DRAFT", "REVIEWED", "FINAL"]), isLatest: z.boolean(),
+  /** 20261123100000: the first later version of the lineage that is FINAL (this FINAL is superseded), or null; absent on an older server. */
+  supersededByFinal: z.number().int().nullable().optional(),
 });
 export type SavedVersion = z.infer<typeof versionSchema>;
 const readinessSchema = z.object({ ready: z.boolean(), blockers: z.array(z.string()) }).passthrough();

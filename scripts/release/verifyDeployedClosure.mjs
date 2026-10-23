@@ -31,10 +31,13 @@ export const KNOWN_CLOSURES = Object.freeze({
     // which correctly requires a fresh closure verification rather than accepting a partial identity.
     known: [],
   }),
-  // PR #176: the official Reporting Pack gains the `retrieve` action; `issue` and `verify` unchanged.
+  // 20261123100000 (publication integrity gate): verify/retrieve disclose `superseded` (a later FINAL of the lineage) and
+  // the seal-stage refusal superseded_final_version answers 409. The PR #176 closure (deployed hosted 2026-10-21) is the
+  // newest KNOWN older closure: it still issues/verifies/retrieves, but reads no supersession and answers 500 on that refusal.
   "seal-reporting-pack": Object.freeze({
-    required: { sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0: issue, verify and retrieve" },
-    known: [{ sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
+    required: { sha256: "6c62bdcdec99ea4d4dbfc555f67f0b9cfc1c6a0b7c8e5000c08b45573b21706c", source: "publication integrity gate (20261123100000): issue, verify and retrieve, with the superseded disclosure" },
+    known: [{ sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0 (deployed hosted 2026-10-21, fs-first-slice): issue, verify and retrieve; no superseded disclosure" },
+      { sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
   }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },

@@ -21,6 +21,8 @@ const EXACT: Readonly<Record<string, string>> = {
   FRAMEWORK_EDITION_UNRECORDED: "The version does not record the edition it applies.",
   CASHFLOW_OPENING_CASH_CONFLICT: "Two authorities state different opening cash; nothing is chosen between them.",
   CASH_PERIMETER_NOT_ESTABLISHED: "The cash perimeter of the current period could not be established from the cash account map.",
+  // 20261123100000 — the publication integrity gate (document closure).
+  DOCUMENT_PROVENANCE_MISMATCH: "The document's provenance is not the saved version's. Save a new version from the workbench.",
   // 20261118100000 — sign-off on the current rules.
   TRIAL_BALANCE_RULES_UNAVAILABLE: "Whether the trial balance was checked under the current rules could not be read. Try again.",
 };
@@ -32,6 +34,12 @@ const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
   // 20261115100000 — the account capacity (fs_account_capacity): <total>/<bound>.
   ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.`; }],
   ["REVIEW_COMMENT_UNRESOLVED", (r) => `A reviewer's blocking finding is not resolved for this version (comment ${r.slice(0, 8)}…). The preparer responds and the reviewer resolves it on the Sign-off page.`],
+  // 20261123100000 — the publication integrity gate: every fact and header of the document must be the server's.
+  ["DOCUMENT_FACT_NOT_COMPOSED", (r) => `A figure in the document was not composed by the server or carries another amount (${r.replace(/^\d+:/, "")}). Save a new version from the workbench; nothing hand-edited can be signed.`],
+  ["NOTE_FACT_NOT_COMPOSED", (r) => `A note names a figure the server did not compose (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_FACT_DENOMINATION", (r) => `A figure is not in the statements' currency and scale (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_CURRENCY_MISMATCH", (r) => `The document's presentation currency is not the statements' (${r.replace(/:/g, " vs ")}). Save a new version from the workbench.`],
+  ["DOCUMENT_PERIOD_MISMATCH", (r) => `The document's ${r.startsWith("comparative") ? "comparative period" : "period"} header is not the server's reporting period (${r.replace(/^(current|comparative):/, "")}). Save a new version from the workbench.`],
   // 20261111100000 — the publication controls.
   ["PUBLICATION_PATH_UNSUPPORTED", (r) => `Only an IFRS for SMEs report derived from the authoritative trial balance can be reviewed or finalised (${r.replace(/:/g, " / ")}).`],
   ["FRAMEWORK_EDITION_UNSUPPORTED", (r) => `Only the IFRS for SMEs 2015 edition can be reviewed or finalised in this release; this period resolves to ${r}.`],
