@@ -41,8 +41,8 @@ function AccountRail({ setup = false, onNavigate }: { setup?: boolean; onNavigat
   </div>;
 }
 
-export function AccountShell({ children, onSignOut, mainClassName = "w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-7", identity, setup = false }: {
-  children: ReactNode; onSignOut: () => void | Promise<void>; mainClassName?: string; identity?: AccountIdentity; setup?: boolean;
+export function AccountShell({ children, onSignOut, mainClassName = "w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-7", identity, setup = false, directory = false }: {
+  children: ReactNode; onSignOut: () => void | Promise<void>; mainClassName?: string; identity?: AccountIdentity; setup?: boolean; directory?: boolean;
 }) {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -53,8 +53,8 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
     <a href="#account-main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[60] focus:bg-background focus:p-3">Skip to content</a>
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}><SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></SheetTrigger>
-          <SheetContent side="left" className="account-rail w-64 border-0 p-0 pt-8"><SheetTitle className="sr-only">Navigation</SheetTitle><SheetDescription className="sr-only">Choose an account page or reporting workspace.</SheetDescription><AccountRail setup={setup} onNavigate={() => setNavigationOpen(false)} /></SheetContent></Sheet>
+        {!directory && <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}><SheetTrigger asChild><Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></SheetTrigger>
+          <SheetContent side="left" className="account-rail w-64 border-0 p-0 pt-8"><SheetTitle className="sr-only">Navigation</SheetTitle><SheetDescription className="sr-only">Choose an account page or reporting workspace.</SheetDescription><AccountRail setup={setup} onNavigate={() => setNavigationOpen(false)} /></SheetContent></Sheet>}
         <Link to="/dashboard" state={{ forceHub: true }} aria-label="CFOClose home" className="shrink-0"><CFOCloseWordmark className="text-lg" /></Link>
         <span className="hidden border-l border-border pl-5 text-[13px] font-medium text-muted-foreground lg:block">Your practice</span>
       </div>
@@ -75,7 +75,7 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
       </nav>
     </header>
     <div className="flex flex-1">
-      <aside className="account-rail sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[224px] shrink-0 md:block"><AccountRail setup={setup} /></aside>
+      {!directory && <aside className="account-rail sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[224px] shrink-0 md:block"><AccountRail setup={setup} /></aside>}
       <div className="flex min-w-0 flex-1 flex-col">
         <main id="account-main" tabIndex={-1} className={mainClassName}>{children}</main>
         <footer className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground sm:px-6"><nav aria-label="Help and legal" className="flex flex-wrap gap-x-5 gap-y-2">

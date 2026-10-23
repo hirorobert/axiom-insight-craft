@@ -516,6 +516,7 @@ function WorkbenchShell(props: {
   const model = deriveWorkbenchNavigation(props.basePath, props.navItems, undefined, reporting.state === "enabled");
   const activePage = activeWorkbenchPage(props.pathname, props.basePath);
   const reportVersion = parseReportVersion(props.search);
+  const companyHome = activePage === "overview" && new URLSearchParams(props.search).get("view") === "company";
   // One next open item, from the authority that owns the step: the workspace engine while its step is in a stage the
   // customer can see (the trial balance); after that, for a reporting-enabled company, the reporting journey's own next
   // action (Close Review, statements, comparatives, notes, evidence, version, sign-off) — never the engine's legacy
@@ -534,7 +535,7 @@ function WorkbenchShell(props: {
           <EngagementContextPanel companyId={props.companyId} periodYear={props.periodYear} {...props.context} />
         )}
         {props.withheld ? null : (
-          <WorkbenchNav
+          <div className={companyHome ? "hidden md:block" : undefined}><WorkbenchNav
             model={model}
             activePage={activePage}
             reportVersion={reportVersion}
@@ -544,13 +545,13 @@ function WorkbenchShell(props: {
               const st = g?.stage && !REPORTING_GROUPS.has(g.id) ? props.missionStatus(g.stage) : null;
               return st ? missionStatusWord(st) : null;
             }}
-          />
+          /></div>
         )}
       </div>
       <main className="min-w-0 px-4 py-6 sm:px-8">
         <ContextAnnouncer context={{ companyId: props.companyId, periodYear: props.periodYear, reportVersion }} />
         {showNext && next ? <NextOpenItem label={next.label} href={next.href} reportVersion={reportVersion} /> : null}
-        {props.withheld ? <WorkspaceUnavailable /> : <Outlet />}
+        {props.withheld ? <WorkspaceUnavailable /> : <Outlet context={{ model, next }} />}
       </main>
     </div>
   );

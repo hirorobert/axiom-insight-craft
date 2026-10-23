@@ -229,7 +229,9 @@ describe("UI wiring contracts", () => {
     // whose only action was the same upload, so the single-service journey omits it (continuity remediation).
     const entry = overview.slice(overview.indexOf("<TrialBalanceEntryCard"), overview.indexOf(') : launchState === "LAUNCHPAD"'));
     expect(entry).not.toMatch(/onStartEmpty/);
-    expect(entry).toMatch(/createEngagement\(\[implied\]\)/);
+    expect(entry).toContain("onUpload={startTrialBalance}");
+    const start = overview.slice(overview.indexOf("const startTrialBalance ="), overview.indexOf("if (new URLSearchParams(location.search)"));
+    expect(start).toMatch(/createEngagement\(\[implied\]\)/);
     // The data-choice card (more than one service): unchanged.
     const second = overview.indexOf("onStartEmpty");
     const empty = overview.slice(second, second + 400);

@@ -1,5 +1,6 @@
+import { CompanyWorkspaceHome } from "@/components/workspace/CompanyWorkspaceHome";
 /**
- * WorkspaceOverview — the authenticated first screen. One decision, nothing else.
+ * WorkspaceOverview — the task decision, or the company task menu when explicitly selected from the directory.
  *
  * Two zones only:
  *   A. Engagement identity  — company · fiscal year, quiet. TIN only when it blocks.
@@ -345,6 +346,15 @@ export default function WorkspaceOverview() {
     };
   }
 
+  const startTrialBalance = async () => {
+    if (launchState === "LAUNCHPAD" && implied) await createEngagement([implied]);
+    navigate(`${basePath}/prepare`);
+  };
+
+  if (new URLSearchParams(location.search).get("view") === "company") return <CompanyWorkspaceHome>
+    {mandateLoading || dataStart.loading ? <Skeleton className="mb-6 h-24" /> : !engagement && showEntry && implied ? <div className="mb-6"><TrialBalanceEntryCard canStart={canAmend} onUpload={startTrialBalance} /></div> : !engagement ? <div className="mb-6"><ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={async (selected) => { await createEngagement(selected); }} /></div> : null}
+  </CompanyWorkspaceHome>;
+
   // Scope already exists: visiting a route is a read, never a new service/data-start command.
   if (!mandateLoading && !dataStart.loading && engagement && !upload && granted?.some((cap) => requiresAccountingData(cap))) {
     return <Navigate to={`${basePath}/prepare${location.search}${location.hash}`} replace />;
@@ -433,11 +443,7 @@ export default function WorkspaceOverview() {
         ) : showEntry && implied ? (
           <TrialBalanceEntryCard
             canStart={launchState === "LAUNCHPAD" ? canAmend : true}
-            onUpload={async () => {
-              // Open (or reuse) the engagement with the implied service, then the single upload surface.
-              if (launchState === "LAUNCHPAD") await createEngagement([implied]);
-              navigate(`${basePath}/prepare`);
-            }}
+            onUpload={startTrialBalance}
           />
         ) : launchState === "LAUNCHPAD" ? (
           <ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={async (selected) => { await createEngagement(selected); }} />

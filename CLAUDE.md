@@ -356,7 +356,7 @@ src/
       types.ts                ← WorkspaceMission, MissionStatus, WorkspaceState
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)
       fetchWorkspaceSnapshot.ts ← The one-shot async read pipeline (company → uploads → active upload → sign-offs → certification → deriveWorkspaceState) behind a single workspace's WorkspaceState. Used by both useWorkspaceData.ts (single workspace) and useActiveEngagements.ts (the returning-user hub) — single implementation, no second copy.
-      resolveReturningUserRoute.ts ← Pure returning-user routing decision (resume / chooser / start_single_company / first_run) behind Dashboard.tsx
+      resolveReturningUserRoute.ts ← Pure single-item routing rules retained for explicit service intent; normal Dashboard sign-in forces the company directory
       deriveOrientationSummary.ts ← Pure projection of Service/Current stage/Current status/last completed milestone for the WorkspaceOverview orientation strip
       workflowAcceptanceFixtures.ts ← Deterministic UploadSnapshot fixtures covering all 11 deriveWorkspaceState paths (incl. contradiction/missing-certification/stale-processing), fed to the internal WorkspaceStatesAcceptance gallery
       concurrencyLimit.ts      ← Bounded-fan-out worker pool (mapWithConcurrencyLimit) + fail-closed-on-any-failure aggregation (aggregateSettledResults) — the returning-user hub's query-safety primitives
@@ -462,7 +462,7 @@ src/
     workspace/
       WorkspaceLayout.tsx     ← Shell: top bar + derived stage nav + <Outlet>
       WorkspaceOverview.tsx   ← Command center: ONE dominant decision (launchpad / data choice / next action)
-      EngagementHub.tsx       ← Returning-user chooser, rendered by Dashboard.tsx when the routing decision is ambiguous (>1 open engagement, or 0 open + >1 company)
+      EngagementHub.tsx       ← Company directory on normal sign-in, with saved setup drafts and server-paged company/period workspaces; no account-level workflow rail
       PrepareWorkspace.tsx    ← Stage 1
       ReconcileWorkspace.tsx  ← Stage 2
       StatementsWorkspace.tsx ← Stage 3
@@ -486,7 +486,7 @@ src/
       intake/LayoutEditor.tsx ← Trial balance › Intake: manual layout, whole-file check report, confirmation, templates (behind the workbench gate)
       intake/PeriodSetup.tsx  ← Explicit period dates + currency (open_engagement_with_period); no defaults
     account/
-      AccountShell.tsx        ← THE signed-in frame outside a workspace (account home, /plans, checkout, orders); no session or client dependency
+      AccountShell.tsx        ← Signed-in frame outside a workspace; directory mode omits the workflow rail before a company is selected
       AccountOrPublicFrame.tsx ← /plans, checkout, orders: AccountShell when signed in, the public Header/Footer otherwise
     workspace/
       ServiceLaunchpad.tsx    ← "What would you like to complete?" (services from the canonical registry)

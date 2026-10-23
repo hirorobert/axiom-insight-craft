@@ -1,32 +1,10 @@
 import { PendingStatus } from "@/components/feedback/Activity";
-/**
- * Dashboard — Authenticated routing gateway / product home.
- *
- * Returning-user routing (never guesses) — the branch decision itself is the PURE function
- * decideReturningUserRoute (resolveReturningUserRoute.ts), computed synchronously from
- * useActiveEngagements' result on every render:
- *   exactly 1 open engagement                        → auto-resume its authoritative overview
- *                                                        (regardless of how many OTHER companies
- *                                                        have no open engagement — one unambiguous
- *                                                        active engagement is resumed directly;
- *                                                        those companies stay reachable from
- *                                                        "Start another service" inside the workspace)
- *   >1 open engagements                               → EngagementHub, a deterministic chooser
- *   0 open engagements, exactly 1 company             → auto-navigate in (ServiceLaunchpad shows there)
- *   0 open engagements, >1 companies                  → EngagementHub, "start another service" list
- *   0 companies                                        → the account home (EngagementHub) with its one next step:
- *                                                        choose a plan, or add the first company (FirstRunEngagement,
- *                                                        create_entity) when the server's capacity answer permits
- *
- * "Open engagement" is read via useActiveEngagements, which is the SAME authority
- * (fetchWorkspaceSnapshot → deriveWorkspaceState) every workspace page itself uses — this page
- * invents no second readiness computation, only a routing decision on top of it.
- *
- * Zero accounting panels. Zero upload management. Zero financial logic.
- * Those live in their respective workspace stage pages.
+/** Signed-in company directory. Normal sign-in never auto-selects a company or financial year.
+ * Explicit validated service intent keeps its existing entitled routing; all readiness stays server-owned.
+ * Discovery, billing and capacity gates are preserved; visiting the directory never creates a company or engagement.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBillingSummary } from "@/hooks/useBillingSummary";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { companyCreation } from "@/lib/workspace/accountNextAction";
@@ -88,11 +66,13 @@ async function resolveEntryPeriodYear(company: Pick<WorkspaceCompany, "id" | "fi
 export default function Dashboard() {
   const { user, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
+  const selection = useRef(0);
+  useEffect(() => () => { ++selection.current; }, []);
   const location = useLocation();
-  // Set only by the authenticated header's logo (WorkspaceLayout.tsx) — an explicit "take me to the
-  // hub" escape, distinct from a bare sign-in landing at /dashboard. See applyForceHub's own doc
-  // comment for exactly what this does and does not change.
-  const forceHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
+  // A normal sign-in always opens the company directory, even for a single company.
+  // An explicit, validated service intent may retain its existing routing behaviour.
+  const explicitHub = !!(location.state as { forceHub?: boolean } | null)?.forceHub;
+  const forceHub = explicitHub || !currentServiceIntent(location.search, user?.user_metadata);
   // One bounded server read with exact counts (get_account_home): no routing decision is taken from a client list that
   // PostgREST could have truncated, and no company, engagement or upload list is fetched in full.
   const { loading: engagementsLoading, home, fetchFailed, refresh } = useAccountHome();
@@ -191,7 +171,8 @@ export default function Dashboard() {
   // An engagement's button names and opens its actual next step on the trial balance page (engagementNextAction),
   // for the same entity, period and current upload.
   const resumeEntry = (entry: { companyId: string; periodYear: number }) => {
-    navigate(`/workspace/${entry.companyId}/${entry.periodYear}`);
+    ++selection.current;
+    navigate(`/workspace/${entry.companyId}/${entry.periodYear}?view=company`);
   };
 
   // Starting a service for a DIFFERENT company (or one with no open engagement) never touches an
@@ -200,8 +181,9 @@ export default function Dashboard() {
   // service selection.
   // A shared workspace opens straight into Prepare Data, the only stage its grant covers.
   const openShared = async (workspace: SharedWorkspace) => {
+    const request = ++selection.current;
     const year = await resolveEntryPeriodYear(workspace);
-    navigate(`/workspace/${workspace.id}/${year}/prepare`);
+    if (request === selection.current) navigate(`/workspace/${workspace.id}/${year}/prepare`);
   };
 
   // Explicit, user-selected: add Trial balance review to the EXISTING engagement (same period, no new engagement).
@@ -219,8 +201,9 @@ export default function Dashboard() {
   };
 
   const startService = async (company: WorkspaceCompany) => {
+    const request = ++selection.current;
     const year = await resolveEntryPeriodYear(company);
-    navigate(`/workspace/${company.id}/${year}`);
+    if (request === selection.current) navigate(`/workspace/${company.id}/${year}?view=company`);
   };
 
   // ── A chosen service the account is not entitled to: choose a plan first (the service is preserved) ──
@@ -245,7 +228,7 @@ export default function Dashboard() {
   // ── The read itself failed — never conflated with "no companies"/"no engagements" ─────────────
   if (fetchFailed) {
     return (
-      <AccountShell onSignOut={signOutHome}>
+      <AccountShell directory onSignOut={signOutHome}>
         <div className="flex flex-col items-center gap-4 text-center" data-testid="engagements-read-failed">
           <p role="alert" className="text-[13px] text-muted-foreground max-w-sm">
             Could not load your engagements. This is a connection problem, not a sign that anything is missing.
