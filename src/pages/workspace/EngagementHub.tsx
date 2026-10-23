@@ -399,6 +399,7 @@ export default function EngagementHub({
                 >
                   <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
                   <span className="text-[13px] font-medium text-foreground flex-1 truncate">{company.name}</span>
+                  <span className="text-[12px] text-muted-foreground shrink-0">Start trial balance review</span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
                 </button>
               </li>
