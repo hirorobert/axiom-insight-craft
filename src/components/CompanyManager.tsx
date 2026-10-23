@@ -179,6 +179,7 @@ function StartCorrectedEngagementAffordance({
 export const CompanyManager = () => {
   const [saving, setSaving] = useBusyState("Saving company…");
   const [deleting, setDeleting] = useBusyState("Removing company…");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -443,6 +444,7 @@ export const CompanyManager = () => {
     if (!confirm(`Are you sure you want to delete "${company.name}"?`)) return;
 
     if (!setDeleting(true)) return;
+    setDeletingId(company.id);
     try {
       const { error } = await supabase
         .from("companies")
@@ -465,7 +467,7 @@ export const CompanyManager = () => {
       console.error("Delete error:", error);
       toast.error("Failed to delete company");
     }
-    finally { setDeleting(false); }
+    finally { setDeleting(false); setDeletingId(null); }
   };
 
   return (
@@ -548,6 +550,7 @@ export const CompanyManager = () => {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Edit ${company.name}`}
                         onClick={() => handleEdit(company)}
                         className="h-8 w-8 p-0"
                       >
@@ -556,11 +559,12 @@ export const CompanyManager = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        pending={deleting} disabled={deleting}
+                        pending={deletingId === company.id} disabled={deleting}
+                        aria-label={`Remove ${company.name}`}
                         onClick={() => handleDelete(company)}
                         className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {deletingId !== company.id && <Trash2 className="w-3 h-3" />}
                       </Button>
                     </div>
                   </div>
