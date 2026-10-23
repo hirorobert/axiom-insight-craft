@@ -727,6 +727,8 @@ async function main() {
   // The second account has a plan and no entity yet: the home links to the focused upload. Invented data only.
   let B = null;
   await check("the drop zone takes the file; it is stored privately as a draft, not yet in any entity", async () => {
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
     // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
     await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
@@ -802,6 +804,8 @@ async function main() {
   await signOut(); await signIn(U.noPlan);
   const noPlanApi = await asUser(U.noPlan);
   await check("no plan: the upload is offered with the plan stated up front; the file is stored as a draft", async () => {
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
     // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
     await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-needs-plan"]', { timeout: 30000 });
@@ -827,6 +831,8 @@ async function main() {
   });
   await check("after a plan exists, the home offers 'Continue saved upload' for the same draft, with the card as it was; the check completes", async () => {
     await grantPlan(U.noPlan.id);
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
     // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
     await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-continue-draft"]', { timeout: 30000 });
@@ -887,6 +893,8 @@ async function main() {
   };
 
   await check("first upload: the file's TZS labels are shown against the chosen USD before anything runs; 'Start' lists the conflict and creates nothing", async () => {
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
     // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
     await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
@@ -1147,6 +1155,8 @@ async function main() {
   };
 
   await check("a file whose title names the entity differently and carries a cash-in-transit balance: the entity decision is REQUIRED, the clearing balance is an optional review note; each finding listed once; nothing authoritative; the engagement and its settings are stated in the rail, not in the task", async () => {
+    // Establish the directory as the preceding page after the cross-account isolation probe.
+    await go("/dashboard", "Your companies");
     // Compatibility: saved upload links remain valid; normal sign-in starts from company selection.
     await go("/upload", "");
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });

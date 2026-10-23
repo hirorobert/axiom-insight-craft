@@ -87,6 +87,9 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   await page.getByTestId('company-workspace-home').waitFor();
   await page.screenshot({ path: `${out}/${device}-company.png`, fullPage: true });
   await page.getByRole('list', { name: 'Company tasks' }).getByRole('link', { name: 'Trial Balance', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Engagement', exact: true }).getByRole('link', { name: 'Overview', exact: true }).click();
+  await page.getByTestId('company-workspace-home').waitFor();
+  await page.getByRole('list', { name: 'Company tasks' }).getByRole('link', { name: 'Trial Balance', exact: true }).click();
   await page.reload();
   await page.getByText(/Checked by an earlier version/).first().waitFor();
   await page.waitForTimeout(500);
@@ -96,7 +99,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   assert.ok(await page.getByRole('link', { name: 'All engagements', exact: true }).isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow');
   assert.deepEqual(errors, []);
-  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'company-directory-without-sidebar', 'company-menu-with-authorised-features', 'server-accepted-reopen', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
+  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'company-directory-without-sidebar', 'company-menu-with-authorised-features', 'Overview-returns-to-company-menu', 'server-accepted-reopen', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
   await context.close();
 }
 console.log(JSON.stringify(results, null, 2));

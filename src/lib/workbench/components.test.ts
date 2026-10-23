@@ -110,7 +110,9 @@ describe("WorkbenchNav", () => {
     expect(text).not.toMatch(/Tax|Monitor|Compliance|Filing/);
     const current = nav.querySelector('[aria-current="page"]')!;
     expect(current.textContent).toContain("Trial Balance");
-    for (const a of nav.querySelectorAll("a")) expect(a.getAttribute("href")).toMatch(/\?v=4$/);
+    for (const a of nav.querySelectorAll("a")) expect(new URL(a.getAttribute("href")!, "https://fixture.invalid").searchParams.get("v")).toBe("4");
+    const overview = [...nav.querySelectorAll("a")].find(a => a.textContent?.startsWith("Overview"))!;
+    expect(overview.getAttribute("href")).toBe(`${BASE}?view=company&v=4`);
     expect(text).toContain("Reconcile");
     expect(text).toContain("Needs review");
     expect(await axeViolations(nav)).toEqual([]);
