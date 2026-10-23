@@ -252,7 +252,7 @@ describe("named-user seats in the UI (structured state only)", () => {
     expect(panel).toMatch(/functionSeatRefusal\(error\)/);
     expect(panel).toMatch(/Each person signs in with their own account/);
     expect(panel).toMatch(/supabase\.rpc\("cancel_workspace_invitation"/);
-    expect(panel).toMatch(/isPending \? void handleCancelInvitation\(m\.id\) : handleRemove\(m\.id\)/);
+    expect(panel).toMatch(/pending \? void handleCancelInvitation\(m\.id\) : void handleRemove\(m\.id\)/);
     expect(panel).toMatch(/supabase\.rpc\("choose_active_named_users"[^)]*p_roster_version: roster\.rosterVersion/);
     expect(panel).not.toMatch(/named_user_billing_suspensions/);
   });

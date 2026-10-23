@@ -1,5 +1,7 @@
+import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
+import { useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { useNavigate } from "react-router-dom";
@@ -176,12 +178,15 @@ function StartCorrectedEngagementAffordance({
   );
 }
 
-export const CompanyManager = () => {
+export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "dialog" | "inline" }) => {
+  const inline = presentation === "inline";
   const [saving, setSaving] = useBusyState("Saving company…");
   const [deleting, setDeleting] = useBusyState("Removing company…");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   // One request id per new-company form: a retried submission returns the SAME workspace (create_entity is idempotent).
@@ -195,6 +200,15 @@ export const CompanyManager = () => {
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM_DATA);
+  const formBaseline = useRef(JSON.stringify(EMPTY_FORM_DATA));
+  const lockRead = useRef(0);
+  const dirty = formDialogOpen && JSON.stringify(formData) !== formBaseline.current;
+  useManagementEditGuard(dirty, saving || deleting);
+  const closeForm = () => {
+    if (saving) return;
+    if (dirty) { setDiscardPrompt(true); return; }
+    setFormDialogOpen(false);
+  };
 
   // ── Period/framework contract: once ANY trial balance for this company has been processed,
   // reporting_framework and fiscal_year_end are IMMUTABLE — there is no reason-based override of
@@ -218,8 +232,8 @@ export const CompanyManager = () => {
 
   const startCorrectedEngagement = (year: number) => {
     if (!editingCompany) return;
-    setFormDialogOpen(false);
-    setDialogOpen(false);
+    // Keep inline edits mounted until the route blocker accepts leaving.
+    if (!inline) { setFormDialogOpen(false); setDialogOpen(false); }
     // Pure navigation — no Supabase call, no mutation of this company's row, no copy of any
     // certification/draft/reconciliation/processing status from the original engagement. The
     // destination is the existing authoritative creation path: WorkspaceLayout/WorkspaceOverview
@@ -231,32 +245,31 @@ export const CompanyManager = () => {
 
   const fetchCompanies = async () => {
     if (!user) return;
-
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .eq("is_active", true)
-      .order("name");
-
-    if (!error && data) {
-      setCompanies(data);
-    }
-    setLoading(false);
+    setLoadError(false);
+    try {
+      const { data, error } = await supabase.from("companies").select("*").eq("is_active", true).order("name");
+      if (error) throw error;
+      setCompanies(data ?? []);
+    } catch { setLoadError(true); }
+    finally { setLoading(false); }
   };
 
   useEffect(() => {
-    if (dialogOpen) {
+    if (dialogOpen || inline) {
       fetchCompanies();
     }
-  }, [user, dialogOpen]);
+  }, [user, dialogOpen, inline]);
 
   const resetForm = () => {
+    setDiscardPrompt(false);
     setFormData(EMPTY_FORM_DATA);
+    formBaseline.current = JSON.stringify(EMPTY_FORM_DATA);
     setCreationRequestId(crypto.randomUUID());
     setEditingCompany(null);
     setTinTouched(false);
     // A brand-new company has nothing processed, but the very next handleEdit() sets this back to
     // "checking" first — resetForm() only ever runs between edits, never mid-check.
+    ++lockRead.current;
     setProcessingCertainty("not_processed");
   };
 
@@ -385,6 +398,7 @@ export const CompanyManager = () => {
   };
 
   const handleEdit = (company: Company) => {
+    const read = ++lockRead.current;
     setEditingCompany(company);
     // Fields stay locked (see processingCertainty's default) until this read positively confirms
     // "not_processed" — a slow or failed read must never be mistaken for "nothing has processed".
@@ -400,15 +414,16 @@ export const CompanyManager = () => {
       .limit(1)
       .then(
         ({ data, error }) => {
+          if (read !== lockRead.current) return;
           if (error) {
             setProcessingCertainty("check_failed");
             return;
           }
           setProcessingCertainty(data && data.length > 0 ? "processed" : "not_processed");
         },
-        () => setProcessingCertainty("check_failed"),
+        () => { if (read === lockRead.current) setProcessingCertainty("check_failed"); },
       );
-    setFormData({
+    const editData: CompanyFormData = {
       name: company.name,
       code: company.code || "",
       tin: company.tin || "",
@@ -433,7 +448,10 @@ export const CompanyManager = () => {
       // "ifrs_for_smes" here would silently overwrite a genuinely-unset
       // company's framework the moment the edit dialog is saved.
       reporting_framework: company.reporting_framework,
-    });
+    };
+    setDiscardPrompt(false);
+    formBaseline.current = JSON.stringify(editData);
+    setFormData(editData);
     setFormDialogOpen(true);
   };
 
@@ -470,28 +488,12 @@ export const CompanyManager = () => {
     finally { setDeleting(false); setDeletingId(null); }
   };
 
-  return (
-    <>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Settings className="w-4 h-4" />
-            Manage
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="w-5 h-5" />
-              Manage Companies
-            </DialogTitle>
-          </DialogHeader>
-
+  const companyList = (
           <div className="space-y-4">
             <Button
               variant="outline"
               size="sm"
-              className="gap-2 w-full"
+              className="gap-2"
               disabled={!canAdd}
               onClick={() => {
                 resetForm();
@@ -503,18 +505,18 @@ export const CompanyManager = () => {
             </Button>
             <EntityCapacityNotice capacity={capacity} loading={capacityLoading} error={capacityError} onRetry={retryCapacity} />
 
-            {loading ? (
+            {loadError ? <p role="alert" className="py-4 text-sm text-destructive">Companies could not be loaded. <Button variant="outline" size="sm" onClick={fetchCompanies}>Try again</Button></p> : loading ? (
               <p className="text-sm text-muted-foreground text-center py-4">Loading...</p>
             ) : companies.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
                 No companies yet. Add one to organize your trial balances.
               </p>
             ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
+              <div className="divide-y divide-border border border-border">
                 {companies.map((company) => (
                   <div
                     key={company.id}
-                    className="flex items-center justify-between p-3 rounded-lg border bg-card border-border"
+                    className="flex flex-wrap items-center justify-between gap-3 bg-card px-4 py-3"
                   >
                     <div className="flex items-center gap-3">
                       <Building2 className="w-4 h-4 text-primary" />
@@ -572,22 +574,10 @@ export const CompanyManager = () => {
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add/Edit Form Dialog */}
-      <Dialog open={formDialogOpen} onOpenChange={(open) => {
-        if (saving) return;
-        setFormDialogOpen(open);
-        if (!open) resetForm();
-      }}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {editingCompany ? "Edit Company" : "Add New Company"}
-            </DialogTitle>
-          </DialogHeader>
+  );
+  const companyForm = (
           <form onSubmit={handleSubmit} aria-busy={saving} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            {discardPrompt && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-border bg-muted/30 p-4 text-sm"><p>Discard the unsaved company changes?</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setDiscardPrompt(false)}>Keep editing</Button><Button type="button" variant="destructive" onClick={() => { setFormDialogOpen(false); resetForm(); }}>Discard changes</Button></div></div>}
             <fieldset disabled={saving} className="contents">
             <div className="space-y-2">
               <Label htmlFor="name">Company Name *</Label>
@@ -646,10 +636,7 @@ export const CompanyManager = () => {
                   <SelectValue placeholder="Not determined — select a framework" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ifrs_for_smes">IFRS for SMEs — private companies</SelectItem>
-                  <SelectItem value="full_ifrs" disabled>Full IFRS — coming soon</SelectItem>
-                  <SelectItem value="ipsas_accrual">IPSAS Accrual — government / public sector</SelectItem>
-                  <SelectItem value="ipsas_cash" disabled>IPSAS Cash Basis — coming soon</SelectItem>
+                  {FRAMEWORK_OPTIONS.filter((framework) => framework.dbValue !== null).map((framework) => <SelectItem key={framework.value} value={framework.value}>{framework.label}</SelectItem>)}
                 </SelectContent>
               </Select>
               {!frameworkEditable ? (
@@ -658,7 +645,7 @@ export const CompanyManager = () => {
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Determines statement headers and output format. Cannot be changed after first report is generated.
+                  Records the company’s reporting framework. Report availability is checked separately. Locked once trial balance data has been processed.
                 </p>
               )}
             </div>
@@ -728,7 +715,7 @@ export const CompanyManager = () => {
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" disabled={saving} onClick={() => setFormDialogOpen(false)}>
+              <Button type="button" variant="outline" disabled={saving} onClick={closeForm}>
                 Cancel
               </Button>
               <Button type="submit" pending={saving} pendingLabel="Saving company…" disabled={showTinError || saving}>
@@ -737,8 +724,19 @@ export const CompanyManager = () => {
             </div>
             </fieldset>
           </form>
-        </DialogContent>
-      </Dialog>
-    </>
   );
+  return <>
+    {inline ? (formDialogOpen ? <section aria-label={editingCompany ? "Edit company" : "Add company"}>
+      <div className="mb-5 flex items-center justify-between gap-3"><h3 className="text-base font-semibold">{editingCompany ? "Edit company" : "Add company"}</h3><Button type="button" variant="outline" disabled={saving} onClick={closeForm}>Back to companies</Button></div>
+      {companyForm}
+    </section> : companyList) : <>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogTrigger asChild><Button variant="outline" size="sm" className="gap-2"><Settings className="h-4 w-4" />Manage</Button></DialogTrigger>
+        <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Manage companies</DialogTitle></DialogHeader>{companyList}</DialogContent>
+      </Dialog>
+      <Dialog open={formDialogOpen} onOpenChange={(open) => { if (!open) closeForm(); }}>
+        <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col"><DialogHeader><DialogTitle>{editingCompany ? "Edit company" : "Add company"}</DialogTitle></DialogHeader>{companyForm}</DialogContent>
+      </Dialog>
+    </>}
+  </>;
 };

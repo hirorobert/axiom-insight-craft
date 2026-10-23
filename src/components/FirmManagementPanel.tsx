@@ -1,3 +1,4 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
 import { useActivity } from "@/components/feedback/useActivity";
 // ============================================================
@@ -129,6 +130,8 @@ export function FirmManagementPanel() {
   const [changing, setChanging] = useBusyState("Updating team access…");
   const [loading, setLoading]           = useState(true);
   const [showInvite, setShowInvite]     = useState(false);
+  const [discardInvite, setDiscardInvite] = useState(false);
+  const [pendingCompany, setPendingCompany] = useState<string | null>(null);
   const [inviting, setInviting]         = useBusyState("Sending invitation…");
   const [removing, setRemoving]         = useState<string | null>(null);
   const [inviteForm, setInviteForm]     = useState({ email: "", role: "preparer" as MemberRole });
@@ -366,14 +369,101 @@ export function FirmManagementPanel() {
     finally { setApplying(false); }
   };
 
+  const inviteDirty = showInvite && (inviteForm.email !== "" || inviteForm.role !== "preparer");
+  const savedSelection = roster?.people.filter((person) => person.state === "active_candidate").map((person) => person.userId) ?? [];
+  const selectionDirty = !!roster?.overAllowance && [...selection].sort().join() !== [...savedSelection].sort().join();
+  useManagementEditGuard(inviteDirty || selectionDirty, inviting || changing || applying || !!removing, () => {
+    setShowInvite(false); setInviteForm({ email: "", role: "preparer" }); setSelection(savedSelection);
+  });
+  const closeInvite = () => {
+    if (inviting) return;
+    if (inviteDirty) { setDiscardInvite(true); return; }
+    setDiscardInvite(false);
+    setShowInvite(false);
+    setInviteForm({ email: "", role: "preparer" });
+  };
   // ── Render ────────────────────────────────────────────────────
 
   useActivity(loading || !!removing, loading ? "Loading the team…" : "Updating team access…");
   const selectedCo = companies.find((c) => c.id === selectedCompany);
 
+  if (showInvite) return <section aria-label="Invite team member">
+    <div className="mb-5 flex items-center justify-between gap-3"><h3 className="text-lg font-semibold">Invite team member</h3><Button variant="outline" disabled={inviting} onClick={closeInvite}>Back to team</Button></div>
+    {discardInvite && <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 border border-border bg-muted/30 p-4 text-sm"><p>Discard the unsent invitation?</p><div className="flex gap-2"><Button variant="outline" onClick={() => setDiscardInvite(false)}>Keep editing</Button><Button variant="destructive" onClick={() => { setShowInvite(false); setDiscardInvite(false); setInviteForm({ email: "", role: "preparer" }); }}>Discard changes</Button></div></div>}
+    <fieldset disabled={inviting} className="max-w-xl">
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="inviteEmail">
+                Email Address <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="inviteEmail"
+                type="email"
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                placeholder="colleague@firm.co.tz"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                They'll receive an email with a sign-in link.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select
+                value={inviteForm.role}
+                onValueChange={(v) => setInviteForm({ ...inviteForm, role: v as MemberRole })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["partner", "preparer", "viewer"] as MemberRole[]).map((r) => (
+                    <SelectItem key={r} value={r}>
+                      <div>
+                        <p className="text-sm font-medium">{ROLE_LABELS[r]}</p>
+                        <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[r]}</p>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg bg-secondary/50 border border-border px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                Inviting to: <span className="font-semibold text-foreground">{selectedCo?.name}</span>
+                {selectedCo?.tin && (
+                  <span className="ml-1.5 font-mono">(Tax identifier: {selectedCo.tin})</span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={closeInvite}
+              disabled={inviting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleInvite}
+              disabled={inviting || !inviteForm.email.trim()}
+              className="gap-1.5"
+            >
+              {inviting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              {inviting ? "Sending…" : "Send Invitation"}
+            </Button>
+          </DialogFooter>
+    </fieldset>
+  </section>;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="border-0 shadow-none">
+      <CardHeader className="px-0 pb-5 pt-0">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -398,7 +488,7 @@ export function FirmManagementPanel() {
             {selectedCompany && (
               <Button
                 size="sm"
-                onClick={() => setShowInvite(true)}
+                onClick={() => { setDiscardInvite(false); setShowInvite(true); }}
                 className="gap-1.5"
                 disabled={!seatsLoaded || !canInviteAnother(seats)}
                 data-testid="invite-member"
@@ -410,10 +500,11 @@ export function FirmManagementPanel() {
           </div>
         </div>
 
+        {pendingCompany && <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-border p-4 text-sm"><p>Discard the unsaved team selection?</p><div className="flex gap-2"><Button variant="outline" onClick={() => setPendingCompany(null)}>Keep editing</Button><Button variant="destructive" onClick={() => { setSelected(pendingCompany); setPendingCompany(null); }}>Discard changes</Button></div></div>}
         {/* Company selector */}
         {companies.length > 1 && (
           <div className="pt-2">
-            <Select value={selectedCompany} onValueChange={setSelected}>
+            <Select value={selectedCompany} onValueChange={(id) => { if (selectionDirty) setPendingCompany(id); else setSelected(id); }}>
               <SelectTrigger className="w-64">
                 <SelectValue placeholder="Select company…" />
               </SelectTrigger>
@@ -432,7 +523,7 @@ export function FirmManagementPanel() {
         )}
       </CardHeader>
 
-      <CardContent className="pt-0">
+      <CardContent className="px-0 pt-0">
         {selectedCompany && seatsLoaded && (
           <div className="mb-3 space-y-2" data-testid="named-user-seats">
             {seats && (
@@ -469,7 +560,7 @@ export function FirmManagementPanel() {
                             onChange={() => setSelection((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
                           />
                           <span className="min-w-0 break-all">{label}</span>
-                          {person?.state === "suspended" && <span className="text-[10px] text-muted-foreground">suspended</span>}
+                          {person?.state === "suspended" && <span className="text-xs text-muted-foreground">suspended</span>}
                         </label>
                       </li>
                     );
@@ -517,144 +608,56 @@ export function FirmManagementPanel() {
               </div>
             )}
 
-            {members.map((m) => {
-              const isPending = !m.acceptedAt;
-              const invitationClosed = isPending && (m.invitationCancelledAt !== null || (m.invitationExpiresAt !== null && new Date(m.invitationExpiresAt) <= new Date()));
-              const rosterState = roster?.people.find((p) => p.userId === m.userId)?.state;
-              const isSuspended = rosterState === "suspended";
-              const awaitingSelection = !isSuspended && !isPending && rosterState === "active_candidate" && roster?.overAllowance === true;
-              const isOwner   = m.role === "owner";
-              const isSelf    = m.userId === user?.id;
-
-              const displayLabel = m.displayName
-                || m.email
-                || m.invitedEmail
-                || m.userId.slice(0, 8) + "…";
-
-              return (
-                <div
-                  key={m.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
-                    isPending ? "bg-amber-500/5 border-amber-500/20" : "bg-card border-border"
-                  }`}
-                >
-                  {/* Avatar placeholder */}
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    isOwner ? "bg-[#0E1D30]" : "bg-primary/10"
-                  }`}>
-                    {isOwner
-                      ? <Crown className="w-3.5 h-3.5 text-white" />
-                      : <Shield className="w-3.5 h-3.5 text-primary" />
-                    }
-                  </div>
-
-                  {/* Name + email */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-xs font-semibold text-foreground">
-                        {displayLabel}
-                        {isSelf && <span className="ml-1 text-muted-foreground font-normal">(you)</span>}
-                      </p>
-                      <Badge className={`text-[10px] ${ROLE_COLORS[m.role]}`}>
-                        {ROLE_LABELS[m.role]}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {isSuspended || awaitingSelection ? (
-                        <span className="text-[10px] text-muted-foreground" data-testid="member-suspended">
-                          {isSuspended ? "Suspended: no named-user seat. Membership and history kept." : "Waiting for your selection: no access yet."}
-                        </span>
-                      ) : isPending ? (
-                        <>
-                          <Clock className="w-2.5 h-2.5 text-amber-500" />
-                          <span className="text-[10px] text-amber-700">
-                            {m.invitationCancelledAt !== null ? "Invitation cancelled" : invitationClosed ? "Invitation expired" : `Invitation pending until ${new Date(m.invitationExpiresAt ?? m.createdAt).toLocaleDateString("en-GB")}`}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-2.5 h-2.5 text-green-600" />
-                          <span className="text-[10px] text-muted-foreground">
-                            Active since {new Date(m.acceptedAt!).toLocaleDateString("en-GB")}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Role change + remove — only for non-owners and non-self */}
-                  {!isOwner && (
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Select
-                        value={m.role}
-                        onValueChange={(v) => handleRoleChange(m.id, v as MemberRole)}
-                        disabled={isSelf || changing}
-                      >
-                        <SelectTrigger className="h-7 text-[11px] w-28">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(["partner", "preparer", "viewer"] as MemberRole[]).map((r) => (
-                            <SelectItem key={r} value={r} className="text-xs">
-                              {ROLE_LABELS[r]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                            disabled={changing || removing === m.id || isSelf || (isPending && m.invitationCancelledAt !== null)}
-                          >
-                            {removing === m.id
-                              ? <RefreshCw className="w-3 h-3 animate-spin" />
-                              : <Trash2 className="w-3 h-3" />
-                            }
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{isPending ? "Cancel invitation?" : "Remove member?"}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {isPending ? (
-                                <>Cancel the invitation for <strong>{displayLabel}</strong>? The seat it holds is released; the record is kept.</>
-                              ) : (
-                                <>Remove <strong>{displayLabel}</strong> from <strong>{selectedCo?.name}</strong>? They will lose all access immediately. Work they recorded stays attributed to them.</>
-                              )}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => (isPending ? void handleCancelInvitation(m.id) : handleRemove(m.id))}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {isPending ? "Cancel invitation" : "Remove"}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  )}
-                </div>
-              );
+            {[false, true].map((pending) => {
+              const group = members.filter((member) => !member.acceptedAt === pending);
+              return <section key={String(pending)} className="pt-4">
+                <h3 className="mb-3 text-sm font-semibold">{pending ? "Invitations" : "Team members"} <span className="font-normal text-muted-foreground">({group.length})</span></h3>
+                {group.length === 0 ? <p className="border border-border p-4 text-sm text-muted-foreground">{pending ? "No invitations." : "No active members."}</p> :
+                <div className="overflow-x-auto border border-border"><table className="w-full min-w-[560px] text-left text-sm">
+                  <caption className="sr-only">{pending ? "Company invitations" : "Company team members"}</caption>
+                  <thead className="border-b border-border bg-muted/50 text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-3 font-medium">Name or email</th><th scope="col" className="px-4 py-3 font-medium">Role</th><th scope="col" className="px-4 py-3 font-medium">Status</th><th scope="col" className="px-4 py-3 font-medium">Actions</th></tr></thead>
+                  <tbody>{group.map((m) => {
+                    const isSelf = m.userId === user?.id;
+                    const isOwner = m.role === "owner";
+                    const closed = pending && (m.invitationCancelledAt !== null || (m.invitationExpiresAt !== null && new Date(m.invitationExpiresAt) <= new Date()));
+                    const rosterState = roster?.people.find((person) => person.userId === m.userId)?.state;
+                    const suspended = rosterState === "suspended";
+                    const awaiting = !suspended && !pending && rosterState === "active_candidate" && roster?.overAllowance === true;
+                    const name = m.displayName || m.email || m.invitedEmail || m.userId.slice(0, 8) + "…";
+                    return <tr key={m.id} className="border-b border-border last:border-b-0">
+                      <td className="px-4 py-3"><span className="font-medium">{name}</span>{isSelf && <span className="ml-1 text-muted-foreground">(you)</span>}{m.displayName && (m.email || m.invitedEmail) && <span className="mt-0.5 block text-xs text-muted-foreground">{m.email || m.invitedEmail}</span>}</td>
+                      <td className="px-4 py-3">{ROLE_LABELS[m.role]}</td>
+                      <td className="px-4 py-3 text-xs">{suspended || awaiting ? <span data-testid="member-suspended">{suspended ? "Suspended: no named-user seat. Membership and history kept." : "Waiting for your selection: no access yet."}</span> : pending ? m.invitationCancelledAt !== null ? "Invitation cancelled" : closed ? "Invitation expired" : `Pending until ${new Date(m.invitationExpiresAt ?? m.createdAt).toLocaleDateString("en-GB")}` : "Active"}</td>
+                      <td className="px-4 py-3">{!isOwner && <div className="flex items-center gap-2">
+                        <Select value={m.role} onValueChange={(value) => handleRoleChange(m.id, value as MemberRole)} disabled={isSelf || changing}>
+                          <SelectTrigger className="h-9 w-28 text-xs" aria-label={`Role for ${name}`}><SelectValue /></SelectTrigger>
+                          <SelectContent>{(["partner", "preparer", "viewer"] as MemberRole[]).map((role) => <SelectItem key={role} value={role}>{ROLE_LABELS[role]}</SelectItem>)}</SelectContent>
+                        </Select>
+                        <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={pending ? `Cancel invitation for ${name}` : `Remove ${name}`} disabled={changing || removing === m.id || isSelf || (pending && m.invitationCancelledAt !== null)}>
+                          {removing === m.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-destructive" />}
+                        </Button></AlertDialogTrigger>
+                          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{pending ? "Cancel invitation?" : "Remove member?"}</AlertDialogTitle><AlertDialogDescription>{pending ? `Cancel the invitation for ${name}? Its seat is released and the record is kept.` : `Remove ${name} from ${selectedCo?.name}? Access ends immediately. Their recorded work remains attributed to them.`}</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter><AlertDialogCancel>Keep current access</AlertDialogCancel><AlertDialogAction onClick={() => pending ? void handleCancelInvitation(m.id) : void handleRemove(m.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{pending ? "Cancel invitation" : "Remove"}</AlertDialogAction></AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>}</td>
+                    </tr>;
+                  })}</tbody>
+                </table></div>}
+              </section>;
             })}
 
             {/* Role legend */}
             <div className="pt-3 border-t border-border space-y-1">
-              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1.5">
+              <p className="mb-2 text-sm font-semibold">
                 Role permissions
               </p>
               {(Object.entries(ROLE_DESCRIPTIONS) as [MemberRole, string][]).map(([r, desc]) => (
                 <div key={r} className="flex items-center gap-2">
-                  <Badge className={`text-[9px] w-16 justify-center ${ROLE_COLORS[r]}`}>
+                  <Badge variant="outline" className="w-20 justify-center rounded-sm text-xs font-medium">
                     {ROLE_LABELS[r]}
                   </Badge>
-                  <span className="text-[10px] text-muted-foreground">{desc}</span>
+                  <span className="text-xs text-muted-foreground">{desc}</span>
                 </div>
               ))}
             </div>
@@ -662,85 +665,7 @@ export function FirmManagementPanel() {
         )}
       </CardContent>
 
-      {/* ── Invite Dialog ──────────────────────────────────────── */}
-      <Dialog open={showInvite} onOpenChange={(o) => { if (!inviting) setShowInvite(o); }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="w-4 h-4 text-primary" />
-              Invite Team Member
-            </DialogTitle>
-          </DialogHeader>
 
-          <div className="space-y-4 pt-1">
-            <div className="space-y-1.5">
-              <Label htmlFor="inviteEmail">
-                Email Address <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="inviteEmail"
-                type="email"
-                value={inviteForm.email}
-                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                placeholder="colleague@firm.co.tz"
-                autoComplete="off"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                They'll receive an email with a sign-in link.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Role</Label>
-              <Select
-                value={inviteForm.role}
-                onValueChange={(v) => setInviteForm({ ...inviteForm, role: v as MemberRole })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["partner", "preparer", "viewer"] as MemberRole[]).map((r) => (
-                    <SelectItem key={r} value={r}>
-                      <div>
-                        <p className="text-sm font-medium">{ROLE_LABELS[r]}</p>
-                        <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[r]}</p>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="rounded-lg bg-secondary/50 border border-border px-3 py-2">
-              <p className="text-[10px] text-muted-foreground">
-                Inviting to: <span className="font-semibold text-foreground">{selectedCo?.name}</span>
-                {selectedCo?.tin && (
-                  <span className="ml-1.5 font-mono">(Tax identifier: {selectedCo.tin})</span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter className="pt-2 gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowInvite(false)}
-              disabled={inviting}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleInvite}
-              disabled={inviting || !inviteForm.email.trim()}
-              className="gap-1.5"
-            >
-              {inviting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              {inviting ? "Sending…" : "Send Invitation"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Card>
   );
 }

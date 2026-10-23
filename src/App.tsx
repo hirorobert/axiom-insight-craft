@@ -1,10 +1,11 @@
+import { ManagementRouter } from "@/components/account/ManagementWindow";
 import { ActivityProvider, PagePending } from "@/components/feedback/Activity";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -104,19 +105,9 @@ const PlanStatesAcceptance = import.meta.env.DEV
   ? lazy(() => import("@/pages/internal/PlanStatesAcceptance"))
   : null;
 
-const App = () => (
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <SessionTimeoutProvider>
-            <Toaster />
-            <Sonner />
-            <ActivityProvider>
-            <BrowserRouter>
-              {/* Per-route title, description, canonical URL and robots (src/lib/seo/publicMeta.ts). */}
-              <RouteMeta />
-              <Routes>
+function AppRoutes() {
+  return <><RouteMeta /><ManagementRouter>{(location) => (
+    <Routes location={location}>
                 {/* ── Public landing ── */}
                 <Route path="/" element={<Index />} />
 
@@ -250,7 +241,21 @@ const App = () => (
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
-            </BrowserRouter>
+  )}</ManagementRouter></>;
+}
+
+const App = () => {
+  const [router] = useState(() => createBrowserRouter([{ path: "*", element: <AppRoutes /> }]));
+  return (
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <AuthProvider>
+          <SessionTimeoutProvider>
+            <Toaster />
+            <Sonner />
+            <ActivityProvider>
+            <RouterProvider router={router} />
             </ActivityProvider>
           </SessionTimeoutProvider>
         </AuthProvider>
@@ -258,5 +263,6 @@ const App = () => (
     </QueryClientProvider>
   </ErrorBoundary>
 );
+};
 
 export default App;

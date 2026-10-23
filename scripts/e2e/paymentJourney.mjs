@@ -279,6 +279,15 @@ async function main() {
     for (const route of ["/dashboard", "/plans", "/billing/orders", "/settings/billing"]) {
       await go(route);
       await page.waitForSelector('[data-testid="account-shell"]');
+      // Management pages intentionally trap focus above the account shell. Prove their own exit and navigation,
+      // then exercise the header after returning to work; never click through an inert modal backdrop.
+      if (route !== "/dashboard") {
+        await page.waitForSelector('[aria-label="Close practice settings"]');
+        const destinations = await page.evaluate(() => [...document.querySelectorAll('nav[aria-label="Practice settings"] a')].map((a) => a.getAttribute("href")));
+        if (!["/settings?section=profile", "/plans", "/settings/billing"].every((href) => destinations.includes(href))) return { route, destinations };
+        await page.click('[aria-label="Close practice settings"]');
+        await page.waitFor(() => !document.querySelector('[role="dialog"]'), [], { label: "management closed to the account" });
+      }
       await page.click('[aria-label="Settings menu"]');
       // Radix installs keyboard dismissal and moves focus after mounting the portal. Wait for that
       // user-visible readiness before Escape; reading the menu DOM alone can precede its effects.
@@ -303,6 +312,23 @@ async function main() {
       seen[route] = { settings, account, signIn };
     }
     return Object.values(seen).every((s) => ["/settings", "/plans", "/settings/billing"].every((href) => s.settings.includes(href)) && s.account.profile && s.account.signOut && !s.signIn) ? true : seen;
+  });
+  await check("management: header opens one window; unsaved profile edits survive Keep editing, Escape requests discard, close restores the origin and keyboard focus", async () => {
+    await go("/dashboard", "Companies & engagements");
+    await page.click('[aria-label="Settings menu"]');
+    await page.click('[role="menu"] a[href="/settings"]');
+    await page.waitForSelector('[role="dialog"] #displayName');
+    await page.fill('#displayName', "Unsubmitted browser fixture");
+    await page.click('[aria-label="Close practice settings"]');
+    await page.waitForText("You have unsaved changes");
+    await page.click({ text: "Keep editing" });
+    const kept = await page.evaluate(() => document.getElementById("displayName")?.value === "Unsubmitted browser fixture");
+    await page.press("Escape");
+    await page.waitForText("You have unsaved changes");
+    await page.click({ text: "Discard changes" });
+    await page.waitFor(() => location.pathname === "/dashboard" && !document.querySelector('[role="dialog"]')
+      && document.activeElement === document.querySelector('[aria-label="Settings menu"]'), [], { label: "management origin and focus restored" });
+    return kept ? true : "Keep editing lost the unsaved profile name";
   });
   await check("keyboard: Tab reaches the skip link first and the primary plan action; Enter opens plans", async () => {
     await go("/dashboard", "Companies & engagements");
@@ -411,7 +437,7 @@ async function main() {
   await check("signed-in plans and orders at 1280 and 375 px: no sideways scrolling", async () => {
     await go("/plans", "Choose your plan");
     const plans = await widths("00-fresh-plans");
-    await go("/billing/orders", "Your orders");
+    await go("/billing/orders", "Orders & receipts");
     const orders = await widths("00-fresh-orders");
     return plans === true && orders === true ? true : { plans, orders };
   });
@@ -508,7 +534,7 @@ async function main() {
   });
   await check("status page at 1280 and 375 px", async () => widths("23-status-received"));
   await check("the orders page lists the test order as a test payment with no access (never as an active term)", async () => {
-    await go("/billing/orders", "Your orders");
+    await go("/billing/orders", "Orders & receipts");
     await page.waitForText("Test payment · no access");
     await widths("24-orders");
     return (await page.bodyText()).includes(cardRef) ? true : "order not listed";

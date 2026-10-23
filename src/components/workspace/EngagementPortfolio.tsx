@@ -12,7 +12,7 @@ import { PendingStatus } from "@/components/feedback/Activity";
 import type React from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertCircle, AlertTriangle, CheckCircle2, CircleDashed, Loader2, RefreshCw, Search, Upload, XCircle, Columns3 } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, CircleDashed, Loader2, RefreshCw, Search, Upload, XCircle, Columns3, SlidersHorizontal } from "lucide-react";
 import { readPortfolioFrameworks } from "@/lib/workspace/portfolioFrameworks";
 import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
 const frameworkName = (value: string | null) => FRAMEWORK_OPTIONS.find((f) => f.value === value)?.label;
@@ -42,9 +42,9 @@ const TONE_ICON = {
 function StatusChip({ status }: { status: PortfolioStatus }) {
   const v = PORTFOLIO_STATUS_VIEW[status];
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-foreground" data-testid="portfolio-status" data-status={status}>
+    <div><span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-foreground" data-testid="portfolio-status" data-status={status}>
       {TONE_ICON[v.tone]}{v.label}
-    </span>
+    </span>{status === "blocked" && <span className="mt-1 block max-w-56 text-xs text-muted-foreground">Blocking trial balance findings need correction.</span>}</div>
   );
 }
 
@@ -79,6 +79,9 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
 }) {
   const Heading = headingLevel;
   const [frameworks, setFrameworks] = useState<Record<string, string | null>>({});
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showFramework, setShowFramework] = useState(false);
+  const [showPurpose, setShowPurpose] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showCurrency, setShowCurrency] = useState(false);
   const ids = { search: useId(), status: useId(), purpose: useId(), year: useId(), sort: useId(), heading: useId() };
@@ -131,7 +134,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
   const setFilter = (patch: Partial<PortfolioQuery>) => setQuery((q) => ({ ...q, ...patch }));
   const counts = state.kind === "ok" ? state.counts : {};
   const countOf = (s: PortfolioStatus) => counts[s] ?? 0;
-  const statusValue = query.statuses[0] ?? "";
+  const statusValue = query.statuses.length > 1 ? "attention" : query.statuses[0] ?? "";
   const purposeValue = query.purposes[0] ?? "";
   const range = useMemo(() => {
     if (state.kind !== "ok" || state.total === 0) return null;
@@ -146,27 +149,29 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
         <Heading id={ids.heading} ref={headingRef} tabIndex={-1}
           className={compactHeader ? "text-sm font-medium text-muted-foreground outline-none" : headingLevel === "h1" ? "text-2xl font-semibold tracking-tight text-foreground outline-none" : "text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground outline-none"}>{title}</Heading>
         {onUpload && <Button onClick={onUpload} className="h-10 rounded-none" data-testid="portfolio-upload"><Upload className="mr-2 h-4 w-4" aria-hidden="true" />Upload trial balance</Button>}
-        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="ml-auto h-8 gap-2 rounded-sm"><Columns3 className="h-4 w-4" aria-hidden="true" />Columns</Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end"><DropdownMenuLabel>Additional columns</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuCheckboxItem checked={showCurrency} onCheckedChange={setShowCurrency}>Currency</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showUpload} onCheckedChange={setShowUpload}>Latest trial balance</DropdownMenuCheckboxItem></DropdownMenuContent>
-        </DropdownMenu>
+
         {!onUpload && uploadHref && (
           <Link to={uploadHref} className="inline-flex h-10 items-center gap-2 border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link">
             <Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(0,1fr))]">
-        <div className="relative col-span-2 xl:col-span-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[12rem] flex-1">
           <label htmlFor={ids.search} className="sr-only">Search entity or identifier</label>
           <Search className="pointer-events-none absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <input id={ids.search} type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)} maxLength={100}
             placeholder="Search entity or identifier" className={`${select} w-full pl-8`} data-testid="portfolio-search" />
         </div>
+        <Button variant="outline" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls={`${ids.heading}-filters`} className="h-10 gap-2"><SlidersHorizontal className="h-4 w-4" aria-hidden="true" />Filters{(query.statuses.length > 0 || query.purposes.length > 0 || query.periodYear !== null) ? " · active" : ""}</Button>
+        <Button variant={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? "secondary" : "outline"} className="h-10" data-testid="portfolio-attention" aria-pressed={query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck"} onClick={() => setFilter({ statuses: query.statuses.join() === "needs_decision,blocked,processing_failed,needs_recheck" ? [] : ["needs_decision", "blocked", "processing_failed", "needs_recheck"] })}>Needs attention</Button>
+      </div>
+      {filtersOpen && <div id={`${ids.heading}-filters`} className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-4">
         <div>
           <label htmlFor={ids.status} className="sr-only">Status</label>
           <select id={ids.status} value={statusValue} className={`${select} w-full`} data-testid="portfolio-filter-status"
-            onChange={(e) => setFilter({ statuses: e.target.value ? [e.target.value as PortfolioStatus] : [] })}>
-            <option value="">All statuses</option>
+            onChange={(e) => setFilter({ statuses: e.target.value === "attention" ? ["needs_decision", "blocked", "processing_failed", "needs_recheck"] : e.target.value ? [e.target.value as PortfolioStatus] : [] })}>
+            <option value="">All statuses</option><option value="attention">Needs attention</option>
             {PORTFOLIO_STATUSES.map((s) => <option key={s} value={s}>{PORTFOLIO_STATUS_VIEW[s].label} ({countOf(s)})</option>)}
           </select>
         </div>
@@ -193,7 +198,10 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
             <option value="opened">Sort: Recently opened</option>
           </select>
         </div>
-      </div>
+        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="ml-auto h-8 gap-2 rounded-sm"><Columns3 className="h-4 w-4" aria-hidden="true" />Columns</Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end"><DropdownMenuLabel>Visible columns</DropdownMenuLabel><DropdownMenuSeparator /><DropdownMenuCheckboxItem checked={showFramework} onCheckedChange={setShowFramework}>Framework</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showPurpose} onCheckedChange={setShowPurpose}>Purpose</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showCurrency} onCheckedChange={setShowCurrency}>Currency</DropdownMenuCheckboxItem><DropdownMenuCheckboxItem checked={showUpload} onCheckedChange={setShowUpload}>Latest trial balance</DropdownMenuCheckboxItem></DropdownMenuContent>
+        </DropdownMenu><Button variant="ghost" size="sm" onClick={() => { setSearchText(""); setQuery({ search: "", statuses: [], purposes: [], periodYear: null, sort: "entity" }); }}>Clear filters</Button>
+      </div>}
 
       <p className="text-[13px] text-muted-foreground" aria-live="polite" data-testid="portfolio-count">
         {state.kind === "loading" ? "Loading engagements…"
@@ -218,14 +226,14 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
       {state.kind === "ok" && state.rows.length > 0 && (
         <>
           {/* Desktop: a table. Mobile: one card per engagement. */}
-          <div className="hidden max-w-full overflow-x-auto rounded-sm border border-border md:block"><table className="hidden w-full min-w-[880px] border-collapse text-left text-[13px] md:table" data-testid="portfolio-table">
+          <div className="hidden max-w-full overflow-x-auto rounded-sm border border-border md:block"><table className="hidden w-full min-w-[640px] border-collapse text-left text-[13px] md:table" data-testid="portfolio-table">
             <caption className="sr-only">Engagements, page {pageIndex + 1}</caption>
             <thead>
               <tr className="border-b border-border bg-muted/50 text-xs text-muted-foreground">
                 <th scope="col" className="w-[22%] px-3 py-3 font-medium">Company</th>
-                <th scope="col" className="px-3 py-3 font-medium">Framework</th>
+                {showFramework && <th scope="col" className="px-3 py-3 font-medium">Framework</th>}
                 <th scope="col" className="py-2 pr-4 font-medium">Period</th>
-                <th scope="col" className="px-3 py-3 font-medium">Purpose</th>
+                {showPurpose && <th scope="col" className="px-3 py-3 font-medium">Purpose</th>}
                 {showCurrency && <th scope="col" className="px-3 py-3 font-medium">Currency</th>}
                 <th scope="col" className="py-2 pr-4 font-medium">Status</th>
                 {showUpload && <th scope="col" className="px-3 py-3 font-medium">Latest trial balance</th>}
@@ -236,12 +244,12 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
               {state.rows.map((r) => (
                 <tr key={r.engagementId} className="border-b border-border align-middle last:border-b-0 hover:bg-muted/20" data-testid={`portfolio-row-${r.engagementId}`}>
                   <td className="px-3 py-3">
-                    <span className="block font-medium text-foreground">{r.companyName}</span>
+                    <span className="block font-medium text-foreground">{r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</span>
                     <span className="block text-[12px] text-muted-foreground">{[r.companyCode, r.companyTin ? `Tax number ${r.companyTin}` : null].filter(Boolean).join(" · ")}</span>
                   </td>
-                  <td className="px-3 py-3 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Unavailable" : frameworks[r.companyId] === null ? "Not declared" : frameworkName(frameworks[r.companyId]) ?? "Unrecognised"}</td>
+                  {showFramework && <td className="px-3 py-3 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Unavailable" : frameworks[r.companyId] === null ? "Not declared" : frameworkName(frameworks[r.companyId]) ?? "Unrecognised"}</td>}
                   <td className="px-3 py-3"><span className="block font-medium">FY{r.periodYear}</span><span className="block whitespace-nowrap text-xs text-muted-foreground">{periodWords(r)}</span></td>
-                  <td className="px-3 py-3 text-xs">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</td>
+                  {showPurpose && <td className="px-3 py-3 text-xs">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</td>}
                   {showCurrency && <td className="px-3 py-3">{r.currency ?? <span className="text-muted-foreground">Not set</span>}</td>}
                   <td className="px-3 py-3">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <StatusChip status={r.status} />}</td>
                   {showUpload && <td className="max-w-[16rem] px-3 py-3"><UploadCell row={r} /></td>}
@@ -261,12 +269,12 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
               <li key={r.engagementId} className="rounded-sm border border-border p-4">
                 <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
                   <div className="min-w-0">
-                    <p className="break-words font-medium text-foreground">{r.companyName}</p>
+                    <p className="break-words font-medium text-foreground">{r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</p>
                     <p className="text-[12px] text-muted-foreground">{periodWords(r)} · {r.currency ?? "Currency not set"}</p>
                   </div>
                   {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <StatusChip status={r.status} />}
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground">{frameworks[r.companyId] === undefined ? "Framework unavailable" : frameworkName(frameworks[r.companyId]) ?? "Framework not declared"} · {PORTFOLIO_PURPOSE_LABEL[r.purpose]}</div>
+                {(showFramework || showPurpose) && <div className="mt-2 text-xs text-muted-foreground">{showFramework && (frameworks[r.companyId] === undefined ? "Framework unavailable" : frameworkName(frameworks[r.companyId]) ?? "Framework not declared")} {showPurpose && PORTFOLIO_PURPOSE_LABEL[r.purpose]}</div>}
                 <div className="mt-2 flex items-center justify-between gap-2 text-[13px]"><UploadCell row={r} />{renderEntityOptions?.(r)}</div>
                 {!r.serviceWithheld && <Link to={portfolioDestination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {PORTFOLIO_STATUS_VIEW[r.status].action}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
@@ -274,11 +282,11 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
               </li>
             ))}
           </ul>
-          <nav aria-label="Engagement pages" className="flex items-center justify-between gap-3">
+          {(pageIndex > 0 || state.hasNext) && <nav aria-label="Engagement pages" className="flex items-center justify-between gap-3">
             <Button variant="outline" className="h-10 rounded-none" disabled={pageIndex === 0} onClick={() => go(pageIndex - 1)} data-testid="portfolio-previous">Previous</Button>
             <span className="text-[13px] text-muted-foreground">Page {pageIndex + 1}</span>
             <Button variant="outline" className="h-10 rounded-none" disabled={!state.hasNext} onClick={() => go(pageIndex + 1)} data-testid="portfolio-next">Next</Button>
-          </nav>
+          </nav>}
         </>
       )}
     </section>

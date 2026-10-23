@@ -1325,6 +1325,8 @@ async function main() {
     const uploadLink = await page.evaluate(() => document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href") ?? null);
     await page.waitFor(() => /of 2 engagement/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "two engagements" });
     const statuses = await page.evaluate(() => [...document.querySelectorAll('[data-testid="portfolio-table"] [data-testid="portfolio-status"]')].map((e) => e.dataset.status).sort());
+    await page.click({ text: "Filters" });
+    await page.waitForSelector('[data-testid="portfolio-filter-status"]');
     await setByLabel("Status", "blocked");
     await page.waitFor(() => /of 1 engagement/.test(document.querySelector('[data-testid="portfolio-count"]')?.textContent ?? ""), [], { timeout: 30000, label: "one blocked" });
     await setByLabel("Status", "");

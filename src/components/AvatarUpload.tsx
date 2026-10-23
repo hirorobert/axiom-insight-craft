@@ -1,3 +1,5 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
+import { useBusyState } from "@/hooks/useBusyState";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuditLog } from "@/hooks/useAuditLog";
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from "react-image-crop";
@@ -10,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface AvatarUploadProps {
+  compact?: boolean;
   userId: string;
   currentAvatarUrl: string | null;
   displayName: string | null;
@@ -66,17 +69,18 @@ async function getCroppedImg(image: HTMLImageElement, crop: PixelCrop): Promise<
   });
 }
 
-export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarChange }: AvatarUploadProps) {
+export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarChange, compact = false }: AvatarUploadProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [imgSrc, setImgSrc] = useState("");
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const [uploading, setUploading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [uploading, setUploading] = useBusyState("Saving profile photo…");
+  const [deleting, setDeleting] = useBusyState("Removing profile photo…");
   const imgRef = useRef<HTMLImageElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { logAction } = useAuditLog();
   const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+  useManagementEditGuard(isOpen, uploading || deleting, () => { setIsOpen(false); setImgSrc(""); });
 
   useEffect(() => {
     let cancelled = false;
@@ -115,7 +119,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
   const handleUpload = async () => {
     if (!imgRef.current || !completedCrop) return;
 
-    setUploading(true);
+    if (!setUploading(true)) return;
     try {
       const croppedBlob = await getCroppedImg(imgRef.current, completedCrop);
       const fileName = `${userId}/avatar-${Date.now()}.jpg`;
@@ -156,7 +160,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
   const handleDelete = async () => {
     if (!currentAvatarUrl) return;
 
-    setDeleting(true);
+    if (!setDeleting(true)) return;
     try {
       const path = toObjectPath(currentAvatarUrl);
       if (path) {
@@ -191,9 +195,9 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
   };
 
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className={compact ? "flex flex-wrap items-center gap-5" : "flex flex-col items-center gap-4"}>
       <div className="relative group">
-        <Avatar className="w-24 h-24 border-4 border-border">
+        <Avatar className={compact ? "h-16 w-16 border border-border" : "w-24 h-24 border-4 border-border"}>
           <AvatarImage src={displayUrl || undefined} alt="Avatar" />
           <AvatarFallback className="text-2xl bg-primary/10 text-primary">
             {getInitials()}
@@ -201,6 +205,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
         </Avatar>
         <button
           onClick={() => inputRef.current?.click()}
+          aria-label="Change profile photo" disabled={uploading || deleting}
           className="absolute inset-0 flex items-center justify-center bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity rounded-full"
         >
           <Camera className="w-6 h-6 text-foreground" />
@@ -237,12 +242,12 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
         )}
       </div>
 
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <Dialog open={isOpen} onOpenChange={(open) => { if (!uploading) setIsOpen(open); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Crop Avatar</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col items-center gap-4">
+          <div className={compact ? "flex flex-wrap items-center gap-5" : "flex flex-col items-center gap-4"}>
             {imgSrc && (
               <ReactCrop
                 crop={crop}

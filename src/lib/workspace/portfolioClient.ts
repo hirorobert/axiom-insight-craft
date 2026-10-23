@@ -96,7 +96,7 @@ export const PORTFOLIO_STATUS_VIEW: Readonly<Record<PortfolioStatus, { label: st
   needs_recheck: { label: "Needs re-check", tone: "warning", action: "Check again", destination: "review" },
   processing: { label: "Checking", tone: "progress", action: "View progress", destination: "review" },
   no_trial_balance: { label: "No trial balance", tone: "neutral", action: "Upload trial balance", destination: "review" },
-  ready: { label: "Accepted", tone: "success", action: "Open", destination: "overview" },
+  ready: { label: "Trial balance accepted", tone: "success", action: "Open", destination: "overview" },
 };
 export const PORTFOLIO_PURPOSE_LABEL: Readonly<Record<PortfolioPurpose, string>> = {
   client: "Client work", test: "Test", training: "Training", not_stated: "Purpose not stated",
