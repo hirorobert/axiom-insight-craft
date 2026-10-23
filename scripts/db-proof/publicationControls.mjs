@@ -283,7 +283,16 @@ async function main() {
   });
   await check("another company's owner cannot compile this company's report", async () => {
     const r = await ownerB.d.invoke("compile-financial-report",{companyId:A,reportId:rid1,reportVersion:vFinal});
-    return !!r.error && /FORBIDDEN|NOT_FOUND/.test(r.error.message);
+    const visible = await asU(U.ownerB,"SELECT count(*) n FROM public.fs_server_compilations WHERE company_id=$1",[A]);
+    return !!r.error && /FORBIDDEN|NOT_FOUND/.test(r.error.message) && Number(visible.n)===0;
+  });
+  await check("an effective source-file grant does not expose financial reports or compilation receipts", async () => {
+    const sourceOnly = uuid();
+    await db.admin.query("INSERT INTO auth.users(id,email) VALUES($1,'source-only@example.test')",[sourceOnly]);
+    await db.admin.query("INSERT INTO public.workspace_capability_grants(company_id,grantee_user_id,capability,granted_by_user_id) VALUES($1,$2,'manage_source_files',$3)",[A,sourceOnly,U.owner]);
+    const grant = await db.asService("SELECT public.can_user_act_on_workspace($1,$2,'manage_source_files') allowed",[sourceOnly,A]);
+    const visible = await asU(sourceOnly,"SELECT (SELECT count(*) FROM public.fs_server_compilations WHERE company_id=$1) receipts,(SELECT count(*) FROM public.financial_statement_reports WHERE company_id=$1) reports",[A]);
+    return grant.allowed === true && Number(visible.receipts)===0 && Number(visible.reports)===0;
   });
 
   // ── A / B ──────────────────────────────────────────────────────────────────────────────────────────────────────────

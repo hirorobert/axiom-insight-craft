@@ -831,7 +831,7 @@ async function signoffProof({ U, A, B }, kit) {
     const r = await readiness(ridFinal);
     let refusal = null;
     try { await setState(U.partner, ridFinal, "REVIEWED"); } catch (e) { refusal = `${e.code}:${e.message}`; }
-    return mine(r).length === 0 && JSON.stringify(r.blockers) === JSON.stringify(["PUBLICATION_PATH_UNSUPPORTED:IFRS:TRIAL_BALANCE_DERIVED"]) && /PT409.*PUBLICATION_PATH_UNSUPPORTED/.test(refusal ?? "") ? true : { r: r.blockers, refusal };
+    return mine(r).length === 0 && JSON.stringify(r.blockers) === JSON.stringify(["PUBLICATION_PATH_UNSUPPORTED:IFRS:TRIAL_BALANCE_DERIVED", "SERVER_COMPILATION_REQUIRED"]) && /PT409.*PUBLICATION_PATH_UNSUPPORTED/.test(refusal ?? "") ? true : { r: r.blockers, refusal };
   });
   await check("a preparer cannot mark REVIEWED (capabilities unchanged: one sign-off path)", async () => {
     let a = null;

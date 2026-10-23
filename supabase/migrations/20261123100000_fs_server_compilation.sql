@@ -43,7 +43,7 @@ ALTER TABLE public.fs_server_compilations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.fs_server_compilations FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.fs_server_compilations TO authenticated;
 CREATE POLICY fs_server_compilation_read ON public.fs_server_compilations FOR SELECT TO authenticated
-  USING (public.can_access_workspace(company_id));
+  USING (company_id IN (SELECT public.get_member_company_ids()));
 
 CREATE FUNCTION public.fs_server_compilation_immutable() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN RAISE EXCEPTION 'IMMUTABLE: server compilation receipts are append-only' USING ERRCODE='42501'; END;
