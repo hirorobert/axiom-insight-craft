@@ -49,6 +49,7 @@ import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { engagementNextAction } from "@/lib/workspace/engagementNextAction";
+import { headerStatusWord } from "@/lib/workspace/resultStatus";
 import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio";
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
@@ -56,6 +57,8 @@ export interface AccountHome {
   /** Exact totals when the lists are bounded samples (get_account_home); count-based decisions use these. */
   identity?: { name?: string | null; email?: string | null };
   totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number; shared: number };
+  /** Server opened_at per engagement id (get_account_home); orders "Continue where you left off". */
+  openedAt?: Record<string, string>;
   billing: BillingSummary | null;
   billingLoading: boolean;
   billingError: boolean;
@@ -285,8 +288,7 @@ export default function EngagementHub({
       {(() => {
         // "Continue where you left off": the latest accessible engagement whose trial balance is not finished, from the
         // persisted workspace state only. Not shown when the next-step card above already resumes that engagement.
-        const openedAt = Object.fromEntries((account?.engagements?.rows ?? []).map((r: { engagementId: string; openedAt: string }) => [r.engagementId, r.openedAt]));
-        const c = pickContinueEngagement(entries, openedAt);
+        const c = pickContinueEngagement(entries, account?.openedAt);
         if (!c || !c.workspaceState || (!portfolio && next?.kind === "resume")) return null;
         const action = engagementNextAction(c.workspaceState);
         return (
