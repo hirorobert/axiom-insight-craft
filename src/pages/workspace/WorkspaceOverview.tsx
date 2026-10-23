@@ -52,7 +52,6 @@ import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useDataStart } from "@/hooks/useDataStart";
 import { deriveLaunchState, impliedService, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
-import { recordDataStart, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import TrialBalanceEntryCard from "@/components/workspace/TrialBalanceEntryCard";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
