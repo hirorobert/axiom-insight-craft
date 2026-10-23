@@ -52,6 +52,7 @@ import {
   LifeBuoy,
   Mail,
   ChevronDown,
+  ArrowLeft,
 } from "lucide-react";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
 import { WORKBENCH_NAVIGATION_ENABLED } from "@/lib/workbench/gate";
@@ -303,6 +304,17 @@ export default function WorkspaceLayout() {
                 className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <CFOCloseWordmark className="text-sm sm:text-base" />
+              </Link>
+              <Link
+                to="/dashboard"
+                state={{ forceHub: true }}
+                data-testid="workspace-all-engagements"
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline">All engagements</span>
+                <span className="sm:hidden">All</span>
+                <span className="sr-only sm:hidden"> engagements</span>
               </Link>
               <div className="h-4 w-px bg-border shrink-0" />
               {loading ? (
