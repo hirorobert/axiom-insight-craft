@@ -16,14 +16,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { parseReportVersion, withContext } from "@/lib/workbench/context";
-import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
 import { LayoutEditor, type LayoutTemplateRow } from "@/components/workbench/intake/LayoutEditor";
 import { useGuardedRequest } from "@/components/workbench/useGuardedRequest";
 import { layoutClient, type LayoutInvoke } from "@/lib/workbench/intake/layoutClient";
 import { LAYOUT_ASSIST_ENABLED, layoutAssistClient, type LayoutAssistInvoke } from "@/lib/workbench/intake/layoutAssistClient";
 import { latestTemplateVersions, type TemplateReadRow } from "@/lib/workbench/intake/templates";
 import { requestReprocess, ReprocessRefusedError, type ReprocessClient } from "@/lib/workspace/requestReprocess";
-import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 
 async function readTemplates(companyId: string): Promise<LayoutTemplateRow[]> {
   const { data, error } = await (supabase as unknown as {
@@ -44,7 +42,7 @@ export default function TrialBalanceIntake() {
   const [recheck, setRecheck] = useState<{ busy: boolean; text: string | null }>({ busy: false, text: null });
   const periodLabel = `FY${periodYear}`;
   // Navigation keeps the workbench context: company and period are in the path, the report version travels as ?v=.
-  const { search } = useLocation();
+  const { search, hash } = useLocation();
   const reviewHref = withContext(`/workspace/${companyId}/${periodYear}/trial-balance/review`, { reportVersion: parseReportVersion(search) });
 
   const checkAgain = async () => {
@@ -61,12 +59,11 @@ export default function TrialBalanceIntake() {
 
   // No file yet: Intake has nothing of its own to show — the one trial balance task (the uploader) opens, keeping every
   // search parameter (report version included). Period and currency are edited from the engagement's settings dialog.
-  if (!loading && !upload?.id) return <Navigate to={`/workspace/${companyId}/${periodYear}/trial-balance/review${search}`} replace />;
+  if (!loading && !upload?.id) return <Navigate to={`/workspace/${companyId}/${periodYear}/trial-balance/review${search}${hash}`} replace />;
 
   return (
     <div className="space-y-8 p-4">
-      <h1 className="text-lg font-semibold">Trial balance — Intake</h1>
-      <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} />
+      <h1 className="text-lg font-semibold">Trial balance — File layout</h1>
       <section aria-labelledby="tb-intake-upload" className="space-y-2">
         <h2 id="tb-intake-upload" className="text-base font-semibold">Upload</h2>
         <p className="text-sm">

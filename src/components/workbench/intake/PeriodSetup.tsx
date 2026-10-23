@@ -1,3 +1,5 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
+import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 import { useEffect, useId, useRef, useState } from "react";
@@ -17,11 +19,14 @@ const OPTIONS = isoCurrencyOptions(Object.keys(CURRENCY_REGISTRY).sort());
  * period is optional and must end the day before this one starts (the server checks it). Refusals are shown in plain
  * words; a backend without this option leaves the existing setup in place.
  */
-export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyChange }: { client: RpcClient; companyId: string; periodYear?: number; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void; /** Lets a host (the settings dialog) refuse dismissal while a save is in flight. */ onBusyChange?: (busy: boolean) => void }) {
+export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyChange, capabilities = ["FINANCIAL_STATEMENTS"] }: { client: RpcClient; companyId: string; periodYear?: number; capabilities?: readonly EngagementCapability[]; onBusyChange?: (busy: boolean) => void; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void }) {
   const id = useId();
   const [f, setF] = useState({ start: "", end: "", currency: "", withPrior: false, priorStart: "", priorEnd: "", priorCurrency: "" });
+  const [baseline, setBaseline] = useState(f);
   // The period this workspace already has (recorded dates and currency), stated and prefilled — so its prior period can be
   // added without re-entering it, and nothing is presented as "not set up" when it is.
+  const [reading, setReading] = useState(!!periodYear);
+  const [readFailed, setReadFailed] = useState(false);
   const [existing, setExisting] = useState<{ id: string; start: string; end: string; currency: string; hasPrior: boolean } | null>(null);
   // An existing period's currency is never an editable field here: the server refuses a different currency for an
   // existing period. Whether it can be corrected, and if not which record prevents it, is the server's answer.
@@ -30,14 +35,18 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
     if (!periodYear) return;
     let live = true;
     const reader = client as unknown as { from?: (t: "fiscal_periods") => { select(c: string): { eq(c: "company_id", v: string): PromiseLike<{ data: { id: string; reporting_start: string | null; reporting_end: string | null; fiscal_year_end: string; reporting_currency: string | null; prior_period_id: string | null }[] | null }> } } };
-    if (!reader.from) return;
-    void reader.from("fiscal_periods").select("id, reporting_start, reporting_end, fiscal_year_end, reporting_currency, prior_period_id").eq("company_id", companyId).then(({ data }) => {
+    if (!reader.from) { setReading(false); return; }
+    void reader.from("fiscal_periods").select("id, reporting_start, reporting_end, fiscal_year_end, reporting_currency, prior_period_id").eq("company_id", companyId).then(({ data, error }: { data: { id: string; reporting_start: string | null; reporting_end: string | null; fiscal_year_end: string; reporting_currency: string | null; prior_period_id: string | null }[] | null; error?: unknown }) => {
+      if (!live) return;
+      setReading(false);
+      if (error || !data) { setReadFailed(true); return; }
       const row = (data ?? []).find((r) => Number(String(r.reporting_end ?? r.fiscal_year_end).slice(0, 4)) === periodYear);
       if (!live || !row?.reporting_start || !row.reporting_end || !row.reporting_currency) return;
       const e = { id: row.id, start: row.reporting_start.slice(0, 10), end: row.reporting_end.slice(0, 10), currency: row.reporting_currency, hasPrior: !!row.prior_period_id };
       setExisting(e);
-      setF((x) => (x.start || x.end ? x : { ...x, start: e.start, end: e.end, currency: e.currency }));
-    }, () => { /* the form stays as it is */ });
+      const saved = { start: e.start, end: e.end, currency: e.currency, withPrior: false, priorStart: "", priorEnd: "", priorCurrency: "" };
+      setF(saved); setBaseline(saved);
+    }, () => { if (live) { setReading(false); setReadFailed(true); } });
     return () => { live = false; };
   }, [client, companyId, periodYear]);
   useEffect(() => {
@@ -48,33 +57,37 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
     return () => { live = false; };
   }, [client, existing]);
   const [busy, setBusy] = useBusyState();
-  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
+  useManagementEditGuard(JSON.stringify(f) !== JSON.stringify(baseline), busy, () => setF(baseline));
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const msgRef = useRef<HTMLParagraphElement>(null);
   const problems = periodFormProblems(f);
+  if (periodYear && f.end && Number(f.end.slice(0, 4)) !== periodYear) problems.push(`This workspace is FY${periodYear}. Open a different reporting year from All engagements.`);
   const set = (k: keyof typeof f, v: string | boolean) => { setF({ ...f, [k]: v }); setMessage(null); };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (problems.length > 0 || busy) return;
+    if (problems.length > 0 || busy || reading || readFailed) return;
     if (!setBusy(true)) return;
+    onBusyChange?.(true);
     try {
       const r = await openEngagementWithPeriod(client, {
-        companyId, periodStart: f.start, periodEnd: f.end, reportingCurrency: f.currency, capabilities: ["FINANCIAL_STATEMENTS"],
+        companyId, periodStart: f.start, periodEnd: f.end, reportingCurrency: f.currency, capabilities,
         prior: f.withPrior ? { start: f.priorStart, end: f.priorEnd, ...(f.priorCurrency ? { currency: f.priorCurrency } : {}) } : undefined,
       });
       if (r.outcome === "refused") setMessage({ tone: "error", text: r.message });
       else {
         const prior = f.withPrior && r.priorPeriodId ? ` The prior period ${f.priorStart} to ${f.priorEnd} is set up and linked for comparatives.` : "";
         setMessage({ tone: "info", text: (r.created ? `Reporting period ${f.start} to ${f.end} (${f.currency}) is set up.` : `Reporting period ${f.start} to ${f.end} (${f.currency}) is ready.`) + prior });
+        setBaseline(f);
         onOpened?.(r);
       }
     } catch (err) {
       if (err instanceof SetupFeatureUnavailable) setUnavailable(true);
-      else setMessage({ tone: "error", text: err instanceof WorkspaceSetupError ? err.message : "The period could not be set up right now. Nothing was changed." });
+      else setMessage({ tone: "error", text: err instanceof WorkspaceSetupError ? err.message : "The save could not be confirmed. Your entries are kept. Check the reporting period before trying again." });
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
       setTimeout(() => msgRef.current?.focus(), 0);
     }
   };
@@ -83,6 +96,9 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
   const input = "mt-1 rounded-md border border-input bg-background px-2 py-1 text-sm";
   return (
     <form onSubmit={submit} aria-labelledby={`${id}-h`} className="space-y-3">
+      <fieldset disabled={busy || reading || readFailed} className="space-y-3">
+      {reading && <p role="status">Reading the saved reporting period…</p>}
+      {readFailed && <p role="alert">The saved reporting period could not be read. Close and try again before making changes.</p>}
       <h2 id={`${id}-h`} className="text-base font-semibold">Reporting period</h2>
       {existing ? (
         <p className="text-sm text-muted-foreground" data-testid="period-existing">
@@ -127,6 +143,7 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
       <ActionButton busy={busy} type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={problems.length > 0 || busy}>
         {busy ? "Setting up…" : "Set up the period"}
       </ActionButton>
+      </fieldset>
     </form>
   );
 }

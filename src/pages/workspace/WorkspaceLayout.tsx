@@ -19,7 +19,8 @@ import { PagePending } from "@/components/feedback/Activity";
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
+import { Outlet, useNavigate, useLocation, useParams, Link } from "react-router-dom";
+import { WORKSPACE_SETTINGS_SAVED } from "@/lib/workspace/settingsContinuity";
 import { EngagementContextPanel } from "@/components/workspace/EngagementContextPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { WorkspaceContext } from "@/contexts/WorkspaceContext";
@@ -232,6 +233,10 @@ function UserMenu({ email }: { email: string }) {
 // ── Layout ─────────────────────────────────────────────────────────────────
 
 export default function WorkspaceLayout() {
+  const { companyId, periodYear } = useParams();
+  return <WorkspaceLayoutContent key={`${companyId}:${periodYear}`} />;
+}
+function WorkspaceLayoutContent() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -240,6 +245,15 @@ export default function WorkspaceLayout() {
   const { companyId, periodYear, company, workspaceState, loading } = workspaceData;
   useActivity(authLoading || loading, "Opening the financial workspace…");
   const engagementApi = useEngagementMandate(companyId, periodYear);
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      if ((event as CustomEvent<{ companyId: string }>).detail?.companyId === companyId) {
+        workspaceData.refreshUpload(); engagementApi.refresh();
+      }
+    };
+    window.addEventListener(WORKSPACE_SETTINGS_SAVED, invalidate);
+    return () => window.removeEventListener(WORKSPACE_SETTINGS_SAVED, invalidate);
+  }, [companyId, workspaceData, engagementApi]);
   const missionViews = projectMandate(workspaceState.missions, engagementApi.mandate);
 
   // Stages the mandate keeps in the active rail. While the mandate is loading or
@@ -315,9 +329,7 @@ export default function WorkspaceLayout() {
                 className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[12px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">All engagements</span>
-                <span className="sm:hidden">All</span>
-                <span className="sr-only sm:hidden"> engagements</span>
+                <span>All engagements</span>
               </Link>
               <div className="h-4 w-px bg-border shrink-0" />
               {loading ? (

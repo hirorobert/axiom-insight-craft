@@ -1,3 +1,5 @@
+import { EngagementPeriodSettings } from "@/components/workspace/EngagementPeriodSettings";
+import { settingsWorkspace, settingsSaved } from "@/lib/workspace/settingsContinuity";
 import { useManagementSurface, useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
 import { PendingStatus } from "@/components/feedback/Activity";
@@ -140,6 +142,16 @@ export default function Settings() {
     }
   };
 
+  const scope = settingsWorkspace(management?.origin ?? null);
+  const returnToTask = () => {
+    const origin = management?.origin;
+    if (origin) navigate(`${origin.pathname}${origin.search}${origin.hash}`, { replace: true, state: origin.state, preventScrollReset: true });
+  };
+  if (requested === "engagement" && !authLoading) {
+    return scope ? <EngagementPeriodSettings companyId={scope.companyId} periodYear={scope.periodYear} onDone={returnToTask} />
+      : <p role="status">Open an engagement first to change its reporting period and currency. Close this window to return to your engagements.</p>;
+  }
+
   if (authLoading || loading) {
     return (
       <div className={management ? "flex min-h-64 items-center justify-center" : "min-h-screen bg-background flex items-center justify-center"}>
@@ -254,7 +266,9 @@ export default function Settings() {
                   tax identifier, are configured per company and applied only where a
                   jurisdiction requires them.
                 </p>
-                <CompanyManager presentation="inline" />
+                <CompanyManager key={scope?.companyId && params.get("company") === scope.companyId ? scope.companyId : "all"} presentation="inline"
+                  companyId={scope && params.get("company") === scope.companyId ? scope.companyId : undefined}
+                  onDone={() => { if (scope) { settingsSaved(scope.companyId); returnToTask(); } }} />
 
                 {/* Period Controls (statement sign-off) belong to the withheld statement certification
                     (src/lib/workspace/moduleAvailability.ts): PeriodCloseManager is not imported while it is withheld. Its records

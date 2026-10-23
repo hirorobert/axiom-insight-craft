@@ -68,7 +68,7 @@ describe("groups derive from the existing navigation model", () => {
   it("Overview and Trial Balance appear when prepare is offered; unreleased groups are absent", () => {
     const m = deriveWorkbenchNavigation(BASE, [item("overview"), item("prepare")]);
     expect(m.groups.map((g) => g.id)).toEqual(["overview", "trial-balance"]);
-    expect(m.groups[1].pages.map((p) => p.href)).toEqual([`${BASE}/trial-balance/intake`, `${BASE}/trial-balance/review`]);
+    expect(m.groups[1].pages.map((p) => p.href)).toEqual([`${BASE}/trial-balance/review`]);
   });
   it("a locked or absent prepare stage hides Trial Balance", () => {
     expect(deriveWorkbenchNavigation(BASE, [item("overview"), item("prepare", true)]).groups.map((g) => g.id)).toEqual(["overview"]);

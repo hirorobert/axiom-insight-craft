@@ -1,3 +1,4 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
 import { useActivity } from "@/components/feedback/useActivity";
 /**
  * TrialBalanceUpload — the workspace uploader for ONE trial balance (a period has one active trial balance).
@@ -82,6 +83,10 @@ export const TrialBalanceUpload = ({
   // the same tick would each start a submission. Set before the first await, cleared when the attempt settles.
   const submittingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  // Only the local selection is unsaved. A stored upload resumes through server records, never browser draft storage.
+  const releaseNavigation = useManagementEditGuard(flow.phase === "selected" || (flow.phase === "failed" && !flow.failure?.fileSaved), isBusy(flow), () => {
+    fileRef.current = null; dispatch({ type: "CLEAR" });
+  });
   const { user } = useAuth();
   const { logAction } = useAuditLog();
 
@@ -140,8 +145,9 @@ export const TrialBalanceUpload = ({
     dispatch({ type: "CHECKED" });
     logAction({ action: "process_trial_balance", entityType: "trial_balance_upload", entityId: uploadId, metadata: { fileName: fileRef.current?.name } });
     // The page states the result. Supporting-evidence reconciliation is not part of Trial balance review.
+    releaseNavigation();
     onUploaded?.();
-  }, [logAction, onUploaded]);
+  }, [logAction, onUploaded, releaseNavigation]);
 
   const runRegister = useCallback(async (reservationId: string, clientRequestId: string) => {
     const file = fileRef.current;

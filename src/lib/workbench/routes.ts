@@ -48,8 +48,8 @@ export const WORKBENCH_GROUPS: readonly WorkbenchGroup[] = Object.freeze([
     label: "Trial Balance",
     stage: "prepare",
     pages: [
-      { id: "tb-intake", label: "Intake", segment: "trial-balance/intake" },
-      { id: "tb-review", label: "Account review", segment: "trial-balance/review" },
+      { id: "tb-review", label: "Trial balance", segment: "trial-balance/review" },
+      { id: "tb-intake", label: "File layout", segment: "trial-balance/intake" },
     ],
   },
   {
@@ -156,7 +156,7 @@ export function deriveWorkbenchNavigation(basePath: string, items: readonly NavI
       const gateItem = g.stage === null ? offered.get("overview") : offered.get(g.stage);
       if (!gateItem || gateItem.disabled) continue;
     }
-    const pages = g.pages.filter((p) => released.has(p.id)).map((p) => ({ id: p.id, label: p.label, href: join(basePath, p.segment) }));
+    const pages = g.pages.filter((p) => released.has(p.id) && p.id !== "tb-intake").map((p) => ({ id: p.id, label: p.label, href: join(basePath, p.segment) }));
     if (pages.length === 0) continue;
     groups.push({ id: g.id, label: g.label, href: pages[0].href, pages, stage: g.stage });
   }
@@ -184,6 +184,6 @@ export function activeWorkbenchPage(pathname: string, basePath: string): Workben
   const path = pathname.split(/[?#]/)[0];
   const rest = path.startsWith(basePath) ? path.slice(basePath.length).replace(/^\/|\/$/g, "") : null;
   if (rest === null) return null;
-  for (const g of WORKBENCH_GROUPS) for (const p of g.pages) if (p.segment === rest) return p.id;
+  for (const g of WORKBENCH_GROUPS) for (const p of g.pages) if (p.segment === rest) return p.id === "tb-intake" ? "tb-review" : p.id;
   return null;
 }

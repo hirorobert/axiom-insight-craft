@@ -1,3 +1,4 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
 /**
  * EngagementContextPanel — the engagement, stated once, at the top of the workspace's left rail: entity, period,
  * currency and framework, and the engagement's settings in one place (never in the middle of a task page).
@@ -9,16 +10,12 @@
  *
  * Reads only, except the explicit policy change; every value comes from the workspace's own reads or the server.
  */
-import { useContext, useEffect, useId, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { ManagementLink } from "@/components/account/ManagementNavigation";
+import { useBusyState } from "@/hooks/useBusyState";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { FRAMEWORK_NOT_SELECTED, formatEntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
-import { EngagementContext } from "@/contexts/EngagementContext";
-import { WorkspaceContext } from "@/contexts/WorkspaceContext";
-import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { readClearingPolicy, setClearingPolicy, type ClearingPolicy } from "@/lib/workspace/findingDecisions";
 
 type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
@@ -41,26 +38,19 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
   const [policy, setPolicy] = useState<ClearingPolicy | null>(null);
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useBusyState("Saving review policy…");
   const [message, setMessage] = useState<string | null>(null);
   const requestId = useRef(crypto.randomUUID());
-  // Period and currency are edited in a dialog over the current task (never a page change). It closes only on a
-  // confirmed save, refuses dismissal while the save is in flight, and Radix restores focus to the opener.
-  const [periodOpen, setPeriodOpen] = useState(false);
-  const [periodBusy, setPeriodBusy] = useState(false);
-  const [periodReload, setPeriodReload] = useState(0);
-  // Optional: the rail can render outside the workspace providers (tests, previews); shared context refreshes when present.
-  const engagementApi = useContext(EngagementContext);
-  const workspace = useContext(WorkspaceContext);
+  useManagementEditGuard(editing && !!reason, saving, () => { setEditing(false); setReason(""); });
 
   useEffect(() => {
     let live = true;
     if (!fiscalPeriodId) { setPeriod(null); return; }
     void (supabase as unknown as { from(t: "fiscal_periods"): { select(c: string): { eq(c: "id", v: string): { maybeSingle(): PromiseLike<{ data: { reporting_start: string | null; reporting_end: string | null; reporting_currency: string | null } | null }> } } } })
       .from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("id", fiscalPeriodId).maybeSingle()
-      .then(({ data }) => { if (live) setPeriod(data ? { start: data.reporting_start, end: data.reporting_end, currency: data.reporting_currency } : null); });
+      .then(({ data }) => { if (live) setPeriod(data ? { start: data.reporting_start, end: data.reporting_end, currency: data.reporting_currency } : null); }, () => { if (live) setPeriod(null); });
     return () => { live = false; };
-  }, [fiscalPeriodId, periodReload]);
+  }, [fiscalPeriodId]);
   useEffect(() => {
     let live = true;
     if (prepareOnly) return;
@@ -74,14 +64,16 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
 
   const save = async () => {
     if (!policy || reason.trim().length < 3) return;
-    setSaving(true);
+    if (!setSaving(true)) return;
+    try {
     const r = await setClearingPolicy(rpc, companyId, nextMode, reason.trim(), policy.revision, requestId.current);
-    setSaving(false);
     if (r.ok) {
       setPolicy({ ...policy, mode: nextMode, revision: r.revision, reason: reason.trim() });
       setEditing(false); setReason(""); requestId.current = crypto.randomUUID();
       setMessage("Saved. Trial balance results checked under the previous policy will need a re-check.");
     } else { setMessage("message" in r ? r.message : "The policy was not changed."); requestId.current = crypto.randomUUID(); }
+    } catch { setMessage("The save could not be confirmed. Your reason is kept. Refresh the policy before trying again."); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -98,8 +90,8 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
         <details className="mt-3" data-testid="engagement-settings">
           <summary className="cursor-pointer text-[12px] font-medium text-foreground">Engagement settings</summary>
           <ul className="mt-2 space-y-1.5 text-[12px]">
-            <li><button type="button" onClick={() => setPeriodOpen(true)} className="underline underline-offset-4" data-testid="open-period-settings">Reporting period and currency</button></li>
-            <li><Link to="/settings" className="underline underline-offset-4">Company details</Link></li>
+            <li><ManagementLink to="/settings?section=engagement" className="underline underline-offset-4" data-testid="open-period-settings">Reporting period and currency</ManagementLink></li>
+            <li><ManagementLink to={`/settings?section=companies&company=${encodeURIComponent(companyId)}`} className="underline underline-offset-4" data-testid="open-company-settings">Company details</ManagementLink></li>
             {policy && (
               <li data-testid="clearing-policy">
                 <span className="block text-muted-foreground">Clearing and in-transit balances</span>
@@ -113,12 +105,12 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
                   <div className="mt-2 space-y-2">
                     <p className="text-muted-foreground">Results checked under the current policy will need a re-check.</p>
                     <label htmlFor={ids.reason} className="block font-medium">Reason</label>
-                    <textarea id={ids.reason} rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)}
+                    <textarea id={ids.reason} rows={2} maxLength={1000} disabled={saving} value={reason} onChange={(e) => setReason(e.target.value)}
                       className="w-full border border-input bg-background p-2" data-testid="clearing-policy-reason" />
                     <div className="flex gap-2">
-                      <Button type="button" className="h-9 rounded-none" disabled={saving || reason.trim().length < 3} onClick={() => void save()} data-testid="clearing-policy-save">
+                      <Button type="button" pending={saving} className="h-9 rounded-none" disabled={saving || reason.trim().length < 3} onClick={() => void save()} data-testid="clearing-policy-save">
                         {saving ? "Saving…" : "Save"}</Button>
-                      <Button type="button" variant="outline" className="h-9 rounded-none" onClick={() => { setEditing(false); setReason(""); }}>Cancel</Button>
+                      <Button type="button" variant="outline" className="h-9 rounded-none" disabled={saving} onClick={() => { setEditing(false); setReason(""); }}>Cancel</Button>
                     </div>
                   </div>
                 )}
@@ -128,18 +120,7 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
           <p aria-live="polite" className="mt-2 text-[12px]" data-testid="clearing-policy-message">{message}</p>
         </details>
       )}
-      <Dialog open={periodOpen} onOpenChange={(v) => { if (!v && periodBusy) return; setPeriodOpen(v); }}>
-        <DialogContent className="max-w-xl" data-testid="period-settings-dialog"
-          onEscapeKeyDown={(e) => { if (periodBusy) e.preventDefault(); }}
-          onInteractOutside={(e) => { if (periodBusy) e.preventDefault(); }}>
-          <DialogHeader>
-            <DialogTitle>Reporting period and currency</DialogTitle>
-            <DialogDescription>Saved for {companyName ?? "this entity"}. You stay on the page you were working on.</DialogDescription>
-          </DialogHeader>
-          <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} onBusyChange={setPeriodBusy}
-            onOpened={() => { setPeriodReload((n) => n + 1); engagementApi?.refresh(); workspace?.refreshUpload(); setPeriodOpen(false); }} />
-        </DialogContent>
-      </Dialog>
+
     </section>
   );
 }

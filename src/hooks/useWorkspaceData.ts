@@ -91,8 +91,11 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   const [refreshing, setRefreshing] = useState(false);
   const [accessState, setAccessState] = useState<WorkspaceAccessState>({ status: "loading" });
   const hasLoadedRef = useRef(false);
+  const readSequence = useRef(0);
+  useEffect(() => () => { ++readSequence.current; }, []);
 
   const fetchData = useCallback(async () => {
+    const mine = ++readSequence.current;
     if (!user || !cId || !pYear) {
       setLoading(false);
       return;
@@ -103,6 +106,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
 
     // Access first: a workspace the caller may not open is never read at all (fail closed, no partial render).
     const nextAccess = await fetchWorkspaceAccess(cId).catch((): WorkspaceAccessState => ({ status: "error" }));
+    if (mine !== readSequence.current) return;
     if (nextAccess.status !== "granted") {
       // A background re-read that fails transiently keeps the last known grant; a definitive answer always wins,
       // so a revocation takes effect on the next read.
@@ -115,6 +119,8 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     }
 
     const snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId });
+
+    if (mine !== readSequence.current) return;
 
     // Keep the last known company on a transient read failure — never blank the masthead mid-session. The
     // companies row is owner-only; anyone else gets the resolver's minimum metadata (never the TIN or code).

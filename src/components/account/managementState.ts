@@ -1,5 +1,6 @@
+import { TaskEditContext } from "./taskEditState";
 /** Ephemeral navigation and edit state. Never used for permissions or financial readiness. */
-import { createContext, useContext, useEffect, useId, useRef } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef } from "react";
 import type { Location } from "react-router-dom";
 
 export type EditState = { dirty: boolean; busy: boolean; discard?: () => void };
@@ -12,7 +13,8 @@ export const useManagementSurface = () => useContext(ManagementContext);
 
 export function useManagementEditGuard(dirty: boolean, busy: boolean, discard?: () => void) {
   const surface = useManagementSurface();
-  const register = surface?.register;
+  const task = useContext(TaskEditContext);
+  const register = surface?.register ?? task?.register;
   const id = useId();
   const discardRef = useRef(discard);
   discardRef.current = discard;
@@ -20,6 +22,8 @@ export function useManagementEditGuard(dirty: boolean, busy: boolean, discard?: 
     register?.(id, { dirty, busy, discard: () => discardRef.current?.() });
     return () => register?.(id, null);
   }, [register, id, dirty, busy]);
+  // Only the owning command may release this after confirmed success, before navigating.
+  return useCallback(() => register?.(id, null), [register, id]);
 }
 
 export function isManagementPath(path: string) {

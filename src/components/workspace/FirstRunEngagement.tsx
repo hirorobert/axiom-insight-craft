@@ -1,3 +1,4 @@
+import { useManagementEditGuard } from "@/components/account/managementState";
 import { useActivity } from "@/components/feedback/useActivity";
 /**
  * FirstRunEngagement — global workspace creation screen.
@@ -123,6 +124,9 @@ export default function FirstRunEngagement({
   const submitLock = useRef(false);
   useActivity(submitState === "submitting", "Creating company…");
   const creationRequestId = useRef<string>(crypto.randomUUID());
+  const releaseNavigation = useManagementEditGuard(!!orgName || !!currency || framework !== "decide_later" || fye !== "12-31" || periodYear !== String(defaultYear), submitState === "submitting", () => {
+    setOrgName(""); setCurrency(""); setFramework("decide_later"); setFye("12-31"); setPeriodYear(String(defaultYear));
+  });
 
   // Phase 3A: currency is required — canSubmit blocks until it is set. (Single-line for test regex.)
   const canSubmit = orgName.trim().length > 0 && currency.length > 0 && submitState !== "submitting";
@@ -170,6 +174,7 @@ export default function FirstRunEngagement({
 
       if (duplicate) {
         // Already exists — treat as success and route in
+        releaseNavigation();
         onCreated(duplicate.id as string, year);
         return;
       }
@@ -193,6 +198,7 @@ export default function FirstRunEngagement({
 
       const outcome = parseCreateEntityOutcome(data);
       if (outcome.kind === "created") {
+        releaseNavigation();
         onCreated(outcome.companyId, year);
         return;
       }
@@ -222,6 +228,7 @@ export default function FirstRunEngagement({
       className={layout === "page" ? "company-setup-form w-full space-y-6" : "w-full max-w-[520px] space-y-6"}
       aria-label="Add an entity"
     >
+
       {/* Header */}
       <div className="space-y-1.5">
         <Heading className="text-xl font-semibold tracking-tight text-foreground">

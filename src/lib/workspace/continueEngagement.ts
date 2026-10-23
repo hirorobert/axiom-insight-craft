@@ -23,3 +23,13 @@ export function pickContinueEngagement<T extends ContinueCandidate>(entries: rea
   if (open.length === 0) return null;
   return open.reduce((best, e) => ((openedAt[e.engagementId] ?? "") > (openedAt[best.engagementId] ?? "") ? e : best), open[0]);
 }
+
+/** The portfolio home's bounded, server-ordered continuation. Its identity-only home read has no WorkspaceState,
+ * so pickContinueEngagement cannot honestly choose from it. Reuse the same authorised portfolio/status contract.
+ */
+export async function readContinueEngagement(rpc: Parameters<typeof import("./portfolioClient").fetchPortfolioPage>[0]) {
+  const { fetchPortfolioPage } = await import("./portfolioClient");
+  const page = await fetchPortfolioPage(rpc, { search: "", statuses: [], purposes: [], periodYear: null, sort: "opened" }, null);
+  return page.kind === "ok" ? { kind: "ok" as const, row: page.rows.find((r) => !r.serviceWithheld) ?? null }
+    : { kind: "unavailable" as const };
+}

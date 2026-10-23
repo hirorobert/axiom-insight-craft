@@ -292,8 +292,11 @@ async function main() {
   });
 
   startGroup("Explicit non-calendar periods");
-  await check("Trial Balance › Intake sets 1 Jul 2025 – 30 Jun 2026 and the prior period 1 Jul 2024 – 30 Jun 2025 (TZS)", async () => {
-    await go(`${base}/trial-balance/intake`, "Start date");
+  await check("In-place period settings link the prior period and return to the same Trial Balance task", async () => {
+    await go(`${base}/trial-balance/review`, "Trial balance");
+    await page.evaluate(() => { document.querySelector('[data-testid="engagement-settings"]')?.setAttribute("open", ""); });
+    await page.click('[data-testid="open-period-settings"]');
+    await page.waitForSelector('[role="dialog"] input[type="date"]', { timeout: 30000 });
     await setByLabel("Start date", PERIODS.current.start); await setByLabel("End date", PERIODS.current.end);
     // The period already exists (first run, TZS): its currency is shown read-only with the server's rule, never editable.
     const readOnly = await page.evaluate(() => document.querySelector('[data-testid="period-currency-readonly"]')?.textContent ?? null);
@@ -303,9 +306,11 @@ async function main() {
     await sleep(300);
     await setByLabel("Prior start date", PERIODS.prior.start); await setByLabel("Prior end date", PERIODS.prior.end);
     await page.click({ text: "Set up the period" });
-    await page.waitForText("is set up and linked for comparatives", { timeout: 30000 });
+    await page.waitForUrl(/trial-balance\/review/, { timeout: 30000 });
+    await page.waitFor(() => !document.querySelector('[role="dialog"]'), [], { label: "period settings closed after confirmed save", timeout: 30000 });
+    const saved = await admin.from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency, prior_period_id").eq("company_id", A).eq("reporting_end", PERIODS.current.end).single();
     await shot("04-periods");
-    return true;
+    return !saved.error && saved.data?.reporting_currency === "TZS" && !!saved.data?.prior_period_id ? true : { period: saved.data, error: saved.error?.message };
   });
 
   owner.api = await asUser(U.owner);
