@@ -59,7 +59,7 @@ export function evidencePayload(batch: EvidenceBatch, expectedPreviousBatchId: s
 
 /** A stored evidence row read back as a batch (latest version of each series is what a report uses). */
 export interface StoredEvidence { readonly batch: EvidenceBatch; readonly version: number; readonly supersedesBatchId: string | null }
-function toStoredEvidence(r: Record<string, unknown>): StoredEvidence {
+export function toStoredEvidence(r: Record<string, unknown>): StoredEvidence {
   return {
     version: Number(r.version), supersedesBatchId: r.supersedes_batch_id == null ? null : String(r.supersedes_batch_id),
     batch: {
@@ -152,8 +152,16 @@ export function signoffClient(db: ReportingDb) {
       // An exact replay returns the stored version (the same number a new save would get): callers count versions, never infer.
       return { reportVersion: Number(row.report_version) };
     },
-    setState: async (companyId: string, reportId: string, reportVersion: number, state: "REVIEWED" | "FINAL", reason: string) =>
-      (await rpc("fs_set_publication_state", { p_report_id: reportId, p_report_version: reportVersion, p_company_id: companyId, p_state: state, p_reason: reason })) as Record<string, unknown>,
+    setState: async (companyId: string, reportId: string, reportVersion: number, state: "REVIEWED" | "FINAL", reason: string) => {
+      // A legacy draft can be checked without changing it. Existing accounting refusals remain authoritative.
+      const ready = readinessSchema.parse(await rpc("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion }));
+      if (db.invoke && ready.blockers.length === 1 && ready.blockers[0] === "SERVER_COMPILATION_REQUIRED") {
+        const checked = await db.invoke("compile-financial-report", { companyId, reportId, reportVersion });
+        if (checked.error || (checked.data as { outcome?: string })?.outcome !== "compiled")
+          throw new ServerRefusal("compile-financial-report", checked.error?.message ?? "SERVER_COMPILATION_FAILED", null);
+      }
+      return await rpc("fs_set_publication_state", { p_report_id: reportId, p_report_version: reportVersion, p_company_id: companyId, p_state: state, p_reason: reason }) as Record<string, unknown>;
+    },
   };
 }
 export type SignoffClient = ReturnType<typeof signoffClient>;

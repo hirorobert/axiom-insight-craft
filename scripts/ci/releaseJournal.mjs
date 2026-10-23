@@ -383,6 +383,12 @@ export const RELEASE_JOURNAL = {
  * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
+  // Independent server compilation: authored here, NOT applied; one atomic statement, exact bytes only.
+  "20261123100000_fs_server_compilation.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 20156, sha256: "f1904045bb956638513c3fd2ce9aad6042d0ac90511935625fb4c38706386a0c" }),
+    finalLfRemoved: Object.freeze({ bytes: 20155, sha256: "b7eccd6b4af67684c60a40a8fa0db592156bd134c596a71feca3ed6a424f0f1c" }),
+  }),
+
   // H1: applied as 0029 in the final-LF-removed form.
   "20261007100000_treatment_authority_and_processing_control.sql": Object.freeze({
     identical: Object.freeze({ bytes: 47457, sha256: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6" }),

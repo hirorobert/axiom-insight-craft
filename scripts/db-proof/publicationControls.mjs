@@ -220,6 +220,72 @@ async function main() {
   });
   await check("reproduction: the stored document re-serialises to exactly the content hash it was saved under", async () => hex(canonicalStringify(storedFinal.report_document)) === storedFinal.content_hash ? true : storedFinal.content_hash);
 
+  // Server compilation (20261123100000): prove the residual presentation gap with this ONE control removed,
+  // then restore it and replay the identical payloads. The disposable database is the only target of this script.
+  group("SC. Complete report authority: correct retained figures cannot authorise a doctored presentation");
+  const mutations = [
+    ["omitted equity lines", d => { d.statements.find(s => s.type === "STATEMENT_OF_CHANGES_IN_EQUITY").sections[0].lines.pop(); }],
+    ["false line heading", d => { d.statements[0].sections[0].lines[0].label = "An invented heading"; }],
+    ["missing line binding", d => { d.statements[0].sections[0].lines[0].factBindings = []; }],
+    ["false presentation currency", d => { d.presentationCurrency.currency = "USD"; }],
+    ["false entity name", d => { d.entity.legalName = "Another company entirely"; }],
+  ];
+  const definition = (await db.one("SELECT pg_get_functiondef('public.fs_publication_blockers(uuid,text,integer)'::regprocedure) d")).d;
+  const splice = /  v_txt := public\.fs_server_compilation_blocker\(p_company_id,p_report_id,p_version\);\s*IF v_txt IS NOT NULL THEN v_out := array_append\(v_out,v_txt\); END IF;\s*/;
+  const oldDefinition = definition.replace(splice, "");
+  if (oldDefinition === definition) throw Error("Server compilation splice not found; cannot model the preceding controls");
+  await db.admin.query(oldDefinition);
+  await db.admin.query("ALTER TABLE public.financial_statement_publications DISABLE TRIGGER trg_fsp_server_compilation");
+  try {
+    for (const [label, mutate] of mutations) await check(`CONTROL REMOVED: ${label}, correct facts and an empty findings list reach FINAL (the residual gap)`, async () => {
+      const rid = `rpt-before-${uuid()}`; const d = structuredClone(docFinal); mutate(d);
+      await saveDoc(rid, 1, d, storedFinal.evidence_batch_ids);
+      const reviewed = await partner.c.setState(A,rid,1,"REVIEWED","Synthetic adversarial control-removed proof");
+      const final = await owner.c.setState(A,rid,1,"FINAL","Synthetic adversarial control-removed proof");
+      return reviewed.state === "REVIEWED" && final.state === "FINAL";
+    });
+  } finally {
+    await db.admin.query(definition);
+    await db.admin.query("ALTER TABLE public.financial_statement_publications ENABLE TRIGGER trg_fsp_server_compilation");
+  }
+  for (const [label, mutate] of mutations) await check(`CONTROL RESTORED: ${label} is refused before compilation, then refused as SERVER_DOCUMENT_MISMATCH after independent compilation`, async () => {
+    const rid = `rpt-after-${uuid()}`; const d = structuredClone(docFinal); mutate(d);
+    await saveDoc(rid,1,d,storedFinal.evidence_batch_ids);
+    const before = await refusal(() => asU(U.partner,"SELECT public.fs_set_publication_state($1,1,$2,'REVIEWED','Synthetic tamper attempt')",[rid,A]));
+    const checked = await pre.d.invoke("compile-financial-report",{companyId:A,reportId:rid,reportVersion:1});
+    const rd = await readiness(rid,1);
+    const after = await refusal(() => partner.c.setState(A,rid,1,"REVIEWED","Synthetic tamper attempt"));
+    return /SERVER_COMPILATION_REQUIRED/.test(before ?? "") && !checked.error && checked.data.matches === false
+      && rd.blockers.includes("SERVER_DOCUMENT_MISMATCH") && /SERVER_DOCUMENT_MISMATCH/.test(after ?? "");
+  });
+  await check("authenticated callers cannot forge a server compilation receipt or mutate one", async () => {
+    const forged = await refusal(() => asU(U.preparer,"SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)",
+      [U.preparer,A,rid1,vFinal,storedFinal.doc_sha,depsFinal.dependenciesSha256,JSON.stringify(docFinal),"{\"findings\":[]}"]));
+    const changed = await refusal(() => db.asService("UPDATE public.fs_server_compilations SET matches=true WHERE report_id=$1",[rid1]));
+    return /42501/.test(forged ?? "") && /42501/.test(changed ?? "");
+  });
+
+  await check("a lost compilation response retries the same version and receipt without duplicate history", async () => {
+    const before = await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1]);
+    const versions = await latest(rid1); let first = true;
+    const flaky = { ...pre.d, invoke: async (name,body) => {
+      const result = await pre.d.invoke(name,body);
+      if (first) { first=false; return { data:null,error:{message:"Synthetic lost response after receipt commit"} }; }
+      return result;
+    } };
+    const input = {companyId:A,periodYear:Y,legalName:"Untrusted name ignored",reportId:rid1,newEvidence:[],idempotencyKey:"lost-compiler-response",evaluatedAt:"2027-02-02T09:00:00Z"};
+    const lost = await refusal(() => prepareReportVersion(flaky,signoffClient(flaky),input));
+    const retried = await prepareReportVersion(flaky,signoffClient(flaky),input);
+    const receipts = await Promise.all(Array.from({length:4},()=>pre.d.invoke("compile-financial-report",{companyId:A,reportId:rid1,reportVersion:vFinal})));
+    return /server check could not be confirmed/.test(lost ?? "") && retried.outcome === "saved" && retried.alreadyCurrent
+      && (await latest(rid1)) === versions && (await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1])) === before
+      && receipts.every(r=>!r.error) && new Set(receipts.map(r=>r.data.compilationId)).size===1;
+  });
+  await check("another company's owner cannot compile this company's report", async () => {
+    const r = await ownerB.d.invoke("compile-financial-report",{companyId:A,reportId:rid1,reportVersion:vFinal});
+    return !!r.error && /FORBIDDEN|NOT_FOUND/.test(r.error.message);
+  });
+
   // ── A / B ──────────────────────────────────────────────────────────────────────────────────────────────────────────
   group("A. Only a cash-flow figure is altered: refused by name");
   for (const [label, factId] of [["closing cash", "fact:line:cf:closing:CURRENT"], ["net cash from operating activities", "fact:line:cf:operating:net:CURRENT"], ["comparative closing cash", "fact:line:cf:closing:COMPARATIVE_1"]]) {

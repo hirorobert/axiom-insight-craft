@@ -268,7 +268,8 @@ describe("migration directory integrity", () => {
     // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
     // 189 -> 190: 20261119100000_customer_checkout_abandon.sql (owner checkout recovery; applied as 0070).
     // 190 -> 191: 20261122100000 catalogue authenticated-session read predicates (hosted 0074).
-    expect(files.length).toBe(191);
+    // 191 -> 192: server compilation receipts and official-approval/issuance enforcement.
+    expect(files.length).toBe(192);
   });
 });
 
