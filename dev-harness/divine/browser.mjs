@@ -18,7 +18,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
   const calls = name => page.evaluate(n => window.__divine.fixture.calls.filter(c => c.name === n).length, name);
-  const selectCurrency = async () => { await page.locator('#fr-currency').click(); await page.locator('#fr-currency').fill('TZS'); await page.getByRole('option', { name: /TZS/ }).click(); };
+  const selectCurrency = async () => { await page.locator('#fr-currency').click(); await page.locator('#fr-currency').fill('TZS'); await page.locator('#fr-currency').press('ArrowDown'); await page.locator('#fr-currency').press('Enter'); };
   await page.goto('http://127.0.0.1:8094/dashboard'); await page.getByTestId('add-company').click();
   await page.locator('#fr-org').fill('DIVINE QA FIXTURE'); await selectCurrency();
   await page.locator('#fr-year').click(); await page.getByRole('option', { name: '2025', exact: true }).click();
@@ -31,6 +31,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   await page.getByTestId('entry-upload').dblclick(); await page.waitForURL('**/trial-balance/review');
   assert.equal(await calls('open_engagement_with_scope'), 1);
   const task = page.url();
+  await page.goBack(); await page.waitForURL(task); assert.equal(await calls('open_engagement_with_scope'), 1);
   const openPeriod = async () => { const settings = page.getByTestId('engagement-settings'); if (!(await settings.locator('summary').evaluate(e => e.parentElement.open))) await settings.locator('summary').click(); await page.getByTestId('open-period-settings').click(); await page.getByRole('dialog').getByLabel('Start date', { exact: true }).waitFor(); };
   await openPeriod();
   await page.getByRole('dialog').getByLabel('Start date', { exact: true }).fill('2025-02-01');
@@ -79,7 +80,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   assert.ok(await page.getByRole('link', { name: 'All engagements', exact: true }).isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow');
   assert.deepEqual(errors, []);
-  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'Escape-keep', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
+  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
   await context.close();
 }
 console.log(JSON.stringify(results, null, 2));

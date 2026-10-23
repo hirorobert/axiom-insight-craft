@@ -306,11 +306,10 @@ function WorkspaceLayoutContent() {
 
         {/* ── Top bar ──────────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-50 bg-background border-b border-border">
-          <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="max-w-screen-2xl mx-auto grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-2 sm:flex sm:h-14 sm:justify-between sm:gap-4 sm:px-6 sm:py-0">
 
-            {/* Left: logo (home) + breadcrumb — the logo is the only way back,
-                so there is no competing back arrow. */}
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* On mobile, the exit and controls share a row; engagement identity has its own full-width row. */}
+            <div className="contents sm:flex sm:min-w-0 sm:items-center sm:gap-3">
               <Link
                 to="/dashboard"
                 // Explicit escape to the hub — never silently re-lands back in this exact workspace.
@@ -318,7 +317,7 @@ function WorkspaceLayoutContent() {
                 state={{ forceHub: true }}
                 title="CFOClose — back to your workspaces"
                 aria-label="CFOClose home"
-                className="shrink-0 -ml-1 rounded px-1 py-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="hidden shrink-0 -ml-1 rounded px-1 py-1 sm:block transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <CFOCloseWordmark className="text-sm sm:text-base" />
               </Link>
@@ -331,25 +330,25 @@ function WorkspaceLayoutContent() {
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>All engagements</span>
               </Link>
-              <div className="h-4 w-px bg-border shrink-0" />
+              <div className="hidden h-4 w-px shrink-0 bg-border sm:block" />
               {loading ? (
                 <Skeleton className="h-4 w-36" />
               ) : (
                 // Below sm: two lines — the company name (truncates), then the financial period with the framework.
                 // The period never shrinks away and never spills under the header controls (it once did at 320px).
                 // From sm up: one line, company · FY · framework, exactly as before. Same DOM order at every width.
-                <div data-testid="workspace-identity" className="flex min-w-0 flex-col justify-center gap-0.5 text-sm leading-tight sm:flex-row sm:items-center sm:gap-2">
+                <div data-testid="workspace-identity" className="col-span-2 row-start-2 flex min-w-0 flex-col justify-center gap-0.5 text-sm leading-tight sm:flex-row sm:items-center sm:gap-2">
                   <span className="min-w-0 truncate font-semibold text-foreground sm:max-w-xs">
                     {company?.name ?? "Loading…"}
                   </span>
-                  <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:gap-2 sm:text-sm">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground sm:gap-2 sm:text-sm">
                     <span aria-hidden="true" className="hidden shrink-0 sm:inline">·</span>
                     <span data-testid="workspace-period" className="shrink-0 font-mono text-[11px] tabular-nums sm:text-xs">
                       {periodLabel}
                     </span>
                     {/* Phase 2 §5.1: entity · period · status, in the trial-balance vocabulary every surface uses. */}
                     <span aria-hidden="true" className="shrink-0">·</span>
-                    <span data-testid="workspace-status" className="shrink-0 text-[11px] sm:text-xs">
+                    <span data-testid="workspace-status" className="min-w-0 break-words text-[11px] sm:text-xs">
                       <span className="sr-only">Trial balance status: </span>
                       {headerStatusWord(workspaceState)}
                     </span>
@@ -376,7 +375,7 @@ function WorkspaceLayoutContent() {
             </div>
 
             {/* Right: refresh + user menu (sign out always visible in dropdown). The entity allowance lives in Settings. */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
