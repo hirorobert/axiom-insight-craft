@@ -1023,6 +1023,24 @@ jobs:
           createdb pubctl_proof
           bun scripts/db-proof/publicationControls.mjs
 
+      - name: Publication integrity gate proof (20261123100000 - every monetary fact and header of a saved document compared with the server, so a fabricated note figure, a second version of a statement fact, a re-denominated amount, a re-dated header or a relabelled provenance saved with an empty browser evaluation is refused by name while the browser-built document still signs; a preparer cannot clear a blocking finding or withdraw a recorded review, the reviewer can; a FINAL superseded by a later FINAL of its lineage is never issued officially again, a pending issuance is not sealed after, its earlier pack verifies intact and is disclosed as superseded; the FINAL history byte-identical)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/integrity_gate_proof
+        run: |
+          createdb integrity_gate_proof
+          bun scripts/db-proof/publicationIntegrityGate.mjs
+
+      - name: Publication integrity gate regression run (the chain WITHOUT 20261123100000 - the same proof MUST fail on exactly the cases the gate exists for; its output is the record of the prior behaviour)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/integrity_gate_absent
+          INTEGRITY_GATE_ABSENT: "1"
+        run: |
+          createdb integrity_gate_absent
+          if bun scripts/db-proof/publicationIntegrityGate.mjs; then echo "the regression run passed: the gate is not needed or the proof does not exercise it"; exit 1; fi
+          echo "regression run failed as required"
+
       - name: Publication concurrency proof (addendum sections 3, 4 and 12 - eight simultaneous saves of one attempt, two people replacing the ledger at once, an approval and an evidence replacement released together, a FINAL approval held open while evidence is replaced with the lineage lock removed and restored, an approver revoked while the approval waits)
         env:
           DB_PROOF_MODE: external
