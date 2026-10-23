@@ -1,3 +1,6 @@
+import { PendingStatus } from "@/components/feedback/Activity";
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 /**
  * Next-period roll-forward (20261112100000), on the Comparatives page of the NEW period. Shows only what needs a renewed
  * decision or evidence: the prior year's wording and applicability decisions carried with provenance ("carried forward —
@@ -16,13 +19,14 @@ import { Notice, useAttempt, type PageProps } from "./shared";
 export function RollforwardPanel(p: PageProps) {
   const [w, setW] = useState<RollforwardWorklist | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [reason, setReason] = useState("");
   const attempt = useAttempt(p.newRequestId);
   const ids = { reason: useId() };
   const load = useCallback(async () => setW(await p.clients.review.worklist(p.companyId, p.periodYear)), [p.clients, p.companyId, p.periodYear]);
   useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load, p.state]);
-  if (!w || w.state !== "listed") return null;
+  if (!w) return notice ? <p role="alert">The roll-forward status could not be read. <button type="button" className="underline" onClick={() => { setNotice(null); void load().catch((e) => setNotice((e as Error).message)); }}>Try again</button></p> : <PendingStatus label="Reading the prior-period status…" />;
+  if (w.state !== "listed") return null;
   const pf = w.priorFinal;
   const carries = w.carries ?? [];
   const pending = carries.filter((c) => c.status === "carried");
@@ -32,7 +36,7 @@ export function RollforwardPanel(p: PageProps) {
   const exponent = p.state.composition?.state === "composed" ? p.state.composition.current.exponent : 2;
   const amt = (v: string | null | undefined) => (v && /^-?\d+$/.test(v) ? presentAmount({ kind: "amount", minor: BigInt(v), exponent }).text : "—");
   const run = async (key: string, f: (rid: string) => Promise<{ outcome: string; [k: string]: unknown }>, done: (r: { outcome: string; [k: string]: unknown }) => string) => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await f(attempt.idFor(key));
       setNotice(r.outcome === "recorded" ? done(r) : r.outcome === "forbidden" ? "Your role cannot do this; nothing was recorded." : `The server answered: ${r.outcome}.`);
@@ -64,10 +68,10 @@ export function RollforwardPanel(p: PageProps) {
             <div className="mt-2 flex flex-wrap items-end gap-2">
               <label htmlFor={ids.reason} className="block grow">Reason for accepting these differences (a prior-period adjustment approved after issue, a reclassification)
                 <input id={ids.reason} className="mt-1 w-full rounded-md border border-input px-2 py-1" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="accept-reason" /></label>
-              <button type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || reason.trim().length < 8}
+              <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || reason.trim().length < 8}
                 onClick={() => void run(`accept|${reason}`, (rid) => p.clients.review.acceptDifferences(p.companyId, p.periodYear, true, reason.trim(), rid), () => "The differences are accepted; the comparatives keep both figures.")} data-testid="accept-differences">
                 Accept the differences
-              </button>
+              </ActionButton>
             </div>
           ) : null}
           {pf.state === "differences" && !canReview ? <p className="text-xs text-muted-foreground">A reviewer accepts explained differences, or the prior year is re-issued.</p> : null}
@@ -78,10 +82,10 @@ export function RollforwardPanel(p: PageProps) {
       <div data-testid="carries">
         <p className="font-medium">Decisions and wording from FY{w.sourcePeriodYear}: {carries.length === 0 ? "nothing carried yet" : `${pending.length} to review, ${carries.filter((c) => c.status === "confirmed").length} confirmed, ${carries.filter((c) => c.status === "withdrawn").length} withdrawn`}</p>
         {carries.length === 0 && canPrepare ? (
-          <button type="button" className="mt-1 rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy}
+          <ActionButton busy={busy} type="button" className="mt-1 rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy}
             onClick={() => void run("carry", (rid) => p.clients.review.carry(p.companyId, p.periodYear, rid), (r) => `${r.carried ?? 0} item(s) carried forward for review${r.withdrawn ? `, ${r.withdrawn} withdrawn (the edition changed)` : ""}.`)} data-testid="carry-forward">
             Carry forward FY{w.sourcePeriodYear}'s decisions and wording for review
-          </button>
+          </ActionButton>
         ) : null}
         {carries.length ? (
           <ul className="mt-1 divide-y divide-border border-y border-border text-sm" data-testid="carry-list">
@@ -113,11 +117,11 @@ function CarryRow(p: PageProps & { c: CarriedItem; busy: boolean; run: (key: str
       <p className="text-muted-foreground">{text}</p>
       {c.status === "carried" && canPrepare ? (
         <div className="flex flex-wrap items-end gap-2">
-          <button type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={p.busy}
-            onClick={() => void p.run(`confirm|${c.carryId}`, (rid) => p.clients.review.decideCarry(p.companyId, c.carryId, true, null, rid), () => "Confirmed for this period.")} data-testid="carry-confirm">Confirm for FY{p.periodYear}</button>
+          <ActionButton busy={p.busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={p.busy}
+            onClick={() => void p.run(`confirm|${c.carryId}`, (rid) => p.clients.review.decideCarry(p.companyId, c.carryId, true, null, rid), () => "Confirmed for this period.")} data-testid="carry-confirm">Confirm for FY{p.periodYear}</ActionButton>
           <label htmlFor={id} className="block"><span className="sr-only">Reason to withdraw</span><input id={id} className="rounded-md border border-input px-2 py-1" placeholder="Reason to withdraw" value={why} onChange={(e) => setWhy(e.target.value)} data-testid="carry-withdraw-reason" /></label>
-          <button type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={p.busy || why.trim().length < 3}
-            onClick={() => void p.run(`withdraw|${c.carryId}|${why}`, (rid) => p.clients.review.decideCarry(p.companyId, c.carryId, false, why.trim(), rid), () => "Withdrawn; decide it afresh on the Notes page.")} data-testid="carry-withdraw">Withdraw</button>
+          <ActionButton busy={p.busy} type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={p.busy || why.trim().length < 3}
+            onClick={() => void p.run(`withdraw|${c.carryId}|${why}`, (rid) => p.clients.review.decideCarry(p.companyId, c.carryId, false, why.trim(), rid), () => "Withdrawn; decide it afresh on the Notes page.")} data-testid="carry-withdraw">Withdraw</ActionButton>
         </div>
       ) : null}
     </li>

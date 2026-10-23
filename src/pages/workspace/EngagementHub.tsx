@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 /**
  * EngagementHub — the deterministic workspace chooser, and the ACCOUNT HOME.
  *
@@ -488,7 +489,7 @@ function NextActionCard({ next, resumeLabel, busy, onRetry, onResume, onStartRev
       primary = <Button asChild className={PRIMARY} data-testid="next-action-primary"><Link to="/plans">{next.kind === "choose_plan" ? "Choose a plan" : "See larger plans"}{arrow}</Link></Button>;
       break;
     case "resume": primary = <Button onClick={onResume} className={PRIMARY} data-testid="next-action-primary">{resumeLabel ?? "Continue"}{arrow}</Button>; break;
-    case "start_review": primary = <Button onClick={onStartReview} disabled={busy} aria-busy={!!pendingLabel} className={PRIMARY} data-testid="next-action-primary">{pendingLabel ?? `Start ${TRIAL_BALANCE_REVIEW.title}`}{arrow}</Button>; break;
+    case "start_review": primary = <Button pending={busy} onClick={onStartReview} disabled={busy} aria-busy={!!pendingLabel} className={PRIMARY} data-testid="next-action-primary">{pendingLabel ?? `Start ${TRIAL_BALANCE_REVIEW.title}`}{arrow}</Button>; break;
     case "start_service": primary = <Button onClick={onStartService} className={PRIMARY} data-testid="next-action-primary">Start{arrow}</Button>; break;
     case "open_shared": primary = onOpenShared ? <Button onClick={onOpenShared} className={PRIMARY} data-testid="next-action-primary">Open{arrow}</Button> : null; break;
     case "add_company": primary = onAddCompany ? <Button onClick={onAddCompany} aria-controls={addFormId} className={PRIMARY} data-testid="next-action-primary">Add a company{arrow}</Button> : null; break;
@@ -513,7 +514,7 @@ function CompanyOptions({ companyId, companyName, current, onSet }: { companyId:
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState<WorkspacePurpose>(current === "test" ? "client" : "test");
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const ids = { panel: useId(), heading: useId(), purpose: useId(), reason: useId(), help: useId() };
   return (
@@ -524,7 +525,7 @@ function CompanyOptions({ companyId, companyName, current, onSet }: { companyId:
           <p className="mt-1 text-[13px] text-foreground">Recorded: {current ? PURPOSE_WORDS[current] : "Not stated"}</p>
           <p id={ids.help} className="mt-1 max-w-prose text-[12px] text-muted-foreground" data-testid={`purpose-explanation-${companyId}`}>{PURPOSE_EXPLANATION}</p>
           <form className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-end" aria-describedby={ids.help} data-testid={`set-purpose-${companyId}`}
-            onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; setBusy(true); try { setNotice(await onSet(companyId, purpose, reason.trim())); } catch { setNotice("Purpose could not be recorded. Try again."); } finally { setBusy(false); } }}>
+            onSubmit={async (e) => { e.preventDefault(); if (busy || reason.trim().length < 3) return; if (!setBusy(true)) return; try { setNotice(await onSet(companyId, purpose, reason.trim())); } catch { setNotice("Purpose could not be recorded. Try again."); } finally { setBusy(false); } }}>
             <div>
               <label htmlFor={ids.purpose} className="block text-[12px] font-medium text-foreground">Purpose</label>
               <select id={ids.purpose} className="mt-1 h-9 w-full border border-input bg-background px-2 text-[13px]" value={purpose} onChange={(e) => setPurpose(e.target.value as WorkspacePurpose)}>
@@ -536,7 +537,7 @@ function CompanyOptions({ companyId, companyName, current, onSet }: { companyId:
               <input id={ids.reason} className="mt-1 h-9 w-full border border-input bg-background px-2 text-[13px]" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
             </div>
             <div className="flex items-center gap-3">
-              <Button type="submit" variant="outline" className="h-9 rounded-none px-4 text-[13px] shadow-none" disabled={busy || reason.trim().length < 3}>{busy ? "Recording…" : "Record purpose"}</Button>
+              <Button pending={busy} type="submit" variant="outline" className="h-9 rounded-none px-4 text-[13px] shadow-none" disabled={busy || reason.trim().length < 3}>{busy ? "Recording…" : "Record purpose"}</Button>
               <button type="button" className="text-[13px] underline underline-offset-4" onClick={() => setOpen(false)}>Close</button>
             </div>
           </form>

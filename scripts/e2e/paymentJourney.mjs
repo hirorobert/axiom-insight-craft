@@ -280,11 +280,25 @@ async function main() {
       await go(route);
       await page.waitForSelector('[data-testid="account-shell"]');
       await page.click('[aria-label="Settings menu"]');
+      // Radix installs keyboard dismissal and moves focus after mounting the portal. Wait for that
+      // user-visible readiness before Escape; reading the menu DOM alone can precede its effects.
+      await page.waitFor(() => {
+        const menu = document.querySelector('[role="menu"][data-state="open"]');
+        return !!menu && menu.contains(document.activeElement);
+      }, [], { label: "settings menu keyboard focus", timeout: 10000 });
       const settings = await page.evaluate(() => [...document.querySelectorAll('[role="menu"] a')].map((e) => e.getAttribute("href")));
       await page.press("Escape");
+      await page.waitFor(() => !document.querySelector('[role="menu"][data-state="open"]')
+        && document.activeElement === document.querySelector('[aria-label="Settings menu"]'), [], { label: "settings menu closed and focus returned", timeout: 10000 });
       await page.click('[aria-label="Account menu"]');
+      await page.waitFor(() => {
+        const menu = document.querySelector('[role="menu"][data-state="open"]');
+        return !!menu && menu.contains(document.activeElement);
+      }, [], { label: "account menu keyboard focus", timeout: 10000 });
       const account = await page.evaluate(() => ({ profile: !!document.querySelector('[role="menu"] a[href="/settings?section=profile"]'), signOut: !!document.querySelector('[data-testid="account-sign-out"]') }));
       await page.press("Escape");
+      await page.waitFor(() => !document.querySelector('[role="menu"][data-state="open"]')
+        && document.activeElement === document.querySelector('[aria-label="Account menu"]'), [], { label: "account menu closed and focus returned", timeout: 10000 });
       const signIn = await page.evaluate(() => [...document.querySelectorAll("a")].some((a) => a.innerText.trim() === "Sign in"));
       seen[route] = { settings, account, signIn };
     }

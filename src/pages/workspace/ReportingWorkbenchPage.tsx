@@ -24,7 +24,7 @@ export default function ReportingWorkbenchPage({ page }: { page: ReportingPage }
   const db = useMemo(() => supabaseReportingDb(supabase), []);
   const base = `/workspace/${companyId}/${periodYear}`;
   return (
-    <ReportingWorkbench page={page} companyId={companyId} periodYear={periodYear} legalName={company?.name ?? "The company"} db={db}
+    <ReportingWorkbench key={`${companyId}:${periodYear}`} page={page} companyId={companyId} periodYear={periodYear} legalName={company?.name ?? "The company"} db={db}
       allowed={caps?.allowed ?? []} reportVersion={parseReportVersion(search)}
       hrefFor={(p, v) => withContext(`${base}/${SEGMENT[p]}`, { reportVersion: v })} />
   );

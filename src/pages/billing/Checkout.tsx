@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * /billing/checkout?plan=SOLO — what is being bought, the total payable, and the one action that starts a payment.
  *
@@ -52,7 +54,7 @@ export default function Checkout() {
   const [route, setRoute] = useState<PaymentRoute | null>(null);
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useBusyState("Opening secure payment…");
   const [error, setError] = useState<{ text: string; ref: string | null; kind: string } | null>(null);
 
   const [reload, setReload] = useState(0);
@@ -67,7 +69,7 @@ export default function Checkout() {
       setOptions(data);
       const open = data.options.filter((o) => o.available);
       setRoute(open.length === 1 ? open[0].paymentRoute : null);
-    });
+    }).catch(() => { if (live) setLoadError("OPTIONS_UNAVAILABLE"); });
     return () => { live = false; };
   }, [plan, user, authLoading, reload]);
 
@@ -79,7 +81,7 @@ export default function Checkout() {
   if (!plan || !catalogue) {
     return <Shell><h1 className="text-2xl font-semibold">Choose a plan first</h1><p className="mt-2 text-sm text-muted-foreground">This link does not name a plan that can be bought online.</p><Button asChild className="mt-6"><Link to="/plans">See the plans</Link></Button></Shell>;
   }
-  if (authLoading) return <Shell><Loader2 className="h-6 w-6 animate-spin" aria-label="Loading" /></Shell>;
+  if (authLoading) return <Shell><PendingStatus label="Checking your account…" skeleton /></Shell>;
   if (!user) {
     return (
       <Shell>
@@ -102,7 +104,8 @@ export default function Checkout() {
       if (!TZ_MOBILE.test(compact)) { setPhoneError("Enter a mobile money number on +255, for example 0712 345 678."); return; }
       setPhoneError(null);
     }
-    setSubmitting(true);
+    if (!setSubmitting(true)) return;
+    try {
     const result = await startCheckout(plan as PlanCode, chosen.paymentRoute, chosen.paymentRoute === "MOBILE_MONEY" ? phone : null);
     if ("checkoutUrl" in result) {
       // The provider's hosted page: https (a loopback page only in local sandbox tests — the server never returns one in
@@ -129,7 +132,11 @@ export default function Checkout() {
         : { kind: "support", ref: null, text: "This change to your plan needs to be arranged with our team. Send us a request and we will set it up." });
       return;
     }
-    setError({ kind: "other", ref: null, text: ERROR_TEXT[r.error] ?? "The payment could not be started. Nothing was charged. Try again, or contact support." });
+    setError({ kind: "other", ref: null, text: ERROR_TEXT[r.error] ?? "The payment could not be started. Check your orders before trying again, or contact support." });
+    } catch {
+      setSubmitting(false);
+      setError({ kind: "uncertain", ref: null, text: "We could not confirm whether checkout started. Check your orders before starting another payment." });
+    }
   };
 
   return (
@@ -224,8 +231,7 @@ export default function Checkout() {
             </div>
           )}
 
-          <Button className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous" || error?.kind === "open"} onClick={submit} data-testid="checkout-continue">
-            {submitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+          <Button pending={submitting} pendingLabel="Opening secure payment…" className="mt-6 w-full sm:w-auto" disabled={!chosen || submitting || error?.kind === "previous" || error?.kind === "open" || error?.kind === "uncertain"} onClick={submit} data-testid="checkout-continue">
             {chosen?.paymentRoute === "MOBILE_MONEY" ? "Send the payment prompt" : "Continue to payment"}
           </Button>
           <p className="mt-3 text-xs text-muted-foreground">Your plan starts as soon as the payment is verified.</p>

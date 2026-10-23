@@ -1,3 +1,5 @@
+import { useActivity } from "@/components/feedback/useActivity";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * EngagementPortfolio — the engagements list, read page by page from the server (portfolioClient).
  *
@@ -92,6 +94,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
     | { kind: "changed" }
     | { kind: "error"; message: string }
   >({ kind: "loading" });
+  useActivity(state.kind === "loading", "Loading engagements…");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const seq = useRef(0);
 
@@ -122,7 +125,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
     if (mine === seq.current) setFrameworks(metadata);
   }, [query, rpc, readFrameworks]);
 
-  useEffect(() => { void load(0, true); }, [load]);
+  useEffect(() => { void load(0, true); return () => { ++seq.current; }; }, [load]);
 
   const go = (index: number) => { void load(index, false).then(() => headingRef.current?.focus()); };
   const setFilter = (patch: Partial<PortfolioQuery>) => setQuery((q) => ({ ...q, ...patch }));
@@ -198,6 +201,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
           : ""}
       </p>
 
+      {state.kind === "loading" && <PendingStatus label="Loading engagements…" skeleton />}
       {state.kind === "changed" && (
         <div role="status" className="flex flex-wrap items-center justify-between gap-3 border border-border px-4 py-3 text-[13px]" data-testid="portfolio-changed">
           <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden="true" />This list changed while you were paging.</span>

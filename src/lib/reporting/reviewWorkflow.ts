@@ -68,6 +68,21 @@ export function reviewClient(db: ReportingDb) {
     if (!db.invoke) return { data: null, error: { message: "Server functions are not reachable from this page." } };
     return db.invoke(name, body);
   };
+  // Resume an existing server issuance; never create a replacement after an uncertain seal response.
+  const deliverOfficial = async (issuanceId: string, save: (blob: Blob, fileName: string) => void, retrieve = false): Promise<DeliveryOutcome> => {
+    let sealed = await invoke("seal-reporting-pack", { action: retrieve ? "retrieve" : "issue", issuance_id: issuanceId });
+    if (sealed.error && !retrieve) {
+      sealed = await invoke("seal-reporting-pack", { action: "retrieve", issuance_id: issuanceId });
+      retrieve = true;
+    }
+    if (sealed.error) return "failed";
+    const s = (sealed.data && typeof sealed.data === "object" ? sealed.data : {}) as Record<string, unknown>;
+    if (s.outcome === "entitlement_required") return "locked";
+    if (s.outcome === "capability_required" || s.outcome === "workspace_access_denied") return "not_permitted";
+    if (s.outcome !== (retrieve ? "retrieved" : "sealed") || typeof s.document !== "string" || typeof s.file_name !== "string" || !/^[0-9a-f]{64}$/.test(String(s.content_sha256))) return "failed";
+    save(new Blob([s.document], { type: "application/json" }), s.file_name);
+    return "delivered";
+  };
   return {
     // ── Reviewer comments ─────────────────────────────────────────────────────────────────────────────────────────────
     comments: async (companyId: string, reportId: string, reportVersion: number) =>
@@ -103,23 +118,17 @@ export function reviewClient(db: ReportingDb) {
      * publication; the Edge Function stores the server's own document and the database seals its hash); the file saved is
      * the server's sealed document. Nothing is built, uploaded or hashed here; a transport error is a failure, never a pack.
      */
-    issueOfficial: async (companyId: string, periodYear: number, outputRef: string, save: (blob: Blob, fileName: string) => void): Promise<DeliveryOutcome> => {
-      const issued = await db.rpc("issue_official_reporting_pack", { p_company_id: companyId, p_period_year: periodYear, p_output_ref: outputRef, p_request_id: crypto.randomUUID() });
+    issueOfficial: async (companyId: string, periodYear: number, outputRef: string, save: (blob: Blob, fileName: string) => void, requestId: string = crypto.randomUUID()): Promise<DeliveryOutcome> => {
+      const issued = await db.rpc("issue_official_reporting_pack", { p_company_id: companyId, p_period_year: periodYear, p_output_ref: outputRef, p_request_id: requestId });
       if (issued.error) return "failed";
       const r = (issued.data && typeof issued.data === "object" ? issued.data : {}) as Record<string, unknown>;
       if (r.outcome === "final_publication_required") return "not_final";
       if (r.outcome === "entitlement_required") return "locked";
       if (r.outcome === "capability_required") return "not_permitted";
-      if (!((r.outcome === "issued" || r.outcome === "already_issued") && typeof r.issuance_id === "string" && r.issuance_id.length > 0 && r.sealed !== true)) return "failed";
-      const sealed = await invoke("seal-reporting-pack", { action: "issue", issuance_id: r.issuance_id });
-      if (sealed.error) return "failed";
-      const s = (sealed.data && typeof sealed.data === "object" ? sealed.data : {}) as Record<string, unknown>;
-      if (s.outcome === "entitlement_required") return "locked";
-      if (s.outcome === "capability_required" || s.outcome === "workspace_access_denied") return "not_permitted";
-      if (s.outcome !== "sealed" || typeof s.document !== "string" || typeof s.file_name !== "string" || !/^[0-9a-f]{64}$/.test(String(s.content_sha256))) return "failed";
-      save(new Blob([s.document], { type: "application/json" }), s.file_name);
-      return "delivered";
+      if (!((r.outcome === "issued" || r.outcome === "already_issued") && typeof r.issuance_id === "string" && r.issuance_id.length > 0)) return "failed";
+      return deliverOfficial(r.issuance_id, save, r.sealed === true);
     },
+    resumeOfficial: async (issuanceId: string, save: (blob: Blob, fileName: string) => void): Promise<DeliveryOutcome> => deliverOfficial(issuanceId, save),
     verify: async (issuanceId: string): Promise<VerifyOutcome> => {
       const { data, error } = await invoke("seal-reporting-pack", { action: "verify", issuance_id: issuanceId });
       if (error) return { outcome: "unavailable" };

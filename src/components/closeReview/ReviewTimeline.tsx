@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * One subject's Close Review history (roadmap increment 8): every comment with its current text and earlier versions,
  * every lifecycle event, and — for a member who may write — a comment box. A member who may not write reads only.
@@ -24,7 +27,7 @@ export function ReviewTimeline(p: {
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [editing, setEditing] = useState<string | null>(null);
   const pending = useRef<{ key: string; id: string } | null>(null);
   const seq = useRef(0);
@@ -47,7 +50,7 @@ export function ReviewTimeline(p: {
     // The same content retried keeps its request id; different content gets a new one.
     const key = `${editing ?? ""}|${body}`;
     if (!pending.current || pending.current.key !== key) pending.current = { key, id: (p.newRequestId ?? (() => crypto.randomUUID()))() };
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.client.comment(p.companyId, p.subjectKind, p.subjectId, body, pending.current.id, editing);
       if (r.outcome === "recorded") {
@@ -63,7 +66,7 @@ export function ReviewTimeline(p: {
     <section aria-labelledby={`${ids.list}-h`} className="space-y-3">
       <h3 id={`${ids.list}-h`} className="text-sm font-semibold">History and comments</h3>
       {error ? <p role="alert" className="text-sm">{error} <button type="button" className="underline" onClick={() => void load()}>Try again</button></p> : null}
-      {items === null && !error ? <p role="status" className="text-sm">Reading the history…</p> : null}
+      {items === null && !error ? <PendingStatus label="Reading the history…" skeleton /> : null}
       {items && items.length === 0 ? <p className="text-sm text-muted-foreground">Nothing recorded yet.</p> : null}
       {items && items.length > 0 ? (
         <ol className="space-y-2" aria-label="History, oldest first">
@@ -93,9 +96,9 @@ export function ReviewTimeline(p: {
           <label htmlFor={ids.box} className="block text-sm font-medium">{editing ? "Edit your comment" : "Add a comment"}</label>
           <textarea id={ids.box} className="w-full rounded-md border border-input bg-background p-2 text-sm" rows={3} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />
           <div className="flex gap-2">
-            <button type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={busy || text.trim() === ""} onClick={() => void send()}>
+            <ActionButton busy={busy} type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={busy || text.trim() === ""} onClick={() => void send()}>
               {busy ? "Sending…" : editing ? "Save edit" : "Add comment"}
-            </button>
+            </ActionButton>
             {editing ? <button type="button" className="text-sm underline" onClick={() => { setEditing(null); setText(""); }}>Cancel edit</button> : null}
           </div>
         </div>

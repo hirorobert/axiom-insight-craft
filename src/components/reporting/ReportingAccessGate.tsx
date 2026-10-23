@@ -1,3 +1,4 @@
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * ReportingAccessGate — the route guard of the reporting pages (Financial Statements; Sign-off & Exports).
  *
@@ -17,7 +18,7 @@ export default function ReportingAccessGate({ children, prepareStage = false }: 
   const { companyId, access } = useWorkspace();
   const reporting = useReportingAccess(companyId);
   if (!prepareStage && !canOpenStage(access, "statements")) return <WorkspaceUnavailable />;
-  if (reporting.state === "loading") return null;
+  if (reporting.state === "loading") return <PendingStatus label="Checking reporting access…" className="p-6" skeleton />;
   if (reporting.state !== "enabled") return <WorkspaceUnavailable />;
   return <>{children}</>;
 }

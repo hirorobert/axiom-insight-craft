@@ -139,3 +139,12 @@
   .account-rail-link { @apply flex items-center gap-3 rounded-sm px-3 py-2.5 text-[13px] font-medium text-white/85 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80; }
   .account-rail-link-active { background: #216448; color: white; }
 }
+
+/* Actual pending activity; static for users who prefer reduced motion. */
+@keyframes activity-travel {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin, .animate-pulse { animation: none !important; }
+}

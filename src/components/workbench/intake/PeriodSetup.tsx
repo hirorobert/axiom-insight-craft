@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 import { useEffect, useId, useRef, useState } from "react";
 import { CURRENCY_REGISTRY, CURRENCY_REGISTRY_VERSION } from "@/lib/currency/registry";
 import { CurrencySelect } from "@/components/currency/CurrencySelect";
@@ -45,7 +47,7 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
     void getCorrectionEligibility(rpc, existing.id).then((r) => { if (live) setCurrencyRule(r); }, () => { if (live) setCurrencyRule({ kind: "unavailable", reason: "error" }); });
     return () => { live = false; };
   }, [client, existing]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const msgRef = useRef<HTMLParagraphElement>(null);
@@ -55,7 +57,7 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (problems.length > 0 || busy) return;
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await openEngagementWithPeriod(client, {
         companyId, periodStart: f.start, periodEnd: f.end, reportingCurrency: f.currency, capabilities: ["FINANCIAL_STATEMENTS"],
@@ -121,9 +123,9 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
       ) : null}
       {problems.length > 0 ? <ul aria-label="Still needed" className="list-disc pl-5 text-sm text-muted-foreground">{problems.map((x) => <li key={x}>{x}</li>)}</ul> : null}
       <p ref={msgRef} tabIndex={-1} role={message?.tone === "error" ? "alert" : "status"} className="text-sm">{message?.text ?? ""}</p>
-      <button type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={problems.length > 0 || busy}>
+      <ActionButton busy={busy} type="submit" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={problems.length > 0 || busy}>
         {busy ? "Setting up…" : "Set up the period"}
-      </button>
+      </ActionButton>
     </form>
   );
 }

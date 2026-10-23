@@ -1,3 +1,5 @@
+import { useActivity } from "@/components/feedback/useActivity";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * The reporting workbench (Financial Statements › Statements, Notes, Schedules, Comparatives; Sign-off & Exports ›
  * Sign-off, Exports). One container reads every server state the pages share — composition, notes, comparatives, saved
@@ -25,20 +27,23 @@ const TITLES: Record<ReportingPage, string> = {
 export function ReportingWorkbench(p: ReportingProps) {
   const clients = useMemo(() => reportingClients(p.db), [p.db]);
   const [state, setState] = useState<ReportingState | null>(null);
+  const [reading, setReading] = useState(true);
+  useActivity(reading, "Reading the reporting workspace…");
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
 
   const load = useCallback(async () => {
     const mine = ++seq.current;
     setError(null);
+    setReading(true);
     try {
       const s = await readReportingSnapshot(p.db, clients, p.companyId, p.periodYear);
       if (mine === seq.current) setState(s);
     } catch (e) {
       if (mine === seq.current) setError(e instanceof Error ? e.message : "The reporting state could not be read.");
-    }
+    } finally { if (mine === seq.current) setReading(false); }
   }, [clients, p.db, p.companyId, p.periodYear]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return () => { ++seq.current; }; }, [load]);
 
   const next: NextAction | null = state ? nextActionFor(state, p.allowed) : null;
 
@@ -48,12 +53,13 @@ export function ReportingWorkbench(p: ReportingProps) {
       {error ? (
         <p role="alert" className="text-sm">The reporting state could not be read: {error}{" "}
           <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void load()}>Try again</button></p>
-      ) : !state ? <p role="status" className="text-sm text-muted-foreground">Reading the statements, notes and comparatives…</p> : (
+      ) : !state ? <PendingStatus label="Reading the statements, notes and comparatives…" skeleton /> : (
         <>
           {/* The page's own task leads. The report's next action is the dominant bar only on the page that owns it;
               elsewhere it is one quiet line, so (for example) open notes never dominate Schedules or Sign-off. */}
           {next && next.page === p.page ? <NextActionBar action={next} /> : null}
           {next && next.page !== p.page ? <NextElsewhere action={next} href={p.hrefFor(next.page as ReportingPage, p.reportVersion)} /> : null}
+          {reading && <PendingStatus label="Updating the report from the server…" />}
           <Page {...p} state={state} clients={clients} refresh={load} />
         </>
       )}

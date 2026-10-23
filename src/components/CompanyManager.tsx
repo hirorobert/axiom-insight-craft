@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 import { useState, useEffect } from "react";
 import { useMyEntityCapacity } from "@/hooks/useMyEntityCapacity";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
@@ -176,6 +177,9 @@ function StartCorrectedEngagementAffordance({
 }
 
 export const CompanyManager = () => {
+  const [saving, setSaving] = useBusyState("Saving company…");
+  const [deleting, setDeleting] = useBusyState("Removing company…");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -302,6 +306,7 @@ export const CompanyManager = () => {
       return;
     }
 
+    if (!setSaving(true)) return;
     try {
       if (editingCompany) {
         const { error } = await supabase
@@ -374,8 +379,9 @@ export const CompanyManager = () => {
       retryCapacity();
     } catch (error) {
       console.error("Company save error:", error);
-      toast.error("Failed to save company");
+      toast.error("Could not confirm the company save. Your entries are kept; check the company list before retrying.");
     }
+    finally { setSaving(false); }
   };
 
   const handleEdit = (company: Company) => {
@@ -437,6 +443,8 @@ export const CompanyManager = () => {
   const handleDelete = async (company: Company) => {
     if (!confirm(`Are you sure you want to delete "${company.name}"?`)) return;
 
+    if (!setDeleting(true)) return;
+    setDeletingId(company.id);
     try {
       const { error } = await supabase
         .from("companies")
@@ -459,6 +467,7 @@ export const CompanyManager = () => {
       console.error("Delete error:", error);
       toast.error("Failed to delete company");
     }
+    finally { setDeleting(false); setDeletingId(null); }
   };
 
   return (
@@ -541,6 +550,7 @@ export const CompanyManager = () => {
                       <Button
                         variant="ghost"
                         size="sm"
+                        aria-label={`Edit ${company.name}`}
                         onClick={() => handleEdit(company)}
                         className="h-8 w-8 p-0"
                       >
@@ -549,10 +559,12 @@ export const CompanyManager = () => {
                       <Button
                         variant="ghost"
                         size="sm"
+                        pending={deletingId === company.id} disabled={deleting}
+                        aria-label={`Remove ${company.name}`}
                         onClick={() => handleDelete(company)}
                         className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        {deletingId !== company.id && <Trash2 className="w-3 h-3" />}
                       </Button>
                     </div>
                   </div>
@@ -565,6 +577,7 @@ export const CompanyManager = () => {
 
       {/* Add/Edit Form Dialog */}
       <Dialog open={formDialogOpen} onOpenChange={(open) => {
+        if (saving) return;
         setFormDialogOpen(open);
         if (!open) resetForm();
       }}>
@@ -574,7 +587,8 @@ export const CompanyManager = () => {
               {editingCompany ? "Edit Company" : "Add New Company"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1">
+          <form onSubmit={handleSubmit} aria-busy={saving} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <fieldset disabled={saving} className="contents">
             <div className="space-y-2">
               <Label htmlFor="name">Company Name *</Label>
               <Input
@@ -714,13 +728,14 @@ export const CompanyManager = () => {
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setFormDialogOpen(false)}>
+              <Button type="button" variant="outline" disabled={saving} onClick={() => setFormDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={showTinError}>
+              <Button type="submit" pending={saving} pendingLabel="Saving company…" disabled={showTinError || saving}>
                 {editingCompany ? "Update" : "Create"}
               </Button>
             </div>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

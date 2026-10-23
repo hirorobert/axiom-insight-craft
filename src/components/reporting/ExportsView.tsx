@@ -1,3 +1,4 @@
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Sign-off & Exports › Exports. The printable pack and the spreadsheet of a SAVED version, rendered only from the stored
  * document (re-validated) and — for a reviewed or final version — its server binding (the server's document hash and the
@@ -19,7 +20,7 @@ export function ExportsView(p: PageProps) {
   const finals = p.state.versions.filter((v) => v.state === "FINAL").sort((a, b) => b.reportVersion - a.reportVersion);
   const chosen = p.state.versions.find((v) => v.reportVersion === p.reportVersion) ?? finals[0] ?? [...p.state.versions].sort((a, b) => b.reportVersion - a.reportVersion)[0] ?? null;
   if (!chosen) return <p>No report version is saved yet. <Link className="text-primary underline" to={p.hrefFor("signoff", null)}>Save one on the Sign-off page →</Link></p>;
-  return <Pack key={`${chosen.reportId}:${chosen.reportVersion}`} {...p} v={chosen} />;
+  return <Pack key={`${chosen.reportId}:${chosen.reportVersion}:${chosen.state}`} {...p} v={chosen} />;
 }
 
 function Pack(p: PageProps & { v: SavedVersion }) {
@@ -69,7 +70,7 @@ function Pack(p: PageProps & { v: SavedVersion }) {
   };
   const base = `${p.legalName.replace(/[^A-Za-z0-9]+/g, "-")}-FY${p.periodYear}-v${p.v.reportVersion}-${p.v.state.toLowerCase()}`;
   if (error) return <p role="alert">The pack could not be prepared: {error}</p>;
-  if (!pack) return <p role="status">Preparing the pack from the stored version…</p>;
+  if (!pack) return <PendingStatus label="Preparing the pack from the stored version…" skeleton />;
   return (
     <div className="space-y-3 text-sm" data-testid="exports" data-state={p.v.state}>
       <p>Version {p.v.reportVersion} — {p.v.state === "FINAL" ? "final and sealed" : p.v.state === "REVIEWED" ? "reviewed (not final)" : "draft (not signed off)"}.

@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Sign-off & Exports › Sign-off. Saves report versions and signs them through the ONE canonical path.
  *
@@ -17,7 +20,7 @@ import { adjustmentsClient, type AdjustmentsSummary } from "@/lib/closeReview/ad
 import { SOLO_OWNER_CONFIRMATION, type Readiness, type SavedVersion, type SignoffPolicy, type SignoffPolicyState } from "@/lib/reporting/signoff";
 import { adjustmentDisclosures } from "@/lib/reporting/disclosures";
 import { blockerText } from "@/lib/reporting/blockers";
-import { Notice, type PageProps } from "./shared";
+import { Notice, useAttempt, type PageProps } from "./shared";
 import { EvidenceIntake } from "./EvidenceIntake";
 import { ReviewCommentsPanel } from "./ReviewComments";
 
@@ -30,7 +33,7 @@ export function SignoffView(p: PageProps) {
       <SignoffPolicyPanel {...p} />
       <EvidenceIntake {...p} mode="summary" />
       <Versions {...p} selected={selected} />
-      {selected ? <Readiness_ {...p} version={selected} isLatest={selected.reportVersion === latest?.reportVersion} /> : <p>No report version is saved yet.</p>}
+      {selected ? <Readiness_ key={`${selected.reportId}:${selected.reportVersion}`} {...p} version={selected} isLatest={selected.reportVersion === latest?.reportVersion} /> : <p>No report version is saved yet.</p>}
       {selected ? <ReviewCommentsPanel {...p} reportId={selected.reportId} reportVersion={selected.reportVersion} /> : null}
     </div>
   );
@@ -51,24 +54,26 @@ const POLICY_OUTCOMES: Record<string, string> = {
   request_reused: "That request was already used for a different change; try again.",
 };
 function SignoffPolicyPanel(p: PageProps) {
+  const attempt = useAttempt(p.newRequestId);
   const [state, setState] = useState<SignoffPolicyState | null>(null);
   const [target, setTarget] = useState<SignoffPolicy | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const load = useCallback(async () => setState(await p.clients.signoff.signoffPolicy(p.companyId)), [p.clients, p.companyId]);
   useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load]);
-  if (!state) return null;
+  if (!state) return notice ? <p role="alert">The sign-off policy could not be read. <button type="button" className="underline" onClick={() => { setNotice(null); void load().catch((e) => setNotice((e as Error).message)); }}>Try again</button></p> : <PendingStatus label="Reading the sign-off policy…" />;
   const policy: SignoffPolicy = state.policy ?? "separate_approvers";
   const other: SignoffPolicy = policy === "solo_owner" ? "separate_approvers" : "solo_owner";
   const change = async (reason: string) => {
     if (!target) return;
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
-      const r = await p.clients.signoff.setSignoffPolicy(p.companyId, target, reason, target === "solo_owner" ? SOLO_OWNER_CONFIRMATION : null, crypto.randomUUID());
+      const r = await p.clients.signoff.setSignoffPolicy(p.companyId, target, reason, target === "solo_owner" ? SOLO_OWNER_CONFIRMATION : null, attempt.idFor(`${target}|${reason}`));
       setNotice(r.outcome === "recorded" ? "The sign-off policy is recorded." : POLICY_OUTCOMES[r.outcome] ?? `Not recorded (${r.outcome}).`);
+      if (r.outcome === "recorded") { attempt.done(); setTarget(null); }
       await load();
-    } catch (e) { setNotice(`Not recorded: ${(e as Error).message}`); }
-    finally { setBusy(false); setTarget(null); }
+    } catch (e) { setNotice(`Could not confirm the policy change: ${(e as Error).message}. Check its recorded status before retrying.`); }
+    finally { setBusy(false); }
   };
   return (
     <section aria-labelledby="h-policy" data-testid="signoff-policy" data-policy={policy}>
@@ -82,7 +87,7 @@ function SignoffPolicyPanel(p: PageProps) {
       <Notice text={notice} />
       <ConfirmDialog open={target !== null} title={target === "solo_owner" ? "Allow solo-owner sign-off" : "Require separate approvers"} period={`FY${p.periodYear}`} version="All versions signed from now on"
         consequences={target === "solo_owner" ? "The owner may record both the review and the final approval. Each pack signed that way names the owner as both and states this policy with its reason." : "The final approval must be recorded by someone other than the reviewer."}
-        reasonMinLength={8} reasonLabel="Reason" confirmLabel="Record the policy" busy={busy}
+        reasonMinLength={8} reasonLabel="Reason" confirmLabel="Record the policy" busy={busy} notice={notice}
         acknowledgement={target === "solo_owner" ? SOLO_OWNER_CONFIRMATION : undefined}
         onConfirm={(reason) => void change(reason)} onCancel={() => setTarget(null)} />
     </section>
@@ -113,7 +118,7 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
   const [adj, setAdj] = useState<AdjustmentsSummary | null>(null);
   const [confirm, setConfirm] = useState<null | "REVIEWED" | "FINAL">(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const adjClient = useMemo(() => adjustmentsClient(p.db as unknown as Parameters<typeof adjustmentsClient>[0]), [p.db]);
   const load = useCallback(async () => {
     setR(await p.clients.signoff.readiness(p.companyId, p.version.reportId, p.version.reportVersion));
@@ -122,15 +127,16 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
   useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load, p.state]);
   const disclosures = adjustmentDisclosures(adj);
   const sign = async (state: "REVIEWED" | "FINAL", reason: string) => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       await p.clients.signoff.setState(p.companyId, p.version.reportId, p.version.reportVersion, state, reason);
       setNotice(state === "REVIEWED" ? `Version ${p.version.reportVersion} is reviewed.` : `Version ${p.version.reportVersion} is final and sealed.`);
+      setConfirm(null);
       await p.refresh();
-    } catch (e) { setNotice(`Not recorded: ${(e as Error).message.replace(/^[a-z_]+: /, "")}`); await load(); }
-    finally { setBusy(false); setConfirm(null); }
+    } catch (e) { setNotice(`Could not confirm sign-off: ${(e as Error).message.replace(/^[a-z_]+: /, "")}. Check the recorded version state before trying again.`); await p.refresh(); }
+    finally { setBusy(false); }
   };
-  if (!r) return <p role="status">Reading the version's readiness…</p>;
+  if (!r) return notice ? <p role="alert">The version's readiness could not be read. <button type="button" className="underline" onClick={() => { setNotice(null); void load().catch((e) => setNotice((e as Error).message)); }}>Try again</button></p> : <PendingStatus label="Reading the version's readiness…" skeleton />;
   const next = p.version.state === "DRAFT" ? "REVIEWED" : p.version.state === "REVIEWED" ? "FINAL" : null;
   const allowed = next === "REVIEWED" ? p.allowed.includes("review_close") : next === "FINAL" ? p.allowed.includes("approve_certification") : false;
   return (
@@ -152,15 +158,15 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
         </div>
       ) : null}
       {next && p.isLatest ? (allowed ? (
-        <button type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={!r.ready || busy} onClick={() => setConfirm(next)} data-testid={`sign-${next.toLowerCase()}`}>
+        <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={!r.ready || busy} onClick={() => setConfirm(next)} data-testid={`sign-${next.toLowerCase()}`}>
           {next === "REVIEWED" ? "Mark reviewed" : "Approve as final"}
-        </button>
+        </ActionButton>
       ) : <p className="mt-2 text-muted-foreground">{next === "REVIEWED" ? "A reviewer marks the version reviewed." : "A partner approves the version as final."}</p>) : null}
       {p.version.state === "FINAL" ? <p className="mt-2"><Link className="text-primary underline" to={p.hrefFor("exports", p.version.reportVersion)}>Export the sealed report →</Link></p> : null}
       <Notice text={notice} />
       <ConfirmDialog open={confirm !== null} title={confirm === "FINAL" ? "Approve as final" : "Mark reviewed"} period={`FY${p.periodYear}`} version={`Version ${p.version.reportVersion}`}
         consequences={confirm === "FINAL" ? "The version is sealed: it can never change. A later change to the statements, notes or comparatives needs a new version and a new sign-off." : "The version is recorded as reviewed against its evidence. Final approval is a separate step."}
-        reasonMinLength={3} reasonLabel="Reason" confirmLabel={confirm === "FINAL" ? "Approve as final" : "Mark reviewed"} busy={busy}
+        reasonMinLength={3} reasonLabel="Reason" confirmLabel={confirm === "FINAL" ? "Approve as final" : "Mark reviewed"} busy={busy} notice={notice}
         acknowledgement={confirm === "FINAL" && disclosures.length ? `I have read the ${disclosures.length} disclosed self-approval/self-revalidation item(s); they are printed in the sealed pack.` : undefined}
         onConfirm={(reason) => confirm && void sign(confirm, reason)} onCancel={() => setConfirm(null)} />
     </section>

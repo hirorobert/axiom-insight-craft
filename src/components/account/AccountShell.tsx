@@ -1,5 +1,5 @@
 /** Shared signed-in frame. Presentation only; permissions remain server-owned. */
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Building2, HelpCircle, LayoutGrid, Menu, Settings, Users, CreditCard } from "lucide-react";
 import { CFOCloseWordmark } from "@/components/CFOCloseWordmark";
@@ -44,6 +44,8 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
   children: ReactNode; onSignOut: () => void | Promise<void>; mainClassName?: string; identity?: AccountIdentity; setup?: boolean;
 }) {
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTrigger = useRef<HTMLButtonElement>(null);
   return <div className="flex min-h-screen flex-col bg-background" data-testid="account-shell">
     <a href="#account-main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[60] focus:bg-background focus:p-3">Skip to content</a>
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 sm:px-6">
@@ -54,8 +56,10 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
         <span className="hidden border-l border-border pl-5 text-[13px] font-medium text-muted-foreground lg:block">Your practice</span>
       </div>
       <nav aria-label="Account" className="flex shrink-0 items-center gap-2 sm:gap-4">
-        <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="gap-2 px-2" aria-label="Settings menu"><Settings className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Settings</span></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56"><DropdownMenuLabel>Practice settings</DropdownMenuLabel><DropdownMenuSeparator />
+        <DropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen}><DropdownMenuTrigger asChild><Button ref={settingsTrigger} variant="ghost" size="sm" className="gap-2 px-2" aria-label="Settings menu"><Settings className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Settings</span></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56"
+            onKeyDownCapture={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); } }}
+            onCloseAutoFocus={(event) => { event.preventDefault(); settingsTrigger.current?.focus(); }}><DropdownMenuLabel>Practice settings</DropdownMenuLabel><DropdownMenuSeparator />
             <DropdownMenuItem asChild><Link to="/settings"><Settings className="mr-2 h-4 w-4" />All settings</Link></DropdownMenuItem>
             <DropdownMenuItem asChild><Link to="/settings?section=companies"><Building2 className="mr-2 h-4 w-4" />Companies</Link></DropdownMenuItem>
             <DropdownMenuItem asChild><Link to="/settings?section=firm"><Users className="mr-2 h-4 w-4" />Firm & team</Link></DropdownMenuItem>

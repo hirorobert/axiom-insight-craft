@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Close Review › Adjustments (I3). Propose an exact, balanced journal on the current reviewed trial balance; approve,
  * reject or withdraw (server-authorized; self-approval only under the workspace policy, acknowledged and disclosed);
@@ -21,7 +24,7 @@ export function AdjustmentsView(p: {
   const [rows, setRows] = useState<AdjustedRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [lines, setLines] = useState<DraftLine[]>([emptyLine(), { ...emptyLine(), side: "credit" }]);
   const [reason, setReason] = useState("");
   const [evidence, setEvidence] = useState("");
@@ -43,7 +46,7 @@ export function AdjustmentsView(p: {
   useEffect(() => { void load(); }, [load]);
 
   if (error) return <p role="alert">{error} <button type="button" className="underline" onClick={() => void load()}>Try again</button></p>;
-  if (!summary) return <p role="status">Reading the adjustments…</p>;
+  if (!summary) return <PendingStatus label="Reading the adjustments…" skeleton />;
   if (summary.state === "unavailable") return <p role="status">Close Review is not enabled for this workspace.</p>;
   const exponent = summary.exponent ?? 2;
   const canPropose = summary.state === "current" && p.allowed.includes("prepare_close") && summary.exponent !== null;
@@ -51,7 +54,7 @@ export function AdjustmentsView(p: {
 
   const propose = async () => {
     if (!draft.ok) return;
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.client.propose(p.companyId, p.periodYear, reason.trim(), evidence.trim() || null, draft.lines, [], requestFor(`p|${JSON.stringify(draft.lines)}|${reason}|${evidence}`));
       if (r.outcome === "proposed") { pending.current = null; setLines([emptyLine(), { ...emptyLine(), side: "credit" }]); setReason(""); setEvidence(""); setNotice(`Adjustment ${r.number} proposed. It applies once it is approved.`); await load(); }
@@ -60,7 +63,7 @@ export function AdjustmentsView(p: {
     finally { setBusy(false); }
   };
   const decide = async (a: AdjustmentView, decision: "approve" | "reject" | "withdraw") => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const self = decision === "approve" && a.proposer === p.currentUserId;
       const r = await p.client.decide(a.id, decision, decisionReason.trim(), self && ack, requestFor(`d|${a.id}|${decision}|${decisionReason}|${ack}`));
@@ -70,7 +73,7 @@ export function AdjustmentsView(p: {
     finally { setBusy(false); }
   };
   const carry = async (a: AdjustmentView, decision: "revalidate" | "decline") => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const self = a.proposer === p.currentUserId;
       const r = await p.client.revalidate(a.id, decision, decisionReason.trim(), self && ack, requestFor(`rv|${a.id}|${decision}|${decisionReason}|${ack}`));
@@ -80,7 +83,7 @@ export function AdjustmentsView(p: {
     finally { setBusy(false); }
   };
   const reverse = async (a: AdjustmentView) => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.client.propose(p.companyId, p.periodYear, decisionReason.trim() || `Reversal of adjustment ${a.number}`, null, [], [], requestFor(`r|${a.id}`), a.id);
       setNotice(r.outcome === "proposed" ? `Reversal proposed as adjustment ${r.number}. It applies once it is approved.` : PROPOSE_WORDS[r.outcome]);
@@ -142,8 +145,8 @@ export function AdjustmentsView(p: {
                         </div>
                       ) : null}
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3 || (mine && !ack)} onClick={() => void carry(a, "revalidate")}>Revalidate on the current trial balance</button>
-                        <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void carry(a, "decline")}>Do not carry forward</button>
+                        <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3 || (mine && !ack)} onClick={() => void carry(a, "revalidate")}>Revalidate on the current trial balance</ActionButton>
+                        <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void carry(a, "decline")}>Do not carry forward</ActionButton>
                       </div>
                     </div>
                   ) : null}
@@ -158,14 +161,14 @@ export function AdjustmentsView(p: {
                         </div>
                       ) : null}
                       <div className="flex flex-wrap gap-2">
-                        {canApprove ? <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3 || (mine && !ack)} onClick={() => void decide(a, "approve")}>Approve</button> : null}
-                        {!mine && p.allowed.includes("review_close") ? <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void decide(a, "reject")}>Reject</button> : null}
-                        {mine ? <button type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void decide(a, "withdraw")}>Withdraw</button> : null}
+                        {canApprove ? <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3 || (mine && !ack)} onClick={() => void decide(a, "approve")}>Approve</ActionButton> : null}
+                        {!mine && p.allowed.includes("review_close") ? <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void decide(a, "reject")}>Reject</ActionButton> : null}
+                        {mine ? <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-1" disabled={busy || decisionReason.trim().length < 3} onClick={() => void decide(a, "withdraw")}>Withdraw</ActionButton> : null}
                       </div>
                     </div>
                   ) : null}
                   {a.status === "approved" && a.kind === "adjustment" && a.binding === "applied" && !a.reversedBy && p.allowed.includes("prepare_close") ? (
-                    <button type="button" className="mt-1 text-xs underline" disabled={busy} onClick={() => void reverse(a)}>Propose a reversal</button>
+                    <ActionButton busy={busy} type="button" className="mt-1 text-xs underline" disabled={busy} onClick={() => void reverse(a)}>Propose a reversal</ActionButton>
                   ) : null}
                 </li>
               );
@@ -206,7 +209,7 @@ export function AdjustmentsView(p: {
           <textarea id={ids.reason} rows={2} maxLength={2000} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={reason} onChange={(e) => setReason(e.target.value)} />
           <label htmlFor={ids.evidence} className="block text-sm font-medium">Evidence reference (optional)</label>
           <input id={ids.evidence} maxLength={300} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={evidence} onChange={(e) => setEvidence(e.target.value)} />
-          <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={busy || !draft.ok || reason.trim().length < 3} onClick={() => void propose()}>Propose adjustment</button>
+          <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={busy || !draft.ok || reason.trim().length < 3} onClick={() => void propose()}>Propose adjustment</ActionButton>
         </section>
       ) : null}
 

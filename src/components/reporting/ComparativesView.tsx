@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Financial Statements › Comparatives. The server's comparative state (approved, unapproved, approval out of date,
  * accounts not presented, unbalanced, different currency, reference only, missing, first-period exception) in words, and
@@ -30,11 +33,11 @@ function Evaluated(p: PageProps & { s: ComparativeStatus; c: Composition }) {
   const words = COMPARATIVE_WORDS[cs.state];
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<null | "approve" | "withdraw">(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const attempt = useAttempt(p.newRequestId);
   const canReview = p.allowed.includes("review_close");
   const decide = async (approve: boolean, reason: string) => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.comparatives.approve(p.companyId, p.periodYear, approve, reason, attempt.idFor(`a|${approve}|${reason}`));
       setNotice(r.outcome === "recorded" ? (approve ? "The comparatives are approved as they stand now." : "The approval is withdrawn; history is kept.") : outcomeText(r));
@@ -88,12 +91,12 @@ function MissingRecovery(p: PageProps & { c: Composition }) {
   const [date, setDate] = useState("");
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const ids = { kind: useId(), ref: useId(), date: useId(), reason: useId() };
   const intakeHref = `/workspace/${p.companyId}/${p.periodYear}/trial-balance/intake`;
   const declare = async () => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.comparatives.declareFirstPeriod(p.companyId, p.periodYear, reason.trim(), kind, ref.trim(), date);
       setNotice(FIRST_PERIOD_OUTCOMES[r.outcome] ?? outcomeText(r));
@@ -130,7 +133,7 @@ function MissingRecovery(p: PageProps & { c: Composition }) {
           <label htmlFor={ids.reason} className="block font-medium">Reason</label>
           <textarea id={ids.reason} rows={2} maxLength={2000} className="w-full rounded-md border border-input bg-background p-2" value={reason} onChange={(e) => setReason(e.target.value)} />
           <div className="flex gap-2">
-            <button type="submit" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={!ready || busy} data-testid="record-first-period">{busy ? "Recording…" : "Record the declaration"}</button>
+            <ActionButton busy={busy} type="submit" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={!ready || busy} data-testid="record-first-period">{busy ? "Recording…" : "Record the declaration"}</ActionButton>
             <button type="button" className="rounded-md border border-input px-3 py-1" onClick={() => setOpen(false)}>Cancel</button>
           </div>
         </form>
@@ -145,16 +148,19 @@ function Bridges(p: PageProps & { c: Composition }) {
   const current = [...new Map(p.c.lines.flatMap((l) => l.lineage.filter((x) => x.period === "current" && x.kind === "account").map((x) => [x.accountKey, `${x.accountCode ?? x.accountKey} ${x.accountName}`] as const))).entries()];
   const [to, setTo] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const attempt = useAttempt(p.newRequestId);
   const reasonId = useId();
   if (prior.length === 0) return null;
   const bridge = async (key: string) => {
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.comparatives.bridge(p.companyId, p.periodYear, key, to[key] || null, reason.trim(), attempt.idFor(`b|${key}|${to[key]}|${reason}`));
       setNotice(r.outcome === "recorded" ? `Prior-year account ${key} is presented with ${to[key]}.` : outcomeText(r));
       if (r.outcome === "recorded") { attempt.done(); await p.refresh(); }
     } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    finally { setBusy(false); }
   };
   return (
     <section aria-labelledby="h-br" data-testid="bridges">
@@ -171,7 +177,7 @@ function Bridges(p: PageProps & { c: Composition }) {
                   <option value="">Choose…</option>
                   {current.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                 </select>
-                <button type="button" className="rounded-md border border-input px-2 py-0.5 disabled:opacity-50" disabled={!to[a.accountKey] || reason.trim().length < 3} onClick={() => void bridge(a.accountKey)}>Bridge</button>
+                <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-0.5 disabled:opacity-50" disabled={!to[a.accountKey] || reason.trim().length < 3} onClick={() => void bridge(a.accountKey)}>Bridge</ActionButton>
               </>
             ) : null}
           </li>
@@ -184,6 +190,7 @@ function Bridges(p: PageProps & { c: Composition }) {
 
 function Restatements(p: PageProps & { c: Composition }) {
   const [list, setList] = useState<Restatement[] | null>(null);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const attempt = useAttempt(p.newRequestId);
   const exponent = p.c.current.exponent;
@@ -199,16 +206,18 @@ function Restatements(p: PageProps & { c: Composition }) {
   }, [p.db, p.companyId, p.periodYear]);
   useEffect(() => { void load(); }, [load, p.state]);
   const decide = async (id: string, decision: "approved" | "rejected" | "withdrawn") => {
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.comparatives.decideRestatement(id, decision, `Restatement ${decision} in the workbench`, attempt.idFor(`d|${id}|${decision}`));
       setNotice(r.outcome === "recorded" ? `Restatement ${decision}.` : outcomeText(r));
       if (r.outcome === "recorded") { attempt.done(); await p.refresh(); }
     } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    finally { setBusy(false); }
   };
   return (
     <section aria-labelledby="h-rs" data-testid="restatements">
       <h2 id="h-rs" className="text-base font-semibold">Restatements of the comparative</h2>
-      {list === null ? <p role="status">Reading restatements…</p> : list.length === 0 ? <p className="text-muted-foreground">None proposed.</p> : (
+      {list === null ? <PendingStatus label="Reading restatements…" skeleton /> : list.length === 0 ? <p className="text-muted-foreground">None proposed.</p> : (
         <ul className="space-y-2">
           {list.map((r) => (
             <li key={r.id} className="border-l-2 border-border pl-2">
@@ -217,10 +226,10 @@ function Restatements(p: PageProps & { c: Composition }) {
               {r.state === "pending" ? (
                 <div className="mt-1 flex gap-2">
                   {p.allowed.includes("review_close") ? <>
-                    <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "approved")}>Approve</button>
-                    <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "rejected")}>Reject</button>
+                    <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "approved")}>Approve</ActionButton>
+                    <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "rejected")}>Reject</ActionButton>
                   </> : null}
-                  <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "withdrawn")}>Withdraw</button>
+                  <ActionButton busy={busy} type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => void decide(r.id, "withdrawn")}>Withdraw</ActionButton>
                 </div>
               ) : null}
             </li>
@@ -238,18 +247,21 @@ function Propose(p: PageProps & { c: Composition; onSaved: (text: string) => Pro
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const attempt = useAttempt(p.newRequestId);
   const ex = p.c.current.exponent;
   const built = lines.filter((l) => (deltas[`${l.section}|${l.lineId}`] ?? "").trim() !== "").map((l) => ({ lineId: l.lineId, section: l.section, deltaMinor: signedMinor(deltas[`${l.section}|${l.lineId}`], ex) }));
   const ok = built.length >= 2 && built.every((b) => b.deltaMinor !== null && b.deltaMinor !== "0") && reason.trim().length >= 3 && reference.trim().length >= 3;
   const propose = async () => {
+    if (!setBusy(true)) return;
     try {
       const ls = built.map((b) => ({ ...b, deltaMinor: b.deltaMinor! }));
       const r = await p.clients.comparatives.proposeRestatement(p.companyId, p.periodYear, ls, reason.trim(), reference.trim(), attempt.idFor(JSON.stringify([ls, reason, reference])));
       if (r.outcome === "recorded") { attempt.done(); setDeltas({}); setReason(""); setReference(""); await p.onSaved("Restatement proposed; someone other than you decides it."); }
       else setNotice(outcomeText(r));
     } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    finally { setBusy(false); }
   };
   return (
     <details className="mt-3">
@@ -263,7 +275,7 @@ function Propose(p: PageProps & { c: Composition; onSaved: (text: string) => Pro
       </ul>
       <label className="mt-2 block">Reason<input className="ml-2 rounded-md border border-input px-2 py-0.5" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
       <label className="block">Reference (Section 10 basis, working paper)<input className="ml-2 rounded-md border border-input px-2 py-0.5" value={reference} onChange={(e) => setReference(e.target.value)} /></label>
-      <button type="button" className="mt-2 rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={!ok} onClick={() => void propose()}>Propose</button>
+      <ActionButton busy={busy} type="button" className="mt-2 rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={!ok} onClick={() => void propose()}>Propose</ActionButton>
       <Notice text={notice} />
     </details>
   );

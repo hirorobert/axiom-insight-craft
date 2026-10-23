@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Close Review › Findings (I2). One dominant action at a time: when there is no current run, "Check for findings";
  * otherwise the next open item. Findings come from the authoritative trial balance only; every action is decided by the
@@ -38,7 +41,7 @@ export function FindingsView(p: {
   const [serverStates, setServerStates] = useState<Map<string, { status: FindingStatus; resolved: boolean }>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [selected, setSelected] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [evidence, setEvidence] = useState("");
@@ -68,7 +71,7 @@ export function FindingsView(p: {
   const statusOf = (r: FindingRow): FindingStatus => serverStates.get(r.id)?.status ?? findingStatus(evOf(r.id));
   const resolvedOf = (r: FindingRow): boolean => serverStates.get(r.id)?.resolved ?? findingResolved(r, evOf(r.id));
   const refresh = async () => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try { const r = await p.client.refresh(p.companyId, p.periodYear); setNotice(REFRESH_WORDS[r.outcome]); await load(); }
     catch { setNotice("The check could not be started. Nothing was recorded."); }
     finally { setBusy(false); }
@@ -76,17 +79,17 @@ export function FindingsView(p: {
   const act = async (f: FindingRow, action: FindingAction) => {
     const key = `${f.id}|${action}|${text}|${evidence}`;
     if (!pending.current || pending.current.key !== key) pending.current = { key, id: newId() };
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.client.act(f.id, action, text.trim(), evidence.trim() || null, pending.current.id);
       if (r.outcome === "recorded") { pending.current = null; setText(""); setEvidence(""); setNotice(`${STATUS_WORDS[r.status ?? "open"]} — recorded.`); await load(); }
       else setNotice(ACTION_REFUSALS[r.outcome]);
-    } catch { setNotice("The action could not be sent. Nothing was recorded."); }
+    } catch { setNotice("Could not confirm the decision. Your text is kept. Check the finding’s recorded status before retrying."); }
     finally { setBusy(false); }
   };
 
   if (error) return <p role="alert">{error} <button type="button" className="underline" onClick={() => void load()}>Try again</button></p>;
-  if (!summary) return <p role="status">Reading the findings…</p>;
+  if (!summary) return <PendingStatus label="Reading the findings…" skeleton />;
   if (summary.state === "unavailable") return <p role="status">Close Review is not enabled for this workspace.</p>;
   if (summary.state === "no_authority") {
     return <p role="status">Findings are checked on a reviewed trial balance. <a className="underline" href={p.reviewHref}>Finish the trial balance review</a> first.</p>;
@@ -96,7 +99,7 @@ export function FindingsView(p: {
     return (
       <section className="space-y-2">
         <p role="status">{summary.state === "stale" ? "The trial balance changed since the last check: these findings are out of date." : "No findings check has run on the current reviewed trial balance."}</p>
-        {canGenerate ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={busy} onClick={() => void refresh()}>{busy ? "Checking…" : "Check for findings"}</button>
+        {canGenerate ? <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" disabled={busy} onClick={() => void refresh()}>{busy ? "Checking…" : "Check for findings"}</ActionButton>
           : <p className="text-sm text-muted-foreground">Checking for findings needs Prepare in this workspace.</p>}
         <p role="status" aria-live="polite" className="text-sm">{notice ?? ""}</p>
       </section>
@@ -172,7 +175,7 @@ export function FindingsView(p: {
                 ) : null}
                 <div className="flex flex-wrap gap-2">
                   {offered.map((a) => (
-                    <button key={a} type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={busy || text.trim().length < 3} onClick={() => void act(sel, a)}>{ACTION_LABEL[a]}</button>
+                    <ActionButton busy={busy} key={a} type="button" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" disabled={busy || text.trim().length < 3} onClick={() => void act(sel, a)}>{ACTION_LABEL[a]}</ActionButton>
                   ))}
                 </div>
               </div>
@@ -182,7 +185,7 @@ export function FindingsView(p: {
             canComment={p.allowed.includes("prepare_close") || p.allowed.includes("review_close")} currentUserId={p.currentUserId} />
         </section>
       ) : null}
-      {canGenerate ? <button type="button" className="text-sm underline" disabled={busy} onClick={() => void refresh()}>Check again</button> : null}
+      {canGenerate ? <ActionButton busy={busy} type="button" className="text-sm underline" disabled={busy} onClick={() => void refresh()}>Check again</ActionButton> : null}
       <p role="status" aria-live="polite" className="text-sm">{notice ?? ""}</p>
     </section>
   );

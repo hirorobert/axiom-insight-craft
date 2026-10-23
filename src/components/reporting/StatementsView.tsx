@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 /**
  * Financial Statements › Statements. The two statements exactly as the database composed them (fs_statement_composition):
  * every figure is the server's, a figure it did not compute is shown as missing with its reason. Enter (or "Trace") on a
@@ -134,14 +136,14 @@ function NotPresented(p: PageProps & { c: Composition }) {
   const [choice, setChoice] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const attempt = useAttempt(p.newRequestId);
   const reasonId = useId();
   if (rows.length === 0) return <p className="text-sm" data-testid="all-presented">Every account of FY{p.c.current.periodYear} is on a presentation line.</p>;
   const lines = IFRS_FOR_SMES_2015.lines;
   const chosen = rows.filter((a) => choice[a.accountKey]).map((a) => ({ accountKey: a.accountKey, lineId: choice[a.accountKey] }));
   const assign = async () => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.composition.assign(p.companyId, chosen, reason.trim(), attempt.idFor(JSON.stringify([chosen, reason])));
       setNotice(r.outcome === "recorded" ? `${r.count} account(s) assigned.` : r.outcome === "unknown_line" ? `Unknown line ${r.lineId}.` : outcomeText(r));
@@ -170,9 +172,9 @@ function NotPresented(p: PageProps & { c: Composition }) {
       {canAssign ? (
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label htmlFor={reasonId} className="text-sm">Reason<input id={reasonId} className="ml-2 rounded-md border border-input px-2 py-1" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
-          <button type="button" className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50" disabled={busy || chosen.length === 0 || reason.trim().length < 3} onClick={() => void assign()}>
+          <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50" disabled={busy || chosen.length === 0 || reason.trim().length < 3} onClick={() => void assign()}>
             Assign {chosen.length || ""} account{chosen.length === 1 ? "" : "s"}
-          </button>
+          </ActionButton>
         </div>
       ) : <p className="text-sm text-muted-foreground">A preparer assigns presentation lines.</p>}
       <Notice text={notice} />

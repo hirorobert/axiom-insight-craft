@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 /**
  * Evidence for the cash-flow and changes-in-equity statements, collected while the statements are prepared
  * (Financial Statements › Statements) and summarised, read-only, on Sign-off.
@@ -45,7 +47,7 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
   const latest = p.state.latest?.version ?? null;
   const [stored, setStored] = useState<StoredEvidence[] | null>(null);
   const [picked, setPicked] = useState<Record<string, Picked>>({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const attempt = useRef<{ key: string; id: string; at: string } | null>(null);
@@ -84,7 +86,7 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
   };
   const ready = Object.values(picked).filter((x) => x.batch).map((x) => x.batch!);
   const save = async () => {
-    setBusy(true); setNotice(null); setDiagnostics([]);
+    if (!setBusy(true)) return; setNotice(null); setDiagnostics([]);
     // One attempt per set of files: a retry (after any failure) resumes it; the server's versions decide where it continues.
     const key = JSON.stringify(ready.map((b) => b.evidenceBatchId));
     if (!attempt.current || attempt.current.key !== key) attempt.current = { key, id: `fsr-save-${(p.newRequestId ?? (() => crypto.randomUUID()))()}`, at: new Date().toISOString() };
@@ -150,16 +152,16 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
       </div>
       {canPrepare ? (
         <>
-          <button type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50"
+          <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50"
             disabled={busy || pending.length === 0 || pending.some((x) => x.state !== "validated")} onClick={() => void save()} data-testid="store-evidence">
             {busy ? "Saving…" : "Store the evidence and save a draft version"}
-          </button>
+          </ActionButton>
           {pending.length > 0 && pending.some((x) => x.state === "validated") ? <p className="mt-1 text-xs text-muted-foreground" data-testid="evidence-unsaved">Validated files are not stored until you save.</p> : null}
         </>
       ) : p.mode === "summary" && p.allowed.includes("prepare_close") ? (
-        <button type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={busy} onClick={() => void save()} data-testid="save-version">
+        <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={busy} onClick={() => void save()} data-testid="save-version">
           {busy ? "Saving…" : latest ? "Save a new report version" : "Save the first report version"}
-        </button>
+        </ActionButton>
       ) : p.mode === "summary" ? <p className="mt-2 text-muted-foreground">A preparer saves report versions.</p> : null}
       <Notice text={notice} />
       {diagnostics.length ? <ul className="mt-1 list-disc pl-5 text-xs" aria-label="Diagnostics">{diagnostics.map((d, i) => <li key={i}>{d}</li>)}</ul> : null}

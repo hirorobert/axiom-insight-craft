@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 /**
  * Financial Statements › Schedules. Each movement schedule the edition requires (property, plant and equipment;
  * investment property; intangibles; provisions) with the server's reconciliation of the schedule to the composed
@@ -66,7 +68,7 @@ function Entry(p: PageProps & { r: RequirementState; def: ScheduleDefinition; ex
   const [classes, setClasses] = useState<ClassDraft[]>([emptyClass()]);
   const [source, setSource] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const attempt = useAttempt(p.newRequestId);
   const sourceId = useId();
   const set = (i: number, f: (c: ClassDraft) => ClassDraft) => setClasses((cs) => cs.map((c, j) => (j === i ? f(c) : c)));
@@ -81,7 +83,7 @@ function Entry(p: PageProps & { r: RequirementState; def: ScheduleDefinition; ex
   });
   const invalid = built.some((b) => !b.classLabel || b.openingMinor === null || b.closingMinor === null || b.movements.some((m) => m.amountMinor === null)) || source.trim().length < 3;
   const save = async () => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const rows = built.map((b) => ({ classLabel: b.classLabel, openingMinor: b.openingMinor!, closingMinor: b.closingMinor!, movements: b.movements.map((m) => ({ kind: m.kind, amountMinor: m.amountMinor! })) }));
       const r = await p.clients.notes.recordSchedule(p.companyId, p.periodYear, p.def.id, rows, source.trim(), attempt.idFor(JSON.stringify([rows, source])));
@@ -108,7 +110,7 @@ function Entry(p: PageProps & { r: RequirementState; def: ScheduleDefinition; ex
       <button type="button" className="rounded-md border border-input px-2 py-0.5" onClick={() => setClasses((cs) => [...cs, emptyClass()])}>Add a class</button>
       <label htmlFor={sourceId} className="block">Source (register, working paper)<input id={sourceId} className="ml-2 rounded-md border border-input px-2 py-0.5" value={source} onChange={(e) => setSource(e.target.value)} /></label>
       <div className="flex gap-2">
-        <button type="submit" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || invalid}>Record the schedule</button>
+        <ActionButton busy={busy} type="submit" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || invalid}>Record the schedule</ActionButton>
         <button type="button" className="rounded-md border border-input px-3 py-1" onClick={p.onDone}>Cancel</button>
       </div>
       <Notice text={notice} />

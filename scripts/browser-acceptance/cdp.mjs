@@ -243,6 +243,9 @@ export class Page {
   }
 
   async press(key) {
+    // The suite uses several account tabs. Keyboard input must target the foreground page,
+    // just as a user activates that tab before pressing a key; DOM focus alone is insufficient.
+    await this.send("Page.bringToFront");
     const codes = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, " ": 32 };
     const base = { key, code: key === " " ? "Space" : key, windowsVirtualKeyCode: codes[key] ?? 0, nativeVirtualKeyCode: codes[key] ?? 0 };
     await this.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base, ...(key === "Enter" ? { text: "\r" } : {}) });

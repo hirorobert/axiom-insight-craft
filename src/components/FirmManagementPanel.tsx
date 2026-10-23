@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { useActivity } from "@/components/feedback/useActivity";
 // ============================================================
 // FirmManagementPanel — Firm Management (Roadmap Item 8)
 //
@@ -124,16 +126,17 @@ export function FirmManagementPanel() {
   const [companies, setCompanies]       = useState<Company[]>([]);
   const [members, setMembers]           = useState<FirmMember[]>([]);
   const [selectedCompany, setSelected]  = useState<string>("");
+  const [changing, setChanging] = useBusyState("Updating team access…");
   const [loading, setLoading]           = useState(true);
   const [showInvite, setShowInvite]     = useState(false);
-  const [inviting, setInviting]         = useState(false);
+  const [inviting, setInviting]         = useBusyState("Sending invitation…");
   const [removing, setRemoving]         = useState<string | null>(null);
   const [inviteForm, setInviteForm]     = useState({ email: "", role: "preparer" as MemberRole });
   const [seats, setSeats]               = useState<SeatCapacityState | null>(null);
   const [seatsLoaded, setSeatsLoaded]   = useState(false);
   const [roster, setRoster]             = useState<NamedUserRoster | null>(null);
   const [selection, setSelection]       = useState<string[]>([]);
-  const [applying, setApplying]         = useState(false);
+  const [applying, setApplying]         = useBusyState("Updating active team members…");
 
   // The account holder's roster: who is active, suspended or pending. Only the account holder can read it, and only
   // their explicit selection ever reactivates anyone (choose_active_named_users).
@@ -249,7 +252,7 @@ export function FirmManagementPanel() {
 
   const handleInvite = async () => {
     if (!inviteForm.email.trim() || !selectedCompany) return;
-    setInviting(true);
+    if (!setInviting(true)) return;
     try {
       const { data, error } = await supabase.functions.invoke("invite-firm-member", {
         body: {
@@ -290,6 +293,7 @@ export function FirmManagementPanel() {
   // ── Change role ───────────────────────────────────────────────
 
   const handleRoleChange = async (memberId: string, newRole: MemberRole) => {
+    if (!setChanging(true)) return;
     try {
       const { error } = await supabase
         .from("firm_members")
@@ -302,11 +306,13 @@ export function FirmManagementPanel() {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Role update failed: ${msg}`);
     }
+    finally { setChanging(false); }
   };
 
   // ── Remove member ─────────────────────────────────────────────
 
   const handleRemove = async (memberId: string) => {
+    if (!setChanging(true)) return;
     setRemoving(memberId);
     try {
       const { error } = await supabase
@@ -322,40 +328,47 @@ export function FirmManagementPanel() {
       toast.error(`Remove failed: ${msg}`);
     } finally {
       setRemoving(null);
+      setChanging(false);
     }
   };
 
   // ── Cancel a pending invitation (the seat is released; the row is kept as history) ──
 
   const handleCancelInvitation = async (memberId: string) => {
-    setRemoving(memberId);
-    const { data, error } = await supabase.rpc("cancel_workspace_invitation" as never, { p_member_id: memberId } as never);
-    const outcome = !error && data && typeof data === "object" ? (data as { outcome?: string }).outcome : null;
-    if (outcome === "cancelled" || outcome === "already_cancelled") toast("Invitation cancelled", { description: "The seat it held is free again." });
-    else toast.error("The invitation could not be cancelled.");
-    setRemoving(null);
-    await fetchMembers(selectedCompany);
-    await fetchSeats(selectedCompany);
+    if (!setChanging(true)) return;
+    try {
+      setRemoving(memberId);
+      const { data, error } = await supabase.rpc("cancel_workspace_invitation" as never, { p_member_id: memberId } as never);
+      const outcome = !error && data && typeof data === "object" ? (data as { outcome?: string }).outcome : null;
+      if (outcome === "cancelled" || outcome === "already_cancelled") toast("Invitation cancelled", { description: "The seat it held is free again." });
+      else toast.error("The invitation could not be cancelled.");
+      await fetchMembers(selectedCompany);
+      await fetchSeats(selectedCompany);
+    } catch { toast.error("Could not confirm the team change. Check the current team before trying again."); }
+    finally { setChanging(false); setRemoving(null); }
   };
 
   // ── Choose who is active (the only way anyone is reactivated) ──
 
   const handleApplySelection = async () => {
     if (!roster) return;
-    setApplying(true);
-    const { data, error } = await supabase.rpc("choose_active_named_users" as never, { p_keep: selection, p_roster_version: roster.rosterVersion } as never);
-    const outcome = error ? null : parseSelectionOutcome(data);
-    if (outcome === "applied") toast("Active named users updated");
-    else if (outcome === "stale_selection") toast("The team changed while you were choosing", { description: "Review the list again and re-apply." });
-    else if (outcome === "selection_exceeds_allowance") toast("That selection is more than your plan's named users");
-    else toast.error("The selection could not be applied.");
-    setApplying(false);
-    await fetchMembers(selectedCompany);
-    await fetchSeats(selectedCompany);
+    if (!setApplying(true)) return;
+    try {
+      const { data, error } = await supabase.rpc("choose_active_named_users" as never, { p_keep: selection, p_roster_version: roster.rosterVersion } as never);
+      const outcome = error ? null : parseSelectionOutcome(data);
+      if (outcome === "applied") toast("Active named users updated");
+      else if (outcome === "stale_selection") toast("The team changed while you were choosing", { description: "Review the list again and re-apply." });
+      else if (outcome === "selection_exceeds_allowance") toast("That selection is more than your plan's named users");
+      else toast.error("The selection could not be applied.");
+      await fetchMembers(selectedCompany);
+      await fetchSeats(selectedCompany);
+    } catch { toast.error("Could not confirm the team change. Check the current team before trying again."); }
+    finally { setApplying(false); }
   };
 
   // ── Render ────────────────────────────────────────────────────
 
+  useActivity(loading || !!removing, loading ? "Loading the team…" : "Updating team access…");
   const selectedCo = companies.find((c) => c.id === selectedCompany);
 
   return (
@@ -462,7 +475,7 @@ export function FirmManagementPanel() {
                     );
                   })}
                 </ul>
-                <Button size="sm" variant="outline" className="mt-2" onClick={() => void handleApplySelection()} disabled={applying || selection.length > selectableSeats(roster).max}>
+                <Button size="sm" variant="outline" className="mt-2" pending={applying} pendingLabel="Updating team…" onClick={() => void handleApplySelection()} disabled={applying || selection.length > selectableSeats(roster).max}>
                   Apply selection
                 </Button>
               </div>
@@ -575,7 +588,7 @@ export function FirmManagementPanel() {
                       <Select
                         value={m.role}
                         onValueChange={(v) => handleRoleChange(m.id, v as MemberRole)}
-                        disabled={isSelf}
+                        disabled={isSelf || changing}
                       >
                         <SelectTrigger className="h-7 text-[11px] w-28">
                           <SelectValue />
@@ -595,7 +608,7 @@ export function FirmManagementPanel() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-muted-foreground hover:text-red-600"
-                            disabled={removing === m.id || isSelf || (isPending && m.invitationCancelledAt !== null)}
+                            disabled={changing || removing === m.id || isSelf || (isPending && m.invitationCancelledAt !== null)}
                           >
                             {removing === m.id
                               ? <RefreshCw className="w-3 h-3 animate-spin" />

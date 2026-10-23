@@ -139,9 +139,11 @@ try {
     await preparer.waitFor(() => (document.querySelector('[data-testid="evidence"]')?.textContent ?? "").split("in version 2").length - 1 === 6, [], { label: "six files bound to version 2", timeout: 30000 });
     await go(preparer, "preparer", "/signoff", "Version 2");
     await preparer.waitFor(() => document.querySelector('[data-testid="readiness"]')?.getAttribute("data-ready") === "true", [], { label: "version 2 ready", timeout: 30000 });
+    await preparer.waitForSelector('[data-testid="signoff-policy"][data-policy="separate_approvers"]', { timeout: 30000 });
+    const policyRead = await preparer.evaluate(() => (document.querySelector('[data-testid="signoff-policy"]')?.textContent ?? "").includes("Separate approvers"));
     const summaryOnly = await preparer.evaluate(() => document.querySelector('[data-testid="evidence"]')?.getAttribute("data-mode") === "summary" && !document.querySelector('[data-testid="evidence"] input[type="file"]'));
     await shot(preparer, "07-version-saved-ready");
-    return unsaved && summaryOnly ? true : { unsaved, summaryOnly };
+    return unsaved && summaryOnly && policyRead ? true : { unsaved, summaryOnly, policyRead };
   });
   console.log("\n== Reviewer return: a blocking finding on a figure, the preparer's response, the reviewer's resolution (20261112100000)");
   await check("the reviewer opens a BLOCKING finding on trade payables from the Statements page; version 2 is no longer ready and the Sign-off page names the finding in words", async () => {

@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { PendingStatus } from "@/components/feedback/Activity";
 import { useState, useEffect } from "react";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { AccountShell } from "@/components/account/AccountShell";
@@ -6,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { User, Building2, Save, Loader2, CreditCard, ShieldCheck, Users } from "lucide-react";
+import { User, Building2, Save, CreditCard, ShieldCheck, Users } from "lucide-react";
 import { BillingHelpLine } from "@/components/contact/ContactChannels";
 import { toast } from "sonner";
 import { AvatarUpload } from "@/components/AvatarUpload";
@@ -61,7 +63,7 @@ export default function Settings() {
   const activeSection: SettingsSection = SECTIONS.some((s) => s.id === requested) ? requested as SettingsSection : "profile";
   const setActiveSection = (section: SettingsSection) => setParams({ section });
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useBusyState("Saving profile…");
   const [displayName, setDisplayName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export default function Settings() {
 
   const handleSave = async () => {
     if (!user) return;
-    setSaving(true);
+    if (!setSaving(true)) return;
     try {
       const { data: existing } = await supabase
         .from("profiles").select("id").eq("user_id", user.id).maybeSingle();
@@ -128,7 +130,7 @@ export default function Settings() {
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <PendingStatus label="Loading settings…" className="w-full max-w-3xl px-6" skeleton />
       </div>
     );
   }
@@ -213,8 +215,8 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  <Button onClick={handleSave} disabled={saving} className="gap-2">
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <Button onClick={handleSave} pending={saving} pendingLabel="Saving…" disabled={saving} className="gap-2">
+                    {!saving && <Save className="w-4 h-4" />}
                     Save changes
                   </Button>
                 </div>

@@ -1,3 +1,4 @@
+import { useActivity } from "@/components/feedback/useActivity";
 /**
  * FirstRunEngagement — global workspace creation screen.
  *
@@ -119,6 +120,8 @@ export default function FirstRunEngagement({
   const [errorMsg, setErrorMsg]       = useState<string | null>(null);
   const [canRetry, setCanRetry]       = useState(false);
   // One request id per form: a retry after a network failure returns the SAME workspace (create_entity is idempotent).
+  const submitLock = useRef(false);
+  useActivity(submitState === "submitting", "Creating company…");
   const creationRequestId = useRef<string>(crypto.randomUUID());
 
   // Phase 3A: currency is required — canSubmit blocks until it is set. (Single-line for test regex.)
@@ -128,7 +131,8 @@ export default function FirstRunEngagement({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !canSubmit) return;
+    if (!user || !canSubmit || submitLock.current) return;
+    submitLock.current = true;
 
     setSubmitState("submitting");
     setErrorMsg(null);
@@ -197,6 +201,7 @@ export default function FirstRunEngagement({
         setErrorMsg(`${copy.title}. ${copy.unavailable} ${copy.remains}`);
         setCanRetry(false);
         setSubmitState("error");
+        submitLock.current = false;
         return;
       }
       throw new Error("The workspace could not be created.");
@@ -205,6 +210,7 @@ export default function FirstRunEngagement({
       setErrorMsg(classified.message);
       setCanRetry(classified.canRetry);
       setSubmitState("error");
+      submitLock.current = false;
     }
   };
 
@@ -226,6 +232,7 @@ export default function FirstRunEngagement({
         </p>
       </div>
 
+      <fieldset disabled={submitState === "submitting"} className="contents">
       {/* Fields */}
       <div className={layout === "page" ? "grid overflow-hidden rounded-sm border border-border md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]" : "space-y-4 border border-border p-5"}>
 
@@ -348,7 +355,7 @@ export default function FirstRunEngagement({
         size="lg"
         className={layout === "page" ? "gap-2" : "w-full gap-2"}
         disabled={!canSubmit}
-        aria-busy={submitState === "submitting"}
+        pending={submitState === "submitting"}
       >
         {submitState === "submitting"
           ? "Creating workspace…"
@@ -358,6 +365,7 @@ export default function FirstRunEngagement({
         )}
       </Button>
       </div>
+      </fieldset>
     </form>
   );
 }
