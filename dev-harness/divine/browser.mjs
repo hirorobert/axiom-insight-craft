@@ -65,6 +65,10 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   await page.getByRole('button', { name: 'Keep working', exact: true }).click();
   assert.equal(page.url(), task);
   await page.getByRole('button', { name: 'Upload and check', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm 4 classifications and reprocess', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: 'Cash or bank account', exact: true }).first().click();
+  await page.getByRole('link', { name: 'All engagements', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep working', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm 4 classifications and reprocess', exact: true }).click();
   await page.waitForFunction(() => window.__divine.tb.tables.tb_certifications.some(c => !c.is_blocking && !c.requires_review));
   // Leaving while a server check finishes must resume from the recorded outcome.
@@ -80,7 +84,7 @@ for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['m
   assert.ok(await page.getByRole('link', { name: 'All engagements', exact: true }).isVisible());
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow');
   assert.deepEqual(errors, []);
-  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
+  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
   await context.close();
 }
 console.log(JSON.stringify(results, null, 2));
