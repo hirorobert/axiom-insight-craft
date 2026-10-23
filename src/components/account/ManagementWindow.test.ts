@@ -58,6 +58,7 @@ describe("route-backed management window", () => {
     expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe("/workspace/fixture/2025/statements?version=3#line-2");
     expect((document.querySelector('[aria-label="Workspace draft"]') as HTMLInputElement).value).toBe("Keep this work");
     expect(mounts).toBe(1);
+    expect(document.activeElement).toBe(byText("Open settings"));
   });
   it("Escape and the footer Close share the unsaved-change guard; discard also resets an edit before changing section", async () => {
     await open(); click(byText("Open settings")); await flush();

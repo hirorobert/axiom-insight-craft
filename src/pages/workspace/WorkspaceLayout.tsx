@@ -170,6 +170,8 @@ function UserMenu({ email }: { email: string }) {
   return (
     <div className="relative" ref={ref}>
       <button
+        data-management-trigger
+        aria-label="Workspace account menu"
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 h-8 px-2 rounded hover:bg-secondary transition-colors text-sm text-muted-foreground"
         title={email}
