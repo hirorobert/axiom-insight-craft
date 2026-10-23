@@ -9,15 +9,15 @@
  *
  * Reads only, except the explicit policy change; every value comes from the workspace's own reads or the server.
  */
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { FRAMEWORK_NOT_SELECTED, formatEntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
-import { useEngagement } from "@/contexts/EngagementContext";
-import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { EngagementContext } from "@/contexts/EngagementContext";
+import { WorkspaceContext } from "@/contexts/WorkspaceContext";
 import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { readClearingPolicy, setClearingPolicy, type ClearingPolicy } from "@/lib/workspace/findingDecisions";
 
@@ -49,8 +49,9 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
   const [periodOpen, setPeriodOpen] = useState(false);
   const [periodBusy, setPeriodBusy] = useState(false);
   const [periodReload, setPeriodReload] = useState(0);
-  const engagementApi = useEngagement();
-  const workspace = useWorkspace();
+  // Optional: the rail can render outside the workspace providers (tests, previews); shared context refreshes when present.
+  const engagementApi = useContext(EngagementContext);
+  const workspace = useContext(WorkspaceContext);
 
   useEffect(() => {
     let live = true;
@@ -136,7 +137,7 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
             <DialogDescription>Saved for {companyName ?? "this entity"}. You stay on the page you were working on.</DialogDescription>
           </DialogHeader>
           <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} onBusyChange={setPeriodBusy}
-            onOpened={() => { setPeriodReload((n) => n + 1); engagementApi.refresh(); workspace.refreshUpload(); setPeriodOpen(false); }} />
+            onOpened={() => { setPeriodReload((n) => n + 1); engagementApi?.refresh(); workspace?.refreshUpload(); setPeriodOpen(false); }} />
         </DialogContent>
       </Dialog>
     </section>
