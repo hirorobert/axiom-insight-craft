@@ -1,3 +1,4 @@
+import { useManagementSurface } from "./managementState";
 /** /plans, checkout and orders: the signed-in AccountShell when signed in, the public Header and Footer otherwise. */
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +15,8 @@ export function AccountOrPublicFrame({ children, publicMainClassName, accountMai
 }) {
   const { user, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const management = useManagementSurface();
+  if (management) return <>{children}</>;
   if (user) return <AccountShell identity={{ name: user.user_metadata?.display_name, email: user.email }} mainClassName={accountMainClassName} onSignOut={async () => { await signOut(); navigate("/auth", { replace: true }); }}>{children}</AccountShell>;
   // While the session is being read, neither frame: no public "Sign in" flash for a signed-in person.
   if (loading) return <div className="min-h-screen bg-background"><main id="main-content" className={accountMainClassName ?? publicMainClassName}>{children}</main></div>;

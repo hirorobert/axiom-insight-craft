@@ -1,3 +1,4 @@
+import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { useActivity } from "@/components/feedback/useActivity";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -26,7 +27,7 @@ export function AccountUserMenu({ identity, onSignOut }: { identity?: AccountIde
       onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }}>
       <DropdownMenuLabel className="break-words font-medium">{name}{identity?.email && <span className="mt-1 block break-all text-xs font-normal text-muted-foreground">{identity.email}</span>}</DropdownMenuLabel>
       <DropdownMenuSeparator />
-      <DropdownMenuItem asChild><Link to="/settings?section=profile"><User className="mr-2 h-4 w-4" />Profile</Link></DropdownMenuItem>
+      <DropdownMenuItem asChild><ManagementLink to="/settings?section=profile"><User className="mr-2 h-4 w-4" />Profile</ManagementLink></DropdownMenuItem>
       <DropdownMenuItem disabled={busy} data-testid="account-sign-out" onSelect={(e) => { e.preventDefault(); if (inFlight.current) return; inFlight.current = true; setBusy(true); setError(false); void Promise.resolve().then(onSignOut).catch(() => setError(true)).finally(() => { inFlight.current = false; setBusy(false); }); }}>
         <LogOut className="mr-2 h-4 w-4" />{busy ? "Signing out…" : "Sign out"}
       </DropdownMenuItem>

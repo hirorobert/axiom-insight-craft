@@ -1,3 +1,4 @@
+import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { useActivity } from "@/components/feedback/useActivity";
 import { PagePending } from "@/components/feedback/Activity";
 /**
@@ -184,14 +185,14 @@ function UserMenu({ email }: { email: string }) {
           <div className="px-3 py-2 border-b border-border">
             <p className="text-xs text-muted-foreground truncate">{email}</p>
           </div>
-          <Link
+          <ManagementLink
             to="/settings"
             className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-secondary transition-colors"
             onClick={() => setOpen(false)}
           >
             <Settings className="w-4 h-4" />
             Settings
-          </Link>
+          </ManagementLink>
           {SERVICE_ENQUIRY_SURFACES.helpSupportLinks && (
             <Link
               to={contactHref("help_support")}

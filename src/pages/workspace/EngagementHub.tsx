@@ -251,6 +251,7 @@ export default function EngagementHub({
           {canCreate && <Button asChild className="h-9 gap-2 rounded-sm text-[13px]" data-testid="add-company"><Link to="/companies/new"><Plus className="h-4 w-4" aria-hidden="true" />Add company</Link></Button>}
           {account.onOpenTrialBalance && <Link to="/upload" className="inline-flex h-9 items-center gap-2 rounded-sm border border-border px-3 text-[13px] font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="portfolio-upload-link"><Upload className="h-4 w-4" aria-hidden="true" />Upload trial balance</Link>}
         </div>
+        {account.onOpenTrialBalance && <p className="mt-2 text-xs text-muted-foreground">For a new upload, confirm the company and reporting period before starting the checks.</p>}
       </header>}
       {account && next && (!portfolio || ["checking", "retry", "choose_plan", "capacity_reached", "ask_owner", "start_review"].includes(next.kind)) && (
         <section className="mb-6" aria-label="Account next step">

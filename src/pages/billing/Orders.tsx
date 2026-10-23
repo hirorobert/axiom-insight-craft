@@ -21,20 +21,25 @@ export default function Orders() {
   const { user, loading } = useAuth();
   const [orders, setOrders] = useState<MyPayment[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (loading || !user) return;
-    getMyPayments().then((r) => (r ? setOrders(r) : setFailed(true)));
-  }, [user, loading]);
+    let current = true;
+    setOrders(null); setFailed(false);
+    if (loading || !user) return () => { current = false; };
+    getMyPayments().then((result) => { if (current) { if (result) setOrders(result); else setFailed(true); } }, () => { if (current) setFailed(true); });
+    return () => { current = false; };
+  }, [user?.id, loading, attempt]);
+
 
   return (
     <AccountOrPublicFrame publicMainClassName="mx-auto w-full max-w-4xl flex-1 px-4 pb-16 pt-28 sm:px-6" accountMainClassName="mx-auto w-full max-w-4xl flex-1 px-4 py-10 sm:px-6">
-        <h1 className="text-2xl font-semibold">Your orders</h1>
+        <h1 className="text-xl font-semibold">Orders &amp; receipts</h1><p className="mt-2 text-sm text-muted-foreground">Your purchases, payment status and order details.</p>
         {!loading && !user && <p className="mt-4 text-sm">Sign in to see your orders. <Link className="underline" to="/auth">Sign in</Link></p>}
         {user && !orders && !failed && <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading…</p>}
-        {failed && <p className="mt-4 text-sm text-destructive" role="alert">Your orders could not be loaded. <button type="button" className="underline" data-testid="orders-retry" onClick={() => { setFailed(false); setOrders(null); getMyPayments().then((r) => (r ? setOrders(r) : setFailed(true))); }}>Try again</button></p>}
+        {failed && <p className="mt-4 text-sm text-destructive" role="alert">Your orders could not be loaded. <button type="button" className="underline" data-testid="orders-retry" onClick={() => setAttempt((value) => value + 1)}>Try again</button></p>}
         {orders && orders.length === 0 && <p className="mt-4 text-sm text-muted-foreground" data-testid="orders-empty">No online orders yet. <Link className="underline" to="/plans">See the plans</Link></p>}
         {orders && orders.length > 0 && (
-          <ul className="mt-6 divide-y divide-border border border-border" data-testid="orders-list">
+          <><div className="mt-6 hidden grid-cols-4 gap-3 border border-b-0 border-border bg-muted/50 px-4 py-3 text-xs font-medium text-muted-foreground sm:grid" aria-hidden="true"><span>Plan &amp; date</span><span>Amount &amp; method</span><span>Status</span><span className="text-right">Order details</span></div><ul className="divide-y divide-border border border-border" data-testid="orders-list">
             {orders.map((o) => (
               <li key={o.saff_reference} className="grid gap-1 p-4 text-sm sm:grid-cols-4 sm:items-center">
                 <span className="font-medium">{o.plan_name} · 12 months<span className="block text-xs font-normal text-muted-foreground">{formatLicenceDate(o.created_at)}</span></span>
@@ -47,7 +52,7 @@ export default function Orders() {
                   <span className="block break-all font-mono text-[11px] text-muted-foreground">{o.saff_reference}</span></span>
               </li>
             ))}
-          </ul>
+          </ul></>
         )}
         {user && <BillingHelpLine className="mt-8" subject="Question about an order" />}
     </AccountOrPublicFrame>

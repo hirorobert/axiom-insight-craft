@@ -128,4 +128,30 @@ describe("EngagementPortfolio", () => {
     expect(r1.querySelector("a")!.textContent).toBe("Make decisions — Invented Entity 1, FY2025");
     expect(await axeViolations(el)).toEqual([]);
   });
+  it("keeps optional controls collapsed and hides pagination for a single page", async () => {
+    const el = await render(async () => page([row(1)], null, "t", 1));
+    expect(q(el, "portfolio-next")).toBeNull();
+    expect(q(el, "portfolio-sort")).toBeNull();
+    expect([...el.querySelectorAll("th")].map((cell) => cell.textContent)).not.toContain("Framework");
+    const filters = [...el.querySelectorAll("button")].find((button) => button.textContent === "Filters")!;
+    click(filters); await flush();
+    expect(filters.getAttribute("aria-expanded")).toBe("true");
+    expect(q(el, "portfolio-sort")).not.toBeNull();
+  });
+  it("Needs attention filters the entire server portfolio and a second click restores all work", async () => {
+    const rpc = vi.fn(async (_f: string, _a: Args) => page([row(1, "blocked")], null, "t", 1));
+    const el = await render(rpc);
+    click(q(el, "portfolio-attention")!); await flush();
+    expect(rpc).toHaveBeenLastCalledWith("list_portfolio_engagements", expect.objectContaining({ p_statuses: ["needs_decision", "blocked", "processing_failed", "needs_recheck"], p_cursor: null }));
+    expect(q(el, "portfolio-attention")!.getAttribute("aria-pressed")).toBe("true");
+    click(q(el, "portfolio-attention")!); await flush();
+    expect(rpc).toHaveBeenLastCalledWith("list_portfolio_engagements", expect.objectContaining({ p_statuses: null, p_cursor: null }));
+  });
+  it("labels trial balance acceptance precisely and identifies training work without an optional column", async () => {
+    const el = await render(async () => page([row(1, "ready", { purpose: "training" })], null, "t", 1));
+    const record = q(el, `portfolio-row-${C(1001)}`)!;
+    expect(record.querySelector("[data-testid=portfolio-status]")!.textContent).toBe("Trial balance accepted");
+    expect(record.textContent).toContain("Training");
+  });
+
 });

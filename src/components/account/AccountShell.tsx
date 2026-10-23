@@ -1,3 +1,5 @@
+import { useManagementSurface } from "./managementState";
+import { ManagementLink } from "./ManagementNavigation";
 /** Shared signed-in frame. Presentation only; permissions remain server-owned. */
 import { useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -11,7 +13,6 @@ import { Button } from "@/components/ui/button";
 
 const ACCOUNT_NAV = [
   { to: "/dashboard", label: "Engagements", icon: LayoutGrid },
-  { to: "/settings?section=companies", label: "Companies", icon: Building2 },
 ] as const;
 const REPORTING_STEPS = ["Company setup", "Trial Balance", "Close Review", "Financial Statements", "Sign-off & export"] as const;
 
@@ -46,6 +47,8 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsTrigger = useRef<HTMLButtonElement>(null);
+  const management = useManagementSurface();
+  if (management) return <>{children}</>;
   return <div className="flex min-h-screen flex-col bg-background" data-testid="account-shell">
     <a href="#account-main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[60] focus:bg-background focus:p-3">Skip to content</a>
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 sm:px-6">
@@ -60,12 +63,12 @@ export function AccountShell({ children, onSignOut, mainClassName = "w-full min-
           <DropdownMenuContent align="end" className="w-56"
             onKeyDownCapture={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); } }}
             onCloseAutoFocus={(event) => { event.preventDefault(); settingsTrigger.current?.focus(); }}><DropdownMenuLabel>Practice settings</DropdownMenuLabel><DropdownMenuSeparator />
-            <DropdownMenuItem asChild><Link to="/settings"><Settings className="mr-2 h-4 w-4" />All settings</Link></DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/settings?section=companies"><Building2 className="mr-2 h-4 w-4" />Companies</Link></DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/settings?section=firm"><Users className="mr-2 h-4 w-4" />Firm & team</Link></DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/settings?section=billing"><CreditCard className="mr-2 h-4 w-4" />Plan & billing</Link></DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/plans">View plans</Link></DropdownMenuItem>
-            <DropdownMenuItem asChild><Link to="/settings/billing">Orders & receipts</Link></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/settings"><Settings className="mr-2 h-4 w-4" />All settings</ManagementLink></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/settings?section=companies"><Building2 className="mr-2 h-4 w-4" />Companies</ManagementLink></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/settings?section=firm"><Users className="mr-2 h-4 w-4" />Firm & team</ManagementLink></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/settings?section=billing"><CreditCard className="mr-2 h-4 w-4" />Plan & billing</ManagementLink></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/plans">View plans</ManagementLink></DropdownMenuItem>
+            <DropdownMenuItem asChild><ManagementLink to="/settings/billing">Orders & receipts</ManagementLink></DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <AccountUserMenu identity={identity} onSignOut={onSignOut} />

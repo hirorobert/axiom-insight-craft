@@ -1,3 +1,4 @@
+import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +27,7 @@ export function CurrentPlanPanel({ billing, capacity, loading, error, onRetry, a
   const status = billing.licenceStatus;
   const title = active ? displayPlanName(billing.planCode) : status === "SUSPENDED" ? "Suspended" : archiveOnly ? "Archive-only" : status === "CANCELLED" ? "Cancelled" : status === "EXPIRED" ? "Expired" : status === "PENDING" ? "Pending" : status ? "Plan unavailable" : "No active plan";
   return <section aria-label="Current plan" className="border-t border-border py-5" data-testid="current-plan-panel">
-    <div className="flex flex-wrap items-baseline justify-between gap-3"><div><p className="text-xs font-medium uppercase text-muted-foreground">Current plan</p><h2 className="mt-1 text-xl font-semibold text-foreground">{title}</h2>{billing.licenceStatus && <p className="mt-1 text-sm text-muted-foreground">{displayLicenceStatus(billing.licenceStatus)}</p>}</div>{!hidePlansAction && <Button variant="outline" size="sm" asChild><Link to="/plans">View plans</Link></Button>}</div>
+    <div className="flex flex-wrap items-baseline justify-between gap-3"><div><p className="text-xs font-medium uppercase text-muted-foreground">Current plan</p><h2 className="mt-1 text-xl font-semibold text-foreground">{title}</h2>{billing.licenceStatus && <p className="mt-1 text-sm text-muted-foreground">{displayLicenceStatus(billing.licenceStatus)}</p>}</div>{!hidePlansAction && <Button variant="outline" size="sm" asChild><ManagementLink to="/plans">View plans</ManagementLink></Button>}</div>
     <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
       {!active && billing.planCode && <div><dt className="text-muted-foreground">Previous plan</dt><dd className="font-medium">{displayPlanName(billing.planCode)}</dd></div>}
       {billing.billingInterval && <div><dt className="text-muted-foreground">Billing interval</dt><dd className="font-medium">{billing.billingInterval === "ANNUAL" ? "Annual" : "Monthly"}</dd></div>}
