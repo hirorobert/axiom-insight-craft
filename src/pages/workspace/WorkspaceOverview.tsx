@@ -433,13 +433,6 @@ export default function WorkspaceOverview() {
               if (launchState === "LAUNCHPAD") await createEngagement([implied]);
               navigate(`${basePath}/prepare`);
             }}
-            onStartEmpty={async () => {
-              // Persist first; the Overview then re-derives to the genuine empty workspace. No navigation.
-              const engagementId = launchState === "LAUNCHPAD" ? await createEngagement([implied]) : engagement?.id;
-              if (!engagementId) throw new Error("Your choice could not be saved. Try again.");
-              if (launchState === "LAUNCHPAD") await recordDataStart(supabase as unknown as RpcClient, engagementId, "empty", null);
-              else if (!(await dataStart.record("empty"))) throw new Error("Your choice could not be saved. Try again.");
-            }}
           />
         ) : launchState === "LAUNCHPAD" ? (
           <ServiceLaunchpad canChoose={canAmend} companyId={companyId} jurisdiction={jurisdiction} onConfirm={async (selected) => { await createEngagement(selected); }} />

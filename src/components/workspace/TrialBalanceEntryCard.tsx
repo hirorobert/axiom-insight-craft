@@ -20,7 +20,8 @@ export default function TrialBalanceEntryCard({
   /** False when the signed-in user may not open work in this workspace: the card explains instead of offering actions. */
   canStart: boolean;
   onUpload: () => Promise<void>;
-  onStartEmpty: () => Promise<void>;
+  /** Optional quiet secondary. The single-service journey omits it: an empty workspace offered nothing but the same upload. */
+  onStartEmpty?: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState<"upload" | "empty" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export default function TrialBalanceEntryCard({
             {LAUNCH_COPY.entryAction}
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
-          <button
+          {onStartEmpty && <button
             type="button"
             onClick={() => run("empty", onStartEmpty)}
             disabled={busy !== null}
@@ -56,7 +57,7 @@ export default function TrialBalanceEntryCard({
             data-testid="entry-start-empty"
           >
             {busy === "empty" ? "Opening…" : LAUNCH_COPY.secondaryAction}
-          </button>
+          </button>}
         </div>
       ) : (
         <p className="mt-6 text-[14px] text-muted-foreground" data-testid="entry-no-permission">
