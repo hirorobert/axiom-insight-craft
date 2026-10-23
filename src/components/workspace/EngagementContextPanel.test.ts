@@ -44,7 +44,9 @@ describe("EngagementContextPanel", () => {
     expect(q(el, "engagement-context-period")!.textContent).toBe("1 Jul 2025 – 30 Jun 2026");
     expect(q(el, "engagement-context-currency")!.textContent).toBe("TZS");
     expect(q(el, "engagement-context-framework")).not.toBeNull();
-    expect(el.querySelector('a[href="/workspace/c1/2026/trial-balance/intake"]')).not.toBeNull();
+    // Period and currency open a dialog over the current page — never a navigation to another full page.
+    expect(el.querySelector('a[href="/workspace/c1/2026/trial-balance/intake"]')).toBeNull();
+    expect(q(el, "open-period-settings")!.tagName).toBe("BUTTON");
     expect(el.querySelector('a[href="/settings"]')).not.toBeNull();
     expect(await axeViolations(el)).toEqual([]);
   });
