@@ -529,7 +529,7 @@ function WorkbenchShell(props: {
   const ownBar = activePage !== null && ["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"].includes(activePage);
   const showNext = !!next && activePage !== null && activePage !== "overview" && !ownBar && activeWorkbenchPage(next.href, props.basePath) !== activePage;
   return (
-    <div className="mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-1 md:grid-cols-[232px_1fr]">
+    <div className={`mx-auto grid w-full max-w-screen-2xl flex-1 grid-cols-1 md:grid-cols-[232px_1fr] ${companyHome ? "content-start md:content-stretch" : ""}`}>
       <div className="border-b border-border bg-muted/40 px-2 py-3 md:border-b-0 md:border-r">
         {props.withheld ? null : (
           <EngagementContextPanel companyId={props.companyId} periodYear={props.periodYear} {...props.context} />
