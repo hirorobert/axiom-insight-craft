@@ -919,6 +919,37 @@ trial balance through the real function and PostgREST). `maxAccounts` was not lo
 per-company table that can exceed 1,000 rows exists in this function (`keyword_dictionary` is a small shared table).
 The deployed `process-trial-balance` closure changes: see `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 
+**DEFECT-FS-PUBLICATION-DOCUMENT-CLOSURE-001** — Severity: HIGH — Status: FIXED IN SOURCE by
+`20261123100000_fs_publication_integrity_gate.sql` (branch `fix/fs-publication-integrity-gate-20261023`, 2026-10-23;
+UNAPPLIED hosted until the owner applies it; record `docs/release/fs-integrity-r1/RECORD.md`)
+
+`fs_publication_blockers` (through v5) compared the server's figures only with the facts BOUND ON the four primary
+statements. A document's other facts (notes, `facts[]` itself) and its header (period, dates, presentation currency,
+provenance) were never compared with the server; the only check on them was the evaluation the BROWSER supplies with
+the save. Reproduced on real PostgreSQL (`scripts/db-proof/publicationIntegrityGate.mjs` with `INTEGRITY_GATE_ABSENT=1`):
+a version saved with an empty evaluation and a fabricated note figure, a second "version" of closing cash with another
+amount (the browser renders the highest fact version), re-denominated amounts, a re-dated period header or a relabelled
+provenance was READY and REVIEWED was accepted. Two further gaps in the same pass: `fs_append_decision` let any
+`prepare_close` member ACCEPT/REJECT a blocking finding (clearing it from `fs_unresolved_blocking_count`), and
+`fs_set_publication_state` let any such member move a REVIEWED version back to DRAFT. And the official Reporting Pack
+issued a FINAL version again after a LATER FINAL of the same lineage superseded it, with no disclosure. Fixed: blockers v6
+(document closure: `DOCUMENT_FACT_NOT_COMPOSED`, `NOTE_FACT_NOT_COMPOSED`, `DOCUMENT_FACT_DENOMINATION`,
+`DOCUMENT_CURRENCY_MISMATCH`, `DOCUMENT_PERIOD_MISMATCH`, `DOCUMENT_PROVENANCE_MISMATCH`), `fs_append_decision` v2 and
+`fs_set_publication_state` v3 (`review_close` required), `issue_official_reporting_pack` v2 / `_reporting_pack_seal_refusal`
+v2 (`superseded_final_version`, audited), `reporting_pack_sealed_object` v2 + `seal-reporting-pack` (`superseded` disclosed;
+required closure `6c62bdcd…`), `fs_list_saved_versions` v2 (`supersededByFinal`). An honest document (prepareVersion.ts)
+carries only server figures: nothing changes for it (proof H0, and `publicationControls`/`reviewWorkflow`/`signoffBinding`/
+`run.mjs` unchanged on the new chain).
+
+**DEFECT-FS-PARALLEL-LINEAGE-FINAL-001** — Severity: MEDIUM — Status: OPEN / REGISTERED, NOT REPAIRED (2026-10-23)
+
+`financial_statement_reports` has no rule that one company, period and provenance hold one report LINEAGE: a crafted
+client can start a second `report_id` for the same period and take it to FINAL beside the first (both bound to the same
+server figures, so figures agree; wording may differ), and `_fs_prior_final_differences` takes the latest FINAL by
+publication order. The pages always extend the first lineage (`EvidenceIntake.tsx`). Not repaired here because several
+existing proofs legitimately create parallel draft lineages for one period; a cross-lineage FINAL rule needs its own proof
+pass. Do not implement it as a side effect of other work.
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code
