@@ -1,3 +1,5 @@
+import { useActivity } from "@/components/feedback/useActivity";
+import { PagePending } from "@/components/feedback/Activity";
 /**
  * WorkspaceLayout — Shell for all workspace pages.
  *
@@ -232,6 +234,7 @@ export default function WorkspaceLayout() {
   const workspaceData = useWorkspaceData();
 
   const { companyId, periodYear, company, workspaceState, loading } = workspaceData;
+  useActivity(authLoading || loading, "Opening the financial workspace…");
   const engagementApi = useEngagementMandate(companyId, periodYear);
   const missionViews = projectMandate(workspaceState.missions, engagementApi.mandate);
 
@@ -257,7 +260,7 @@ export default function WorkspaceLayout() {
     }
   }, [user, authLoading, navigate]);
 
-  if (authLoading) return null;
+  if (authLoading) return <PagePending />;
 
   const basePath = `/workspace/${companyId}/${periodYear}`;
   const pathSegments = location.pathname.split("/");

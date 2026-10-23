@@ -1,3 +1,4 @@
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * WorkspaceAccessGate — the workspace shell's access boundary (PR #32 access bridge).
  *
@@ -13,7 +14,6 @@
 import { Link, Navigate } from "react-router-dom";
 import { Lock, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { isPrepareOnly, type WorkspaceAccessState } from "@/lib/workspace/workspaceAccess";
 import { STAGE_CONFIGS } from "@/lib/workspace/stageMetadata";
@@ -31,9 +31,7 @@ export function WorkspaceAccessShell({
   if (accessState.status === "loading") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3" role="status" aria-live="polite">
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-3 w-40" />
-        <span className="sr-only">Checking your access to this workspace…</span>
+        <PendingStatus label="Checking your access to this workspace…" className="w-full max-w-3xl px-6" skeleton />
       </div>
     );
   }

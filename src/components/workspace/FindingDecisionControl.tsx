@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 /**
  * FindingDecisionControl — what a person can record about ONE finding, under the finding itself (the card's one list).
  *
@@ -34,6 +35,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
 }) {
   const ids = { group: useId(), reason: useId(), confirm: useId(), expl: useId(), ref: useId(), nature: useId(), evidence: useId() };
   const choices = DECISION_CHOICES[issue.code];
+  const [saving, setSaving] = useBusyState("Recording the trial balance decision…");
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<string | null>(choices.length === 1 ? choices[0].action : null);
   const [confirmed, setConfirmed] = useState(false);
@@ -58,6 +60,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
   const record = async () => {
     const p = payload();
     if (!choice || !p || reason.trim().length < 3) return;
+    if (!setSaving(true)) return;
     setState({ kind: "saving" });
     try {
       const r = await recordFindingDecision(rpc, {
@@ -71,6 +74,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
       // The answer was lost: the same request id is kept, so trying again cannot record twice.
       setState({ kind: "error", message: "The decision may not have been recorded (connection problem). Try again — it will not be recorded twice." });
     }
+    finally { setSaving(false); }
   };
   const change = (patch: () => void) => { patch(); requestId.current = crypto.randomUUID(); if (state.kind === "error") setState({ kind: "idle" }); };
 
@@ -180,7 +184,7 @@ export function FindingDecisionControl({ issue, uploadId, certificationId, curre
 
       {state.kind === "error" && <p role="alert" className="text-destructive" data-testid="decision-error">{state.message}</p>}
       <div className="flex flex-wrap gap-2" aria-live="polite">
-        <Button type="button" className="h-10 rounded-none" disabled={!ready} onClick={() => void record()} data-testid="decision-record">
+        <Button type="button" pending={saving} className="h-10 rounded-none" disabled={!ready} onClick={() => void record()} data-testid="decision-record">
           {state.kind === "saving" ? "Recording…" : "Record decision"}
         </Button>
         <Button type="button" variant="outline" className="h-10 rounded-none" onClick={() => setOpen(false)} data-testid="decision-cancel">Cancel</Button>

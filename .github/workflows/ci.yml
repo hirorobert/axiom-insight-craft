@@ -130,6 +130,10 @@ jobs:
           node scripts/ci/assertTestsExecuted.mjs inert-report.json src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts
 
       - name: Full test suite
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: synthetic-unit-test-key
+          NODE_OPTIONS: --require=${{ github.workspace }}/scripts/ci/unitNetworkGuard.cjs
         run: bun run test
 
       - name: Build
@@ -221,6 +225,10 @@ jobs:
           node scripts/ci/assertTestsExecuted.mjs inert-report.json src/lib/financialStatementsWorkspace/databaseInert.test.ts src/lib/__tests__/inertBase.test.ts
 
       - name: Run golden fixture tests
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: synthetic-unit-test-key
+          NODE_OPTIONS: --require=${{ github.workspace }}/scripts/ci/unitNetworkGuard.cjs
         run: bun run test
         # Tests cover: computeComplianceScore (pure scoring engine, all grade boundaries,
         # 5 factors, 6 FA2026 fixtures) + computeWearTear (ITA s.34 all 7 classes).

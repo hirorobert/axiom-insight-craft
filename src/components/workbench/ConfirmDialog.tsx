@@ -1,3 +1,5 @@
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { useActivity } from "@/components/feedback/useActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { trapTab, useFocusReturn } from "./useFocusReturn";
 
@@ -20,6 +22,7 @@ export interface ConfirmDialogProps {
   acknowledgement?: string;
   confirmLabel: string;
   busy?: boolean;
+  notice?: string | null;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }
@@ -30,6 +33,7 @@ export function ConfirmDialog(p: ConfirmDialogProps) {
 }
 
 function ConfirmDialogOpen(p: ConfirmDialogProps) {
+  useActivity(!!p.busy, "Recording the confirmed action…");
   const titleId = useId();
   const descId = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -49,7 +53,7 @@ function ConfirmDialogOpen(p: ConfirmDialogProps) {
         aria-labelledby={titleId}
         aria-describedby={descId}
         className="w-full max-w-lg rounded-lg bg-background p-6 shadow-lg"
-        onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); p.onCancel(); } trapTab(e, box.current); }}
+        onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); if (!p.busy) p.onCancel(); } trapTab(e, box.current); }}
       >
         <h2 id={titleId} className="text-base font-semibold">{p.title}</h2>
         <div id={descId} className="mt-3 rounded-md bg-muted/60 p-3 text-sm">
@@ -62,6 +66,7 @@ function ConfirmDialogOpen(p: ConfirmDialogProps) {
             <textarea
               ref={(el) => { if (el) first.current = el; }}
               className="mt-1 w-full rounded-md border border-input p-2"
+              disabled={p.busy}
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -71,12 +76,13 @@ function ConfirmDialogOpen(p: ConfirmDialogProps) {
         )}
         {p.acknowledgement && (
           <label className="mt-3 flex items-start gap-2 text-sm">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+            <input type="checkbox" disabled={p.busy} checked={ack} onChange={(e) => setAck(e.target.checked)} />
             <span>{p.acknowledgement}</span>
           </label>
         )}
+        {p.notice && <p role="status" className="mt-3 text-sm">{p.notice}</p>}
         <div className="mt-4 flex gap-2">
-          <button
+          <ActionButton busy={p.busy} busyLabel="Recording…"
             type="button"
             ref={(el) => { if (el && !needReason) first.current = el; }}
             className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
@@ -84,8 +90,8 @@ function ConfirmDialogOpen(p: ConfirmDialogProps) {
             onClick={() => p.onConfirm(reason.trim())}
           >
             {p.confirmLabel}
-          </button>
-          <button type="button" className="rounded-md border border-input px-3 py-1.5 text-sm" onClick={p.onCancel}>Cancel</button>
+          </ActionButton>
+          <button type="button" className="rounded-md border border-input px-3 py-1.5 text-sm disabled:opacity-50" disabled={p.busy} onClick={() => { if (!p.busy) p.onCancel(); }}>Cancel</button>
         </div>
       </div>
     </div>

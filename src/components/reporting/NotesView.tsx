@@ -1,3 +1,5 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
 /**
  * Financial Statements › Notes. Every requirement of the edition in force, with the server's status for it (fs_notes_status)
  * — one word per server state, nothing merged. A conditional requirement needs a recorded decision (applicable or not,
@@ -73,10 +75,10 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
   const [source, setSource] = useState("");
   const [reason, setReason] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const attempt = useAttempt(p.newRequestId);
   const run = async (key: string, f: (requestId: string) => Promise<{ outcome: string }>) => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await f(attempt.idFor(key));
       setNotice(outcomeText(r));
@@ -103,10 +105,10 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
               <label htmlFor={ids.reason} className="block">Reason<input id={ids.reason} className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
               <div className="flex gap-2">
                 {(["applicable", "not_applicable"] as const).map((d) => (
-                  <button key={d} type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy || reason.trim().length < 3}
+                  <ActionButton busy={busy} key={d} type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy || reason.trim().length < 3}
                     onClick={() => void run(`d|${p.r.requirementId}|${d}|${reason}`, (rid) => p.clients.notes.decide(p.companyId, p.periodYear, p.r.requirementId, d, reason.trim(), rid))}>
                     {d === "applicable" ? "Applies" : "Does not apply"}
-                  </button>
+                  </ActionButton>
                 ))}
               </div>
             </fieldset>
@@ -116,10 +118,10 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
               <legend className="font-medium">Wording</legend>
               <label htmlFor={ids.body} className="block">Disclosure text (your words, shown verbatim)<textarea id={ids.body} data-testid="wording-body" rows={6} className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={body} onChange={(e) => setBody(e.target.value)} /></label>
               <label htmlFor={ids.source} className="block">Source (document, working paper)<input id={ids.source} data-testid="wording-source" className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={source} onChange={(e) => setSource(e.target.value)} /></label>
-              <button type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0 || source.trim().length < 3}
+              <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0 || source.trim().length < 3}
                 onClick={() => void run(`w|${p.r.requirementId}|${body}|${source}`, (rid) => p.clients.notes.disclose(p.companyId, p.periodYear, p.r.requirementId, body.trim(), source.trim(), rid))}>
                 Record wording
-              </button>
+              </ActionButton>
             </fieldset>
           ) : null}
         </>

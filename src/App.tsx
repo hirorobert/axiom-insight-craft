@@ -1,3 +1,4 @@
+import { ActivityProvider, PagePending } from "@/components/feedback/Activity";
 import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -111,6 +112,7 @@ const App = () => (
           <SessionTimeoutProvider>
             <Toaster />
             <Sonner />
+            <ActivityProvider>
             <BrowserRouter>
               {/* Per-route title, description, canonical URL and robots (src/lib/seo/publicMeta.ts). */}
               <RouteMeta />
@@ -136,20 +138,20 @@ const App = () => (
                   <Route path="prepare"    element={WORKBENCH_NAVIGATION_ENABLED ? <WorkbenchAliasRedirect segment="prepare" /> : <StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />
                   {/* Workbench canonical routes — registered only when WORKBENCH_NAVIGATION_ENABLED (src/lib/workbench/routes.ts). */}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance" element={<WorkbenchAliasRedirect segment="trial-balance" />} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={<PagePending />}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}
                   {/* Close Review › Findings: registered only once the page is released (routes.ts RELEASED_WORKBENCH_PAGES). */}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={null}><CloseFindings /></Suspense></ReportingAccessGate></StageScopeGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={null}><CloseAdjustments /></Suspense></ReportingAccessGate></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-findings") && <Route path="close/findings" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={<PagePending />}><CloseFindings /></Suspense></ReportingAccessGate></StageScopeGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("close-adjustments") && <Route path="close/adjustments" element={<StageScopeGate stage="prepare"><ReportingAccessGate prepareStage><Suspense fallback={<PagePending />}><CloseAdjustments /></Suspense></ReportingAccessGate></StageScopeGate>} />}
                   {/* Financial Statements and Sign-off & Exports: each registered only once its page is released (routes.ts
                       RELEASED_WORKBENCH_PAGES), behind ReportingAccessGate: server-granted access to the Statements stage AND the
                     company enabled for reporting by the server (rollout allow-list). */}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-statements") && <Route path="statements" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-statements" /></Suspense></ReportingAccessGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-notes") && <Route path="statements/notes" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-notes" /></Suspense></ReportingAccessGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-schedules") && <Route path="statements/schedules" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-schedules" /></Suspense></ReportingAccessGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></ReportingAccessGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="signoff" /></Suspense></ReportingAccessGate>} />}
-                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<ReportingAccessGate><Suspense fallback={null}><ReportingWorkbenchPage page="exports" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-statements") && <Route path="statements" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="fs-statements" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-notes") && <Route path="statements/notes" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="fs-notes" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-schedules") && <Route path="statements/schedules" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="fs-schedules" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="signoff" /></Suspense></ReportingAccessGate>} />}
+                  {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="exports" /></Suspense></ReportingAccessGate>} />}
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}
@@ -181,15 +183,15 @@ const App = () => (
 
                 {/* ── Auth + utility ── */}
                 <Route path="/auth" element={<Auth />} />
-                <Route path="/companies/new" element={<PageErrorBoundary pageName="Add company"><Suspense fallback={null}><AddCompany /></Suspense></PageErrorBoundary>} />
+                <Route path="/companies/new" element={<PageErrorBoundary pageName="Add company"><Suspense fallback={<PagePending />}><AddCompany /></Suspense></PageErrorBoundary>} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/request-access" element={<Navigate to="/pricing" replace />} />
                 <Route path="/plans" element={<Plans />} />
                 {/* /contact and /admin/enquiries exist only behind the `service_enquiry_phase1` gate (OFF by default). */}
                 {serviceEnquiryRoutes()}
                 <Route path="/terms" element={<Terms />} />
-                <Route path="/billing/checkout" element={<Suspense fallback={null}><Checkout /></Suspense>} />
-                <Route path="/settings/billing" element={<Suspense fallback={null}><Orders /></Suspense>} />
+                <Route path="/billing/checkout" element={<Suspense fallback={<PagePending />}><Checkout /></Suspense>} />
+                <Route path="/settings/billing" element={<Suspense fallback={<PagePending />}><Orders /></Suspense>} />
                 <Route path="/billing/orders" element={<OrdersRedirect />} />
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
@@ -200,7 +202,7 @@ const App = () => (
                   <Route
                     path="/internal/acceptance/classification-states"
                     element={
-                      <Suspense fallback={null}>
+                      <Suspense fallback={<PagePending />}>
                         <ClassificationStatesAcceptance />
                       </Suspense>
                     }
@@ -211,20 +213,20 @@ const App = () => (
                   <Route
                     path="/internal/acceptance/workflow-states"
                     element={
-                      <Suspense fallback={null}>
+                      <Suspense fallback={<PagePending />}>
                         <WorkspaceStatesAcceptance />
                       </Suspense>
                     }
                   />
                 )}
                 {PlanStatesAcceptance && (
-                  <Route path="/internal/acceptance/plan-states" element={<Suspense fallback={null}><PlanStatesAcceptance /></Suspense>} />
+                  <Route path="/internal/acceptance/plan-states" element={<Suspense fallback={<PagePending />}><PlanStatesAcceptance /></Suspense>} />
                 )}
                 <Route
                   path="/upload"
                   element={
                     <PageErrorBoundary pageName="UploadTrialBalance">
-                      <Suspense fallback={null}><UploadTrialBalance /></Suspense>
+                      <Suspense fallback={<PagePending />}><UploadTrialBalance /></Suspense>
                     </PageErrorBoundary>
                   }
                 />
@@ -249,6 +251,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
+            </ActivityProvider>
           </SessionTimeoutProvider>
         </AuthProvider>
       </TooltipProvider>

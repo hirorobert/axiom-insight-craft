@@ -1,3 +1,6 @@
+import { useBusyState } from "@/hooks/useBusyState";
+import { ActionButton } from "@/components/feedback/ActionButton";
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Reviewer comments (20261112100000): version-bound, item-bound, with their history. A reviewer (review_close) opens a
  * BLOCKING finding or an ADVISORY comment on a figure, a note or a statement; the preparer (prepare_close) responds; the
@@ -19,7 +22,7 @@ export function ReviewCommentsPanel(p: PageProps & { reportId: string; reportVer
     setList(r.state === "listed" ? (r.comments ?? []) : []);
   }, [p.clients, p.companyId, p.reportId, p.reportVersion]);
   useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load, p.state]);
-  if (!list) return <p role="status" className="text-sm text-muted-foreground">Reading the reviewer's comments…</p>;
+  if (!list) return <PendingStatus label="Reading the reviewer's comments…" skeleton />;
   const shown = p.filter ? list.filter((c) => c.itemKind === p.filter!.itemKind && c.itemId === p.filter!.itemId) : list;
   const openBlocking = shown.filter((c) => c.severity === "blocking" && c.state !== "resolved").length;
   return (
@@ -47,14 +50,14 @@ function itemWords(c: ReviewComment, exponent: number): string {
 
 function CommentCard(p: PageProps & { c: ReviewComment; onChange: () => Promise<void> }) {
   const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const attempt = useAttempt(p.newRequestId);
   const id = useId();
   const canReview = p.allowed.includes("review_close"), canPrepare = p.allowed.includes("prepare_close");
   const exponent = p.state.composition?.state === "composed" ? p.state.composition.current.exponent : 2;
   const act = async (kind: "respond" | "resolve" | "reopen") => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const rid = attempt.idFor(`${kind}|${p.c.commentId}|${body}`);
       const r = kind === "respond" ? await p.clients.review.respond(p.companyId, p.c.commentId, body.trim(), rid)
@@ -80,9 +83,9 @@ function CommentCard(p: PageProps & { c: ReviewComment; onChange: () => Promise<
             <span className="sr-only">Your note</span>
             <input id={id} className="w-full rounded-md border border-input px-2 py-1" placeholder={c.state === "resolved" ? "Reason to reopen (optional)" : "Your note"} value={body} onChange={(e) => setBody(e.target.value)} data-testid="comment-note" />
           </label>
-          {c.state !== "resolved" && canPrepare ? <button type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void act("respond")} data-testid="comment-respond">Respond</button> : null}
-          {c.state !== "resolved" && canReview ? <button type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void act("resolve")} data-testid="comment-resolve">Resolve</button> : null}
-          {c.state === "resolved" && canReview ? <button type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy} onClick={() => void act("reopen")} data-testid="comment-reopen">Reopen</button> : null}
+          {c.state !== "resolved" && canPrepare ? <ActionButton busy={busy} type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void act("respond")} data-testid="comment-respond">Respond</ActionButton> : null}
+          {c.state !== "resolved" && canReview ? <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void act("resolve")} data-testid="comment-resolve">Resolve</ActionButton> : null}
+          {c.state === "resolved" && canReview ? <ActionButton busy={busy} type="button" className="rounded-md border border-input px-3 py-1 disabled:opacity-50" disabled={busy} onClick={() => void act("reopen")} data-testid="comment-reopen">Reopen</ActionButton> : null}
         </div>
       ) : null}
       <Notice text={notice} />
@@ -94,13 +97,13 @@ function CommentCard(p: PageProps & { c: ReviewComment; onChange: () => Promise<
 export function CommentComposer(p: PageProps & { reportId: string; reportVersion: number; itemKind: ReviewComment["itemKind"]; itemId: string; label: string; onOpened?: () => void }) {
   const [body, setBody] = useState("");
   const [severity, setSeverity] = useState<"blocking" | "advisory">("blocking");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   const [notice, setNotice] = useState<string | null>(null);
   const attempt = useAttempt(p.newRequestId);
   const ids = { body: useId(), sev: useId() };
   if (!p.allowed.includes("review_close")) return null;
   const open = async () => {
-    setBusy(true);
+    if (!setBusy(true)) return;
     try {
       const r = await p.clients.review.openComment({ companyId: p.companyId, reportId: p.reportId, reportVersion: p.reportVersion, itemKind: p.itemKind, itemId: p.itemId, severity, body: body.trim(),
         requestId: attempt.idFor(`open|${p.itemKind}|${p.itemId}|${severity}|${body}`) });
@@ -119,7 +122,7 @@ export function CommentComposer(p: PageProps & { reportId: string; reportVersion
         </select>
       </label>
       <label htmlFor={ids.body} className="block">Your finding<textarea id={ids.body} rows={3} className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={body} onChange={(e) => setBody(e.target.value)} data-testid="comment-body" /></label>
-      <button type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void open()} data-testid="comment-open">Record the comment</button>
+      <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0} onClick={() => void open()} data-testid="comment-open">Record the comment</ActionButton>
       <Notice text={notice} />
     </fieldset>
   );

@@ -1,3 +1,4 @@
+import { PendingStatus } from "@/components/feedback/Activity";
 /**
  * Dashboard — Authenticated routing gateway / product home.
  *
@@ -43,7 +44,6 @@ import { engagementNextAction, firstUploadResultRoute } from "@/lib/workspace/en
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import EngagementHub from "@/pages/workspace/EngagementHub";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { parseAcceptInvitations } from "@/lib/commercial/paidActions";
@@ -235,9 +235,7 @@ export default function Dashboard() {
   if (serviceDestination.kind === "wait" || authLoading || engagementsLoading || (route?.kind === "first_run" && (billingLoading || capacityLoading)) || routing || route?.kind === "resume" || route?.kind === "start_single_company" || route?.kind === "open_shared") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-3 w-40" />
-        <Skeleton className="h-3 w-28" />
+        <PendingStatus label="Opening your engagements…" className="w-full max-w-3xl px-6" skeleton />
       </div>
     );
   }

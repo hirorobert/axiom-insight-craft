@@ -97,7 +97,7 @@ describe("routes: one canonical destination, context preserved", () => {
   }
   it("App.tsx: Intake renders the Intake page and Account review the existing Prepare workspace, both behind the Prepare scope gate", () => {
     const app = fs.readFileSync(path.join(ROOT, "src/App.tsx"), "utf8");
-    expect(app).toContain('{WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={null}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}');
+    expect(app).toContain('{WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/intake" element={<StageScopeGate stage="prepare"><Suspense fallback={<PagePending />}><TrialBalanceIntake /></Suspense></StageScopeGate>} />}');
     expect(app).toContain('{WORKBENCH_NAVIGATION_ENABLED && <Route path="trial-balance/review" element={<StageScopeGate stage="prepare"><PrepareWorkspace /></StageScopeGate>} />}');
   });
 });

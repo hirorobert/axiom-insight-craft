@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 /**
  * DiscardUploadDialog — removal/replacement of a trial balance upload.
  *
@@ -491,7 +492,7 @@ export function DiscardUploadDialog({
   /** Set when the user already picked the file that replaces this run. */
   replacementFileName?: string | null;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState();
   // Kept inline (not just a toast, which can be missed or dismissed) so the reason, whether it's
   // safe to retry, and the reference id stay on screen for as long as the dialog does.
   const [lastError, setLastError] = useState<DiscardError | string | null>(null);
@@ -515,7 +516,7 @@ export function DiscardUploadDialog({
 
   const handleDiscard = async () => {
     if (!target || busy || !gateSatisfied) return;
-    setBusy(true);
+    if (!setBusy(true)) return;
     setLastError(null);
     try {
       const receipt = await discardUpload(target);
@@ -539,7 +540,7 @@ export function DiscardUploadDialog({
 
   const handleCancelReplacement = async () => {
     if (!target || busy) return;
-    setBusy(true);
+    if (!setBusy(true)) return;
     setLastError(null);
     try {
       const result = await cancelReplacement(target);

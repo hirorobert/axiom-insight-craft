@@ -1,3 +1,4 @@
+import { useActivity } from "@/components/feedback/useActivity";
 /**
  * "Choose another plan" for an unfinished checkout (20261119100000) — one control for the plans banner and the order page.
  *
@@ -38,15 +39,22 @@ export function LeaveCheckout({ saffReference, onLeft, onStatus, onClosingChange
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
   const closing = busy || wait !== null;
+  useActivity(closing, "Confirming the unfinished checkout…");
   const onClosingRef = useRef(onClosingChange);
   onClosingRef.current = onClosingChange;
   useEffect(() => { onClosingRef.current?.(closing); }, [closing]);
   useEffect(() => () => onClosingRef.current?.(false), []);
 
+  const sending = useRef(false);
   const leave = async () => {
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true);
     setNotice(null);
-    const r = await abandonUnfinishedCheckout(saffReference);
+    let r: Awaited<ReturnType<typeof abandonUnfinishedCheckout>>;
+    try { r = await abandonUnfinishedCheckout(saffReference); }
+    catch { setBusy(false); setWait(null); setNotice("Could not confirm this checkout’s status. Check the order before trying again."); return; }
+    finally { sending.current = false; }
     if (!live.current) return;
     if (r.status && r.outcome !== "ABANDONED" && r.outcome !== "NOT_PENDING") onStatus?.(r.status);
     if (r.outcome === "RETRY_LATER" && retries.current < MAX_AUTO_RETRIES) {

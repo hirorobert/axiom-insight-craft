@@ -286,6 +286,9 @@ describe("checkout", () => {
     const err = byTestId(m, "checkout-error")!;
     expect(err.textContent).toContain("Do not pay again");
     expect(err.querySelector("a")!.getAttribute("href")).toBe("/billing/payment/return?ref=SAFF-3");
+    expect((byTestId(m, "checkout-continue") as HTMLButtonElement).disabled).toBe(true);
+    click(byTestId(m, "checkout-continue")!);
+    expect(client.startCheckout).toHaveBeenCalledTimes(1);
   });
 
   it("an earlier unresolved attempt is opened, not replaced", async () => {

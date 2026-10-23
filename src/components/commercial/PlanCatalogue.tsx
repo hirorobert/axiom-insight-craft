@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Loader2 } from "lucide-react";
@@ -56,7 +57,7 @@ async function goToPayment(plan: PlanCode, fallbackHref: string, navigate: (to: 
 
 function PlanCard({ plan, prices, source, contactAvailable, signedIn }: { plan: CataloguePlan; prices: PublicPrices | null; source: CommercialSource; contactAvailable: boolean; signedIn: boolean }) {
   const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useBusyState("Opening payment…");
   const view = planPurchaseView(plan, prices, source);
   const actionable = view.mode === "online" || contactAvailable;
   const recommended = RECOMMENDED.includes(plan.code);
@@ -69,7 +70,7 @@ function PlanCard({ plan, prices, source, contactAvailable, signedIn }: { plan: 
     ...(WITHHELD_SERVICE_SURFACES_VISIBLE && planIncludes(plan.code, "MULTI_ENTITY_REPORTING") ? ["Multi-entity reporting"] : []),
   ];
   const onlineTap = view.mode === "online" && signedIn
-    ? async (e: React.MouseEvent) => { e.preventDefault(); if (busy) return; setBusy(true); await goToPayment(plan.code, view.href, navigate); setBusy(false); }
+    ? async (e: React.MouseEvent) => { e.preventDefault(); if (!setBusy(true)) return; try { await goToPayment(plan.code, view.href, navigate); } catch { navigate(view.href); } finally { setBusy(false); } }
     : undefined;
   return (
     <li data-testid={`plan-${plan.code}`} data-mode={view.mode} data-recommended={recommended ? "true" : undefined}

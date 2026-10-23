@@ -1,3 +1,4 @@
+import { useActivity } from "@/components/feedback/useActivity";
 /**
  * TrialBalanceUpload — the workspace uploader for ONE trial balance (a period has one active trial balance).
  *
@@ -248,6 +249,7 @@ export const TrialBalanceUpload = ({
   const { primary, secondary } = actionsFor(flow);
   const steps = stepsFor(flow);
   const busy = isBusy(flow);
+  useActivity(busy, "Uploading and checking the trial balance…");
   const file = flow.file;
 
   return (

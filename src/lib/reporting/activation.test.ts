@@ -74,7 +74,7 @@ describe("the reporting routes cannot reach the defective Reporting Pack sealing
     const src = read("src/lib/reporting/reviewWorkflow.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'\\])\/\/[^\n]*/g, "$1");
     expect(src).toMatch(/issue_official_reporting_pack/);
     expect(src).not.toMatch(/prepare_official_reporting_pack|seal_reporting_pack_server|reporting_pack_sealed_object|\.storage\b|upload\(/);
-    expect([...src.matchAll(/action: "(issue|verify|retrieve)"/g)].map((m) => m[1]).sort()).toEqual(["issue", "retrieve", "verify"]);
+    expect([...new Set([...src.matchAll(/action: (?:retrieve \? "retrieve" : )?"(issue|verify|retrieve)"/g)].map((m) => m[1]))].sort()).toEqual(["issue", "retrieve", "verify"]);
   });
   it("the legacy statements workspace (which imports that path) is not routed, and its gates stay off", () => {
     const app = read("src/App.tsx");

@@ -1,3 +1,4 @@
+import { useActivity } from "@/components/feedback/useActivity";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, LogOut, User } from "lucide-react";
@@ -11,6 +12,7 @@ export function AccountUserMenu({ identity, onSignOut }: { identity?: AccountIde
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  useActivity(busy, "Signing out…");
   const name = identity?.name?.trim() || identity?.email || "Your account";
   const initial = (identity?.name?.trim() || identity?.email || "A").slice(0, 1).toUpperCase();
   return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="h-9 gap-2 px-1 sm:px-2" aria-label="Account menu">
