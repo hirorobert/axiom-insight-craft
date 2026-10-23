@@ -9,11 +9,16 @@
  *
  * Reads only, except the explicit policy change; every value comes from the workspace's own reads or the server.
  */
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { FRAMEWORK_NOT_SELECTED, formatEntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
+import { EngagementContext } from "@/contexts/EngagementContext";
+import { WorkspaceContext } from "@/contexts/WorkspaceContext";
+import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import { readClearingPolicy, setClearingPolicy, type ClearingPolicy } from "@/lib/workspace/findingDecisions";
 
 type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
@@ -39,6 +44,14 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const requestId = useRef(crypto.randomUUID());
+  // Period and currency are edited in a dialog over the current task (never a page change). It closes only on a
+  // confirmed save, refuses dismissal while the save is in flight, and Radix restores focus to the opener.
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const [periodBusy, setPeriodBusy] = useState(false);
+  const [periodReload, setPeriodReload] = useState(0);
+  // Optional: the rail can render outside the workspace providers (tests, previews); shared context refreshes when present.
+  const engagementApi = useContext(EngagementContext);
+  const workspace = useContext(WorkspaceContext);
 
   useEffect(() => {
     let live = true;
@@ -47,7 +60,7 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
       .from("fiscal_periods").select("reporting_start, reporting_end, reporting_currency").eq("id", fiscalPeriodId).maybeSingle()
       .then(({ data }) => { if (live) setPeriod(data ? { start: data.reporting_start, end: data.reporting_end, currency: data.reporting_currency } : null); });
     return () => { live = false; };
-  }, [fiscalPeriodId]);
+  }, [fiscalPeriodId, periodReload]);
   useEffect(() => {
     let live = true;
     if (prepareOnly) return;
@@ -85,7 +98,7 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
         <details className="mt-3" data-testid="engagement-settings">
           <summary className="cursor-pointer text-[12px] font-medium text-foreground">Engagement settings</summary>
           <ul className="mt-2 space-y-1.5 text-[12px]">
-            <li><Link to={`/workspace/${companyId}/${periodYear}/trial-balance/intake`} className="underline underline-offset-4">Reporting period and currency</Link></li>
+            <li><button type="button" onClick={() => setPeriodOpen(true)} className="underline underline-offset-4" data-testid="open-period-settings">Reporting period and currency</button></li>
             <li><Link to="/settings" className="underline underline-offset-4">Company details</Link></li>
             {policy && (
               <li data-testid="clearing-policy">
@@ -115,6 +128,18 @@ export function EngagementContextPanel({ companyId, periodYear, companyName, fra
           <p aria-live="polite" className="mt-2 text-[12px]" data-testid="clearing-policy-message">{message}</p>
         </details>
       )}
+      <Dialog open={periodOpen} onOpenChange={(v) => { if (!v && periodBusy) return; setPeriodOpen(v); }}>
+        <DialogContent className="max-w-xl" data-testid="period-settings-dialog"
+          onEscapeKeyDown={(e) => { if (periodBusy) e.preventDefault(); }}
+          onInteractOutside={(e) => { if (periodBusy) e.preventDefault(); }}>
+          <DialogHeader>
+            <DialogTitle>Reporting period and currency</DialogTitle>
+            <DialogDescription>Saved for {companyName ?? "this entity"}. You stay on the page you were working on.</DialogDescription>
+          </DialogHeader>
+          <PeriodSetup client={supabase as unknown as RpcClient} companyId={companyId} periodYear={periodYear} onBusyChange={setPeriodBusy}
+            onOpened={() => { setPeriodReload((n) => n + 1); engagementApi?.refresh(); workspace?.refreshUpload(); setPeriodOpen(false); }} />
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -225,14 +225,13 @@ describe("UI wiring contracts", () => {
 
   it("Import trial balance persists the choice and reaches the single upload surface; Start without data persists and does NOT navigate", () => {
     expect(overview).toMatch(/dataStart\.record\("import"\)\) navigate\(`\$\{basePath\}\/prepare`\)/);
-    // The entry card (one service, Phase 2 §5.1): Start without data persists "empty" — on the engagement it just opened,
-    // or the current one — and never navigates.
-    const entryEmpty = overview.slice(overview.indexOf("onStartEmpty"), overview.indexOf("onStartEmpty") + 700);
-    expect(entryEmpty).toMatch(/recordDataStart\(supabase as unknown as RpcClient, engagementId, "empty", null\)/);
-    expect(entryEmpty).toMatch(/dataStart\.record\("empty"\)/);
-    expect(entryEmpty).not.toMatch(/navigate|<Navigate|window\.location|\/prepare/);
+    // The entry card (one service, Phase 2 §5.1) offers only the upload: "Start without data" led to an empty workspace
+    // whose only action was the same upload, so the single-service journey omits it (continuity remediation).
+    const entry = overview.slice(overview.indexOf("<TrialBalanceEntryCard"), overview.indexOf(') : launchState === "LAUNCHPAD"'));
+    expect(entry).not.toMatch(/onStartEmpty/);
+    expect(entry).toMatch(/createEngagement\(\[implied\]\)/);
     // The data-choice card (more than one service): unchanged.
-    const second = overview.indexOf("onStartEmpty", overview.indexOf("onStartEmpty") + 1);
+    const second = overview.indexOf("onStartEmpty");
     const empty = overview.slice(second, second + 400);
     expect(empty).toMatch(/dataStart\.record\("empty"\)/);
     expect(empty).not.toMatch(/navigate|<Navigate|window\.location|\/prepare/);

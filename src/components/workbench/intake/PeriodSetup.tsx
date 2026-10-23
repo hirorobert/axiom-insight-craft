@@ -17,7 +17,7 @@ const OPTIONS = isoCurrencyOptions(Object.keys(CURRENCY_REGISTRY).sort());
  * period is optional and must end the day before this one starts (the server checks it). Refusals are shown in plain
  * words; a backend without this option leaves the existing setup in place.
  */
-export function PeriodSetup({ client, companyId, periodYear, onOpened }: { client: RpcClient; companyId: string; periodYear?: number; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void }) {
+export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyChange }: { client: RpcClient; companyId: string; periodYear?: number; onOpened?: (r: Extract<PeriodOpenResult, { outcome: "opened" }>) => void; /** Lets a host (the settings dialog) refuse dismissal while a save is in flight. */ onBusyChange?: (busy: boolean) => void }) {
   const id = useId();
   const [f, setF] = useState({ start: "", end: "", currency: "", withPrior: false, priorStart: "", priorEnd: "", priorCurrency: "" });
   // The period this workspace already has (recorded dates and currency), stated and prefilled — so its prior period can be
@@ -48,6 +48,7 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened }: { clien
     return () => { live = false; };
   }, [client, existing]);
   const [busy, setBusy] = useBusyState();
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const msgRef = useRef<HTMLParagraphElement>(null);

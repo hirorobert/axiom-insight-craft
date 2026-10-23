@@ -171,7 +171,7 @@ describe("Dashboard — returning-user routing never guesses among multiple enga
 
     expect(html).toContain("Acme Ltd");
     expect(html).toContain("Beta Co");
-    expect(html).toContain("Start another service");
+    expect(html).toContain("Companies without a service yet");
   });
 
   it("zero companies: prominent company setup and upload routes, without an inline form", async () => {

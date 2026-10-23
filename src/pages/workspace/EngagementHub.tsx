@@ -41,6 +41,7 @@ type HubEntry = Pick<ActiveEngagementEntry, "engagementId" | "companyId" | "comp
 import type { WorkspaceCompany } from "@/lib/workspace/fetchWorkspaceSnapshot";
 import type { SharedWorkspace } from "@/lib/workspace/workspaceAccess";
 import { GATE_COPY, createFlightHolder, type AddReviewOutcome, type ReviewActionGate, type UnavailableServiceEngagement } from "@/lib/workspace/unavailableService";
+import { pickContinueEngagement } from "@/lib/workspace/continueEngagement";
 import { companyCreation, deriveAccountNextAction, type AccountNextAction } from "@/lib/workspace/accountNextAction";
 import type { BillingSummary } from "@/hooks/useBillingSummary";
 import type { CapacityAnswer } from "@/lib/commercial/paidActions";
@@ -48,6 +49,7 @@ import { CurrentPlanPanel } from "@/components/commercial/CurrentPlanPanel";
 import { groupEngagements, periodDates, PURPOSE_EXPLANATION, PURPOSE_WORDS, type CompanyGroup, type WorkspacePurpose } from "@/lib/workspace/engagementGroups";
 import { EntityCapacityNotice } from "@/components/commercial/EntityCapacityNotice";
 import { engagementNextAction } from "@/lib/workspace/engagementNextAction";
+import { headerStatusWord } from "@/lib/workspace/resultStatus";
 import { EngagementPortfolio } from "@/components/workspace/EngagementPortfolio";
 
 /** What the account home adds around the chooser. Absent (e.g. acceptance fixtures): the plain chooser. */
@@ -55,6 +57,8 @@ export interface AccountHome {
   /** Exact totals when the lists are bounded samples (get_account_home); count-based decisions use these. */
   identity?: { name?: string | null; email?: string | null };
   totals?: { entries: number; unavailable: number; companiesWithoutEngagement: number; shared: number };
+  /** Server opened_at per engagement id (get_account_home); orders "Continue where you left off". */
+  openedAt?: Record<string, string>;
   billing: BillingSummary | null;
   billingLoading: boolean;
   billingError: boolean;
@@ -281,6 +285,25 @@ export default function EngagementHub({
           )}
         </section>
       )}
+      {(() => {
+        // "Continue where you left off": the latest accessible engagement whose trial balance is not finished, from the
+        // persisted workspace state only. Not shown when the next-step card above already resumes that engagement.
+        const c = pickContinueEngagement(entries, account?.openedAt);
+        if (!c || !c.workspaceState || (!portfolio && next?.kind === "resume")) return null;
+        const action = engagementNextAction(c.workspaceState);
+        return (
+          <section className="mb-6" aria-labelledby="continue-heading" data-testid="continue-engagement">
+            <SurfaceCard className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 id="continue-heading" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Continue where you left off</h2>
+                <p className="mt-1 text-[15px] font-semibold text-foreground truncate">{c.companyName} <span className="font-normal text-muted-foreground">· FY{c.periodYear}</span></p>
+                <p className="text-[12px] text-muted-foreground" data-testid="continue-status">Trial balance: {headerStatusWord(c.workspaceState)}</p>
+              </div>
+              <Button asChild className="shrink-0" data-testid="continue-action"><Link to={action.href}>{action.label}<ArrowRight className="w-3.5 h-3.5 ml-1.5" aria-hidden="true" /></Link></Button>
+            </SurfaceCard>
+          </section>
+        );
+      })()}
       {portfolio && account && (
         <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
       )}
@@ -363,7 +386,7 @@ export default function EngagementHub({
       {companiesWithoutEngagement.length > 0 && (
         <section className="mb-10">
           <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
-            Start another service
+            Companies without a service yet
           </h2>
           <ul className="grid gap-2" data-testid="companies-without-engagement-list">
             {companiesWithoutEngagement.map((company) => (
@@ -376,6 +399,7 @@ export default function EngagementHub({
                 >
                   <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
                   <span className="text-[13px] font-medium text-foreground flex-1 truncate">{company.name}</span>
+                  <span className="text-[12px] text-muted-foreground shrink-0">Start trial balance review</span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
                 </button>
               </li>

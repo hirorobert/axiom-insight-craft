@@ -14,7 +14,7 @@ import { useMemo, useState } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { Link, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { parseReportVersion, withContext } from "@/lib/workbench/context";
 import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
 import { LayoutEditor, type LayoutTemplateRow } from "@/components/workbench/intake/LayoutEditor";
@@ -35,7 +35,7 @@ async function readTemplates(companyId: string): Promise<LayoutTemplateRow[]> {
 }
 
 export default function TrialBalanceIntake() {
-  const { companyId, periodYear, upload, refreshUpload } = useWorkspace();
+  const { companyId, periodYear, upload, refreshUpload, loading } = useWorkspace();
   const client = useMemo(() => layoutClient(((name, opts) => supabase.functions.invoke(name, opts)) as LayoutInvoke), []);
   // AI-assisted suggestions only when released (I1-C); otherwise the editor is exactly as before.
   const assist = useMemo(() => (LAYOUT_ASSIST_ENABLED ? layoutAssistClient(((name, opts) => supabase.functions.invoke(name, opts)) as LayoutAssistInvoke) : undefined), []);
@@ -58,6 +58,10 @@ export default function TrialBalanceIntake() {
       setRecheck({ busy: false, text: e instanceof ReprocessRefusedError ? e.message : "The new check could not be started. Nothing was changed." });
     }
   };
+
+  // No file yet: Intake has nothing of its own to show — the one trial balance task (the uploader) opens, keeping every
+  // search parameter (report version included). Period and currency are edited from the engagement's settings dialog.
+  if (!loading && !upload?.id) return <Navigate to={`/workspace/${companyId}/${periodYear}/trial-balance/review${search}`} replace />;
 
   return (
     <div className="space-y-8 p-4">

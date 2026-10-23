@@ -286,6 +286,7 @@ export default function Dashboard() {
       account={{
         identity: { name: user?.user_metadata?.display_name, email: user?.email },
         totals: homeTotals,
+        openedAt: home ? Object.fromEntries(home.engagements.rows.map((r) => [r.engagementId, r.openedAt])) : undefined,
         billing,
         billingLoading,
         billingError: !!billingError,

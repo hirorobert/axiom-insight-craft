@@ -52,7 +52,6 @@ import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useDataStart } from "@/hooks/useDataStart";
 import { deriveLaunchState, impliedService, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
-import { recordDataStart, type RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import TrialBalanceEntryCard from "@/components/workspace/TrialBalanceEntryCard";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
@@ -432,13 +431,6 @@ export default function WorkspaceOverview() {
               // Open (or reuse) the engagement with the implied service, then the single upload surface.
               if (launchState === "LAUNCHPAD") await createEngagement([implied]);
               navigate(`${basePath}/prepare`);
-            }}
-            onStartEmpty={async () => {
-              // Persist first; the Overview then re-derives to the genuine empty workspace. No navigation.
-              const engagementId = launchState === "LAUNCHPAD" ? await createEngagement([implied]) : engagement?.id;
-              if (!engagementId) throw new Error("Your choice could not be saved. Try again.");
-              if (launchState === "LAUNCHPAD") await recordDataStart(supabase as unknown as RpcClient, engagementId, "empty", null);
-              else if (!(await dataStart.record("empty"))) throw new Error("Your choice could not be saved. Try again.");
             }}
           />
         ) : launchState === "LAUNCHPAD" ? (
