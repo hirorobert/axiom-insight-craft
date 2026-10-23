@@ -232,8 +232,8 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
 
   const startCorrectedEngagement = (year: number) => {
     if (!editingCompany) return;
-    setFormDialogOpen(false);
-    setDialogOpen(false);
+    // Keep inline edits mounted until the route blocker accepts leaving.
+    if (!inline) { setFormDialogOpen(false); setDialogOpen(false); }
     // Pure navigation — no Supabase call, no mutation of this company's row, no copy of any
     // certification/draft/reconciliation/processing status from the original engagement. The
     // destination is the existing authoritative creation path: WorkspaceLayout/WorkspaceOverview

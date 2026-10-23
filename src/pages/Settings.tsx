@@ -87,6 +87,7 @@ export default function Settings() {
   }, [user?.id]);
 
   const fetchProfile = async () => {
+    setLoading(true);
     const read = ++profileRead.current;
     setProfileError(false);
     try {
