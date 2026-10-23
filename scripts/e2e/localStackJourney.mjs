@@ -776,7 +776,7 @@ async function main() {
       && ups.length === 1 && ups[0].file_path.startsWith(`workspaces/${B}/`) && ups[0].period_year === 2026 && !!ups[0].period_id
       && draft.length === 1 && draft[0].state === "committed" && draft[0].committed_upload_id === ups[0].id ? true : { co, resultUrl, period, ups, draft };
   });
-  await check("refresh keeps the exact upload; Back returns to focused upload, then the prior home continues to the same entity and period", async () => {
+  await check("refresh keeps the exact upload; Back returns through upload to the company directory; explicit selection resumes the same company/year without another upload", async () => {
     await page.evaluate(() => location.reload()); // a refresh, not a new history entry
     await sleep(1500);
     await page.waitForSelector('[data-testid="trial-balance-current-task"]', { timeout: 60000 });
@@ -786,9 +786,14 @@ async function main() {
     await page.waitForSelector('[data-testid="first-upload-input"]', { timeout: 30000 });
     const afterFirstBack = await page.evaluate(() => location.pathname);
     await page.evaluate(() => history.back());
-    await page.waitFor((b) => location.pathname.startsWith(`/workspace/${b}/2026`) && !location.search.includes("upload="), [B], { timeout: 45000, label: "back to the same entity and period" });
+    await page.waitFor(() => location.pathname === "/dashboard", [], { timeout: 45000, label: "Back to company selection without auto-resume" });
+    await page.waitForSelector('[data-testid="portfolio-count"]', { timeout: 30000 });
+    await page.click({ text: "Open workspace" });
+    await page.waitFor((b) => location.pathname === `/workspace/${b}/2026` && location.search === "?view=company", [B], { timeout: 45000, label: "selected company and period" });
+    await page.waitForSelector('[data-testid="company-workspace-home"]');
     const afterBack = await page.evaluate(() => location.pathname);
-    return afterRefresh === resultUrl && afterFirstBack === "/upload" ? true : { resultUrl, afterRefresh, afterFirstBack, afterBack };
+    const uploadsAfterBack = (await admin.from("trial_balance_uploads").select("id").eq("company_id", B)).data ?? [];
+    return afterRefresh === resultUrl && afterFirstBack === "/upload" && uploadsAfterBack.length === 1 && resultUrl.includes(uploadsAfterBack[0].id) ? true : { resultUrl, afterRefresh, afterFirstBack, afterBack, uploadsAfterBack };
   });
 
   startGroup("Purchase required: the draft is kept and the customer continues after choosing a plan (Phase 2 P2-4)");

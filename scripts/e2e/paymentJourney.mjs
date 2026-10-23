@@ -260,7 +260,7 @@ async function main() {
   })();
   await signInAs(U.fresh);
   await check("a genuinely fresh account sees no company, engagement, demonstration data or plan — one next step (choose a plan before company creation)", async () => {
-    await go("/dashboard", "Companies & engagements");
+    await go("/dashboard", "Your companies");
     await page.waitForSelector('[data-testid="account-next-action"][data-kind="choose_plan"]');
     const t = await page.bodyText();
     const needsPlan = await page.evaluate(() => document.querySelector('[data-testid="account-next-action"]')?.getAttribute("data-kind") === "choose_plan");
@@ -314,7 +314,7 @@ async function main() {
     return Object.values(seen).every((s) => ["/settings", "/plans", "/settings/billing"].every((href) => s.settings.includes(href)) && s.account.profile && s.account.signOut && !s.signIn) ? true : seen;
   });
   await check("management: header opens one window; unsaved profile edits survive Keep editing, Escape requests discard, close restores the origin and keyboard focus", async () => {
-    await go("/dashboard", "Companies & engagements");
+    await go("/dashboard", "Your companies");
     await page.click('[aria-label="Settings menu"]');
     await page.click('[role="menu"] a[href="/settings"]');
     await page.waitForSelector('[role="dialog"] #displayName');
@@ -331,7 +331,7 @@ async function main() {
     return kept ? true : "Keep editing lost the unsaved profile name";
   });
   await check("keyboard: Tab reaches the skip link first and the primary plan action; Enter opens plans", async () => {
-    await go("/dashboard", "Companies & engagements");
+    await go("/dashboard", "Your companies");
     await page.waitForSelector('[data-testid="next-action-primary"]');
     await page.press("Tab");
     const first = await page.evaluate(() => document.activeElement?.innerText?.trim());
@@ -348,10 +348,10 @@ async function main() {
     return first === "Skip to content" ? true : { first };
   });
   await check("home at 1280 and 375 px (fresh account): no sideways scrolling", async () => {
-    await go("/dashboard", "Companies & engagements");
+    await go("/dashboard", "Your companies");
     return widths("00-fresh-home");
   });
-  await go("/dashboard", "Companies & engagements");
+  await go("/dashboard", "Your companies");
   await page.click('[data-testid="next-action-primary"]');
   await page.waitFor(() => location.pathname === "/plans", [], { label: "plans from the next step" });
   await check("plans (online payment closed, no approved price): 'Proposed', payment shown as unavailable with Contact support — no checkout link, no manual activation, no TZS, no mobile money", async () => {
@@ -418,7 +418,7 @@ async function main() {
   });
   await check("with a plan granted by an administrator: Add company opens focused setup; creating one opens its workspace", async () => {
     await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
-    await go("/dashboard", "Companies & engagements");
+    await go("/dashboard", "Your companies");
     await page.waitForSelector('[data-testid="add-company"]');
     await page.click('[data-testid="add-company"]');
     await page.waitForSelector('[data-testid="company-setup-page"]');
