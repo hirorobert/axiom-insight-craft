@@ -265,9 +265,9 @@ async function main() {
     await page.waitForSelector('[data-testid="add-company"]', { timeout: 30000 });
     const layout = await widths("02-first-visit");
     const entry = await page.evaluate(() => ({ add: document.querySelector('[data-testid="add-company"]')?.getAttribute("href"), upload: document.querySelector('[data-testid="portfolio-upload-link"]')?.getAttribute("href") ?? null, inline: !!document.getElementById("fr-org") }));
-    return layout === true && entry.add === "/companies/new" && entry.upload === null && !entry.inline ? true : { entry, layout };
+    return layout === true && entry.add === null && entry.upload === null && !entry.inline ? true : { entry, layout };
   });
-  await check("first run creates the company through the real form, reached by Add company (FY ending 30 June, TZS, IFRS for SMEs), and opens its workspace", async () => {
+  await check("first run creates the company through the real form, reached by Add company (FY ending 30 June, TZS, IFRS for SMEs), and saves it to the directory without starting a service", async () => {
     await page.click('[data-testid="add-company"]');
     await page.waitForSelector("#fr-org", { timeout: 30000 });
     await widths("02-first-run");
@@ -277,8 +277,14 @@ async function main() {
     if (!(await chooseCurrency("Functional currency", "TZS"))) return "the currency could not be chosen";
     await pickRadix("#fr-framework", "IFRS for SMEs");
     await page.click('form[aria-label="Add an entity"] button[type=submit]');
-    const url = await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026/, { timeout: 45000 });
-    A = url.match(/\/workspace\/([0-9a-f-]{36})\//)[1];
+    await page.waitForSelector('[data-testid="companies-without-engagement-list"]', { timeout: 45000 });
+    const saved = (await admin.from("companies").select("id").eq("user_id", U.owner.id).eq("name", "Mto Holdings Limited")).data ?? [];
+    if (saved.length !== 1) return { saved };
+    A = saved[0].id;
+    const started = (await admin.from("engagements").select("id").eq("company_id", A)).data ?? [];
+    if (started.length !== 0) return { unexpectedlyStarted: started };
+    await page.click(`[data-testid="start-service-${A}"]`);
+    await page.waitForUrl(/\/workspace\/[0-9a-f-]{36}\/2026/, { timeout: 45000 });
     base = `/workspace/${A}/2026`;
     return true;
   });
@@ -293,7 +299,7 @@ async function main() {
 
   await check("selecting a company opens its task menu for the same year without creating another engagement", async () => {
     const before = (await admin.from("engagements").select("id").eq("company_id", A)).data ?? [];
-    await go(`${base}?view=company`, "Select a task for this reporting period");
+    await go(`${base}?view=company`, "Your reporting workflow");
     await page.waitForSelector('[data-testid="company-workspace-home"]');
     const href = await page.evaluate(() => document.querySelector('[data-testid="company-workspace-home"] a[href$="/trial-balance/review"]')?.getAttribute("href") ?? null);
     await shot("03-company-menu");

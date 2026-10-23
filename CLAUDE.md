@@ -352,6 +352,7 @@ This map is verified by `src/lib/__tests__/claudeFileMap.test.ts`: every path be
 src/
   lib/
     workspace/
+      workspacePurposeClient.ts ← Purpose save with server readback and uncertain-response recovery
       stageMetadata.ts        ← CANONICAL stage slugs/labels/icons/sequence
       types.ts                ← WorkspaceMission, MissionStatus, WorkspaceState
       deriveWorkspaceState.ts ← Pure state engine (no async, no side effects)

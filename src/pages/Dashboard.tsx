@@ -278,7 +278,7 @@ export default function Dashboard() {
         capacityError: !!capacityError,
         onRetry: () => { retryBilling(); retryCapacity(); },
         onSignOut: signOutHome,
-        onCompanyCreated: (companyId, year) => navigate(`/workspace/${companyId}/${year}`, { replace: true }),
+        onCompanyCreated: () => { toast.success("Company saved. Open its workspace to begin."); void refresh(); retryCapacity(); },
         // A history entry of its own (not a replace): Back returns to the account home, which routes on from the
         // re-read engagements; the upload id in the URL keeps this exact result on refresh.
         onOpenTrialBalance: (companyId, year, uploadId) => navigate(firstUploadResultRoute(companyId, year, uploadId)),
