@@ -152,6 +152,7 @@ describe("EngagementPortfolio", () => {
     const record = q(el, `portfolio-row-${C(1001)}`)!;
     expect(record.querySelector("[data-testid=portfolio-status]")!.textContent).toBe("Trial balance accepted");
     expect(record.textContent).toContain("Training");
+    expect(q(el, "portfolio-cards")!.textContent).toContain("Training");
   });
 
 });

@@ -269,7 +269,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
               <li key={r.engagementId} className="rounded-sm border border-border p-4">
                 <div className="flex flex-col items-start justify-between gap-2 sm:flex-row">
                   <div className="min-w-0">
-                    <p className="break-words font-medium text-foreground">{r.companyName}</p>
+                    <p className="break-words font-medium text-foreground">{r.companyName}{(r.purpose === "test" || r.purpose === "training") && <span className="ml-2 border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground">{PORTFOLIO_PURPOSE_LABEL[r.purpose]}</span>}</p>
                     <p className="text-[12px] text-muted-foreground">{periodWords(r)} · {r.currency ?? "Currency not set"}</p>
                   </div>
                   {r.serviceWithheld ? <span className="text-[12px] text-muted-foreground">Service no longer offered</span> : <StatusChip status={r.status} />}
