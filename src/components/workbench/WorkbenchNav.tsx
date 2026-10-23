@@ -25,7 +25,7 @@ export function WorkbenchNav({ model, activePage, reportVersion, groupStatus }: 
             <li key={g.id}>
               <Link
                 to={withContext(g.href, ctx)}
-                aria-current={active ? "true" : undefined}
+                aria-current={active ? g.pages.length === 1 ? "page" : "true" : undefined}
                 className={["block rounded px-3 py-2 font-medium", active ? "bg-background shadow-[inset_3px_0_0_hsl(var(--primary))]" : "hover:bg-muted"].join(" ")}
               >
                 {g.label}

@@ -109,7 +109,7 @@ describe("WorkbenchNav", () => {
     expect(text).not.toMatch(/Close Review|Financial Statements|Sign-off/);
     expect(text).not.toMatch(/Tax|Monitor|Compliance|Filing/);
     const current = nav.querySelector('[aria-current="page"]')!;
-    expect(current.textContent).toBe("Account review");
+    expect(current.textContent).toContain("Trial Balance");
     for (const a of nav.querySelectorAll("a")) expect(a.getAttribute("href")).toMatch(/\?v=4$/);
     expect(text).toContain("Reconcile");
     expect(text).toContain("Needs review");

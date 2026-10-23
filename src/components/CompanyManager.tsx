@@ -178,13 +178,16 @@ function StartCorrectedEngagementAffordance({
   );
 }
 
-export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "dialog" | "inline" }) => {
+export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
+  presentation?: "dialog" | "inline"; companyId?: string; onDone?: () => void;
+}) => {
   const inline = presentation === "inline";
   const [saving, setSaving] = useBusyState("Saving company…");
   const [deleting, setDeleting] = useBusyState("Removing company…");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [finished, setFinished] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [discardPrompt, setDiscardPrompt] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -208,6 +211,7 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
     if (saving) return;
     if (dirty) { setDiscardPrompt(true); return; }
     setFormDialogOpen(false);
+    if (companyId) setFinished(true);
   };
 
   // ── Period/framework contract: once ANY trial balance for this company has been processed,
@@ -255,10 +259,10 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
   };
 
   useEffect(() => {
-    if (dialogOpen || inline) {
+    if ((dialogOpen || inline) && !companyId) {
       fetchCompanies();
     }
-  }, [user, dialogOpen, inline]);
+  }, [user, dialogOpen, inline, companyId]);
 
   const resetForm = () => {
     setDiscardPrompt(false);
@@ -388,7 +392,7 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
 
       setFormDialogOpen(false);
       resetForm();
-      fetchCompanies();
+      if (companyId) setFinished(true); else fetchCompanies();
       retryCapacity();
     } catch (error) {
       console.error("Company save error:", error);
@@ -454,6 +458,21 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
     setFormData(editData);
     setFormDialogOpen(true);
   };
+
+  useEffect(() => {
+    if (!companyId || !user) return;
+    let live = true;
+    setLoading(true);
+    void supabase.from("companies").select("*").eq("id", companyId).eq("is_active", true).maybeSingle().then(({ data, error }) => {
+      if (!live) return;
+      if (error || !data) setLoadError(true); else handleEdit(data);
+      setLoading(false);
+    }, () => { if (live) { setLoadError(true); setLoading(false); } });
+    return () => { live = false; ++lockRead.current; };
+    // The scoped editor is keyed by company at its host. Never reload and overwrite a dirty form on a callback change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, user?.id]);
+  useEffect(() => { if (finished && !saving && !dirty) onDone?.(); }, [finished, saving, dirty, onDone]);
 
   const tinError = formData.tin.trim() ? validateTin(formData.tin) : null;
   const showTinError = tinTouched && !!tinError;
@@ -577,7 +596,7 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
   );
   const companyForm = (
           <form onSubmit={handleSubmit} aria-busy={saving} className="space-y-4 overflow-y-auto flex-1 pr-1">
-            {discardPrompt && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-border bg-muted/30 p-4 text-sm"><p>Discard the unsaved company changes?</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setDiscardPrompt(false)}>Keep editing</Button><Button type="button" variant="destructive" onClick={() => { setFormDialogOpen(false); resetForm(); }}>Discard changes</Button></div></div>}
+            {discardPrompt && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-border bg-muted/30 p-4 text-sm"><p>Discard the unsaved company changes?</p><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setDiscardPrompt(false)}>Keep editing</Button><Button type="button" variant="destructive" onClick={() => { setFormDialogOpen(false); resetForm(); if (companyId) setFinished(true); }}>Discard changes</Button></div></div>}
             <fieldset disabled={saving} className="contents">
             <div className="space-y-2">
               <Label htmlFor="name">Company Name *</Label>
@@ -726,8 +745,8 @@ export const CompanyManager = ({ presentation = "dialog" }: { presentation?: "di
           </form>
   );
   return <>
-    {inline ? (formDialogOpen ? <section aria-label={editingCompany ? "Edit company" : "Add company"}>
-      <div className="mb-5 flex items-center justify-between gap-3"><h3 className="text-base font-semibold">{editingCompany ? "Edit company" : "Add company"}</h3><Button type="button" variant="outline" disabled={saving} onClick={closeForm}>Back to companies</Button></div>
+    {companyId && loading ? <p role="status">Reading company details…</p> : companyId && loadError ? <p role="alert">Company details could not be read. Close and try again.</p> : inline ? (formDialogOpen ? <section aria-label={editingCompany ? "Edit company" : "Add company"}>
+      <div className="mb-5 flex items-center justify-between gap-3"><h3 className="text-base font-semibold">{editingCompany ? "Edit company" : "Add company"}</h3><Button type="button" variant="outline" disabled={saving} onClick={closeForm}>{companyId ? "Cancel" : "Back to companies"}</Button></div>
       {companyForm}
     </section> : companyList) : <>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

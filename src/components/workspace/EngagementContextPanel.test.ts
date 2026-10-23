@@ -46,8 +46,8 @@ describe("EngagementContextPanel", () => {
     expect(q(el, "engagement-context-framework")).not.toBeNull();
     // Period and currency open a dialog over the current page — never a navigation to another full page.
     expect(el.querySelector('a[href="/workspace/c1/2026/trial-balance/intake"]')).toBeNull();
-    expect(q(el, "open-period-settings")!.tagName).toBe("BUTTON");
-    expect(el.querySelector('a[href="/settings"]')).not.toBeNull();
+    expect(q(el, "open-period-settings")!.getAttribute("href")).toBe("/settings?section=engagement");
+    expect(q(el, "open-company-settings")!.getAttribute("href")).toBe("/settings?section=companies&company=c1");
     expect(await axeViolations(el)).toEqual([]);
   });
   it("the clearing-balance policy is a review note by default; changing it needs a reason and says what it re-checks", async () => {

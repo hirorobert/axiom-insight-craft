@@ -6,7 +6,7 @@ import { impliedService, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 import { CUSTOMER_CAPABILITY_OUTCOMES } from "@/lib/workspace/mandate";
 
 const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-const render = (canStart: boolean) => renderToStaticMarkup(createElement(TrialBalanceEntryCard, { canStart, onUpload: async () => {}, onStartEmpty: async () => {} }));
+const render = (canStart: boolean) => renderToStaticMarkup(createElement(TrialBalanceEntryCard, { canStart, onUpload: async () => {} }));
 
 describe("Phase 2 §5.1: the one way in while only one service exists", () => {
   it("the service is implied only when exactly one customer service exists", () => {
@@ -17,13 +17,13 @@ describe("Phase 2 §5.1: the one way in while only one service exists", () => {
     // data" is shown to a customer.
     expect(impliedService(CUSTOMER_CAPABILITY_OUTCOMES.map((o) => o.capability))).toBe("FINANCIAL_STATEMENTS");
   });
-  it("one dominant action (upload) and one quiet secondary link (start without data); neither removed question appears", () => {
+  it("one explicit service-start action; there is no empty-workspace detour", () => {
     const html = render(true);
     expect(text(html)).toContain(LAUNCH_COPY.entryHeading);
     expect((html.match(/data-testid="entry-upload"/g) ?? []).length).toBe(1);
-    expect(html).toContain('data-testid="entry-start-empty"');
-    expect(text(html)).toContain(LAUNCH_COPY.entryAction);
-    expect(text(html)).toContain(LAUNCH_COPY.secondaryAction);
+    expect(html).not.toContain('data-testid="entry-start-empty"');
+    expect(text(html)).toContain("Start trial balance review");
+    expect(text(html)).not.toContain(LAUNCH_COPY.secondaryAction);
     expect(text(html)).not.toMatch(/What would you like to complete|Add financial data/);
   });
   it("without permission to start work, nothing is offered and the reason is stated", () => {

@@ -21,7 +21,7 @@
 
 import { useState, useEffect } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowRight, AlertTriangle } from "lucide-react";
@@ -51,7 +51,7 @@ import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
 import DataChoiceCard from "@/components/workspace/DataChoiceCard";
 import { EntityContextSuggestion } from "@/components/workspace/EntityContextSuggestion";
 import { useDataStart } from "@/hooks/useDataStart";
-import { deriveLaunchState, impliedService, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
+import { deriveLaunchState, impliedService, requiresAccountingData, LAUNCH_COPY } from "@/lib/workspace/onboardingState";
 import TrialBalanceEntryCard from "@/components/workspace/TrialBalanceEntryCard";
 import { evaluateTaxProfile, TAX_PROFILE_COPY } from "@/lib/jurisdiction/taxProfile";
 import { resolveNextActionDestination } from "@/lib/workspace/resolveNextActionDestination";
@@ -79,6 +79,7 @@ export default function WorkspaceOverview() {
   } = useWorkspace();
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [retrying, setRetrying] = useState(false);
   const [tinDialogOpen, setTinDialogOpen] = useState(false);
@@ -342,6 +343,11 @@ export default function WorkspaceOverview() {
       button,
       tone: nextAction.blocked ? "muted" : "primary",
     };
+  }
+
+  // Scope already exists: visiting a route is a read, never a new service/data-start command.
+  if (!mandateLoading && !dataStart.loading && engagement && !upload && granted?.some((cap) => requiresAccountingData(cap))) {
+    return <Navigate to={`${basePath}/prepare${location.search}${location.hash}`} replace />;
   }
 
   // One route to the exact upload on screen that opens and focuses Prepare Data's "Manage Trial Balance" area.

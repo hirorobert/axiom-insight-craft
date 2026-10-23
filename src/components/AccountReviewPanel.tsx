@@ -11,6 +11,8 @@
  * mapping — the accountant's decision is what gets written.
  */
 
+import { useManagementEditGuard } from "@/components/account/managementState";
+import { useBusyState } from "@/hooks/useBusyState";
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { buildBatchDecisions, isTreatmentReasonValid, KEEP_AS_MAPPED_CHOICE, type ReviewFlagDecisions } from "@/lib/accounting/buildReviewDecisions";
@@ -291,7 +293,7 @@ export function AccountReviewPanel({
   const [keepReasons,  setKeepReasons]  = useState<Record<string, string>>({});
   /** The reason being typed; it is recorded only by the explicit button, so a row never vanishes mid-typing. */
   const [keepDrafts,   setKeepDrafts]   = useState<Record<string, string>>({});
-  const [saving,       setSaving]       = useState(false);
+  const [saving,       setSaving]       = useBusyState("Saving review decisions…");
   const [reprocessing, setReprocessing] = useState(false);
   /** The last save was refused: nothing was saved, the decisions on screen are kept, and the reason is shown inline. */
   const [saveFailed,   setSaveFailed]   = useState(false);
@@ -305,6 +307,14 @@ export function AccountReviewPanel({
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const touch = useCallback((key: string) => setTouched((prev) => (prev.has(key) ? prev : new Set(prev).add(key))), []);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const editSnapshot = JSON.stringify([choices, [...excluded], flagChoices, keepReasons, keepDrafts, [...touched]]);
+  const [savedEdits, setSavedEdits] = useState(editSnapshot);
+  const reviewAttempt = useRef<{ payload: string; id: string } | null>(null);
+  const releaseNavigation = useManagementEditGuard(editSnapshot !== savedEdits, saving, () => {
+    const [c, e, flags, reasons, drafts, reviewed] = JSON.parse(savedEdits);
+    setChoices(c); setExcluded(new Set(e)); setFlagChoices(flags); setKeepReasons(reasons); setKeepDrafts(drafts); setTouched(new Set(reviewed));
+  });
+
 
   // PPG-1R: guards the reprocess poll's async callbacks against firing
   // this component's own state updates after it has unmounted (e.g. the
@@ -414,16 +424,15 @@ export function AccountReviewPanel({
   // ── Save & Reprocess ──────────────────────────────────────────────────────
 
   const handleSaveAndReprocess = async () => {
-    if (!allResolved || isWorking) return;
+    if (!allResolved || isWorking || !setSaving(true)) return;
     setSaveFailed(false);
-    setSaving(true);
 
     // Ω∞ Phase 2A: professional intent only. Actor identity, company/upload
     // membership, canonical account identity, and provenance are all derived
     // server-side inside resolve_account_review_batch() — nothing here is
     // treated as authoritative. userId is no longer sent; it was never
     // trustworthy as a write-time identity claim.
-    const clientRequestId = crypto.randomUUID();
+    let clientRequestId: string;
 
     try {
       // Treatment rows kept as mapped become CONFIRM_ACCOUNT_TREATMENT (bound by the server to the engine's request);
@@ -441,6 +450,11 @@ export function AccountReviewPanel({
         excluded, choices, keepReasons, flagChoices, classificationMeta,
       );
 
+      // An unanswered commit is retried with the same identity for the same professional decisions.
+      const payload = JSON.stringify(decisions);
+      if (reviewAttempt.current?.payload !== payload) reviewAttempt.current = { payload, id: crypto.randomUUID() };
+      clientRequestId = reviewAttempt.current.id;
+
       // `resolve_account_review_batch` is defined in migration 20260816120000,
       // not yet applied to any project this environment can reach — generated
       // Supabase types (src/integrations/supabase/types.ts) predate it and
@@ -457,6 +471,9 @@ export function AccountReviewPanel({
       );
       if (rpcError) throw rpcError;
 
+      reviewAttempt.current = null;
+      setSavedEdits(editSnapshot);
+      releaseNavigation();
       setSaving(false);
       setReprocessing(true);
       toast.info("Decisions saved — reprocessing upload…");

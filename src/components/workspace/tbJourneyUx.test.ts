@@ -133,8 +133,8 @@ describe("without review access", () => {
   });
 });
 
-async function mountPanel(accounts: { account_code: string; account_name: string; suggested_classification?: string }[]) {
-  vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: vi.fn(), from: () => readChain() } }));
+async function mountPanel(accounts: { account_code: string; account_name: string; suggested_classification?: string }[], reviewRpc = vi.fn()) {
+  vi.doMock("@/integrations/supabase/client", () => ({ supabase: { rpc: reviewRpc, from: () => readChain() } }));
   vi.doMock("@/lib/ensureFreshSession", () => ({ ensureFreshSession: async () => undefined }));
   vi.doMock("@/lib/workspace/requestReprocess", () => ({ requestReprocess: vi.fn() }));
   const { AccountReviewPanel } = await import("../AccountReviewPanel");
@@ -148,6 +148,19 @@ async function mountPanel(accounts: { account_code: string; account_name: string
 }
 
 describe("account review: pre-selected suggestions", () => {
+  it("locks same-tick review submissions and reuses the request identity after an uncertain answer", async () => {
+    let reject!: (e: Error) => void;
+    const rpc = vi.fn().mockImplementationOnce(() => new Promise((_r, no) => { reject = no; })).mockRejectedValue(new Error("answer lost"));
+    const { q } = await mountPanel([{ account_code: "1000", account_name: "Cash", suggested_classification: "current_assets" }], rpc);
+    act(() => { (q("account-review-save") as HTMLButtonElement).click(); (q("account-review-save") as HTMLButtonElement).click(); });
+    await flush(); expect(rpc).toHaveBeenCalledTimes(1);
+    await act(async () => reject(new Error("answer lost"))); await flush();
+    click(q("account-review-save")!); await flush();
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls[1][1].p_client_request_id).toBe(rpc.mock.calls[0][1].p_client_request_id);
+    expect(rpc.mock.calls[1][1].p_decisions).toEqual(rpc.mock.calls[0][1].p_decisions);
+  });
+
   it("when every account starts on a suggestion, they are listed to check, and saving is described truthfully", async () => {
     const { q, text } = await mountPanel([
       { account_code: "1000", account_name: "Cash at bank", suggested_classification: "current_assets" },

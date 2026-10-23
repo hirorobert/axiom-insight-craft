@@ -1,0 +1,91 @@
+// Isolated UI acceptance. Install Playwright outside the repository, then set DIVINE_PLAYWRIGHT_MODULE.
+// Optional CHROME_BIN supports an existing Chromium. No hosted backend is contacted.
+import { spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+const { chromium } = await import(process.env.DIVINE_PLAYWRIGHT_MODULE || 'playwright');
+const server = spawn('./node_modules/.bin/vite', ['--config', 'dev-harness/divine/vite.config.ts'], { stdio: ['ignore', 'pipe', 'inherit'] });
+const ready = new Promise((resolve, reject) => { server.stdout.on('data', d => { if (String(d).includes('Local:')) resolve(); }); server.once('exit', code => reject(new Error(`Vite exited: ${code}`))); });
+await ready;
+const browser = await chromium.launch({ ...(process.env.CHROME_BIN ? { executablePath: process.env.CHROME_BIN } : {}), args: ['--no-sandbox', '--disable-dev-shm-usage'], headless: true });
+const results = [];
+const out = process.env.DIVINE_BROWSER_OUTPUT || '/tmp/divine-browser';
+await mkdir(out, { recursive: true });
+try {
+for (const [device, viewport] of [['desktop', { width: 1440, height: 960 }], ['mobile', { width: 390, height: 844 }]]) {
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage(); const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
+  const calls = name => page.evaluate(n => window.__divine.fixture.calls.filter(c => c.name === n).length, name);
+  const selectCurrency = async () => { await page.locator('#fr-currency').click(); await page.locator('#fr-currency').fill('TZS'); await page.locator('#fr-currency').press('ArrowDown'); await page.locator('#fr-currency').press('Enter'); };
+  await page.goto('http://127.0.0.1:8094/dashboard'); await page.getByTestId('add-company').click();
+  await page.locator('#fr-org').fill('DIVINE QA FIXTURE'); await selectCurrency();
+  await page.locator('#fr-year').click(); await page.getByRole('option', { name: '2025', exact: true }).click();
+  // Radix restores focus after its selection animation, just as it does for keyboard users.
+  await page.waitForTimeout(200);
+  await page.locator('#fr-framework').click(); await page.getByRole('option', { name: 'IFRS for SMEs', exact: true }).click();
+  await page.waitForTimeout(200);
+  await page.locator('form[aria-label="Add an entity"] button[type=submit]').dblclick();
+  await page.getByTestId('entry-upload').waitFor(); assert.equal(await calls('create_entity'), 1);
+  await page.getByTestId('entry-upload').dblclick(); await page.waitForURL('**/trial-balance/review');
+  assert.equal(await calls('open_engagement_with_scope'), 1);
+  const task = page.url();
+  await page.goBack(); await page.waitForURL(task); assert.equal(await calls('open_engagement_with_scope'), 1);
+  const openPeriod = async () => { const settings = page.getByTestId('engagement-settings'); if (!(await settings.locator('summary').evaluate(e => e.parentElement.open))) await settings.locator('summary').click(); await page.getByTestId('open-period-settings').click(); await page.getByRole('dialog').getByLabel('Start date', { exact: true }).waitFor(); };
+  await openPeriod();
+  await page.getByRole('dialog').getByLabel('Start date', { exact: true }).fill('2025-02-01');
+  await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  assert.equal(await page.getByRole('dialog').getByLabel('Start date', { exact: true }).inputValue(), '2025-02-01');
+  await page.evaluate(() => { window.__divine.fixture.failPeriod = true; });
+  await page.getByRole('button', { name: 'Set up the period', exact: true }).click();
+  await page.getByText('The save could not be confirmed.', { exact: false }).waitFor();
+  assert.equal(await page.getByRole('dialog').getByLabel('Start date', { exact: true }).inputValue(), '2025-02-01');
+  await page.getByRole('dialog').getByLabel('Start date', { exact: true }).fill('2025-01-01');
+  await page.evaluate(() => { window.__divine.fixture.dropPeriodAnswer = true; window.__divine.fixture.delay = 600; });
+  await page.getByRole('button', { name: 'Set up the period', exact: true }).click();
+  await page.keyboard.press('Escape'); await page.getByText('A save is still in progress.', { exact: false }).waitFor();
+  await page.getByText('The save could not be confirmed.', { exact: false }).waitFor();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await page.getByRole('button', { name: 'Set up the period', exact: true }).click();
+  await page.waitForURL(task); await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
+  assert.equal(await page.evaluate(() => window.__divine.tb.tables.engagements.length), 1);
+  assert.equal(await page.evaluate(() => window.__divine.tb.tables.fiscal_periods.length), 1);
+  await page.getByTestId('open-company-settings').click();
+  await page.getByRole('dialog').getByLabel('Company Name *', { exact: true }).fill('DIVINE UNSAVED');
+  await page.keyboard.press('Escape'); await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await page.waitForURL(task);
+  await page.getByTestId('open-company-settings').click();
+  await page.getByRole('dialog').getByLabel('Company Name *', { exact: true }).fill('DIVINE QA SAVED');
+  await page.getByRole('button', { name: 'Update', exact: true }).click(); await page.waitForURL(task);
+  await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
+  assert.equal(await page.evaluate(() => window.__divine.tb.tables.companies[0].name), 'DIVINE QA SAVED');
+  await page.locator('input[type=file]').first().setInputFiles({ name: 'divine-test.csv', mimeType: 'text/csv', buffer: Buffer.from('Account Code,Account Name,Debit,Credit\n1000,Cash at bank,1500.00,\n1100,Trade receivables,500.00,\n2000,Trade payables,,600.00\n4000,Sales revenue,,1400.00\n') });
+  await page.getByRole('link', { name: 'All engagements', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep working', exact: true }).click();
+  assert.equal(page.url(), task);
+  await page.getByRole('button', { name: 'Upload and check', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm 4 classifications and reprocess', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: 'Cash or bank account', exact: true }).first().click();
+  await page.getByRole('link', { name: 'All engagements', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep working', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm 4 classifications and reprocess', exact: true }).click();
+  await page.waitForFunction(() => window.__divine.tb.tables.tb_certifications.some(c => !c.is_blocking && !c.requires_review));
+  // Leaving while a server check finishes must resume from the recorded outcome.
+  await page.getByRole('link', { name: 'All engagements', exact: true }).click();
+  await page.getByTestId('continue-status').filter({ hasText: 'Trial balance accepted' }).waitFor();
+  await page.getByTestId('continue-action').click();
+  await page.reload();
+  await page.getByText('Checked by an earlier version.', { exact: true }).first().waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await page.evaluate(() => window.__divine.tb.tables.engagements.length), 1);
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  await page.screenshot({ path: `${out}/${device}.png`, fullPage: true });
+  assert.ok(await page.getByRole('link', { name: 'All engagements', exact: true }).isVisible());
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'horizontal overflow');
+  assert.deepEqual(errors, []);
+  results.push({ device, cases: ['create-once', 'start-once-direct-upload', 'in-place-period', 'company-discard-save-return', 'keyboard-currency-and-Escape', 'Back-no-mutation-replay', 'failed-save-retains', 'lost-answer-retry-single-engagement', 'busy-dismiss-blocked', 'selected-file-leave-guard', 'classification-edit-leave-guard', 'upload-review', 'server-accepted-continue', 'refresh-reopen-historical-accepted-summary', 'visible-exit', 'no-horizontal-overflow'], financialBackend: 'simulated; real UI and ingestion parser' });
+  await context.close();
+}
+console.log(JSON.stringify(results, null, 2));
+} finally { await browser.close(); server.kill('SIGTERM'); }

@@ -56,6 +56,9 @@ import { projectMandate } from "@/lib/workspace/mandate";
 import { STAGE_SEQUENCE } from "@/lib/workspace/stageMetadata";
 import type { MissionState, WorkspaceMission } from "@/lib/workspace/types";
 import { WorkspaceContext } from "@/contexts/WorkspaceContext";
+import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
+import { supabase } from "@/integrations/supabase/client";
+import type { RpcClient } from "@/lib/workspace/workspaceSetupClient";
 import TrialBalanceIntake from "@/pages/workspace/TrialBalanceIntake";
 import { axeViolations, click, key, mount, type Mounted } from "./testkit/dom";
 
@@ -114,7 +117,7 @@ describe("navigation: derived from the existing model; unavailable modules hidde
     expect(model.groups.map((g) => g.label)).toEqual(["Overview", "Trial Balance"]);
     for (const hidden of ["Close Review", "Findings", "Adjustments", "Financial Statements", "Notes", "Sign-off", "Exports", "Tax", "Compliance", "Filing", "Monitor"]) expect(text).not.toContain(hidden);
     const hrefs = [...m.container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    expect(hrefs).toContain(`${base}/trial-balance/intake?v=3`);
+    expect(hrefs).not.toContain(`${base}/trial-balance/intake?v=3`);
     expect(hrefs).toContain(`${base}/trial-balance/review?v=3`);
     expect(hrefs.every((x) => x?.endsWith("?v=3"))).toBe(true);
     expect(await axeViolations(m.container)).toEqual([]);
@@ -149,7 +152,7 @@ describe("intake: the real page, end to end against the server contracts", () =>
       return { data: null, error: null };
     };
     const refreshUpload = vi.fn();
-    m = mount(page(h(WorkspaceContext.Provider, { value: workspace(refreshUpload) }, h(TrialBalanceIntake))));
+    m = mount(page(h(PeriodSetup, { client: supabase as unknown as RpcClient, companyId: "c1" })));
     await flush();
 
     // 1. Reporting period: explicit dates, BHD, and the adjacent prior period. No default currency.
@@ -163,6 +166,9 @@ describe("intake: the real page, end to end against the server contracts", () =>
       p_capabilities: ["FINANCIAL_STATEMENTS"], p_prior_start: "2023-07-01", p_prior_end: "2024-06-30" });
     expect(document.body.textContent).toContain("Reporting period 2024-07-01 to 2025-06-30 (BHD) is set up.");
 
+    m.unmount();
+    m = mount(page(h(WorkspaceContext.Provider, { value: workspace(refreshUpload) }, h(TrialBalanceIntake))));
+    await flush();
     // 2. Manual layout: the server's reading pre-fills code/name and the unambiguous number format; the person adds
     //    Debit/Credit and checks the WHOLE file — the report shows three-decimal BHD totals and every row.
     set(field("Debit"), "Soll"); set(field("Credit"), "Haben");

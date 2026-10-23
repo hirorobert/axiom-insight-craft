@@ -1,3 +1,4 @@
+import { ContinueEngagement } from "@/components/workspace/ContinueEngagement";
 import { useBusyState } from "@/hooks/useBusyState";
 /**
  * EngagementHub — the deterministic workspace chooser, and the ACCOUNT HOME.
@@ -286,7 +287,8 @@ export default function EngagementHub({
           )}
         </section>
       )}
-      {(() => {
+      {account && portfolio && <ContinueEngagement key={account.identity?.email ?? "account"} />}
+      {!portfolio && (() => {
         // "Continue where you left off": the latest accessible engagement whose trial balance is not finished, from the
         // persisted workspace state only. Not shown when the next-step card above already resumes that engagement.
         const c = pickContinueEngagement(entries, account?.openedAt);
@@ -305,6 +307,33 @@ export default function EngagementHub({
           </section>
         );
       })()}
+      {companiesWithoutEngagement.length > 0 && (
+        <section className="mb-10">
+          <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
+            Companies without a service yet
+          </h2>
+          <ul className="grid gap-2" data-testid="companies-without-engagement-list">
+            {companiesWithoutEngagement.map((company) => (
+              <li key={company.id}>
+                <button
+                  type="button"
+                  onClick={() => onStartService(company)}
+                  data-testid={`start-service-${company.id}`}
+                  className="w-full text-left p-3.5 border border-border hover:border-primary/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring transition-colors flex items-center gap-3"
+                >
+                  <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-foreground">{company.name}</span><span className="block text-xs text-muted-foreground">Company created · No engagement started</span></span>
+                  <span className="text-[12px] text-muted-foreground shrink-0">Start trial balance review</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {account?.totals && account.totals.companiesWithoutEngagement > companiesWithoutEngagement.length && (
+            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="companiesWithoutEngagement-more">And {account.totals.companiesWithoutEngagement - companiesWithoutEngagement.length} more — open them from Settings › Companies.</p>
+          )}
+        </section>
+      )}
       {portfolio && account && (
         <div className="mb-10"><EngagementPortfolio headingLevel="h2" title="All engagements" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
       )}
@@ -384,33 +413,6 @@ export default function EngagementHub({
         </section>
       )}
 
-      {companiesWithoutEngagement.length > 0 && (
-        <section className="mb-10">
-          <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">
-            Companies without a service yet
-          </h2>
-          <ul className="grid gap-2" data-testid="companies-without-engagement-list">
-            {companiesWithoutEngagement.map((company) => (
-              <li key={company.id}>
-                <button
-                  type="button"
-                  onClick={() => onStartService(company)}
-                  data-testid={`start-service-${company.id}`}
-                  className="w-full text-left p-3.5 border border-border hover:border-primary/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring transition-colors flex items-center gap-3"
-                >
-                  <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                  <span className="text-[13px] font-medium text-foreground flex-1 truncate">{company.name}</span>
-                  <span className="text-[12px] text-muted-foreground shrink-0">Start trial balance review</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-          {account?.totals && account.totals.companiesWithoutEngagement > companiesWithoutEngagement.length && (
-            <p className="mt-2 text-[12px] text-muted-foreground" data-testid="companiesWithoutEngagement-more">And {account.totals.companiesWithoutEngagement - companiesWithoutEngagement.length} more — open them from Settings › Companies.</p>
-          )}
-        </section>
-      )}
       {sharedWorkspaces.length > 0 && onOpenShared && (
         <section className="mb-10">
           <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground mb-3">

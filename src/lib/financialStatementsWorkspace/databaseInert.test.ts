@@ -44,7 +44,7 @@ const workspaceSources = [
  * The trial-balance journey harness answers its calls from an in-memory synthetic backend (the trial-balance harness's
  * syntheticBackend.ts, extended); it has no client, credentials or network. Audited below instead of by call shape.
  */
-const SYNTHETIC_JOURNEY_HARNESS = new Set(["dev-harness/journey/main.tsx", "dev-harness/journey/syntheticClient.ts"]);
+const SYNTHETIC_JOURNEY_HARNESS = new Set(["dev-harness/journey/main.tsx", "dev-harness/journey/syntheticClient.ts", "dev-harness/divine/client.ts"]);
 
 const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
@@ -802,6 +802,10 @@ describe("database inertness — the workspace code cannot mutate a database", (
       expect(src, f).toMatch(/from "\.\.\/trial-balance\/syntheticBackend"/);
     }
     expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/journey/main.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    expect(stripComments(fs.readFileSync(path.join(ROOT, "dev-harness/divine/main.tsx"), "utf8"))).toMatch(/if \(!import\.meta\.env\.DEV\)/);
+    const divineConfig = fs.readFileSync(path.join(ROOT, "dev-harness/divine/vite.config.ts"), "utf8");
+    expect(divineConfig).toContain('replacement: path.resolve(__dirname, "client.ts")');
+    expect(divineConfig).toContain('envDir: false');
     // The Supabase client the harness's real components import is replaced by the synthetic client, never the real one.
     expect(fs.readFileSync(path.join(ROOT, "dev-harness/journey/vite.config.ts"), "utf8")).toMatch(/integrations\\\/supabase\\\/client\$\/, replacement: path\.resolve\(__dirname, "syntheticClient\.ts"\)/);
   });

@@ -11,6 +11,7 @@ let mounts = 0;
 function Work() {
   useEffect(() => { mounts++; }, []);
   const [value, setValue] = useState("");
+  useManagementEditGuard(!!value, false, () => setValue(""));
   return h("main", { tabIndex: -1 }, h("h1", null, "Fixture work"), h("input", { "aria-label": "Workspace draft", value, onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value) }), h(ManagementLink, { to: "/settings", "data-management-trigger": true }, "Open settings"));
 }
 function Edit() {
@@ -43,6 +44,22 @@ beforeAll(() => {
 afterEach(() => { ui?.unmount(); router?.dispose(); ui = undefined; });
 
 describe("route-backed management window", () => {
+  it("protects an unsaved task on company/period navigation while allowing settings to preserve it", async () => {
+    await open();
+    typeInto(document.querySelector('[aria-label="Workspace draft"]') as HTMLInputElement, "Unsaved task"); await flush();
+    await act(async () => { await router.navigate("/workspace/other/2026/prepare"); }); await flush();
+    expect(document.body.textContent).toContain("Leave this task?");
+    click(byText("Keep working")); await flush();
+    click(byText("Open settings")); await flush();
+    expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
+    click(byText("Close")); await flush();
+    expect(dialog()).toBeNull();
+    expect((document.querySelector('[aria-label="Workspace draft"]') as HTMLInputElement).value).toBe("Unsaved task");
+    await act(async () => { await router.navigate("/workspace/fixture/2026/prepare"); }); await flush();
+    click(byText("Discard unsaved work")); await flush();
+    expect(router.state.location.pathname).toBe("/workspace/fixture/2026/prepare");
+    expect((document.querySelector('[aria-label="Workspace draft"]') as HTMLInputElement).value).toBe("");
+  });
   it("keeps the original workspace mounted through tabs, plans and orders, then closes to its exact URL and draft", async () => {
     await open();
     typeInto(document.querySelector('[aria-label="Workspace draft"]') as HTMLInputElement, "Keep this work");
