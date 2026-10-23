@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 /**
  * ServiceLaunchpad — "What would you like to complete?"
  *
@@ -7,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/workspace/ui/Surface";
 import { CUSTOMER_CAPABILITY_OUTCOMES, type EngagementCapability } from "@/lib/workspace/mandate";
@@ -28,7 +29,7 @@ export default function ServiceLaunchpad({
   onConfirm: (selected: EngagementCapability[]) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<EngagementCapability[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useBusyState("Starting the selected services…");
   const [error, setError] = useState<string | null>(null);
 
   const toggle = (cap: EngagementCapability) => setSelected((prev) => (prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]));
@@ -38,7 +39,7 @@ export default function ServiceLaunchpad({
 
   const confirm = async () => {
     if (saving || usable.length === 0) return; // a repeated click while saving is ignored
-    setSaving(true);
+    if (!setSaving(true)) return;
     setError(null);
     try {
       await onConfirm(usable);
@@ -111,13 +112,14 @@ export default function ServiceLaunchpad({
 
       <div className="mt-8">
         <Button
+          pending={saving}
           size="lg"
           onClick={confirm}
           disabled={!canChoose || saving || usable.length === 0}
           data-testid="primary-cta"
           className="h-12 w-full sm:w-auto px-6 text-[14px] font-semibold rounded-none shadow-none"
         >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+          {!saving && <ArrowRight className="w-4 h-4" aria-hidden="true" />}
           <span className="mx-2">{saving ? "Saving…" : "Continue"}</span>
         </Button>
       </div>

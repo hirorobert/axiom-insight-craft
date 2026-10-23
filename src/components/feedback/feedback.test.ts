@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import ServiceLaunchpad from "@/components/workspace/ServiceLaunchpad";
+import { MemoryRouter } from "react-router-dom";
 import { act, createElement as h } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -91,6 +93,35 @@ describe("truthful pending feedback", () => {
     expect(confirm).not.toHaveBeenCalled();
     ui.rerender(h(ConfirmDialog, props));
     expect(ui.container.querySelector("textarea")!.value).toBe("Reviewed the source evidence");
+  });
+
+  it("shows progress while starting services and ignores repeated clicks", async () => {
+    let release!: () => void;
+    const confirm = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    ui = mount(frame(h(MemoryRouter, null, h(ServiceLaunchpad, { canChoose: true, companyId: "fixture", jurisdiction: null, onConfirm: confirm }))));
+    click(ui.container.querySelector('button[data-testid^="service-"]:not(:disabled)')!);
+    const button = ui.container.querySelector('[data-testid="primary-cta"]') as HTMLButtonElement;
+    click(button); click(button);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.textContent).toContain("Saving…");
+    expect(bar()).not.toBeNull();
+    await act(async () => { release(); });
+    expect(button.disabled).toBe(false);
+    expect(bar()).toBeNull();
+  });
+
+  it("preserves the service selection after an unsuccessful save", async () => {
+    const confirm = vi.fn(async () => { throw new Error("Could not confirm the service selection"); });
+    ui = mount(frame(h(MemoryRouter, null, h(ServiceLaunchpad, { canChoose: true, companyId: "fixture", jurisdiction: null, onConfirm: confirm }))));
+    const card = ui.container.querySelector('button[data-testid^="service-"]:not(:disabled)')!;
+    click(card);
+    click(ui.container.querySelector('[data-testid="primary-cta"]')!);
+    await act(async () => { await Promise.resolve(); });
+    expect(card.getAttribute("aria-pressed")).toBe("true");
+    expect(ui.container.querySelector('[role="alert"]')!.textContent).toContain("Could not confirm");
+    expect(bar()).toBeNull();
   });
 
   it("labels pending feedback for assistive technology", async () => {

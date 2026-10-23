@@ -1,3 +1,4 @@
+import { useBusyState } from "@/hooks/useBusyState";
 /**
  * EngagementScopeDialog — declare, add to, or amend the engagement mandate.
  *
@@ -56,7 +57,7 @@ export default function EngagementScopeDialog({
   const current = mandate?.granted ?? [];
   const [selected, setSelected] = useState<EngagementCapability[]>([]);
   const [reason, setReason] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useBusyState("Saving the engagement services…");
 
   // No universal default. On declare nothing is pre-selected; "add" starts from the current
   // mandate (its own services are locked on, see the list below — this surface only adds); amend
@@ -81,7 +82,7 @@ export default function EngagementScopeDialog({
   const { added, removed, removalRequiresReason } = deriveScopeChange(mode, current, selected);
 
   const handleSave = async () => {
-    setSaving(true);
+    if (!setSaving(true)) return;
     try {
       if (mode === "declare" || !engagement) {
         await createEngagement(selected);
@@ -111,7 +112,7 @@ export default function EngagementScopeDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg rounded-none">
         <DialogHeader>
           <DialogTitle className="text-[17px] font-semibold tracking-tight">
@@ -140,7 +141,7 @@ export default function EngagementScopeDialog({
                   type="button"
                   onClick={() => toggle(o.capability)}
                   aria-pressed={on}
-                  disabled={!avail.available || alreadyActive}
+                  disabled={saving || !avail.available || alreadyActive}
                   className="w-full text-left px-6 py-3 flex items-start gap-3 hover:bg-secondary/50 transition-colors disabled:opacity-60"
                 >
                   <span
@@ -181,6 +182,7 @@ export default function EngagementScopeDialog({
               Reason for withdrawing {removed.length === 1 ? "this service" : "these services"}
             </label>
             <Textarea
+              disabled={saving}
               id="scope-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -192,10 +194,10 @@ export default function EngagementScopeDialog({
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-none">
+          <Button variant="ghost" disabled={saving} onClick={() => onOpenChange(false)} className="rounded-none">
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={disabled} className="rounded-none">
+          <Button pending={saving} onClick={handleSave} disabled={disabled} className="rounded-none">
             {saving
               ? "Saving…"
               : mode === "declare"
