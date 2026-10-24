@@ -15,7 +15,7 @@ The earlier 2026-10-20 00:35:28 UTC backup observation is retained as historical
   duration 749ms, no error_code/error_detail. The owner screenshot shows reviewed and debit=credit 64400.
 - Owner reports both committed TB postconditions re-executed in explicit READ ONLY transactions with no exception.
   This is owner-supplied execution evidence, not a new agent execution of those scripts.
-- Independent comparison of deployed function source remains **UNAVAILABLE, OWNER-ACCEPTED**, never PASS.
+- Independent comparison of deployed function source: **UNAVAILABLE — NOT VERIFIED**. No verification exception has been approved.
   The owner explicitly accepted proceeding without this comparison; no function was redeployed in this close-out.
 - Before activation: acceptance and other recorded company gates false; kill_switch=false; 2 complete sign-off rows,
   digest `de1e521b8731b1fc5f30ee4a15c17a0834838fb0530335696aceb5fda8f78642`.
