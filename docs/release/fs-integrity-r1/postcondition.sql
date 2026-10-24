@@ -27,7 +27,7 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDITION: fs_append_decision does not require review_close to clear a finding';
   END IF;
   IF position('withdrawing a recorded review needs the review_close capability' IN v_state) = 0
-     OR position('financial_statement_reports'' || p_report_id' IN v_state) = 0 THEN
+     OR position('financial_statement_reports:'' || p_report_id' IN v_state) = 0 THEN
     RAISE EXCEPTION 'POSTCONDITION: fs_set_publication_state lacks the review-withdrawal guard (v3) or the lineage lock (v2)';
   END IF;
   IF position('superseded_final_version' IN pg_get_functiondef('public.issue_official_reporting_pack(uuid, integer, text, uuid)'::regprocedure)) = 0

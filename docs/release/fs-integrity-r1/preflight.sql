@@ -12,7 +12,7 @@ BEGIN
      OR to_regprocedure('public._fs_memo_get(text)') IS NULL THEN
     RAISE EXCEPTION 'PREFLIGHT: fs-capacity-r1 (20261115100000) and fs-memo-r1 (20261116100000) are not in force';
   END IF;
-  IF position('financial_statement_reports'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0 THEN
+  IF position('financial_statement_reports:'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'PREFLIGHT: fs-controls-r1 (20261111100000, publication state v2 with the lineage lock) is not in force';
   END IF;
   IF to_regprocedure('public._final_publication_for(uuid, integer, text)') IS NULL
