@@ -36,6 +36,8 @@ import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 import { canonicalStringify, sha256Hex } from "../../src/lib/canonicalStatement/serialization.ts";
 
+import { STATEMENT_COMPILER_SHA256 } from "../../supabase/functions/_shared/statementCompiler.manifest.mjs";
+
 const FILE = "20261111100000_fs_publication_controls.sql";
 const ABSENT = process.env.PUBLICATION_CONTROLS_ABSENT === "1";
 const { group, check, refused, finish } = reporter();
@@ -84,6 +86,14 @@ async function main() {
   const stored = (rid, v) => db.one("SELECT report_document, content_hash, evidence_batch_ids, encode(sha256(convert_to(report_document::text,'UTF8')),'hex') AS doc_sha FROM public.financial_statement_reports WHERE report_id=$1 AND report_version=$2", [rid, v]);
   const latest = (rid) => db.count("SELECT count(*) n FROM public.financial_statement_reports WHERE report_id=$1", [rid]);
   const refusal = async (fn) => { try { await fn(); return null; } catch (e) { return `${e.code ?? ""}:${String(e.message).split("\n")[0]}`; } };
+  /** 20261125100000: one current FINAL per company and period. A FINAL in a lineage other than the period's current authority is
+   *  only ever its EXPLICIT replacement naming that exact version; the first FINAL of the period, and a later version of the
+   *  authority's own lineage, are plain FINALs. This proof's many lineages of FY2026 therefore replace one another explicitly. */
+  const finalise = async (who, rid, v, reason) => {
+    const rd = await who.c.readiness(A, rid, v);
+    const h = rd.authority?.relation === "other_lineage" ? rd.authority.scope?.holder : null;
+    return h ? who.c.replaceFinal(A, rid, v, { reportId: h.reportId, reportVersion: h.reportVersion }, reason) : who.c.setState(A, rid, v, "FINAL", reason);
+  };
   /** Saves a document as the next version of a lineage directly (as a defective or tampering client would), with an evaluation. */
   const saveDoc = async (rid, version, doc, evidenceIds, provenance = "TRIAL_BALANCE_DERIVED") => {
     const d = { ...doc, reportIdentity: { ...doc.reportIdentity, reportId: rid, reportVersion: version } };
@@ -220,6 +230,136 @@ async function main() {
   });
   await check("reproduction: the stored document re-serialises to exactly the content hash it was saved under", async () => hex(canonicalStringify(storedFinal.report_document)) === storedFinal.content_hash ? true : storedFinal.content_hash);
 
+  // Server compilation (20261123100000): prove the residual presentation gap with the compiler control AND the later SQL
+  // document gates (20261124100000 / 20261126100000, which also name these documents) removed, then restore and replay. The disposable database is the only target of this script.
+  group("SC. Complete report authority: correct retained figures cannot authorise a doctored presentation");
+  const mutations = [
+    ["omitted equity lines", d => { d.statements.find(s => s.type === "STATEMENT_OF_CHANGES_IN_EQUITY").sections[0].lines.pop(); }],
+    ["false line heading", d => { d.statements[0].sections[0].lines[0].label = "An invented heading"; }],
+    ["missing line binding", d => { d.statements[0].sections[0].lines[0].factBindings = []; }],
+    ["false presentation currency", d => { d.presentationCurrency.currency = "USD"; }],
+    ["false entity name", d => { d.entity.legalName = "Another company entirely"; }],
+  ];
+  const definition = (await db.one("SELECT pg_get_functiondef('public.fs_publication_blockers(uuid,text,integer)'::regprocedure) d")).d;
+  if (!/fs_server_compilation_blocker/.test(definition) || !/DOCUMENT_FACT_NOT_COMPOSED/.test(definition)) throw Error("the current blockers text lacks the compiler splice or the document gate; cannot model the preceding controls");
+  // The blockers as they were BEFORE 20261123100000 (this compiler) and the later document gates (20261124100000 / 20261126100000):
+  // the last complete text before them, 20261115100000. Restored below from the live definition, byte for byte.
+  const BLOCKERS_FN = /CREATE OR REPLACE FUNCTION public\.fs_publication_blockers\(p_company_id UUID, p_report_id TEXT, p_version INTEGER\)[\s\S]*?\nAS \$\$[\s\S]*?\n\$\$;/;
+  const before = migrationText("20261115100000_fs_account_capacity.sql").match(BLOCKERS_FN);
+  if (!before || !/REVIEW_COMMENT_UNRESOLVED/.test(before[0]) || /fs_server_compilation_blocker|DOCUMENT_FACT_NOT_COMPOSED/.test(before[0])) throw Error("20261115100000 blockers text not found");
+  await db.admin.query(before[0]);
+  await db.admin.query("ALTER TABLE public.financial_statement_publications DISABLE TRIGGER trg_fsp_server_compilation");
+  try {
+    for (const [label, mutate] of mutations) await check(`CONTROL REMOVED (the blockers as before 20261123100000 and the later document gates): ${label}, correct facts and an empty findings list reach REVIEWED and FINAL (as the explicit replacement of the period's authority - the residual gap)`, async () => {
+      const rid = `rpt-before-${uuid()}`; const d = structuredClone(docFinal); mutate(d);
+      await saveDoc(rid, 1, d, storedFinal.evidence_batch_ids);
+      const reviewed = await partner.c.setState(A,rid,1,"REVIEWED","Synthetic adversarial control-removed proof");
+      const final = await finalise(owner,rid,1,"Synthetic adversarial control-removed proof (an explicit replacement of the period's authority)");
+      return reviewed.state === "REVIEWED" && final.state === "FINAL";
+    });
+  } finally {
+    await db.admin.query(definition);
+    await db.admin.query("ALTER TABLE public.financial_statement_publications ENABLE TRIGGER trg_fsp_server_compilation");
+  }
+  for (const [label, mutate] of mutations) await check(`CONTROL RESTORED: ${label} is refused before compilation, then refused as SERVER_DOCUMENT_MISMATCH after independent compilation`, async () => {
+    const rid = `rpt-after-${uuid()}`; const d = structuredClone(docFinal); mutate(d);
+    await saveDoc(rid,1,d,storedFinal.evidence_batch_ids);
+    const before = await refusal(() => asU(U.partner,"SELECT public.fs_set_publication_state($1,1,$2,'REVIEWED','Synthetic tamper attempt')",[rid,A]));
+    const checked = await pre.d.invoke("compile-financial-report",{companyId:A,reportId:rid,reportVersion:1});
+    const rd = await readiness(rid,1);
+    const after = await refusal(() => partner.c.setState(A,rid,1,"REVIEWED","Synthetic tamper attempt"));
+    return /SERVER_COMPILATION_REQUIRED/.test(before ?? "") && !checked.error && checked.data.matches === false
+      && rd.blockers.includes("SERVER_DOCUMENT_MISMATCH") && /SERVER_DOCUMENT_MISMATCH/.test(after ?? "");
+  });
+  await check("authenticated callers cannot forge a server compilation receipt or mutate one", async () => {
+    const forged = await refusal(() => asU(U.preparer,"SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+      [U.preparer,A,rid1,vFinal,storedFinal.doc_sha,depsFinal.dependenciesSha256,JSON.stringify(docFinal),"{\"findings\":[]}","{}",STATEMENT_COMPILER_SHA256]));
+    const changed = await refusal(() => db.asService("UPDATE public.fs_server_compilations SET matches=true WHERE report_id=$1",[rid1]));
+    return /42501/.test(forged ?? "") && /42501/.test(changed ?? "");
+  });
+
+  await check("the receipt preserves the complete source and its database-computed digest", async () => {
+    const row = await db.one("SELECT compiler_sha256,source_snapshot,source_snapshot_sha256,encode(sha256(convert_to(source_snapshot::text,'UTF8')),'hex') expected FROM public.fs_server_compilations WHERE report_id=$1 AND report_version=$2",[rid1,vFinal]);
+    return row.compiler_sha256 === STATEMENT_COMPILER_SHA256 && row.source_snapshot.saved.report_id === rid1 && row.source_snapshot.saved.report_version === vFinal
+      && Array.isArray(row.source_snapshot.evidence) && row.source_snapshot.evidence.length === storedFinal.evidence_batch_ids.length
+      && Array.isArray(row.source_snapshot.disclosures) && row.source_snapshot.companyName === docFinal.entity.legalName
+      && row.source_snapshot_sha256 === row.expected;
+  });
+  await check("complete-snapshot tampering is refused even when document and aggregate dependency identities are unchanged", async () => {
+    const { compileSavedReport } = await import("../../supabase/functions/_shared/statementCompiler.generated.mjs");
+    const compiled = await compileSavedReport(pre.d,{companyId:A,reportId:rid1,reportVersion:vFinal});
+    const count = await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1]);
+    const refusals = [];
+    for (const mutate of [s => { s.companyName += " changed"; }, s => { s.disclosures.push({textId:"forged",body:"changed"}); }, s => { s.evidence.pop(); }]) {
+      const snapshot = structuredClone(compiled.sourceSnapshot); mutate(snapshot);
+      refusals.push(await refusal(() => db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+        [U.preparer,A,rid1,vFinal,compiled.documentHash,compiled.dependenciesHash,JSON.stringify(compiled.canonicalDocument),JSON.stringify(compiled.evaluation),JSON.stringify(snapshot),STATEMENT_COMPILER_SHA256])));
+    }
+    return refusals.every(r => /PT409.*SERVER_COMPILATION_SNAPSHOT_CHANGED/.test(r ?? ""))
+      && (await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1])) === count;
+  });
+
+  await check("an unreviewed compiler digest cannot obtain a receipt", async () => {
+    const { compileSavedReport } = await import("../../supabase/functions/_shared/statementCompiler.generated.mjs");
+    const compiled = await compileSavedReport(pre.d,{companyId:A,reportId:rid1,reportVersion:vFinal});
+    const code = await refusal(() => db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+      [U.preparer,A,rid1,vFinal,compiled.documentHash,compiled.dependenciesHash,JSON.stringify(compiled.canonicalDocument),JSON.stringify(compiled.evaluation),JSON.stringify(compiled.sourceSnapshot),"0".repeat(64)]));
+    return /PT409.*SERVER_COMPILER_DIGEST_UNSUPPORTED/.test(code ?? "");
+  });
+
+  await check("snapshot guards also protect approval when source metadata changes outside aggregate dependency identities", async () => {
+    // Fault injection is confined to this disposable transaction. Rollback restores the source and every trigger.
+    await db.admin.query("BEGIN");
+    try {
+      await db.admin.query("ALTER TABLE public.financial_evidence_batches DISABLE TRIGGER USER");
+      await db.admin.query("UPDATE public.financial_evidence_batches SET source_file_name=coalesce(source_file_name,'fixture') || '.changed' WHERE evidence_batch_id=$1",[storedFinal.evidence_batch_ids[0]]);
+      await db.admin.query("SET LOCAL ROLE authenticated");
+      await db.admin.query("SELECT set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claim.role','authenticated',true)",[U.partner]);
+      const d = (await db.admin.query("SELECT public.fs_reporting_dependencies($1,$2) r",[A,Y])).rows[0].r;
+      const rd = (await db.admin.query("SELECT public.fs_report_readiness($1,$2,$3) r",[A,rid1,vFinal])).rows[0].r;
+      return d.dependenciesSha256 === depsFinal.dependenciesSha256 && rd.blockers.includes("SERVER_COMPILATION_SNAPSHOT_CHANGED");
+    } finally { await db.admin.query("ROLLBACK"); }
+  });
+  await check("snapshot reads acquire no lineage lock; the public compiler entry and receipt writer own that lock", async () => {
+    const rows = (await db.admin.query("SELECT proname,pg_get_functiondef(oid) body FROM pg_proc WHERE oid IN ('public._fs_server_compile_snapshot(uuid,text,integer)'::regprocedure,'public.fs_server_compile_input(uuid,text,integer)'::regprocedure,'public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)'::regprocedure)")).rows;
+    return rows.length === 3 && rows.every(r => /pg_advisory_xact_lock/.test(r.body) === (r.proname !== "_fs_server_compile_snapshot"));
+  });
+  await check("the internal complete-snapshot reader is not callable by authenticated or service API roles", async () => {
+    const user = await refusal(() => asU(U.preparer,"SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));
+    const service = await refusal(() => db.asService("SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));
+    return /42501/.test(user ?? "") && /42501/.test(service ?? "");
+  });
+
+  await check("a lost compilation response retries the same version and receipt without duplicate history", async () => {
+    const before = await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1]);
+    const versions = await latest(rid1); let first = true;
+    const flaky = { ...pre.d, invoke: async (name,body) => {
+      const result = await pre.d.invoke(name,body);
+      if (first) { first=false; return { data:null,error:{message:"Synthetic lost response after receipt commit"} }; }
+      return result;
+    } };
+    const input = {companyId:A,periodYear:Y,legalName:"Untrusted name ignored",reportId:rid1,newEvidence:[],idempotencyKey:"lost-compiler-response",evaluatedAt:"2027-02-02T09:00:00Z"};
+    const lost = await refusal(() => prepareReportVersion(flaky,signoffClient(flaky),input));
+    const retried = await prepareReportVersion(flaky,signoffClient(flaky),input);
+    const receipts = await Promise.all(Array.from({length:4},()=>pre.d.invoke("compile-financial-report",{companyId:A,reportId:rid1,reportVersion:vFinal})));
+    return /server check could not be confirmed/.test(lost ?? "") && retried.outcome === "saved" && retried.alreadyCurrent
+      && (await latest(rid1)) === versions && (await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1])) === before
+      && receipts.every(r=>!r.error) && new Set(receipts.map(r=>r.data.compilationId)).size===1;
+  });
+  await check("another company's owner cannot compile this company's report", async () => {
+    const r = await ownerB.d.invoke("compile-financial-report",{companyId:A,reportId:rid1,reportVersion:vFinal});
+    const visible = await asU(U.ownerB,"SELECT count(*) n FROM public.fs_server_compilations WHERE company_id=$1",[A]);
+    return !!r.error && /FORBIDDEN|NOT_FOUND/.test(r.error.message) && Number(visible.n)===0;
+  });
+  await check("an effective source-file grant does not expose financial reports or compilation receipts", async () => {
+    const sourceOnly = uuid();
+    await db.admin.query("INSERT INTO auth.users(id,email) VALUES($1,'source-only@example.test')",[sourceOnly]);
+    await db.admin.query("INSERT INTO public.workspace_capability_grants(company_id,grantee_user_id,capability,granted_by_user_id) VALUES($1,$2,'manage_source_files',$3)",[A,sourceOnly,U.owner]);
+    const grant = await db.asService("SELECT public.can_user_act_on_workspace($1,$2,'manage_source_files') allowed",[sourceOnly,A]);
+    const visible = await asU(sourceOnly,"SELECT (SELECT count(*) FROM public.fs_server_compilations WHERE company_id=$1) receipts,(SELECT count(*) FROM public.financial_statement_reports WHERE company_id=$1) reports",[A]);
+    return grant.allowed === true && Number(visible.receipts)===0 && Number(visible.reports)===0;
+  });
+
   // ── A / B ──────────────────────────────────────────────────────────────────────────────────────────────────────────
   group("A. Only a cash-flow figure is altered: refused by name");
   for (const [label, factId] of [["closing cash", "fact:line:cf:closing:CURRENT"], ["net cash from operating activities", "fact:line:cf:operating:net:CURRENT"], ["comparative closing cash", "fact:line:cf:closing:COMPARATIVE_1"]]) {
@@ -283,8 +423,8 @@ async function main() {
   });
   await check("the reviewer's own FINAL is refused (SIGNOFF_SEPARATE_APPROVERS_REQUIRED, 42501); a different authorised approver finalises", async () => {
     await partner.c.setState(A, ridF, vF, "REVIEWED", "Reviewed");
-    const same = await refusal(() => partner.c.setState(A, ridF, vF, "FINAL", "Reviewer finalising their own review"));
-    const fin = await owner.c.setState(A, ridF, vF, "FINAL", "Approved");
+    const same = await refusal(() => finalise(partner, ridF, vF, "Reviewer finalising their own review"));
+    const fin = await finalise(owner, ridF, vF, "Approved by a different authorised approver");
     return /42501:SIGNOFF_SEPARATE_APPROVERS_REQUIRED/.test(same ?? "") && fin.state === "FINAL" ? true : { same, fin: fin.state };
   });
 
@@ -455,7 +595,7 @@ async function main() {
     const f = Object.fromEntries(d.figures.map((x) => [x.factId, x.amountMinor]));
     const rd = await readiness(ridAdj, v);
     const rv = await partner.c.setState(A, ridAdj, v, "REVIEWED", "Reviewed on the adjusted figures");
-    const fin = await owner.c.setState(A, ridAdj, v, "FINAL", "Approved");
+    const fin = await finalise(owner, ridAdj, v, "Approved on the adjusted figures (replaces the period's earlier authority)");
     return r.outcome === "saved" && f["fact:line:eq:total-closing:CURRENT"] === "2099500" && f["fact:line:eq:total-profit:CURRENT"] === "509500" && f["fact:current:total:totalEquityMinor"] === "2099500"
       && rd.ready === true && rv.state === "REVIEWED" && fin.state === "FINAL" ? true : { r: r.outcome, closing: f["fact:line:eq:total-closing:CURRENT"], equity: f["fact:current:total:totalEquityMinor"], b: rd.blockers };
   });
@@ -505,6 +645,42 @@ async function main() {
     const r = await refusal(() => partner.c.setState(A, rid1, vFinal, "REVIEWED", "reopen attempt"));
     return /PT409/.test(r ?? "") ? true : r;
   });
+  await check("a company rename creates a fresh checked version on Save; earlier snapshots are never relabelled", async () => {
+    // An independent company avoids the deliberately stale authority left by the earlier roll-forward cases.
+    const world = await makeWorld(db); await world.rollout(world.A,true);
+    const engine = await certifier(db,world.U); await prepareReporting(db,world,engine,{year:Y});
+    const d = clientDb(db,world.U.preparer); const c = signoffClient(d); const rid = `rpt-rename-${uuid()}`;
+    const evidence = [];
+    for (const [role,types] of [["CURRENT",["TRANSACTION_LEDGER","EQUITY_MOVEMENTS","CASH_ACCOUNT_MAP"]],["COMPARATIVE",["TRANSACTION_LEDGER","EQUITY_MOVEMENTS","PRIOR_PERIOD_STATEMENTS"]]]) {
+      const y=role==="CURRENT"?Y:Y-1;
+      for (const type of types) {
+        const parsed=ingestEvidence({companyId:world.A,evidenceType:type,periodRole:role,reportingPeriodId:`FY${Y}`,currency:"TZS",scale:2,
+          text:(role==="CURRENT"?EVIDENCE_FY2026:EVIDENCE_FY2025_COMPARATIVE)[type],periodStart:`${y}-01-01`,periodEnd:`${y}-12-31`});
+        if(parsed.outcome!=="PARSED") throw Error("Rename fixture rejected"); evidence.push(parsed.batch);
+      }
+    }
+    const input={companyId:world.A,periodYear:Y,legalName:"Untrusted caller name",reportId:rid,idempotencyKey:"rename-attempt",evaluatedAt:"2027-02-02T09:00:00Z"};
+    const first=await prepareReportVersion(d,c,{...input,newEvidence:evidence}); if(first.outcome!=="saved") return {stage:"before rename",result:first};
+    const old=await stored(rid,first.reportVersion);
+    await db.admin.query("UPDATE public.companies SET name='Renamed synthetic company' WHERE id=$1",[world.A]);
+    let next=await prepareReportVersion(d,c,{...input,newEvidence:[]});
+    if(next.outcome==="refused" && next.reason.includes("no_authority")) {
+      // Company metadata is part of the Trial Balance authority. A rename never bypasses its required re-check.
+      const uploads=(await db.admin.query("SELECT id,period_year,source_file_hash FROM public.trial_balance_uploads WHERE company_id=$1 ORDER BY period_year",[world.A])).rows;
+      for(const u of uploads) {
+        await db.asUser(world.U.owner,"SELECT public.tbu_request_reprocess($1,$2,$3)",[u.id,uuid(),u.source_file_hash]);
+        await engine.certify(world.A,{id:u.id,year:u.period_year});
+      }
+      await prepareReporting(db,world,engine,{year:Y,uploads:false});
+      next=await prepareReportVersion(d,c,{...input,newEvidence:[]});
+    }
+    if(next.outcome!=="saved") return {stage:"after rename",result:next};
+    const saved=await stored(rid,next.reportVersion); const prior=await stored(rid,first.reportVersion);
+    const issued=await stored(rid1,vFinal);
+    return next.reportVersion===first.reportVersion+1 && !next.alreadyCurrent && saved.report_document.entity.legalName==="Renamed synthetic company"
+      && prior.doc_sha===old.doc_sha && prior.report_document.entity.legalName!=="Renamed synthetic company" && issued.doc_sha===storedFinal.doc_sha;
+  });
+
 }
 
 let crashed = false;

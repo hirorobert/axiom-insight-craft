@@ -383,6 +383,28 @@ export const RELEASE_JOURNAL = {
  * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
+  // Independent server compilation (PR #191): authored here, NOT applied; one atomic statement, exact bytes only.
+  // The pinned compiler digest follows the deployed closure (statementCompiler.manifest.mjs); a regenerated bundle re-pins it here.
+  "20261123100000_fs_server_compilation.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 23305, sha256: "7e25c896d34365c7ade29ee095f397a9d85979c74a5d2f5c8a9565ec1501e172" }),
+    finalLfRemoved: Object.freeze({ bytes: 23304, sha256: "157c4f8eaa3e3a4cb4f8e85df6371b2467b8a6efb8d3eced84f730fa9f5ed678" }),
+  }),
+  // Publication integrity gate (PR #192): authored, NOT applied; exact bytes only.
+  "20261124100000_fs_publication_integrity_gate.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 50518, sha256: "a71d60eba0dea2347f4c9d519c8e76e2ffa9ec3d986a54281957bb664bf07a03" }),
+    finalLfRemoved: Object.freeze({ bytes: 50517, sha256: "1d232891a487adee706c50c0f9e2e89f555be11be68a68ddc80a3feef5eab276" }),
+  }),
+  // FINAL authority per reporting scope (PR #192): authored, NOT applied; exact bytes only.
+  "20261125100000_fs_final_authority.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 67716, sha256: "394d12347da46476df0f551161ca5d6c5a82b781704b4a89c55bac12f258110a" }),
+    finalLfRemoved: Object.freeze({ bytes: 67715, sha256: "26d3b4894045343ceae5e0d34a0f849202b389c1e81ece8ff681f31b15a1bbbd" }),
+  }),
+  // Document structure closure (PR #192): authored, NOT applied; exact bytes only.
+  "20261126100000_fs_document_structure.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 62060, sha256: "81ffd8ecdb4ad6ef292a8608dabb9a9cc7f41f4dfa972f66ec5d2cae398dcb39" }),
+    finalLfRemoved: Object.freeze({ bytes: 62059, sha256: "cb23d3aea9b7bd80c74cce1f8febb3376bb6f5afeeed4d737a0574c1e2908515" }),
+  }),
+
   // H1: applied as 0029 in the final-LF-removed form.
   "20261007100000_treatment_authority_and_processing_control.sql": Object.freeze({
     identical: Object.freeze({ bytes: 47457, sha256: "0010ec531f3924e3a63031a0f42185c94414ab72a15396b4a3d43499468092c6" }),

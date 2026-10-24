@@ -1,7 +1,8 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 -- 20261124100000 — Financial-statements publication integrity gate: the server decides on the WHOLE document, reviewer-only
--- clearing of findings and reviews, and no official pack of a superseded FINAL. Forward-only; builds on 20261115100000 /
--- 20261116100000 (blockers v5, composition memo), 20261111100000 (publication state v2) and 20260925140000 (official pack).
+-- clearing of findings and reviews, and no official pack of a superseded FINAL. Forward-only; builds on 20261123100000 (the
+-- independent server compilation, PR #191: its fs_server_compilation_blocker call is KEPT verbatim in the blockers text below),
+-- 20261115100000 / 20261116100000 (blockers v5, composition memo), 20261111100000 (publication state v2) and 20260925140000.
 --
 --   WHAT WAS WRONG (reproduced by scripts/db-proof/publicationIntegrityGate.mjs with INTEGRITY_GATE_ABSENT=1):
 --     1. fs_publication_blockers compared the server's figures with the facts BOUND ON the four statements only. A document's
@@ -25,6 +26,9 @@
 --       period header, the comparative header and the provenance are the server's (DOCUMENT_CURRENCY_MISMATCH,
 --       DOCUMENT_PERIOD_MISMATCH, DOCUMENT_PROVENANCE_MISMATCH). fs_report_readiness, fs_set_publication_state and the
 --       binding trigger all follow. An honest document (prepareVersion.ts) carries only server figures, so nothing changes for it.
+--       The 20261123100000 splice (fs_server_compilation_blocker, SERVER_COMPILATION_REQUIRED / SERVER_DOCUMENT_MISMATCH /
+--       SERVER_COMPILATION_STALE / SERVER_COMPILATION_FINDINGS) stays the last statement before RETURN, byte for byte: the two
+--       controls are independent (this one is SQL over the saved document; that one recompiles it in the trusted runtime).
 --     · fs_append_decision v2 — ACCEPT_FINDING / REJECT_FINDING need review_close (42501 otherwise); DEFER and REQUEST_EVIDENCE unchanged.
 --     · fs_set_publication_state v3 — DRAFT on a REVIEWED version needs review_close (42501 otherwise); everything else unchanged.
 --     · _fs_final_superseded_by(report, version) — the first later FINAL version of the lineage, or null (internal).
@@ -34,8 +38,7 @@
 --       the official pack of the version it names, as issued); fs_list_saved_versions v2 adds supersededByFinal.
 --   WHAT STAYS: every table, column, index, policy and grant of an existing object; every saved version, binding and sealed
 --   pack; the legacy fs_save_report_version / fs_save_evaluation entry points (their evaluations are no longer the only check).
---   Not addressed here, registered: a second report LINEAGE of the same company, period and provenance can still reach FINAL
---   (the honest pages extend the first lineage; a cross-lineage rule needs its own proof pass).
+--   A second report LINEAGE of the same company and period reaching FINAL is addressed by 20261125100000 (FINAL authority).
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 DO $preflight$
@@ -47,13 +50,14 @@ BEGIN
   IF position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('financial_statement_reports:'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0
+     OR position('fs_server_compilation_blocker' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR to_regprocedure('public._fs_memo_get(text)') IS NULL
      OR to_regprocedure('public._final_publication_for(uuid, integer, text)') IS NULL
      OR to_regprocedure('public.issue_official_reporting_pack(uuid, integer, text, uuid)') IS NULL
      OR to_regprocedure('public._reporting_pack_seal_refusal(uuid, uuid)') IS NULL
      OR to_regprocedure('public.reporting_pack_sealed_object(uuid)') IS NULL
      OR to_regprocedure('public.fs_append_decision(text, text, uuid, jsonb)') IS NULL THEN
-    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261115100000, 20261116100000, 20261111100000 and 20260925140000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261123100000, 20261115100000, 20261116100000, 20261111100000 and 20260925140000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END;
 $preflight$;
@@ -357,6 +361,9 @@ BEGIN
   v_out := v_out || ARRAY(SELECT 'REVIEW_COMMENT_UNRESOLVED:' || c.id::text
                             FROM public.fs_review_comment_states(p_company_id, p_report_id, p_version) c
                            WHERE c.severity = 'blocking' AND c.state <> 'resolved' ORDER BY c.seq);
+  -- [20261123100000] The independent server compilation (kept verbatim; the splice 20261123100000 made).
+  v_txt := public.fs_server_compilation_blocker(p_company_id,p_report_id,p_version);
+  IF v_txt IS NOT NULL THEN v_out := array_append(v_out,v_txt); END IF;
   RETURN v_out;
 END;
 $$;
@@ -652,6 +659,7 @@ BEGIN
      OR position('ACCEPT_FINDING'', ''REJECT_FINDING'') AND NOT public.workspace_capability_allowed' IN pg_get_functiondef('public.fs_append_decision(text, text, uuid, jsonb)'::regprocedure)) = 0
      OR position('withdrawing a recorded review needs the review_close capability' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0
      OR position('financial_statement_reports:'' || p_report_id' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) = 0
+     OR position('fs_server_compilation_blocker' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('superseded_final_version' IN pg_get_functiondef('public.issue_official_reporting_pack(uuid, integer, text, uuid)'::regprocedure)) = 0
      OR position('superseded_final_version' IN pg_get_functiondef('public._reporting_pack_seal_refusal(uuid, uuid)'::regprocedure)) = 0
      OR position('''superseded''' IN pg_get_functiondef('public.reporting_pack_sealed_object(uuid)'::regprocedure)) = 0

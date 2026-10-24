@@ -36,9 +36,10 @@ BEGIN
   END IF;
   IF position('DOCUMENT_FACT_NOT_COMPOSED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR to_regclass('public.fs_report_authority') IS NULL
+     OR position('fs_server_compilation_blocker' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR to_regprocedure('public.fs_evidence_statements(uuid, integer)') IS NULL
      OR to_regprocedure('public._fs_slug(text)') IS NULL THEN
-    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261124100000 and 20261125100000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'PREFLIGHT_REFUSED: 20261123100000, 20261124100000 and 20261125100000 must be applied first; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
 END;
 $preflight$;
@@ -350,7 +351,7 @@ BEGIN
 END;
 $$;
 
--- ── 2. Publication blockers v7: the 20261124100000 text + the structure call ────────────────────────────────────────────
+-- ── 2. Publication blockers v7: the 20261124100000 text (with the 20261123100000 compiler splice) + the structure call ────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fs_publication_blockers(p_company_id UUID, p_report_id TEXT, p_version INTEGER)
   RETURNS TEXT[]
   LANGUAGE plpgsql
@@ -645,6 +646,9 @@ BEGIN
   v_out := v_out || ARRAY(SELECT 'REVIEW_COMMENT_UNRESOLVED:' || c.id::text
                             FROM public.fs_review_comment_states(p_company_id, p_report_id, p_version) c
                            WHERE c.severity = 'blocking' AND c.state <> 'resolved' ORDER BY c.seq);
+  -- [20261123100000] The independent server compilation (kept verbatim; the splice 20261123100000 made).
+  v_txt := public.fs_server_compilation_blocker(p_company_id,p_report_id,p_version);
+  IF v_txt IS NOT NULL THEN v_out := array_append(v_out,v_txt); END IF;
   RETURN v_out;
 END;
 $$;
@@ -658,6 +662,7 @@ BEGIN
   IF to_regprocedure('public._fs_document_structure_blockers(uuid, integer, jsonb, text[])') IS NULL
      OR position('_fs_document_structure_blockers' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('DOCUMENT_FACT_NOT_COMPOSED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
+     OR position('fs_server_compilation_blocker' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('ACCOUNT_CAPACITY_EXCEEDED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR position('REVIEW_COMMENT_UNRESOLVED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) = 0
      OR has_function_privilege('authenticated', 'public._fs_document_structure_blockers(uuid, integer, jsonb, text[])', 'EXECUTE')

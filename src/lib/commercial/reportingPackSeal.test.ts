@@ -333,6 +333,13 @@ describe("the client never produces official bytes", () => {
     expect(await verifyOfficialPack(withFlag(true), U.user, U.iss)).toEqual({ outcome: "substituted", official: false, superseded: true });
     expect((await retrieveOfficialPack(withFlag(true), U.user, U.iss)).outcome).toBe("substituted");
   });
+  it("a seal refused because the period's FINAL authority is unresolved (20261125100000) answers 409 authority_unresolved, stores nothing official", async () => {
+    const w = world({ prepare: "authority_unresolved" });
+    expect(await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss })).toEqual({ httpStatus: 409, body: { outcome: "authority_unresolved" } });
+    expect(w.store.size).toBe(0);
+    const late = world({ seal: "authority_unresolved" });
+    expect((await issueOfficialPack(late.deps, { userId: U.user, issuanceId: U.iss })).httpStatus).toBe(409);
+  });
   it("a seal refused because a later FINAL superseded the version answers 409 superseded_final_version, stores nothing official", async () => {
     const w = world({ prepare: "superseded_final_version" });
     expect(await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss })).toEqual({ httpStatus: 409, body: { outcome: "superseded_final_version" } });

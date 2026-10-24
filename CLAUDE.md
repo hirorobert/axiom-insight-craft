@@ -1326,20 +1326,25 @@ history is changed or deleted (the database refusal of new grants is `WITHHELD_S
 Tax-related ACCOUNTS are accounting data and are never filtered. Proven by `src/lib/workspace/moduleAvailability.test.ts`.
 Re-enabling a module is a reviewed code change: flip the constant, restore its routes/imports, and its public copy.
 
-**SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED** — release blocker (registered 2026-10-02). Official financial reporting
-must not be customer-reachable until the SERVER independently recomputes it. Today:
-- client-supplied report documents are not authoritative — `fs_assert_report_document` checks lineage and integer money
-  encoding only;
-- client-supplied findings are not authoritative — `fs_save_evaluation` stores the caller's findings, and
-  `fs_publication_blockers` counts them as given;
-- client-supplied evidence validation statuses are not authoritative — `p_validation_status` is a caller parameter.
-`fs_set_publication_state` does refuse FINAL without each required statement (incl. the statement of changes in equity),
-its required evidence (`EQUITY_MOVEMENTS`, `TRANSACTION_LEDGER`) and unwaivable tie findings, and an official Reporting Pack
-needs a FINAL publication — but all three inputs are client-asserted, so a modified client could assert a materially
-incomplete statement as complete. FINAL publication and official issuance stay withheld (the statements stage and its
-workspace are not customer-reachable) until the server recomputes required statements, evidence sufficiency and the
-unwaivable validation findings itself. Separately, statement validation (`hesabu-validate`) requires a tax computation
-and is started only from the Tax panel. Not solved by the containment change; needs its own engine work.
+**SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED** — historical release blocker, registered 2026-10-02. The old
+claim that the server never recomputed accounting became obsolete with the later composition / publication controls.
+The remaining full-document trust boundary is addressed by `20261123100000_fs_server_compilation.sql` (authored, pending
+hosted application) and the `compile-financial-report` Edge Function. A saved draft is rebuilt from a bounded server
+source snapshot using the SAME TypeScript generators, evidence validators and canonical rule pack; only the service
+role can record its immutable receipt. New approvals and new official issuances require exact canonical-document equality
+and a server evaluation without blocking findings. Client-supplied documents, findings and VALID flags remain draft
+inputs and cannot replace the receipt. Historical reports and already-issued objects remain unchanged and retrievable.
+Rollout remains per company, with the existing supported IFRS for SMEs 2015 scope; no broader module is enabled here.
+
+Compiler implementation map: `src/lib/reporting/serverCompilation.ts` (trusted-runtime source orchestration and evidence
+revalidation); `scripts/buildStatementCompiler.mjs` → `supabase/functions/_shared/statementCompiler.generated.mjs`
+(deterministic deployable shared closure, drift-checked in CI); `supabase/functions/compile-financial-report/{index,handler}.ts`
+(verified-session identifier-only boundary); `prepareVersion.ts` / `signoff.ts` (resumable server check); migration
+`20261123100000` (bounded snapshot, service-only receipt, approval/issuance guards). Proofs: `serverCompilation.test.ts`,
+`compilerBoundary.test.ts`, `scripts/db-proof/publicationControls.mjs`, existing concurrency and real-stack journeys.
+Deployment, limits and evidence: `docs/reporting-server-compilation/README.md`. This is not proof that an uploaded source
+ledger is truthful, nor hosted verification. The legacy workspace source constant remains false; current reporting
+routes use `REPORTING_PAGES_SHIPPED` and the server rollout/access gate.
 
 **WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE** — `20261002100000_refuse_withheld_service_grants.sql` (branch
 `fix/refuse-withheld-service-grants`; authored, NOT applied — only Lovable/the owner applies it). ONE availability boundary:

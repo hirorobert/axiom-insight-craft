@@ -447,7 +447,7 @@ describe("9/10. no public claim — in source or rendered — promises a withhel
   });
 });
 
-describe("SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED — why official reporting stays withheld (recorded, not solved here)", () => {
+describe("SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED — legacy storage is not a publication authority", () => {
   const persistence = read("supabase/migrations/20260919110000_financial_statements_persistence.sql");
 
   it("statement validation needs a tax computation and is started only from the Tax panel", () => {
@@ -455,15 +455,19 @@ describe("SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED — why official repo
     expect(read("src/jurisdiction-packs/tz/KingaTaxPanel.tsx")).toMatch(/functions\.invoke\("hesabu-validate"/);
   });
 
-  it("the evidence-based FINAL / official-pack workspace is switched off in production", () => {
+  it("the legacy integrated workspace stays off; released reporting has its separate server gate", () => {
     expect(read("src/lib/financialStatementsWorkspace/workspaceGate.ts")).toMatch(/^export const \w+_WORKSPACE_ENABLED = false;$/m);
   });
 
-  it("the server stores, but does not recompute, the client's report document, findings and evidence status", () => {
+  it("legacy storage accepts client documents, findings and evidence flags; the independent compiler guards NEW approvals and issuance", () => {
     const assertDoc = persistence.slice(persistence.indexOf("FUNCTION public.fs_assert_report_document"), persistence.indexOf("$$;", persistence.indexOf("FUNCTION public.fs_assert_report_document")));
     expect(assertDoc).not.toMatch(/STATEMENT_OF_CHANGES_IN_EQUITY|socie/i);
     expect(persistence).toMatch(/v_row := public\.fs_store_evaluation\(p_evaluation_run_id, p_report_id, p_report_version, p_company_id, p_rule_pack_id, p_rule_pack_version, p_engine_version, p_input_hash, p_findings\);/);
     expect(persistence).toMatch(/p_validation_status TEXT, p_diagnostics JSONB/);
+    const compiler = read("supabase/migrations/20261123100000_fs_server_compilation.sql");
+    expect(compiler).toContain("CREATE TRIGGER trg_fsp_server_compilation AFTER INSERT");
+    expect(compiler).toContain("CREATE TRIGGER trg_rpi_server_compilation BEFORE INSERT");
+    expect(compiler).toContain("p_canonical_document=r.report_document");
     expect(read("CLAUDE.md")).toMatch(/\*\*SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED\*\*/);
   });
 

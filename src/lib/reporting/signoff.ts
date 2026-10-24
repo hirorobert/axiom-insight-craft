@@ -68,7 +68,7 @@ export function evidencePayload(batch: EvidenceBatch, expectedPreviousBatchId: s
 
 /** A stored evidence row read back as a batch (latest version of each series is what a report uses). */
 export interface StoredEvidence { readonly batch: EvidenceBatch; readonly version: number; readonly supersedesBatchId: string | null }
-function toStoredEvidence(r: Record<string, unknown>): StoredEvidence {
+export function toStoredEvidence(r: Record<string, unknown>): StoredEvidence {
   return {
     version: Number(r.version), supersedesBatchId: r.supersedes_batch_id == null ? null : String(r.supersedes_batch_id),
     batch: {
@@ -106,6 +106,16 @@ export function signoffClient(db: ReportingDb) {
     const { data, error } = await db.select(table, filters);
     if (error) throw new ServerRefusal(table, error.message, error.code ?? null);
     return (data ?? []) as Record<string, unknown>[];
+  };
+  /** 20261123100000: a saved draft whose ONLY blocker is the missing server check is compiled first (a legacy draft can be
+   *  checked without changing it). Existing accounting refusals remain authoritative; nothing else is retried here. */
+  const ensureServerCompiled = async (companyId: string, reportId: string, reportVersion: number) => {
+    const ready = readinessSchema.parse(await rpc("fs_report_readiness", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion }));
+    if (db.invoke && ready.blockers.length === 1 && ready.blockers[0] === "SERVER_COMPILATION_REQUIRED") {
+      const checked = await db.invoke("compile-financial-report", { companyId, reportId, reportVersion });
+      if (checked.error || (checked.data as { outcome?: string })?.outcome !== "compiled")
+        throw new ServerRefusal("compile-financial-report", checked.error?.message ?? "SERVER_COMPILATION_FAILED", null);
+    }
   };
   return {
     dependencies: async (companyId: string, periodYear: number) => dependenciesSchema.parse(await rpc("fs_reporting_dependencies", { p_company_id: companyId, p_period_year: periodYear })),
@@ -161,11 +171,18 @@ export function signoffClient(db: ReportingDb) {
       // An exact replay returns the stored version (the same number a new save would get): callers count versions, never infer.
       return { reportVersion: Number(row.report_version) };
     },
-    setState: async (companyId: string, reportId: string, reportVersion: number, state: "REVIEWED" | "FINAL", reason: string) =>
-      (await rpc("fs_set_publication_state", { p_report_id: reportId, p_report_version: reportVersion, p_company_id: companyId, p_state: state, p_reason: reason })) as Record<string, unknown>,
+    setState: async (companyId: string, reportId: string, reportVersion: number, state: "REVIEWED" | "FINAL", reason: string) => {
+      await ensureServerCompiled(companyId, reportId, reportVersion);
+      return await rpc("fs_set_publication_state", { p_report_id: reportId, p_report_version: reportVersion, p_company_id: companyId, p_state: state, p_reason: reason }) as Record<string, unknown>;
+    },
+    /** 20261125100000: designate one of a legacy period's FINAL lineages as its authority (approve_certification; only while unresolved). */
+    designateFinal: async (companyId: string, periodYear: number, reportId: string, reportVersion: number, reason: string) =>
+      (await rpc("fs_designate_final_authority", { p_company_id: companyId, p_period_year: periodYear, p_report_id: reportId, p_report_version: reportVersion, p_reason: reason })) as { outcome: string },
     /** FINAL as an EXPLICIT replacement of another lineage's current FINAL of the same period (20261125100000): the same transition, the replaced version named and bound. */
-    replaceFinal: async (companyId: string, reportId: string, reportVersion: number, replaces: { reportId: string; reportVersion: number }, reason: string) =>
-      (await rpc("fs_replace_final_authority", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion, p_replaces_report_id: replaces.reportId, p_replaces_report_version: replaces.reportVersion, p_reason: reason })) as Record<string, unknown>,
+    replaceFinal: async (companyId: string, reportId: string, reportVersion: number, replaces: { reportId: string; reportVersion: number }, reason: string) => {
+      await ensureServerCompiled(companyId, reportId, reportVersion);
+      return await rpc("fs_replace_final_authority", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion, p_replaces_report_id: replaces.reportId, p_replaces_report_version: replaces.reportVersion, p_reason: reason }) as Record<string, unknown>;
+    },
   };
 }
 export type SignoffClient = ReturnType<typeof signoffClient>;

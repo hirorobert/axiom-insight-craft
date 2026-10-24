@@ -35,6 +35,10 @@ import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts"
 import { canonicalStringify } from "../../src/lib/canonicalStatement/serialization.ts";
 
 const FILE = "20261124100000_fs_publication_integrity_gate.sql";
+// The regression run replays the chain as it was before BOTH publication-integrity PRs: 20261123100000 (the independent server
+// compilation, PR #191) also refuses every tampered document below (SERVER_COMPILATION_REQUIRED, then SERVER_DOCUMENT_MISMATCH),
+// so the weakness is main's behaviour before either; with the gate PRESENT each case asserts both controls name it.
+const ABSENT_STOP = "20261123100000_fs_server_compilation.sql";
 const ABSENT = process.env.INTEGRITY_GATE_ABSENT === "1";
 const MODE = ABSENT ? "absent" : "present";
 const RESULT_FILE = process.env.PROOF_RESULT_FILE ?? path.join(REPO, "proof-results", `${PROOF}.${MODE}.json`);
@@ -76,7 +80,7 @@ async function main() {
   db = await openDatabase("integrity_gate_proof");
   group(ABSENT ? "Replay WITHOUT the gate (regression run: the weakness cases below must fail)" : "Replay");
   if (ABSENT) {
-    await kase("setup.chain-before-gate", `the chain before ${FILE} applies`, async () => (await applyChainBefore(db, FILE)) ?? true);
+    await kase("setup.chain-before-gate", `the chain before ${ABSENT_STOP} applies (main's behaviour: neither PR #191 nor PR #192)`, async () => (await applyChainBefore(db, ABSENT_STOP)) ?? true);
   } else {
     await kase("setup.chain", `${FILE} is in the chain and the whole chain applies`, async () => (!chainFiles().includes(FILE) ? `${FILE} missing` : (await applyChain(db)) ?? true));
     await kase("setup.reapply-refused", "re-applying is refused by its preflight", async () => {
@@ -97,7 +101,8 @@ async function main() {
   await W.rollout(A, true);
   const k = await certifier(db, U);
   const Y = 2026;
-  const as = (uid) => { const d = clientDb(db, uid); return { d, c: signoffClient(d) }; };
+  // With the compiler ABSENT the client has no server function to call (the chain stops before 20261123100000).
+  const as = (uid) => { const { invoke, ...rest } = clientDb(db, uid); const d = ABSENT ? rest : { ...rest, invoke }; return { d, c: signoffClient(d) }; };
   const pre = as(U.preparer), partner = as(U.partner), owner = as(U.owner);
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   const parse = (type, role = "CURRENT") => {
@@ -128,7 +133,9 @@ async function main() {
       const v = await saveDoc(rid, (await latest(rid)) + 1, doc, evidenceIds);
       const r = await readiness(rid, v);
       const ref = await refusal(() => partner.c.setState(A, rid, v, "REVIEWED", "Attempted review of a tampered document"));
-      const missing = wantBlockers.filter((b) => !r.blockers.some((x) => x === b || x.startsWith(b)));
+      // PRESENT: the independent compiler control (20261123100000) must name the same document too (no receipt can match it).
+      const want = ABSENT ? wantBlockers : [...wantBlockers, "SERVER_COMPILATION_REQUIRED"];
+      const missing = want.filter((b) => !r.blockers.some((x) => x === b || x.startsWith(b)));
       return missing.length === 0 && r.ready === false && /PT409/.test(ref ?? "") ? true : { ready: r.ready, missing, blockers: r.blockers.slice(0, 12), ref };
     });
   };

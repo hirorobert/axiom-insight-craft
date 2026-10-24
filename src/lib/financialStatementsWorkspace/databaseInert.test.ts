@@ -101,6 +101,12 @@ describe("database inertness — schema and functions", () => {
     // Neither migration modifies or deletes any pre-existing migration, function or config, and neither touches the
     // financial-statements schema this file otherwise documents.
     const added = new Set([
+      // Independent saved-report compilation; no existing migration is edited or hosted write performed.
+      "supabase/migrations/20261123100000_fs_server_compilation.sql",
+      "supabase/functions/compile-financial-report/index.ts",
+      "supabase/functions/compile-financial-report/handler.ts",
+      "supabase/functions/_shared/statementCompiler.generated.mjs",
+      "supabase/functions/_shared/statementCompiler.manifest.mjs",
       "supabase/migrations/20260920100000_workspace_setup_authority.sql",
       "supabase/migrations/20260921100000_service_enquiry_intake.sql",
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",
@@ -540,6 +546,8 @@ describe("database inertness — schema and functions", () => {
     const changed = gitStrict(`diff --name-only ${baseSha()}...HEAD -- .github package.json supabase/config.toml .lovable scripts`);
     // Every file the branch touches in these locations must be part of the reviewed RLS-regression safety hardening.
     const allowed = new Set([
+      // Deterministic local shared-code bundle generation/check only; no deployment or hosted access.
+      "scripts/buildStatementCompiler.mjs",
       // Sign-off authorization hardening (WS-A): the loopback-only disposable-database proof of the legacy
       // statement_sign_offs defects + repair, its PostgreSQL-17 CI workflow, and the full-replay variant. No deploy behaviour.
       ".github/workflows/signoff-proof.yml", "scripts/db-proof/signoff_fixture_proof.mjs", "scripts/db-proof/signoff_authorization_proof.mjs", "scripts/db-proof/signoff_integration_proof.mjs",
@@ -722,7 +730,8 @@ describe("database inertness — schema and functions", () => {
       // Financial-statements publication integrity (PR #192): the loopback-only proofs (gate present / gate absent with a structured
       // case manifest, FINAL authority with real transaction barriers, the legacy-conflict backfill) and the CI result validator.
       "scripts/db-proof/publicationIntegrityGate.mjs", "scripts/db-proof/publicationIntegrityGate.manifest.mjs", "scripts/db-proof/publicationAuthority.mjs",
-      "scripts/db-proof/publicationAuthorityLegacy.mjs", "scripts/ci/validateProofResult.mjs",
+      "scripts/db-proof/publicationAuthority.manifest.mjs", "scripts/db-proof/publicationAuthorityLegacy.mjs", "scripts/db-proof/publicationAuthorityLegacy.manifest.mjs",
+      "scripts/ci/validateProofResult.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).

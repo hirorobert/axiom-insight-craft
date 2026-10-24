@@ -36,8 +36,10 @@ const STATUS = {
   sealed: 200, invalid_request: 400, not_found: 404, binding_mismatch: 409, already_sealed: 409, expired: 410,
   entitlement_required: 402, capability_required: 403, workspace_access_denied: 403, unauthenticated: 401,
   official_sealing_unavailable: 422, object_missing: 409, object_conflict: 409, seal_failed: 500,
-  // 20261124100000: a later FINAL of the lineage supersedes the version; no new official pack of it is issued or sealed.
-  superseded_final_version: 409,
+  // 20261124100000 / 20261125100000: a later FINAL of the lineage, or another lineage's designated/replacing FINAL, supersedes the
+  // version; no new official pack of it is issued or sealed. authority_unresolved: the period holds FINALs in more than one lineage
+  // and none is designated yet (legacy data) - nothing is issued or sealed until a partner designates one.
+  superseded_final_version: 409, authority_unresolved: 409,
 };
 const refuse = (outcome) => ({ httpStatus: STATUS[outcome] ?? 500, body: { outcome } });
 

@@ -2,6 +2,10 @@
 // dependencies' own blockers). Pure. The code is always shown beside it; an unknown code is shown as returned.
 
 const EXACT: Readonly<Record<string, string>> = {
+  SERVER_COMPILATION_REQUIRED: "Save this report to run its independent server check before approval.",
+  SERVER_DOCUMENT_MISMATCH: "This saved report differs from the server-built report. Save a new version from the current records.",
+  SERVER_COMPILATION_STALE: "The records changed after the server check. Save a new version before approval.",
+  SERVER_COMPILATION_FINDINGS: "The server found unresolved problems in the report. Correct the source records and save a new version.",
   NOT_LATEST_VERSION: "A newer version exists; only the latest version can be signed.",
   REPORTING_DEPENDENCIES_UNBOUND: "The version is not bound to the statements, notes and comparatives it was built from.",
   REPORTING_DEPENDENCIES_STALE: "The statements, notes or comparatives changed after this version was saved. Save a new version.",
