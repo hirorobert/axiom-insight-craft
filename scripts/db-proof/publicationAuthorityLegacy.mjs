@@ -215,7 +215,8 @@ async function main() {
     const f = await S.owner.c.setState(S.A, S1.rid, r.reportVersion, "FINAL", "Approved for issue (S, v3)");
     const p = await S.pointer(); const ev = await S.events();
     const vs = await S.owner.c.versions(S.A, Y);
-    const v1 = vs.find((x) => x.reportVersion === S1.v), v2 = vs.find((x) => x.reportVersion === s1v2);
+    // The period's versions list also holds the seed lineage; match the lineage, not the version number alone.
+    const v1 = vs.find((x) => x.reportId === S1.rid && x.reportVersion === S1.v), v2 = vs.find((x) => x.reportId === S1.rid && x.reportVersion === s1v2);
     const i = await S.issueRpc(S.U.owner, S1.rid, r.reportVersion);
     const s = await issueOfficialPack(deps, { userId: S.U.owner, issuanceId: i.issuance_id });
     const d = await S.designate(S.U.owner, S1.rid, S1.v, "Designating in a held scope");
