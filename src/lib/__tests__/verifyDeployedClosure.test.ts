@@ -106,7 +106,3 @@ describe("which compile-financial-report bundle is deployed", () => {
     expect(classify("compile-financial-report", deployedClosure("compile-financial-report", copy(f))).verdict).toBe("UNKNOWN");
   });
 });
-
-describe("unused", () => {
-  it("placeholder", () => { expect(true).toBe(true); });
-});
