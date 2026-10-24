@@ -15,7 +15,8 @@ export function reportingBridgeDb(bridge: string, simUser: string): ReportingDb 
     const json = await r.json();
     return r.ok ? { data: json, error: null } : { data: null, error: json.error as { message: string; code?: string } };
   };
-  return { rpc: (fn, args) => post(`/rpc/${fn}`, args), select: (t, f) => post(`/select/${t}`, f) };
+  return { rpc: (fn, args) => post(`/rpc/${fn}`, args), select: (t, f) => post(`/select/${t}`, f),
+    invoke: (name, body) => name === "compile-financial-report" ? post("/compile-financial-report", body) : Promise.resolve({ data: null, error: { message: "Function not available on this isolated bridge" } }) };
 }
 
 /** The simulated user's capabilities, from the same server function the app's hook reads. */

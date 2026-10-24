@@ -306,12 +306,47 @@ describe("the client never produces official bytes", () => {
     const w = world();
     await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss });
     const access = (code: string) => ({ ...w.deps, rpc: async (fn: string, args: Record<string, unknown>) => (fn === "authorize_paid_action_for_user" ? { data: { code }, error: null } : w.deps.rpc(fn, args)) });
-    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "intact", official: true });
-    expect(await verifyOfficialPack(access("WORKSPACE_ACCESS_DENIED"), U.user, U.iss)).toEqual({ outcome: "not_found", official: false });
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "intact", official: true, superseded: false });
+    expect(await verifyOfficialPack(access("WORKSPACE_ACCESS_DENIED"), U.user, U.iss)).toEqual({ outcome: "not_found", official: false, superseded: false });
     w.store.set(PATH, new TextEncoder().encode(CANONICAL.replace("audited", "restatd")));
-    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "substituted", official: false });
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "substituted", official: false, superseded: false });
     w.store.delete(PATH);
-    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "missing", official: false });
+    expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "missing", official: false, superseded: false });
+  });
+  // 20261124100000: reporting_pack_sealed_object v2 answers `superseded` when a later version of the lineage is FINAL.
+  it("a superseded FINAL's pack: verify stays intact and official (the pack of the version it names) and DISCLOSES the supersession; retrieve carries it; an older database without the column reads as not superseded", async () => {
+    const { verifyOfficialPack, retrieveOfficialPack } = await import("../../../supabase/functions/_shared/reportingPackSeal.mjs");
+    const w = world();
+    await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss });
+    const withFlag = (superseded: unknown): SealDeps => ({ ...w.deps, rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn === "authorize_paid_action_for_user") return { data: { code: "ALLOWED" }, error: null };
+      const r = await w.deps.rpc(fn, args);
+      return fn === "reporting_pack_sealed_object" && r.data && superseded !== undefined ? { data: { ...(r.data as object), superseded }, error: null } : r;
+    } });
+    expect(await verifyOfficialPack(withFlag(true), U.user, U.iss)).toEqual({ outcome: "intact", official: true, superseded: true });
+    expect(await verifyOfficialPack(withFlag(false), U.user, U.iss)).toEqual({ outcome: "intact", official: true, superseded: false });
+    expect(await verifyOfficialPack(withFlag(undefined), U.user, U.iss)).toEqual({ outcome: "intact", official: true, superseded: false });
+    const r = await retrieveOfficialPack(withFlag(true), U.user, U.iss);
+    expect(r.outcome).toBe("retrieved"); expect(r.official).toBe(true); expect(r.superseded).toBe(true); expect(r.document).toBe(CANONICAL);
+    // The supersession never upgrades a damaged pack: substituted stays not official, with the disclosure.
+    w.store.set(PATH, new TextEncoder().encode(DOCTORED));
+    expect(await verifyOfficialPack(withFlag(true), U.user, U.iss)).toEqual({ outcome: "substituted", official: false, superseded: true });
+    expect((await retrieveOfficialPack(withFlag(true), U.user, U.iss)).outcome).toBe("substituted");
+  });
+  it("a seal refused because the period's FINAL authority is unresolved (20261125100000) answers 409 authority_unresolved, stores nothing official", async () => {
+    const w = world({ prepare: "authority_unresolved" });
+    expect(await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss })).toEqual({ httpStatus: 409, body: { outcome: "authority_unresolved" } });
+    expect(w.store.size).toBe(0);
+    const late = world({ seal: "authority_unresolved" });
+    expect((await issueOfficialPack(late.deps, { userId: U.user, issuanceId: U.iss })).httpStatus).toBe(409);
+  });
+  it("a seal refused because a later FINAL superseded the version answers 409 superseded_final_version, stores nothing official", async () => {
+    const w = world({ prepare: "superseded_final_version" });
+    expect(await issueOfficialPack(w.deps, { userId: U.user, issuanceId: U.iss })).toEqual({ httpStatus: 409, body: { outcome: "superseded_final_version" } });
+    expect(w.store.size).toBe(0);
+    const late = world({ seal: "superseded_final_version" });
+    expect((await issueOfficialPack(late.deps, { userId: U.user, issuanceId: U.iss })).httpStatus).toBe(409);
+    expect((await verifyStoredPack(late.deps, U.iss)).outcome).toBe("not_found");
   });
   it("working copies are issued and saved but never sent for sealing", async () => {
     const saved: string[] = [];

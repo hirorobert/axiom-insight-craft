@@ -16,9 +16,9 @@ import path from "node:path";
 import { applyChain, certifier, clientDb, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, makeWorld, openDatabase, prepareReporting } from "./lib/reportingKit.mjs";
 
 const PORT = Number(process.env.REPORTING_BRIDGE_PORT ?? 54998);
-const RPC = /^(fs_[a-z_]+|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities|tb_signoff_rules_blocker)$/;
+const RPC = /^(fs_[a-z_]+|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities|get_workspace_access|tb_signoff_rules_blocker)$/;
 const WRITE_RPC = /^fs_(review_comment_open|review_comment_respond|review_comment_resolve|review_comment_reopen|rollforward_carry|rollforward_decide|accept_prior_final_differences|assign_presentation|elect_early_application|decide_requirement|record_disclosure|record_schedule|bridge_comparative_account|propose_restatement|decide_restatement|approve_comparatives|commit_revision|set_publication_state)$/;
-const READ_RPC = /^(fs_(review_comments|rollforward_worklist|prior_final_reconciliation|statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness|signoff_policy)|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities|tb_signoff_rules_blocker)$/;
+const READ_RPC = /^(fs_(review_comments|rollforward_worklist|prior_final_reconciliation|statement_composition|notes_status|comparatives_status|reporting_dependencies|reporting_input|list_saved_versions|report_readiness|signoff_policy)|close_review_findings_summary|close_review_adjustments_summary|close_review_adjusted_trial_balance|get_my_workspace_capabilities|get_workspace_access|tb_signoff_rules_blocker)$/;
 const TABLES = /^(reporting_pack_issuances|fs_review_comments|fs_review_comment_events|fs_rollforward_carries|fs_prior_final_acceptances|financial_evidence_batches|fs_disclosure_texts|account_mappings|financial_statement_reports|financial_statement_publications|fs_publication_bindings|fs_comparative_restatements|fs_comparative_restatement_decisions)$/;
 
 const db = await openDatabase("reporting_harness");
@@ -48,6 +48,11 @@ const server = http.createServer(async (req, res) => {
   const reply = (status, data) => { res.writeHead(status, cors); res.end(JSON.stringify(data)); };
   if (u.pathname === "/seed") return reply(200, { companyId: W.A, otherCompanyId: W.B, periodYear: 2026, users: Object.keys(users), files });
   if (!uid) return reply(400, { error: { code: "42501", message: "unknown simulated user" } });
+  if (u.pathname === "/compile-financial-report") {
+    if (Object.keys(body).some(k => !["companyId","reportId","reportVersion"].includes(k))) return reply(400,{error:{message:"Identifiers only"}});
+    const r = await clientDb(db,uid).invoke("compile-financial-report",body);
+    return reply(r.error ? 400 : 200,r.error ? {error:r.error} : r.data);
+  }
   if (u.pathname.startsWith("/rpc/")) {
     const fn = u.pathname.slice(5);
     if (!RPC.test(fn) || !(READ_RPC.test(fn) || WRITE_RPC.test(fn))) return reply(400, { error: { code: "42883", message: "function not exposed" } });

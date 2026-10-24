@@ -36,6 +36,10 @@ const STATUS = {
   sealed: 200, invalid_request: 400, not_found: 404, binding_mismatch: 409, already_sealed: 409, expired: 410,
   entitlement_required: 402, capability_required: 403, workspace_access_denied: 403, unauthenticated: 401,
   official_sealing_unavailable: 422, object_missing: 409, object_conflict: 409, seal_failed: 500,
+  // 20261124100000 / 20261125100000: a later FINAL of the lineage, or another lineage's designated/replacing FINAL, supersedes the
+  // version; no new official pack of it is issued or sealed. authority_unresolved: the period holds FINALs in more than one lineage
+  // and none is designated yet (legacy data) - nothing is issued or sealed until a partner designates one.
+  superseded_final_version: 409, authority_unresolved: 409,
 };
 const refuse = (outcome) => ({ httpStatus: STATUS[outcome] ?? 500, body: { outcome } });
 
@@ -97,22 +101,24 @@ export async function issueOfficialPack(deps, input) {
  */
 export async function retrieveOfficialPack(deps, userId, issuanceId) {
   const v = await verifyOfficialPack(deps, userId, issuanceId);
-  if (v.outcome !== "intact") return { outcome: v.outcome, official: false };
+  if (v.outcome !== "intact") return { outcome: v.outcome, official: false, superseded: v.superseded };
   const { data } = await deps.rpc("reporting_pack_sealed_object", { p_issuance_id: issuanceId });
   const row = obj(data);
   const bytes = row?.storage_path ? await deps.get(row.storage_path) : null;
-  if (!bytes || (await deps.sha256Hex(bytes)) !== row.content_sha256) return { outcome: "substituted", official: false };
-  return { outcome: "retrieved", official: true, content_sha256: row.content_sha256, document: new TextDecoder().decode(bytes), file_name: `official-reporting-pack-${issuanceId}.json` };
+  if (!bytes || (await deps.sha256Hex(bytes)) !== row.content_sha256) return { outcome: "substituted", official: false, superseded: v.superseded };
+  // superseded (20261124100000): a later FINAL of the lineage exists; the bytes are still the official pack of the version they name.
+  return { outcome: "retrieved", official: true, superseded: v.superseded, content_sha256: row.content_sha256, document: new TextDecoder().decode(bytes), file_name: `official-reporting-pack-${issuanceId}.json` };
 }
 
 export async function verifyOfficialPack(deps, userId, issuanceId) {
-  if (!UUID.test(userId ?? "")) return { outcome: "not_found", official: false };
+  if (!UUID.test(userId ?? "")) return { outcome: "not_found", official: false, superseded: false };
   const r = await verifyStoredPack(deps, issuanceId);
-  if (!r.company_id) return { outcome: "not_found", official: false };
+  if (!r.company_id) return { outcome: "not_found", official: false, superseded: false };
   const { data } = await deps.rpc("authorize_paid_action_for_user", { p_user: userId, p_company_id: r.company_id, p_capability: "CLOSE_ASSURANCE" });
   const code = obj(data)?.code;
-  if (!code || code === "WORKSPACE_ACCESS_DENIED" || code === "UNAUTHENTICATED") return { outcome: "not_found", official: false };
-  return { outcome: r.outcome, official: r.outcome === "intact" };
+  if (!code || code === "WORKSPACE_ACCESS_DENIED" || code === "UNAUTHENTICATED") return { outcome: "not_found", official: false, superseded: false };
+  // superseded is DISCLOSURE, never a change of official status: an intact pack is the official pack of the version it names.
+  return { outcome: r.outcome, official: r.outcome === "intact", superseded: r.superseded === true };
 }
 
 /**
@@ -127,8 +133,11 @@ export async function verifyStoredPack(deps, issuanceId) {
   const { data, error } = await deps.rpc("reporting_pack_sealed_object", { p_issuance_id: issuanceId });
   const row = error ? null : obj(data);
   if (!row?.storage_path || !row.content_sha256) return { outcome: "not_found" };
-  if (row.canonical_sha256 !== row.content_sha256) return { outcome: "not_canonical", company_id: row.company_id };
+  // superseded (20261124100000, reporting_pack_sealed_object v2): a later version of the lineage is FINAL. Absent on an
+  // older database, which reads as not superseded.
+  const superseded = row.superseded === true;
+  if (row.canonical_sha256 !== row.content_sha256) return { outcome: "not_canonical", company_id: row.company_id, superseded };
   const bytes = await deps.get(row.storage_path);
-  if (!bytes) return { outcome: "missing", company_id: row.company_id };
-  return { outcome: (await deps.sha256Hex(bytes)) === row.content_sha256 ? "intact" : "substituted", company_id: row.company_id };
+  if (!bytes) return { outcome: "missing", company_id: row.company_id, superseded };
+  return { outcome: (await deps.sha256Hex(bytes)) === row.content_sha256 ? "intact" : "substituted", company_id: row.company_id, superseded };
 }

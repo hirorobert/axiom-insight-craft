@@ -19,7 +19,7 @@
 //                                or finalise replaced content
 //   C4  FINAL in flight          an approval transaction held open after fs_set_publication_state ran, a replacement
 //                                started meanwhile. CONTROL REMOVED (the 20260925140000 function text installed for the
-//                                case): the replacement is not held back, and after the approval commits a FINAL stands
+//                                case, together with the later compiler lineage-lock trigger): the replacement is not held back, and after the approval commits a FINAL stands
 //                                on a version that is no longer the latest — the regression. CONTROL RESTORED: the
 //                                replacement waits for the approval; the FINAL was the latest at its commit and its
 //                                binding carries the version's own dependencies
@@ -93,6 +93,7 @@ async function main() {
         return r;
       },
       select: (table, filters) => base.select(table, filters),
+      invoke: (name, body) => base.invoke(name, body),
     };
     return { d, c: signoffClient(d), log, paused, resume: () => resolveGate() };
   };
@@ -106,16 +107,25 @@ async function main() {
   const hold = async (key) => {
     const c = await db.pool.connect();
     await c.query("BEGIN"); await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [key]);
-    return { release: async () => { await c.query("COMMIT"); c.release(); } };
+    let released = false;
+    return { release: async () => { if (released) return; released = true; await c.query("COMMIT"); c.release(); } };
   };
   /** fs_set_publication_state run as `who` inside a transaction this proof holds open: the function has executed, its
    *  locks are held, nothing is committed until `commit()` — another user's action meanwhile shows what the locks order. */
   const approvalInFlight = async (uid, rid, v, state, reason) => {
     const c = await db.pool.connect();
-    await c.query("BEGIN"); await c.query("SET LOCAL ROLE authenticated");
-    await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]);
-    const r = await c.query("SELECT to_jsonb(public.fs_set_publication_state($1,$2,$3,$4,$5)) r", [rid, v, A, state, reason]);
-    return { row: r.rows[0].r, commit: async () => { await c.query("COMMIT"); c.release(); } };
+    await c.query("BEGIN");
+    try {
+      await c.query("SET LOCAL statement_timeout = '15s'");
+      await c.query("SET LOCAL ROLE authenticated");
+      await c.query("SELECT set_config('request.jwt.claim.role','authenticated',true), set_config('request.jwt.claim.sub',$1,true)", [uid]);
+      const r = await c.query("SELECT to_jsonb(public.fs_set_publication_state($1,$2,$3,$4,$5)) r", [rid, v, A, state, reason]);
+      return { row: r.rows[0].r, commit: async () => { await c.query("COMMIT"); c.release(); } };
+    } catch (error) {
+      await c.query("ROLLBACK");
+      c.release();
+      throw error;
+    }
   };
   // 20260925140000 holds the function inside an EXECUTE block ($function$ then the outer quote); 20261111100000 holds it plainly.
   const FN = /CREATE OR REPLACE FUNCTION public\.fs_set_publication_state[\s\S]*?AS \$function\$[\s\S]*?\$function\$/;
@@ -258,8 +268,10 @@ async function main() {
       const rd = await readiness(rid, vL);
       return bothWait && rp.ok && after === vL + 2 && ps.some((p) => p.v === vL && p.state === "REVIEWED") && !fin.ok && /PT409:.*STALE_REPORT_VERSION/.test(fin.e) && rd.ready === false ? true : { bothWait, ap, rp, after, vL, ps, fin, rd: rd.blockers };
     }
-    // Replacement first: the approval of vL met changed dependencies and was refused by the binding trigger.
-    return bothWait && rp.ok && /PT409:.*BINDING_STALE/.test(ap.e) && !ps.some((p) => p.v === vL) ? true : { bothWait, ap, rp, ps };
+    // Replacement first: the approval of vL met a newer version and changed dependencies and was refused - by the blockers it
+    // evaluates under the lineage lock (NOT_LATEST_VERSION / REPORTING_DEPENDENCIES_STALE, the 20261111100000 text and later) or,
+    // in an older text that evaluated them before the lock, by the binding trigger (BINDING_STALE). Either way vL is not approved.
+    return bothWait && rp.ok && /PT409:.*(BINDING_STALE|NOT_LATEST_VERSION|REPORTING_DEPENDENCIES_STALE|STALE_REPORT_VERSION)/.test(ap.e) && !ps.some((p) => p.v === vL) ? true : { bothWait, ap, rp, ps };
   });
 
   // ── C4 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -272,10 +284,16 @@ async function main() {
     const r = await partner.c.setState(A, rid, vR, "REVIEWED", "Reviewed against the evidence");
     return r.state === "REVIEWED" ? true : r;
   });
-  await check("CONTROL REMOVED (20260925140000 text installed): the approval runs past the committing replacement; the replacement commits a newer version while the approval is still open; the approval then commits a FINAL on a version that is no longer the latest", async () => {
+  await check("CONTROL REMOVED (old publication function and later compiler lineage lock removed in this throwaway database): the approval runs past the committing replacement; the replacement commits a newer version while the approval is still open; the approval then commits a FINAL on a version that is no longer the latest", async () => {
+    // The LIVE text (v4: 20261125100000 on top of 20261124100000 / 20261111100000) is restored byte for byte afterwards, so every
+    // later case runs against the real chain, not an older text.
+    const liveState = (await db.one("SELECT pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure) d")).d;
     await installPublicationState("20260925140000_workspace_capability_authorization.sql");
+    // The compiler adds a second lineage lock. Remove BOTH controls only for this isolated regression reproduction.
+    await db.admin.query("ALTER TABLE public.financial_statement_publications DISABLE TRIGGER trg_fsp_server_compilation");
+    let g;
     try {
-      const g = await hold(lineageKey(rid));
+      g = await hold(lineageKey(rid));
       const replace = settle(attempt(pre, rid, replacement("control-removed")));
       await sleep(800); // past its reads, waiting at the lineage lock
       const fin = await approvalInFlight(U.owner, rid, vR, "FINAL", "Approved for issue (control removed)"); // ran: no lineage lock in the old text
@@ -287,11 +305,16 @@ async function main() {
       const rp = await replace;
       const ps = await pubs(rid);
       return replaceFirst && rp.ok && between === vR + 2 && fin.row.state === "FINAL" && ps.some((p) => p.v === vR && p.state === "FINAL") ? true : { replaceFirst, diag, rp, between, vR, ps, row: fin.row?.state };
-    } finally { await installPublicationState("20261111100000_fs_publication_controls.sql"); }
+    } finally {
+      await g?.release();
+      await db.admin.query(liveState);
+      await db.admin.query("ALTER TABLE public.financial_statement_publications ENABLE TRIGGER trg_fsp_server_compilation");
+    }
   });
-  await check("the 20261111100000 text is installed again (postcondition of the migration holds)", async () => {
-    const r = (await db.admin.query("SELECT position('financial_statement_reports:' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) > 0 AS locked")).rows[0];
-    return r.locked === true ? true : r;
+  await check("the live text is installed again (the lineage lock of 20261111100000 and the scope lock of 20261125100000 both present; the compiler trigger enabled)", async () => {
+    const r = (await db.admin.query("SELECT position('financial_statement_reports:' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) > 0 AND position('_fs_scope_lock' IN pg_get_functiondef('public.fs_set_publication_state(text, integer, uuid, text, text)'::regprocedure)) > 0 AS locked")).rows[0];
+    const trigger = (await db.admin.query("SELECT tgenabled FROM pg_trigger WHERE tgrelid='public.financial_statement_publications'::regclass AND tgname='trg_fsp_server_compilation'")).rows[0];
+    return r.locked === true && trigger?.tgenabled === "O" ? true : { ...r, trigger };
   });
   let vR2 = 0, restoredFinal = null;
   await check("CONTROL RESTORED: a new version is REVIEWED; the same interleaving — the approval WAITS behind the committing replacement and is then refused STALE_REPORT_VERSION (or, had it been served first, the replacement would wait and follow as an unsigned draft)", async () => {

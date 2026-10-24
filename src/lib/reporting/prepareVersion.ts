@@ -36,6 +36,7 @@ export type PrepareOutcome =
 export interface PrepareInput {
   readonly companyId: string;
   readonly periodYear: number;
+  /** Compatibility input only. The company name is read from the server, never trusted from the caller. */
   readonly legalName: string;
   /** The report lineage to extend; a new one is started when there is none for the period. */
   readonly reportId: string;
@@ -51,6 +52,17 @@ const none: readonly GenerationDiagnostic[] = [];
 const series = (b: EvidenceBatch) => `${b.evidenceType}|${b.periodRole}|${b.seriesKey}`;
 
 export async function prepareReportVersion(db: ReportingDb, client: SignoffClient, p: PrepareInput): Promise<PrepareOutcome> {
+  const finish = async (result: PrepareOutcome): Promise<PrepareOutcome> => {
+    if (result.outcome === "saved" && db.invoke) {
+      // Unsupported editions remain useful saved drafts, with the server's named refusal; they are never compiled or signed.
+      const readiness = await client.readiness(p.companyId, p.reportId, result.reportVersion);
+      if (readiness.blockers.some(b => b.startsWith("FRAMEWORK_EDITION_UNSUPPORTED") || b.startsWith("PUBLICATION_PATH_UNSUPPORTED"))) return result;
+      const compilation = await db.invoke("compile-financial-report", { companyId: p.companyId, reportId: p.reportId, reportVersion: result.reportVersion });
+      if (compilation.error || (compilation.data as { outcome?: string })?.outcome !== "compiled")
+        throw new Error(`The draft is saved, but its server check could not be confirmed. Retry to resume the same saved version. ${compilation.error?.message ?? "SERVER_COMPILATION_FAILED"}`);
+    }
+    return result;
+  };
   const stored0 = latestEvidence(await client.evidence(p.companyId, `FY${p.periodYear}`));
   const held = new Set(stored0.map((s) => s.batch.evidenceBatchId));
   const outstanding = p.newEvidence.filter((b) => !held.has(b.evidenceBatchId));
@@ -66,13 +78,15 @@ export async function prepareReportVersion(db: ReportingDb, client: SignoffClien
   const latest = await latestVersion(client, p);
   const current = dependenciesRef(await client.dependencies(p.companyId, p.periodYear));
   if (latest > 0 && current) {
-    const doc = (await client.report(p.reportId, latest))?.document as { reportingDependencies?: { dependenciesSha256?: string } } | undefined;
-    if (doc?.reportingDependencies?.dependenciesSha256 === current.dependenciesSha256) {
-      return { outcome: "saved", reportId: p.reportId, reportVersion: latest, diagnostics: none, use: [], ...(evidenceVersion !== undefined && evidenceVersion !== latest ? { evidenceVersion } : {}), alreadyCurrent: evidenceVersion === undefined };
+    const doc = (await client.report(p.reportId, latest))?.document as { entity?: { legalName?: string }; reportingDependencies?: { dependenciesSha256?: string } } | undefined;
+    const legalName = await savedCompanyName(db, p.companyId);
+    if (!legalName) return { outcome: "refused", reason: "The saved company's name could not be read.", diagnostics: none };
+    if (doc?.entity?.legalName === legalName && doc?.reportingDependencies?.dependenciesSha256 === current.dependenciesSha256) {
+      return finish({ outcome: "saved", reportId: p.reportId, reportVersion: latest, diagnostics: none, use: [], ...(evidenceVersion !== undefined && evidenceVersion !== latest ? { evidenceVersion } : {}), alreadyCurrent: evidenceVersion === undefined });
     }
   }
   const bound = await buildAndCommit(db, client, p, latest, [], `${p.idempotencyKey}:bind:${latest}`);
-  return bound.outcome === "saved" && evidenceVersion !== undefined ? { ...bound, evidenceVersion } : bound;
+  return finish(bound.outcome === "saved" && evidenceVersion !== undefined ? { ...bound, evidenceVersion } : bound);
 }
 
 async function latestVersion(client: SignoffClient, p: PrepareInput): Promise<number> {
@@ -113,8 +127,10 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
   const newWithPrev = newEvidence.map((b) => ({ batch: b, expectedPreviousBatchId: stored.find((s) => series(s.batch) === series(b))?.batch.evidenceBatchId ?? null }));
   const evidence = [...kept.map((s) => s.batch), ...newEvidence];
 
+  const legalName = await savedCompanyName(db, p.companyId);
+  if (!legalName) return { outcome: "refused", reason: "The saved company's name could not be read.", diagnostics: none };
   const assembled = assembleComposedReport({
-    reportId: p.reportId, reportVersion: expected + 1, companyId: p.companyId, legalName: p.legalName, composition,
+    reportId: p.reportId, reportVersion: expected + 1, companyId: p.companyId, legalName, composition,
     currentDates: { start: cur.reportingStart, end: cur.reportingEnd }, comparativeDates, dependencies: ref, notes,
     disclosures: await client.disclosureTexts(p.companyId, p.periodYear), evidence, cashScope,
   });
@@ -129,4 +145,10 @@ async function buildAndCommit(db: ReportingDb, client: SignoffClient, p: Prepare
     evidenceBatchIds: used, evaluation,
   });
   return { outcome: "saved", reportId: p.reportId, reportVersion: saved.reportVersion, diagnostics: assembled.diagnostics, use: assembled.use };
+}
+
+async function savedCompanyName(db: ReportingDb, companyId: string): Promise<string | null> {
+  const company = await db.rpc("get_workspace_access", { p_company_id: companyId });
+  const meta = (Array.isArray(company.data) ? company.data[0] : company.data) as { company_id?: string; name?: string } | null;
+  return !company.error && meta?.company_id === companyId && typeof meta.name === "string" && meta.name.length > 0 ? meta.name : null;
 }

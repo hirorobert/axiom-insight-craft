@@ -31,10 +31,15 @@ export const KNOWN_CLOSURES = Object.freeze({
     // which correctly requires a fresh closure verification rather than accepting a partial identity.
     known: [],
   }),
-  // PR #176: the official Reporting Pack gains the `retrieve` action; `issue` and `verify` unchanged.
+  // 20261124100000 / 20261125100000 (publication integrity gate, FINAL authority): verify/retrieve disclose `superseded` (a later
+  // FINAL of the lineage, or another lineage's authority; the pages read the authority relation from readiness/versions); the
+  // seal-stage refusals superseded_final_version and authority_unresolved answer 409. The PR #176 closure (deployed hosted 2026-10-21) is the
+  // newest KNOWN older closure: it still issues/verifies/retrieves, but reads no supersession and answers 500 on that refusal.
   "seal-reporting-pack": Object.freeze({
-    required: { sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0: issue, verify and retrieve" },
-    known: [{ sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
+    required: { sha256: "cdc5416f6a3ebd3925e36feaa9deb1c1dd00b4a2122091caf693b60324f44da6", source: "combined candidate (20261124100000-20261126100000, PR #192 + PR #191): issue, verify and retrieve, with the superseded disclosure" },
+    known: [{ sha256: "6c62bdcdec99ea4d4dbfc555f67f0b9cfc1c6a0b7c8e5000c08b45573b21706c", source: "PR #192 before the combined candidate (never deployed): the same module text with the gate numbered 20261123100000" },
+      { sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0 (deployed hosted 2026-10-21, fs-first-slice): issue, verify and retrieve; no superseded disclosure" },
+      { sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
   }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },

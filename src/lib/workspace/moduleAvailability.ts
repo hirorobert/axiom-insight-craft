@@ -6,9 +6,10 @@
  * preparation. Supporting-evidence reconciliation is NOT part of it (it stays the tax gate's prerequisite, enforced by
  * deriveWorkspaceState, and MAONO's, enforced by the server). Everything else is withheld until its authority is complete:
  *
- *   · Statements — statement validation (hesabu-validate) requires a tax computation and is started only from the Tax
- *     panel; the evidence-based FINAL / official-pack workspace is switched off in production; and the server does not
- *     yet recompute what a client submits (SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED, CLAUDE.md §9.2).
+ *   · Legacy Statements — hesabu-validate depends on Tax; the old integrated workspace remains disabled. Released
+ *     reporting routes are separately guarded by ReportingAccessGate and server rollout. The server already recomputes
+ *     accounting figures; the complete-document compiler and its pending deployment are recorded under
+ *     SERVER_AUTHORITATIVE_STATEMENT_COMPILER_REQUIRED (CLAUDE.md §9.2). This constant does not enable those routes.
  *   · Tax computation; Compliance review and Filing package (their gates require signed Tax output).
  *   · Monitoring — the dashboard only reads existing variance runs; nothing in the interface starts one.
  *

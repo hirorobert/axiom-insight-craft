@@ -17,12 +17,15 @@ import { Notice, useAttempt, type PageProps } from "./shared";
 const DELIVERY_WORDS: Readonly<Record<string, string>> = {
   delivered: "The official pack is issued, stored and sealed by the server; the file saved is the server's document.",
   locked: "The account's plan does not include the official Reporting Pack.", not_permitted: "Your role cannot issue a Reporting Pack.",
-  not_final: "Only a FINAL version can be issued officially.", failed: "We could not confirm delivery. Check the issued packs below; retrying this attempt uses the same request.",
+  not_final: "Only a FINAL version can be issued officially.",
+  superseded: "These statements are no longer the current FINAL of this period (a later version, or another lineage finalised as its replacement); this version is not issued officially again. Its earlier packs stay retrievable and verifiable.",
+  unresolved: "This period holds FINAL statements in more than one lineage and none is designated as the authority; a partner designates one on the Sign-off page before any official pack is issued.", failed: "We could not confirm delivery. Check the issued packs below; retrying this attempt uses the same request.",
 };
 const VERIFY_WORDS: Readonly<Record<string, string>> = {
   intact: "Verified: the stored bytes hash to the sealed digest and the seal is the canonical document of this version.",
   substituted: "WARNING: the stored bytes are not the sealed bytes.", not_canonical: "WARNING: the seal is not the canonical document of its source.",
   missing: "The stored object is missing.", not_found: "No such official pack for this workspace.", unavailable: "The server function is not reachable from this page.",
+  authority_unresolved: "This period's FINAL authority is unresolved (more than one FINAL lineage); designate one on the Sign-off page.",
 };
 
 export function OfficialPack(p: PageProps & { v: SavedVersion }) {
@@ -62,7 +65,7 @@ export function OfficialPack(p: PageProps & { v: SavedVersion }) {
     setOperation(`verify:${id}`);
     try {
       const r = await p.clients.review.verify(id);
-      setVerdicts((v) => ({ ...v, [id]: `${VERIFY_WORDS[r.outcome] ?? r.outcome}${r.official ? " Official." : ""}` }));
+      setVerdicts((v) => ({ ...v, [id]: `${VERIFY_WORDS[r.outcome] ?? r.outcome}${r.official ? " Official." : ""}${r.superseded ? " Superseded: a later version of these statements is FINAL." : ""}` }));
     } catch { setVerdicts((v) => ({ ...v, [id]: "Verification could not be completed. Try again." })); }
     finally { setBusy(false); setOperation(null); }
   };
@@ -92,7 +95,9 @@ export function OfficialPack(p: PageProps & { v: SavedVersion }) {
     <section aria-labelledby="h-op" className="space-y-2 text-sm" data-testid="official-pack" data-sealed={sealed.length}>
       <h2 id="h-op" className="text-base font-semibold">Official Reporting Pack (server-sealed)</h2>
       <p className="text-muted-foreground">The canonical document of version {p.v.reportVersion}, generated, stored and sealed by the server and bound to this FINAL publication. The printable pack above is a rendering of the same version, not the official artifact.</p>
-      {p.allowed.includes("issue_reporting_pack") ? (
+      {p.v.supersededByFinal != null ? (
+        <p role="status" data-testid="official-superseded">Version {p.v.supersededByFinal} of these statements is FINAL: this version is superseded and is not issued officially again. Packs issued before stay retrievable and verifiable, and verify discloses the supersession.</p>
+      ) : p.allowed.includes("issue_reporting_pack") ? (
         <ActionButton busy={operation === "issue"} busyLabel="Issuing pack…" type="button" className="rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={busy || list === null || !!readError} onClick={() => void issue()} data-testid="issue-official">
           {sealed.length ? "Issue another official pack of this version" : "Issue the official pack"}
         </ActionButton>

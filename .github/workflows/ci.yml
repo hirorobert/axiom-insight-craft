@@ -119,7 +119,9 @@ jobs:
         run: bunx tsc --noEmit -p tsconfig.app.json
 
       - name: Package-manager authority (one lockfile, pinned Bun, no competing installer)
-        run: node scripts/ci/assertSingleLockfile.mjs
+        run: |
+          node scripts/ci/assertSingleLockfile.mjs
+          node scripts/buildStatementCompiler.mjs --check
 
       - name: Migration authority (the hosted Drizzle apply journal mirrors the authored supabase/migrations exactly)
         run: node scripts/ci/assertMigrationAuthority.mjs
@@ -178,6 +180,9 @@ jobs:
 
       - name: Type-check the complete trial-balance-draft function (Phase 2 P2-2 drafts; sign, commit and cancel) against the real Supabase client types
         run: deno check supabase/functions/trial-balance-draft/index.ts
+
+      - name: Type-check the independent statement compiler against the real Supabase client types
+        run: deno check supabase/functions/compile-financial-report/index.ts
 
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
         run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
@@ -1022,6 +1027,84 @@ jobs:
         run: |
           createdb pubctl_proof
           bun scripts/db-proof/publicationControls.mjs
+
+      - name: Publication integrity gate proof (20261124100000 + 20261126100000 - every monetary fact, header and the whole presentation skeleton of a saved document compared with the server, so a fabricated note figure, a second version of a statement fact, a re-denominated amount, a re-dated header, a relabelled provenance, a swapped binding or column, a relabelled or moved line, a duplicated statement, an unbound provenance or a malformed fact saved with an empty browser evaluation is refused by name while the browser-built document still signs; a preparer cannot clear a blocking finding or withdraw a recorded review, the reviewer can; a FINAL superseded by a later FINAL of its lineage is never issued officially again, a pending issuance is not sealed after, its earlier pack verifies intact and is disclosed as superseded; the FINAL history byte-identical. The structured result is validated against the reviewed manifest - every case once, every case passing, exit 0)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/integrity_gate_proof
+          PROOF_RESULT_FILE: proof-results/publicationIntegrityGate.present.json
+        run: |
+          createdb integrity_gate_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/publicationIntegrityGate.mjs > proof-results/publicationIntegrityGate.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/publicationIntegrityGate.present.exit
+          grep -v '^\[PTB' proof-results/publicationIntegrityGate.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/publicationIntegrityGate.present.json --manifest scripts/db-proof/publicationIntegrityGate.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Publication integrity gate regression run (the chain before 20261123100000 - without the server compilation of PR #191 and without 20261124100000, 20261125100000 and 20261126100000 - the same proof against main's behaviour. A command failure is NOT the evidence - the structured result must show exactly the manifest's weakness cases failing and every setup and control case passing, no case missing, duplicated or extra, no crash, and a non-zero exit)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/integrity_gate_absent
+          INTEGRITY_GATE_ABSENT: "1"
+          PROOF_RESULT_FILE: proof-results/publicationIntegrityGate.absent.json
+        run: |
+          createdb integrity_gate_absent
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/publicationIntegrityGate.mjs > proof-results/publicationIntegrityGate.absent.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/publicationIntegrityGate.absent.exit
+          grep -v '^\[PTB' proof-results/publicationIntegrityGate.absent.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/publicationIntegrityGate.absent.json --manifest scripts/db-proof/publicationIntegrityGate.manifest.mjs --mode absent --exit-code "$code"
+
+      - name: Publication FINAL authority proof (20261125100000 - one current FINAL per company and period across draft lineages, decided under one scope lock - two concurrent first FINALs of different lineages yield one authority and one named refusal; a plain FINAL of a competing lineage is refused; a replacement needs approve_certification, a different approver and the exact current authority; the explicit replacement moves the authority, records a REPLACED event and leaves the replaced lineage's FINAL, bindings and sealed pack untouched; a retry is a replay; the replaced lineage gets no new issuance or seal and its pack is disclosed superseded; sealing and replacement wait for each other in both orders with real transaction barriers; expiry and capability revocation at seal; the comparative selection names the explicit authority; tenant and scope isolation; the append-only history)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/authority_proof
+          PROOF_RESULT_FILE: proof-results/publicationAuthority.present.json
+        run: |
+          createdb authority_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/publicationAuthority.mjs > proof-results/publicationAuthority.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/publicationAuthority.present.exit
+          grep -v '^\[PTB' proof-results/publicationAuthority.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/publicationAuthority.present.json --manifest scripts/db-proof/publicationAuthority.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Publication FINAL authority legacy proof (a database that already holds FINALs in two lineages of one period, and one with a single lineage, BEFORE 20261125100000 - the migration records the conflict (CONFLICT_DETECTED, no pointer, nothing resolved by order or timestamp) and the single lineage's pointer; while unresolved every FINAL, issuance, seal and the next year's comparative selection refuse by name; only an approve_certification holder designates, once, audited; afterwards the other lineage is superseded)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/authority_legacy_proof
+          PROOF_RESULT_FILE: proof-results/publicationAuthorityLegacy.present.json
+        run: |
+          createdb authority_legacy_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/publicationAuthorityLegacy.mjs > proof-results/publicationAuthorityLegacy.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/publicationAuthorityLegacy.present.exit
+          grep -v '^\[PTB' proof-results/publicationAuthorityLegacy.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/publicationAuthorityLegacy.present.json --manifest scripts/db-proof/publicationAuthorityLegacy.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Upload the structured publication proof results (both gate modes, authority, legacy - JSON result, full log and captured exit status of each run)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-proof-results-${{ github.sha }}
+          path: proof-results
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Publication concurrency proof (addendum sections 3, 4 and 12 - eight simultaneous saves of one attempt, two people replacing the ledger at once, an approval and an evidence replacement released together, a FINAL approval held open while evidence is replaced with the lineage lock removed and restored, an approver revoked while the approval waits)
         env:
