@@ -27,7 +27,8 @@ import { CASES, PROOF } from "./trackAHardening.manifest.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
-import { changeReportingFramework } from "../../src/lib/workspace/companyFramework.ts";
+import { changeReportingFramework, frameworkRequestFor } from "../../src/lib/workspace/companyFramework.ts";
+import { saveCompanyEdit } from "../../src/lib/workspace/companyEdit.ts";
 
 const M1 = "20261127100000_fs_track_a_authority_hardening.sql";
 const M2 = "20261128100000_companies_framework_change_guard.sql";
@@ -430,6 +431,33 @@ async function main() {
     const matching = await ownerAttempt([ev("ifrs_for_smes", "full_ifrs"), upd]);   // this transaction's own matching event
     return /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(none) && /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(other) && /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(earlier)
       && matching === "applied" && (await fw(H)) === "ifrs_for_smes" ? true : { none, other, earlier, matching };
+  });
+
+  await kase("d7.browser-lost-response-and-partial-save", "through the browser modules on the real database: a framework change whose response is lost after commit is reported uncertain (never 'not saved'); the resend keeps the request id and the server replays it (same event, one event); a save whose framework change commits but whose details fail is reported partial, the framework is in force and the details untouched, and the next save after re-reading sends only the details", async () => {
+    const K = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Lossy entity',NULL) RETURNING id", [U.ownerB])).id;
+    const live = { rpc: (fn, args) => clientDb(db, U.ownerB).rpc(fn, args).then((r) => r, (e) => ({ data: null, error: e })) };
+    const lossy = { rpc: async (fn, args) => { await live.rpc(fn, args); throw new TypeError("Failed to fetch"); } };
+    const intent = { companyId: K, from: null, to: "ifrs_for_smes" };
+    const first = frameworkRequestFor(null, intent, () => uuid());
+    const lost = await changeReportingFramework(lossy, first);
+    const committed = await fw(K);
+    const again = frameworkRequestFor(first, intent, () => uuid());
+    const resent = await changeReportingFramework(live, again);
+    const ev1 = await fwEvents(K);
+    // Partial: the framework change commits, the details write fails.
+    const before = await db.one("SELECT name FROM public.companies WHERE id=$1", [K]);
+    const step = frameworkRequestFor(null, { companyId: K, from: "ifrs_for_smes", to: "full_ifrs" }, () => uuid());
+    const partial = await saveCompanyEdit({ changeFramework: () => changeReportingFramework(live, step), updateDetails: async () => ({ error: { code: "23514" } }) }, { frameworkTo: "full_ifrs" });
+    const afterPartial = await db.one("SELECT name, reporting_framework::text f FROM public.companies WHERE id=$1", [K]);
+    // Next save after re-reading: the framework already equals the form's value, so only the details are sent.
+    const next = await saveCompanyEdit({ changeFramework: async () => { throw new Error("must not be called"); },
+      updateDetails: async () => { const rows = await asRole("authenticated", U.ownerB, "UPDATE public.companies SET description='Saved after the partial save' WHERE id=$1 RETURNING id", [K]); return { error: rows.length === 1 ? null : { code: "P0002" } }; } },
+      { frameworkTo: afterPartial.f === "full_ifrs" ? null : "full_ifrs" });
+    const ev2 = await fwEvents(K);
+    return lost.kind === "uncertain" && committed === "ifrs_for_smes" && again.requestId === first.requestId && resent.kind === "replayed" && ev1.length === 1 && resent.eventId === ev1[0].id
+      && partial.kind === "partial" && afterPartial.f === "full_ifrs" && afterPartial.name === before.name && next.kind === "saved" && ev2.length === 2
+      && (await db.one("SELECT description FROM public.companies WHERE id=$1", [K])).description === "Saved after the partial save"
+      ? true : { lost, committed, resent, ev1: ev1.length, partial: partial.kind, afterPartial, next: next.kind, ev2: ev2.length };
   });
 
   // ── E. Concurrency ────────────────────────────────────────────────────────────────────────────────────────────────

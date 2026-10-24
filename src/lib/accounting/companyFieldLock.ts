@@ -45,10 +45,25 @@ export function deriveCompanyFieldLock(input: CompanyFieldLockInput): CompanyFie
   return { locked: true, reason: LOCK_REASONS[input.processingCertainty] };
 }
 
+/**
+ * The reporting framework's own lock. A framework that has been DECIDED follows deriveCompanyFieldLock exactly (locked
+ * once anything has processed, and while that is uncertain). A company whose framework has never been decided (NULL)
+ * may record its FIRST decision whatever its processing state: there is no value that data was processed under, the
+ * server (set_company_reporting_framework, 20261127100000) permits exactly this first decision, records it, refuses it
+ * while a check is running, and the decision makes any earlier certification non-authoritative (the #framework
+ * dependency) so the trial balance is checked again under it. Changing a decided framework is never reopened here.
+ */
+export function deriveFrameworkFieldLock(input: { current: string | null | undefined } & CompanyFieldLockInput): CompanyFieldLockResult {
+  if (input.current === null || input.current === undefined) return { locked: false, reason: null };
+  return deriveCompanyFieldLock(input);
+}
+
 export type CompanyLockedField = "reporting_framework" | "fiscal_year_end";
 
 export interface FieldChangeGuardInput {
   locked: boolean;
+  /** The framework's own lock (deriveFrameworkFieldLock); defaults to `locked`. */
+  frameworkLocked?: boolean;
   frameworkChanged: boolean;
   fiscalYearEndChanged: boolean;
 }
@@ -67,9 +82,8 @@ export interface FieldChangeGuardResult {
  * invocation, a devtools edit, a future refactor that forgets to check `disabled`).
  */
 export function guardCompanyFieldChange(input: FieldChangeGuardInput): FieldChangeGuardResult {
-  if (input.locked) {
-    if (input.frameworkChanged) return { allowed: false, blockedField: "reporting_framework" };
-    if (input.fiscalYearEndChanged) return { allowed: false, blockedField: "fiscal_year_end" };
-  }
+  const frameworkLocked = typeof input.frameworkLocked === "boolean" ? input.frameworkLocked : input.locked;
+  if (frameworkLocked && input.frameworkChanged) return { allowed: false, blockedField: "reporting_framework" };
+  if (input.locked && input.fiscalYearEndChanged) return { allowed: false, blockedField: "fiscal_year_end" };
   return { allowed: true, blockedField: null };
 }

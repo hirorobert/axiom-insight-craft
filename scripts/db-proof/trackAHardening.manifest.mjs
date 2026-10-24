@@ -24,6 +24,7 @@ export const CASES = Object.freeze([
   { id: "d4.business-refusals", kind: "control", modes: ["present"] },
   { id: "d5.authorization-and-tenancy", kind: "control", modes: ["present"] },
   { id: "d6.guard-requires-audited-event", kind: "control", modes: ["present"] },
+  { id: "d7.browser-lost-response-and-partial-save", kind: "control", modes: ["present"] },
   { id: "e1.final-waits-for-framework-change", kind: "control", modes: ["present"] },
   { id: "e2.framework-change-waits-for-final", kind: "control", modes: ["present"] },
   { id: "e3.framework-changes-serialize", kind: "control", modes: ["present"] },

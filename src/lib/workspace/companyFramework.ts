@@ -5,6 +5,11 @@
  * certification or saved report exists, refuses while a check runs, and records an audited event. After 20261128100000 a
  * direct update of companies.reporting_framework is refused by the database, so this module is the only route that works.
  * Answers are read from structured fields (outcome / code / SQLSTATE), never from message text.
+ *
+ * Uncertainty: when no definite answer arrives (the request threw, the error carries no server code, or the body is not
+ * in the contract) the change MAY have been committed. That is `uncertain`, never "nothing was saved": the caller keeps
+ * the same request id (frameworkRequestFor) and re-reads the company before resending, and the server replays a
+ * committed request instead of applying it twice.
  */
 import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
 
@@ -19,7 +24,10 @@ export type FrameworkChangeResult =
   | { kind: "processing"; current: ReportingFramework | null }
   | { kind: "forbidden" }
   | { kind: "invalid" }
-  | { kind: "error" };
+  /** The server answered with a refusal outside the cases above: definitely not applied. */
+  | { kind: "error" }
+  /** No definite answer: the change may or may not have been committed. */
+  | { kind: "uncertain" };
 
 export interface FrameworkChangeClient {
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { code?: string; message?: string } | null }>;
@@ -34,14 +42,18 @@ export function frameworkChangeReason(from: ReportingFramework | null, to: Repor
   return `Reporting framework set in company settings: ${label(from)} -> ${label(to)}`.slice(0, 500);
 }
 
-/** Reads the server's answer strictly. Anything not in the contract is an error, never a success. */
+/** A code the database or PostgREST sets only when it answered (the statement ran and was rolled back, or never ran). */
+const SERVER_CODE = /^([0-9A-Z]{5}|PGRST\d{3})$/;
+
+/** Reads the server's answer strictly. Anything not in the contract is never a success: a definite refusal is `error`,
+ *  an answer that cannot be read is `uncertain`. */
 export function parseFrameworkChange(data: unknown, error: { code?: string } | null): FrameworkChangeResult {
   if (error) {
     if (error.code === "42501") return { kind: "forbidden" };
     if (error.code === "22023") return { kind: "invalid" };
-    return { kind: "error" };
+    return typeof error.code === "string" && SERVER_CODE.test(error.code) ? { kind: "error" } : { kind: "uncertain" };
   }
-  if (!data || typeof data !== "object") return { kind: "error" };
+  if (!data || typeof data !== "object") return { kind: "uncertain" };
   const d = data as Record<string, unknown>;
   const to = asFramework(d.to);
   const from = d.from === null ? null : asFramework(d.from);
@@ -49,10 +61,10 @@ export function parseFrameworkChange(data: unknown, error: { code?: string } | n
   switch (d.outcome) {
     case "changed":
     case "replayed":
-      if (!to || !eventId || (d.from !== null && !from)) return { kind: "error" };
+      if (!to || !eventId || (d.from !== null && !from)) return { kind: "uncertain" };
       return { kind: d.outcome, from, to, eventId };
     case "unchanged":
-      return to ? { kind: "unchanged", framework: to } : { kind: "error" };
+      return to ? { kind: "unchanged", framework: to } : { kind: "uncertain" };
     case "refused": {
       const current = d.current === null ? null : asFramework(d.current);
       if (d.current !== null && !current) return { kind: "error" };
@@ -62,7 +74,7 @@ export function parseFrameworkChange(data: unknown, error: { code?: string } | n
       return { kind: "error" };
     }
     default:
-      return { kind: "error" };
+      return { kind: "uncertain" };
   }
 }
 
@@ -77,8 +89,23 @@ export async function changeReportingFramework(
     });
     return parseFrameworkChange(data, error);
   } catch {
-    return { kind: "error" };
+    return { kind: "uncertain" };
   }
+}
+
+/** The change is in force (committed now, earlier under the same request, or already the value). */
+export const frameworkChangeCommitted = (r: FrameworkChangeResult) => r.kind === "changed" || r.kind === "replayed" || r.kind === "unchanged";
+
+/** One framework request = one intent (company, expected current value, target). The same intent keeps its request id
+ *  across uncertain retries; any other intent gets a new one. */
+export interface PendingFrameworkRequest { companyId: string; from: ReportingFramework | null; to: ReportingFramework; requestId: string }
+export function frameworkRequestFor(
+  pending: PendingFrameworkRequest | null,
+  intent: { companyId: string; from: ReportingFramework | null; to: ReportingFramework },
+  mint: () => string,
+): PendingFrameworkRequest {
+  if (pending && pending.companyId === intent.companyId && pending.from === intent.from && pending.to === intent.to) return pending;
+  return { ...intent, requestId: mint() };
 }
 
 /** Words for a refusal; null for a success. */
@@ -90,6 +117,7 @@ export function frameworkChangeMessage(r: FrameworkChangeResult): string | null 
     case "processing": return "A trial balance check is running for this company. Change the framework after it finishes.";
     case "forbidden": return "Only the company's owner can change its reporting framework.";
     case "invalid": return "Choose a supported reporting framework.";
-    case "error": return "The reporting framework could not be changed. Nothing was saved; try again.";
+    case "error": return "The server refused the reporting framework change. The framework was not changed.";
+    case "uncertain": return "We could not confirm whether the reporting framework was saved. The company has been reloaded; check it, then save again — the same request is resent and is never applied twice.";
   }
 }
