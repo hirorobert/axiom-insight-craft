@@ -278,7 +278,9 @@ describe("migration directory integrity", () => {
     // statements, sections, line identities and labels, period bindings, casting children, fact periods, provenance), pending.
     // 195 -> 197: 20261127100000_fs_track_a_authority_hardening.sql and 20261128100000_companies_framework_change_guard.sql
     // (track-a-r1: FINAL-authority write closure, history TRUNCATE closure, the audited framework change and its guard).
-    expect(files.length).toBe(197);
+    // 197 -> 198: 20261201100000_assistant_controls.sql (Ask CFOClose Release 0.1: disabled-by-default assistant settings,
+    // workspace enablement, budgets, append-only runs and overrun reviews with server-only reservation; new objects only), pending.
+    expect(files.length).toBe(198);
   });
 });
 

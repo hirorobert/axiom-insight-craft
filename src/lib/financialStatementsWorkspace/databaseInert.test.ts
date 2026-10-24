@@ -133,6 +133,17 @@ describe("database inertness — schema and functions", () => {
       // (20261128100000). Two append-only tables; privileges only narrowed; no existing row changed.
       "supabase/migrations/20261127100000_fs_track_a_authority_hardening.sql",
       "supabase/migrations/20261128100000_companies_framework_change_guard.sql",
+      // Ask CFOClose Release 0.1 (20261201100000): the advisory statement-line assistant's controls — disabled settings with
+      // approval gates, workspace enablement, budgets, append-only runs and overrun reviews; every write through service-role or
+      // admin-checked definer functions; no existing table, policy or financial record changes — and ONE new Edge Function,
+      // assistant-explain, which reads the composed statements with the caller's token, wires a provider only when the
+      // environment names it, and writes nothing but its own run record (proof: scripts/db-proof/assistantAuthority.mjs).
+      "supabase/migrations/20261201100000_assistant_controls.sql",
+      "supabase/functions/assistant-explain/index.ts",
+      "supabase/functions/_shared/assistantFacts.ts",
+      "supabase/functions/_shared/assistantResponse.ts",
+      "supabase/functions/_shared/assistantProvider.ts",
+      "supabase/functions/_shared/assistantHandler.ts",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -659,6 +670,11 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/sharedSourceAuthority.mjs",
       // I1-C (20261012100000): the loopback-only real-PostgreSQL proof of the layout-assist controls and the real function.
       "scripts/db-proof/layoutAssistAuthority.mjs",
+      // Ask CFOClose Release 0.1: the loopback-only real-PostgreSQL proof of the assistant controls and the real function, and
+      // the synthetic evaluation set with its runner (dry run by default; a live run needs an explicit spend confirmation and cap).
+      "scripts/db-proof/assistantAuthority.mjs",
+      "scripts/assistant-eval/cases.mjs",
+      "scripts/assistant-eval/run.mjs",
       // ...and the provider evaluation harness an enablement must pass (production pipeline, owner thresholds). No deploy behaviour.
       "scripts/ai/layoutAssistEval.ts",
       // ...its release-order proof (main → A1 → A2 → generation 4, real handlers at every stage) and the read-only

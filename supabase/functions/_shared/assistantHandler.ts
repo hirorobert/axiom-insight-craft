@@ -18,7 +18,7 @@ import { canonicalJson, sha256Hex } from "./hash.ts";
 import { ACTIONS, buildEnvelope, envelopeDigest, type AssistantAction } from "./assistantFacts.ts";
 import { parseModelJson, renderResponse, validateResponse, type RenderedAnswer } from "./assistantResponse.ts";
 import {
-  buildUserMessage, correctionMessage, costMicros, estimateTokens, ProviderError, REFINEMENTS, SYSTEM_PROMPT,
+  buildUserMessage, correctionMessage, costMicros, estimateTokens, MAX_QUOTED_ANSWER_CHARS, ProviderError, REFINEMENTS, SYSTEM_PROMPT,
   type AssistantProvider, type Prices, type ProviderMessage, type Refinement, type Usage,
 } from "./assistantProvider.ts";
 
@@ -120,17 +120,21 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
 
   // ── 5. The provider ─────────────────────────────────────────────────────────────────────────────────────────
   const user = buildUserMessage(env, digest, req.refinement);
-  if (estimateTokens(SYSTEM_PROMPT + user) > maxInput) {
+  const deadline = started + maxSeconds * 1000;
+  const messages: ProviderMessage[] = [{ role: "user", content: user }];
+  // The input bound is checked before EVERY call, the correction included (an estimate: see estimateTokens).
+  const inputEstimate = () => estimateTokens(SYSTEM_PROMPT + messages.map((m) => m.content).join(""));
+  if (inputEstimate() > maxInput) {
     await complete("rejected", 0, { failureCode: "INPUT_TOO_LARGE" });
     return refused(422, "INPUT_TOO_LARGE", "This line has more detail than the assistant can take in one request. Nothing was sent.");
   }
-  const deadline = started + maxSeconds * 1000;
-  const messages: ProviderMessage[] = [{ role: "user", content: user }];
   let lastErrors: string[] = [];
+  let stopCode: string | null = null;
   let answer: RenderedAnswer | null = null;
   while (attempts < 2) {
     const remaining = deadline - deps.now();
-    if (remaining < 2000) break;
+    if (remaining < 2000) { stopCode = "TIME_EXHAUSTED"; break; }
+    if (inputEstimate() > maxInput) { stopCode = "CORRECTION_INPUT_TOO_LARGE"; break; }
     attempts++;
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), remaining);
@@ -141,7 +145,8 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
       raw = out.text;
     } catch (e) {
       const kind = e instanceof ProviderError ? e.kind : "ambiguous";
-      // Known-uncharged refusals keep the cost of earlier attempts; unknown outcomes are recorded at the reserved ceiling.
+      // Known-uncharged refusals keep the cost of earlier attempts; unknown outcomes are recorded at the reserved ceiling
+      // (an estimate — the true charge of an unknown outcome is not reported to us).
       const known = kind === "rejected" || kind === "rate_limited";
       await complete(kind === "rate_limited" ? "rejected" : kind, known ? costMicros(usage, prices) : null,
         { failureCode: kind === "rate_limited" ? "RATE_LIMITED" : kind === "rejected" ? "PROVIDER_REJECTED" : kind === "failed" ? "PROVIDER_FAILED" : "PROVIDER_AMBIGUOUS" });
@@ -153,11 +158,11 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
     const v = validateResponse(parseModelJson(raw) ?? raw, env, digest);
     if (v.ok) { answer = renderResponse(v.response, env); break; }
     lastErrors = v.errors;
-    if (attempts < 2) messages.push({ role: "assistant", content: raw.slice(0, 20000) }, { role: "user", content: correctionMessage(v.errors) });
+    if (attempts < 2) messages.push({ role: "assistant", content: raw.slice(0, MAX_QUOTED_ANSWER_CHARS) }, { role: "user", content: correctionMessage(v.errors) });
   }
   const cost = costMicros(usage, prices);
   if (!answer) {
-    await complete("invalid", cost, { validation: { errors: lastErrors.slice(0, 20) }, failureCode: attempts === 0 ? "TIME_EXHAUSTED" : "ANSWER_INVALID" });
+    await complete("invalid", cost, { validation: { errors: lastErrors.slice(0, 20) }, failureCode: stopCode ?? "ANSWER_INVALID" });
     return { status: 502, body: { status: "failed", code: "ANSWER_INVALID",
       message: "The assistant's answer did not pass CFOClose's checks, so it is not shown. Nothing was changed." } };
   }

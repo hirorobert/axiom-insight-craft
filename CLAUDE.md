@@ -1465,7 +1465,7 @@ and writes nothing).
 
 ---
 
-### 9.5 Ask CFOClose Release 0.1 (`20261127100000` — unapplied; branch `assistant-release-0.1`)
+### 9.5 Ask CFOClose Release 0.1 (`20261201100000` — unapplied; branch `assistant-release-0.1`)
 
 Advisory assistant for ONE statement line: explain the movement, draft commentary. Ships disabled at every layer
 (`ai_assistant_settings` disabled; `assistant-explain` wires a provider only with `ASSISTANT_PROVIDER=anthropic` + key;

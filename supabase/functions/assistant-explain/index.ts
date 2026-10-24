@@ -8,7 +8,7 @@
 //
 // EXTERNAL AI CALLS ARE OFF unless ALL of these hold: the server environment names the provider (ASSISTANT_PROVIDER=anthropic)
 // and holds ANTHROPIC_API_KEY in secrets; ai_assistant_settings is enabled with both approvals recorded (migration
-// 20261127100000); the workspace has enabled the assistant under the current terms; and it has a budget. Otherwise every
+// 20261201100000); the workspace has enabled the assistant under the current terms; and it has a budget. Otherwise every
 // request is refused before anything is sent. The statements are read with the PERSON'S token, so the database decides
 // access; only the reservation and completion use the service role.
 // ============================================================

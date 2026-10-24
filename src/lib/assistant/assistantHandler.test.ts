@@ -18,9 +18,9 @@ const PRICES = { inputMicrosPerMTok: 2_000_000, outputMicrosPerMTok: 10_000_000,
 /** A model double: answers from the request's own digest, so the answer binds to the context it was given. */
 function answerFor(req: ProviderRequest, mutate?: (r: any) => void) {
   const digest = /"contextDigest": "([0-9a-f]{64})"/.exec(req.messages[0].content)![1];
-  const r: any = { schemaVersion: "cfoclose-assistant-response/1", contextDigest: digest, blocks: [
+  const r: any = { schemaVersion: "cfoclose-assistant-response/2", contextDigest: digest, blocks: [
     { kind: "observation", parts: [{ text: "Cash and cash equivalents were " }, { factRef: "line.current" }, { text: ", " }, { factRef: "line.change" }, { text: "." }], sourceRefs: ["line:sfp.cash_and_cash_equivalents"] },
-    { kind: "limitation", parts: [{ text: "The statements show the movement but not its cause." }], sourceRefs: [] },
+    { kind: "next_step", parts: [{ text: "Compare the bank statements with the cash book." }], sourceRefs: [] },
   ] };
   mutate?.(r);
   return JSON.stringify(r);
@@ -166,6 +166,42 @@ describe("answers", () => {
     const r = await handleAssistant(USER, body(), w.deps);
     expect(r).toMatchObject({ status: 500, body: { code: "NOT_RECORDED" } });
     expect((r.body as any).answer).toBeUndefined();
+  });
+});
+
+describe("the input bound is enforced before EVERY call (regression: the correction call)", () => {
+  it("a first call within the bound whose correction would exceed it: no second call is made, recorded as invalid", async () => {
+    // A bound the first request fits, but the first request + the rejected answer + the correction do not.
+    const probe = world();
+    await handleAssistant(USER, body(), probe.deps);
+    const first: ProviderRequest = providerOf(probe).mock.calls[0][0];
+    const firstEstimate = Math.ceil((first.system + first.messages.map((m) => m.content).join("")).length / 2);
+    const bad = { id: "double", complete: vi.fn(async (req: ProviderRequest) => ({ text: answerFor(req, (x) => { x.blocks[0].parts = [{ text: "Cash rose by 6,200 " + "x".repeat(300) }]; }), usage: USAGE, stopReason: "end_turn" })) };
+    const w = world({ provider: bad, reserve: () => ({ outcome: "reserved", runId: RUN, model: "m", maxInputTokens: firstEstimate + 10, maxOutputTokens: 1200, maxRequestSeconds: 60, prices: PRICES }) });
+    const r = await handleAssistant(USER, body(), w.deps);
+    expect(bad.complete).toHaveBeenCalledTimes(1);
+    expect(r.body).toMatchObject({ status: "failed", code: "ANSWER_INVALID" });
+    expect(w.completes[0]).toMatchObject({ p_state: "invalid", p_failure_code: "CORRECTION_INPUT_TOO_LARGE", p_attempts: 1 });
+  });
+  it("every call that is made is within the bound", async () => {
+    const sizes: number[] = [];
+    let n = 0;
+    const p = { id: "double", complete: vi.fn(async (req: ProviderRequest) => { sizes.push(Math.ceil((req.system + req.messages.map((m) => m.content).join("")).length / 2)); return { text: n++ === 0 ? "{}" : answerFor(req), usage: USAGE, stopReason: "end_turn" }; }) };
+    const w = world({ provider: p, reserve: () => ({ outcome: "reserved", runId: RUN, model: "m", maxInputTokens: 6000, maxOutputTokens: 1200, maxRequestSeconds: 60, prices: PRICES }) });
+    await handleAssistant(USER, body(), w.deps);
+    expect(sizes).toHaveLength(2);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(6000);
+  });
+});
+
+describe("cost is recorded as reported, never capped", () => {
+  it("a reported cost above the reservation is passed to the database in full", async () => {
+    const big = { inputTokens: 500_000, outputTokens: 100_000, cacheWriteTokens: 0, cacheReadTokens: 0 };
+    const p = { id: "double", complete: vi.fn(async (req: ProviderRequest) => ({ text: answerFor(req), usage: big, stopReason: "end_turn" })) };
+    const w = world({ provider: p });
+    await handleAssistant(USER, body(), w.deps);
+    // 500,000 × 2 + 100,000 × 10 = 2,000,000 micro-units: far above any reservation; the gateway does not reduce it.
+    expect(w.completes[0]).toMatchObject({ p_state: "succeeded", p_actual_cost_micros: 2_000_000 });
   });
 });
 

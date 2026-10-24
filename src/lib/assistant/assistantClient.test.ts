@@ -6,12 +6,14 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { assistantSession, contextKeyFor, interpretAssistant, statusWords, type AssistantInvoke } from "./assistantClient";
 import { ASK_CFOCLOSE_ENABLED } from "./gate";
+import { FunctionsClient } from "@supabase/functions-js";
+import { supabaseReportingDb } from "@/lib/reporting/supabaseDb";
 
 const A = "99999999-9999-4999-8999-999999999999";
 const B = "88888888-8888-4888-8888-888888888888";
-const answer = { schemaVersion: "cfoclose-assistant-response/1", action: "explain_movement", label: "Explanation", contextDigest: "d", draftText: null,
+const answer = { schemaVersion: "cfoclose-assistant-response/2", action: "explain_movement", label: "Explanation", contextDigest: "d", draftText: null,
   asOf: { compositionSha256: "b".repeat(64), periodYear: 2026, lineId: "sfp.x", lineLabel: "X", currency: "TZS" },
-  blocks: [{ kind: "observation", parts: [{ kind: "text", text: "Hello" }], sources: [] }] };
+  blocks: [{ kind: "observation", author: "assistant", parts: [{ kind: "text", text: "Hello" }], sources: [] }] };
 const httpError = (status: number, body: unknown) => ({ name: "FunctionsHttpError", context: new Response(JSON.stringify(body), { status }) });
 
 describe("interpretAssistant", () => {
@@ -23,12 +25,18 @@ describe("interpretAssistant", () => {
       .toEqual({ kind: "refused", code: "AI_BUDGET_EXCEEDED", message: "b" });
     expect(await interpretAssistant({ data: null, error: httpError(502, { status: "failed", code: "ANSWER_INVALID", message: "f" }) })).toMatchObject({ kind: "failed", code: "ANSWER_INVALID" });
   });
-  it("a function that is not deployed is 'not available', never an error page", async () => {
+  it("a function that is not deployed (bodiless 404: nothing ran) is 'not available'", async () => {
     expect((await interpretAssistant({ data: null, error: httpError(404, "Not found") })).kind).toBe("not_deployed");
-    expect((await interpretAssistant({ data: null, error: { name: "FunctionsRelayError" } })).kind).toBe("not_deployed");
   });
-  it("a malformed answer is not shown", async () => {
-    expect((await interpretAssistant({ data: { status: "answered", answer: { blocks: "<b>x</b>" } }, error: null })).kind).toBe("failed");
+  it("transport and gateway failures are UNCERTAIN (the request may have run), never settled", async () => {
+    for (const error of [{ name: "FunctionsFetchError", context: new TypeError("network") }, { name: "FunctionsRelayError", context: new Response("", { status: 502 }) },
+      httpError(504, "<html>gateway timeout</html>"), { message: "Edge Function returned a non-2xx status code" }]) {
+      expect((await interpretAssistant({ data: null, error })).kind).toBe("uncertain");
+    }
+    expect((await interpretAssistant({ data: "<html>", error: null })).kind).toBe("uncertain");
+  });
+  it("a malformed answer is not shown (uncertain: the server's record is replayed on retry)", async () => {
+    expect((await interpretAssistant({ data: { status: "answered", answer: { blocks: "<b>x</b>" } }, error: null })).kind).toBe("uncertain");
   });
 });
 
@@ -46,10 +54,55 @@ describe("assistantSession", () => {
     const invoke = vi.fn(async (_: string, o: { body: Record<string, unknown> }) => { ids.push(String(o.body.requestId)); if (n++ === 0) throw new TypeError("network"); return { data: { status: "answered", answer }, error: null }; });
     const s = assistantSession(invoke as AssistantInvoke, (() => { let i = 0; return () => `id-${++i}`; })());
     const q = { action: "explain_movement" as const, companyId: A, periodYear: 2026, lineId: "sfp.x" };
-    expect((await s.ask(q)).outcome.kind).toBe("failed");
+    expect((await s.ask(q)).outcome.kind).toBe("uncertain");
     await s.ask(q);
     await s.ask(q);
     expect(ids).toEqual(["id-1", "id-1", "id-2"]);
+  });
+  it("REGRESSION: the REAL supabase-js client RETURNS FunctionsFetchError (it does not throw) — the retry keeps the request id", async () => {
+    const ids: string[] = [];
+    let n = 0;
+    const customFetch = (async (_url: string, init: RequestInit) => {
+      ids.push(JSON.parse(String(init.body)).requestId);
+      if (n++ === 0) throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify({ status: "answered", answer, replay: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const client = new FunctionsClient("http://functions.invalid", { customFetch });
+    const invoke: AssistantInvoke = (name, o) => client.invoke(name, o) as Promise<{ data: unknown; error: unknown }>;
+    expect((await client.invoke("assistant-explain", { body: {} })).error?.name).toBe("FunctionsFetchError"); n = 0; ids.length = 0;
+    const s = assistantSession(invoke, (() => { let i = 0; return () => `id-${++i}`; })());
+    const q = { action: "explain_movement" as const, companyId: A, periodYear: 2026, lineId: "sfp.x" };
+    expect((await s.ask(q)).outcome.kind).toBe("uncertain");
+    expect((await s.ask(q)).outcome).toMatchObject({ kind: "answered", replay: true });
+    expect(ids).toEqual(["id-1", "id-1"]);
+    await s.ask(q);
+    expect(ids).toEqual(["id-1", "id-1", "id-2"]);   // settled: asking again is a new request
+  });
+  it("REGRESSION: through the Statements page's transport (supabaseReportingDb), a returned fetch error keeps the id too", async () => {
+    const ids: string[] = [];
+    let n = 0;
+    const customFetch = (async (_url: string, init: RequestInit) => {
+      ids.push(JSON.parse(String(init.body)).requestId);
+      if (n++ === 0) throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify({ status: "answered", answer }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const db = supabaseReportingDb({ rpc: () => Promise.resolve({ data: null, error: null }), from: () => ({}), functions: new FunctionsClient("http://functions.invalid", { customFetch }) });
+    const invoke: AssistantInvoke = async (name, { body }) => db.invoke!(name, body);
+    const s = assistantSession(invoke, (() => { let i = 0; return () => `id-${++i}`; })());
+    const q = { action: "explain_movement" as const, companyId: A, periodYear: 2026, lineId: "sfp.x" };
+    expect((await s.ask(q)).outcome.kind).toBe("uncertain");
+    expect((await s.ask(q)).outcome.kind).toBe("answered");
+    expect(ids).toEqual(["id-1", "id-1"]);
+  });
+  it("a request the server reports as still running keeps its id", async () => {
+    const ids: string[] = [];
+    let n = 0;
+    const invoke: AssistantInvoke = async (_n, o) => { ids.push(String(o.body.requestId)); return n++ === 0
+      ? { data: { status: "refused", code: "IN_PROGRESS", message: "running" }, error: null } : { data: { status: "answered", answer }, error: null }; };
+    const s = assistantSession(invoke, (() => { let i = 0; return () => `id-${++i}`; })());
+    const q = { action: "explain_movement" as const, companyId: A, periodYear: 2026, lineId: "sfp.x" };
+    await s.ask(q); await s.ask(q);
+    expect(ids).toEqual(["id-1", "id-1"]);
   });
   it("a response from another company, period or line — or an older request — is discarded", async () => {
     const s = assistantSession(ok);

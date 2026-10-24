@@ -114,7 +114,7 @@ function Answer({ answer, replay }: { answer: RenderedAnswer; replay: boolean })
       </p>
       {answer.blocks.filter((b) => b.kind !== "draft").map((b, i) => (
         <div key={i} data-block={b.kind}>
-          <h3 className="text-sm font-semibold">{BLOCK_TITLES[b.kind]}</h3>
+          <h3 className="text-sm font-semibold">{BLOCK_TITLES[b.kind]}{b.author === "application" ? " (CFOClose)" : ""}</h3>
           <p className="text-sm">
             {b.parts.map((part, j) => (part.kind === "fact"
               ? <strong key={j} className={part.status === "composed" ? "tabular-nums" : "font-normal italic"} data-fact={part.factId}>{part.text}</strong>

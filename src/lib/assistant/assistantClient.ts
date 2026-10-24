@@ -14,9 +14,9 @@ import { createRequestGuard, type RequestGuard, type RequestTicket } from "@/lib
 export type AssistantAction = "explain_movement" | "draft_commentary";
 export type Refinement = "shorter" | "more_formal" | "plain_language";
 export interface RenderedPart { kind: "text" | "fact"; text: string; factId?: string; status?: "composed" | "no_records" | "not_computed" }
-export interface RenderedBlock { kind: "observation" | "limitation" | "missing" | "next_step" | "draft"; parts: RenderedPart[]; sources: { id: string; label: string }[] }
+export interface RenderedBlock { kind: "observation" | "limitation" | "missing" | "next_step" | "draft"; author: "assistant" | "application"; parts: RenderedPart[]; sources: { id: string; label: string }[] }
 export interface RenderedAnswer {
-  schemaVersion: "cfoclose-assistant-response/1";
+  schemaVersion: "cfoclose-assistant-response/2";
   action: AssistantAction;
   label: "Explanation" | "Draft — not reviewed";
   contextDigest: string;
@@ -25,18 +25,25 @@ export interface RenderedAnswer {
   draftText: string | null;
 }
 
+/**
+ * `uncertain` = the request may or may not have reached the server and run (a transport failure, a relay or gateway error,
+ * an unreadable response). Its request id is KEPT: retrying resumes the same request, and the server replays its recorded
+ * outcome instead of starting a second paid generation. Every other kind is a settled server answer.
+ */
 export type AssistantOutcome =
   | { kind: "answered"; answer: RenderedAnswer; replay: boolean }
   | { kind: "unavailable"; message: string }
   | { kind: "stale"; message: string }
   | { kind: "refused"; code: string; message: string }
   | { kind: "failed"; code: string; message: string }
-  | { kind: "not_deployed"; message: string };
+  | { kind: "not_deployed"; message: string }
+  | { kind: "uncertain"; message: string };
 
 export type AssistantInvoke = (name: "assistant-explain", options: { body: Record<string, unknown> }) => Promise<{ data: unknown; error: unknown }>;
 
 const NOT_DEPLOYED = "Ask CFOClose is not available here. Your statements and reports are unaffected.";
 const GENERIC = "The assistant could not answer. Nothing was changed.";
+const UNCERTAIN = "The answer did not arrive. Try again — the same request will be resumed, not started again.";
 
 async function errorBody(error: unknown): Promise<{ status: number | null; body: Record<string, unknown> | null }> {
   const ctx = (error as { context?: unknown } | null)?.context;
@@ -49,24 +56,29 @@ async function errorBody(error: unknown): Promise<{ status: number | null; body:
 
 const isAnswer = (v: unknown): v is RenderedAnswer => {
   const a = v as RenderedAnswer | null;
-  return !!a && a.schemaVersion === "cfoclose-assistant-response/1" && Array.isArray(a.blocks)
+  return !!a && a.schemaVersion === "cfoclose-assistant-response/2" && Array.isArray(a.blocks)
     && a.blocks.every((b) => Array.isArray(b.parts) && b.parts.every((p) => typeof p.text === "string") && Array.isArray(b.sources));
 };
+const SETTLED = new Set(["answered", "unavailable", "stale", "refused", "failed"]);
 
-/** Maps one answer of the function. Pure apart from reading an error response body. */
+/**
+ * Maps one result of the function call — whether the transport returned the error (supabase-js FunctionsClient.invoke
+ * returns FunctionsFetchError / FunctionsRelayError / FunctionsHttpError in `error`; it does not throw) or threw it.
+ * Only a structured server body (`status` ∈ answered | unavailable | stale | refused | failed) or a bodiless 404 (the function
+ * is not deployed: nothing ran) settles an attempt. Anything else is `uncertain`.
+ */
 export async function interpretAssistant(result: { data: unknown; error: unknown }): Promise<AssistantOutcome> {
-  let status: number | null = 200;
   let body = result.data as Record<string, unknown> | null;
   if (result.error) {
-    const name = (result.error as { name?: unknown }).name;
-    ({ status, body } = await errorBody(result.error));
-    if (status === 404 && !body?.code) return { kind: "not_deployed", message: NOT_DEPLOYED };
-    if (name === "FunctionsRelayError" || name === "FunctionsFetchError") return { kind: "not_deployed", message: NOT_DEPLOYED };
+    const { status, body: errBody } = await errorBody(result.error);
+    if (status === 404 && !(typeof errBody?.status === "string" && SETTLED.has(errBody.status))) return { kind: "not_deployed", message: NOT_DEPLOYED };
+    body = errBody;
   }
-  const message = typeof body?.message === "string" ? body.message : GENERIC;
-  const code = typeof body?.code === "string" ? body.code : "ASSISTANT_FAILED";
-  switch (body?.status) {
-    case "answered": return isAnswer(body.answer) ? { kind: "answered", answer: body.answer, replay: body.replay === true } : { kind: "failed", code: "MALFORMED", message: GENERIC };
+  if (!body || typeof body !== "object" || typeof body.status !== "string" || !SETTLED.has(body.status)) return { kind: "uncertain", message: UNCERTAIN };
+  const message = typeof body.message === "string" ? body.message : GENERIC;
+  const code = typeof body.code === "string" ? body.code : "ASSISTANT_FAILED";
+  switch (body.status) {
+    case "answered": return isAnswer(body.answer) ? { kind: "answered", answer: body.answer, replay: body.replay === true } : { kind: "uncertain", message: UNCERTAIN };
     case "unavailable": return { kind: "unavailable", message };
     case "stale": return { kind: "stale", message };
     case "refused": return { kind: "refused", code, message };
@@ -98,11 +110,11 @@ export function assistantSession(invoke: AssistantInvoke, newId: () => string = 
       try {
         outcome = await interpretAssistant(await invoke("assistant-explain", { body }));
       } catch {
-        // Lost response: keep the request id so a retry replays the same request.
-        return { ticket, outcome: { kind: "failed", code: "NETWORK", message: "The answer did not arrive. Try again — the same request will be resumed." } };
+        outcome = { kind: "uncertain", message: UNCERTAIN };
       }
-      // A settled attempt (any server answer) releases its id: asking again is a new request.
-      pending = null;
+      // Only a settled server answer releases the id; an uncertain outcome keeps it, so a retry resumes the same request.
+      // A request the server reports as still running (IN_PROGRESS) is the same request: its id is kept too.
+      if (outcome.kind !== "uncertain" && !(outcome.kind === "refused" && outcome.code === "IN_PROGRESS")) pending = null;
       return { ticket, outcome };
     },
     accepts: (ticket: RequestTicket, activeContextKey: string) => guard.accepts(ticket, activeContextKey),

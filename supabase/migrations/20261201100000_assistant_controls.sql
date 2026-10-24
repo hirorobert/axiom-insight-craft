@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
--- 20261127100000 — Ask CFOClose Release 0.1: controls for the statement-line assistant (explain a movement, draft
+-- 20261201100000 — Ask CFOClose Release 0.1: controls for the statement-line assistant (explain a movement, draft
 -- commentary). ADVISORY ONLY: nothing here can write a classification, adjustment, evidence status, framework decision,
 -- approval, publication or report. Forward-only; builds on 20261012100000 (ai_append_only_guard, commercial_admins).
 --
@@ -21,7 +21,12 @@
 --                                payload is refused), completed once. A run left reserved past twice the request bound is
 --                                EXPIRED and still counted at its reserved cost (an ambiguous call is never assumed free and
 --                                never retried). The validated answer is kept for replay and purged after the configured
---                                retention; operational fields never hold the prompt.
+--                                retention; operational fields never hold the prompt. The cost recorded is the cost the
+--                                provider reported — NEVER capped at the reservation; an unknown cost (failed or ambiguous
+--                                call) is recorded at the reservation as an estimate.
+--   5. ai_assistant_overrun_reviews  any run whose recorded cost exceeds its reservation (overrun_micros > 0) stops EVERY
+--                                new reservation, platform-wide, until a commercial admin records a review of it: an
+--                                overrun means the bounds or prices are wrong, so spending pauses rather than continuing.
 --
 -- PREFLIGHT: none of these objects exist and 20261012100000 is applied.
 -- ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -29,7 +34,8 @@
 DO $preflight$
 BEGIN
   IF to_regclass('public.ai_assistant_settings') IS NOT NULL OR to_regclass('public.ai_assistant_enablements') IS NOT NULL
-     OR to_regclass('public.ai_assistant_budgets') IS NOT NULL OR to_regclass('public.ai_assistant_runs') IS NOT NULL THEN
+     OR to_regclass('public.ai_assistant_budgets') IS NOT NULL OR to_regclass('public.ai_assistant_runs') IS NOT NULL
+     OR to_regclass('public.ai_assistant_overrun_reviews') IS NOT NULL THEN
     RAISE EXCEPTION 'PREFLIGHT_REFUSED: assistant objects already exist; nothing was changed' USING ERRCODE = 'P0001';
   END IF;
   IF to_regprocedure('public.ai_append_only_guard()') IS NULL OR to_regclass('public.commercial_admins') IS NULL
@@ -213,6 +219,8 @@ CREATE TABLE public.ai_assistant_runs (
   usage                 JSONB       NULL,
   attempts              INTEGER     NULL CHECK (attempts IS NULL OR attempts BETWEEN 0 AND 2),
   duration_ms           INTEGER     NULL CHECK (duration_ms IS NULL OR duration_ms >= 0),
+  -- Recorded cost above the reservation (0 when within it). Never hidden by capping the recorded cost.
+  overrun_micros        BIGINT      NULL CHECK (overrun_micros IS NULL OR overrun_micros >= 0),
   response              JSONB       NULL,
   response_purged_at    TIMESTAMPTZ NULL,
   source_refs           TEXT[]      NULL,
@@ -232,7 +240,7 @@ CREATE INDEX idx_aiar_reserved ON public.ai_assistant_runs (company_id) WHERE st
 CREATE OR REPLACE FUNCTION public.ai_assistant_runs_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 DECLARE
-  k_completion text[] := ARRAY['state', 'actual_cost_micros', 'usage', 'attempts', 'duration_ms', 'response', 'source_refs', 'validation', 'failure_code', 'completed_at'];
+  k_completion text[] := ARRAY['state', 'actual_cost_micros', 'overrun_micros', 'usage', 'attempts', 'duration_ms', 'response', 'source_refs', 'validation', 'failure_code', 'completed_at'];
 BEGIN
   IF TG_OP <> 'UPDATE' THEN RAISE EXCEPTION 'AI_RECORD_APPEND_ONLY: % on %', TG_OP, TG_TABLE_NAME USING ERRCODE = '42501'; END IF;
   IF OLD.state = 'reserved' THEN
@@ -253,7 +261,7 @@ CREATE TRIGGER trg_aiar_no_truncate BEFORE TRUNCATE ON public.ai_assistant_runs 
 
 -- Reserve one request before any provider call. Called by the assistant-explain Edge Function (service_role) AFTER it has
 -- read the composition with the person's own credentials; access is re-derived here for the given user regardless.
--- Refusal codes: INVALID_REQUEST | PROVIDER_DISABLED | FORBIDDEN | ASSISTANT_NOT_ENABLED | REQUEST_ID_REUSED |
+-- Refusal codes: INVALID_REQUEST | PROVIDER_DISABLED | FORBIDDEN | ASSISTANT_NOT_ENABLED | REQUEST_ID_REUSED | COST_OVERRUN_REVIEW_REQUIRED |
 -- AI_BUDGET_EXCEEDED | QUOTA_EXCEEDED | USER_BUSY | CONCURRENCY_LIMIT. A repeated request id with the same payload replays.
 CREATE OR REPLACE FUNCTION public.ai_assistant_reserve(p_user_id uuid, p_company_id uuid, p_period_year integer, p_line_id text,
   p_action text, p_request_id uuid, p_payload_sha256 text, p_context_sha256 text, p_composition_sha256 text)
@@ -288,6 +296,11 @@ BEGIN
       'compositionSha256', v_run.composition_sha256, 'failureCode', v_run.failure_code, 'purged', v_run.response_purged_at IS NOT NULL);
   END IF;
   IF NOT public.ai_assistant_workspace_enabled(p_company_id) THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'ASSISTANT_NOT_ENABLED'); END IF;
+  -- Any unreviewed overrun, anywhere, pauses all new spending: the configured bounds or prices no longer hold.
+  IF EXISTS (SELECT 1 FROM public.ai_assistant_runs r WHERE r.overrun_micros > 0
+              AND NOT EXISTS (SELECT 1 FROM public.ai_assistant_overrun_reviews v WHERE v.run_id = r.id)) THEN
+    RETURN jsonb_build_object('outcome', 'refused', 'code', 'COST_OVERRUN_REVIEW_REQUIRED');
+  END IF;
   -- A run left reserved past twice the request bound is expired: its call may or may not have completed, so it keeps its
   -- reserved cost and is never retried.
   UPDATE public.ai_assistant_runs r SET state = 'expired', failure_code = 'EXPIRED_UNCONFIRMED', completed_at = clock_timestamp()
@@ -322,7 +335,8 @@ END;
 $$;
 
 -- Complete a reserved run exactly once. A NULL actual cost (unknown: failed or ambiguous) is recorded at the reserved
--- ceiling; a reported cost is never recorded above it (flagged COST_ABOVE_CEILING instead).
+-- ceiling (an estimate). A reported cost is recorded IN FULL; any part above the reservation is kept as overrun_micros,
+-- counts toward the monthly spend, and pauses new reservations until reviewed (ai_assistant_review_overrun).
 CREATE OR REPLACE FUNCTION public.ai_assistant_complete(p_run_id uuid, p_state text, p_actual_cost_micros bigint, p_usage jsonb,
   p_attempts integer, p_duration_ms integer, p_response jsonb, p_source_refs text[], p_validation jsonb, p_failure_code text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -336,10 +350,11 @@ BEGIN
   IF v_run.state <> 'reserved' THEN RETURN jsonb_build_object('outcome', 'already_completed', 'state', v_run.state); END IF;
   UPDATE public.ai_assistant_runs r
      SET state = p_state,
-         actual_cost_micros = LEAST(GREATEST(COALESCE(p_actual_cost_micros, r.reserved_cost_micros), 0), r.reserved_cost_micros),
+         actual_cost_micros = GREATEST(COALESCE(p_actual_cost_micros, r.reserved_cost_micros), 0),
+         overrun_micros = GREATEST(COALESCE(p_actual_cost_micros, r.reserved_cost_micros) - r.reserved_cost_micros, 0),
          usage = p_usage, attempts = p_attempts, duration_ms = p_duration_ms, response = p_response, source_refs = p_source_refs,
          validation = p_validation,
-         failure_code = CASE WHEN COALESCE(p_actual_cost_micros, 0) > r.reserved_cost_micros THEN 'COST_ABOVE_CEILING' ELSE p_failure_code END,
+         failure_code = p_failure_code,
          completed_at = clock_timestamp()
    WHERE r.id = p_run_id;
   RETURN jsonb_build_object('outcome', 'completed', 'state', p_state);
@@ -382,12 +397,43 @@ BEGIN
 END;
 $$;
 
+-- ── 5. Overrun reviews (commercial admins; append-only) ─────────────────────────────────────────────────────────────
+CREATE TABLE public.ai_assistant_overrun_reviews (
+  run_id         UUID        NOT NULL PRIMARY KEY REFERENCES public.ai_assistant_runs (id) ON DELETE RESTRICT,
+  reviewed_by    UUID        NOT NULL,
+  note           TEXT        NOT NULL CHECK (length(btrim(note)) BETWEEN 10 AND 2000),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TRIGGER trg_aior_append_only BEFORE UPDATE OR DELETE ON public.ai_assistant_overrun_reviews FOR EACH ROW EXECUTE FUNCTION public.ai_append_only_guard();
+CREATE TRIGGER trg_aior_no_truncate BEFORE TRUNCATE ON public.ai_assistant_overrun_reviews FOR EACH STATEMENT EXECUTE FUNCTION public.ai_append_only_guard();
+
+-- Record that an overrun was reviewed (the bounds or prices corrected, or the cause understood). The cost stays recorded.
+CREATE OR REPLACE FUNCTION public.ai_assistant_review_overrun(p_run_id uuid, p_note text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+BEGIN
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.commercial_admins WHERE user_id = v_uid AND active) THEN
+    RAISE EXCEPTION 'NOT_A_COMMERCIAL_ADMIN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.ai_assistant_runs r WHERE r.id = p_run_id AND r.overrun_micros > 0) THEN
+    RETURN jsonb_build_object('outcome', 'not_an_overrun');
+  END IF;
+  INSERT INTO public.ai_assistant_overrun_reviews (run_id, reviewed_by, note) VALUES (p_run_id, v_uid, p_note)
+  ON CONFLICT (run_id) DO NOTHING;
+  RETURN jsonb_build_object('outcome', 'recorded');
+END;
+$$;
+
 -- ── Access: no client reads or writes any table; everything goes through the functions above ─────────────────────────
 ALTER TABLE public.ai_assistant_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_assistant_enablements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_assistant_budgets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_assistant_runs ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ai_assistant_settings, public.ai_assistant_enablements, public.ai_assistant_budgets, public.ai_assistant_runs
+ALTER TABLE public.ai_assistant_overrun_reviews ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.ai_assistant_settings, public.ai_assistant_enablements, public.ai_assistant_budgets, public.ai_assistant_runs,
+  public.ai_assistant_overrun_reviews
   FROM PUBLIC, anon, authenticated, service_role;
 
 REVOKE ALL ON FUNCTION public.ai_assistant_runs_guard() FROM PUBLIC, anon, authenticated, service_role;
@@ -403,6 +449,8 @@ REVOKE ALL ON FUNCTION public.ai_assistant_reserve(uuid, uuid, integer, text, te
 GRANT EXECUTE ON FUNCTION public.ai_assistant_reserve(uuid, uuid, integer, text, text, uuid, text, text, text) TO service_role;
 REVOKE ALL ON FUNCTION public.ai_assistant_complete(uuid, text, bigint, jsonb, integer, integer, jsonb, text[], jsonb, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ai_assistant_complete(uuid, text, bigint, jsonb, integer, integer, jsonb, text[], jsonb, text) TO service_role;
+REVOKE ALL ON FUNCTION public.ai_assistant_review_overrun(uuid, text) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.ai_assistant_review_overrun(uuid, text) TO authenticated;
 REVOKE ALL ON FUNCTION public.ai_assistant_purge_responses() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ai_assistant_purge_responses() TO service_role;
 REVOKE ALL ON FUNCTION public.ai_assistant_status(uuid) FROM PUBLIC, anon, service_role;
@@ -412,7 +460,7 @@ DO $postcondition$
 DECLARE
   t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['ai_assistant_settings', 'ai_assistant_enablements', 'ai_assistant_budgets', 'ai_assistant_runs'] LOOP
+  FOREACH t IN ARRAY ARRAY['ai_assistant_settings', 'ai_assistant_enablements', 'ai_assistant_budgets', 'ai_assistant_runs', 'ai_assistant_overrun_reviews'] LOOP
     IF has_table_privilege('authenticated', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE') OR has_table_privilege('anon', 'public.' || t, 'SELECT,INSERT,UPDATE,DELETE') THEN
       RAISE EXCEPTION 'POSTCONDITION_FAILED: a client role can read or write %', t;
     END IF;

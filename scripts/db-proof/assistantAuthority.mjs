@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Real-PostgreSQL proof of Ask CFOClose Release 0.1 — migration 20261127100000 (assistant controls) and the REAL
+// Real-PostgreSQL proof of Ask CFOClose Release 0.1 — migration 20261201100000 (assistant controls) and the REAL
 // assistant-explain Edge Function (only the network edges replaced; lib/functionHarness.mjs) over statements COMPOSED BY
 // THE DATABASE from trial balances certified by the real process-trial-balance engine. Synthetic data only. No provider
 // is contacted: a deterministic TEST provider is injected into the real function.
@@ -14,6 +14,8 @@
 //   isolation     another workspace's member gets nothing (no reservation, no model call); a revoked member receives no
 //                 answer, not even a replay; clients cannot read the tables, reserve, complete or configure;
 //   records       a run completes once; completed runs are immutable (even to the owner) except the retention purge;
+//   overruns      a reported cost above the reservation is recorded IN FULL (never capped), counts in the monthly spend, and
+//                 pauses every new reservation platform-wide until a commercial admin records a review;
 //   reporting     with the assistant disabled the statements stay readable — the assistant is never a prerequisite.
 //
 // Handled outcomes are HTTP 200 with status and code in the body (the reporting transport passes bodies of successful calls).
@@ -23,7 +25,7 @@
 import { call, loadFunctionTree, mintTestJwt, shim } from "./lib/functionHarness.mjs";
 import { applyChain, certifier, csv, FY2025, FY2026, makeWorld, migrationText, openDatabase, prepareReporting, reporter, REPO, uuid } from "./lib/reportingKit.mjs";
 
-const FILE = "20261127100000_assistant_controls.sql";
+const FILE = "20261201100000_assistant_controls.sql";
 const { group, check, refused, finish } = reporter();
 let db;
 
@@ -46,10 +48,10 @@ globalThis.__testProvider = {
     const digest = /"contextDigest": "([0-9a-f]{64})"/.exec(req.messages[0].content)[1];
     const line = /"id": "(line:[^"]+)"/.exec(req.messages[0].content)[1];
     return {
-      text: JSON.stringify({ schemaVersion: "cfoclose-assistant-response/1", contextDigest: digest, blocks: [
+      text: JSON.stringify({ schemaVersion: "cfoclose-assistant-response/2", contextDigest: digest, blocks: [
         { kind: "observation", parts: [{ text: "The balance was " }, { factRef: "line.current" }, { text: " at the end of " }, { factRef: "period.current" },
           { text: ", against " }, { factRef: "line.comparative" }, { text: ": " }, { factRef: "line.change" }, { text: " (" }, { factRef: "line.change_percent" }, { text: ")." }], sourceRefs: [line] },
-        { kind: "limitation", parts: [{ text: "The statements establish the movement but not its cause." }], sourceRefs: [] },
+        { kind: "next_step", parts: [{ text: "Compare the receivables ledger with the customer statements." }], sourceRefs: [] },
       ] }),
       usage: { inputTokens: 3000, outputTokens: 400, cacheWriteTokens: 0, cacheReadTokens: 1500 }, stopReason: "end_turn",
     };
@@ -160,7 +162,7 @@ async function main() {
     const before = globalThis.__testProvider.complete;
     globalThis.__testProvider.complete = async (q) => {
       const digest = /"contextDigest": "([0-9a-f]{64})"/.exec(q.messages[0].content)[1];
-      return { text: JSON.stringify({ schemaVersion: "cfoclose-assistant-response/1", contextDigest: digest, blocks: [
+      return { text: JSON.stringify({ schemaVersion: "cfoclose-assistant-response/2", contextDigest: digest, blocks: [
         { kind: "draft", parts: [{ text: "Trade and other receivables were " }, { factRef: "line.current" }, { text: " at year end." }], sourceRefs: [`line:${LINE}`] }] }),
         usage: { inputTokens: 100, outputTokens: 50, cacheWriteTokens: 0, cacheReadTokens: 0 }, stopReason: "end_turn" };
     };
@@ -255,6 +257,32 @@ async function main() {
     await budget(A, 100_000_000, 1000, 10);
     return r.code === "QUOTA_EXCEEDED" ? true : r;
   });
+
+  group("Cost overruns are recorded honestly and pause spending");
+  await check("a reported cost above the reservation is recorded in full, with the overrun kept, and counts in the month", async () => {
+    await settle();
+    await budget(A, 100_000_000, 1000, 10);
+    const r = await reserveAs(U.owner);
+    const c = (await db.asService("SELECT public.ai_assistant_complete($1,'succeeded',$2,'{}'::jsonb,1,1,'{}'::jsonb,NULL,NULL,NULL) r", [r.runId, 500000])).r;
+    const x = await db.one("SELECT actual_cost_micros, reserved_cost_micros, overrun_micros, failure_code FROM public.ai_assistant_runs WHERE id=$1", [r.runId]);
+    return c.outcome === "completed" && x.actual_cost_micros === "500000" && x.overrun_micros === String(500000 - Number(x.reserved_cost_micros)) && x.failure_code === null ? true : { c, x };
+  });
+  let overrunRun;
+  await check("an unreviewed overrun refuses every new reservation, in ANY workspace (COST_OVERRUN_REVIEW_REQUIRED)", async () => {
+    overrunRun = (await db.one("SELECT id FROM public.ai_assistant_runs WHERE overrun_micros > 0")).id;
+    const a = await reserveAs(U.partner);
+    await enable(U.ownerB, B, "t1"); await budget(B, 100_000_000, 1000, 10);
+    const b = (await db.asService("SELECT public.ai_assistant_reserve($1,$2,2026,$3,'explain_movement',$4,$5,$5,$5) r", [U.ownerB, B, LINE, uuid(), "a".repeat(64)])).r;
+    return a.code === "COST_OVERRUN_REVIEW_REQUIRED" && b.code === "COST_OVERRUN_REVIEW_REQUIRED" ? true : { a, b };
+  });
+  await refused("only a commercial admin reviews an overrun", "42501", () => db.asUser(U.owner, "SELECT public.ai_assistant_review_overrun($1,'Prices corrected after review')", [overrunRun]));
+  await check("after a commercial admin's review spending resumes; the recorded cost is unchanged", async () => {
+    const v = (await db.asUser(ADMIN, "SELECT public.ai_assistant_review_overrun($1,'Price table corrected; bounds re-measured') r", [overrunRun])).r;
+    const r = await reserveAs(U.partner);
+    const x = await db.one("SELECT actual_cost_micros FROM public.ai_assistant_runs WHERE id=$1", [overrunRun]);
+    return v.outcome === "recorded" && r.outcome === "reserved" && x.actual_cost_micros === "500000" ? true : { v, r, x };
+  });
+  await refused("overrun reviews are append-only", "42501", () => db.admin.query("DELETE FROM public.ai_assistant_overrun_reviews"));
 
   group("Records");
   await refused("a completed run cannot be changed, even by the database owner", "42501", () => db.admin.query("UPDATE public.ai_assistant_runs SET actual_cost_micros = 0 WHERE state='succeeded'"));

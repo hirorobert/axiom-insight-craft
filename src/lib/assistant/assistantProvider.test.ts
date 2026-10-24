@@ -53,7 +53,7 @@ describe("cost", () => {
     expect(ceilingMicros(2, 10_000, 1_200, P)).toBe(74_000);
   });
   it("the migration enforces the same ceiling as a CHECK on enabling", () => {
-    const sql = fs.readFileSync(path.resolve(__dirname, "../../../supabase/migrations/20261127100000_assistant_controls.sql"), "utf8");
+    const sql = fs.readFileSync(path.resolve(__dirname, "../../../supabase/migrations/20261201100000_assistant_controls.sql"), "utf8");
     expect(sql).toContain("max_cost_per_request_micros >= 2 * ceil(");
     expect(sql).toContain("GREATEST(price_input_micros_per_mtok, price_cache_write_micros_per_mtok)");
     expect(sql).toMatch(/INSERT INTO public\.ai_assistant_settings \(singleton, enabled\) VALUES \(true, false\)/);
