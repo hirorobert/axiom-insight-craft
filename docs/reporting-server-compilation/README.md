@@ -130,3 +130,21 @@ Lock ownership: the public compiler read, receipt writer and approval writer/tri
 The private snapshot reader acquires no lock of its own, so readiness inspection does not silently add a writer lock
 and the isolated control-removal concurrency proof can still exercise the preceding publication behavior. Migration
 postconditions and the publication proof check this separation; the real concurrency proof must pass on the candidate.
+
+## Combined candidate with the publication integrity gate (2026-10-24)
+
+PR #191 (this compiler) and PR #192 (document closure, reviewer-only clearing and withdrawal, superseded-FINAL refusal,
+one FINAL authority per company and period, document structure closure) are reconciled on one branch. The chain is
+`20261123100000_fs_server_compilation.sql` -> `20261124100000_fs_publication_integrity_gate.sql` ->
+`20261125100000_fs_final_authority.sql` -> `20261126100000_fs_document_structure.sql`. The two later rewrites of
+`fs_publication_blockers` (v6, v7) keep this migration's `fs_server_compilation_blocker` splice verbatim as the last
+statement before `RETURN`; their preflights require it and their postconditions assert it, so applying them can never drop
+the compiler check. The compiler digest pinned here is `49fc0852e33ce71604f4c1430916144910a700ab33873a3ef8e8ad85adbf4789`:
+`src/lib/reporting/signoff.ts` is part of the bundled closure and gained the FINAL-authority schema and the explicit
+replacement call, so the bundle, the manifest, the migration pin and the registered submission forms were regenerated
+together (`node scripts/buildStatementCompiler.mjs --check`). The two controls are independent: the compiler refuses a
+doctored document because no receipt can match it (`SERVER_COMPILATION_REQUIRED`, then `SERVER_DOCUMENT_MISMATCH`); the SQL
+gates name the defect in the saved document without depending on the Edge deployment. `publicationControls.mjs` models
+"control removed" as the blockers text before all of them (20261115100000) with the compiler trigger disabled, and the
+many FY2026 lineages it finalises replace one another explicitly (`fs_replace_final_authority`). Deployment order, the
+four-migration preflight/postcondition and the evidence table: `docs/release/fs-integrity-r1/RECORD.md`.

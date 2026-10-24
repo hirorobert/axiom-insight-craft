@@ -920,8 +920,16 @@ per-company table that can exceed 1,000 rows exists in this function (`keyword_d
 The deployed `process-trial-balance` closure changes: see `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 
 **DEFECT-FS-PUBLICATION-DOCUMENT-CLOSURE-001** — Severity: HIGH — Status: FIXED IN SOURCE by
-`20261124100000_fs_publication_integrity_gate.sql` (branch `fix/fs-publication-integrity-gate-20261023`, 2026-10-23;
-UNAPPLIED hosted until the owner applies it; record `docs/release/fs-integrity-r1/RECORD.md`)
+`20261124100000_fs_publication_integrity_gate.sql` (branch `fix/fs-publication-integrity-gate-20261023`, PR #192, 2026-10-23;
+the combined candidate with PR #191 since 2026-10-24: the chain is `20261123100000` (server compilation, PR #191) →
+`20261124100000` (this gate) → `20261125100000` (FINAL authority) → `20261126100000` (document structure); UNAPPLIED hosted
+until the owner applies it; record `docs/release/fs-integrity-r1/RECORD.md`). The gate's `fs_publication_blockers` v6 and the
+structure migration's v7 KEEP `20261123100000`'s `fs_server_compilation_blocker` splice verbatim as the last statement before
+RETURN (each preflight requires it, each postcondition asserts it): the two controls are independent — the compiler
+recompiles the document in the trusted runtime (`SERVER_COMPILATION_REQUIRED` / `SERVER_DOCUMENT_MISMATCH`), the gate
+names the defect in SQL over the saved document without depending on the Edge deployment. The compiler digest pinned in
+`20261123100000` was regenerated (`49fc0852…`) because `signoff.ts`, part of the bundled closure, gained the authority
+schema; `scripts/buildStatementCompiler.mjs --check` and the registered submission forms follow it.
 
 `fs_publication_blockers` (through v5) compared the server's figures only with the facts BOUND ON the four primary
 statements. A document's other facts (notes, `facts[]` itself) and its header (period, dates, presentation currency,
@@ -937,18 +945,57 @@ issued a FINAL version again after a LATER FINAL of the same lineage superseded 
 `DOCUMENT_CURRENCY_MISMATCH`, `DOCUMENT_PERIOD_MISMATCH`, `DOCUMENT_PROVENANCE_MISMATCH`), `fs_append_decision` v2 and
 `fs_set_publication_state` v3 (`review_close` required), `issue_official_reporting_pack` v2 / `_reporting_pack_seal_refusal`
 v2 (`superseded_final_version`, audited), `reporting_pack_sealed_object` v2 + `seal-reporting-pack` (`superseded` disclosed;
-required closure `6c62bdcd…`), `fs_list_saved_versions` v2 (`supersededByFinal`). An honest document (prepareVersion.ts)
+required closure `cdc5416f…`), `fs_list_saved_versions` v2 (`supersededByFinal`). An honest document (prepareVersion.ts)
 carries only server figures: nothing changes for it (proof H0, and `publicationControls`/`reviewWorkflow`/`signoffBinding`/
 `run.mjs` unchanged on the new chain).
 
-**DEFECT-FS-PARALLEL-LINEAGE-FINAL-001** — Severity: MEDIUM — Status: OPEN / REGISTERED, NOT REPAIRED (2026-10-23)
+**DEFECT-FS-PARALLEL-LINEAGE-FINAL-001** — Severity: MEDIUM — Status: FIXED IN SOURCE by `20261125100000_fs_final_authority.sql`
+(PR #192 combined candidate, 2026-10-24; UNAPPLIED hosted; proofs `scripts/db-proof/publicationAuthority.mjs` (18) and
+`publicationAuthorityLegacy.mjs` (12) on real PostgreSQL; record `docs/release/fs-integrity-r1/RECORD.md`)
 
-`financial_statement_reports` has no rule that one company, period and provenance hold one report LINEAGE: a crafted
-client can start a second `report_id` for the same period and take it to FINAL beside the first (both bound to the same
-server figures, so figures agree; wording may differ), and `_fs_prior_final_differences` takes the latest FINAL by
-publication order. The pages always extend the first lineage (`EvidenceIntake.tsx`). Not repaired here because several
-existing proofs legitimately create parallel draft lineages for one period; a cross-lineage FINAL rule needs its own proof
-pass. Do not implement it as a side effect of other work.
+Before: `financial_statement_reports` had no rule that one company and period hold one FINAL: a crafted client could take a
+second `report_id` to FINAL beside the first, and `_fs_prior_final_differences` took the latest FINAL by publication order.
+Now the REPORTING SCOPE is (`company_id`, `period_year`). Draft lineages may coexist; the scope has at most ONE current FINAL
+authority — `fs_report_authority` (one row per scope, FK to the exact FINAL publication) with the append-only
+`fs_report_authority_events` (ESTABLISHED / SUCCEEDED / REPLACED / DESIGNATED / CONFLICT_DETECTED). Every decision is made
+under ONE transaction-scoped advisory lock per scope (`_fs_scope_lock`, taken FIRST): the first FINAL establishes; a later
+FINAL of the same lineage succeeds; a FINAL in another lineage is refused by name (`AUTHORITY_CONFLICT`, PT409) unless it
+is the EXPLICIT replacement `fs_replace_final_authority(company, report, version, replaces_report, replaces_version, reason)`
+(approve_certification, the same review/approval separation, bound to the exact replaced version — `AUTHORITY_MISMATCH`
+otherwise; `AUTHORITY_REPLACE_SAME_LINEAGE` for a correction) which records REPLACED with both identities; the replaced
+FINAL's document, bindings and sealed packs are immutable history disclosed as superseded. Legacy data with FINALs in more
+than one lineage is recorded by the backfill as CONFLICT_DETECTED and left UNRESOLVED (nothing is chosen by order or
+timestamp): every FINAL, official issuance (`authority_unresolved`) and the next year's comparative
+(`PRIOR_FINAL_AUTHORITY_UNRESOLVED:<year>`) refuse until a holder of approve_certification designates one existing FINAL
+(`fs_designate_final_authority`, DESIGNATED, audited; from the Sign-off page). Readers: `fs_set_publication_state` v4,
+`fs_bind_publication` v5 (claims in the same transaction), `issue_official_reporting_pack` v3 / `_reporting_pack_seal_refusal`
+v3 (`is_authority` or `superseded_final_version` / `authority_unresolved`), `seal_reporting_pack_server` v2 (scope lock after
+the issuance row lock), `reporting_pack_sealed_object` v3 (`superseded`, `authority`), `_fs_prior_final_differences` v2 (the
+comparative's prior FINAL is the explicit authority), `fs_list_saved_versions` v3 and `fs_report_readiness` v2 (`authority`
+relation for the pages; readiness stays VOLATILE — 20261023100000 D-2 — asserted by the postcondition). LOCK ORDER (shared,
+documented in the migration): scope → lineage → version → `tb_official_output_lock` (FINAL); issuance row → scope →
+`tb_official_output_lock` (seal); scope only (issue). The linearisation point of "replacement vs seal" is the scope lock:
+whichever commits first is seen by the other (proven in both interleavings with held transactions, `a11`/`a12`).
+
+**DEFECT-FS-DOCUMENT-STRUCTURE-001** — Severity: HIGH — Status: FIXED IN SOURCE by `20261126100000_fs_document_structure.sql`
+(PR #192 combined candidate, 2026-10-24; UNAPPLIED hosted; proof `publicationIntegrityGate.mjs` S1, present and absent modes)
+
+After the document closure the blockers compared every monetary FACT with a server figure, but the renderers (Statements
+page, printable pack, official canonical document) read more than amounts: which LINE a figure is bound on, under which
+LABEL, in which SECTION and STATEMENT, for which PERIOD column, and whether a line is a detail or a total. A crafted document
+could keep every server figure and still present cash as inventory (swapped binding), the comparative in the current column,
+a relabelled line, a line moved to another section, a duplicated statement, a fact whose own period field contradicted its
+identity, a fact naming a batch that is not this version's, or a fact without minor units — refused only by the browser's
+own validation, which a tampering client does not run. `_fs_document_structure_blockers` (internal, inside blockers v7)
+rebuilds the expected presentation skeleton from the server's own data (composition, presentation vocabulary, notes status,
+the evidence rows behind the cash-flow and equity statements — the same deterministic builders as
+`statements/canonicalDocument.ts`, `cashFlowDirect.ts`, `equityStatement.ts`, slug = `_fs_slug`) and compares it:
+`DOCUMENT_SHAPE_INVALID:<part>` (NULL-safe: a missing key fails closed), `DOCUMENT_PERIOD_MISMATCH:comparative-declaration`,
+`DOCUMENT_FACT_PERIOD_MISMATCH`, `DOCUMENT_PROVENANCE_UNBOUND`, `DOCUMENT_STATEMENT_MISMATCH`, `DOCUMENT_LINE_DUPLICATE`,
+`DOCUMENT_STRUCTURE_MISMATCH:<n>:<lineId>:<field>`. Line ORDER within a section is not compared. Preparer-authored and NOT
+verified against any server authority (stated): disclosure wording and policies (presence and in-force text id checked by
+`fs_notes_status`), the entity's legal name (20261123100000 binds it to `companies.name` at compilation), the labels of
+cash-flow lines and equity components (they ARE the evidence rows' own text, verified to match those rows).
 
 ### 9.2 Registered Commercial Go-Live Gates
 
@@ -1343,7 +1390,9 @@ revalidation); `scripts/buildStatementCompiler.mjs` → `supabase/functions/_sha
 `20261123100000` (bounded snapshot, service-only receipt, approval/issuance guards). Proofs: `serverCompilation.test.ts`,
 `compilerBoundary.test.ts`, `scripts/db-proof/publicationControls.mjs`, existing concurrency and real-stack journeys.
 Deployment, limits and evidence: `docs/reporting-server-compilation/README.md`. This is not proof that an uploaded source
-ledger is truthful, nor hosted verification. The legacy workspace source constant remains false; current reporting
+ledger is truthful, nor hosted verification. Combined candidate (2026-10-24, PR #192 branch): `20261124100000`–`20261126100000` build on it and
+keep its blocker splice; the compiler digest is `49fc0852…` (re-pinned with the bundled `signoff.ts`); deployment order and the
+four-migration preflight/postcondition are in `docs/release/fs-integrity-r1/RECORD.md`. The legacy workspace source constant remains false; current reporting
 routes use `REPORTING_PAGES_SHIPPED` and the server rollout/access gate.
 
 **WITHHELD_SERVICE_GRANTS_REFUSED_BY_THE_DATABASE** — `20261002100000_refuse_withheld_service_grants.sql` (branch
