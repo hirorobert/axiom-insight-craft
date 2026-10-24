@@ -770,7 +770,7 @@ describe("fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–8
 });
 
 describe("track-a-r1 (20261127100000, 20261128100000): registered ahead of application, NOT applied", () => {
-  // Literal identities of the committed bytes (8a0c66c3); the forms are the source and the source minus its single final LF.
+  // Literal identities of the committed bytes (8a0c66c3; unchanged at fce4c13c); the forms are the source and the source minus its single final LF.
   const TRA = [
     { name: "20261127100000_fs_track_a_authority_hardening.sql", bytes: 44872, sha256: "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99" },
     { name: "20261128100000_companies_framework_change_guard.sql", bytes: 3800, sha256: "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d" },
@@ -792,7 +792,7 @@ describe("track-a-r1 (20261127100000, 20261128100000): registered ahead of appli
     // @ts-expect-error plain ESM release tool without type declarations
     const { transportForms } = await import("../../../scripts/release/trackAStagedTransport.mjs");
     const f = (transportForms() as Array<{ name: string; text: string; hashes: string[] }>)[1];
-    expect(f.hashes[0]).toBe("d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0");
+    expect(f.hashes[0]).toBe("636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9");
     const tag = "0081_tra_1_authority_hardening_staged_apply";
     const J = RELEASE_JOURNAL as Record<string, unknown>;
     J[tag] = { kind: "tra_staged_transport", sha256: f.hashes[0] };

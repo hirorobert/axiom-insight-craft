@@ -8,20 +8,20 @@ import { BATCHES, BOOTSTRAP_PREDECESSOR, SOURCE_COMMIT, CHECKS_COMMIT, artifactB
 const ROOT = path.resolve(__dirname, "../../..");
 const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
 
-// Literal identities (independent of the module): the committed bytes at 8a0c66c3 and the registered submission forms.
+// Literal identities (independent of the module): the committed bytes at fce4c13c and the registered submission forms.
 const SOURCES = [
   ["20261127100000_fs_track_a_authority_hardening.sql", 44872, "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99"],
   ["20261128100000_companies_framework_change_guard.sql", 3800, "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d"],
 ] as const;
 const FORMS = [
-  ["track_a_staged_transport", 7750, "fb6d49e98466116cab3809b82ad4d0e7391d7f1c0af4c7514dbf266271aad460"],
-  ["tra_1_authority_hardening_staged_apply", 7981, "d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0"],
-  ["tra_2_framework_guard_staged_apply", 7434, "acad1966e2c71ca7d74126b01e462f9e64f5d500bcabee5311b8e0c9d9502cf1"],
+  ["track_a_staged_transport", 7750, "b92ec084d09998f6e80c7ac48d3533d6a5123c2d32f569d6efe1f792c787422f"],
+  ["tra_1_authority_hardening_staged_apply", 7981, "636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9"],
+  ["tra_2_framework_guard_staged_apply", 7434, "7be675f1066aa17090007d039a412b70a2c120fa8fab008d7bfd0ceee1b3523f"],
 ] as const;
 
 describe("track-a-r1 exact-byte staged transport", () => {
   it("pins the committed sources and checks and the journal predecessor (hosted id 80 = 0079)", () => {
-    expect(SOURCE_COMMIT).toBe("8a0c66c33c9001092f5cedec55162ad88ec7058d");
+    expect(SOURCE_COMMIT).toBe("fce4c13c5824a718d1d38732fe8127d19726d167");
     expect(CHECKS_COMMIT).toBe(SOURCE_COMMIT);
     expect(BOOTSTRAP_PREDECESSOR.id).toBe(80);
     expect(BOOTSTRAP_PREDECESSOR.hash).toBe(sha(fs.readFileSync(path.join(ROOT, "drizzle/migrations/0079_fsi_4_document_structure_staged_apply.sql"))));

@@ -20,7 +20,8 @@ Dispositions: **ACCEPTED** · **IMPLEMENTED (I, not installed)** · **CORRECTED 
 | E | Findings authority: rule-to-blocking inventory; correct only contract-supported discrepancies; record policy decisions | CORRECTED WITH EVIDENCE | Master §3 D-02 table. Residual of CFR-MASTER-2 withdrawn; the reviewer-acceptance discrepancy recorded as OD-8; no code change (fails closed) |
 | F | Related defects | IMPLEMENTED | D-09 (replacement setting); D-06 broadened; the wrapper close-out test; `CompanyManager` no longer drops a framework clear silently. Not implemented here: N-01, O-02 (A-H4) |
 | Installation | Additive server → frontend → enforcement; registered forms and transport; preflight; preservation assertions; postconditions; interruption and retry; forward repair; regenerated compiler bundle if changed | IMPLEMENTED, T | `docs/release/track-a-r1/` (preflight, two postconditions, RECORD); `scripts/release/trackAStagedTransport.mjs` and `release/staged-transport-tra/`; SUBMISSION_FORMS; proofs T6 (`m1`–`m4`) and T7 (37 checks). Compiler unchanged, so no regeneration was required (T11) |
-| Proofs | The twelve required proofs | IMPLEMENTED, T | RECORD §6 maps each to its case ids; master §0.4 T6–T11 |
+| Proofs | The twelve required proofs | IMPLEMENTED, T | RECORD §6 maps each to its case ids; master §0.4 T6–T12 |
+| Review | Independent examination | PARTLY DONE | A separate reviewer examined the SQL given only the code; one medium and four low findings fixed in `8a0c66c3`, one low accepted and documented (RECORD §8). Formal G3 review remains open |
 | Docs | Privilege model; acceptance versus activation; concurrency and multi-period scope; fencing; manifest extensions and isolated replay; IPSAS 47 194–203A; signing deferred; A-gate consistency; stale installation claims; no guard removal as recovery | ACCEPTED / UNRESOLVED (IPSAS text) | Master §4, §5.4, §7.2, §8.3 (DS-1), §9.1, §9.6, §11.4; delivery §1; IPSAS spec §5.3. **IPSAS 47 paras 194–203A could not be retrieved verbatim** from the provided URL (extraction ends at para 180); dates were established from the standard setter's announcements and the amendment table; transition text remains Q-1 |
 
 ## 2. Review C dispositions (carried forward, status updated)
@@ -69,8 +70,8 @@ All accepted items remain accepted. CFR-REVIEW-1's claim that the reporting migr
 
 | ID | Defect | Status | Evidence |
 |---|---|---|---|
-| D-01 | Owner can change the framework at any time; unaudited | **Fixed in source (I)**; installed at A4 | T6 `d1`–`d5`, `e1`–`e3` |
-| D-05 | `service_role` can write the FINAL-authority pointer | **Fixed in source (I)** | T6 `b1`, `b2`, `f1` |
+| D-01 | Owner can change the framework at any time; unaudited | **Fixed in source (I)**; installed at A4 | T6 `d1`–`d6`, `e1`–`e3`, `e5`, `e6` |
+| D-05 | `service_role` can write the FINAL-authority pointer | **Fixed in source (I)** | T6 `b1`, `b2`, `b7`, `f1` |
 | D-06 | TRUNCATE of history tables | **Fixed in source (I)** (fifteen tables) | T6 `c1`, `c2` |
 | D-09 | Replacement signalled by a caller-settable setting | **Fixed in source (I)** | T6 `b3`, `b4`, `b6` |
 | N-04 | `main` fails its release-journal and wrapper close-out tests | **Fixed in source (I, T)** | T9; CI of PR #194 |
@@ -98,7 +99,7 @@ Authoritative register: master §13. Accounting: Q-1 (IPSAS 47 paragraph text, t
 
 **Reviewed (S/R):** as CFR-REVIEW-2 §8, plus `20260920100000` (filing-jurisdiction guard), the canonical-statement rule pack (`src/lib/canonicalStatement/rules/*`, the severities each rule emits), `fs_unresolved_blocking_count`, `fs_unmet_reconciliation_count`, `fs_server_compilation_blocker`, `scripts/release/fsIntegrityStagedTransport.mjs`, `scripts/db-proof/lib/releaseBase.mjs`.
 
-**Executed (T):** master §0.4 T1–T11. **Not executed here:** Deno edge tests, db-contract-tests outside the proof steps, the real-application journey (CI of PR #194 runs them), any hosted check, any accounting fixture.
+**Executed (T):** master §0.4 T1–T12. **Not executed here:** Deno edge tests, db-contract-tests outside the proof steps, the real-application journey (CI of PR #194 runs them), any hosted check, any accounting fixture.
 
 **External sources:** master §0.5 (verification date 2026-10-24).
 

@@ -32,7 +32,7 @@ import { render as renderWrapper } from "./selfCheckingWrapper.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const TRANSPORT_DIR = "release/staged-transport-tra";
-export const SOURCE_COMMIT = "8a0c66c33c9001092f5cedec55162ad88ec7058d";
+export const SOURCE_COMMIT = "fce4c13c5824a718d1d38732fe8127d19726d167";
 export const CHECKS_COMMIT = SOURCE_COMMIT;
 /** Hosted journal tail: id 80 = drizzle 0079_fsi_4_document_structure_staged_apply. */
 export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 80, tag: "0079_fsi_4_document_structure_staged_apply", hash: "5481a1bbbc516140ee7717b65c0eed3adf75353b77d39aa96a32513a4a2ead35" });
@@ -47,14 +47,14 @@ export const BATCHES = Object.freeze([
   Object.freeze({ batch: "tra-1-authority-hardening", name: "tra_1_authority_hardening_staged_apply", source: M1,
     installed: "to_regclass('public.company_framework_events') IS NOT NULL",
     artifacts: { source: src(M1, 44872, "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99"),
-      wrapper: art(`release/wrappers/${M1.replace(/\.sql$/, ".wrapper.sql")}`, 46454, "bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3", SOURCE_COMMIT),
+      wrapper: art(`release/wrappers/${M1.replace(/\.sql$/, ".wrapper.sql")}`, 46454, "2a6a9bfb3bbf06e57f1f1093b01401793699443085e5659e01472872ba06016c", SOURCE_COMMIT),
       preflight: chk("preflight.sql", 6359, "ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d"),
       postcondition: chk("postcondition-1.sql", 8661, "cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d") } }),
   Object.freeze({ batch: "tra-2-framework-guard", name: "tra_2_framework_guard_staged_apply", source: M2,
     installed: "to_regprocedure('public.guard_company_reporting_framework()') IS NOT NULL",
     artifacts: { source: src(M2, 3800, "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d"),
-      wrapper: art(`release/wrappers/${M2.replace(/\.sql$/, ".wrapper.sql")}`, 5384, "c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5", SOURCE_COMMIT),
-      postcondition: chk("postcondition-2.sql", 3906, "1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155") } }),
+      wrapper: art(`release/wrappers/${M2.replace(/\.sql$/, ".wrapper.sql")}`, 5384, "44b172503e003cf3477210e6cee76f6bf9079a7f357447b40d689c42e16e6b9e", SOURCE_COMMIT),
+      postcondition: chk("postcondition-2.sql", 3992, "e6f13ab2a90c1567980703e7afe906f6faa083a2ee11411a5f99114a5324394e") } }),
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -274,9 +274,9 @@ export function transportForms() {
 
 /** The three registered submission forms (no final LF), pinned literally; expected hosted ids 81–83 after 0079 (id 80). */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  track_a_staged_transport: "fb6d49e98466116cab3809b82ad4d0e7391d7f1c0af4c7514dbf266271aad460",
-  tra_1_authority_hardening_staged_apply: "d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0",
-  tra_2_framework_guard_staged_apply: "acad1966e2c71ca7d74126b01e462f9e64f5d500bcabee5311b8e0c9d9502cf1",
+  track_a_staged_transport: "b92ec084d09998f6e80c7ac48d3533d6a5123c2d32f569d6efe1f792c787422f",
+  tra_1_authority_hardening_staged_apply: "636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9",
+  tra_2_framework_guard_staged_apply: "7be675f1066aa17090007d039a412b70a2c120fa8fab008d7bfd0ceee1b3523f",
 });
 
 export function checkTransportMirror(tag, text) {

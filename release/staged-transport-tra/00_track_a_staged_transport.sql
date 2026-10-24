@@ -38,12 +38,12 @@ BEGIN
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
         ('tra-1-authority-hardening', 'source', 44872, 'a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99'),
-        ('tra-1-authority-hardening', 'wrapper', 46454, 'bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3'),
+        ('tra-1-authority-hardening', 'wrapper', 46454, '2a6a9bfb3bbf06e57f1f1093b01401793699443085e5659e01472872ba06016c'),
         ('tra-1-authority-hardening', 'preflight', 6359, 'ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d'),
         ('tra-1-authority-hardening', 'postcondition', 8661, 'cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d'),
         ('tra-2-framework-guard', 'source', 3800, '80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d'),
-        ('tra-2-framework-guard', 'wrapper', 5384, 'c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5'),
-        ('tra-2-framework-guard', 'postcondition', 3906, '1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155')
+        ('tra-2-framework-guard', 'wrapper', 5384, '44b172503e003cf3477210e6cee76f6bf9079a7f357447b40d689c42e16e6b9e'),
+        ('tra-2-framework-guard', 'postcondition', 3992, 'e6f13ab2a90c1567980703e7afe906f6faa083a2ee11411a5f99114a5324394e')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_tra_release.staged_artifacts_guard() RETURNS trigger

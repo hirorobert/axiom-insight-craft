@@ -6,7 +6,7 @@ DECLARE
   c_batch CONSTANT text := 'tra-2-framework-guard';
   c_prior CONSTANT text := 'tra-1-authority-hardening';
   c_prior_kinds CONSTANT integer := 4;
-  c_predecessor CONSTANT text[] := ARRAY['d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0', 'ba9ec4050a8c95b63cc0492067ff89ec370d3e24cf7e06bfccd17bd35a28a849']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9', 'f000915e19ecf797f2c5c14fe0d84ba486ea24d8ff8687996645bf6ea136913d']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_source text; v_wrapper text; v_postcondition text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_tra_release_transport', 0));
@@ -42,11 +42,11 @@ BEGIN
   IF v_source IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   SELECT s.body INTO v_wrapper FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'wrapper' AND s.consumed_at IS NULL
-     AND s.body_bytes = 5384 AND s.body_sha256 = 'c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5';
+     AND s.body_bytes = 5384 AND s.body_sha256 = '44b172503e003cf3477210e6cee76f6bf9079a7f357447b40d689c42e16e6b9e';
   IF v_wrapper IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % wrapper is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   SELECT s.body INTO v_postcondition FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'postcondition' AND s.consumed_at IS NULL
-     AND s.body_bytes = 3906 AND s.body_sha256 = '1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155';
+     AND s.body_bytes = 3992 AND s.body_sha256 = 'e6f13ab2a90c1567980703e7afe906f6faa083a2ee11411a5f99114a5324394e';
   IF v_postcondition IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % postcondition is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   v_baseline := (SELECT encode(sha256(convert_to(
       coalesce((SELECT string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq) FROM public.fs_publication_bindings f), '') || chr(30) ||
@@ -74,8 +74,8 @@ BEGIN
   INSERT INTO cfoclose_tra_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261128100000_companies_framework_change_guard.sql', 'baseline_sha256', v_baseline,
       'source_sha256', '80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d',
-      'wrapper_sha256', 'c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5',
-      'postcondition_sha256', '1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155'));
+      'wrapper_sha256', '44b172503e003cf3477210e6cee76f6bf9079a7f357447b40d689c42e16e6b9e',
+      'postcondition_sha256', 'e6f13ab2a90c1567980703e7afe906f6faa083a2ee11411a5f99114a5324394e'));
   PERFORM set_config('cfoclose_tra_release.applying', '', true);
 END
 $cfoclose_tra_transport_tra_2_framework_guard$;
