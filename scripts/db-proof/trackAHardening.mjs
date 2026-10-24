@@ -118,7 +118,8 @@ async function main() {
   const ownerAttempt = async (sql, params = [], { immediate = false } = {}) => {
     const c = await db.pool.connect();
     try {
-      await c.query("BEGIN"); await c.query(sql, params);
+      await c.query("BEGIN");
+      for (const [s, ps] of Array.isArray(sql) ? sql : [[sql, params]]) await c.query(s, ps);
       if (immediate) await c.query("SET CONSTRAINTS ALL IMMEDIATE");
       return "applied";
     } catch (e) { return errOf(e); } finally { await c.query("ROLLBACK").catch(() => null); c.release(); }
@@ -289,6 +290,20 @@ async function main() {
     return /^PT409:AUTHORITY_CONFLICT/.test(plain ?? "") && /^PT409:AUTHORITY_MISMATCH/.test(both ?? "") && intents === 0 && (await pointer()).report_id === L2.rid ? true : { plain, both, intents };
   });
 
+  await kase("b7.event-and-identity-consistency", "the table owner (rolled back) cannot record a non-conflict authority event without moving the pointer, cannot point the scope at a publication of another version even with a matching event, and cannot record an authority event for a scope that has no pointer (each refused at commit by name)", async () => {
+    const p = await pointer();
+    const l3pub = (await db.one("SELECT id FROM public.financial_statement_publications WHERE report_id=$1 AND report_version=$2 AND state='FINAL' ORDER BY seq DESC LIMIT 1", [L2.rid, L2.v])).id;
+    const l1pub = (await db.one("SELECT id FROM public.financial_statement_publications WHERE report_id=$1 AND report_version=$2 AND state='FINAL' ORDER BY seq DESC LIMIT 1", [L1.rid, L1.v])).id;
+    const evOnly = await ownerAttempt("INSERT INTO public.fs_report_authority_events (company_id, period_year, kind, report_id, report_version, publication_id) VALUES ($1,$2,'REPLACED',$3,$4,$5)", [A, Y, L1.rid, L1.v, l1pub], { immediate: true });
+    const identity = await ownerAttempt([
+      ["UPDATE public.fs_report_authority SET report_id=$3, report_version=$4, publication_id=$5, authority_seq=authority_seq+1 WHERE company_id=$1 AND period_year=$2", [A, Y, L2.rid, L2.v, l1pub]],
+      ["INSERT INTO public.fs_report_authority_events (company_id, period_year, kind, report_id, report_version, publication_id) VALUES ($1,$2,'REPLACED',$3,$4,$5)", [A, Y, L2.rid, L2.v, l1pub]],
+    ], [], { immediate: true });
+    const orphan = await ownerAttempt("INSERT INTO public.fs_report_authority_events (company_id, period_year, kind, report_id, report_version, publication_id) VALUES ($1, 2019, 'ESTABLISHED',$2,$3,$4)", [A, L2.rid, L2.v, l3pub], { immediate: true });
+    return /AUTHORITY_POINTER_WITHOUT_EVENT/.test(evOnly) && /AUTHORITY_POINTER_IDENTITY/.test(identity) && /AUTHORITY_EVENT_WITHOUT_POINTER/.test(orphan)
+      && JSON.stringify(await pointer()) === JSON.stringify(p) ? true : { evOnly, identity, orphan };
+  });
+
   // ── C. Append-only history ────────────────────────────────────────────────────────────────────────────────────────
   group("C. TRUNCATE, UPDATE and DELETE of history");
   await kase("c1.truncate-refused-every-role", `TRUNCATE of each of the ${TRUNCATE_CLOSED.length} newly closed tables and the ${TRUNCATE_ALSO.length} authority/framework history tables is refused for service_role, authenticated and anon (privilege), and for the table owner (trigger, inside a rolled-back transaction, also with CASCADE); every row count is unchanged`, async () => {
@@ -372,7 +387,7 @@ async function main() {
     // A check in flight, as the engine leaves it between tb_begin_attempt and finalisation (inserted directly, triggers
     // suspended for this fixture only: the run's own start path is proven by s2Authority.mjs).
     const fixture = async (sql, params) => { const c = await db.pool.connect(); try { await c.query("BEGIN"); await c.query("SET LOCAL session_replication_role = replica"); const r = await c.query(sql, params); await c.query("COMMIT"); return r.rows[0]; } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); } };
-    const run = (await fixture("INSERT INTO public.engine_runs (company_id, actor_type, function_name, engine_version, status, source_table, source_record_id, period_year, lease_expires_at) VALUES ($1,'system','process-trial-balance','proof','running','trial_balance_uploads',$2,2026, now() + interval '5 minutes') RETURNING id", [D, up])).id;
+    const run = (await fixture("INSERT INTO public.engine_runs (company_id, actor_type, function_name, engine_version, status, source_table, source_record_id, period_year, attempt_no, lease_expires_at) VALUES ($1,'system','process-trial-balance','proof','running','trial_balance_uploads',$2,2026, 1, now() + interval '5 minutes') RETURNING id", [D, up])).id;
     const busy = await setFw(U.owner, D, "full_ifrs", null);
     await fixture("UPDATE public.engine_runs SET lease_expires_at = now() - interval '1 second' WHERE id=$1", [run]);
     const invalid = await refusal(() => setFw(U.owner, D, "gaap", null));
@@ -399,6 +414,20 @@ async function main() {
       ? true : { r, viaBrowser, readB, readOwner };
   });
 
+  await kase("d6.guard-requires-audited-event", "even the role that owns the function (rolled back) cannot change a framework without this transaction's own matching audited event: no event, an event for another value, or an event from an earlier transaction are refused; with the matching event the change passes (the function's own path)", async () => {
+    const H = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Guarded entity',NULL) RETURNING id", [U.ownerB])).id;
+    const ev = (from, to) => ["INSERT INTO public.company_framework_events (company_id, from_framework, to_framework, reason, actor_user_id, request_id) VALUES ($1, $2, $3, 'Proof of the audited-event rule', $4, gen_random_uuid())", [H, from, to, U.ownerB]];
+    await setFw(U.ownerB, H, "ifrs_for_smes", null);                       // decided through the function
+    const upd = ["UPDATE public.companies SET reporting_framework='full_ifrs' WHERE id=$1", [H]];
+    const none = await ownerAttempt([upd]);                                // no event at all
+    const other = await ownerAttempt([ev("ifrs_for_smes", "ipsas_accrual"), upd]);   // an event for another value
+    await admin.query(ev("ifrs_for_smes", "full_ifrs")[0], ev("ifrs_for_smes", "full_ifrs")[1]);  // the right event, committed by an EARLIER transaction
+    const earlier = await ownerAttempt([upd]);
+    const matching = await ownerAttempt([ev("ifrs_for_smes", "full_ifrs"), upd]);   // this transaction's own matching event
+    return /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(none) && /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(other) && /^42501:FRAMEWORK_CHANGE_REQUIRES_RPC: no audited/.test(earlier)
+      && matching === "applied" && (await fw(H)) === "ifrs_for_smes" ? true : { none, other, earlier, matching };
+  });
+
   // ── E. Concurrency ────────────────────────────────────────────────────────────────────────────────────────────────
   group("E. A FINAL and a framework change of one company serialise");
   await kase("e1.final-waits-for-framework-change", "a framework change of company A is held open (exclusive company lock); a replacement FINAL of A (lineage 3 replaces lineage 2) WAITS; after the change commits (refused FRAMEWORK_LOCKED: A has reports) the FINAL proceeds; the framework is unchanged and the authority is lineage 3 with a matching event", async () => {
@@ -420,10 +449,10 @@ async function main() {
     const c = await chg;
     return waits && t1.row.state === "FINAL" && c.ok && c.v.outcome === "refused" && c.v.code === "FRAMEWORK_LOCKED" && (await fw(A)) === "ifrs_for_smes" && (await pointer()).report_id === L4.rid ? true : { waits, t1: t1.row?.state, c };
   });
-  await kase("e3.framework-changes-serialize", "two owners' sessions decide an undecided company concurrently (both expecting no framework): the second WAITS for the first and is then refused STALE_FRAMEWORK; exactly one event", async () => {
-    const F = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Raced entity',NULL) RETURNING id", [U.owner])).id;
-    const t1 = await inFlight(U.owner, rpcSql, [F, "ifrs_for_smes", null, "First session decides", uuid()]);
-    const second = settle(setFw(U.owner, F, "full_ifrs", null));
+  await kase("e3.framework-changes-serialize", "two sessions of one owner decide an undecided company concurrently (both expecting no framework): the second WAITS for the first and is then refused STALE_FRAMEWORK; exactly one event", async () => {
+    const F = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Raced entity',NULL) RETURNING id", [U.ownerB])).id;
+    const t1 = await inFlight(U.ownerB, rpcSql, [F, "ifrs_for_smes", null, "First session decides", uuid()]);
+    const second = settle(setFw(U.ownerB, F, "full_ifrs", null));
     const waits = await stillPending(second, 1500);
     await t1.commit();
     const s = await second;
@@ -438,6 +467,38 @@ async function main() {
     await held.rollback();
     const o = await other;
     return !otherWaits && o.ok && !e.ok && /^55P03:/.test(e.e) ? true : { otherWaits, o, e };
+  });
+
+  // A report version written for a company (as the save path writes it: the table's BEFORE INSERT trigger takes the
+  // company's lock SHARED) and a framework change of that company, held open against each other.
+  const reportCols = (await admin.query("SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position) c FROM information_schema.columns WHERE table_schema='public' AND table_name='financial_statement_reports' AND column_name NOT IN ('id','seq')")).rows[0].c;
+  const reportFor = (company, rid) => [`INSERT INTO public.financial_statement_reports (${reportCols}) SELECT ${reportCols} FROM jsonb_populate_record(NULL::public.financial_statement_reports,
+      (SELECT to_jsonb(r) FROM public.financial_statement_reports r WHERE r.report_id = $3 ORDER BY r.report_version LIMIT 1) || jsonb_build_object('report_id', $2::text, 'company_id', $1::text))`, [company, rid, L1.rid]];
+  const heldAdmin = async (stmts) => {
+    const c = await db.pool.connect(); await c.query("BEGIN");
+    for (const [s, ps] of stmts) await c.query(s, ps);
+    return { commit: async () => { await c.query("COMMIT"); c.release(); } };
+  };
+  await kase("e5.report-write-orders-framework-change", "company G has a decided framework and no certification or report; a report version for G is being written (held open); a framework change of G WAITS; after the report commits the change is refused FRAMEWORK_LOCKED", async () => {
+    const G = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Ordered entity',NULL) RETURNING id", [U.ownerB])).id;
+    const first = await setFw(U.ownerB, G, "ifrs_for_smes", null);
+    const t = await heldAdmin([reportFor(G, `rpt-ta-order-${uuid()}`)]);
+    const chg = settle(setFw(U.ownerB, G, "full_ifrs", "ifrs_for_smes"));
+    const waits = await stillPending(chg, 1500);
+    await t.commit();
+    const c = await chg;
+    return first.outcome === "changed" && waits && c.ok && c.v.outcome === "refused" && c.v.code === "FRAMEWORK_LOCKED" && (await fw(G)) === "ifrs_for_smes" ? true : { first, waits, c };
+  });
+  await kase("e6.framework-change-orders-report-write", "company J (decided, no certification or report): a framework change is held open; a report version for J meanwhile WAITS; after the change commits the report is written; a further change is then refused FRAMEWORK_LOCKED", async () => {
+    const J = (await db.one("INSERT INTO public.companies (user_id,name,reporting_framework) VALUES ($1,'Second ordered entity',NULL) RETURNING id", [U.ownerB])).id;
+    await setFw(U.ownerB, J, "ifrs_for_smes", null);
+    const t1 = await inFlight(U.ownerB, rpcSql, [J, "full_ifrs", "ifrs_for_smes", "Change held while a report is written", uuid()]);
+    const write = settle((async () => { const t = await heldAdmin([reportFor(J, `rpt-ta-order-${uuid()}`)]); await t.commit(); })());
+    const waits = await stillPending(write, 1500);
+    await t1.commit();
+    const w = await write;
+    const after = await setFw(U.ownerB, J, "ipsas_accrual", "full_ifrs");
+    return waits && t1.row.outcome === "changed" && w.ok && after.outcome === "refused" && after.code === "FRAMEWORK_LOCKED" && (await fw(J)) === "full_ifrs" ? true : { waits, t1: t1.row, w, after };
   });
 
   // ── F. Invariants after everything ────────────────────────────────────────────────────────────────────────────────

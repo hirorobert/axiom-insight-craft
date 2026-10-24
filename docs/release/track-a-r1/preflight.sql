@@ -49,7 +49,23 @@ BEGIN
   IF v_bad > 0 THEN
     RAISE EXCEPTION 'TRA_PREFLIGHT: % authority pointer(s) do not match their latest authority event; resolve before hardening', v_bad;
   END IF;
-  --    b) every recorded framework is one the audited function can name.
+  --    b) every pointer names a FINAL of exactly its report version, company and period;
+  SELECT count(*) INTO v_bad FROM public.fs_report_authority a
+   WHERE NOT EXISTS (SELECT 1 FROM public.financial_statement_publications p
+                       JOIN public.financial_statement_reports r ON r.report_id = p.report_id AND r.report_version = p.report_version
+                      WHERE p.id = a.publication_id AND p.state = 'FINAL' AND p.company_id = a.company_id
+                        AND p.report_id = a.report_id AND p.report_version = a.report_version
+                        AND r.company_id = a.company_id AND r.period_year = a.period_year);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'TRA_PREFLIGHT: % authority pointer(s) do not name a FINAL of their own version, company and period', v_bad;
+  END IF;
+  --    c) no scope records a non-conflict authority event without a pointer;
+  SELECT count(*) INTO v_bad FROM (SELECT DISTINCT e.company_id, e.period_year FROM public.fs_report_authority_events e WHERE e.kind <> 'CONFLICT_DETECTED') s
+   WHERE NOT EXISTS (SELECT 1 FROM public.fs_report_authority a WHERE a.company_id = s.company_id AND a.period_year = s.period_year);
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION 'TRA_PREFLIGHT: % scope(s) record an authority event but have no pointer', v_bad;
+  END IF;
+  --    d) every recorded framework is one the audited function can name.
   SELECT count(*) INTO v_bad FROM public.companies c
    WHERE c.reporting_framework IS NOT NULL AND c.reporting_framework::text NOT IN ('ifrs_for_smes', 'full_ifrs', 'ipsas_accrual', 'ipsas_cash');
   IF v_bad > 0 THEN
