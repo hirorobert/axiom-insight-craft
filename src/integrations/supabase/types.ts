@@ -5342,6 +5342,75 @@ export type Database = {
           },
         ]
       }
+      fs_server_compilations: {
+        Row: {
+          actor_user_id: string
+          canonical_document: Json
+          company_id: string
+          compiler_sha256: string
+          compiler_version: string
+          created_at: string
+          dependencies_hash: string
+          document_hash: string
+          evaluation: Json
+          id: number
+          matches: boolean
+          report_id: string
+          report_version: number
+          source_snapshot: Json
+          source_snapshot_sha256: string
+        }
+        Insert: {
+          actor_user_id: string
+          canonical_document: Json
+          company_id: string
+          compiler_sha256: string
+          compiler_version: string
+          created_at?: string
+          dependencies_hash: string
+          document_hash: string
+          evaluation: Json
+          id?: never
+          matches: boolean
+          report_id: string
+          report_version: number
+          source_snapshot: Json
+          source_snapshot_sha256: string
+        }
+        Update: {
+          actor_user_id?: string
+          canonical_document?: Json
+          company_id?: string
+          compiler_sha256?: string
+          compiler_version?: string
+          created_at?: string
+          dependencies_hash?: string
+          document_hash?: string
+          evaluation?: Json
+          id?: never
+          matches?: boolean
+          report_id?: string
+          report_version?: number
+          source_snapshot?: Json
+          source_snapshot_sha256?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_server_compilations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_server_compilations_report_id_report_version_fkey"
+            columns: ["report_id", "report_version"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_reports"
+            referencedColumns: ["report_id", "report_version"]
+          },
+        ]
+      }
       fs_signoff_policy_events: {
         Row: {
           actor_role: string | null
@@ -10436,6 +10505,14 @@ export type Database = {
         Returns: Json
       }
       _fs_section: { Args: { p_classification: string }; Returns: string }
+      _fs_server_compile_snapshot: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
+      }
       _fs_signoff_policy: {
         Args: { p_company_id: string }
         Returns: {
@@ -11634,6 +11711,21 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_record_server_compilation: {
+        Args: {
+          p_actor: string
+          p_canonical_document: Json
+          p_company_id: string
+          p_compiler_sha256: string
+          p_dependencies_hash: string
+          p_document_hash: string
+          p_evaluation: Json
+          p_report_id: string
+          p_report_version: number
+          p_source_snapshot: Json
+        }
+        Returns: Json
+      }
       fs_report_readiness: {
         Args: {
           p_company_id: string
@@ -11811,6 +11903,22 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      fs_server_compilation_blocker: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: string
+      }
+      fs_server_compile_input: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
       }
       fs_set_company_rollout: {
         Args: {

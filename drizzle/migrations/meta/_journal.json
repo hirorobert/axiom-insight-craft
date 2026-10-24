@@ -533,6 +533,13 @@
       "when": 1792841732782,
       "tag": "0075_fs_integrity_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792842123117,
+      "tag": "0076_fsi_1_server_compilation_staged_apply",
+      "breakpoints": true
     }
   ]
 }
