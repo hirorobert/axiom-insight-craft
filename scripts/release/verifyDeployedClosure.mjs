@@ -41,6 +41,12 @@ export const KNOWN_CLOSURES = Object.freeze({
       { sha256: "dd4f0855705566a92b4cddcf3b045760dff40d6cc01d29a950a90ae295ec3e0d", source: "PR #176 since abc11a0 (deployed hosted 2026-10-21, fs-first-slice): issue, verify and retrieve; no superseded disclosure" },
       { sha256: "095a9ed92169c997d1d869ee5cb91697dfddade5963fe71be62f5daa6ba533b8", source: "main (deployed hosted 2026-10-18, tb-release-r1): issue and verify only - retrieve answers unavailable" }],
   }),
+  // 20261123100000 (server compilation): the FULL function closure. Not the embedded compiler bundle digest (49fc0852…), which
+  // the migration pins separately; a matching compiler digest alone never proves this closure is deployed.
+  "compile-financial-report": Object.freeze({
+    required: { sha256: "745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59", source: "merged 27f48f7 (PR #191 + PR #192 combined candidate): server compilation with the re-pinned compiler 49fc0852…" },
+    known: [],
+  }),
   "trial-balance-storage-cleanup": Object.freeze({
     required: { sha256: "04ebf148992f85b0b224215bfacb36bcd6a1342f822346c0e018594bfc410b7f", source: "main since 80384d1 (PR #76): knows source_shared" },
     known: [{ sha256: "e47b381850dc13a4101613a799233313b3400df4308a6f28f91650b23ca0d7df", source: "main before 80384d1 (PR #32 upload lifecycle): source_shared unknown — answers 500 and deletes nothing" }],
