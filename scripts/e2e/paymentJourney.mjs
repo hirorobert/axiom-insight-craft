@@ -416,12 +416,15 @@ async function main() {
     return outcome !== "created" && outcome !== "already_created" && theirs.length === 0 && !capAccess && mine.length === 0
       ? true : { outcome, theirs: theirs.length, caps: caps.data ?? caps.error?.code, mine: mine.length };
   });
-  await check("with a plan granted by an administrator: Add company opens focused setup; creating one opens its workspace", async () => {
+  await check("with a plan granted by an administrator: Add company expands the form in the directory; the saved company is listed as a draft without starting a service, and Open workspace then opens it", async () => {
     await activatePlan(U.fresh, "SOLO", "fresh-account journey: manual activation");
     await go("/dashboard", "Your companies");
     await page.waitForSelector('[data-testid="add-company"]');
     await page.click('[data-testid="add-company"]');
-    await page.waitForSelector('[data-testid="company-setup-page"]');
+    // The form expands inside the directory (no dedicated setup page any more).
+    await page.waitForSelector('[data-testid="add-company-form"] #fr-org');
+    const formPath = await page.evaluate(() => location.pathname);
+    if (!formPath.startsWith("/dashboard")) return { formPath };
     await page.fill("#fr-org", `Fresh Co ${run}`);
     // The searchable currency selector (an ARIA combobox): type the code, then Enter on the highlighted match.
     await page.evaluate(() => { const el = document.getElementById("fr-currency"); el.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "USD"); el.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -429,10 +432,17 @@ async function main() {
     await page.evaluate(() => document.getElementById("fr-currency").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     await page.waitFor(() => document.getElementById("fr-currency")?.dataset.value === "USD", [], { label: "USD chosen", timeout: 5000 });
     await page.click('form[aria-label="Add an entity"] button[type="submit"]');
-    await page.waitFor(() => location.pathname.startsWith("/workspace/"), [], { label: "opened the new workspace", timeout: 30000 });
+    // Saving a company no longer starts an engagement: the directory lists it as a draft, still on the dashboard.
+    await page.waitForSelector('[data-testid="companies-without-engagement-list"]', { timeout: 30000 });
     const api = await apiAs(U.fresh);
     const mine = (await api.from("companies").select("id, name")).data ?? [];
-    return mine.length === 1 && mine[0].name === `Fresh Co ${run}` ? true : mine;
+    if (mine.length !== 1 || mine[0].name !== `Fresh Co ${run}`) return { mine };
+    const started = (await admin.from("engagements").select("id").eq("company_id", mine[0].id)).data ?? [];
+    const path = await page.evaluate(() => location.pathname);
+    if (started.length !== 0 || !path.startsWith("/dashboard")) return { unexpectedlyStarted: started, path };
+    await page.click(`[data-testid="start-service-${mine[0].id}"]`);
+    await page.waitFor(() => location.pathname.startsWith("/workspace/"), [], { label: "opened the new workspace", timeout: 30000 });
+    return true;
   });
   await check("signed-in plans and orders at 1280 and 375 px: no sideways scrolling", async () => {
     await go("/plans", "Choose your plan");

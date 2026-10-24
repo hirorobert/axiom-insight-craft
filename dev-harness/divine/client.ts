@@ -7,13 +7,14 @@ export { tb, COMPANY, PERIOD, ENGAGEMENT };
 type Row = Record<string, any>;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const KEY = "divine-ui-fixture-v1";
-export const fixture = { calls: [] as { name: string; args: Row }[], failPeriod: false, dropPeriodAnswer: false, delay: 0, readOnly: false };
+export const fixture = { calls: [] as { name: string; args: Row }[], failPeriod: false, dropPeriodAnswer: false, delay: 0, readOnly: false, failCreate: false, dropCreateAnswer: false, dropPurposeAnswer: false, failPurpose: false, reportingEnabled: sessionStorage.getItem("divine-reporting") === "enabled" };
 (window as any).__divine = { tb, fixture, journey };
 const ok = (data: unknown) => ({ data, error: null });
 const save = () => sessionStorage.setItem(KEY, harnessSnapshot());
 const saved = sessionStorage.getItem(KEY);
 if (saved) harnessRestore(saved);
 else { tb.tables.companies = []; tb.tables.fiscal_periods = []; tb.tables.engagements = []; tb.tables.firm_members = []; tb.tables.profiles = []; }
+tb.tables.workspace_purpose_events ??= [];
 window.addEventListener("beforeunload", save);
 const company = (id: string) => tb.tables.companies.find((c) => c.id === id) as Row | undefined;
 function open(a: Row, explicit: boolean) {
@@ -33,7 +34,7 @@ function portfolio() {
     const u = tb.tables.trial_balance_uploads.find((u) => u.company_id === c.id);
     const certified = tb.tables.tb_certifications.some((r) => r.upload_id === u?.id && !r.is_blocking && !r.requires_review);
     const status = !u ? "no_trial_balance" : u.status === "processing" ? "processing" : certified ? "ready" : "needs_decision";
-    return { engagement_id: e.id, company_id: c.id, company_name: c.name, period_year: Number(String(p.reporting_end).slice(0,4)), period_start: p.reporting_start, period_end: p.reporting_end, currency: p.reporting_currency, purpose: "test", status, services: ["FINANCIAL_STATEMENTS"], upload: u ? { file_name: u.file_name, uploaded_at: u.uploaded_at, uploaded_by: "Fixture owner" } : null };
+    return { engagement_id: e.id, company_id: c.id, company_name: c.name, period_year: Number(String(p.reporting_end).slice(0,4)), period_start: p.reporting_start, period_end: p.reporting_end, currency: p.reporting_currency, purpose: tb.tables.workspace_purpose_events.filter(x => x.company_id === c.id).at(-1)?.purpose ?? "not_stated", status, services: ["FINANCIAL_STATEMENTS"], upload: u ? { file_name: u.file_name, uploaded_at: u.uploaded_at, uploaded_by: "Fixture owner" } : null };
   }).reverse();
 }
 export const supabase = {
@@ -43,11 +44,20 @@ export const supabase = {
     fixture.calls.push({ name, args });
     await wait(20);
     if (name === "create_entity") {
+      if (fixture.failCreate) { fixture.failCreate = false; throw new Error("Synthetic save failure"); }
       if (!tb.tables.companies.length) {
         tb.tables.companies.push({ id: COMPANY, name: args.p_name, fiscal_year_end: args.p_fiscal_year_end, currency: args.p_currency, reporting_framework: args.p_reporting_framework, created_at: new Date().toISOString(), user_id: HARNESS_USER.id, is_active: true });
         tb.tables.firm_members.push({ id: "ffffffff-ffff-4fff-8fff-ffffffffffff", company_id: COMPANY, user_id: HARNESS_USER.id, role: "owner", accepted_at: new Date().toISOString() });
       }
-      save(); return ok({ outcome: "created", company_id: COMPANY });
+      save(); if (fixture.dropCreateAnswer) { fixture.dropCreateAnswer = false; throw new Error("Synthetic lost create response"); } return ok({ outcome: "created", company_id: COMPANY });
+    }
+    if (name === "set_workspace_purpose") {
+      await wait(fixture.delay);
+      if (fixture.failPurpose) { fixture.failPurpose = false; throw new Error("Synthetic purpose failure"); }
+      const rows = tb.tables.workspace_purpose_events;
+      if (rows.filter(x => x.company_id === args.p_company_id).at(-1)?.purpose !== args.p_purpose) rows.push({ company_id: args.p_company_id, purpose: args.p_purpose, reason: args.p_reason, created_at: new Date().toISOString(), seq: rows.length + 1 });
+      save(); if (fixture.dropPurposeAnswer) { fixture.dropPurposeAnswer = false; throw new Error("Synthetic lost purpose response"); }
+      return ok({ outcome: "recorded" });
     }
     if (name === "get_my_entity_capacity") return ok({ determined: true, capacity: 100, used: tb.tables.companies.length, plan_code: "PRACTICE" });
     if (name === "get_my_billing_summary") return ok({ has_billing_customer: true, plan_code: "PRACTICE", licence_status: "ACTIVE", entitlements: ["CLOSE_ASSURANCE"], effective_start: "2025-01-01", effective_end: "2030-01-01" });
@@ -62,7 +72,7 @@ export const supabase = {
       const c = company(args.p_company_id); return ok(c ? [{ company_id: c.id, access: "owner", capabilities: ["prepare_trial_balance", "review_close", "manage_source_files", "reconcile"], stages: ["prepare", "reconcile"], ...c }] : []);
     }
     if (name === "get_my_workspace_capabilities") { const caps = fixture.readOnly ? [] : ["prepare_close", "review_close", "manage_members"]; return ok({ access: true, capabilities: caps, allowed: caps, has_current_plan: true, manage_billing: true }); }
-    if (name === "financial_statements_workspace_access") return ok({ enabled: false, reason: "NOT_ENABLED" });
+    if (name === "financial_statements_workspace_access") return ok(fixture.reportingEnabled ? { enabled: true } : { enabled: false, reason: "NOT_ENABLED" });
     if (name === "fold_engagement_mandate") return ok([{ capability: "FINANCIAL_STATEMENTS", granted: true }]);
     if (name === "fold_engagement_authority") return ok([]);
     if (name === "get_engagement_setup_state") return ok({ dataStart: null, sequence: 0 });

@@ -402,6 +402,7 @@ function WorkspaceLayoutContent() {
             companyId={companyId}
             periodYear={periodYear}
             missionStatus={(stage) => workspaceState.missions[stage]?.status ?? null}
+            trialBalanceStatus={loading ? { text: "Checking status…", tone: "neutral" } : { text: headerStatusWord(workspaceState), tone: workspaceState.checkedByEarlierVersion ? "stale" : missionStatusWord(workspaceState.missions.prepare.status).tone }}
             nextAction={loading ? null : workspaceState.nextAction}
             withheld={withheld}
             context={{ companyName: company?.name ?? null, framework: company?.reporting_framework, companyCreatedAt: company?.created_at,
@@ -506,6 +507,7 @@ function WorkbenchShell(props: {
   companyId: string;
   periodYear: number;
   missionStatus: (stage: WorkspaceMission) => MissionStatus | null;
+  trialBalanceStatus: import("@/lib/workbench/statusWords").StatusWord;
   nextAction: { label: string; href: string; mission: WorkspaceMission } | null;
   withheld: boolean;
   /** The engagement stated once in the rail, with its settings (EngagementContextPanel). */
@@ -525,6 +527,13 @@ function WorkbenchShell(props: {
   const reportingNext = useReportingNextAction(props.companyId, props.periodYear, !engineVisible && reporting.state === "enabled", caps?.allowed ?? null, props.pathname);
   const next = engineVisible && props.nextAction ? { label: props.nextAction.label, href: canonicalWorkbenchHref(props.nextAction.href, props.basePath) }
     : reportingNext ? { label: reportingNext.action.title, href: reportingNext.href } : null;
+  const groupStatus = (groupId: string) => {
+    if (groupId === "trial-balance") return props.trialBalanceStatus;
+    const group = model.groups.find(g => g.id === groupId);
+    // Reporting groups own their status on their pages; never reuse a legacy mission completion.
+    const status = group?.stage && !REPORTING_GROUPS.has(group.id) ? props.missionStatus(group.stage) : null;
+    return status ? missionStatusWord(status) : null;
+  };
   // The reporting pages show the report's next action themselves (ReportingWorkbench).
   const ownBar = activePage !== null && ["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"].includes(activePage);
   const showNext = !!next && activePage !== null && activePage !== "overview" && !ownBar && activeWorkbenchPage(next.href, props.basePath) !== activePage;
@@ -535,23 +544,18 @@ function WorkbenchShell(props: {
           <EngagementContextPanel companyId={props.companyId} periodYear={props.periodYear} {...props.context} />
         )}
         {props.withheld ? null : (
-          <div className={companyHome ? "hidden md:block" : undefined}><WorkbenchNav
+          <div className={companyHome ? "hidden" : undefined}><WorkbenchNav
             model={model}
             activePage={activePage}
             reportVersion={reportVersion}
-            groupStatus={(groupId) => {
-              const g = model.groups.find((x) => x.id === groupId);
-              // The reporting groups carry their own status on their pages (the server's states), not a mission status.
-              const st = g?.stage && !REPORTING_GROUPS.has(g.id) ? props.missionStatus(g.stage) : null;
-              return st ? missionStatusWord(st) : null;
-            }}
+            groupStatus={groupStatus}
           /></div>
         )}
       </div>
       <main className="min-w-0 px-4 py-6 sm:px-8">
         <ContextAnnouncer context={{ companyId: props.companyId, periodYear: props.periodYear, reportVersion }} />
         {showNext && next ? <NextOpenItem label={next.label} href={next.href} reportVersion={reportVersion} /> : null}
-        {props.withheld ? <WorkspaceUnavailable /> : <Outlet context={{ model, next }} />}
+        {props.withheld ? <WorkspaceUnavailable /> : <Outlet context={{ model, next, groupStatus }} />}
       </main>
     </div>
   );

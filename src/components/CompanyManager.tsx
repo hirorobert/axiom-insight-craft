@@ -1,3 +1,4 @@
+import { WorkspacePurposeSettings } from "@/components/workspace/WorkspacePurposeSettings";
 import { FRAMEWORK_OPTIONS } from "@/lib/workspace/frameworkOptions";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
@@ -205,10 +206,11 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
   const [formData, setFormData] = useState<CompanyFormData>(EMPTY_FORM_DATA);
   const formBaseline = useRef(JSON.stringify(EMPTY_FORM_DATA));
   const lockRead = useRef(0);
-  const dirty = formDialogOpen && JSON.stringify(formData) !== formBaseline.current;
-  useManagementEditGuard(dirty, saving || deleting);
+  const [purposeEdit, setPurposeEdit] = useState({ dirty: false, busy: false });
+  const dirty = formDialogOpen && (JSON.stringify(formData) !== formBaseline.current || purposeEdit.dirty);
+  useManagementEditGuard(dirty, saving || deleting || purposeEdit.busy);
   const closeForm = () => {
-    if (saving) return;
+    if (saving || purposeEdit.busy) return;
     if (dirty) { setDiscardPrompt(true); return; }
     setFormDialogOpen(false);
     if (companyId) setFinished(true);
@@ -279,7 +281,7 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || purposeEdit.busy) return;
 
     if (formData.tin.trim() && tinError) {
       setTinTouched(true);
@@ -390,9 +392,11 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
         toast.success("Company created successfully");
       }
 
-      setFormDialogOpen(false);
-      resetForm();
-      if (companyId) setFinished(true); else fetchCompanies();
+      if (!purposeEdit.dirty && !purposeEdit.busy) {
+        setFormDialogOpen(false);
+        resetForm();
+        if (companyId) setFinished(true); else fetchCompanies();
+      } else { formBaseline.current = JSON.stringify(formData); }
       retryCapacity();
     } catch (error) {
       console.error("Company save error:", error);
@@ -737,7 +741,7 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
               <Button type="button" variant="outline" disabled={saving} onClick={closeForm}>
                 Cancel
               </Button>
-              <Button type="submit" pending={saving} pendingLabel="Saving company…" disabled={showTinError || saving}>
+              <Button type="submit" pending={saving} pendingLabel="Saving company…" disabled={showTinError || saving || purposeEdit.busy}>
                 {editingCompany ? "Update" : "Create"}
               </Button>
             </div>
@@ -748,6 +752,7 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
     {companyId && loading ? <p role="status">Reading company details…</p> : companyId && loadError ? <p role="alert">Company details could not be read. Close and try again.</p> : inline ? (formDialogOpen ? <section aria-label={editingCompany ? "Edit company" : "Add company"}>
       <div className="mb-5 flex items-center justify-between gap-3"><h3 className="text-base font-semibold">{editingCompany ? "Edit company" : "Add company"}</h3><Button type="button" variant="outline" disabled={saving} onClick={closeForm}>{companyId ? "Cancel" : "Back to companies"}</Button></div>
       {companyForm}
+      {editingCompany && <WorkspacePurposeSettings key={editingCompany.id} companyId={editingCompany.id} onEditState={setPurposeEdit} disabled={saving || deleting} />}
     </section> : companyList) : <>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogTrigger asChild><Button variant="outline" size="sm" className="gap-2"><Settings className="h-4 w-4" />Manage</Button></DialogTrigger>
