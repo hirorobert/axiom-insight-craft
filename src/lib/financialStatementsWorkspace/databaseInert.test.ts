@@ -517,6 +517,9 @@ describe("database inertness — schema and functions", () => {
       // (actor from the verified JWT); the resolver calls its service-role-only RPC with the service client.
       "supabase/functions/safisha-match/index.ts",
       "supabase/functions/safisha-resolve/index.ts",
+      // Synthetic test data (current-tree cleanup): a Deno unit test's large-value case now uses invented amounts.
+      // Test file only; not shipped by any function deploy.
+      "supabase/functions/process-trial-balance/balanceSheetCheck_test.ts",
     ]);
     // Files a reviewed change takes OUT of supabase/: the two parked reconciliation migrations, never applied to the hosted
     // database, quarantined (S1 record, PPG-1 precedent) to supabase/migrations_historical/ (added above).
@@ -749,7 +752,12 @@ describe("database inertness — schema and functions", () => {
       // Landing sample review (PR #145): browser acceptance of the public landing page — a local build with a placeholder
       // (unreachable loopback) backend, served by vite preview on 127.0.0.1, driven by cdp.mjs. No database, no secret,
       // no network beyond loopback, no deploy behaviour; run by hand, not wired into CI.
-      "scripts/browser-acceptance/landingSample.mjs"]);
+      "scripts/browser-acceptance/landingSample.mjs",
+      // Synthetic test data (current-tree cleanup): the client-data guard and its hashed denylist (reads tracked files;
+      // no network, no database, no deploy behaviour), the invented sample trial balance the browser and staging
+      // acceptance scripts upload, and a de-identified planning note.
+      "scripts/ci/clientDataGuard.mjs", "scripts/ci/clientDataDenylist.json", "scripts/fixtures/synthetic-sme-tb-2025.csv",
+      ".lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 

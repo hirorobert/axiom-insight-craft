@@ -2,9 +2,13 @@
  * cashFlowEngines.test.ts
  *
  * Slice 10 — proves the two cash-flow engines stay distinct products that
- * cross-check to the same operating total, using REAL Arusha DC figures
- * wherever real evidence exists, and clearly-labeled synthetic data only
- * where no real evidence exists (financing activities — this LGA has none).
+ * cross-check to the same operating total. Account-level cases run on the
+ * independently invented synthetic LGA trial balances
+ * (syntheticLgaFy2025/2026Balances.fixture.ts), classified through the real
+ * rule pack; every expected figure below was computed by hand from those
+ * fixtures, outside this code. Financing activities use a separate, clearly
+ * labelled synthetic case (the fixtures, like a typical LGA chart, carry no
+ * financing-classified account).
  */
 
 import { describe, it, expect } from "vitest";
@@ -22,11 +26,11 @@ import {
   type CashPositionFacts,
   type MaterialityThreshold,
 } from "./cashFlowEngines";
-import type { ClassifiedBalance } from "./statementAggregationEngine";
+import { aggregateStatementPresentation, type ClassifiedBalance } from "./statementAggregationEngine";
 import type { ComparativeAmount } from "./comparativeEvidence";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
-import { ARUSHA_FY2026_BALANCES } from "./arushaFy2026Balances.fixture";
-import { ARUSHA_FY2025_BALANCES } from "./arushaFy2025Balances.fixture";
+import { SYNTHETIC_LGA_FY2026_BALANCES } from "./syntheticLgaFy2026Balances.fixture";
+import { SYNTHETIC_LGA_FY2025_BALANCES } from "./syntheticLgaFy2025Balances.fixture";
 
 const RULE_BY_CODE = new Map(TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => [r.naturalAccountCode, r]));
 
@@ -44,28 +48,34 @@ function toClassifiedBalances(rows: Array<{ code: string; debit: number; credit:
   });
 }
 
-describe("buildOperatingCashFlowReconciliation — real Arusha DC FY2025 depreciation add-back", () => {
-  // FY2026's TB has zero depreciation entries posted (verified directly
-  // against the raw export — a genuine, honestly-reported real-world gap,
-  // not a bug). FY2025's does not, so it proves the add-back mechanism
-  // against real, non-zero numbers instead.
-  const fy2025Balances = toClassifiedBalances(ARUSHA_FY2025_BALANCES);
+describe("buildOperatingCashFlowReconciliation — synthetic FY2025 depreciation add-back", () => {
+  // The synthetic FY2026 trial balance deliberately posts no depreciation
+  // (the "charge not posted" case); FY2025 posts four depreciation lines,
+  // so the add-back mechanism is proven against non-zero figures.
+  const fy2025Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2025_BALANCES);
 
-  it("real FY2025 depreciation (12 accounts, TZS 1,997,021,080.70 total) is fully added back as a non-cash adjustment", () => {
+  it("FY2025 depreciation (4 accounts, TZS 883,500,000.00 total) is fully added back as a non-cash adjustment", () => {
+    // 23110101 96,000,000 + 23120102 288,000,000 + 23120103 426,000,000 + 23130102 73,500,000 = 883,500,000
     const recon = buildOperatingCashFlowReconciliation(0, fy2025Balances, []);
     const depreciationLines = recon.nonCashAdjustments.filter((l) => l.presentationCode === "DEPRECIATION_AMORTISATION");
-    expect(depreciationLines).toHaveLength(12);
+    expect(depreciationLines.map((l) => l.naturalAccountCode).sort()).toEqual(["23110101", "23120102", "23120103", "23130102"]);
+    expect(depreciationLines.every((l) => l.amount > 0)).toBe(true);
     const total = depreciationLines.reduce((s, l) => s + l.amount, 0);
-    expect(total).toBeCloseTo(1997021080.70, 1);
+    expect(total).toBe(883_500_000);
+  });
+
+  it("FY2026 posts no depreciation, so no depreciation add-back is fabricated", () => {
+    const recon = buildOperatingCashFlowReconciliation(0, toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES), []);
+    expect(recon.nonCashAdjustments.filter((l) => l.presentationCode === "DEPRECIATION_AMORTISATION")).toHaveLength(0);
   });
 });
 
-describe("buildOperatingCashFlowReconciliation — real Arusha DC working-capital movements (FY2025 -> FY2026)", () => {
-  const fy2025ByCode = new Map(ARUSHA_FY2025_BALANCES.map((b) => [b.code, b.debit - b.credit]));
-  const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+describe("buildOperatingCashFlowReconciliation — synthetic working-capital movements (FY2025 -> FY2026)", () => {
+  const fy2025ByCode = new Map(SYNTHETIC_LGA_FY2025_BALANCES.map((b) => [b.code, b.debit - b.credit]));
+  const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
 
-  // Real receivable that grew year-over-year: '32171120 Imprest Receivable - Staff'.
-  it("a real receivable increase (asset) is a cash OUTFLOW in the reconciliation", () => {
+  // '32171120 Imprest Receivable - Staff' grows from 31,200,000 to 47,500,000.
+  it("a receivable increase (asset) is a cash OUTFLOW in the reconciliation", () => {
     const code = "32171120";
     const rule = RULE_BY_CODE.get(code)!;
     const currentNetAmount = fy2026Balances.find((b) => b.naturalAccountCode === code)!.debitAmount
@@ -79,18 +89,16 @@ describe("buildOperatingCashFlowReconciliation — real Arusha DC working-capita
       priorNetAmount: { state: "KNOWN", value: priorNet, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] },
     };
     expect(rule.presentationCode).toBe("RECEIVABLES");
-    const delta = currentNetAmount - priorNet;
-    expect(delta).toBeGreaterThan(0); // real increase
+    expect(currentNetAmount).toBe(47_500_000);
+    expect(priorNet).toBe(31_200_000);
 
     const recon = buildOperatingCashFlowReconciliation(0, [], [wc]);
     expect(recon.workingCapitalMovements).toHaveLength(1);
-    expect(recon.workingCapitalMovements[0].amount).toBeCloseTo(-delta, 2); // outflow
+    expect(recon.workingCapitalMovements[0].amount).toBe(-16_300_000); // 47,500,000 - 31,200,000, as an outflow
   });
 
   it("an account absent from the prior period (MISSING comparative) is skipped, never treated as a zero-based movement (C4)", () => {
-    // Real case from Slice 7: '14150103 Forest Royalties' exists in FY2026
-    // with no FY2025 prior — not working-capital-relevant by presentationCode,
-    // but the MISSING-skip mechanism is proven generically here instead.
+    // The MISSING-skip mechanism is proven generically, on a code no rule covers.
     const wc: WorkingCapitalComparative = {
       naturalAccountCode: "99999999",
       presentationCode: "RECEIVABLES",
@@ -106,43 +114,48 @@ describe("buildOperatingCashFlowReconciliation — real Arusha DC working-capita
   });
 });
 
-describe("buildInvestingActivities — real Arusha DC FY2026 capital expenditure", () => {
-  it("real PPE/WIP/investment-property additions sum to the real capex figure, all as outflows", () => {
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+describe("buildInvestingActivities — synthetic FY2026 capital expenditure", () => {
+  it("PPE/WIP/investment-property additions sum to the capex figure, all as outflows", () => {
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
     const investing = buildInvestingActivities(fy2026Balances);
-    // Independently verified in Python against the same source data,
-    // AFTER excluding the two real WIP-Transfer non-cash reclassification
-    // entries (see next test): 28,907,465,215.06
-    expect(investing.total).toBeCloseTo(-28907465215.06, 1);
+    // PPE additions 410,000,000 + 1,275,000,000 + 365,000,000; WIP 2,140,000,000 + 520,000,000;
+    // investment property 450,000,000 = 5,160,000,000 (the two WIP-transfer credits are excluded).
+    expect(investing.lineItems.map((l) => l.naturalAccountCode).sort()).toEqual(
+      ["31112102", "31112103", "31113102", "31510203", "31710109", "31710110"],
+    );
+    expect(investing.total).toBe(-5_160_000_000);
     expect(investing.lineItems.every((l) => l.amount <= 0)).toBe(true);
   });
 
-  it("real WIP-Transfer entries ('31710309'/'31710310') are excluded — they are non-cash reclassifications, not capex (Slice 10 gate finding)", () => {
-    // These two real codes were initially misclassified as WORK_IN_PROGRESS
-    // and broke the "all outflows" invariant above — the fix was a Slice 4
+  it("WIP-Transfer entries ('31710309'/'31710310') are excluded — they are non-cash reclassifications, not capex (Slice 10 gate finding)", () => {
+    // These two codes were initially misclassified as WORK_IN_PROGRESS and
+    // broke the "all outflows" invariant above — the fix was a Slice 4
     // rule-pack refinement (WORK_IN_PROGRESS_TRANSFER_NON_CASH), not a
     // cash-flow-engine special case, so it's proven at the rule-pack level.
+    // The synthetic FY2026 TB carries credit balances on both, so including
+    // them would show up as inflows.
     const transferRule1 = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "31710309")!;
     const transferRule2 = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "31710310")!;
     expect(transferRule1.presentationCode).toBe("WORK_IN_PROGRESS_TRANSFER_NON_CASH");
     expect(transferRule2.presentationCode).toBe("WORK_IN_PROGRESS_TRANSFER_NON_CASH");
 
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
+    expect(fy2026Balances.filter((b) => b.presentationCode === "WORK_IN_PROGRESS_TRANSFER_NON_CASH").map((b) => b.creditAmount)).toEqual([600_000_000, 150_000_000]);
     const investing = buildInvestingActivities(fy2026Balances);
     expect(investing.lineItems.some((l) => l.naturalAccountCode === "31710309")).toBe(false);
     expect(investing.lineItems.some((l) => l.naturalAccountCode === "31710310")).toBe(false);
   });
 });
 
-describe("buildFinancingActivities — no real financing data exists for this LGA (honestly empty)", () => {
-  it("Arusha DC's real data has zero financing-classified accounts — an empty section, not a fabricated one", () => {
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+describe("buildFinancingActivities — no financing-classified account in the fixture (honestly empty)", () => {
+  it("the synthetic LGA trial balance has zero financing-classified accounts — an empty section, not a fabricated one", () => {
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
     const financing = buildFinancingActivities(fy2026Balances, new Set());
     expect(financing.lineItems).toHaveLength(0);
     expect(financing.total).toBe(0);
   });
 
-  it("mechanism proof (synthetic — no real Tanzania LGA financing example exists in this data)", () => {
+  it("mechanism proof (synthetic financing case)", () => {
     const synthetic: ClassifiedBalance[] = [
       { naturalAccountCode: "88888888", accountNature: "LIABILITY", presentationCode: "PAYABLES_AND_ACCRUALS", debitAmount: 0, creditAmount: 500_000_000 },
     ];
@@ -152,8 +165,11 @@ describe("buildFinancingActivities — no real financing data exists for this LG
 });
 
 describe("crossCheckOperatingCashFlow — Section XIII mandatory cross-check", () => {
+  // An arbitrary invented operating starting figure for the two mechanism cases.
+  const OPERATING_SURPLUS = -187_450_000.25;
+
   it("matches when the primary statement's operating total equals the reconciliation's", () => {
-    const reconciliation = buildOperatingCashFlowReconciliation(-234109972.56, [], []);
+    const reconciliation = buildOperatingCashFlowReconciliation(OPERATING_SURPLUS, [], []);
     const investing = buildInvestingActivities([]);
     const financing = buildFinancingActivities([], new Set());
     const primary = buildPrimaryCashFlowStatement(reconciliation.netCashFromOperatingActivities, investing, financing);
@@ -163,7 +179,7 @@ describe("crossCheckOperatingCashFlow — Section XIII mandatory cross-check", (
   });
 
   it("flags a real disagreement rather than silently passing (adversarial: primary built from a stale/wrong operating figure)", () => {
-    const reconciliation = buildOperatingCashFlowReconciliation(-234109972.56, [], []);
+    const reconciliation = buildOperatingCashFlowReconciliation(OPERATING_SURPLUS, [], []);
     const investing = buildInvestingActivities([]);
     const financing = buildFinancingActivities([], new Set());
     // Deliberately wrong operating figure fed to the primary statement.
@@ -173,16 +189,19 @@ describe("crossCheckOperatingCashFlow — Section XIII mandatory cross-check", (
     expect(check.variance).toBe(1000);
   });
 
-  it("full real pipeline: FY2026 investing + FY2025-depreciation-informed reconciliation cross-checks internally consistently", () => {
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+  it("full synthetic pipeline: FY2026 surplus + FY2026 investing cross-checks internally consistently", () => {
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
+    // Surplus from the aggregation engine: revenue 26,097,800,000 - expenses 19,438,750,000 = 6,659,050,000.
+    const surplus = aggregateStatementPresentation(fy2026Balances).surplusForPeriod;
+    expect(surplus).toBe(6_659_050_000);
     const investing = buildInvestingActivities(fy2026Balances);
     const financing = buildFinancingActivities(fy2026Balances, new Set());
-    const reconciliation = buildOperatingCashFlowReconciliation(-234109972.56, [], []);
+    const reconciliation = buildOperatingCashFlowReconciliation(surplus, [], []);
     const primary = buildPrimaryCashFlowStatement(reconciliation.netCashFromOperatingActivities, investing, financing);
     const check = crossCheckOperatingCashFlow(primary, reconciliation);
     expect(check.matches).toBe(true);
-    // Real, non-trivial net movement for the year, not a degenerate zero.
-    expect(primary.netCashMovementForPeriod).not.toBe(0);
+    // Operating 6,659,050,000 + investing -5,160,000,000 + financing 0 = 1,499,050,000.
+    expect(primary.netCashMovementForPeriod).toBe(1_499_050_000);
   });
 });
 
@@ -193,7 +212,7 @@ const ZERO: ComparativeAmount = { state: "ZERO", value: 0, source: "PRIOR_TB_WIT
 const MISSING: ComparativeAmount = { state: "MISSING", source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] };
 const NOT_APPLICABLE: ComparativeAmount = { state: "NOT_APPLICABLE", evidence: [] };
 
-// Real rule-pack examples: an equity/net-assets line and a genuine cash line,
+// Rule-pack examples: an equity/net-assets line and a genuine cash line,
 // neither of which is in ALL_KNOWN_CASHFLOW_PRESENTATION_CODES (operating
 // non-cash-adjustment/working-capital codes, or investing codes).
 const ACCUMULATED_SURPLUS_RULE = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "63293101")!; // ACCUMULATED_SURPLUS_DEFICIT
@@ -262,7 +281,7 @@ describe("[P5S1-HIGH-001] findUnresolvedCashFlowLines requires caller-declared c
   });
 
   it("[13] unresolved never defaults to OPERATING -- no section field exists on UnresolvedCashFlowLine at all", () => {
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
     const relevantCodes = new Set(["DEPRECIATION_AMORTISATION", "IMPAIRMENT_EXPECTED_CREDIT_LOSS", "RECEIVABLES", "PREPAYMENTS", "INVENTORIES", "PAYABLES_AND_ACCRUALS", "DEPOSITS_HELD", "DEFERRED_REVENUE_INCOME", "WITHHOLDING_TAX_PAYABLE", "PROPERTY_PLANT_EQUIPMENT_ADDITIONS", "WORK_IN_PROGRESS", "INVESTMENT_PROPERTY"] as const);
     const unresolved = findUnresolvedCashFlowLines(fy2026Balances, new Set(relevantCodes));
     for (const line of unresolved) {
@@ -273,7 +292,7 @@ describe("[P5S1-HIGH-001] findUnresolvedCashFlowLines requires caller-declared c
   });
 
   it("no exclusion-list hack: a genuinely resolved investing-relevant line is never surfaced (no false positives) when it is declared relevant", () => {
-    const fy2026Balances = toClassifiedBalances(ARUSHA_FY2026_BALANCES);
+    const fy2026Balances = toClassifiedBalances(SYNTHETIC_LGA_FY2026_BALANCES);
     const unresolved = findUnresolvedCashFlowLines(
       fy2026Balances,
       new Set(["PROPERTY_PLANT_EQUIPMENT_ADDITIONS", "WORK_IN_PROGRESS", "INVESTMENT_PROPERTY"]),

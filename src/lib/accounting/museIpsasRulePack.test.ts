@@ -10,7 +10,7 @@ import { describe, it, expect } from "vitest";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
 
 describe("TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 — structural integrity", () => {
-  it("covers exactly the 294 distinct natural account codes observed in the real Arusha DC MUSE data", () => {
+  it("covers exactly the 294 distinct natural account codes observed in the reference MUSE exports", () => {
     expect(TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1).toHaveLength(294);
   });
 
@@ -19,10 +19,10 @@ describe("TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 — structural integrity", () => {
     expect(new Set(codes).size).toBe(codes.length);
   });
 
-  it("every rule carries non-empty evidence and cites the real source", () => {
+  it("every rule carries non-empty evidence and cites its evidence source", () => {
     for (const rule of TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1) {
       expect(rule.evidenceDetail.length).toBeGreaterThan(0);
-      expect(rule.evidenceDetail).toContain("Arusha District Council");
+      expect(rule.evidenceDetail.startsWith("Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). ")).toBe(true);
       expect(rule.ruleId).toBe(`TZ-IPSAS-MUSE-${rule.naturalAccountCode}`);
     }
   });

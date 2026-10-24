@@ -2,12 +2,12 @@
  * museIpsasRulePack.ts — TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1
  * Omega-infinity public-sector / framework intelligence engine, Slice 4.
  *
- * Every rule below is grounded in REAL evidence: the MUSE ("Mfumo wa Uhasibu
- * Serikalini") Standard Trial Balance exports for Arusha District Council,
- * Tanzania (entity code 00703099), for the periods ended 30 June 2025 and
- * 30 June 2026, plus the matching Statement of Changes in Net Assets and
- * Equity. All 294 distinct natural account codes observed across both
- * periods are covered by an exact-code rule (Section VII Tier 2: 'Official
+ * Every rule below is grounded in observed evidence: reference MUSE ("Mfumo wa
+ * Uhasibu Serikalini") Standard Trial Balance exports of a Tanzanian local
+ * government entity for two consecutive annual periods (30 June year ends),
+ * plus the matching Statement of Changes in Net Assets and Equity. All 294
+ * distinct natural account codes observed across both periods are covered by
+ * an exact-code rule (Section VII Tier 2: 'Official
  * source-system/Government COA code mapping'). Nothing here is a guessed
  * prefix pattern extrapolated beyond what was actually observed — a code
  * NOT in this list resolves to UNRESOLVED (see museClassifier.ts), never a
@@ -30,10 +30,8 @@
  *     Fuel, Spareparts) are INVENTORIES, not PPE, despite sharing the '31'
  *     prefix with genuine PPE-addition codes like '31112102'.
  *
- * Source files (not committed — contain a real entity's live financial data):
- *   FAStdTrialBalance (16).xls — FY2025 standard trial balance
- *   FAStdTrialBalance (17).xls — FY2026 standard trial balance
- *   FinalAccountEquityRPT (1).xls — FY2026 statement of changes in net assets/equity
+ * Source exports are not part of this repository. Tests use independently
+ * invented trial balances (syntheticLgaFy2025/2026Balances.fixture.ts).
  */
 
 import type { EntityClass, EvidenceSource, ConfidenceLevel } from "./entityContext";
@@ -116,7 +114,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '11' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '11' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-12110103",
@@ -133,7 +131,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '12' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '12' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-12110105",
@@ -150,7 +148,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '12' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '12' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-12110106",
@@ -167,7 +165,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '12' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '12' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-12120107",
@@ -184,7 +182,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '12' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '12' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13410101",
@@ -201,7 +199,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13410102",
@@ -218,7 +216,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13437601",
@@ -235,7 +233,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name provides the classifying signal.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name provides the classifying signal.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13465101",
@@ -252,7 +250,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13465102",
@@ -269,7 +267,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13465104",
@@ -286,7 +284,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE code family '13' (grants/subventions) combined with IPSAS 23 non-exchange revenue doctrine.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-13482601",
@@ -303,7 +301,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name provides the classifying signal.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name provides the classifying signal.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14150101",
@@ -320,7 +318,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14150103",
@@ -337,7 +335,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14150110",
@@ -354,7 +352,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14150113",
@@ -371,7 +369,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14150278",
@@ -388,7 +386,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210104",
@@ -405,7 +403,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210106",
@@ -422,7 +420,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210118",
@@ -439,7 +437,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210125",
@@ -456,7 +454,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210131",
@@ -473,7 +471,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210136",
@@ -490,7 +488,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14210150",
@@ -507,7 +505,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220111",
@@ -524,7 +522,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220113",
@@ -541,7 +539,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220141",
@@ -558,7 +556,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220145",
@@ -575,7 +573,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220146",
@@ -592,7 +590,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220151",
@@ -609,7 +607,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220157",
@@ -626,7 +624,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220161",
@@ -643,7 +641,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220169",
@@ -660,7 +658,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220175",
@@ -677,7 +675,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220176",
@@ -694,7 +692,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220184",
@@ -711,7 +709,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220192",
@@ -728,7 +726,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220207",
@@ -745,7 +743,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220254",
@@ -762,7 +760,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220258",
@@ -779,7 +777,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220260",
@@ -796,7 +794,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220264",
@@ -813,7 +811,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220266",
@@ -830,7 +828,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220268",
@@ -847,7 +845,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220273",
@@ -864,7 +862,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220454",
@@ -881,7 +879,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220514",
@@ -898,7 +896,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220546",
@@ -915,7 +913,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14220549",
@@ -932,7 +930,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14230115",
@@ -949,7 +947,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14250118",
@@ -966,7 +964,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name provides the classifying signal.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name provides the classifying signal.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14310101",
@@ -983,7 +981,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14310103",
@@ -1000,7 +998,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14310105",
@@ -1017,7 +1015,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14310111",
@@ -1034,7 +1032,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-14310128",
@@ -1051,7 +1049,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "LOW",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Revenue nature is clear from the code family, but exchange-vs-non-exchange status is NOT stated by the account name — many sibling codes in this same family ARE explicitly suffixed '- Exchange' and this one is not. Do not guess; flag for review rather than asserting a status the source data does not confirm.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21111101",
@@ -1068,7 +1066,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21111107",
@@ -1085,7 +1083,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21112102",
@@ -1102,7 +1100,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21112107",
@@ -1119,7 +1117,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21112110",
@@ -1136,7 +1134,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113101",
@@ -1153,7 +1151,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113102",
@@ -1170,7 +1168,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113103",
@@ -1187,7 +1185,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113112",
@@ -1204,7 +1202,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113114",
@@ -1221,7 +1219,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113115",
@@ -1238,7 +1236,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113117",
@@ -1255,7 +1253,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113119",
@@ -1272,7 +1270,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113121",
@@ -1289,7 +1287,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113122",
@@ -1306,7 +1304,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113127",
@@ -1323,7 +1321,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113129",
@@ -1340,7 +1338,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113131",
@@ -1357,7 +1355,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113133",
@@ -1374,7 +1372,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113135",
@@ -1391,7 +1389,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21113192",
@@ -1408,7 +1406,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21114101",
@@ -1425,7 +1423,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21114105",
@@ -1442,7 +1440,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121101",
@@ -1459,7 +1457,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121102",
@@ -1476,7 +1474,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121103",
@@ -1493,7 +1491,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121104",
@@ -1510,7 +1508,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121107",
@@ -1527,7 +1525,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121110",
@@ -1544,7 +1542,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121111",
@@ -1561,7 +1559,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21121112",
@@ -1578,7 +1576,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21211105",
@@ -1595,7 +1593,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21212105",
@@ -1612,7 +1610,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-21212110",
@@ -1629,7 +1627,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '21' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '21' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001101",
@@ -1646,7 +1644,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001102",
@@ -1663,7 +1661,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001103",
@@ -1680,7 +1678,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001109",
@@ -1697,7 +1695,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001112",
@@ -1714,7 +1712,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001113",
@@ -1731,7 +1729,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001116",
@@ -1748,7 +1746,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22001129",
@@ -1765,7 +1763,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22002101",
@@ -1782,7 +1780,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22002102",
@@ -1799,7 +1797,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22002103",
@@ -1816,7 +1814,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22002107",
@@ -1833,7 +1831,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22003102",
@@ -1850,7 +1848,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22003105",
@@ -1867,7 +1865,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004101",
@@ -1884,7 +1882,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004102",
@@ -1901,7 +1899,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004103",
@@ -1918,7 +1916,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004104",
@@ -1935,7 +1933,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004105",
@@ -1952,7 +1950,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004107",
@@ -1969,7 +1967,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22004110",
@@ -1986,7 +1984,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22006109",
@@ -2003,7 +2001,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22006112",
@@ -2020,7 +2018,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22007102",
@@ -2037,7 +2035,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22007105",
@@ -2054,7 +2052,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22007109",
@@ -2071,7 +2069,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22007111",
@@ -2088,7 +2086,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008102",
@@ -2105,7 +2103,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008103",
@@ -2122,7 +2120,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008107",
@@ -2139,7 +2137,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008108",
@@ -2156,7 +2154,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008110",
@@ -2173,7 +2171,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008111",
@@ -2190,7 +2188,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22008115",
@@ -2207,7 +2205,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22009102",
@@ -2224,7 +2222,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22009108",
@@ -2241,7 +2239,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22010102",
@@ -2258,7 +2256,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22010105",
@@ -2275,7 +2273,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22011102",
@@ -2292,7 +2290,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22011105",
@@ -2309,7 +2307,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22012101",
@@ -2326,7 +2324,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22012104",
@@ -2343,7 +2341,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22012105",
@@ -2360,7 +2358,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22013103",
@@ -2377,7 +2375,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22013108",
@@ -2394,7 +2392,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22013111",
@@ -2411,7 +2409,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22013113",
@@ -2428,7 +2426,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22013114",
@@ -2445,7 +2443,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22014101",
@@ -2462,7 +2460,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22014104",
@@ -2479,7 +2477,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22014106",
@@ -2496,7 +2494,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22015101",
@@ -2513,7 +2511,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22015106",
@@ -2530,7 +2528,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22015107",
@@ -2547,7 +2545,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22016103",
@@ -2564,7 +2562,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22017102",
@@ -2581,7 +2579,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22017104",
@@ -2598,7 +2596,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22017998",
@@ -2615,7 +2613,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22018106",
@@ -2632,7 +2630,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22018107",
@@ -2649,7 +2647,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22019101",
@@ -2666,7 +2664,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22019110",
@@ -2683,7 +2681,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22020101",
@@ -2700,7 +2698,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22020111",
@@ -2717,7 +2715,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22021101",
@@ -2734,7 +2732,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22021102",
@@ -2751,7 +2749,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22021103",
@@ -2768,7 +2766,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22021107",
@@ -2785,7 +2783,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22021108",
@@ -2802,7 +2800,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22023104",
@@ -2819,7 +2817,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22023105",
@@ -2836,7 +2834,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22024101",
@@ -2853,7 +2851,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22024102",
@@ -2870,7 +2868,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22024106",
@@ -2887,7 +2885,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22028101",
@@ -2904,7 +2902,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22028112",
@@ -2921,7 +2919,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22030104",
@@ -2938,7 +2936,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031102",
@@ -2955,7 +2953,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031103",
@@ -2972,7 +2970,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031104",
@@ -2989,7 +2987,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031105",
@@ -3006,7 +3004,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031106",
@@ -3023,7 +3021,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22031112",
@@ -3040,7 +3038,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22032110",
@@ -3057,7 +3055,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22032111",
@@ -3074,7 +3072,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22032123",
@@ -3091,7 +3089,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22032165",
@@ -3108,7 +3106,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '22' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '22' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-22033301",
@@ -3125,7 +3123,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23110101",
@@ -3142,7 +3140,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23120102",
@@ -3159,7 +3157,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23120103",
@@ -3176,7 +3174,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23120104",
@@ -3193,7 +3191,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23130102",
@@ -3210,7 +3208,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23130127",
@@ -3227,7 +3225,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23140101",
@@ -3244,7 +3242,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23140110",
@@ -3261,7 +3259,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23150102",
@@ -3278,7 +3276,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23150124",
@@ -3295,7 +3293,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23160211",
@@ -3312,7 +3310,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-23510103",
@@ -3329,7 +3327,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '23' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '23' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-26312106",
@@ -3346,7 +3344,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '26' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '26' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-27210104",
@@ -3363,7 +3361,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '27' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '27' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-27210106",
@@ -3380,7 +3378,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '27' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '27' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-27210109",
@@ -3397,7 +3395,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '27' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '27' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-28211114",
@@ -3414,7 +3412,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '28' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '28' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-28211115",
@@ -3431,7 +3429,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '28' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '28' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-28211116",
@@ -3448,7 +3446,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '28' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '28' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-28212142",
@@ -3465,7 +3463,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '28' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '28' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31112102",
@@ -3482,7 +3480,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31112103",
@@ -3499,7 +3497,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31112104",
@@ -3516,7 +3514,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31113102",
@@ -3533,7 +3531,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31113115",
@@ -3550,7 +3548,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31113127",
@@ -3567,7 +3565,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31121101",
@@ -3584,7 +3582,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31121110",
@@ -3601,7 +3599,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31122102",
@@ -3618,7 +3616,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31122124",
@@ -3635,7 +3633,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31122136",
@@ -3652,7 +3650,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31122208",
@@ -3669,7 +3667,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31123101",
@@ -3686,7 +3684,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31123111",
@@ -3703,7 +3701,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31124203",
@@ -3720,7 +3718,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31124204",
@@ -3737,7 +3735,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31124501",
@@ -3754,7 +3752,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31124510",
@@ -3771,7 +3769,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '31' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '31' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221101",
@@ -3788,7 +3786,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221102",
@@ -3805,7 +3803,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221103",
@@ -3822,7 +3820,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221105",
@@ -3839,7 +3837,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221108",
@@ -3856,7 +3854,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221112",
@@ -3873,7 +3871,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31221114",
@@ -3890,7 +3888,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Finer-grained code sub-pattern within the '31' family distinguishes this from PPE additions sharing the same 2-digit prefix.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31510203",
@@ -3907,7 +3905,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31710109",
@@ -3924,7 +3922,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31710110",
@@ -3941,7 +3939,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31710309",
@@ -3958,7 +3956,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31710310",
@@ -3975,7 +3973,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-31719109",
@@ -3992,7 +3990,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-32171108",
@@ -4009,7 +4007,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '32' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '32' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-32171120",
@@ -4026,7 +4024,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '32' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '32' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-32171201",
@@ -4043,7 +4041,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-32171202",
@@ -4060,7 +4058,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-32173113",
@@ -4077,7 +4075,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33111113",
@@ -4094,7 +4092,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '33' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '33' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33111114",
@@ -4111,7 +4109,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33111122",
@@ -4128,7 +4126,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33111199",
@@ -4145,7 +4143,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '33' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '33' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33181102",
@@ -4162,7 +4160,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '33' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '33' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33181103",
@@ -4179,7 +4177,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '33' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '33' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33181108",
@@ -4196,7 +4194,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33181109",
@@ -4213,7 +4211,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33181132",
@@ -4230,7 +4228,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '33' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '33' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33182107",
@@ -4247,7 +4245,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33182112",
@@ -4264,7 +4262,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33182153",
@@ -4281,7 +4279,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33191105",
@@ -4298,7 +4296,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Code family suggests this classification but the observed debit balance is atypical for it — kept at MEDIUM confidence pending professional review.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Code family suggests this classification but the observed debit balance is atypical for it — kept at MEDIUM confidence pending professional review.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33191106",
@@ -4315,7 +4313,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Code family suggests this classification but the observed debit balance is atypical for it — kept at MEDIUM confidence pending professional review.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Code family suggests this classification but the observed debit balance is atypical for it — kept at MEDIUM confidence pending professional review.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33191110",
@@ -4332,7 +4330,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-33191111",
@@ -4349,7 +4347,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61111101",
@@ -4366,7 +4364,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61112102",
@@ -4383,7 +4381,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61112103",
@@ -4400,7 +4398,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61112104",
@@ -4417,7 +4415,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61113101",
@@ -4434,7 +4432,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61113102",
@@ -4451,7 +4449,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61114101",
@@ -4468,7 +4466,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61121101",
@@ -4485,7 +4483,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61121110",
@@ -4502,7 +4500,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61122102",
@@ -4519,7 +4517,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61122124",
@@ -4536,7 +4534,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61123111",
@@ -4553,7 +4551,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '61' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '61' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61461101",
@@ -4570,7 +4568,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61461107",
@@ -4587,7 +4585,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61462102",
@@ -4604,7 +4602,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61462103",
@@ -4621,7 +4619,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61462104",
@@ -4638,7 +4636,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61463101",
@@ -4655,7 +4653,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61463102",
@@ -4672,7 +4670,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61463127",
@@ -4689,7 +4687,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61465101",
@@ -4706,7 +4704,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61465110",
@@ -4723,7 +4721,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61466102",
@@ -4740,7 +4738,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61466124",
@@ -4757,7 +4755,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61466211",
@@ -4774,7 +4772,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-61467103",
@@ -4791,7 +4789,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name overrides the code family's default classification (e.g. 'Accumulated Depreciation' within an otherwise asset-addition code family).",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123115",
@@ -4808,7 +4806,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123124",
@@ -4825,7 +4823,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123128",
@@ -4842,7 +4840,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123131",
@@ -4859,7 +4857,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123133",
@@ -4876,7 +4874,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123135",
@@ -4893,7 +4891,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123137",
@@ -4910,7 +4908,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123138",
@@ -4927,7 +4925,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123208",
@@ -4944,7 +4942,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123221",
@@ -4961,7 +4959,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123226",
@@ -4978,7 +4976,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123231",
@@ -4995,7 +4993,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62123232",
@@ -5012,7 +5010,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. MUSE natural account code family '62' and account name are mutually consistent with this classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). MUSE natural account code family '62' and account name are mutually consistent with this classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62171202",
@@ -5029,7 +5027,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "MEDIUM",
     confidenceSource: "LEXICAL_SIGNAL",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Code family and observed credit balance are inconsistent with the code family's usual pattern — kept at MEDIUM confidence pending professional review.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Code family and observed credit balance are inconsistent with the code family's usual pattern — kept at MEDIUM confidence pending professional review.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-62310107",
@@ -5046,7 +5044,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "debit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-63181188",
@@ -5063,7 +5061,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name ('Payable...') overrides what the '63' code prefix would otherwise suggest (net assets/equity) — a real exclusion case, not a guess.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name ('Payable...') overrides what the '63' code prefix would otherwise suggest (net assets/equity) — a real exclusion case, not a guess.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-63293101",
@@ -5080,7 +5078,7 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
   {
     ruleId: "TZ-IPSAS-MUSE-63333501",
@@ -5097,6 +5095,6 @@ export const TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1: MuseIpsasRule[] = [
     normalBalanceExpectation: "credit",
     confidence: "HIGH",
     confidenceSource: "SOURCE_SYSTEM_SIGNATURE",
-    evidenceDetail: "Arusha District Council (TZ, entity 00703099) MUSE TB, FY2025/FY2026. Account name explicitly states the classification.",
+    evidenceDetail: "Reference MUSE standard trial balance exports (Tanzania LGA, two consecutive annual periods). Account name explicitly states the classification.",
   },
 ];

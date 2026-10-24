@@ -8,7 +8,7 @@
  * Pure, READ ONLY — no I/O. Three parts:
  *
  * 1. assetCategoryMovement — a REAL, fully-computed PPE roll-forward engine.
- *    Built only after verifying (in Python, against the raw Arusha exports,
+ *    Built only after verifying (in Python, against reference MUSE exports,
  *    before writing any TS) that the assumed mechanic actually held: an
  *    initial hypothesis that '61xxxxxx Opening' rolls forward year-over-year
  *    as `Opening(t) = Opening(t-1) + Additions(t-1)` was checked and found
@@ -28,7 +28,7 @@
  *    NOT_APPLICABLE/UNASSESSABLE_FROM_TB assessment. Most of Section XIV's
  *    named schedules (borrowings, intangibles, employee benefits,
  *    commitments, related parties, budget-to-actual) have NO real evidence
- *    in the Arusha DC data this session worked from — they stay contracts
+ *    in the reference MUSE data this session worked from — they stay contracts
  *    only, never given fabricated computation logic (C4/Section XVIII).
  *
  * 3. buildGenericScheduleMovement — Ω∞ Phase 7: the generic, framework- and
@@ -62,7 +62,7 @@ import type { PreflightVerdict } from "../workspace/computePreflight";
 
 export interface AssetCategoryMovementInput {
   /** A normalized, human asset-category label — the real join key that
-   * actually worked against the Arusha data (e.g. "motor vehicles"),
+   * actually worked against the reference MUSE data (e.g. "motor vehicles"),
    * NOT a guessed code-arithmetic relationship. */
   categoryLabel: string;
   openingCost: number;
@@ -71,9 +71,9 @@ export interface AssetCategoryMovementInput {
   /** Prior-period cumulative additions-to-date — Slice 7's ComparativeAmount, so MISSING/NOT_APPLICABLE is structural, never silently 0. */
   cumulativeAdditionsPriorPeriod: ComparativeAmount;
   openingAccumulatedDepreciation: number;
-  /** Current-period depreciation charge — genuinely 0/absent for some real periods (verified: Arusha's FY2026 TB has zero depreciation postings). */
+  /** Current-period depreciation charge — genuinely 0/absent for some real periods (a MUSE trial balance can carry no depreciation postings for a year). */
   depreciationChargeForPeriod: number | null;
-  /** No disposal evidence exists anywhere in the real Arusha data reviewed this session — always 0 unless a caller supplies real evidence. */
+  /** No disposal evidence existed in the reference data reviewed when this was built — always 0 unless a caller supplies real evidence. */
   disposalsAtCost: number;
   disposalsAccumulatedDepreciation: number;
 }
@@ -201,7 +201,7 @@ const SCHEDULE_PRESENTATION_CODES: Record<SupportingScheduleType, IpsasPresentat
     "PPE_ACCUMULATED_DEPRECIATION_CONTRA",
   ],
   INVESTMENT_PROPERTY_MOVEMENT: ["INVESTMENT_PROPERTY"],
-  INTANGIBLES_MOVEMENT: [], // no real evidence — Arusha DC's data has zero intangible-asset codes
+  INTANGIBLES_MOVEMENT: [], // no real evidence — the reference chart has zero intangible-asset codes
   WORK_IN_PROGRESS_MOVEMENT: ["WORK_IN_PROGRESS", "WORK_IN_PROGRESS_TRANSFER_NON_CASH"],
   DEFERRED_INCOME_MOVEMENT: ["DEFERRED_REVENUE_INCOME"],
   // Capital grants specifically (vs deferred income generally) are not
@@ -216,7 +216,7 @@ const SCHEDULE_PRESENTATION_CODES: Record<SupportingScheduleType, IpsasPresentat
   PROVISIONS_MOVEMENT: [],
   RECEIVABLES_ECL_MOVEMENT: ["RECEIVABLES", "RECEIVABLES_ECL_PROVISION_CONTRA", "CASH_ECL_PROVISION_CONTRA"],
   INVENTORIES_MOVEMENT: ["INVENTORIES"],
-  // No real evidence — zero borrowings-classified codes in Arusha DC's data
+  // No real evidence — zero borrowings-classified codes in the reference chart
   // (Slice 10 finding). A TB absolutely could carry one; this one doesn't.
   BORROWINGS_MOVEMENT: [],
   EMPLOYEE_BENEFITS_SCHEDULE: [], // not TB-derivable (actuarial/contractual data needed)

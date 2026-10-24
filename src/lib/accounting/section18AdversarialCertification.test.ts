@@ -20,7 +20,7 @@ import type { ClassifiedBalance } from "./statementAggregationEngine";
 
 describe("Section XVIII — 'debit => expense' is never assumed", () => {
   it("normalBalanceExpectation is looked up per rule, never derived from sign alone", () => {
-    // '31221108 Spare Parts' is a real Arusha account observed on the
+    // '31221108 Spare Parts' is an account observed in the reference exports on the
     // CREDIT side, yet is correctly classified ASSET/INVENTORIES, not
     // flipped to an expense because of its sign (Slice 4 finding).
     const rule = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.find((r) => r.naturalAccountCode === "31221108")!;
@@ -78,7 +78,7 @@ describe("Section XVIII — MUSE is never blindly certified", () => {
 });
 
 describe("Section XVIII — 'same account name => same mapping globally' is never assumed", () => {
-  it("the rule pack matches by exact natural_account_code, not by account name text, and is scoped to one real entity", () => {
+  it("the rule pack matches by exact natural_account_code, not by account name text, and is scoped to one entity class", () => {
     // '23120102' is named just "Office buildings and structures" (no
     // "Depreciation" suffix, unlike its siblings) yet correctly resolves
     // via its CODE FAMILY, proving code (not name text matching) drives
@@ -138,7 +138,7 @@ describe("Section XVIII — never silently invents missing movement-schedule amo
   });
 });
 
-describe("Section XVIII — consolidated sweep across all 294 real Arusha accounts", () => {
+describe("Section XVIII — consolidated sweep across all 294 rule-pack accounts", () => {
   it("zero HIGH-confidence outcomes exist for any account this rule pack itself flagged as evidentially ambiguous", () => {
     const accounts = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => ({
       naturalAccountCode: r.naturalAccountCode,

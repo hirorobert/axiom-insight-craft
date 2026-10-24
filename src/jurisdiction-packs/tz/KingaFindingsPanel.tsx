@@ -427,7 +427,7 @@ function AddPaymentModal({
               <Input
                 id="amount-paid"
                 inputMode="decimal"
-                placeholder="e.g. 61,930,070"
+                placeholder="e.g. 14,445,000"
                 value={form.amount_paid_tzs}
                 onChange={e => setForm(f => ({ ...f, amount_paid_tzs: e.target.value }))}
               />

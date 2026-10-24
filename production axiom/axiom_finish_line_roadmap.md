@@ -50,9 +50,9 @@ Expected verification output:
 
 ---
 
-## STEP 2 — FIRST LIVE DRY RUN (KAMANGA TEST)
+## STEP 2 — FIRST LIVE DRY RUN (SAMPLE TEST)
 
-After deployment, on Kamanga's trial balance:
+After deployment, on the invented sample trial balance (`scripts/fixtures/synthetic-sme-tb-2025.csv`):
 1. Click the **Kinga — Corporate Tax (ITA Chapter 332)** panel
 2. Click **+ Capital Allowance** and enter at least one asset (e.g. computers at Class 1)
 3. Set months overdue = 0
@@ -237,7 +237,7 @@ TODAY:
   1. git push (PowerShell)
   2. Paste lovable_phase4_prompt.md → Lovable
   3. Verify all 6 checks pass
-  4. Run dry-run on Kamanga TB
+  4. Run dry-run on the sample TB
   5. Commit computation if numbers are correct
 
 THIS WEEK:

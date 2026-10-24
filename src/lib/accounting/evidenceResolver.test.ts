@@ -33,7 +33,7 @@ const EXPENSE_INPUT: ResolverInput = {
   ...BASE,
   naturalAccountCode: "21111101", // Civil Servants -> EXPENSE, EMPLOYEE_COSTS, HIGH, AUTO_MAPPED_RULE
   accountName: "Civil Servants",
-  balance: 58582200999.32,
+  balance: 4_875_300_000.15,
 };
 
 const ASSET_INPUT: ResolverInput = {
@@ -61,20 +61,20 @@ const REVENUE_INPUT: ResolverInput = {
   ...BASE,
   naturalAccountCode: "14150101", // Revenue from Land -> REVENUE, LOW, REVIEW_SUGGESTED
   accountName: "Revenue from Land",
-  balance: 2612625,
+  balance: 1_940_500,
 };
 
 const UNSEEN_CODE_NONZERO: ResolverInput = {
   ...BASE,
   naturalAccountCode: "99999999",
-  accountName: "Never seen in Arusha data",
+  accountName: "Never seen in the reference chart",
   balance: 12345.67,
 };
 
 const UNSEEN_CODE_ZERO: ResolverInput = {
   ...BASE,
   naturalAccountCode: "99999999",
-  accountName: "Never seen in Arusha data",
+  accountName: "Never seen in the reference chart",
   balance: 0,
 };
 

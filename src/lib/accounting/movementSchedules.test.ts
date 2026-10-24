@@ -1,9 +1,10 @@
 /**
  * movementSchedules.test.ts
  *
- * Slice 11 — proves the PPE movement engine against real, hand-verified
- * Arusha DC "Motor vehicles" figures, and the schedule-requirement registry
- * against the real 294-account rule pack.
+ * Slice 11 — proves the PPE movement engine against an invented, hand-computed
+ * "Motor vehicles" category (codes 61121101 / 31121101 / 61465101 / 23140101),
+ * and the schedule-requirement registry against the 294-account rule pack
+ * and the synthetic LGA FY2026 trial balance.
  */
 
 import { describe, it, expect } from "vitest";
@@ -17,35 +18,34 @@ import {
 import type { ClassifiedBalance } from "./statementAggregationEngine";
 import type { ComparativeAmount } from "./comparativeEvidence";
 import { TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 } from "./museIpsasRulePack";
-import { ARUSHA_FY2026_BALANCES } from "./arushaFy2026Balances.fixture";
+import { SYNTHETIC_LGA_FY2026_BALANCES } from "./syntheticLgaFy2026Balances.fixture";
 
-describe("buildAssetCategoryMovement — real Arusha DC 'Motor vehicles' category, FY2026", () => {
-  // Verified directly against the raw MUSE exports (codes 61121101, 31121101,
-  // 61465101, 23140101) before writing this engine — see the file header of
-  // movementSchedules.ts for the roll-forward mechanic this data disproved
-  // and what was verified instead.
+describe("buildAssetCategoryMovement — synthetic 'Motor vehicles' category, FY2026", () => {
+  // Invented inputs in the MUSE shape the engine handles: additions are posted
+  // cumulative-to-date, so the period's own addition is current minus prior
+  // (see the file header of movementSchedules.ts). Hand-computed below.
   const result = buildAssetCategoryMovement({
     categoryLabel: "Motor vehicles",
-    openingCost: 1738887102.0,
-    cumulativeAdditionsCurrentPeriod: 539123175.0, // FY2026 cumulative-to-date
+    openingCost: 2_400_000_000,
+    cumulativeAdditionsCurrentPeriod: 640_000_000, // FY2026 cumulative-to-date
     cumulativeAdditionsPriorPeriod: {
       state: "KNOWN",
-      value: 55661975.0, // FY2025 cumulative-to-date
+      value: 90_000_000, // FY2025 cumulative-to-date
       source: "PRIOR_TB_WITH_CONFIRMED_MAPPING",
       evidence: [],
     },
-    openingAccumulatedDepreciation: 1757627299.03,
-    depreciationChargeForPeriod: null, // real finding: FY2026 has zero depreciation postings
+    openingAccumulatedDepreciation: 1_080_000_000,
+    depreciationChargeForPeriod: null, // no depreciation charge posted this period
     disposalsAtCost: 0,
     disposalsAccumulatedDepreciation: 0,
   });
 
   it("isolates the period's OWN addition from the cumulative-to-date figure", () => {
-    expect(result.additionsForPeriod).toBeCloseTo(483461200.0, 1);
+    expect(result.additionsForPeriod).toBe(550_000_000); // 640,000,000 - 90,000,000
   });
 
   it("computes closing cost as opening + this period's addition", () => {
-    expect(result.closingCost).toBeCloseTo(2222348302.0, 1);
+    expect(result.closingCost).toBe(2_950_000_000); // 2,400,000,000 + 550,000,000
   });
 
   it("does NOT fabricate a closing accumulated depreciation when no charge was posted this period", () => {
@@ -57,21 +57,22 @@ describe("buildAssetCategoryMovement — real Arusha DC 'Motor vehicles' categor
   });
 
   it("still computes opening NBV from known opening figures, even though closing NBV is blocked", () => {
-    expect(result.netBookValueOpening).toBeCloseTo(1738887102.0 - 1757627299.03, 1);
+    expect(result.netBookValueOpening).toBe(1_320_000_000); // 2,400,000,000 - 1,080,000,000
   });
 
-  it("with a real prior-period depreciation charge (FY2025's own real figure), closing accumulated depreciation IS computed", () => {
+  it("with a depreciation charge posted for the period, closing accumulated depreciation IS computed", () => {
     const withCharge = buildAssetCategoryMovement({
       categoryLabel: "Motor vehicles",
-      openingCost: 1738887102.0,
-      cumulativeAdditionsCurrentPeriod: 55661975.0,
+      openingCost: 2_400_000_000,
+      cumulativeAdditionsCurrentPeriod: 90_000_000,
       cumulativeAdditionsPriorPeriod: { state: "ZERO", value: 0, source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] },
-      openingAccumulatedDepreciation: 1757627299.03 - 215203033.0, // back out FY2025's real charge to get a plausible prior opening
-      depreciationChargeForPeriod: 215203033.0, // real FY2025 charge
+      openingAccumulatedDepreciation: 840_000_000,
+      depreciationChargeForPeriod: 240_000_000,
       disposalsAtCost: 0,
       disposalsAccumulatedDepreciation: 0,
     });
-    expect(withCharge.closingAccumulatedDepreciation).toBeCloseTo(1757627299.03, 1);
+    expect(withCharge.closingAccumulatedDepreciation).toBe(1_080_000_000); // 840,000,000 + 240,000,000
+    expect(withCharge.netBookValueClosing).toBe(1_410_000_000); // (2,400,000,000 + 90,000,000) - 1,080,000,000
     expect(withCharge.netBookValueClosing).not.toBeNull();
     expect(withCharge.dataGaps).toHaveLength(0);
   });
@@ -79,10 +80,10 @@ describe("buildAssetCategoryMovement — real Arusha DC 'Motor vehicles' categor
   it("a MISSING prior-period comparative blocks the period-addition computation, never defaults it to the full cumulative figure", () => {
     const blocked = buildAssetCategoryMovement({
       categoryLabel: "Motor vehicles",
-      openingCost: 1738887102.0,
-      cumulativeAdditionsCurrentPeriod: 539123175.0,
+      openingCost: 2_400_000_000,
+      cumulativeAdditionsCurrentPeriod: 640_000_000,
       cumulativeAdditionsPriorPeriod: { state: "MISSING", source: "PRIOR_TB_WITH_CONFIRMED_MAPPING", evidence: [] },
-      openingAccumulatedDepreciation: 1757627299.03,
+      openingAccumulatedDepreciation: 1_080_000_000,
       depreciationChargeForPeriod: null,
       disposalsAtCost: 0,
       disposalsAccumulatedDepreciation: 0,
@@ -93,9 +94,9 @@ describe("buildAssetCategoryMovement — real Arusha DC 'Motor vehicles' categor
   });
 });
 
-describe("assessScheduleRequirement — real Arusha DC FY2026 rule pack + balances", () => {
+describe("assessScheduleRequirement — rule pack + synthetic LGA FY2026 balances", () => {
   const RULE_BY_CODE = new Map(TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => [r.naturalAccountCode, r]));
-  const balances: ClassifiedBalance[] = ARUSHA_FY2026_BALANCES.map((b) => {
+  const balances: ClassifiedBalance[] = SYNTHETIC_LGA_FY2026_BALANCES.map((b) => {
     const rule = RULE_BY_CODE.get(b.code)!;
     return {
       naturalAccountCode: b.code,
@@ -106,13 +107,14 @@ describe("assessScheduleRequirement — real Arusha DC FY2026 rule pack + balanc
     };
   });
 
-  it("PPE_ASSET_MOVEMENT is REQUIRED — real, large PPE balances exist", () => {
+  it("PPE_ASSET_MOVEMENT is REQUIRED — material PPE balances exist", () => {
     const assessment = assessScheduleRequirement("PPE_ASSET_MOVEMENT", balances, 1_000_000);
     expect(assessment.status).toBe("REQUIRED");
-    expect(assessment.materialBalance).toBeGreaterThan(1_000_000);
+    // |additions| 2,050,000,000 + |opening| 31,500,000,000 + |accumulated depreciation| 9,810,000,000
+    expect(assessment.materialBalance).toBe(43_360_000_000);
   });
 
-  it("BORROWINGS_MOVEMENT is NOT_APPLICABLE — a TB could represent a borrowing, Arusha DC's real data just has none (Slice 10 finding)", () => {
+  it("BORROWINGS_MOVEMENT is NOT_APPLICABLE — a TB could represent a borrowing, this trial balance just has none (Slice 10 finding)", () => {
     const assessment = assessScheduleRequirement("BORROWINGS_MOVEMENT", balances, 1_000_000);
     expect(assessment.status).toBe("NOT_APPLICABLE");
   });
@@ -130,7 +132,7 @@ describe("assessScheduleRequirement — real Arusha DC FY2026 rule pack + balanc
     expect(assessment.status).toBe("NOT_APPLICABLE");
   });
 
-  it("does not block or throw for any real schedule type — advisory only (Section XIV)", () => {
+  it("does not block or throw for any schedule type — advisory only (Section XIV)", () => {
     const allTypes: Array<Parameters<typeof assessScheduleRequirement>[0]> = [
       "PPE_ASSET_MOVEMENT", "INVESTMENT_PROPERTY_MOVEMENT", "INTANGIBLES_MOVEMENT",
       "WORK_IN_PROGRESS_MOVEMENT", "DEFERRED_INCOME_MOVEMENT", "CAPITAL_GRANTS_MOVEMENT",

@@ -1,0 +1,33 @@
+Account Code,Account Name,Dr,Cr
+S001,Revenue - Consulting Services,,2485600000
+S002,Cost of Services,1016300000,
+S003,Salaries and Wages,412750000,
+S004,Pension Contributions - Employer,41275000,
+S005,Skills Development Levy,14445000,
+S006,Workers Compensation,2063000,
+S007,Staff Training,9820000,
+S008,Office Rent,48000000,
+S009,Electricity and Water,17340000,
+S010,Fuel,22910000,
+S011,Security Services,13200000,
+S012,Depreciation,57480000,
+S013,Repairs and Maintenance,19655000,
+S014,Office Supplies,6870000,
+S015,Telephone and Internet,8415000,
+S016,Travel,24380000,
+S017,Insurance,11250000,
+S018,Professional Fees,28600000,
+S019,Bank Charges,3975000,
+S020,Interest on Loan,36140000,
+S021,Income Tax Expense,218000000,
+S022,Property Plant and Equipment - Net,642900000,
+S023,Inventories,87350000,
+S024,Trade Receivables,311480000,
+S025,Prepayments,24600000,
+S026,Cash and Bank,527115000,
+S027,Long Term Loan,,301000000
+S028,Trade Payables,,174260000
+S029,Accrued Expenses,,46530000
+S030,Income Tax Payable,,96400000
+S031,Share Capital,,100000000
+S032,Retained Earnings Opening Balance,,402523000

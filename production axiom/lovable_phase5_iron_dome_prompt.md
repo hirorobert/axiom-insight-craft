@@ -130,7 +130,7 @@ Add a **Period Selector** component to the upload flow. When a user uploads a TB
 1. Ask: "What period does this cover?" → Date picker for fiscal_year_end
 2. Show dropdown: "Prior year" → autocomplete from existing fiscal_periods for this company
 3. After VALID status: auto-set `active_upload_id` on fiscal_periods (trigger handles this)
-4. Show "Prior year linked: FY2024 (Kamanga Medics)" confirmation badge
+4. Show "Prior year linked: FY2024 (<company name>)" confirmation badge
 
 **Component:** `src/components/PeriodSelector.tsx`
 
@@ -161,26 +161,16 @@ Layout (two-column table, IPSAS/IAS 1 style):
                           FY2025 (TZS)    FY2024 (TZS)    Change      %
 ═══════════════════════════════════════════════════════════════════════════
 INCOME STATEMENT
-Revenue / Turnover        9,396,638,868   8,200,000,000   +1,196,639  +14.6%  ✅
-Cost of Goods Sold        3,821,206,509   3,200,000,000   +621,207     +19.4%  ⚠️
-Gross Profit              5,575,432,359   5,000,000,000   +575,432     +11.5%  ✅
-Operating Expenses        5,394,365,596   4,800,000,000   +594,366     +12.4%  ⚠️
-Profit Before Tax           181,066,763     200,000,000    -18,933      -9.5%  ⚠️
-Income Tax Charge            54,320,029      60,000,000     -5,680      -9.5%  ✅
-Profit After Tax            126,746,734     140,000,000    -13,253      -9.5%  ⚠️
-
-BALANCE SHEET
-Total Assets              8,101,425,081   7,500,000,000   +601,425     +8.0%  ✅
-  Trade Receivables          714,131,700     500,000,000   +214,132    +42.8%  🔴
-  Cash & Bank              3,678,834,052   3,200,000,000   +478,834    +15.0%  ✅
-Total Liabilities         5,930,011,166   5,600,000,000   +330,011     +5.9%  ✅
-Total Equity              2,044,667,181   1,900,000,000   +144,667     +7.6%  ✅
+Revenue / Turnover        2,485,600,000   2,210,000,000   +275,600    +12.5%  ✅
+Cost of Goods Sold        1,016,300,000     905,000,000   +111,300    +12.3%  ⚠️
+Gross Profit              1,469,300,000   1,305,000,000   +164,300    +12.6%  ✅
+(… remaining lines in the same layout; illustrative invented figures)
 
 KEY RATIOS
-Gross Margin                      59.3%           61.0%     -1.7pp      ⚠️
-Net Margin                         1.3%            1.7%     -0.4pp      ⚠️
-Current Ratio                      2.6x            2.4x     +0.2x       ✅
-Receivable Days                   27.7 days       22.3 days +5.4 days   🔴
+Gross Margin                      59.1%           59.0%     +0.1pp      ✅
+Net Margin                        xx.x%           xx.x%     ±x.xpp
+Current Ratio                      x.xx            x.xx     ±x.xx
+Receivable Days                   xx.x days       xx.x days ±x.x days
 ```
 
 Flags:
@@ -220,7 +210,7 @@ const { data } = await supabase.functions.invoke('kinga-comparative-engine', {
 The validation report is displaying `$` instead of `TZS`. Find every instance of
 currency formatting in the validation report component and replace the currency
 symbol from `$` / `USD` to `TZS`. Tanzania shilling has no decimal places
-(integers only) — format as `TZS 17,371,317,215` not `TZS 17,371,317,215.00`.
+(integers only) — format as `TZS 3,606,313,000` not `TZS 3,606,313,000.00`.
 
 Search for: `toFixed(2)` and `$` in the validation report component.
 Replace with: `Math.round()` and `TZS ` prefix.

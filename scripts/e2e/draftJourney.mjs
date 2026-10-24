@@ -337,7 +337,7 @@ const openYear = async () => {
 /** Balanced invented rows: n accounts with realistic, varied names and amounts; the last one credits their total. */
 const W1 = ["Trade", "Other", "Accrued", "Prepaid", "Deferred", "Staff", "Motor", "Office", "Bank", "Loan", "Interest", "Rental", "Consulting", "Insurance", "Freight"];
 const W2 = ["receivables", "payables", "expenses", "income", "charges", "deposits", "advances", "fees", "costs", "provisions", "allowances", "levies"];
-const W3 = ["Dar es Salaam", "Arusha", "Mwanza", "Dodoma", "head office", "branch 2", "project Kilima", "USD account", "petty", "suspense"];
+const W3 = ["Dar es Salaam", "Mbeya", "Mwanza", "Dodoma", "head office", "branch 2", "project Kilima", "USD account", "petty", "suspense"];
 const balancedRows = (n) => {
   const rows = []; let total = 0;
   for (let i = 0; i < n - 1; i++) {

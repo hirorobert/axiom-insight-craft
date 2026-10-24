@@ -23,7 +23,7 @@ const { retireUpload, DiscardError } = await import("@/components/workspace/Disc
 
 const access = (kind: WorkspaceAccess["kind"], capabilities: string[] = []): WorkspaceAccess => ({
   kind, capabilities, stages: kind === "capability" ? ["prepare"] : ["prepare", "reconcile"],
-  company: { id: "c1", name: "Arusha Dc", fiscal_year_end: null, reporting_framework: null, currency: null, created_at: null },
+  company: { id: "c1", name: "Mfano District Council", fiscal_year_end: null, reporting_framework: null, currency: null, created_at: null },
 });
 const caps = (hasCurrentPlan: boolean | null, ok = true): MyWorkspaceCapabilities => ({ access: ok, held: [], allowed: [], hasCurrentPlan, manageBilling: false });
 const known = (outcome: string, binding: string | null = null) => parseRemovalEligibility({ outcome, binding, version: 3 });

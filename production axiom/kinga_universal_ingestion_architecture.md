@@ -29,7 +29,7 @@ TIER 2: PAYROLL_NAME_PATTERNS matched against account_name from JSONB
          → "Salaries*", "Wages*", "Allowances*", "Mishahara*", "Basic Pay*"...
          → EXCLUDES: "NHIF*", "NSSF*", "WCF*", "SDL*", "PAYE*"
 ```
-Kamanga Medics account 7101 "Salaries, Allowances & Wages" matches Tier 2 automatically.  
+An account such as 7101 "Salaries, Allowances & Wages" matches Tier 2 automatically.  
 Zero configuration. Zero migration needed.
 
 ### Retained Earnings Base (Step C1b)

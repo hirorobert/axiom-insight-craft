@@ -91,7 +91,7 @@ const count = async (sql, p = []) => Number((await one(sql, p)).n);
 // ── Invented, varied account names (never client data) ────────────────────────────────────────────────────────────
 const W1 = ["Trade", "Other", "Accrued", "Prepaid", "Deferred", "Staff", "Motor", "Office", "Bank", "Loan", "Interest", "Rental", "Consulting", "Insurance", "Freight"];
 const W2 = ["receivables", "payables", "expenses", "income", "charges", "deposits", "advances", "fees", "costs", "provisions", "allowances", "levies"];
-const W3 = ["Dar es Salaam", "Arusha", "Mwanza", "Dodoma", "head office", "branch 2", "project Kilima", "USD account", "petty", "suspense"];
+const W3 = ["Dar es Salaam", "Mbeya", "Mwanza", "Dodoma", "head office", "branch 2", "project Kilima", "USD account", "petty", "suspense"];
 const accountName = (i) => `${W1[i % W1.length]} ${W2[(i * 7) % W2.length]} - ${W3[(i * 3) % W3.length]} ${1000 + ((i * 7919) % 9000)}`;
 const accountCode = (i) => String(100000 + i);
 const needsReview = (i) => ({ code: "NEEDS_REVIEW", layer: 4, severity: "warning", accountCode: accountCode(i), message: `No classification found for "${accountName(i)}" (${accountCode(i)})` });

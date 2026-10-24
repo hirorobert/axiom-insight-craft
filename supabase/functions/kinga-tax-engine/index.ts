@@ -763,7 +763,7 @@ serve(async (req) => {
     //   (b) Income statement taxes section — "Corporate Tax Provision" (P&L approach)
     //
     // Prior version only searched (a), missing companies that book the provision
-    // as a P&L tax charge (e.g. Kamanga account 7000 "Corporate Tax Provision"
+    // as a P&L tax charge (e.g. an account 7000 "Corporate Tax Provision"
     // classified under income_statement.taxes). Both are valid IFRS treatments.
     //
     // Use the larger of the two as the provision (they should not double-count;

@@ -2,7 +2,7 @@
  * controlledActivation.test.ts
  *
  * Slice 13 — proves "controlled" activation is real: an empty allowlist
- * blocks 100% of real Arusha DC AUTO_MAPPED_RULE outcomes, and even a
+ * blocks 100% of the rule pack's AUTO_MAPPED_RULE outcomes, and even a
  * confirmed IPSAS framework + an activated rule still fails closed if the
  * built record doesn't validate. No write ever happens here — only the
  * decision and the record that WOULD be written.
@@ -33,7 +33,7 @@ const CONFIRMED_IPSAS_CONTEXT = detectEntityAccountingContext({
 });
 
 describe("assessActivationEligibility — the default state is fully closed", () => {
-  it("with an EMPTY activated-rule allowlist, a real HIGH-confidence Arusha rule is still blocked", () => {
+  it("with an EMPTY activated-rule allowlist, a HIGH-confidence rule-pack rule is still blocked", () => {
     const outcome = classifyMuseAccount({
       naturalAccountCode: "21111101",
       accountName: "Civil Servants",
@@ -51,7 +51,7 @@ describe("assessActivationEligibility — the default state is fully closed", ()
     expect(decision.record).toBeUndefined();
   });
 
-  it("ALL 294 real Arusha accounts are blocked when nothing is activated — controlled means nothing auto-writes by default", () => {
+  it("ALL 294 rule-pack accounts are blocked when nothing is activated — controlled means nothing auto-writes by default", () => {
     const accounts = TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1.map((r) => ({
       naturalAccountCode: r.naturalAccountCode,
       accountName: r.observedAccountName,
@@ -75,7 +75,7 @@ describe("assessActivationEligibility — the default state is fully closed", ()
     // assessActivationEligibility, regardless of allowlist contents.
     const tier7Outcome = classifyMuseAccount({
       naturalAccountCode: "99999999",
-      accountName: "Some Account Never Seen In Arusha Data",
+      accountName: "Some Account Never Seen In The Reference Chart",
       balance: 12345.67,
     });
     expect(tier7Outcome.outcome).toBe("UNRESOLVED");
@@ -93,7 +93,7 @@ describe("assessActivationEligibility — the default state is fully closed", ()
 });
 
 describe("assessActivationEligibility — REVIEW_SUGGESTED never auto-writes, regardless of activation", () => {
-  it("a real MEDIUM/LOW-confidence Arusha account stays blocked even with its rule activated", () => {
+  it("a MEDIUM/LOW-confidence rule-pack account stays blocked even with its rule activated", () => {
     const outcome = classifyMuseAccount({
       naturalAccountCode: "14150101", // real LOW-confidence rule (Slice 4/6)
       accountName: "Revenue from Land",
@@ -147,7 +147,7 @@ describe("assessActivationEligibility — framework confirmation gate", () => {
 });
 
 describe("assessActivationEligibility — the one real path that reaches ELIGIBLE_FOR_AUTO_WRITE", () => {
-  it("a real Arusha rule, activated, with a confirmed framework, produces a valid record ready for an edge function to write (never writes it here)", () => {
+  it("a rule-pack rule, activated, with a confirmed framework, produces a valid record ready for an edge function to write (never writes it here)", () => {
     const outcome = classifyMuseAccount({
       naturalAccountCode: "21111101",
       accountName: "Civil Servants",

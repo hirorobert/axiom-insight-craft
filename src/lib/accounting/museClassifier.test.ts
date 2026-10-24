@@ -2,7 +2,7 @@
  * museClassifier.test.ts
  *
  * Slice 4/5 — proves the evidence-ladder classifier's outcome model, and
- * runs the Section XXI dry-run requirement: classify every real account this
+ * runs the Section XXI dry-run requirement: classify every account this
  * rule pack was built from and report AUTO_MAPPED_RULE / REVIEW_SUGGESTED /
  * UNRESOLVED counts. NO WRITES anywhere in this file or the code it tests.
  */
@@ -16,7 +16,7 @@ describe("classifyMuseAccount", () => {
     const result = classifyMuseAccount({
       naturalAccountCode: "21111101",
       accountName: "Civil Servants",
-      balance: 58582200999.32,
+      balance: 4_875_300_000.15,
     });
     expect(result.outcome).toBe("AUTO_MAPPED_RULE");
     expect(result.accountNature).toBe("EXPENSE");
@@ -30,7 +30,7 @@ describe("classifyMuseAccount", () => {
     const result = classifyMuseAccount({
       naturalAccountCode: "14150101",
       accountName: "Revenue from Land",
-      balance: 2612625,
+      balance: 1_940_500,
     });
     expect(result.outcome).toBe("REVIEW_SUGGESTED");
     expect(result.accountNature).toBe("REVENUE");
@@ -43,7 +43,7 @@ describe("classifyMuseAccount", () => {
     // distinct from the Tier 7 cases below.
     const result = classifyMuseAccount({
       naturalAccountCode: "99999999",
-      accountName: "Some Account Never Seen In Arusha Data",
+      accountName: "Some Account Never Seen In The Reference Chart",
       balance: 0,
     });
     expect(result.outcome).toBe("UNRESOLVED");
@@ -59,7 +59,7 @@ describe("classifyMuseAccount", () => {
   it("[A] unmatched exact code + positive balance -> UNRESOLVED, Tier 7, DEBIT, LOW, requiresReview true", () => {
     const result = classifyMuseAccount({
       naturalAccountCode: "99999999",
-      accountName: "Some Account Never Seen In Arusha Data",
+      accountName: "Some Account Never Seen In The Reference Chart",
       balance: 12345.67,
     });
     expect(result.outcome).toBe("UNRESOLVED");
@@ -72,7 +72,7 @@ describe("classifyMuseAccount", () => {
   it("[B] unmatched exact code + negative balance -> UNRESOLVED, Tier 7, CREDIT, LOW, requiresReview true", () => {
     const result = classifyMuseAccount({
       naturalAccountCode: "99999998",
-      accountName: "Some Other Account Never Seen In Arusha Data",
+      accountName: "Some Other Account Never Seen In The Reference Chart",
       balance: -12345.67,
     });
     expect(result.outcome).toBe("UNRESOLVED");
@@ -85,7 +85,7 @@ describe("classifyMuseAccount", () => {
   it("[C-F] Tier 7 results never fabricate accountNature, presentationCode, ruleId, or ruleVersion", () => {
     const result = classifyMuseAccount({
       naturalAccountCode: "99999997",
-      accountName: "Yet Another Account Never Seen In Arusha Data",
+      accountName: "Yet Another Account Never Seen In The Reference Chart",
       balance: 500,
     });
     expect(result.evidenceTier).toBe(7); // sanity: this is genuinely the Tier 7 path
@@ -116,7 +116,7 @@ describe("classifyMuseAccount", () => {
     const highConfidence = classifyMuseAccount({
       naturalAccountCode: "21111101",
       accountName: "Civil Servants",
-      balance: 58582200999.32,
+      balance: 4_875_300_000.15,
     });
     expect(highConfidence.outcome).toBe("AUTO_MAPPED_RULE");
     expect(highConfidence.evidenceTier).toBeUndefined();
@@ -126,7 +126,7 @@ describe("classifyMuseAccount", () => {
     const lowConfidence = classifyMuseAccount({
       naturalAccountCode: "14150101",
       accountName: "Revenue from Land",
-      balance: 2612625,
+      balance: 1_940_500,
     });
     expect(lowConfidence.outcome).toBe("REVIEW_SUGGESTED");
     expect(lowConfidence.evidenceTier).toBeUndefined();
@@ -147,7 +147,7 @@ describe("classifyMuseAccount", () => {
   });
 });
 
-describe("Section XXI dry-run — real Arusha DC unresolved accounts, NO WRITES", () => {
+describe("Section XXI dry-run — rule-pack source accounts, NO WRITES", () => {
   // The dry-run corpus IS the rule pack's own source accounts: every code
   // TZ_PUBLIC_SECTOR_IPSAS_ACCRUAL_V1 was built from, run back through the
   // classifier that consumes it. This is not circular — it proves the
@@ -163,7 +163,7 @@ describe("Section XXI dry-run — real Arusha DC unresolved accounts, NO WRITES"
   const outcomes = classifyMuseAccounts(accounts);
   const summary = summarizeDryRun(outcomes);
 
-  it("classifies all 294 real Arusha DC accounts with zero UNRESOLVED (every one has a grounded rule)", () => {
+  it("classifies all 294 rule-pack accounts with zero UNRESOLVED (every one has a grounded rule)", () => {
     expect(summary.total).toBe(294);
     expect(summary.unresolved).toBe(0);
     expect(summary.autoMappedRule + summary.reviewSuggested).toBe(294);

@@ -23,7 +23,7 @@
  * must ALSO appear on an explicit, caller-supplied allowlist of activated
  * rule IDs — defaulting to EMPTY. Nothing auto-writes until a rule is
  * deliberately, individually activated; this session does not populate
- * that allowlist for any of the 294 real Arusha rules (Section XXI: "Do
+ * that allowlist for any of the 294 rule-pack rules (Section XXI: "Do
  * not tune rules to hit a target count" — the corollary is also true: do
  * not unilaterally flip real rules live either).
  */
