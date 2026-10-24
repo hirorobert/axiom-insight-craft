@@ -10438,6 +10438,10 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number; p_type: string }
         Returns: boolean
       }
+      _fs_final_superseded_by: {
+        Args: { p_report_id: string; p_report_version: number }
+        Returns: number
+      }
       _fs_item_content: {
         Args: { p_doc: Json; p_id: string; p_kind: string }
         Returns: string
