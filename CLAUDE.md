@@ -1465,6 +1465,16 @@ and writes nothing).
 
 ---
 
+### 9.5 Ask CFOClose Release 0.1 (`20261127100000` — unapplied; branch `assistant-release-0.1`)
+
+Advisory assistant for ONE statement line: explain the movement, draft commentary. Ships disabled at every layer
+(`ai_assistant_settings` disabled; `assistant-explain` wires a provider only with `ASSISTANT_PROVIDER=anthropic` + key;
+`src/lib/assistant/gate.ts` `ASK_CFOCLOSE_ENABLED = false`). Figures come only from `fs_statement_composition`, read with the
+person's token; the model refers to facts by id and the server renders every figure (`_shared/assistantFacts.ts`,
+`_shared/assistantResponse.ts`). It writes nothing but its own `ai_assistant_runs` record. Proof:
+`scripts/db-proof/assistantAuthority.mjs`. Contracts, owner decisions and activation sequence:
+`docs/assistant/ASK_CFOCLOSE_RELEASE_0_1.md`.
+
 ## 10. Current Project State (as of 2026-07-25)
 
 ### What is complete and deployed
