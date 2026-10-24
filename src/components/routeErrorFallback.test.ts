@@ -22,12 +22,14 @@ describe("data-router recovery", () => {
 
   async function verifyFailure(element: React.ReactNode, loader?: () => never) {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const router = createMemoryRouter([{ path: "*", element, loader, errorElement: createElement(RouteErrorFallback) }], { initialEntries: ["/failed?v=2"] });
+    const trackedLoader = loader ? vi.fn(loader) : undefined;
+    const router = createMemoryRouter([{ path: "*", element, loader: trackedLoader, errorElement: createElement(RouteErrorFallback) }], { initialEntries: ["/failed?v=2"] });
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     try {
       await act(async () => { root.render(createElement(RouterProvider, { router })); });
+      if (trackedLoader) expect(trackedLoader).toHaveBeenCalledTimes(1);
       expect(container.textContent).toContain("Something went wrong");
       expect(container.textContent).not.toContain("private failure detail");
       expect(container.textContent).not.toContain("Unexpected Application Error");
