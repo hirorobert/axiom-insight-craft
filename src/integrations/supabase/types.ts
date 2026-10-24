@@ -10565,6 +10565,15 @@ export type Database = {
         Args: { p_comp: Json; p_company_id: string; p_period_year: number }
         Returns: Json
       }
+      _fs_document_structure_blockers: {
+        Args: {
+          p_company_id: string
+          p_doc: Json
+          p_evidence_batch_ids: string[]
+          p_period_year: number
+        }
+        Returns: string[]
+      }
       _fs_earlier_period_history: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string

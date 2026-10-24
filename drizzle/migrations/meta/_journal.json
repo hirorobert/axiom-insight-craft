@@ -554,6 +554,13 @@
       "when": 1792842221755,
       "tag": "0078_fsi_3_final_authority_staged_apply",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792842277118,
+      "tag": "0079_fsi_4_document_structure_staged_apply",
+      "breakpoints": true
     }
   ]
 }
