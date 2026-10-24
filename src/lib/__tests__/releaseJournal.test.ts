@@ -111,7 +111,7 @@ describe("the reviewed release journal", () => {
     // I1-A (20261010100000, layout templates and confirmations) is authored and pending hosted application.
     // I1-A A1/A2 are applied (hosted 0031/0032, identical form).
     // The milestone 20261011100000–20261017100000 is applied as 0033–0039 through its self-checking wrappers. Nothing pending.
-    expect(r.pending).toEqual([]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); nothing authored is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
+    expect(r.pending).toEqual(["20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql"]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); only track-a-r1 (authored, NOT applied) is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.find((m) => m.tag === T29)).toEqual({ tag: T29, source: S29, how: "release_verbatim_final_lf_removed" });
     expect(r.mirrored.find((m) => m.tag === T30)).toEqual({ tag: T30, source: S2, how: "release_verbatim_final_lf_removed" });
@@ -382,7 +382,7 @@ describe("S2: both submission forms registered ahead of application; applied as 
     expect([src().length, sha(src())]).toEqual([75683, S2_CANONICAL]);
     expect(src().subarray(-2).toString("hex")).not.toBe("0a0a"); // exactly one trailing LF
     expect(sha(src().subarray(0, src().length - 1))).toBe(S2_SUBMITTED);
-    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name), "20261123100000_fs_server_compilation.sql", "20261124100000_fs_publication_integrity_gate.sql", "20261125100000_fs_final_authority.sql", "20261126100000_fs_document_structure.sql"].sort());
+    expect(Object.keys(SUBMISSION_FORMS).sort()).toEqual([S29, S2, I1A_A1, I1A_A2, ...MILESTONE.map((m) => m.name), ...REPORTING.map((m) => m.name), ...READINESS.map((m) => m.name), ...SIGNOFF_POLICY.map((m) => m.name), ...COMMERCIAL.map((m) => m.name), ...PAYMENTS.map((m) => m.name), ...ACCESS.map((m) => m.name), ...TB_RELEASE.map((m) => m.name), ...PRICING_P1.map((m) => m.name), ...FS_CONTROLS.map((m) => m.name), ...CURRENCY_C1.map((m) => m.name), ...TB_WORKFLOW.map((m) => m.name), "20261123100000_fs_server_compilation.sql", "20261124100000_fs_publication_integrity_gate.sql", "20261125100000_fs_final_authority.sql", "20261126100000_fs_document_structure.sql", "20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql"].sort());
   });
   it("accepts only those two forms", () => {
     const s = src();
@@ -500,7 +500,7 @@ describe("I1-A A1/A2: both submission forms registered ahead of application (not
   it("applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); nothing authored is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
+    expect(r.pending).toEqual(["20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql"]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); only track-a-r1 (authored, NOT applied) is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     expect(r.mirrored.filter((m) => m.source === I1A_A1 || m.source === I1A_A2)).toEqual([
       { tag: "0031_currency_registry_and_reporting_periods", source: I1A_A1, how: "release_verbatim" },
@@ -623,7 +623,7 @@ describe("the milestone's seven migrations: both submission forms registered ahe
   it("applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending", () => {
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); nothing authored is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
+    expect(r.pending).toEqual(["20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql"]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); only track-a-r1 (authored, NOT applied) is pending. // Authored here; not applied to a hosted database. // FS staged transport, checkout abandon and both TB staged batches (0072/0073) are applied.
     // before this migration: tb-release-r1 (20261106100000–20261109100000) applied as hosted 59–62: nothing pending
     const tags = ["0033_i1b_w1_two_period_shared_source", "0034_i1b_w2_layout_assist_controls", "0035_i1b_w3_close_review_timeline",
       "0036_i1b_w4_close_review_findings", "0037_i1b_w5_close_review_adjustments", "0038_i1b_w6_fs_reporting_input",
@@ -664,7 +664,7 @@ describe("0070 checkout recovery applied before the pending Trial Balance workfl
     expect(checkReleaseEntry(tag, read(tag), srcBytes)).toEqual({ covers: source, how: "release_verbatim", outOfOrder: true, problems: [] });
     const r = checkMigrationAuthority(ROOT) as Result;
     expect(r.errors).toEqual([]);
-    expect(r.pending).toEqual([]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); nothing authored is pending. // Authored here; not applied to a hosted database. // both TB batches are now applied through 0072/0073
+    expect(r.pending).toEqual(["20261127100000_fs_track_a_authority_hardening.sql", "20261128100000_companies_framework_change_guard.sql"]); // fs-integrity-r1 (20261123100000–20261126100000) applied as 0076–0079 (hosted 77–80); only track-a-r1 (authored, NOT applied) is pending. // Authored here; not applied to a hosted database. // both TB batches are now applied through 0072/0073
     expect(r.releaseApplied).toContainEqual({ tag, source });
   });
   it("still refuses either skipped TB source without the reviewed out-of-order declaration", () => {
@@ -766,5 +766,42 @@ describe("fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–8
       fs.copyFileSync(path.join(dir, `drizzle/migrations/${FSI[1].tag}.sql`), path.join(dir, `drizzle/migrations/${tag}.sql`));
       fs.copyFileSync(path.join(dir, `drizzle/migrations/meta/${String(idx - 1).padStart(4, "0")}_snapshot.json`), path.join(dir, `drizzle/migrations/meta/${String(idx).padStart(4, "0")}_snapshot.json`));
     }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("track-a-r1 (20261127100000, 20261128100000): registered ahead of application, NOT applied", () => {
+  // Literal identities of the committed bytes (e7886489); the forms are the source and the source minus its single final LF.
+  const TRA = [
+    { name: "20261127100000_fs_track_a_authority_hardening.sql", bytes: 40457, sha256: "72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a" },
+    { name: "20261128100000_companies_framework_change_guard.sql", bytes: 3043, sha256: "e5ff37296d50e152f86c89652eb238b27ba66b2161bb1bd8aa71e9daf4918d41" },
+  ];
+  it("pins both submission forms of each source; no journal entry claims either yet", () => {
+    for (const m of TRA) {
+      const s = srcBytes(m.name)!;
+      expect([s.length, sha(s)]).toEqual([m.bytes, m.sha256]);
+      expect(s.subarray(-2).toString("hex")).not.toBe("0a0a");
+      expect(SUBMISSION_FORMS[m.name]).toEqual({ identical: { bytes: m.bytes, sha256: m.sha256 }, finalLfRemoved: { bytes: m.bytes - 1, sha256: sha(s.subarray(0, s.length - 1)) } });
+      expect(submittedForm(m.name, s, s)).toBe("identical");
+      expect(submittedForm(m.name, s, Buffer.concat([s, Buffer.from("\n")]))).toBeNull();
+    }
+    const claims = Object.entries(RELEASE_JOURNAL as Record<string, { kind: string; source?: string }>)
+      .filter(([tag, e]) => e.kind === "tra_staged_transport" || TRA.some((m) => m.name === e.source) || /_tra_|track_a/.test(tag));
+    expect(claims).toEqual([]);
+  });
+  it("a tra_staged_transport mirror is accepted only byte for byte (checked against the module's pinned forms)", async () => {
+    // @ts-expect-error plain ESM release tool without type declarations
+    const { transportForms } = await import("../../../scripts/release/trackAStagedTransport.mjs");
+    const f = (transportForms() as Array<{ name: string; text: string; hashes: string[] }>)[1];
+    expect(f.hashes[0]).toBe("3f27a234df1a744c5651dc7755126b46d1924cf922d93a6d42198c4d7c1cbd9b");
+    const tag = "0081_tra_1_authority_hardening_staged_apply";
+    const J = RELEASE_JOURNAL as Record<string, unknown>;
+    J[tag] = { kind: "tra_staged_transport", sha256: f.hashes[0] };
+    try {
+      const r = checkReleaseEntry(tag, f.text, srcBytes);
+      expect(r.problems).toEqual([]);
+      expect(r.covers).toBe(TRA[0].name);
+      expect(checkReleaseEntry(tag, f.text.replace("GENERATED", "generated"), srcBytes).problems.length).toBeGreaterThan(0);
+      expect(checkReleaseEntry(tag, f.text, (n: string) => (n === TRA[0].name ? Buffer.concat([srcBytes(n)!, Buffer.from(" ")]) : srcBytes(n))).problems.length).toBeGreaterThan(0);
+    } finally { delete J[tag]; }
   });
 });
