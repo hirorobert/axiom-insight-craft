@@ -264,11 +264,21 @@ export function transportForms() {
     .map((x) => ({ ...x, bytes: Buffer.byteLength(x.text), hashes: journalHashes(x.text) }));
 }
 
+/** The five registered submission forms (no final LF), pinned literally; expected hosted ids 76–80 after 0074 (id 75). */
+export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
+  fs_integrity_staged_transport: "8001cf3edcb607f62187c14eb4be57993c5f3f8e59d4b15d896d5a493a10e4c8",
+  fsi_1_server_compilation_staged_apply: "21325cb1984c8e2e05ecc8ac532b75cc2c30dd1ff5a81b2914a4024f0d80b018",
+  fsi_2_integrity_gate_staged_apply: "dc467960f2c87f0f02e3b26cb6705123a4c7d4e5b3b69aa7c56eaae375c576d3",
+  fsi_3_final_authority_staged_apply: "b592d692c0b63614aee8ec67cd46e09272e9527571c9b6bef28ce3fd8bdc0f69",
+  fsi_4_document_structure_staged_apply: "5481a1bbbc516140ee7717b65c0eed3adf75353b77d39aa96a32513a4a2ead35",
+});
+
 export function checkTransportMirror(tag, text) {
   const f = transportForms().find((x) => tag.endsWith(`_${x.name}`));
   if (!f) return { problems: [`${tag} is not a registered fs-integrity transport entry`] };
   const problems = [];
   if (text !== f.text && text !== `${f.text}\n`) problems.push(`${tag} is not exactly the registered ${f.name}`);
+  if (f.hashes[0] !== REGISTERED_TRANSPORT_FORMS[f.name]) problems.push(`${tag}: rendering drifted from its pinned registration`);
   return f.role === "apply" ? { covers: f.source, problems } : { problems };
 }
 

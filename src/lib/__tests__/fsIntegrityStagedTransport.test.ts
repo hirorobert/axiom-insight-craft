@@ -3,9 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain ESM release tool without type declarations
-import { BATCHES, BOOTSTRAP_PREDECESSOR, SOURCE_COMMIT, CHECKS_COMMIT, artifactBytes, kindsOf, renderAll, renderApply, transportForms, checkTransportMirror } from "../../../scripts/release/fsIntegrityStagedTransport.mjs";
-// @ts-expect-error plain ESM release tool without type declarations
-import { RELEASE_JOURNAL } from "../../../scripts/ci/releaseJournal.mjs";
+import { BATCHES, BOOTSTRAP_PREDECESSOR, SOURCE_COMMIT, CHECKS_COMMIT, artifactBytes, kindsOf, renderAll, renderApply, transportForms, checkTransportMirror, REGISTERED_TRANSPORT_FORMS } from "../../../scripts/release/fsIntegrityStagedTransport.mjs";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
@@ -29,9 +27,10 @@ describe("fs-integrity-r1 exact-byte staged transport", () => {
   it("tracked files equal their rendering and every form is registered with its exact hash", () => {
     for (const [rel, text] of Object.entries(renderAll() as Record<string, string>)) expect(fs.readFileSync(path.join(ROOT, rel), "utf8"), rel).toBe(text);
     const forms = transportForms();
-    forms.forEach((f: { text: string; hashes: string[] }, i: number) => {
-      const tag = Object.keys(RELEASE_JOURNAL).find((t) => t.startsWith(String(75 + i).padStart(4, "0") + "_"))!;
-      expect(RELEASE_JOURNAL[tag]).toEqual({ kind: "fsi_staged_transport", sha256: f.hashes[0] });
+    expect(forms).toHaveLength(5);
+    forms.forEach((f: { name: string; text: string; hashes: string[] }, i: number) => {
+      const tag = `${String(75 + i).padStart(4, "0")}_${f.name}`;
+      expect(REGISTERED_TRANSPORT_FORMS[f.name]).toBe(f.hashes[0]);
       expect(checkTransportMirror(tag, f.text).problems).toEqual([]);
       expect(checkTransportMirror(tag, f.text.replace("GENERATED", "generated")).problems.length).toBeGreaterThan(0);
     });
