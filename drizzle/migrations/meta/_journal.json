@@ -547,6 +547,13 @@
       "when": 1792842175330,
       "tag": "0077_fsi_2_integrity_gate_staged_apply",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792842221755,
+      "tag": "0078_fsi_3_final_authority_staged_apply",
+      "breakpoints": true
     }
   ]
 }

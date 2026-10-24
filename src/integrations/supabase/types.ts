@@ -4947,6 +4947,144 @@ export type Database = {
           },
         ]
       }
+      fs_report_authority: {
+        Row: {
+          authority_seq: number
+          company_id: string
+          established_at: string
+          period_year: number
+          publication_id: string
+          report_id: string
+          report_version: number
+        }
+        Insert: {
+          authority_seq: number
+          company_id: string
+          established_at?: string
+          period_year: number
+          publication_id: string
+          report_id: string
+          report_version: number
+        }
+        Update: {
+          authority_seq?: number
+          company_id?: string
+          established_at?: string
+          period_year?: number
+          publication_id?: string
+          report_id?: string
+          report_version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_fsra_version"
+            columns: ["report_id", "report_version"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_reports"
+            referencedColumns: ["report_id", "report_version"]
+          },
+          {
+            foreignKeyName: "fs_report_authority_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_report_authority_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_report_authority_events: {
+        Row: {
+          actor_firm_member_id: string | null
+          actor_user_id: string | null
+          company_id: string
+          created_at: string
+          detail: Json
+          id: string
+          kind: string
+          period_year: number
+          previous_publication_id: string | null
+          previous_report_id: string | null
+          previous_report_version: number | null
+          publication_id: string | null
+          reason: string | null
+          report_id: string | null
+          report_version: number | null
+          seq: number
+        }
+        Insert: {
+          actor_firm_member_id?: string | null
+          actor_user_id?: string | null
+          company_id: string
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind: string
+          period_year: number
+          previous_publication_id?: string | null
+          previous_report_id?: string | null
+          previous_report_version?: number | null
+          publication_id?: string | null
+          reason?: string | null
+          report_id?: string | null
+          report_version?: number | null
+          seq?: never
+        }
+        Update: {
+          actor_firm_member_id?: string | null
+          actor_user_id?: string | null
+          company_id?: string
+          created_at?: string
+          detail?: Json
+          id?: string
+          kind?: string
+          period_year?: number
+          previous_publication_id?: string | null
+          previous_report_id?: string | null
+          previous_report_version?: number | null
+          publication_id?: string | null
+          reason?: string | null
+          report_id?: string | null
+          report_version?: number | null
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_report_authority_events_actor_firm_member_id_fkey"
+            columns: ["actor_firm_member_id"]
+            isOneToOne: false
+            referencedRelation: "firm_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_report_authority_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_report_authority_events_previous_publication_id_fkey"
+            columns: ["previous_publication_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_report_authority_events_publication_id_fkey"
+            columns: ["publication_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_publications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_requirement_decisions: {
         Row: {
           actor_user_id: string
@@ -10407,6 +10545,22 @@ export type Database = {
           reason: string
         }[]
       }
+      _fs_authority_relation: {
+        Args: { p_report_id: string; p_report_version: number }
+        Returns: Json
+      }
+      _fs_claim_final_authority: {
+        Args: {
+          p_actor_firm_member_id: string
+          p_company_id: string
+          p_period_year: number
+          p_publication_id: string
+          p_replace: Json
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: undefined
+      }
       _fs_comprehensive_income: {
         Args: { p_comp: Json; p_company_id: string; p_period_year: number }
         Returns: Json
@@ -10507,6 +10661,18 @@ export type Database = {
           p_request_id: string
         }
         Returns: Json
+      }
+      _fs_scope_authority: {
+        Args: {
+          p_company_id: string
+          p_exclude_publication?: string
+          p_period_year: number
+        }
+        Returns: Json
+      }
+      _fs_scope_lock: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: undefined
       }
       _fs_section: { Args: { p_classification: string }; Returns: string }
       _fs_server_compile_snapshot: {
@@ -11598,6 +11764,16 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_designate_final_authority: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_reason: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
+      }
       fs_elect_early_application: {
         Args: {
           p_company_id: string
@@ -11729,6 +11905,33 @@ export type Database = {
           p_source_snapshot: Json
         }
         Returns: Json
+      }
+      fs_replace_final_authority: {
+        Args: {
+          p_company_id: string
+          p_reason: string
+          p_replaces_report_id: string
+          p_replaces_report_version: number
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: {
+          actor_firm_member_id: string
+          company_id: string
+          created_at: string
+          id: string
+          reason: string
+          report_id: string
+          report_version: number
+          seq: number
+          state: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "financial_statement_publications"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       fs_report_readiness: {
         Args: {
