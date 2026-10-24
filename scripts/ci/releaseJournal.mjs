@@ -30,6 +30,7 @@ import { checkGuardedEntry } from "../release/guardedEntry.mjs";
 import { render as renderSelfCheckingWrapper } from "../release/selfCheckingWrapper.mjs";
 import { checkTransportMirror } from "../release/stagedTransport.mjs";
 import { BATCHES as TB_TRANSPORT_BATCHES, checkTransportMirror as checkTbTransportMirror } from "../release/tbStagedTransport.mjs";
+import { BATCHES as FSI_TRANSPORT_BATCHES, checkTransportMirror as checkFsiTransportMirror } from "../release/fsIntegrityStagedTransport.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -368,6 +369,8 @@ export const RELEASE_JOURNAL = {
   "0071_tb_release_staged_transport": { kind: "tb_staged_transport", sha256: "b1e2a1351880e13ccfa7823a38433cdfb4118d019fd2a5aeb7ff0a31796cb7d0" },
   "0072_tb_portfolio_a1_staged_apply": { kind: "tb_staged_transport", sha256: "9076155c3babd11183f7bcb0860e14017c11c61a956a29720f93cdd9643ed323" },
   "0073_tb_decisions_b1_staged_apply": { kind: "tb_staged_transport", sha256: "a00b66ceaf9aced7b5017e445d9b1c32614ac606d70c0500feb1d10010263b03" },
+  // fs-integrity-r1 (scripts/release/fsIntegrityStagedTransport.mjs): its five forms are pinned in that module
+  // (REGISTERED_TRANSPORT_FORMS) and are added here as kind "fsi_staged_transport" only once the hosted journal holds them.
 };
 
 /**
@@ -869,6 +872,20 @@ export function checkReleaseEntry(tag, text, srcBytes) {
     // A reviewed entry may declare itself applied OUT OF SOURCE ORDER (ahead of authored, still-pending sources): the parity
     // checker then counts it as applied without treating the earlier sources as skipped (the 0016 precedent).
     return { covers: entry.source, how: "release_self_checking_wrapper", outOfOrder: entry.outOfOrder === true, problems };
+  }
+  if (entry.kind === "fsi_staged_transport") {
+    const r = checkFsiTransportMirror(tag, text);
+    problems.push(...r.problems);
+    if (sha256(Buffer.from(text.replace(/\n$/, ""), "utf8")) !== entry.sha256) problems.push(`${tag}: does not match its pinned SHA-256`);
+    if (r.covers) {
+      const batch = FSI_TRANSPORT_BATCHES.find((b) => b.source === r.covers);
+      const src = srcBytes(r.covers);
+      if (!batch || !src || src.length !== batch.artifacts.source.bytes || sha256(src) !== batch.artifacts.source.sha256) {
+        problems.push(`${tag}: the covered reporting source ${r.covers} differs from its approved byte identity`);
+      }
+      return { covers: r.covers, how: "fsi_staged_transport", outOfOrder: false, problems };
+    }
+    return { problems };
   }
   if (entry.kind === "tb_staged_transport") {
     const r = checkTbTransportMirror(tag, text);
