@@ -1,0 +1,469 @@
+<title>CFOClose · Financial Statements workspace (prototype)</title>
+<style>
+  :root{
+    --ink:#0B2A47; --ink-2:#2c4763; --muted:#5c6b7a; --faint:#8695a3;
+    --ground:#F7F5F0; --panel:#ffffff; --rail:#f1efe8; --line:#e2ddd1; --line-2:#d7d0c0;
+    --accent:#2E6E6A; --accent-weak:#e2efed;
+    --amber:#B7791F; --amber-weak:#f7edd8; --green:#2F7D54; --green-weak:#e3f0e7;
+    --clay:#A4452F; --clay-weak:#f6e4de; --slate:#64748b; --slate-weak:#eceef1;
+    --shadow:0 1px 2px rgba(11,42,71,.06),0 6px 20px rgba(11,42,71,.07);
+    --radius:9px; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --ink:#e8eef5; --ink-2:#c3d0de; --muted:#9aa8b6; --faint:#71808f;
+      --ground:#0c1822; --panel:#12212e; --rail:#101d28; --line:#223240; --line-2:#2c3f4f;
+      --accent:#5bb3ab; --accent-weak:#143331; --amber:#e0a94a; --amber-weak:#2e2612;
+      --green:#58b382; --green-weak:#15271d; --clay:#dd8468; --clay-weak:#2e1812;
+      --slate:#9aa8b6; --slate-weak:#1a2730;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); }
+  }
+  :root[data-theme="light"]{ --ink:#0B2A47; --ink-2:#2c4763; --muted:#5c6b7a; --faint:#8695a3;
+    --ground:#F7F5F0; --panel:#fff; --rail:#f1efe8; --line:#e2ddd1; --line-2:#d7d0c0;
+    --accent:#2E6E6A; --accent-weak:#e2efed; --amber:#B7791F; --amber-weak:#f7edd8;
+    --green:#2F7D54; --green-weak:#e3f0e7; --clay:#A4452F; --clay-weak:#f6e4de;
+    --slate:#64748b; --slate-weak:#eceef1; --shadow:0 1px 2px rgba(11,42,71,.06),0 6px 20px rgba(11,42,71,.07);}
+  :root[data-theme="dark"]{ --ink:#e8eef5; --ink-2:#c3d0de; --muted:#9aa8b6; --faint:#71808f;
+    --ground:#0c1822; --panel:#12212e; --rail:#101d28; --line:#223240; --line-2:#2c3f4f;
+    --accent:#5bb3ab; --accent-weak:#143331; --amber:#e0a94a; --amber-weak:#2e2612;
+    --green:#58b382; --green-weak:#15271d; --clay:#dd8468; --clay-weak:#2e1812;
+    --slate:#9aa8b6; --slate-weak:#1a2730; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+    font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;color:inherit}
+  .skip{position:absolute;left:-999px;top:0;background:var(--accent);color:#fff;padding:8px 12px;border-radius:6px;z-index:50}
+  .skip:focus{left:8px;top:8px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  /* top binding bar */
+  header.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:12px 20px;
+    background:var(--ink);color:#fff;position:sticky;top:0;z-index:20}
+  :root[data-theme="dark"] header.bar{background:#0a141d;border-bottom:1px solid var(--line)}
+  @media (prefers-color-scheme:dark){header.bar{background:#0a141d;border-bottom:1px solid var(--line)}}
+  .wm{font-family:var(--serif);font-weight:700;letter-spacing:.02em;font-size:17px}
+  .wm b{color:#8fd3cb}
+  .binding{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:#cbd8e4}
+  .binding span{display:inline-flex;gap:6px;align-items:center}
+  .binding .k{color:#7f93a6;text-transform:uppercase;letter-spacing:.06em;font-size:10.5px}
+  .statepill{margin-left:auto;font-weight:650;font-size:12px;padding:5px 11px;border-radius:999px;
+    background:#163a5a;border:1px solid #27506f;color:#dbe6f1}
+  .themebtn{background:transparent;border:1px solid #2b4a67;color:#cbd8e4;border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px}
+
+  /* scenario switcher */
+  .scenbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .scenbar .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint)}
+  .seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--rail);border:1px solid var(--line);border-radius:9px;padding:3px}
+  .seg button{border:0;background:transparent;padding:6px 11px;border-radius:7px;font-size:12.5px;cursor:pointer;color:var(--muted)}
+  .seg button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow);font-weight:600}
+
+  /* layout */
+  .grid{display:grid;grid-template-columns:304px minmax(0,1fr) 352px;gap:0;align-items:start}
+  @media(max-width:1080px){.grid{grid-template-columns:1fr}}
+  .rail,.drawer{background:var(--rail);border-right:1px solid var(--line);min-height:calc(100vh - 108px);padding:16px}
+  .drawer{border-right:0;border-left:1px solid var(--line);background:var(--panel)}
+  .center{padding:20px 22px 60px;min-width:0}
+  @media(max-width:1080px){.rail,.drawer{min-height:0;border:0;border-bottom:1px solid var(--line)}}
+
+  h2.eyebrow{font-family:var(--serif);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 10px;font-weight:700}
+
+  /* readiness */
+  .ready{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:13px 14px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .ready .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .ready .pct{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .meter{height:7px;border-radius:999px;background:var(--line-2);margin-top:9px;overflow:hidden}
+  .meter i{display:block;height:100%;border-radius:999px;background:var(--accent)}
+  .ready .note{font-size:12px;color:var(--muted);margin-top:8px}
+
+  /* worklist */
+  .wl{display:flex;flex-direction:column;gap:7px}
+  .wl button{text-align:left;width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;
+    padding:9px 11px 9px 12px;cursor:pointer;display:flex;gap:9px;align-items:flex-start;position:relative}
+  .wl button:hover{border-color:var(--line-2)}
+  .wl button[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .wl .stripe{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:8px 0 0 8px}
+  .wl .s-block{background:var(--amber)} .wl .s-stop{background:var(--clay)} .wl .s-ok{background:var(--green)} .wl .s-info{background:var(--slate)}
+  .wl .txt{min-width:0}
+  .wl .t1{font-size:13px;font-weight:600;line-height:1.35}
+  .wl .t2{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .tag{font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px;text-transform:uppercase;white-space:nowrap}
+  .tag.block{background:var(--amber-weak);color:var(--amber)} .tag.stop{background:var(--clay-weak);color:var(--clay)}
+  .tag.ok{background:var(--green-weak);color:var(--green)} .tag.info{background:var(--slate-weak);color:var(--slate)}
+  .tag.ai{background:var(--accent-weak);color:var(--accent)}
+
+  /* banners */
+  .banner{display:flex;gap:10px;align-items:flex-start;border-radius:var(--radius);padding:11px 13px;margin-bottom:16px;font-size:13px;border:1px solid}
+  .banner.ok{background:var(--green-weak);border-color:#bfe0cc;color:var(--green)}
+  .banner.block{background:var(--amber-weak);border-color:#e7d6ab;color:var(--amber)}
+  .banner.stop{background:var(--clay-weak);border-color:#e7c3b7;color:var(--clay)}
+  @media(prefers-color-scheme:dark){.banner.ok,.banner.block,.banner.stop{border-color:var(--line-2)}}
+  .banner b{font-weight:700}
+  .banner .ic{font-weight:800}
+
+  /* statement tables */
+  .stmt{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:22px;overflow:hidden}
+  .stmt > h3{margin:0;padding:13px 16px;font-size:14.5px;border-bottom:1px solid var(--line);
+    font-family:var(--serif);font-weight:700;letter-spacing:.01em;display:flex;justify-content:space-between;align-items:baseline}
+  .stmt > h3 small{font-weight:400;font-size:11.5px;color:var(--faint);font-family:var(--sans);letter-spacing:.04em}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:6.5px 16px;text-align:left;font-size:13.5px}
+  th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600;padding-bottom:4px}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;width:120px}
+  tr.sub td{color:var(--muted)}
+  tr.tot td{border-top:1px solid var(--line-2);font-weight:700}
+  tr.grand td{border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);font-weight:800}
+  tr.head td{padding-top:12px;font-weight:700;color:var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .fig{background:none;border:0;padding:0;margin:0;cursor:pointer;color:inherit;font:inherit;border-bottom:1px dashed transparent;text-align:right;font-variant-numeric:tabular-nums}
+  td.lbl .fig{text-align:left}
+  .fig:hover{border-bottom-color:var(--accent)}
+  .fig[aria-current="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:700}
+  .flag{font-size:10px;font-weight:700;margin-left:6px;padding:1px 5px;border-radius:4px;vertical-align:1px}
+  .flag.gap{background:var(--amber-weak);color:var(--amber)} .flag.unsup{background:var(--clay-weak);color:var(--clay)}
+  .flag.adj{background:var(--accent-weak);color:var(--accent)} .flag.rej{background:var(--clay-weak);color:var(--clay)}
+  .xref{color:var(--accent);font-size:11px;text-decoration:none;border-bottom:1px dotted var(--accent)}
+
+  .notecard{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .notecard:last-child{border-bottom:0}
+  .notecard h4{margin:0 0 6px;font-size:13px}
+  .notecard p{margin:0;font-size:12.5px;color:var(--muted)}
+
+  /* drawer */
+  .dr-empty{color:var(--faint);font-size:13px;padding:24px 4px;text-align:center}
+  .dr-h{font-family:var(--serif);font-size:16px;font-weight:700;margin:0 0 2px}
+  .dr-sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .dtabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+  .dtabs button{border:0;background:transparent;padding:7px 10px;cursor:pointer;font-size:12.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .dtabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:650}
+  .calc{font-family:var(--mono);font-size:12px;background:var(--rail);border:1px solid var(--line);border-radius:8px;padding:11px 12px}
+  .calc .row{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
+  .calc .row.r{border-top:1px solid var(--line-2);margin-top:4px;padding-top:5px;font-weight:700}
+  .ev{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  .ev:last-child{border-bottom:0}
+  .ev .ei{width:26px;height:26px;border-radius:6px;background:var(--accent-weak);color:var(--accent);display:grid;place-items:center;font-weight:800;font-size:11px;flex:none}
+  .ev .em{font-size:11px;color:var(--faint)}
+  .dec{border:1px solid var(--line);border-radius:8px;padding:10px 11px;margin-bottom:9px;font-size:12.5px;background:var(--panel)}
+  .dec .dh{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:5px}
+  .dec .who{font-size:11px;color:var(--faint)}
+  .aibox{border:1px dashed var(--accent);background:var(--accent-weak);border-radius:8px;padding:9px 11px;font-size:12px;margin-bottom:9px}
+  .aibox .ah{font-weight:700;color:var(--accent);font-size:11px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:3px;display:flex;gap:6px;align-items:center}
+  .unsupbox{border:1px solid var(--clay);background:var(--clay-weak);color:var(--clay);border-radius:8px;padding:11px 12px;font-size:12.5px}
+
+  /* action footer */
+  .actions{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--line);
+    padding:11px 22px;display:flex;gap:10px;align-items:center;z-index:15}
+  .actions .reason{font-size:12px;color:var(--muted)}
+  .btn{border-radius:8px;padding:8px 15px;font-size:13px;font-weight:650;cursor:pointer;border:1px solid var(--line-2);background:var(--panel)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary[disabled]{background:var(--slate-weak);border-color:var(--line);color:var(--faint);cursor:not-allowed}
+  .btn[disabled]{opacity:.55;cursor:not-allowed}
+  .legend{font-size:11px;color:var(--faint);margin-left:auto;display:flex;gap:12px;flex-wrap:wrap}
+  .legend span{display:inline-flex;gap:4px;align-items:center}
+  .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+</style>
+
+<a href="#main" class="skip">Skip to report</a>
+<header class="bar">
+  <span class="wm">CFO<b>CLOSE</b></span>
+  <div class="binding" aria-label="Report binding">
+    <span><span class="k">Entity</span> Mapesa Trading Ltd</span>
+    <span><span class="k">Framework</span> IFRS for SMEs · 2015 ed.</span>
+    <span><span class="k">Period</span> FY ended 30 Jun 2025</span>
+    <span><span class="k">Currency</span> TZS ’000</span>
+  </div>
+  <span class="statepill" id="statepill">DRAFT</span>
+  <button class="themebtn" id="themebtn" aria-label="Toggle light or dark theme">◐ Theme</button>
+</header>
+
+<div class="scenbar">
+  <span class="lbl">Journey state</span>
+  <div class="seg" role="group" aria-label="Choose a journey state to preview">
+    <button data-sc="happy" aria-pressed="true">Ready for review</button>
+    <button data-sc="missing" aria-pressed="false">Missing evidence</button>
+    <button data-sc="changed" aria-pressed="false">Inputs changed</button>
+    <button data-sc="rejected" aria-pressed="false">Reviewer returned</button>
+    <button data-sc="unsupported" aria-pressed="false">Unsupported treatment</button>
+  </div>
+</div>
+
+<div class="grid">
+  <!-- LEFT: readiness + worklist -->
+  <aside class="rail" aria-label="Readiness and resolution worklist">
+    <div class="ready">
+      <div class="top"><h2 class="eyebrow" style="margin:0">Readiness</h2><span class="pct" id="rpct">100%</span></div>
+      <div class="meter"><i id="rmeter" style="width:100%"></i></div>
+      <div class="note" id="rnote">All mandatory inputs resolved. Ready for partner sign-off.</div>
+    </div>
+    <h2 class="eyebrow">Resolution worklist</h2>
+    <div class="wl" id="worklist" role="list"></div>
+  </aside>
+
+  <!-- CENTER: preview (statements + notes together) -->
+  <main class="center" id="main">
+    <div id="banner"></div>
+
+    <section class="stmt" aria-label="Statement of financial position">
+      <h3>Statement of Financial Position <small>as at 30 Jun 2025 · TZS ’000</small></h3>
+      <table>
+        <thead><tr><th>&nbsp;</th><th style="text-align:right">2025</th><th style="text-align:right">2024</th></tr></thead>
+        <tbody>
+          <tr class="head"><td colspan="3">Assets</td></tr>
+          <tr class="sub"><td class="lbl">Property, plant &amp; equipment <a class="xref" href="#n2" onclick="focusFig('ppe');return false">note 2</a></td>
+            <td class="n"><button class="fig" data-fig="ppe">48,200</button></td><td class="n">41,000</td></tr>
+          <tr class="sub"><td class="lbl">Inventories</td><td class="n"><button class="fig" data-fig="inv">12,400</button></td><td class="n">10,900</td></tr>
+          <tr class="sub"><td class="lbl">Trade &amp; other receivables <a class="xref" href="#n3" onclick="focusFig('rec');return false">note 3</a></td>
+            <td class="n"><button class="fig" data-fig="rec">9,850</button></td><td class="n">8,600</td></tr>
+          <tr class="sub"><td class="lbl">Cash &amp; cash equivalents</td><td class="n"><button class="fig" data-fig="cash">6,300</button></td><td class="n">4,750</td></tr>
+          <tr class="tot"><td>Total assets</td><td class="n">76,750</td><td class="n">65,250</td></tr>
+          <tr class="head"><td colspan="3">Equity &amp; liabilities</td></tr>
+          <tr class="sub"><td class="lbl">Share capital</td><td class="n"><button class="fig" data-fig="cap">20,000</button></td><td class="n">20,000</td></tr>
+          <tr class="sub"><td class="lbl">Retained earnings</td><td class="n"><button class="fig" data-fig="re">41,250</button></td><td class="n">32,654</td></tr>
+          <tr class="tot"><td>Total equity</td><td class="n">61,250</td><td class="n">52,654</td></tr>
+          <tr class="sub"><td class="lbl">Borrowings (non-current)</td><td class="n"><button class="fig" data-fig="debt">8,000</button></td><td class="n">6,500</td></tr>
+          <tr class="sub"><td class="lbl">Trade &amp; other payables</td><td class="n"><button class="fig" data-fig="pay">5,200</button></td><td class="n">4,096</td></tr>
+          <tr class="sub"><td class="lbl">Current tax payable</td><td class="n"><button class="fig" data-fig="tax">2,300</button></td><td class="n">2,000</td></tr>
+          <tr class="grand"><td>Total equity &amp; liabilities</td><td class="n">76,750</td><td class="n">65,250</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="stmt" aria-label="Statement of comprehensive income">
+      <h3>Statement of Comprehensive Income <small>year ended 30 Jun 2025 · TZS ’000</small></h3>
+      <table>
+        <thead><tr><th>&nbsp;</th><th style="text-align:right">2025</th><th style="text-align:right">2024</th></tr></thead>
+        <tbody>
+          <tr class="sub"><td class="lbl">Revenue</td><td class="n"><button class="fig" data-fig="rev">84,600</button></td><td class="n">71,200</td></tr>
+          <tr class="sub"><td class="lbl">Cost of sales</td><td class="n">(51,300)</td><td class="n">(43,050)</td></tr>
+          <tr class="tot"><td>Gross profit</td><td class="n">33,300</td><td class="n">28,150</td></tr>
+          <tr class="sub"><td class="lbl">Other income</td><td class="n">1,100</td><td class="n">640</td></tr>
+          <tr class="sub"><td class="lbl">Distribution costs</td><td class="n">(6,400)</td><td class="n">(5,900)</td></tr>
+          <tr class="sub"><td class="lbl">Administrative expenses</td><td class="n"><button class="fig" data-fig="admin">(14,900)</button></td><td class="n">(12,480)</td></tr>
+          <tr class="sub"><td class="lbl">Finance costs</td><td class="n">(820)</td><td class="n">(690)</td></tr>
+          <tr class="tot"><td>Profit before tax</td><td class="n">12,280</td><td class="n">9,820</td></tr>
+          <tr class="sub"><td class="lbl">Income tax expense</td><td class="n">(3,684)</td><td class="n">(2,946)</td></tr>
+          <tr class="grand"><td>Profit for the year</td><td class="n">8,596</td><td class="n">6,874</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="stmt" aria-label="Notes">
+      <h3>Notes to the financial statements</h3>
+      <div class="notecard"><h4>1 · Basis of preparation</h4><p>Prepared under the IFRS for SMEs Accounting Standard (2015 edition — resolved from the period start date 1 Jul 2024), on the historical-cost basis, in Tanzanian Shillings. Edition and framework are bound to this version and re-resolved on rollover.</p></div>
+      <div class="notecard" id="n2"><h4>2 · Property, plant &amp; equipment <button class="fig" data-fig="ppe" style="font-size:11px;color:var(--accent)">open calculation →</button></h4><p>Opening 41,000 + additions 11,900 − disposals 1,200 − depreciation 3,500 = closing 48,200. Movement reconciled to the supporting schedule (server-validated opening ± movements = closing).</p></div>
+      <div class="notecard" id="n3"><h4>3 · Trade &amp; other receivables</h4><p>Gross 10,300 less loss allowance 450 = 9,850. <span class="flag unsup">ECL unsupported</span> The loss allowance is a preparer-entered judgement; an expected-credit-loss model is not computed by the tool.</p></div>
+      <div class="notecard"><h4>4 · Cash flow statement <span id="cfflag"></span></h4><p id="cfnote">Prepared by the direct method from the classified cash-movement ledger; opening + net movement = closing cash agreed to the statement of financial position.</p></div>
+    </section>
+  </main>
+
+  <!-- RIGHT: contextual drawer -->
+  <aside class="drawer" id="drawer" aria-label="Figure detail" aria-live="polite">
+    <div class="dr-empty" id="drempty">Select a figure in the statements or a worklist item to see its calculation, source evidence and decisions.</div>
+    <div id="drbody" hidden>
+      <p class="dr-h" id="drh"></p>
+      <p class="dr-sub" id="drsub"></p>
+      <div class="dtabs" role="tablist" aria-label="Figure detail tabs">
+        <button role="tab" data-t="calc" aria-selected="true">Calculation</button>
+        <button role="tab" data-t="ev" aria-selected="false">Evidence</button>
+        <button role="tab" data-t="dec" aria-selected="false">Decisions</button>
+      </div>
+      <div id="drpanel"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="actions">
+  <button class="btn primary" id="primaryBtn">Request review</button>
+  <button class="btn" id="secondaryBtn" hidden></button>
+  <span class="reason" id="actreason"></span>
+  <span class="legend" aria-hidden="true">
+    <span><i class="dot" style="background:var(--green)"></i>ready</span>
+    <span><i class="dot" style="background:var(--amber)"></i>needs evidence</span>
+    <span><i class="dot" style="background:var(--clay)"></i>blocked</span>
+    <span><i class="dot" style="background:var(--accent)"></i>AI suggestion</span>
+  </span>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // ---- synthetic figure detail (calc / evidence / decisions) ----
+  const FIG = {
+    ppe:{h:"Property, plant & equipment",sub:"SFP · non-current · note 2 · closing TZS 48,200’000",
+      calc:[["Opening carrying amount","41,000"],["Additions (cost)","11,900"],["Disposals (carrying amt)","(1,200)"],["Depreciation charge","(3,500)"],["Closing carrying amount","48,200",true]],
+      ev:[["SCH","PPE movement schedule — 18 asset rows","SUPPORTING_SCHEDULE · uploaded 12 Jun 2025 · server-validated: Σ movements reconcile to closing"],["TB","Reviewed trial balance — fixed-asset accounts","certified 10 Jun 2025 · bound by source hash"]],
+      dec:[{t:"Presentation: non-current asset",who:"Preparer · A. Mremi · 12 Jun",body:"Classified non-current; straight-line depreciation retained from prior year (consistency)."}],
+      ai:{t:"Useful-life check",body:"Additions include 2 vehicles — suggested class life 4 years vs the 5-year policy applied. Flagged for the preparer; not applied."},
+      unsup:null},
+    rec:{h:"Trade & other receivables",sub:"SFP · current · note 3 · TZS 9,850’000",
+      calc:[["Gross receivables (ledger)","10,300"],["Loss allowance (preparer judgement)","(450)"],["Carrying amount","9,850",true]],
+      ev:[["LED","Transaction ledger extract — receivables","TRANSACTION_LEDGER · bound · 1,204 rows"]],
+      dec:[{t:"Loss allowance: preparer-entered",who:"Preparer · A. Mremi · 12 Jun",body:"Allowance of 450 entered as a judgement. No ECL model is computed by the tool."}],
+      ai:null,
+      unsup:{t:"Expected-credit-loss measurement is not supported",body:"An ECL methodology (ageing, loss rates, forward-looking inputs) is a measurement decision this tool does not compute. Record the amount as a professional judgement, or escalate to a qualified accountant. The figure is never auto-derived."}},
+    rev:{h:"Revenue",sub:"SCI · TZS 84,600’000",
+      calc:[["Goods sold (ledger, net of returns)","84,600"],["Recognised at a point in time","84,600",true]],
+      ev:[["LED","Sales ledger extract","TRANSACTION_LEDGER · bound · 3,980 rows"]],
+      dec:[{t:"Presentation: single revenue line",who:"Preparer · A. Mremi",body:"No disaggregation required for this entity under the 2015 edition checklist (answered)."}],
+      ai:null,unsup:null},
+    admin:{h:"Administrative expenses",sub:"SCI · TZS (14,900)’000",
+      calc:[["Per reviewed trial balance","(15,350)"],["Approved reclassification: audit fee → separate line","450"],["Presented administrative expenses","(14,900)",true]],
+      ev:[["ADJ","Approved adjustment #A-07 — balanced","close_review_adjustments · Dr Audit fee 450 / Cr Admin 450 · two-person approved"],["TB","Reviewed trial balance","certified 10 Jun 2025"]],
+      dec:[{t:"Adjustment A-07 applied",who:"Preparer A. Mremi → Approver F. Partner · 13 Jun",body:"Audit fee reclassified to a separate expense line for presentation. Source accounting unchanged; applied as a balanced journal with lineage."}],
+      ai:null,unsup:null},
+    cash:{h:"Cash & cash equivalents",sub:"SFP · current · TZS 6,300’000",
+      calc:[["Bank & cash (reviewed TB)","6,300"],["Carrying amount","6,300",true]],
+      ev:[["TB","Reviewed trial balance — cash accounts","certified 10 Jun 2025"],["MAP","Cash-account map","CASH_ACCOUNT_MAP · 3 accounts flagged cash"]],
+      dec:[{t:"Cash perimeter confirmed",who:"Preparer · A. Mremi",body:"Three accounts confirmed as cash for the cash-flow perimeter."}],
+      ai:null,unsup:null},
+    re:{h:"Retained earnings",sub:"SFP · equity · TZS 41,250’000",
+      calc:[["Opening retained earnings","32,654"],["Profit for the year","8,596"],["Dividends","—"],["Closing retained earnings","41,250",true]],
+      ev:[["EQ","Equity movements evidence","EQUITY_MOVEMENTS · bound"],["PRI","Signed prior-year statements","PRIOR_PERIOD_STATEMENTS · opening agreed"]],
+      dec:[{t:"Opening agreed to signed prior year",who:"Reviewer · J. Mushi",body:"Opening retained earnings agreed to the 2024 signed statements."}],
+      ai:null,unsup:null},
+    inv:{h:"Inventories",sub:"SFP · current · TZS 12,400’000",calc:[["Per reviewed trial balance","12,400"],["Carrying amount","12,400",true]],ev:[["TB","Reviewed trial balance","certified 10 Jun 2025"]],dec:[{t:"Presentation: current asset",who:"Preparer",body:"Measured at the lower of cost and estimated selling price less costs to complete (policy); amount per TB."}],ai:null,unsup:null},
+    cap:{h:"Share capital",sub:"SFP · equity · TZS 20,000’000",calc:[["Per reviewed trial balance","20,000"],["Carrying amount","20,000",true]],ev:[["TB","Reviewed trial balance","certified 10 Jun 2025"]],dec:[{t:"Share-capital note applicable",who:"Preparer",body:"Entity has share capital (requirement answered) → sub-classification note opened."}],ai:null,unsup:null},
+    debt:{h:"Borrowings",sub:"SFP · non-current · TZS 8,000’000",calc:[["Per reviewed trial balance","8,000"],["Carrying amount","8,000",true]],ev:[["TB","Reviewed trial balance","certified 10 Jun 2025"]],dec:[{t:"Classified non-current",who:"Preparer",body:"Repayment schedule confirms >12 months; current portion nil this period."}],ai:null,unsup:null},
+    pay:{h:"Trade & other payables",sub:"SFP · current · TZS 5,200’000",calc:[["Per reviewed trial balance","5,200"],["Carrying amount","5,200",true]],ev:[["TB","Reviewed trial balance","certified 10 Jun 2025"]],dec:[{t:"Presentation: current liability",who:"Preparer",body:"Per TB; no reclassification."}],ai:null,unsup:null},
+    tax:{h:"Current tax payable",sub:"SFP · current · TZS 2,300’000",calc:[["Per reviewed trial balance","2,300"],["Carrying amount","2,300",true]],ev:[["TB","Reviewed trial balance","certified 10 Jun 2025"]],dec:[{t:"Current tax per TB",who:"Preparer",body:"No deferred-tax computation performed by the tool; current tax per the reviewed trial balance."}],ai:null,unsup:null}
+  };
+
+  // ---- scenarios ----
+  const SC = {
+    happy:{state:"IN REVIEW",pct:100,note:"All mandatory inputs resolved. Ready for partner sign-off.",
+      banner:["ok","✓","<b>Ready for review — 0 blockers.</b> Statements compose from the adjusted reviewed trial balance; all requirement decisions answered; comparatives present."],
+      primary:["Finalise & sign off",false,"Requires a partner (approve_certification); you are signed in as F. Partner."],
+      secondary:["Return to preparer",true],
+      cf:["",""],
+      wl:[
+        ["ok","Statements compose — SFP balances, SCI ties","Total assets 76,750 = equity + liabilities 76,750","ok","re"],
+        ["ok","Adjustment A-07 approved (audit fee reclass)","Balanced · two-person approved · lineage shown","ok","admin"],
+        ["ok","Comparatives present (FY2024 signed)","Opening equity agreed to prior statements","ok","re"],
+        ["info","PPE useful-life AI note — review optional","Suggestion only; not applied","ai","ppe"],
+        ["ok","Disclosure checklist complete","7 of 7 applicable notes answered","ok",null]
+      ]},
+    missing:{state:"DRAFT",pct:72,note:"1 blocker: the cash-flow statement has no classified cash-movement ledger.",
+      banner:["block","!","<b>1 blocker — FINAL unavailable.</b> You can keep working and view a clearly-labelled draft; sign-off is blocked until the missing evidence is bound."],
+      primary:["Request review",true,"Resolve the open blocker before requesting review."],
+      secondary:["",true],
+      cf:["<span class='flag gap'>Evidence gap</span>","Needs a period-complete cash-movement ledger classified operating / investing / financing, with opening + net movement agreeing to the SFP cash of 6,300. Not derivable from two trial balances."],
+      wl:[
+        ["block","Cash flow needs a classified cash-movement ledger","Upload a transaction ledger (operating/investing/financing)","block","cash"],
+        ["info","Everything else ready","SFP/SCI compose; notes answered","info","re"],
+        ["ok","Adjustment A-07 approved","Balanced · lineage shown","ok","admin"]
+      ]},
+    changed:{state:"DRAFT",pct:88,note:"Approval withdrawn: bound inputs changed since the REVIEWED version.",
+      banner:["stop","⟳","<b>Inputs changed since approval — approval withdrawn.</b> The prior REVIEWED version is kept immutable; this working version returned to DRAFT. Re-review the changed figures."],
+      primary:["Request re-review",false,"2 figures changed since the approved version."],
+      secondary:["View approved version",true],
+      cf:["",""],
+      wl:[
+        ["stop","Trial balance re-certified 2 Jul — re-review required","Admin & tax balances moved; approval no longer binds","stop","admin"],
+        ["block","Current tax changed 2,150 → 2,300","Confirm the figure, then re-request review","block","tax"],
+        ["info","Prior REVIEWED version preserved","Nothing was rewritten; history is append-only","info",null]
+      ]},
+    rejected:{state:"DRAFT",pct:84,note:"Returned by the reviewer with 2 items to resolve.",
+      banner:["stop","↩","<b>Returned by reviewer (J. Mushi).</b> Two items need the preparer; reasons are attached to the exact figures. No history was rewritten."],
+      primary:["Resolve & re-request review",false,"Address the 2 reviewer items."],
+      secondary:["Open reviewer notes",true],
+      cf:["",""],
+      wl:[
+        ["stop","Admin expenses — reviewer: split audit fee to its own line","Reviewer J. Mushi · 14 Jun: present separately per checklist","stop","admin"],
+        ["stop","Receivables — reviewer: document the loss-allowance basis","Reviewer J. Mushi · 14 Jun: judgement basis not recorded","stop","rec"],
+        ["ok","Other sections accepted by reviewer","SFP/SCI/other notes accepted","ok","re"]
+      ]},
+    unsupported:{state:"DRAFT",pct:80,note:"A measurement decision is outside the tool’s supported scope.",
+      banner:["stop","⊘","<b>Unsupported treatment — escalated, never auto-composed.</b> A recognition/measurement question was raised; the tool records it as unsupported and does not invent a figure."],
+      primary:["Request review",true,"Resolve or escalate the unsupported treatment first."],
+      secondary:["Escalate to qualified accountant",true],
+      cf:["",""],
+      wl:[
+        ["stop","Revenue contract — recognition treatment unsupported","A bundled service contract needs recognition judgement the tool does not compute","stop","rev"],
+        ["stop","Receivables — ECL measurement unsupported","Record as judgement or escalate; never auto-derived","stop","rec"],
+        ["ok","Presentation & disclosure otherwise ready","SFP/SCI compose; checklist answered","ok","re"]
+      ]}
+  };
+
+  const $=s=>document.querySelector(s), $all=s=>[...document.querySelectorAll(s)];
+  let scen="happy", focus=null, dtab="calc";
+
+  function renderScenario(){
+    const s=SC[scen];
+    $("#statepill").textContent=s.state;
+    $("#rpct").textContent=s.pct+"%"; $("#rmeter").style.width=s.pct+"%";
+    $("#rmeter").style.background = s.pct===100?"var(--green)":(s.pct>=84?"var(--accent)":"var(--amber)");
+    $("#rnote").textContent=s.note;
+    const b=$("#banner"); b.innerHTML=`<div class="banner ${s.banner[0]}"><span class="ic">${s.banner[1]}</span><div>${s.banner[2]}</div></div>`;
+    $("#cfflag").innerHTML=s.cf[0]; $("#cfnote").textContent = s.cf[1] || "Prepared by the direct method from the classified cash-movement ledger; opening + net movement = closing cash agreed to the statement of financial position.";
+    // worklist
+    const wl=$("#worklist"); wl.innerHTML="";
+    s.wl.forEach(([stripe,t1,t2,tag,fig],i)=>{
+      const btn=document.createElement("button"); btn.setAttribute("role","listitem");
+      btn.innerHTML=`<span class="stripe s-${stripe}"></span><span class="txt"><span class="t1">${t1}</span><span class="t2">${t2}</span></span><span class="tag ${tag}">${tag==="ai"?"AI":tag}</span>`;
+      btn.addEventListener("click",()=>{ if(fig){focusFig(fig);} $all("#worklist button").forEach(x=>x.removeAttribute("aria-current")); btn.setAttribute("aria-current","true"); });
+      wl.appendChild(btn);
+    });
+    // actions
+    const pb=$("#primaryBtn"); pb.textContent=s.primary[0]; pb.disabled=!!s.primary[1]; $("#actreason").textContent=s.primary[2]||"";
+    const sb=$("#secondaryBtn"); if(s.secondary[0]){sb.hidden=false;sb.textContent=s.secondary[0];sb.disabled=!!s.secondary[1];}else sb.hidden=true;
+    // flag the figures referenced by blocking worklist items
+    $all(".fig .flag,.flag.adj,.flag.rej").forEach(n=>{});
+    annotateFigures();
+  }
+  function annotateFigures(){
+    $all('[data-fig]').forEach(b=>{ b.querySelectorAll('.flag.adj,.flag.rej').forEach(x=>x.remove()); });
+    const adm=document.querySelector('.fig[data-fig="admin"]');
+    if(adm){ if(scen==="rejected"){adm.insertAdjacentHTML('afterend','<span class="flag rej">reviewer</span>');}
+             else if(scen==="happy"||scen==="changed"){adm.insertAdjacentHTML('afterend','<span class="flag adj">adjusted</span>');} }
+  }
+
+  window.focusFig=function(fig){
+    focus=fig;
+    $all('.fig').forEach(b=>b.toggleAttribute('aria-current', b.dataset.fig===fig));
+    const d=FIG[fig]; if(!d) return;
+    $("#drempty").hidden=true; $("#drbody").hidden=false;
+    $("#drh").textContent=d.h; $("#drsub").textContent=d.sub;
+    renderDrawer();
+    const first=document.querySelector(`.fig[data-fig="${fig}"]`);
+    if(first && window.matchMedia("(max-width:1080px)").matches) $("#drawer").scrollIntoView({behavior:"smooth",block:"start"});
+  };
+  function renderDrawer(){
+    const d=FIG[focus]; if(!d) return;
+    $all('.dtabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.t===dtab));
+    const p=$("#drpanel");
+    if(dtab==="calc"){
+      p.innerHTML=`<div class="calc">${d.calc.map(r=>`<div class="row ${r[2]?'r':''}"><span>${r[0]}</span><span>${r[1]}</span></div>`).join("")}</div>
+        <p style="font-size:11.5px;color:var(--faint);margin:10px 2px 0">Exact precision; totals recomputed, never read from source. Every input below is versioned with this report.</p>`;
+    } else if(dtab==="ev"){
+      p.innerHTML=d.ev.map(e=>`<div class="ev"><span class="ei">${e[0]}</span><div><div>${e[1]}</div><div class="em">${e[2]}</div></div></div>`).join("");
+    } else {
+      let html="";
+      if(scen==="unsupported" && d.unsup){ html+=`<div class="unsupbox"><b>⊘ ${d.unsup.t}</b><div style="margin-top:5px">${d.unsup.body}</div></div>`; }
+      if(d.ai){ html+=`<div class="aibox"><div class="ah">◇ AI suggestion — not an approved decision</div>${d.ai.body}</div>`; }
+      html+=d.dec.map(x=>`<div class="dec"><div class="dh"><b>${x.t}</b><span class="tag ok">approved</span></div><div>${x.body}</div><div class="who">${x.who}</div></div>`).join("");
+      if(scen==="rejected" && focus==="admin") html=`<div class="dec" style="border-color:var(--clay)"><div class="dh"><b>Reviewer change requested</b><span class="tag stop">returned</span></div><div>Split the audit fee onto its own line per the disclosure checklist.</div><div class="who">Reviewer · J. Mushi · 14 Jun</div></div>`+html;
+      p.innerHTML=html;
+    }
+  }
+
+  // events
+  $all('.seg button').forEach(b=>b.addEventListener('click',()=>{
+    scen=b.dataset.sc; $all('.seg button').forEach(x=>x.setAttribute('aria-pressed', x===b));
+    renderScenario();
+    if(focus) renderDrawer();
+  }));
+  $all('.dtabs button').forEach(b=>b.addEventListener('click',()=>{dtab=b.dataset.t;renderDrawer();}));
+  document.addEventListener('click',e=>{const f=e.target.closest('.fig'); if(f&&f.dataset.fig){focusFig(f.dataset.fig);}});
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $("#drbody").hidden=true; $("#drempty").hidden=false; focus=null; $all('.fig').forEach(b=>b.removeAttribute('aria-current')); }});
+  // theme toggle
+  $("#themebtn").addEventListener('click',()=>{
+    const cur=document.documentElement.getAttribute('data-theme');
+    const now = cur==='dark'?'light':(cur==='light'?'dark':(matchMedia('(prefers-color-scheme:dark)').matches?'light':'dark'));
+    document.documentElement.setAttribute('data-theme',now);
+  });
+
+  renderScenario();
+})();
+</script>
