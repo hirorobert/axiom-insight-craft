@@ -313,7 +313,7 @@ describe("the client never produces official bytes", () => {
     w.store.delete(PATH);
     expect(await verifyOfficialPack(access("ALLOWED"), U.user, U.iss)).toEqual({ outcome: "missing", official: false, superseded: false });
   });
-  // 20261123100000: reporting_pack_sealed_object v2 answers `superseded` when a later version of the lineage is FINAL.
+  // 20261124100000: reporting_pack_sealed_object v2 answers `superseded` when a later version of the lineage is FINAL.
   it("a superseded FINAL's pack: verify stays intact and official (the pack of the version it names) and DISCLOSES the supersession; retrieve carries it; an older database without the column reads as not superseded", async () => {
     const { verifyOfficialPack, retrieveOfficialPack } = await import("../../../supabase/functions/_shared/reportingPackSeal.mjs");
     const w = world();

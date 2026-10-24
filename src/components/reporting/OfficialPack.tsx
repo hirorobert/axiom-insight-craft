@@ -18,12 +18,14 @@ const DELIVERY_WORDS: Readonly<Record<string, string>> = {
   delivered: "The official pack is issued, stored and sealed by the server; the file saved is the server's document.",
   locked: "The account's plan does not include the official Reporting Pack.", not_permitted: "Your role cannot issue a Reporting Pack.",
   not_final: "Only a FINAL version can be issued officially.",
-  superseded: "A later version of these statements is FINAL; this superseded version is not issued officially again. Its earlier packs stay retrievable and verifiable.", failed: "We could not confirm delivery. Check the issued packs below; retrying this attempt uses the same request.",
+  superseded: "These statements are no longer the current FINAL of this period (a later version, or another lineage finalised as its replacement); this version is not issued officially again. Its earlier packs stay retrievable and verifiable.",
+  unresolved: "This period holds FINAL statements in more than one lineage and none is designated as the authority; a partner designates one on the Sign-off page before any official pack is issued.", failed: "We could not confirm delivery. Check the issued packs below; retrying this attempt uses the same request.",
 };
 const VERIFY_WORDS: Readonly<Record<string, string>> = {
   intact: "Verified: the stored bytes hash to the sealed digest and the seal is the canonical document of this version.",
   substituted: "WARNING: the stored bytes are not the sealed bytes.", not_canonical: "WARNING: the seal is not the canonical document of its source.",
   missing: "The stored object is missing.", not_found: "No such official pack for this workspace.", unavailable: "The server function is not reachable from this page.",
+  authority_unresolved: "This period's FINAL authority is unresolved (more than one FINAL lineage); designate one on the Sign-off page.",
 };
 
 export function OfficialPack(p: PageProps & { v: SavedVersion }) {

@@ -36,7 +36,7 @@ const STATUS = {
   sealed: 200, invalid_request: 400, not_found: 404, binding_mismatch: 409, already_sealed: 409, expired: 410,
   entitlement_required: 402, capability_required: 403, workspace_access_denied: 403, unauthenticated: 401,
   official_sealing_unavailable: 422, object_missing: 409, object_conflict: 409, seal_failed: 500,
-  // 20261123100000: a later FINAL of the lineage supersedes the version; no new official pack of it is issued or sealed.
+  // 20261124100000: a later FINAL of the lineage supersedes the version; no new official pack of it is issued or sealed.
   superseded_final_version: 409,
 };
 const refuse = (outcome) => ({ httpStatus: STATUS[outcome] ?? 500, body: { outcome } });
@@ -104,7 +104,7 @@ export async function retrieveOfficialPack(deps, userId, issuanceId) {
   const row = obj(data);
   const bytes = row?.storage_path ? await deps.get(row.storage_path) : null;
   if (!bytes || (await deps.sha256Hex(bytes)) !== row.content_sha256) return { outcome: "substituted", official: false, superseded: v.superseded };
-  // superseded (20261123100000): a later FINAL of the lineage exists; the bytes are still the official pack of the version they name.
+  // superseded (20261124100000): a later FINAL of the lineage exists; the bytes are still the official pack of the version they name.
   return { outcome: "retrieved", official: true, superseded: v.superseded, content_sha256: row.content_sha256, document: new TextDecoder().decode(bytes), file_name: `official-reporting-pack-${issuanceId}.json` };
 }
 
@@ -131,7 +131,7 @@ export async function verifyStoredPack(deps, issuanceId) {
   const { data, error } = await deps.rpc("reporting_pack_sealed_object", { p_issuance_id: issuanceId });
   const row = error ? null : obj(data);
   if (!row?.storage_path || !row.content_sha256) return { outcome: "not_found" };
-  // superseded (20261123100000, reporting_pack_sealed_object v2): a later version of the lineage is FINAL. Absent on an
+  // superseded (20261124100000, reporting_pack_sealed_object v2): a later version of the lineage is FINAL. Absent on an
   // older database, which reads as not superseded.
   const superseded = row.superseded === true;
   if (row.canonical_sha256 !== row.content_sha256) return { outcome: "not_canonical", company_id: row.company_id, superseded };

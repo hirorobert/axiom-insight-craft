@@ -268,10 +268,14 @@ describe("migration directory integrity", () => {
     // manifest, the entity dependency and bounded investigations), a NEW forward-only migration pending hosted application.
     // 189 -> 190: 20261119100000_customer_checkout_abandon.sql (owner checkout recovery; applied as 0070).
     // 190 -> 191: 20261122100000 catalogue authenticated-session read predicates (hosted 0074).
-    // 191 -> 192: 20261123100000_fs_publication_integrity_gate.sql (the server decides on the WHOLE financial-statements document:
+    // 191 -> 192: 20261124100000_fs_publication_integrity_gate.sql (the server decides on the WHOLE financial-statements document:
     // every fact and header compared with the server; reviewer-only clearing of findings and reviews; no official pack of a
     // superseded FINAL), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(192);
+    // 192 -> 193: 20261125100000_fs_final_authority.sql (one current FINAL authority per reporting scope: explicit cross-lineage
+    // replacement, legacy-conflict designation, the scope lock shared by FINAL and official-pack sealing), pending hosted application.
+    // 193 -> 194: 20261126100000_fs_document_structure.sql (the server verifies the whole presentation skeleton of a document:
+    // statements, sections, line identities and labels, period bindings, casting children, fact periods, provenance), pending.
+    expect(files.length).toBe(194);
   });
 });
 

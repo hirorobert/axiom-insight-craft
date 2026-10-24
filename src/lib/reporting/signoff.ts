@@ -31,14 +31,21 @@ const dependenciesSchema = z.object({
   notesStatusSha256: HEX.nullable().optional(), comparativeStatusSha256: HEX.nullable().optional(), blockers: z.array(z.string()).default([]),
 });
 export type ReportingDependencies = z.infer<typeof dependenciesSchema>;
+/** 20261125100000: the version's relation to its reporting scope's FINAL authority (absent on an older server). */
+const authoritySchema = z.object({
+  relation: z.enum(["none", "is_authority", "same_lineage", "other_lineage", "unresolved"]), isFinal: z.boolean(), superseded: z.boolean(),
+  scope: z.object({ state: z.string(), holder: z.object({ reportId: z.string(), reportVersion: z.number().int() }).passthrough().nullable().optional(), candidates: z.array(z.string()).optional() }).passthrough().nullable().optional(),
+}).passthrough();
+export type AuthorityRelation = z.infer<typeof authoritySchema>;
 const versionSchema = z.object({
   reportId: z.string(), reportVersion: z.number().int(), createdAt: z.string(), creatorRole: z.string().nullable(), creatorRef: z.string(),
   contentHash: z.string(), evidenceBatchIds: z.array(z.string()), state: z.enum(["DRAFT", "REVIEWED", "FINAL"]), isLatest: z.boolean(),
-  /** 20261123100000: the first later version of the lineage that is FINAL (this FINAL is superseded), or null; absent on an older server. */
+  /** 20261124100000: the first later version of the lineage that is FINAL (this FINAL is superseded), or null; absent on an older server. */
   supersededByFinal: z.number().int().nullable().optional(),
+  authority: authoritySchema.optional(),
 });
 export type SavedVersion = z.infer<typeof versionSchema>;
-const readinessSchema = z.object({ ready: z.boolean(), blockers: z.array(z.string()) }).passthrough();
+const readinessSchema = z.object({ ready: z.boolean(), blockers: z.array(z.string()), authority: authoritySchema.optional() }).passthrough();
 export type Readiness = z.infer<typeof readinessSchema>;
 const datesSchema = z.object({ reportingStart: z.string().nullable(), reportingEnd: z.string().nullable() }).passthrough();
 const inputSchema = z.object({ state: z.string(), current: datesSchema.optional(), comparative: datesSchema.nullable().optional() }).passthrough();
@@ -156,6 +163,9 @@ export function signoffClient(db: ReportingDb) {
     },
     setState: async (companyId: string, reportId: string, reportVersion: number, state: "REVIEWED" | "FINAL", reason: string) =>
       (await rpc("fs_set_publication_state", { p_report_id: reportId, p_report_version: reportVersion, p_company_id: companyId, p_state: state, p_reason: reason })) as Record<string, unknown>,
+    /** FINAL as an EXPLICIT replacement of another lineage's current FINAL of the same period (20261125100000): the same transition, the replaced version named and bound. */
+    replaceFinal: async (companyId: string, reportId: string, reportVersion: number, replaces: { reportId: string; reportVersion: number }, reason: string) =>
+      (await rpc("fs_replace_final_authority", { p_company_id: companyId, p_report_id: reportId, p_report_version: reportVersion, p_replaces_report_id: replaces.reportId, p_replaces_report_version: replaces.reportVersion, p_reason: reason })) as Record<string, unknown>,
   };
 }
 export type SignoffClient = ReturnType<typeof signoffClient>;

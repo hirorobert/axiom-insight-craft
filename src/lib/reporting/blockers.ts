@@ -21,7 +21,9 @@ const EXACT: Readonly<Record<string, string>> = {
   FRAMEWORK_EDITION_UNRECORDED: "The version does not record the edition it applies.",
   CASHFLOW_OPENING_CASH_CONFLICT: "Two authorities state different opening cash; nothing is chosen between them.",
   CASH_PERIMETER_NOT_ESTABLISHED: "The cash perimeter of the current period could not be established from the cash account map.",
-  // 20261123100000 — the publication integrity gate (document closure).
+  // 20261126100000 — the document structure.
+  "DOCUMENT_PERIOD_MISMATCH:comparative-declaration": "The document's comparative period is not the one the server composed. Save a new version from the workbench.",
+  // 20261124100000 — the publication integrity gate (document closure).
   DOCUMENT_PROVENANCE_MISMATCH: "The document's provenance is not the saved version's. Save a new version from the workbench.",
   // 20261118100000 — sign-off on the current rules.
   TRIAL_BALANCE_RULES_UNAVAILABLE: "Whether the trial balance was checked under the current rules could not be read. Try again.",
@@ -34,7 +36,16 @@ const PREFIX: readonly (readonly [string, (rest: string) => string])[] = [
   // 20261115100000 — the account capacity (fs_account_capacity): <total>/<bound>.
   ["ACCOUNT_CAPACITY_EXCEEDED", (r) => { const [total, bound] = r.split("/"); return `The statements would read ${Number(total).toLocaleString("en-US")} accounts across the current and comparative trial balances; this release supports up to ${Number(bound).toLocaleString("en-US")}. Saved versions and issued packs stay available; every account keeps its identity - nothing is merged to fit. Statements for a chart of this size are not available in this release.`; }],
   ["REVIEW_COMMENT_UNRESOLVED", (r) => `A reviewer's blocking finding is not resolved for this version (comment ${r.slice(0, 8)}…). The preparer responds and the reviewer resolves it on the Sign-off page.`],
-  // 20261123100000 — the publication integrity gate: every fact and header of the document must be the server's.
+  // 20261126100000 — the document structure: the whole presentation skeleton must be the server's.
+  ["DOCUMENT_STRUCTURE_MISMATCH", (r) => `A line of the statements is not as the server composes it (${r.replace(/^\d+:/, "")}). Save a new version from the workbench; nothing hand-edited can be signed.`],
+  ["DOCUMENT_STATEMENT_MISMATCH", (r) => `A statement is missing, duplicated or not under its fixed identity (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_LINE_DUPLICATE", (r) => `A statement line appears more than once (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_FACT_PERIOD_MISMATCH", (r) => `A figure's own reporting period contradicts its identity (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_PROVENANCE_UNBOUND", (r) => `A figure names a source that is not this version's certification or evidence (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
+  ["DOCUMENT_SHAPE_INVALID", (r) => `The document is not in the shape the statements, the print and the official pack read (${r}). Save a new version from the workbench.`],
+  // 20261125100000 — the FINAL authority of a reporting scope.
+  ["PRIOR_FINAL_AUTHORITY_UNRESOLVED", (r) => `The prior year (FY${r}) holds FINAL statements in more than one lineage and none is designated as the authority; a partner designates one on the prior year's Sign-off page before this period can be signed.`],
+  // 20261124100000 — the publication integrity gate: every fact and header of the document must be the server's.
   ["DOCUMENT_FACT_NOT_COMPOSED", (r) => `A figure in the document was not composed by the server or carries another amount (${r.replace(/^\d+:/, "")}). Save a new version from the workbench; nothing hand-edited can be signed.`],
   ["NOTE_FACT_NOT_COMPOSED", (r) => `A note names a figure the server did not compose (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],
   ["DOCUMENT_FACT_DENOMINATION", (r) => `A figure is not in the statements' currency and scale (${r.replace(/^\d+:/, "")}). Save a new version from the workbench.`],

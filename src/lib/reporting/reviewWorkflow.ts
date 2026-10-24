@@ -8,7 +8,7 @@ import type { ReportingDb } from "./signoff";
 import { ServerRefusal } from "./signoff";
 
 /** The reporting workbench's own outcome words for the official issuance (the server's contract, not the legacy helper's). */
-export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "not_final" | "superseded" | "failed";
+export type DeliveryOutcome = "delivered" | "locked" | "not_permitted" | "not_final" | "superseded" | "unresolved" | "failed";
 
 const eventSchema = z.object({
   eventId: z.string(), action: z.enum(["opened", "responded", "resolved", "reopened"]), body: z.string().nullable(), reportVersion: z.number().int(),
@@ -55,7 +55,7 @@ const issuanceSchema = z.object({
   expires_at: z.string().nullable().optional(),
 });
 export interface Issuance { readonly issuanceId: string; readonly outputRef: string | null; readonly issuedAt: string; readonly sealedAt: string | null; readonly contentSha256: string | null }
-/** `superseded` (20261123100000): a later version of the lineage is FINAL; the server discloses it, official status is unchanged. */
+/** `superseded` (20261124100000): a later version of the lineage is FINAL; the server discloses it, official status is unchanged. */
 export type VerifyOutcome = { outcome: string; official?: boolean; superseded?: boolean };
 export type RetrieveOutcome = { outcome: string; document?: string; file_name?: string; content_sha256?: string; superseded?: boolean };
 
@@ -81,6 +81,7 @@ export function reviewClient(db: ReportingDb) {
     if (s.outcome === "entitlement_required") return "locked";
     if (s.outcome === "capability_required" || s.outcome === "workspace_access_denied") return "not_permitted";
     if (s.outcome === "superseded_final_version") return "superseded";
+    if (s.outcome === "authority_unresolved") return "unresolved";
     if (s.outcome !== (retrieve ? "retrieved" : "sealed") || typeof s.document !== "string" || typeof s.file_name !== "string" || !/^[0-9a-f]{64}$/.test(String(s.content_sha256))) return "failed";
     save(new Blob([s.document], { type: "application/json" }), s.file_name);
     return "delivered";
@@ -126,6 +127,7 @@ export function reviewClient(db: ReportingDb) {
       const r = (issued.data && typeof issued.data === "object" ? issued.data : {}) as Record<string, unknown>;
       if (r.outcome === "final_publication_required") return "not_final";
       if (r.outcome === "superseded_final_version") return "superseded";
+      if (r.outcome === "authority_unresolved") return "unresolved";
       if (r.outcome === "entitlement_required") return "locked";
       if (r.outcome === "capability_required") return "not_permitted";
       if (!((r.outcome === "issued" || r.outcome === "already_issued") && typeof r.issuance_id === "string" && r.issuance_id.length > 0)) return "failed";

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
--- 20261123100000 — Financial-statements publication integrity gate: the server decides on the WHOLE document, reviewer-only
+-- 20261124100000 — Financial-statements publication integrity gate: the server decides on the WHOLE document, reviewer-only
 -- clearing of findings and reviews, and no official pack of a superseded FINAL. Forward-only; builds on 20261115100000 /
 -- 20261116100000 (blockers v5, composition memo), 20261111100000 (publication state v2) and 20260925140000 (official pack).
 --
@@ -294,7 +294,7 @@ BEGIN
        WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_deps -> 'figures') f WHERE f ->> 'factId' = x.b);
       IF v_bad IS NOT NULL THEN v_out := v_out || ('STATEMENT_FIGURE_NOT_COMPOSED:' || array_length(v_bad, 1) || ':' || v_bad[1]); END IF;
 
-      -- [20261123100000] Document closure. The two checks above cover the facts BOUND ON the four statements. A document
+      -- [20261124100000] Document closure. The two checks above cover the facts BOUND ON the four statements. A document
       -- also carries facts in its notes and in facts[] itself, and a header (period, dates, currency, provenance); none of
       -- that was compared with the server, so a fabricated note figure, a second "version" of a statement fact (the browser
       -- renders the highest version), a re-denominated amount or a re-dated header passed whenever the browser-supplied
@@ -381,7 +381,7 @@ BEGIN
   IF v_clean ->> 'decisionType' IN ('CORRECT_FACT', 'CORRECT_EVIDENCE') THEN
     RAISE EXCEPTION 'INVALID: a correction must be recorded through a correction group' USING ERRCODE = '22023';
   END IF;
-  -- [20261123100000] Accepting or rejecting a finding is a REVIEWER's decision: it removes the finding from the sign-off
+  -- [20261124100000] Accepting or rejecting a finding is a REVIEWER's decision: it removes the finding from the sign-off
   -- blockers (fs_unresolved_blocking_count), so review_close is required. A preparer may defer or request evidence; a
   -- preparer can never clear a blocking finding of a version they prepared.
   IF v_clean ->> 'decisionType' IN ('ACCEPT_FINDING', 'REJECT_FINDING') AND NOT public.workspace_capability_allowed(p_company_id, auth.uid(), 'review_close') THEN
@@ -444,7 +444,7 @@ BEGIN
   IF FOUND AND v_current.state = 'FINAL' THEN
     RAISE EXCEPTION 'CONFLICT: a FINAL report version is immutable; create a new version instead' USING ERRCODE = 'PT409';
   END IF;
-  -- [20261123100000] Withdrawing a recorded review (REVIEWED back to DRAFT) is a reviewer's act and needs review_close;
+  -- [20261124100000] Withdrawing a recorded review (REVIEWED back to DRAFT) is a reviewer's act and needs review_close;
   -- before, any member holding prepare_close could silently un-review a version.
   IF p_state = 'DRAFT' AND v_current.id IS NOT NULL AND v_current.state = 'REVIEWED' AND NOT public.workspace_capability_allowed(p_company_id, auth.uid(), 'review_close') THEN
     RAISE EXCEPTION 'FORBIDDEN: withdrawing a recorded review needs the review_close capability' USING ERRCODE = '42501';
@@ -516,7 +516,7 @@ BEGIN
     VALUES (p_company_id, v_user, 'REFUSED', jsonb_build_object('stage', 'issue', 'code', 'FINAL_PUBLICATION_REQUIRED', 'output_ref', p_output_ref));
     RETURN jsonb_build_object('outcome', 'final_publication_required');
   END IF;
-  -- [20261123100000] A FINAL version that a LATER FINAL of its lineage has superseded is history: no new official pack of
+  -- [20261124100000] A FINAL version that a LATER FINAL of its lineage has superseded is history: no new official pack of
   -- it is issued (its existing sealed packs stay retrievable and verifiable, disclosed as superseded).
   IF public._fs_final_superseded_by((regexp_match(p_output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[1], (regexp_match(p_output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[2]::integer) IS NOT NULL THEN
     INSERT INTO public.reporting_pack_issuance_events (company_id, actor_user_id, event, detail)
@@ -551,7 +551,7 @@ BEGIN
      OR v_row.final_publication_id IS DISTINCT FROM public._final_publication_for(v_row.company_id, v_row.period_year, v_row.output_ref) THEN
     p_code := 'final_publication_required'; RETURN;
   END IF;
-  -- [20261123100000] An issuance opened before a later FINAL of the lineage is not sealed after it: superseded.
+  -- [20261124100000] An issuance opened before a later FINAL of the lineage is not sealed after it: superseded.
   m := regexp_match(v_row.output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$');
   IF m IS NOT NULL AND public._fs_final_superseded_by(m[1], m[2]::integer) IS NOT NULL THEN
     p_code := 'superseded_final_version'; RETURN;
@@ -588,7 +588,7 @@ BEGIN
                             'content_sha256', v_row.content_sha256, 'byte_size', v_row.byte_size,
                             'canonical_sha256', CASE WHEN v_doc IS NULL THEN NULL ELSE public.fs_sha256_hex(v_doc) END,
                             'object_present', public._reporting_pack_object_matches(v_row.storage_path, v_row.byte_size),
-                            -- [20261123100000] Disclosed to verify/retrieve: a later FINAL of the lineage supersedes this pack's version.
+                            -- [20261124100000] Disclosed to verify/retrieve: a later FINAL of the lineage supersedes this pack's version.
                             'superseded', public._fs_final_superseded_by((regexp_match(v_row.output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[1], (regexp_match(v_row.output_ref, '^fs-report:([A-Za-z0-9_-]{1,120}):v([0-9]{1,6})$'))[2]::integer) IS NOT NULL);
 END;
 $$;
@@ -617,7 +617,7 @@ BEGIN
              'state', coalesce((SELECT p.state FROM public.financial_statement_publications p
                                  WHERE p.report_id = r.report_id AND p.report_version = r.report_version ORDER BY p.seq DESC LIMIT 1), 'DRAFT'),
              'isLatest', r.report_version = (SELECT max(x.report_version) FROM public.financial_statement_reports x WHERE x.report_id = r.report_id),
-             -- [20261123100000] The first later version of the lineage that is FINAL, or null: a superseded FINAL is shown as such.
+             -- [20261124100000] The first later version of the lineage that is FINAL, or null: a superseded FINAL is shown as such.
              'supersededByFinal', public._fs_final_superseded_by(r.report_id, r.report_version)
            ) ORDER BY r.report_id, r.report_version)
       FROM public.financial_statement_reports r

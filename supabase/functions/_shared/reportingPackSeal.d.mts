@@ -22,7 +22,7 @@ export interface IssueResult {
 export declare const OFFICIAL_CONTENT_TYPE: "application/json";
 export declare function parseSealRequest(contentType: string | null, body: unknown): { readonly action: "issue" | "verify" | "retrieve"; readonly issuanceId: string } | null;
 export declare function issueOfficialPack(deps: SealDeps, input: { readonly userId: string; readonly issuanceId: string }): Promise<IssueResult>;
-/** `superseded` (20261123100000): a later version of the lineage is FINAL; disclosure only - `official` is unchanged. */
+/** `superseded` (20261124100000): a later version of the lineage is FINAL; disclosure only - `official` is unchanged. */
 export declare function verifyOfficialPack(deps: SealDeps, userId: string, issuanceId: string): Promise<{ readonly outcome: string; readonly official: boolean; readonly superseded: boolean }>;
 export declare function verifyStoredPack(deps: SealDeps, issuanceId: string): Promise<{ readonly outcome: string; readonly company_id?: string; readonly superseded?: boolean }>;
 export declare function retrieveOfficialPack(deps: SealDeps, userId: string, issuanceId: string): Promise<{ readonly outcome: string; readonly official: boolean; readonly superseded?: boolean; readonly document?: string; readonly content_sha256?: string; readonly file_name?: string }>;

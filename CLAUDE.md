@@ -920,7 +920,7 @@ per-company table that can exceed 1,000 rows exists in this function (`keyword_d
 The deployed `process-trial-balance` closure changes: see `docs/release/fs-first-slice/DEPLOYMENT_HANDOFF.md`.
 
 **DEFECT-FS-PUBLICATION-DOCUMENT-CLOSURE-001** — Severity: HIGH — Status: FIXED IN SOURCE by
-`20261123100000_fs_publication_integrity_gate.sql` (branch `fix/fs-publication-integrity-gate-20261023`, 2026-10-23;
+`20261124100000_fs_publication_integrity_gate.sql` (branch `fix/fs-publication-integrity-gate-20261023`, 2026-10-23;
 UNAPPLIED hosted until the owner applies it; record `docs/release/fs-integrity-r1/RECORD.md`)
 
 `fs_publication_blockers` (through v5) compared the server's figures only with the facts BOUND ON the four primary

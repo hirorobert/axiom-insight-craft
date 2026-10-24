@@ -1,5 +1,5 @@
 -- READ-ONLY HOSTED PREFLIGHT for the publication integrity gate (docs/release/fs-integrity-r1/RECORD.md). Run BEFORE
--- 20261123100000_fs_publication_integrity_gate.sql (through the project's reviewed, journalled apply route). Writes nothing;
+-- 20261124100000_fs_publication_integrity_gate.sql (through the project's reviewed, journalled apply route). Writes nothing;
 -- raises on the first violated expectation.
 DO $$
 BEGIN
@@ -21,7 +21,7 @@ BEGIN
      OR position('DOCUMENT_FACT_NOT_COMPOSED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) > 0 THEN
     RAISE EXCEPTION 'PREFLIGHT: the publication integrity gate is already applied, or partly applied';
   END IF;
-  RAISE NOTICE 'PREFLIGHT OK: apply 20261123100000_fs_publication_integrity_gate.sql';
+  RAISE NOTICE 'PREFLIGHT OK: apply 20261124100000_fs_publication_integrity_gate.sql';
 END;
 $$;
 -- The sign-offs and sealed packs this release must preserve (record them; compare after):

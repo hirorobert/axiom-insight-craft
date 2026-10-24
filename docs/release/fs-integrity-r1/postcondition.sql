@@ -1,4 +1,4 @@
--- READ-ONLY HOSTED POSTCONDITION for the publication integrity gate. Run AFTER 20261123100000_fs_publication_integrity_gate.sql.
+-- READ-ONLY HOSTED POSTCONDITION for the publication integrity gate. Run AFTER 20261124100000_fs_publication_integrity_gate.sql.
 -- Writes nothing; raises on the first violated expectation.
 DO $$
 BEGIN

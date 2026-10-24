@@ -115,6 +115,13 @@ describe("database inertness — schema and functions", () => {
       // 20260925140000 except ONE call schema-qualified as extensions.digest (pinned by accountReviewDigestQualification.test.ts).
       // No financial-statements schema.
       "supabase/migrations/20261003100000_account_review_digest_schema_qualification.sql",
+      // Financial-statements publication integrity (PR #192): three forward-only migrations - the document closure, reviewer-only
+      // clearing/withdrawal and the superseded-FINAL pack refusal (20261124100000); one current FINAL authority per reporting scope
+      // with explicit cross-lineage replacement and the scope lock shared by sealing (20261125100000); the server-verified
+      // presentation skeleton (20261126100000). Functions and two append-only authority tables; no existing table or policy changes.
+      "supabase/migrations/20261124100000_fs_publication_integrity_gate.sql",
+      "supabase/migrations/20261125100000_fs_final_authority.sql",
+      "supabase/migrations/20261126100000_fs_document_structure.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -712,6 +719,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/verifiedChargeOutcomes.mjs",
       // Customer checkout abandon (20261119100000): the loopback-only proof.
       "scripts/db-proof/checkoutAbandon.mjs",
+      // Financial-statements publication integrity (PR #192): the loopback-only proofs (gate present / gate absent with a structured
+      // case manifest, FINAL authority with real transaction barriers, the legacy-conflict backfill) and the CI result validator.
+      "scripts/db-proof/publicationIntegrityGate.mjs", "scripts/db-proof/publicationIntegrityGate.manifest.mjs", "scripts/db-proof/publicationAuthority.mjs",
+      "scripts/db-proof/publicationAuthorityLegacy.mjs", "scripts/ci/validateProofResult.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
