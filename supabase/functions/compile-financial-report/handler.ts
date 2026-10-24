@@ -1,6 +1,28 @@
 import { compileSavedReport } from "../_shared/statementCompiler.generated.mjs";
 const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers });
+const MAX_REQUEST_BYTES = 2048;
+/** Bound the stream before buffering it; Content-Length is only an early refusal, never trusted as a limit. */
+async function requestText(request: Request): Promise<string | null> {
+  const length = request.headers.get("Content-Length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_REQUEST_BYTES)) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0, text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) return text + decoder.decode();
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_REQUEST_BYTES) { await reader.cancel(); return null; }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } catch {
+    await reader.cancel().catch(() => {});
+    return null;
+  } finally { reader.releaseLock(); }
+}
 type Result = { data: unknown; error: { message: string } | null };
 interface UserClient {
   auth: { getUser(): Promise<{ data: { user: { id: string } | null }; error: unknown }> };
@@ -21,7 +43,7 @@ export function compilationHandler(services: Services) {
     try {
       const user = services.user(token);
       const auth = await user.auth.getUser(); if (auth.error || !auth.data.user) return reply(401, { error: "UNAUTHENTICATED" });
-      const text = await request.text(); if (text.length > 2048) return reply(400, { error: "INVALID_REQUEST" });
+      const text = await requestText(request); if (text === null) return reply(400, { error: "INVALID_REQUEST" });
       let p: Record<string, unknown>;
       try { p = JSON.parse(text); } catch { return reply(400, { error: "INVALID_REQUEST" }); }
       if (!p || Array.isArray(p) || typeof p !== "object" || Object.keys(p).some(k => !["companyId", "reportId", "reportVersion"].includes(k))

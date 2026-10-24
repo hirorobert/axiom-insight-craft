@@ -26,4 +26,24 @@ describe("compiler request trust boundary", () => {
     const f = fixture(); f.compile.mockRejectedValue(new Error("SERVER_EVIDENCE_INVALID"));
     expect((await f.handler(request())).status).toBe(409); expect(f.record).not.toHaveBeenCalled();
   });
+  it.each([false, true])("bounds streamed bytes even with a missing or understated Content-Length (%s)", async understated => {
+    const f = fixture(); const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(2049)); }, cancel,
+    });
+    const req = new Request("https://example.test/compile", { method: "POST", body: stream,
+      headers: { Authorization: "Bearer verified-token", ...(understated ? { "Content-Length": "1" } : {}) },
+      duplex: "half" } as RequestInit);
+    expect((await f.handler(req)).status).toBe(400);
+    expect(cancel).toHaveBeenCalledOnce(); expect(f.compile).not.toHaveBeenCalled(); expect(f.record).not.toHaveBeenCalled();
+  });
+  it("accepts a valid request split across UTF-8 chunks and rejects invalid UTF-8", async () => {
+    for (const invalid of [false, true]) {
+      const f = fixture(); const bytes = invalid ? new Uint8Array([0xff]) : new TextEncoder().encode(JSON.stringify(body));
+      const stream = new ReadableStream<Uint8Array>({ start(c) { for (const byte of bytes) c.enqueue(new Uint8Array([byte])); c.close(); } });
+      const req = new Request("https://example.test/compile", { method: "POST", headers: { Authorization: "Bearer verified-token" }, body: stream, duplex: "half" } as RequestInit);
+      expect((await f.handler(req)).status).toBe(invalid ? 400 : 200);
+      expect(f.record).toHaveBeenCalledTimes(invalid ? 0 : 1);
+    }
+  });
 });

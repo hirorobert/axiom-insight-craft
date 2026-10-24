@@ -61,3 +61,38 @@ the report follows those records; it does not prove the original ledger is truth
 that this intake never retained. Framework/accounting cases outside the documented 2015 slice remain refused. Company
 renames or changed source identities require a new report version for a new approval; issued history retains its original
 identity. No absolute accounting-compliance or security certification is claimed.
+
+## Phase 0 acceptance boundary
+
+This change is a server-authority foundation, not approval of the complete framework roadmap. Only Phase 0 is approved
+for engineering closure. A passing repository build is not authorization to activate reporting. The release candidate
+must identify its exact commit, migration bytes, deployable compiler closure and supported framework/edition.
+
+| Requirement | Current evidence / mandatory closure |
+| --- | --- |
+| Complete compilation snapshot | The bounded source RPC, dependency identity, receipt and publication checks are implemented in source. Publication controls and concurrency proofs must pass on the release commit. Enumerate every mutable input and prove a change before receipt recording or approval is refused. |
+| Comparative restatement | Prior-FINAL acceptance records bind reasons, actor, original report/version and exact computed differences. The prior issued document is preserved. Prove the full reason/authority/adjustment/approval chain and transition disclosures. Acceptance of current-period comparatives must not require issuance of a replacement prior-year report. |
+| Publication lifecycle | DRAFT, REVIEWED and FINAL authority is implemented. Specify and prove supersession and withdrawal independently from comparative restatement before claiming complete lifecycle coverage. |
+| Issuance recovery | Existing issue/verify/retrieve paths and orphan handling require interruption proofs at every database/storage boundary. An incomplete object must never become an available official pack. |
+| Scoped idempotency | Receipt identity includes report, version, compiler, document and dependencies. Exact retries reuse the receipt; different results conflict. Prove the corresponding request identity and conflict rule for every publication and issuance command. |
+| Independent signing | A database receipt is not an independent signature. A future signing boundary must enforce authorization outside the compromised database trust domain, protect and rotate keys, and verify a versioned manifest. Arbitrary database-supplied content must not obtain a trusted signature. |
+| Treatment coverage | The supported scope remains the restricted standalone IFRS for SMEs 2015 slice. Each additional treatment requires executable rules or an approved judgment workflow, independent expected-result fixtures and named unsupported-case refusals. |
+| Exposure incident | Confirm P-1 separately and immediately. Record exposed files/history and any credentials, containment, accessible-copy removal and credential rotation where applicable. Repository privacy cannot recall clones or downloaded data. Do not record incident closure without evidence. |
+
+Framework prioritization is provisional: committed customer scope, applicable period **start**, adoption requirements,
+transition workload and delivery effort decide order. IAS 1 remains relevant for applicable periods beginning before
+IFRS 18 adoption, including non-calendar periods ending in 2027 and historical reports. SMEs third-edition transition
+requires its own retrospective-application and exception coverage; IFRS 18 transition is not a substitute. IPSAS work
+must follow the customer's applicable adoption requirements and reporting period. No unsupported edition is enabled
+by this document.
+
+The operational happy path stays one resumable save, an automatic server compilation, review, final approval and a
+verified official export. A failure retains the saved draft and gives a retry or a specific required correction.
+Retries must not create duplicate versions, approvals or issuances. User-visible readiness is derived from server
+state; browser progress, findings and validation flags never establish publication authority.
+
+On 2026-10-24 the service-withholding proof's explicit forward-migration inventory omitted
+`20261123100000_fs_server_compilation.sql`. The correction adds that exact reviewed name, preserving exact inventory
+comparison and all clean-install, upgrade, refusal, history and concurrency assertions. It does not relax a grant or
+change production SQL. Final-commit CI remains required. The compiler HTTP boundary also bounds incoming **bytes while
+streaming**, rejects malformed UTF-8, and cancels oversized bodies before compilation or receipt writes.
