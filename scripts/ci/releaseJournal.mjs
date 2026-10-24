@@ -371,6 +371,8 @@ export const RELEASE_JOURNAL = {
   "0073_tb_decisions_b1_staged_apply": { kind: "tb_staged_transport", sha256: "a00b66ceaf9aced7b5017e445d9b1c32614ac606d70c0500feb1d10010263b03" },
   // fs-integrity-r1 (scripts/release/fsIntegrityStagedTransport.mjs): its five forms are pinned in that module
   // (REGISTERED_TRANSPORT_FORMS) and are added here as kind "fsi_staged_transport" only once the hosted journal holds them.
+  // Hosted id 76 (2026-10-24): bootstrap, submitted once in its no-final-LF form (covers no source).
+  "0075_fs_integrity_staged_transport": { kind: "fsi_staged_transport", sha256: "8001cf3edcb607f62187c14eb4be57993c5f3f8e59d4b15d896d5a493a10e4c8" },
 };
 
 /**
