@@ -65,3 +65,23 @@ Proposed method: after deployment, the owner runs `supabase functions download c
 `seal-reporting-pack` into a scratch folder and `node scripts/release/verifyDeployedClosure.mjs <fn> <folder>` against the
 required closures (`745c8170…`, `cdc5416f…`). Partial runtime signal only (not closure proof): every compile receipt is
 constrained to compiler digest `49fc0852…`.
+
+## 4. Controlled installation log (2026-10-24, from 11:31 UTC)
+
+- Recovery: owner confirmed the database backup (`tbcommand_261024.backup`) and the Storage archive
+  (`storage_export_20261024.zip`, SHA-256 `171ba970…7bdea`, 70 files + manifest) are downloaded and kept privately.
+- `verifyDeployedClosure.mjs` now registers `compile-financial-report` with its full closure `745c8170…db59` (distinct from
+  the compiler digest `49fc0852…`, which classifies as UNKNOWN). Tests: 12/12 (exact bundle REQUIRED; one changed byte in
+  each of its four files UNKNOWN).
+- Live predecessor rechecked: journal id 75 `870c3ea2…62857`; transport schema absent; kill switch true; 2 bindings
+  (digest md5 `b24555d2…`), 0 consumed issuances.
+- Deployed `compile-financial-report` and `seal-reporting-pack`. The deploy tool reported its own submitted-source hashes
+  (`2555f921…`, `07576f96…`; a different scheme from the closure digest). **Deployed-source verification: PENDING — not
+  performed** (no bundle download available here).
+- Applied bootstrap through the canonical migrator: hosted id 76, SHA-256 `8001cf3e…e4c8`, mirror
+  `drizzle/migrations/0075_fs_integrity_staged_transport.sql` byte-identical to the approved form; registered in
+  `RELEASE_JOURNAL`; migration authority OK (four reporting migrations still PENDING_HOSTED_APPLY). After: no client role
+  can use the schema; bindings and issuances unchanged; kill switch true.
+- **STOPPED before batch 1:** the ten artifacts in `release/staged-transport-fsi/stage/` (431,558 bytes) are not staged
+  (0 rows). Staging needs a privileged database session that can submit each file's exact bytes; none is available to the
+  agent (sandbox session is read-only; the query tools take retyped text). Each insert refuses any byte difference.
