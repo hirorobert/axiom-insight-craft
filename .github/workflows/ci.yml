@@ -404,6 +404,36 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
+      - name: Compatibility of the served frontend (main 00a2653, which the cfoclose.com bundle matches) with this backend, plus the oversized replacement, with this checkout's functions served for the duration
+        if: always()
+        run: |
+          set +e
+          mkdir -p compat-evidence
+          # The payment journey stops the function server it started; serve this checkout's functions again and hold them.
+          supabase functions serve > compat-evidence/functions-serve.log 2>&1 &
+          SERVE=$!
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:54321/functions/v1/process-trial-balance -H 'Content-Type: application/json' -d '{}')
+            if [ "$code" != "000" ] && [ "$code" != "502" ] && [ "$code" != "503" ]; then echo "functions answering (HTTP $code) after $i tries"; break; fi
+            sleep 2
+          done
+          git fetch --no-tags --depth=1 origin 00a2653b5736e89447334e1147aa25f5308b0393
+          git worktree add /tmp/old-frontend 00a2653b5736e89447334e1147aa25f5308b0393
+          (cd /tmp/old-frontend && bun install --frozen-lockfile)
+          (cd /tmp/old-frontend && node scripts/e2e/localStackJourney.mjs "$GITHUB_WORKSPACE/compat-evidence/old-journey"); J=$?
+          node research/compat/oldFrontendCompat.mjs /tmp/old-frontend compat-evidence/checks; K=$?
+          node research/compat/oversizedReplacement.mjs compat-evidence/oversized; O=$?
+          kill -INT $SERVE 2>/dev/null; wait $SERVE 2>/dev/null
+          echo "old journey=$J compat checks=$K oversized=$O"
+          [ $J -eq 0 ] && [ $K -eq 0 ] && [ $O -eq 0 ]
+
+      - name: Upload the compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-evidence
+          path: compat-evidence
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4
