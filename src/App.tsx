@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorBoundary, RouteErrorFallback } from "@/components/ErrorBoundary";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { SessionTimeoutProvider } from "@/components/SessionTimeoutProvider";
 import Index from "./pages/Index";
@@ -245,7 +245,7 @@ function AppRoutes() {
 }
 
 const App = () => {
-  const [router] = useState(() => createBrowserRouter([{ path: "*", element: <AppRoutes /> }]));
+  const [router] = useState(() => createBrowserRouter([{ path: "*", element: <AppRoutes />, errorElement: <RouteErrorFallback /> }]));
   return (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
