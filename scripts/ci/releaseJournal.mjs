@@ -398,13 +398,13 @@ export const RELEASE_JOURNAL = {
 export const SUBMISSION_FORMS = Object.freeze({
   // Track A authority hardening (track-a-r1, migration 1 of 2): authored, NOT applied; exact bytes only, through its staged transport.
   "20261127100000_fs_track_a_authority_hardening.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 40457, sha256: "72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a" }),
-    finalLfRemoved: Object.freeze({ bytes: 40456, sha256: "49c7c2f22709b57101afea09ed405480e0531fdebbb872d4638eb5bf6c10dbcb" }),
+    identical: Object.freeze({ bytes: 44872, sha256: "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99" }),
+    finalLfRemoved: Object.freeze({ bytes: 44871, sha256: "25d4b0badfc9a33fa577bc2dc673c5b71aeeda3e6d05201cf86b7bc70979d4c5" }),
   }),
   // Track A framework-change guard (track-a-r1, migration 2 of 2): authored, NOT applied; only after the frontend is published.
   "20261128100000_companies_framework_change_guard.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 3043, sha256: "e5ff37296d50e152f86c89652eb238b27ba66b2161bb1bd8aa71e9daf4918d41" }),
-    finalLfRemoved: Object.freeze({ bytes: 3042, sha256: "79b3ea94d8eb0f3438b4ab3d4611aacce3af5d50eba1fa89e34ca29e83eb1377" }),
+    identical: Object.freeze({ bytes: 3800, sha256: "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d" }),
+    finalLfRemoved: Object.freeze({ bytes: 3799, sha256: "2df5f8f228331480b45632df937e14d38d859a5f5af93184e53e212addb87a88" }),
   }),
   // Independent server compilation (PR #191): authored here, NOT applied; one atomic statement, exact bytes only.
   // The pinned compiler digest follows the deployed closure (statementCompiler.manifest.mjs); a regenerated bundle re-pins it here.

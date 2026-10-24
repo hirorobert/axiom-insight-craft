@@ -37,13 +37,13 @@ BEGIN
   CREATE FUNCTION cfoclose_tra_release.approved_artifact(p_batch text, p_kind text, OUT bytes integer, OUT sha256 text)
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
-        ('tra-1-authority-hardening', 'source', 40457, '72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a'),
-        ('tra-1-authority-hardening', 'wrapper', 42039, '32778550bbc96fb570244bdb9a04d19c522fe4540e1e1f89ea47e2539ce33d68'),
-        ('tra-1-authority-hardening', 'preflight', 5041, '2d8dd0b1fb815698dbc9c1d5675b69b41f2ad928b0ec61d52e4459283e4e7861'),
-        ('tra-1-authority-hardening', 'postcondition', 7584, '33cacc16139c03d8a874aae83fed479930d3078ed404a143e14d55dbc8eca57d'),
-        ('tra-2-framework-guard', 'source', 3043, 'e5ff37296d50e152f86c89652eb238b27ba66b2161bb1bd8aa71e9daf4918d41'),
-        ('tra-2-framework-guard', 'wrapper', 4627, '9c500a69706228fd029067133e35a3271906631510cd272797c37f216c68107a'),
-        ('tra-2-framework-guard', 'postcondition', 3532, '168f3c293ee0d9b23804ba1c50294cbcb779a405889c24651210114a1989abe7')
+        ('tra-1-authority-hardening', 'source', 44872, 'a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99'),
+        ('tra-1-authority-hardening', 'wrapper', 46454, 'bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3'),
+        ('tra-1-authority-hardening', 'preflight', 6359, 'ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d'),
+        ('tra-1-authority-hardening', 'postcondition', 8661, 'cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d'),
+        ('tra-2-framework-guard', 'source', 3800, '80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d'),
+        ('tra-2-framework-guard', 'wrapper', 5384, 'c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5'),
+        ('tra-2-framework-guard', 'postcondition', 3906, '1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_tra_release.staged_artifacts_guard() RETURNS trigger

@@ -6,7 +6,7 @@ DECLARE
   c_batch CONSTANT text := 'tra-1-authority-hardening';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['7b51e2c625e371779d7f67cfc8c2d150181ac1812da556d64e3f40f79390533e', 'c48b32c70726fec1a2c97305e8feb3668a4c416f0ad2a73b4d18bd110fb620e9']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['fb6d49e98466116cab3809b82ad4d0e7391d7f1c0af4c7514dbf266271aad460', '727f73aa8ddeff6f933550fe081fd62688f97844cc94367bf67dddc80b62fbf9']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_source text; v_wrapper text; v_preflight text; v_postcondition text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_tra_release_transport', 0));
@@ -38,19 +38,19 @@ BEGIN
   END IF;
   SELECT s.body INTO v_source FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'source' AND s.consumed_at IS NULL
-     AND s.body_bytes = 40457 AND s.body_sha256 = '72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a';
+     AND s.body_bytes = 44872 AND s.body_sha256 = 'a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99';
   IF v_source IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   SELECT s.body INTO v_wrapper FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'wrapper' AND s.consumed_at IS NULL
-     AND s.body_bytes = 42039 AND s.body_sha256 = '32778550bbc96fb570244bdb9a04d19c522fe4540e1e1f89ea47e2539ce33d68';
+     AND s.body_bytes = 46454 AND s.body_sha256 = 'bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3';
   IF v_wrapper IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % wrapper is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   SELECT s.body INTO v_preflight FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'preflight' AND s.consumed_at IS NULL
-     AND s.body_bytes = 5041 AND s.body_sha256 = '2d8dd0b1fb815698dbc9c1d5675b69b41f2ad928b0ec61d52e4459283e4e7861';
+     AND s.body_bytes = 6359 AND s.body_sha256 = 'ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d';
   IF v_preflight IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % preflight is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   SELECT s.body INTO v_postcondition FROM cfoclose_tra_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'postcondition' AND s.consumed_at IS NULL
-     AND s.body_bytes = 7584 AND s.body_sha256 = '33cacc16139c03d8a874aae83fed479930d3078ed404a143e14d55dbc8eca57d';
+     AND s.body_bytes = 8661 AND s.body_sha256 = 'cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d';
   IF v_postcondition IS NULL THEN RAISE EXCEPTION 'TRA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % postcondition is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   v_baseline := (SELECT encode(sha256(convert_to(
       coalesce((SELECT string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq) FROM public.fs_publication_bindings f), '') || chr(30) ||
@@ -78,10 +78,10 @@ BEGIN
   UPDATE cfoclose_tra_release.staged_artifacts SET consumed_at = clock_timestamp() WHERE batch = c_batch;
   INSERT INTO cfoclose_tra_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261127100000_fs_track_a_authority_hardening.sql', 'baseline_sha256', v_baseline,
-      'source_sha256', '72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a',
-      'wrapper_sha256', '32778550bbc96fb570244bdb9a04d19c522fe4540e1e1f89ea47e2539ce33d68',
-      'preflight_sha256', '2d8dd0b1fb815698dbc9c1d5675b69b41f2ad928b0ec61d52e4459283e4e7861',
-      'postcondition_sha256', '33cacc16139c03d8a874aae83fed479930d3078ed404a143e14d55dbc8eca57d'));
+      'source_sha256', 'a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99',
+      'wrapper_sha256', 'bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3',
+      'preflight_sha256', 'ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d',
+      'postcondition_sha256', 'cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d'));
   PERFORM set_config('cfoclose_tra_release.applying', '', true);
 END
 $cfoclose_tra_transport_tra_1_authority_hardening$;

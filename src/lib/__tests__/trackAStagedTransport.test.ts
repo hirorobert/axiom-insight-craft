@@ -8,20 +8,20 @@ import { BATCHES, BOOTSTRAP_PREDECESSOR, SOURCE_COMMIT, CHECKS_COMMIT, artifactB
 const ROOT = path.resolve(__dirname, "../../..");
 const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
 
-// Literal identities (independent of the module): the committed bytes at e7886489 and the registered submission forms.
+// Literal identities (independent of the module): the committed bytes at 8a0c66c3 and the registered submission forms.
 const SOURCES = [
-  ["20261127100000_fs_track_a_authority_hardening.sql", 40457, "72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a"],
-  ["20261128100000_companies_framework_change_guard.sql", 3043, "e5ff37296d50e152f86c89652eb238b27ba66b2161bb1bd8aa71e9daf4918d41"],
+  ["20261127100000_fs_track_a_authority_hardening.sql", 44872, "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99"],
+  ["20261128100000_companies_framework_change_guard.sql", 3800, "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d"],
 ] as const;
 const FORMS = [
-  ["track_a_staged_transport", 7750, "7b51e2c625e371779d7f67cfc8c2d150181ac1812da556d64e3f40f79390533e"],
-  ["tra_1_authority_hardening_staged_apply", 7981, "3f27a234df1a744c5651dc7755126b46d1924cf922d93a6d42198c4d7c1cbd9b"],
-  ["tra_2_framework_guard_staged_apply", 7434, "d4952e29098cc841c236e0a9f9d7fec7ede69ae9b838c5b0ed509532e3702f86"],
+  ["track_a_staged_transport", 7750, "fb6d49e98466116cab3809b82ad4d0e7391d7f1c0af4c7514dbf266271aad460"],
+  ["tra_1_authority_hardening_staged_apply", 7981, "d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0"],
+  ["tra_2_framework_guard_staged_apply", 7434, "acad1966e2c71ca7d74126b01e462f9e64f5d500bcabee5311b8e0c9d9502cf1"],
 ] as const;
 
 describe("track-a-r1 exact-byte staged transport", () => {
   it("pins the committed sources and checks and the journal predecessor (hosted id 80 = 0079)", () => {
-    expect(SOURCE_COMMIT).toBe("e7886489cd9d7b2fed8d8bbddf9267612d424b50");
+    expect(SOURCE_COMMIT).toBe("8a0c66c33c9001092f5cedec55162ad88ec7058d");
     expect(CHECKS_COMMIT).toBe(SOURCE_COMMIT);
     expect(BOOTSTRAP_PREDECESSOR.id).toBe(80);
     expect(BOOTSTRAP_PREDECESSOR.hash).toBe(sha(fs.readFileSync(path.join(ROOT, "drizzle/migrations/0079_fsi_4_document_structure_staged_apply.sql"))));

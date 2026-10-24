@@ -32,7 +32,7 @@ import { render as renderWrapper } from "./selfCheckingWrapper.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const TRANSPORT_DIR = "release/staged-transport-tra";
-export const SOURCE_COMMIT = "e7886489cd9d7b2fed8d8bbddf9267612d424b50";
+export const SOURCE_COMMIT = "8a0c66c33c9001092f5cedec55162ad88ec7058d";
 export const CHECKS_COMMIT = SOURCE_COMMIT;
 /** Hosted journal tail: id 80 = drizzle 0079_fsi_4_document_structure_staged_apply. */
 export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 80, tag: "0079_fsi_4_document_structure_staged_apply", hash: "5481a1bbbc516140ee7717b65c0eed3adf75353b77d39aa96a32513a4a2ead35" });
@@ -46,15 +46,15 @@ const M2 = "20261128100000_companies_framework_change_guard.sql";
 export const BATCHES = Object.freeze([
   Object.freeze({ batch: "tra-1-authority-hardening", name: "tra_1_authority_hardening_staged_apply", source: M1,
     installed: "to_regclass('public.company_framework_events') IS NOT NULL",
-    artifacts: { source: src(M1, 40457, "72c11b685b17261d2932d7b1182c4fea649096a2ba1b3ff06270d89ac7da4d4a"),
-      wrapper: art(`release/wrappers/${M1.replace(/\.sql$/, ".wrapper.sql")}`, 42039, "32778550bbc96fb570244bdb9a04d19c522fe4540e1e1f89ea47e2539ce33d68", SOURCE_COMMIT),
-      preflight: chk("preflight.sql", 5041, "2d8dd0b1fb815698dbc9c1d5675b69b41f2ad928b0ec61d52e4459283e4e7861"),
-      postcondition: chk("postcondition-1.sql", 7584, "33cacc16139c03d8a874aae83fed479930d3078ed404a143e14d55dbc8eca57d") } }),
+    artifacts: { source: src(M1, 44872, "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99"),
+      wrapper: art(`release/wrappers/${M1.replace(/\.sql$/, ".wrapper.sql")}`, 46454, "bdcdf20e652c9e0e5e5ed6fd9ea10b8bb7f3c2f0dcf2c12f15d273f8f07e44b3", SOURCE_COMMIT),
+      preflight: chk("preflight.sql", 6359, "ce7cbfa179df0f8515f7b81aa38ae5fc68def57ea38750c60d7a20c969731b5d"),
+      postcondition: chk("postcondition-1.sql", 8661, "cb55b20e3c7ba622c2709864094ad16d72d1d13aa58e8901213140ed9513f33d") } }),
   Object.freeze({ batch: "tra-2-framework-guard", name: "tra_2_framework_guard_staged_apply", source: M2,
     installed: "to_regprocedure('public.guard_company_reporting_framework()') IS NOT NULL",
-    artifacts: { source: src(M2, 3043, "e5ff37296d50e152f86c89652eb238b27ba66b2161bb1bd8aa71e9daf4918d41"),
-      wrapper: art(`release/wrappers/${M2.replace(/\.sql$/, ".wrapper.sql")}`, 4627, "9c500a69706228fd029067133e35a3271906631510cd272797c37f216c68107a", SOURCE_COMMIT),
-      postcondition: chk("postcondition-2.sql", 3532, "168f3c293ee0d9b23804ba1c50294cbcb779a405889c24651210114a1989abe7") } }),
+    artifacts: { source: src(M2, 3800, "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d"),
+      wrapper: art(`release/wrappers/${M2.replace(/\.sql$/, ".wrapper.sql")}`, 5384, "c4148e95d336b9292e391d3493c6c196b257ae80468fb32eb342436c62887fa5", SOURCE_COMMIT),
+      postcondition: chk("postcondition-2.sql", 3906, "1694dcdd9901410547d24fff444c22c1c2c00a735ee176c6e703fe4617949155") } }),
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -274,9 +274,9 @@ export function transportForms() {
 
 /** The three registered submission forms (no final LF), pinned literally; expected hosted ids 81–83 after 0079 (id 80). */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  track_a_staged_transport: "7b51e2c625e371779d7f67cfc8c2d150181ac1812da556d64e3f40f79390533e",
-  tra_1_authority_hardening_staged_apply: "3f27a234df1a744c5651dc7755126b46d1924cf922d93a6d42198c4d7c1cbd9b",
-  tra_2_framework_guard_staged_apply: "d4952e29098cc841c236e0a9f9d7fec7ede69ae9b838c5b0ed509532e3702f86",
+  track_a_staged_transport: "fb6d49e98466116cab3809b82ad4d0e7391d7f1c0af4c7514dbf266271aad460",
+  tra_1_authority_hardening_staged_apply: "d9fbd2c4617c62d98e44ee00d16d67be2c178d9467386901423c86f6b792cbf0",
+  tra_2_framework_guard_staged_apply: "acad1966e2c71ca7d74126b01e462f9e64f5d500bcabee5311b8e0c9d9502cf1",
 });
 
 export function checkTransportMirror(tag, text) {
