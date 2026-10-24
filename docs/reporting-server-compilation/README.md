@@ -125,3 +125,8 @@ automatic jobs successfully, including the disposable PostgreSQL contracts and t
 Manual staging RLS was skipped, not passed. The snapshot/digest extension requires its own final-commit CI results;
 baseline success must not be transferred to changed code. Local SQL checks use PostgreSQL-in-WASM with serialized
 connections and are not concurrency evidence. No hosted application, activation or incident closure is asserted.
+
+Lock ownership: the public compiler read, receipt writer and approval writer/trigger acquire the report-lineage lock.
+The private snapshot reader acquires no lock of its own, so readiness inspection does not silently add a writer lock
+and the isolated control-removal concurrency proof can still exercise the preceding publication behavior. Migration
+postconditions and the publication proof check this separation; the real concurrency proof must pass on the candidate.

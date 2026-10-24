@@ -309,6 +309,10 @@ async function main() {
       return d.dependenciesSha256 === depsFinal.dependenciesSha256 && rd.blockers.includes("SERVER_COMPILATION_SNAPSHOT_CHANGED");
     } finally { await db.admin.query("ROLLBACK"); }
   });
+  await check("snapshot reads acquire no lineage lock; the public compiler entry and receipt writer own that lock", async () => {
+    const rows = (await db.admin.query("SELECT proname,pg_get_functiondef(oid) body FROM pg_proc WHERE oid IN ('public._fs_server_compile_snapshot(uuid,text,integer)'::regprocedure,'public.fs_server_compile_input(uuid,text,integer)'::regprocedure,'public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)'::regprocedure)")).rows;
+    return rows.length === 3 && rows.every(r => /pg_advisory_xact_lock/.test(r.body) === (r.proname !== "_fs_server_compile_snapshot"));
+  });
   await check("the internal complete-snapshot reader is not callable by authenticated or service API roles", async () => {
     const user = await refusal(() => asU(U.preparer,"SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));
     const service = await refusal(() => db.asService("SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));

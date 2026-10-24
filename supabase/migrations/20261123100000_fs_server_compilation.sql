@@ -61,7 +61,6 @@ CREATE FUNCTION public._fs_server_compile_snapshot(p_company_id uuid,p_report_id
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE r public.financial_statement_reports; c jsonb; n jsonb; d jsonb; i jsonb; e jsonb; t jsonb; v_rows bigint;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
   SELECT * INTO r FROM public.financial_statement_reports WHERE company_id=p_company_id AND report_id=p_report_id AND report_version=p_report_version;
   IF r.id IS NULL THEN RAISE EXCEPTION 'REPORT_VERSION_NOT_FOUND' USING ERRCODE='P0002'; END IF;
   IF p_report_version <> (SELECT max(report_version) FROM public.financial_statement_reports WHERE report_id=p_report_id) THEN
@@ -93,7 +92,7 @@ $$;
 REVOKE ALL ON FUNCTION public._fs_server_compile_snapshot(uuid,text,integer) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Public compilation entry: only an active compiler-capable actor may obtain the snapshot.
--- The internal reader is also used by approval/issuance guards, without granting it to API roles.
+-- The internal reader is also used by approval guards, without granting it to API roles.
 CREATE FUNCTION public.fs_server_compile_input(p_company_id uuid,p_report_id text,p_report_version integer)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 BEGIN
@@ -105,6 +104,7 @@ BEGIN
   IF (public.financial_statements_workspace_access(p_company_id)->>'enabled') IS DISTINCT FROM 'true' THEN
     RAISE EXCEPTION 'REPORTING_ACCESS_REQUIRED' USING ERRCODE='42501';
   END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
   RETURN public._fs_server_compile_snapshot(p_company_id,p_report_id,p_report_version);
 END;
 $$;
@@ -269,7 +269,9 @@ CREATE TRIGGER trg_rpi_server_compilation BEFORE INSERT ON public.reporting_pack
 
 DO $server_compilation_postcondition$
 BEGIN
-  IF has_function_privilege('authenticated','public._fs_server_compile_snapshot(uuid,text,integer)','EXECUTE')
+  IF position('pg_advisory_xact_lock' IN pg_get_functiondef('public._fs_server_compile_snapshot(uuid,text,integer)'::regprocedure)) > 0
+     OR position('pg_advisory_xact_lock' IN pg_get_functiondef('public.fs_server_compile_input(uuid,text,integer)'::regprocedure)) = 0
+     OR has_function_privilege('authenticated','public._fs_server_compile_snapshot(uuid,text,integer)','EXECUTE')
      OR has_function_privilege('service_role','public._fs_server_compile_snapshot(uuid,text,integer)','EXECUTE')
      OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.fs_server_compilations'::regclass)
      OR has_function_privilege('authenticated','public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)','EXECUTE')
