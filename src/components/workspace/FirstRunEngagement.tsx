@@ -98,11 +98,13 @@ export default function FirstRunEngagement({
   onCreated,
   headingLevel = "h1",
   layout = "embedded",
+  onCancel,
 }: {
   onCreated: (companyId: string, periodYear: number) => void;
   /** "h2" when embedded in a page that already has its own h1 (the account home). */
   headingLevel?: "h1" | "h2";
   layout?: "embedded" | "page";
+  onCancel?: () => void;
 }) {
   const Heading = headingLevel;
   const { user } = useAuth();
@@ -120,11 +122,13 @@ export default function FirstRunEngagement({
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [errorMsg, setErrorMsg]       = useState<string | null>(null);
   const [canRetry, setCanRetry]       = useState(false);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
   // One request id per form: a retry after a network failure returns the SAME workspace (create_entity is idempotent).
   const submitLock = useRef(false);
   useActivity(submitState === "submitting", "Creating company…");
   const creationRequestId = useRef<string>(crypto.randomUUID());
-  const releaseNavigation = useManagementEditGuard(!!orgName || !!currency || framework !== "decide_later" || fye !== "12-31" || periodYear !== String(defaultYear), submitState === "submitting", () => {
+  const dirty = !!orgName || !!currency || framework !== "decide_later" || fye !== "12-31" || periodYear !== String(defaultYear);
+  const releaseNavigation = useManagementEditGuard(dirty, submitState === "submitting", () => {
     setOrgName(""); setCurrency(""); setFramework("decide_later"); setFye("12-31"); setPeriodYear(String(defaultYear));
   });
 
@@ -356,7 +360,7 @@ export default function FirstRunEngagement({
 
       {/* Primary CTA */}
       <div className={layout === "page" ? "flex flex-wrap items-center justify-end gap-3" : "contents"}>
-      {layout === "page" && <Button asChild variant="outline" disabled={submitState === "submitting"}><Link to="/dashboard" state={{ forceHub: true }} aria-disabled={submitState === "submitting"} onClick={(e) => { if (submitState === "submitting") e.preventDefault(); }}>Cancel</Link></Button>}
+      {onCancel ? <Button type="button" variant="outline" disabled={submitState === "submitting"} onClick={() => { if (dirty) setDiscardPrompt(true); else onCancel(); }}>Cancel</Button> : layout === "page" && <Button asChild variant="outline" disabled={submitState === "submitting"}><Link to="/dashboard" state={{ forceHub: true }} aria-disabled={submitState === "submitting"} onClick={(e) => { if (submitState === "submitting") e.preventDefault(); }}>Cancel</Link></Button>}
       <Button
         type="submit"
         size="lg"
@@ -366,12 +370,13 @@ export default function FirstRunEngagement({
       >
         {submitState === "submitting"
           ? "Creating workspace…"
-          : layout === "page" ? "Create company & continue" : "Create workspace"}
+          : onCancel || layout === "page" ? "Save company" : "Create workspace"}
         {submitState !== "submitting" && (
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         )}
       </Button>
       </div>
+      {discardPrompt && <div role="alert" className="space-y-3 border border-border p-4 text-sm"><p>Discard this unsaved company?</p><div className="flex gap-3"><Button type="button" variant="outline" onClick={() => setDiscardPrompt(false)}>Keep editing</Button><Button type="button" variant="destructive" onClick={() => { releaseNavigation(); onCancel?.(); }}>Discard changes</Button></div></div>}
       </fieldset>
     </form>
   );

@@ -242,7 +242,7 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                 {showCurrency && <th scope="col" className="px-3 py-3 font-medium">Currency</th>}
                 <th scope="col" className="py-2 pr-4 font-medium">Status</th>
                 {showUpload && <th scope="col" className="px-3 py-3 font-medium">Latest trial balance</th>}
-                <th scope="col" className="px-3 py-3 font-medium">{companyFirst ? "Workspace" : "Next action"}</th><th scope="col" className="px-2 py-3"><span className="sr-only">Company options</span></th>
+                <th scope="col" className="px-3 py-3 font-medium">{companyFirst ? "Workspace" : "Next action"}</th>{renderEntityOptions && <th scope="col" className="px-2 py-3"><span className="sr-only">Company options</span></th>}
               </tr>
             </thead>
             <tbody>
@@ -259,12 +259,12 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                   <td className="px-3 py-3">{r.serviceWithheld ? <span className="text-[13px] text-muted-foreground" data-testid="portfolio-service-withheld">Service no longer offered</span> : <>{companyFirst && r.status === "no_trial_balance" && <span className="mr-1 text-xs font-medium">Draft ·</span>}<StatusChip status={r.status} /></>}</td>
                   {showUpload && <td className="max-w-[16rem] px-3 py-3"><UploadCell row={r} /></td>}
                   <td className="px-3 py-3 text-right">
-                    {r.serviceWithheld ? null : <Link to={destination(r)} className="inline-flex h-9 items-center whitespace-nowrap border border-border px-3 text-[13px] font-medium hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    {r.serviceWithheld ? null : <Link to={destination(r)} className={`inline-flex min-h-11 items-center whitespace-nowrap px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${companyFirst ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border border-border hover:border-primary/60"}`}
                       data-testid={`portfolio-action-${r.engagementId}`}>
-                      {action(r)}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
+                      {action(r)}{companyFirst && <span className="ml-2" aria-hidden="true">→</span>}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                     </Link>}
                   </td>
-                  <td className="px-2 py-3">{renderEntityOptions?.(r)}</td>
+                  {renderEntityOptions && <td className="px-2 py-3">{renderEntityOptions(r)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -281,8 +281,8 @@ export function EngagementPortfolio({ onUpload, headingLevel = "h1", title = "En
                 </div>
                 {(showFramework || showPurpose) && <div className="mt-2 text-xs text-muted-foreground">{showFramework && (frameworks[r.companyId] === undefined ? "Framework unavailable" : frameworkName(frameworks[r.companyId]) ?? "Framework not declared")} {showPurpose && PORTFOLIO_PURPOSE_LABEL[r.purpose]}</div>}
                 <div className="mt-2 flex items-center justify-between gap-2 text-[13px]">{(!companyFirst || showUpload) && <UploadCell row={r} />}{renderEntityOptions?.(r)}</div>
-                {!r.serviceWithheld && <Link to={destination(r)} className="mt-3 inline-flex h-10 w-full items-center justify-center border border-border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {action(r)}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
+                {!r.serviceWithheld && <Link to={destination(r)} className={`mt-3 inline-flex min-h-11 w-full items-center justify-center text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${companyFirst ? "bg-primary text-primary-foreground hover:bg-primary/90" : "border border-border"}`}>
+                  {action(r)}{companyFirst && <span className="ml-2" aria-hidden="true">→</span>}<span className="sr-only"> — {r.companyName}, FY{r.periodYear}</span>
                 </Link>}
               </li>
             ))}

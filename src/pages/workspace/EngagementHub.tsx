@@ -118,7 +118,7 @@ export default function EngagementHub({
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Decided before the first render so the creation form never opens beside the first upload (one primary action).
   const firstUploadOffered = !!account?.onOpenTrialBalance && !!account?.initialAddOpen;
-  const [addOpen, setAddOpen] = useState(!!account?.initialAddOpen && !firstUploadOffered);
+  const [addOpen, setAddOpen] = useState(!portfolio && !!account?.initialAddOpen && !firstUploadOffered);
   const navigate = useNavigate();
   const addFormId = useId();
   // Repeated clicks: one request at a time; a failure releases the guard so the user can retry. The guard lives in ONE
@@ -254,7 +254,7 @@ export default function EngagementHub({
         <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[28px]">Your companies</h1>
         <p className="mt-1 text-sm text-muted-foreground">Select a company and reporting period to open its workspace.</p></div>
         <div className="flex shrink-0 items-center gap-3" data-testid="portfolio-toolbar">
-          {canCreate && <Button asChild className="h-9 gap-2 rounded-sm text-[13px]" data-testid="add-company"><Link to="/companies/new"><Plus className="h-4 w-4" aria-hidden="true" />Add company</Link></Button>}
+          {canCreate && <Button variant={account?.totals && account.totals.entries + account.totals.companiesWithoutEngagement > 0 ? "outline" : "default"} className="h-10 gap-2 rounded-sm text-sm" data-testid="add-company" aria-expanded={addOpen} aria-controls={addFormId} onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" aria-hidden="true" />Add company</Button>}
 
         </div>
 
@@ -281,7 +281,7 @@ export default function EngagementHub({
             onStartReview={() => { const u = unavailableEngagements.find((x) => next.kind === "start_review" && x.engagementId === next.engagementId); if (u) addReview(u); }}
             onStartService={() => { const c = companiesWithoutEngagement.find((x) => next.kind === "start_service" && x.id === next.companyId); if (c) onStartService(c); }}
             onOpenShared={sharedWorkspaces.length === 1 && onOpenShared ? () => onOpenShared(sharedWorkspaces[0]) : undefined}
-            onAddCompany={canCreate ? () => portfolio ? navigate("/companies/new") : setAddOpen(true) : undefined}
+            onAddCompany={canCreate ? () => setAddOpen(true) : undefined}
             addFormId={addFormId}
             pendingLabel={next.kind === "start_review" && pending === next.engagementId ? "Starting…" : null}
           />
@@ -289,6 +289,7 @@ export default function EngagementHub({
         </section>
       )}
 
+      {portfolio && addOpen && account?.onCompanyCreated && <section id={addFormId} className="mb-6 border border-border bg-card p-5 sm:p-6" aria-label="Add company" data-testid="add-company-form"><FirstRunEngagement headingLevel="h2" layout="page" onCancel={() => setAddOpen(false)} onCreated={(id, year) => { setAddOpen(false); account.onCompanyCreated?.(id, year); }} /></section>}
       {!portfolio && (() => {
         // "Continue where you left off": the latest accessible engagement whose trial balance is not finished, from the
         // persisted workspace state only. Not shown when the next-step card above already resumes that engagement.
@@ -324,7 +325,7 @@ export default function EngagementHub({
                 >
                   <Building2 className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
                   <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-foreground">{company.name}</span><span className="block text-xs text-muted-foreground">Setup draft · Company saved</span></span>
-                  <span className="text-[12px] text-muted-foreground shrink-0">Open workspace</span>
+                  <span className="inline-flex min-h-11 shrink-0 items-center bg-primary px-3 text-sm font-semibold text-primary-foreground">Open workspace</span>
                   <ArrowRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
                 </button>
               </li>
@@ -336,7 +337,7 @@ export default function EngagementHub({
         </section>
       )}
       {portfolio && account && (
-        <div className="mb-10"><EngagementPortfolio companyFirst headingLevel="h2" title="Company workspaces" compactHeader renderEntityOptions={onSetPurpose ? (r) => <CompanyOptions companyId={r.companyId} companyName={r.companyName} current={r.purpose === "not_stated" ? null : r.purpose as WorkspacePurpose} onSet={onSetPurpose} /> : undefined} /></div>
+        <div className="mb-10"><EngagementPortfolio companyFirst headingLevel="h2" title="Company workspaces" compactHeader  /></div>
       )}
       {!(portfolio && account) && entries.length > 0 && (
         <section className="mb-10">

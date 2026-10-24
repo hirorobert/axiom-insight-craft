@@ -202,8 +202,9 @@ describe("UI wiring contracts", () => {
   const firstRun = read("components/workspace/FirstRunEngagement.tsx");
   const dashboard = read("pages/Dashboard.tsx");
 
-  it("a new workspace routes straight to the Overview — there is no Step 2 interstitial anywhere", () => {
-    expect(dashboard).toMatch(/navigate\(`\/workspace\/\$\{companyId\}\/\$\{year\}`, \{ replace: true \}\)/);
+  it("a saved company returns to the directory — there is no Step 2 interstitial anywhere", () => {
+    expect(dashboard).toContain('onCompanyCreated: () =>');
+    expect(dashboard).toContain('void refresh()');
     const all = walk(ROOT).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\./.test(f)).map((f) => fs.readFileSync(f, "utf8")).join("\n");
     expect(all).not.toMatch(/Step 2 of 2|Step 1 of 2/);
     expect(all).not.toMatch(/How would you like to begin/);
