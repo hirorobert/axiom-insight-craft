@@ -200,9 +200,13 @@ async function main() {
     const after = await snapshot();
     return /^57014:INJECTED_INTERRUPTION/.test(e ?? "") && JSON.stringify(s0) === JSON.stringify(s1) && JSON.stringify(after) === JSON.stringify(before) ? true : { e, s0, s1, same: JSON.stringify(after) === JSON.stringify(before) };
   });
-  await kase("m3.apply-then-retry-refused", `the retry of ${M1} applies; ${M2} then applies; a second ${M1} is refused by its preflight (TRACK_A_BASELINE_CHANGED); a second ${M2} is a no-op; the schema is the hardened one`, async () => {
+  await kase("m3.apply-then-retry-refused", `on this database (a FINAL, a sign-off, a sealed pack): the release preflight passes; the retry of ${M1} applies and postcondition 1 passes; ${M2} applies and postcondition 2 passes; a second ${M1} is refused by its precondition (TRACK_A_BASELINE_CHANGED); a second ${M2} is a no-op; the schema is the hardened one`, async () => {
+    const check = (f) => fs.readFileSync(path.join(REPO, "docs/release/track-a-r1", f), "utf8");
+    await admin.query(check("preflight.sql"));
     await admin.query(migrationText(M1));
+    await admin.query(check("postcondition-1.sql"));
     await admin.query(migrationText(M2));
+    await admin.query(check("postcondition-2.sql"));
     const s1 = await schemaState();
     let e = null; try { await admin.query(migrationText(M1)); } catch (x) { e = errOf(x); }
     await admin.query(migrationText(M2));

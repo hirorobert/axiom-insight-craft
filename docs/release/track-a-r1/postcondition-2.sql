@@ -12,8 +12,9 @@ BEGIN
     RAISE EXCEPTION 'TRA_POSTCONDITION: the framework-change guard is missing, disabled, or not a BEFORE UPDATE row trigger on companies';
   END IF;
   -- Scoped to exactly the reporting_framework column (tgattr), not inferred from the trigger's name.
-  IF (SELECT g.tgattr::int2[] FROM pg_trigger g WHERE g.tgname = 'trg_guard_company_reporting_framework' AND g.tgrelid = 'public.companies'::regclass)
-     IS DISTINCT FROM ARRAY[(SELECT a.attnum FROM pg_attribute a WHERE a.attrelid = 'public.companies'::regclass AND a.attname = 'reporting_framework')]::int2[] THEN
+  -- tgattr is an int2vector (zero-based); its text form for one column is that column's number.
+  IF (SELECT g.tgattr::text FROM pg_trigger g WHERE g.tgname = 'trg_guard_company_reporting_framework' AND g.tgrelid = 'public.companies'::regclass)
+     IS DISTINCT FROM (SELECT a.attnum::text FROM pg_attribute a WHERE a.attrelid = 'public.companies'::regclass AND a.attname = 'reporting_framework') THEN
     RAISE EXCEPTION 'TRA_POSTCONDITION: the framework-change guard is not scoped to exactly companies.reporting_framework';
   END IF;
   IF position('company_framework_events' IN pg_get_functiondef('public.guard_company_reporting_framework()'::regprocedure)) = 0
