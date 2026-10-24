@@ -29,7 +29,7 @@ export const TRANSPORT_DIR = "release/staged-transport-fsi";
 export const SOURCE_COMMIT = "27f48f7f4b061ff3ef727aa47ebdf8dac369e543";
 export const CHECKS_COMMIT = "56edbf85912b9d347387d15e3d482ff7799dbf5c";
 /** Hosted journal tail: id 75 = drizzle 0074_tb_decision_catalogue_read_predicate. */
-export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 75, tag: "0074_tb_decision_catalogue_read_predicate", hash: "@PRED@" });
+export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 75, tag: "0074_tb_decision_catalogue_read_predicate", hash: "870c3ea2d6d6841b8c01364f1934658fa36e417c9c0dbb9a8a8b916164c62857" });
 export const BOOTSTRAP_NAME = "fs_integrity_staged_transport";
 
 const art = (p, bytes, sha256, commit) => Object.freeze({ path: p, bytes, sha256, commit });
@@ -38,19 +38,19 @@ export const BATCHES = Object.freeze([
   Object.freeze({ batch: "fsi-1-server-compilation", name: "fsi_1_server_compilation_staged_apply", source: "20261123100000_fs_server_compilation.sql",
     installed: "to_regclass('public.fs_server_compilations') IS NOT NULL",
     artifacts: { source: src("20261123100000_fs_server_compilation.sql", 23305, "7e25c896d34365c7ade29ee095f397a9d85979c74a5d2f5c8a9565ec1501e172"),
-      wrapper: "@W0@", preflight: "@PRE@" } }),
+      wrapper: art("release/wrappers/20261123100000_fs_server_compilation.wrapper.sql", 24869, "e008e54c68ac17ee25d095357ef35f45a308f7a648222bef85db7f0b9cb961f2", SOURCE_COMMIT), preflight: art("docs/release/fs-integrity-r1/preflight.sql", 6556, "70f69d9e875080109d680d935c44dc33894bf484b163e7e196caa7d3fa25032d", CHECKS_COMMIT) } }),
   Object.freeze({ batch: "fsi-2-integrity-gate", name: "fsi_2_integrity_gate_staged_apply", source: "20261124100000_fs_publication_integrity_gate.sql",
     installed: "position('DOCUMENT_FACT_NOT_COMPOSED' IN pg_get_functiondef('public.fs_publication_blockers(uuid, text, integer)'::regprocedure)) > 0",
     artifacts: { source: src("20261124100000_fs_publication_integrity_gate.sql", 50518, "a71d60eba0dea2347f4c9d519c8e76e2ffa9ec3d986a54281957bb664bf07a03"),
-      wrapper: "@W1@" } }),
+      wrapper: art("release/wrappers/20261124100000_fs_publication_integrity_gate.wrapper.sql", 52098, "ada364d700f2e3f2bcb0d9a8f8e380cb5f26e1a5e465d919f09a1a7d502233c3", SOURCE_COMMIT) } }),
   Object.freeze({ batch: "fsi-3-final-authority", name: "fsi_3_final_authority_staged_apply", source: "20261125100000_fs_final_authority.sql",
     installed: "to_regclass('public.fs_report_authority') IS NOT NULL",
     artifacts: { source: src("20261125100000_fs_final_authority.sql", 67716, "394d12347da46476df0f551161ca5d6c5a82b781704b4a89c55bac12f258110a"),
-      wrapper: "@W2@" } }),
+      wrapper: art("release/wrappers/20261125100000_fs_final_authority.wrapper.sql", 69274, "fcbba7920b4df7a5a2d8fe38b07f63f68e63176f4851b332fff1267eea394b7b", SOURCE_COMMIT) } }),
   Object.freeze({ batch: "fsi-4-document-structure", name: "fsi_4_document_structure_staged_apply", source: "20261126100000_fs_document_structure.sql",
     installed: "to_regprocedure('public._fs_document_structure_blockers(uuid, integer, jsonb, text[])') IS NOT NULL",
     artifacts: { source: src("20261126100000_fs_document_structure.sql", 62060, "81ffd8ecdb4ad6ef292a8608dabb9a9cc7f41f4dfa972f66ec5d2cae398dcb39"),
-      wrapper: "@W3@", postcondition: "@POST@" } }),
+      wrapper: art("release/wrappers/20261126100000_fs_document_structure.wrapper.sql", 63624, "9025d0bede105b0c85a8d7fb6525cabab4d2a9f27f154183b9fbd13b0294c2bc", SOURCE_COMMIT), postcondition: art("docs/release/fs-integrity-r1/postcondition.sql", 9618, "05326ba1407b0ddfeba3a3fcc08780e5ffa789b1277af9e1f496b77c88e5bc6a", CHECKS_COMMIT) } }),
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -224,7 +224,7 @@ ${predecessorCheck()}
     RAISE EXCEPTION 'FSI_TRANSPORT_UNCERTAIN_STATE: % appears installed without a consumed transport record', ${q(b.source)} USING ERRCODE = '55000';
   END IF;
 ${kinds.map((k) => pick(b, k)).join("\n")}
-  ${BASELINE.replace(/^SELECT /, "SELECT ").replace(/\)$/, ") INTO v_baseline;").replace(/'hex'\)\) INTO/, "'hex')) INTO")}
+  v_baseline := (${BASELINE});
   PERFORM set_config('cfoclose_fsi_release.applying', c_batch, true);
 ${kinds.includes("preflight") ? "  EXECUTE v_preflight;\n" : ""}  EXECUTE v_wrapper;
 ${kinds.includes("postcondition") ? "  EXECUTE v_postcondition;\n" : ""}  IF NOT (${b.installed}) THEN
