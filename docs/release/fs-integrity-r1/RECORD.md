@@ -147,3 +147,16 @@ which is why step 3 precedes step 4 and rollout stays off throughout.
    independent signature; the compiler trusts its deployment and the service credential; it proves the report follows the
    recorded source, not that the source is truthful.
 6. Pre-existing registered defects and go-live gates are unchanged (`CLAUDE.md` §9.1–9.2).
+
+## Release preparation (2026-10-24)
+
+- Preflight line 15 and postcondition line 30 corrected: the lineage-lock probe now searches for
+  `'financial_statement_reports:' || p_report_id` (the colon was missing, so the check could never match the live text).
+- Two different hashes, never interchangeable:
+  - Compiler bundle `_shared/statementCompiler.generated.mjs`: `49fc0852…` (pinned in 20261123100000 as `compiler_sha256`).
+  - Complete function closures (`scripts/release/functionClosure.mjs`): `compile-financial-report` `745c8170099329911db55ee2ee20f5a989c0ae2a10003be0860c8cb679e4db59`;
+    `seal-reporting-pack` `cdc5416f6a3ebd3925e36feaa9deb1c1dd00b4a2122091caf693b60324f44da6`.
+- Deployed-source verification: NOT VERIFIED. No exception has been approved.
+- Hosted inventory (read-only, counts only): 16 profiles, 19 companies, 19 memberships, 11 licences, 17 checkout intents,
+  11 payment events, 42 trial balance uploads, 69 stored files, 10 reports, 2 publications, 2 sign-off bindings, 0 issued packs.
+  Not disposable (accounts, payment history, sign-offs). Recovery route: the platform database export plus a Storage download.
