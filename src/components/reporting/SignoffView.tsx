@@ -116,7 +116,7 @@ function Versions(p: PageProps & { selected: SavedVersion | null }) {
 function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean }) {
   const [r, setR] = useState<Readiness | null>(null);
   const [adj, setAdj] = useState<AdjustmentsSummary | null>(null);
-  const [confirm, setConfirm] = useState<null | "REVIEWED" | "FINAL">(null);
+  const [confirm, setConfirm] = useState<null | "REVIEWED" | "FINAL" | "DESIGNATE">(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useBusyState();
   const adjClient = useMemo(() => adjustmentsClient(p.db as unknown as Parameters<typeof adjustmentsClient>[0]), [p.db]);
@@ -126,11 +126,27 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
   }, [p.clients, p.companyId, p.periodYear, p.version, adjClient]);
   useEffect(() => { void load().catch((e) => setNotice((e as Error).message)); }, [load, p.state]);
   const disclosures = adjustmentDisclosures(adj);
-  const sign = async (state: "REVIEWED" | "FINAL", reason: string) => {
+  // 20261125100000: the period's FINAL authority. A FINAL in another lineage than the current authority is only ever an
+  // EXPLICIT replacement naming that exact version (the server refuses a plain FINAL); an unresolved legacy conflict is
+  // designated by a partner before anything else proceeds. Readiness carries the relation from the same server read.
+  const authority = r?.authority ?? null;
+  const holder = authority?.relation === "other_lineage" ? authority.scope?.holder : null;
+  const replaces = holder && typeof holder.reportId === "string" && typeof holder.reportVersion === "number" ? { reportId: holder.reportId, reportVersion: holder.reportVersion } : null;
+  const unresolved = authority?.relation === "unresolved";
+  const sign = async (state: "REVIEWED" | "FINAL" | "DESIGNATE", reason: string) => {
     if (!setBusy(true)) return;
     try {
-      await p.clients.signoff.setState(p.companyId, p.version.reportId, p.version.reportVersion, state, reason);
-      setNotice(state === "REVIEWED" ? `Version ${p.version.reportVersion} is reviewed.` : `Version ${p.version.reportVersion} is final and sealed.`);
+      if (state === "DESIGNATE") {
+        const d = await p.clients.signoff.designateFinal(p.companyId, p.periodYear, p.version.reportId, p.version.reportVersion, reason);
+        if (d.outcome !== "designated" && d.outcome !== "already_designated") throw new Error(`the server answered ${d.outcome}`);
+        setNotice(`Version ${p.version.reportVersion} is the period's final authority.`);
+      } else if (state === "FINAL" && replaces) {
+        await p.clients.signoff.replaceFinal(p.companyId, p.version.reportId, p.version.reportVersion, replaces, reason);
+        setNotice(`Version ${p.version.reportVersion} is final and sealed; it replaces the earlier final as this period's authority.`);
+      } else {
+        await p.clients.signoff.setState(p.companyId, p.version.reportId, p.version.reportVersion, state as "REVIEWED" | "FINAL", reason);
+        setNotice(state === "REVIEWED" ? `Version ${p.version.reportVersion} is reviewed.` : `Version ${p.version.reportVersion} is final and sealed.`);
+      }
       setConfirm(null);
       await p.refresh();
     } catch (e) { setNotice(`Could not confirm sign-off: ${(e as Error).message.replace(/^[a-z_]+: /, "")}. Check the recorded version state before trying again.`); await p.refresh(); }
@@ -157,16 +173,26 @@ function Readiness_(p: PageProps & { version: SavedVersion; isLatest: boolean })
           <ul className="list-disc pl-5">{disclosures.map((d) => <li key={d.number}>Adjustment {d.number}: {[d.selfApproved ? "self-approved" : null, d.selfRevalidated ? "self-revalidated" : null].filter(Boolean).join(" and ")} — {d.reason}</li>)}</ul>
         </div>
       ) : null}
+      {next === "FINAL" && unresolved ? <p className="mt-2" role="status" data-testid="authority-unresolved">This period holds final statements in more than one report lineage and none is designated as its authority. A partner designates one of those final versions first; until then no version can be approved as final.</p> : null}
+      {next === "FINAL" && replaces ? <p className="mt-2" data-testid="authority-replaces">Version {replaces.reportVersion} of another report lineage is this period's current final. Approving this version replaces it as the authority; the earlier final stays on record and is disclosed as superseded.</p> : null}
       {next && p.isLatest ? (allowed ? (
-        <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={!r.ready || busy} onClick={() => setConfirm(next)} data-testid={`sign-${next.toLowerCase()}`}>
-          {next === "REVIEWED" ? "Mark reviewed" : "Approve as final"}
+        <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={!r.ready || busy || (next === "FINAL" && unresolved)} onClick={() => setConfirm(next)} data-testid={`sign-${next.toLowerCase()}`}>
+          {next === "REVIEWED" ? "Mark reviewed" : replaces ? "Approve as final, replacing the current final" : "Approve as final"}
         </ActionButton>
       ) : <p className="mt-2 text-muted-foreground">{next === "REVIEWED" ? "A reviewer marks the version reviewed." : "A partner approves the version as final."}</p>) : null}
+      {p.version.state === "FINAL" && unresolved ? (p.allowed.includes("approve_certification") ? (
+        <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={busy} onClick={() => setConfirm("DESIGNATE")} data-testid="designate-authority">
+          Designate this version as the period's final authority
+        </ActionButton>
+      ) : <p className="mt-2 text-muted-foreground" data-testid="authority-unresolved">This period's final authority is unresolved; a partner designates one of its final versions.</p>) : null}
+      {p.version.state === "FINAL" && authority?.relation === "other_lineage" && authority.superseded && authority.scope?.holder ? <p className="mt-2 text-muted-foreground" data-testid="authority-superseded">Superseded: version {authority.scope.holder.reportVersion} of another report lineage is this period's current final.</p> : null}
       {p.version.state === "FINAL" ? <p className="mt-2"><Link className="text-primary underline" to={p.hrefFor("exports", p.version.reportVersion)}>Export the sealed report →</Link></p> : null}
       <Notice text={notice} />
-      <ConfirmDialog open={confirm !== null} title={confirm === "FINAL" ? "Approve as final" : "Mark reviewed"} period={`FY${p.periodYear}`} version={`Version ${p.version.reportVersion}`}
-        consequences={confirm === "FINAL" ? "The version is sealed: it can never change. A later change to the statements, notes or comparatives needs a new version and a new sign-off." : "The version is recorded as reviewed against its evidence. Final approval is a separate step."}
-        reasonMinLength={3} reasonLabel="Reason" confirmLabel={confirm === "FINAL" ? "Approve as final" : "Mark reviewed"} busy={busy} notice={notice}
+      <ConfirmDialog open={confirm !== null} title={confirm === "DESIGNATE" ? "Designate the final authority" : confirm === "FINAL" ? (replaces ? "Approve as final, replacing the current final" : "Approve as final") : "Mark reviewed"} period={`FY${p.periodYear}`} version={`Version ${p.version.reportVersion}`}
+        consequences={confirm === "DESIGNATE" ? `This version becomes the period's one final authority (candidates: ${(authority?.scope?.candidates ?? []).join(", ") || "the period's final lineages"}). Every other final of the period is disclosed as superseded and can no longer be issued officially; nothing is deleted.`
+          : confirm === "FINAL" ? (replaces ? `The version is sealed and REPLACES version ${replaces.reportVersion} of report lineage ${replaces.reportId} as this period's final authority. That earlier final, its sign-off and any sealed pack stay on record, are disclosed as superseded, and can no longer be issued officially. The replacement is recorded with your name, this reason and the exact version it replaces.`
+            : "The version is sealed: it can never change. A later change to the statements, notes or comparatives needs a new version and a new sign-off.") : "The version is recorded as reviewed against its evidence. Final approval is a separate step."}
+        reasonMinLength={confirm === "DESIGNATE" || replaces ? 8 : 3} reasonLabel="Reason" confirmLabel={confirm === "DESIGNATE" ? "Designate" : confirm === "FINAL" ? (replaces ? "Approve and replace" : "Approve as final") : "Mark reviewed"} busy={busy} notice={notice}
         acknowledgement={confirm === "FINAL" && disclosures.length ? `I have read the ${disclosures.length} disclosed self-approval/self-revalidation item(s); they are printed in the sealed pack.` : undefined}
         onConfirm={(reason) => confirm && void sign(confirm, reason)} onCancel={() => setConfirm(null)} />
     </section>
