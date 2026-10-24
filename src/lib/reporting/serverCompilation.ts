@@ -36,7 +36,9 @@ export function validateStoredEvidence(batch: EvidenceBatch, dates: { start: str
 export async function compileSavedReport(db: ReportingDb, request: CompileRequest) {
   const source = await db.rpc("fs_server_compile_input", { p_company_id: request.companyId, p_report_id: request.reportId, p_report_version: request.reportVersion });
   if (source.error) refuse(source.error.message);
-  const snapshot = source.data as { saved: Record<string, unknown>; composition: unknown; notes: unknown; dependencies: Parameters<typeof dependenciesRef>[0];
+  // Detach the complete source before evaluation; adapters cannot mutate the receipt input by reference.
+  const frozenSource = JSON.parse(JSON.stringify(source.data));
+  const snapshot = frozenSource as { saved: Record<string, unknown>; composition: unknown; notes: unknown; dependencies: Parameters<typeof dependenciesRef>[0];
     input: { state: string; inputSha256?: string; current?: { reportingStart: string; reportingEnd: string }; comparative?: { reportingStart: string; reportingEnd: string } };
     evidence: Record<string, unknown>[]; disclosures: Parameters<typeof assembleComposedReport>[0]["disclosures"]; companyName: string };
   const saved = snapshot?.saved; if (!saved || saved.company_id !== request.companyId || saved.report_id !== request.reportId || saved.report_version !== request.reportVersion) refuse("REPORT_VERSION_NOT_FOUND");
@@ -71,5 +73,5 @@ export async function compileSavedReport(db: ReportingDb, request: CompileReques
   const match = reportContentHash(result.report) === sha256Hex(canonicalStringify(doc));
   // The receipt writer rechecks the snapshot's dependency identity under the lineage lock after computation.
   return { compilerVersion: STATEMENT_COMPILER_VERSION, documentHash: String(saved.document_hash), dependenciesHash: ref.dependenciesSha256,
-    canonicalDocument: canonical, evaluation: JSON.parse(canonicalStringify(evaluation)), matches: match };
+    sourceSnapshot: frozenSource, canonicalDocument: canonical, evaluation: JSON.parse(canonicalStringify(evaluation)), matches: match };
 }

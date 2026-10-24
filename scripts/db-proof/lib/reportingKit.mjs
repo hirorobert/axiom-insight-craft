@@ -230,10 +230,11 @@ export function clientDb(db, uid) {
     invoke: (name, body) => wrap(async () => {
       if (name !== "compile-financial-report") throw Error("Unknown function " + name);
       const { compileSavedReport } = await import("../../../supabase/functions/_shared/statementCompiler.generated.mjs");
+      const { STATEMENT_COMPILER_SHA256 } = await import("../../../supabase/functions/_shared/statementCompiler.manifest.mjs");
       const compiled = await compileSavedReport(transport, body);
-      return (await db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb) r",
+      return (await db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10) r",
         [uid, body.companyId, body.reportId, body.reportVersion, compiled.documentHash, compiled.dependenciesHash,
-         JSON.stringify(compiled.canonicalDocument), JSON.stringify(compiled.evaluation)])).r;
+         JSON.stringify(compiled.canonicalDocument), JSON.stringify(compiled.evaluation), JSON.stringify(compiled.sourceSnapshot), STATEMENT_COMPILER_SHA256])).r;
     }),
     rpc: (fn, args) => wrap(async () => {
       if (!/^[a-z_][a-z0-9_]*$/.test(fn)) throw new Error("bad function name");

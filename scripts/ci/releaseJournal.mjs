@@ -385,8 +385,8 @@ export const RELEASE_JOURNAL = {
 export const SUBMISSION_FORMS = Object.freeze({
   // Independent server compilation: authored here, NOT applied; one atomic statement, exact bytes only.
   "20261123100000_fs_server_compilation.sql": Object.freeze({
-    identical: Object.freeze({ bytes: 20341, sha256: "4924db2b6c9986a0b4890249cafaef4467411ef6817b5a70da0fee8babc6f420" }),
-    finalLfRemoved: Object.freeze({ bytes: 20340, sha256: "2132f7ce7c6dd436e3133b3bdfe66217acc6b08bd9ddbf1397f14eaefcf96834" }),
+    identical: Object.freeze({ bytes: 23040, sha256: "9101bbe1d34c264c8af45f7b50fd3ecca16927750799b90ccfa2a7ddf716c760" }),
+    finalLfRemoved: Object.freeze({ bytes: 23039, sha256: "a5b8a2db6f350c4c64ba965799b8969f5edf7c3c63d43b7a6ee864edca8c1d4c" }),
   }),
 
   // H1: applied as 0029 in the final-LF-removed form.

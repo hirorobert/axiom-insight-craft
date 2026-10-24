@@ -29,8 +29,11 @@ CREATE TABLE public.fs_server_compilations (
   report_id text NOT NULL,
   report_version integer NOT NULL,
   compiler_version text NOT NULL CHECK (compiler_version = 'financial-report-compiler/1'),
+  compiler_sha256 text NOT NULL CHECK (compiler_sha256 = '9d930d6a67215cce7fe2b3d63a9f93b60d4e9114920ea7ad05ae733b229929ea'),
   document_hash text NOT NULL CHECK (document_hash ~ '^[0-9a-f]{64}$'),
   dependencies_hash text NOT NULL CHECK (dependencies_hash ~ '^[0-9a-f]{64}$'),
+  source_snapshot jsonb NOT NULL CHECK (jsonb_typeof(source_snapshot) = 'object'),
+  source_snapshot_sha256 text NOT NULL CHECK (source_snapshot_sha256 = encode(sha256(convert_to(source_snapshot::text, 'UTF8')), 'hex')),
   canonical_document jsonb NOT NULL,
   evaluation jsonb NOT NULL,
   matches boolean NOT NULL,
@@ -54,18 +57,10 @@ CREATE TRIGGER fs_server_compilation_immutable BEFORE UPDATE OR DELETE OR TRUNCA
 
 -- Bounded source snapshot for the trusted compiler. Only the named immutable version's CURRENT evidence and
 -- the disclosure texts actually selected by the notes authority are read; no truncated client page is an input.
-CREATE FUNCTION public.fs_server_compile_input(p_company_id uuid,p_report_id text,p_report_version integer)
+CREATE FUNCTION public._fs_server_compile_snapshot(p_company_id uuid,p_report_id text,p_report_version integer)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE r public.financial_statement_reports; c jsonb; n jsonb; d jsonb; i jsonb; e jsonb; t jsonb; v_rows bigint;
 BEGIN
-  IF auth.uid() IS NULL OR NOT (public.workspace_capability_allowed(p_company_id,auth.uid(),'prepare_close')
-      OR public.workspace_capability_allowed(p_company_id,auth.uid(),'review_close')
-      OR public.workspace_capability_allowed(p_company_id,auth.uid(),'approve_certification')) THEN
-    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE='42501';
-  END IF;
-  IF (public.financial_statements_workspace_access(p_company_id)->>'enabled') IS DISTINCT FROM 'true' THEN
-    RAISE EXCEPTION 'REPORTING_ACCESS_REQUIRED' USING ERRCODE='42501';
-  END IF;
   PERFORM pg_advisory_xact_lock(hashtext('financial_statement_reports:' || p_report_id));
   SELECT * INTO r FROM public.financial_statement_reports WHERE company_id=p_company_id AND report_id=p_report_id AND report_version=p_report_version;
   IF r.id IS NULL THEN RAISE EXCEPTION 'REPORT_VERSION_NOT_FOUND' USING ERRCODE='P0002'; END IF;
@@ -95,12 +90,30 @@ BEGIN
     'composition',c,'notes',n,'dependencies',d,'input',i,'evidence',e,'disclosures',t);
 END;
 $$;
+REVOKE ALL ON FUNCTION public._fs_server_compile_snapshot(uuid,text,integer) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Public compilation entry: only an active compiler-capable actor may obtain the snapshot.
+-- The internal reader is also used by approval/issuance guards, without granting it to API roles.
+CREATE FUNCTION public.fs_server_compile_input(p_company_id uuid,p_report_id text,p_report_version integer)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  IF auth.uid() IS NULL OR NOT (public.workspace_capability_allowed(p_company_id,auth.uid(),'prepare_close')
+      OR public.workspace_capability_allowed(p_company_id,auth.uid(),'review_close')
+      OR public.workspace_capability_allowed(p_company_id,auth.uid(),'approve_certification')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE='42501';
+  END IF;
+  IF (public.financial_statements_workspace_access(p_company_id)->>'enabled') IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'REPORTING_ACCESS_REQUIRED' USING ERRCODE='42501';
+  END IF;
+  RETURN public._fs_server_compile_snapshot(p_company_id,p_report_id,p_report_version);
+END;
+$$;
 REVOKE ALL ON FUNCTION public.fs_server_compile_input(uuid,text,integer) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.fs_server_compile_input(uuid,text,integer) TO authenticated;
 
 -- ONLY the trusted Edge Function can record this result. The actor is derived from its verified user JWT, never its body.
 CREATE FUNCTION public.fs_record_server_compilation(p_actor uuid, p_company_id uuid, p_report_id text, p_report_version integer,
-  p_document_hash text, p_dependencies_hash text, p_canonical_document jsonb, p_evaluation jsonb)
+  p_document_hash text, p_dependencies_hash text, p_canonical_document jsonb, p_evaluation jsonb, p_source_snapshot jsonb, p_compiler_sha256 text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
   r public.financial_statement_reports;
@@ -133,6 +146,14 @@ BEGIN
      OR r.report_document#>>'{reportingDependencies,dependenciesSha256}' IS DISTINCT FROM p_dependencies_hash THEN
     RAISE EXCEPTION 'SERVER_COMPILATION_SOURCE_CHANGED' USING ERRCODE='PT409';
   END IF;
+  -- Bind the complete source, including evidence rows and disclosure texts, not only an aggregate dependency ID.
+  -- The same bounded reader runs again under the receipt transaction's lineage lock and verified actor.
+  IF p_source_snapshot IS NULL OR p_source_snapshot IS DISTINCT FROM public.fs_server_compile_input(p_company_id,p_report_id,p_report_version) THEN
+    RAISE EXCEPTION 'SERVER_COMPILATION_SNAPSHOT_CHANGED' USING ERRCODE='PT409';
+  END IF;
+  IF p_compiler_sha256 IS DISTINCT FROM '9d930d6a67215cce7fe2b3d63a9f93b60d4e9114920ea7ad05ae733b229929ea' THEN
+    RAISE EXCEPTION 'SERVER_COMPILER_DIGEST_UNSUPPORTED' USING ERRCODE='PT409';
+  END IF;
   IF d->>'packId' IS DISTINCT FROM 'ifrs-for-smes/2015' OR jsonb_typeof(p_canonical_document) IS DISTINCT FROM 'object'
      OR jsonb_typeof(p_evaluation->'findings') IS DISTINCT FROM 'array'
      OR p_evaluation->>'rulePackId' IS DISTINCT FROM 'canonical-statement-rules'
@@ -148,25 +169,26 @@ BEGIN
   SELECT * INTO c FROM public.fs_server_compilations WHERE report_id=p_report_id AND report_version=p_report_version
     AND compiler_version='financial-report-compiler/1' AND document_hash=p_document_hash AND dependencies_hash=p_dependencies_hash;
   IF c.id IS NOT NULL THEN
-    IF c.canonical_document IS DISTINCT FROM p_canonical_document OR c.evaluation IS DISTINCT FROM p_evaluation THEN
+    IF c.canonical_document IS DISTINCT FROM p_canonical_document OR c.evaluation IS DISTINCT FROM p_evaluation
+       OR c.source_snapshot IS DISTINCT FROM p_source_snapshot THEN
       RAISE EXCEPTION 'SERVER_COMPILATION_REPLAY_CONFLICT' USING ERRCODE='PT409';
     END IF;
   ELSE
-    INSERT INTO public.fs_server_compilations(company_id,report_id,report_version,compiler_version,document_hash,dependencies_hash,
-      canonical_document,evaluation,matches,actor_user_id)
-    VALUES(p_company_id,p_report_id,p_report_version,'financial-report-compiler/1',p_document_hash,p_dependencies_hash,
-      p_canonical_document,p_evaluation,p_canonical_document=r.report_document AND p_evaluation->>'inputHash'=r.content_hash,p_actor) RETURNING * INTO c;
+    INSERT INTO public.fs_server_compilations(company_id,report_id,report_version,compiler_version,compiler_sha256,document_hash,dependencies_hash,
+      source_snapshot,source_snapshot_sha256,canonical_document,evaluation,matches,actor_user_id)
+    VALUES(p_company_id,p_report_id,p_report_version,'financial-report-compiler/1',p_compiler_sha256,p_document_hash,p_dependencies_hash,
+      p_source_snapshot,encode(sha256(convert_to(p_source_snapshot::text, 'UTF8')), 'hex'),p_canonical_document,p_evaluation,p_canonical_document=r.report_document AND p_evaluation->>'inputHash'=r.content_hash,p_actor) RETURNING * INTO c;
     v_actor := public.fs_actor_member_id(p_company_id);
     PERFORM public.fs_audit_event(p_company_id,p_report_id,'SERVER_REPORT_COMPILED',jsonb_build_object('compilationId',c.id::text,
-      'reportVersion',p_report_version,'compilerVersion',c.compiler_version,'matches',c.matches,'documentHash',p_document_hash,'dependenciesHash',p_dependencies_hash),v_actor);
+      'reportVersion',p_report_version,'compilerVersion',c.compiler_version,'compilerSha256',c.compiler_sha256,'sourceSnapshotSha256',c.source_snapshot_sha256,'matches',c.matches,'documentHash',p_document_hash,'dependenciesHash',p_dependencies_hash),v_actor);
   END IF;
   PERFORM set_config('request.jwt.claim.sub',coalesce(v_sub,''),true);
   PERFORM set_config('request.jwt.claims',coalesce(v_claims,''),true);
-  RETURN jsonb_build_object('outcome','compiled','matches',c.matches,'compilationId',c.id::text);
+  RETURN jsonb_build_object('outcome','compiled','matches',c.matches,'compilationId',c.id::text,'sourceSnapshotSha256',c.source_snapshot_sha256,'compilerSha256',c.compiler_sha256);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text) TO service_role;
 
 -- A client's later evaluation cannot replace this server evaluation. Mandatory server failures cannot be waived by
 -- adding a browser reviewer decision. Existing, more specific accounting and approval blockers continue to run too.
@@ -186,6 +208,12 @@ BEGIN
   IF c.dependencies_hash IS DISTINCT FROM d->>'dependenciesSha256' OR d->>'state' IS DISTINCT FROM 'current'
      OR c.canonical_document#>>'{entity,legalName}' IS DISTINCT FROM (SELECT name FROM public.companies WHERE id=p_company_id) THEN
     RETURN 'SERVER_COMPILATION_STALE';
+  END IF;
+  IF p_report_version <> (SELECT max(report_version) FROM public.financial_statement_reports WHERE report_id=p_report_id) THEN
+    RETURN 'SERVER_COMPILATION_STALE';
+  END IF;
+  IF c.source_snapshot IS DISTINCT FROM public._fs_server_compile_snapshot(p_company_id,p_report_id,p_report_version) THEN
+    RETURN 'SERVER_COMPILATION_SNAPSHOT_CHANGED';
   END IF;
   IF EXISTS(SELECT 1 FROM jsonb_array_elements(c.evaluation->'findings') f WHERE f->>'actionable'='true'
       AND (f->>'outcome'='INSUFFICIENT_EVIDENCE' OR f->>'failureSeverity' IN ('CRITICAL','HIGH') OR f->>'ruleId' IN ('note-to-face-reconciliation','movement-reconciliation','schedule-casting','equity-closing-tie','equity-profit-tie','cashflow-closing-cash-reconciliation','cashflow-account-rollforward','subtotal-casting','sfp-equation'))) THEN
@@ -241,9 +269,11 @@ CREATE TRIGGER trg_rpi_server_compilation BEFORE INSERT ON public.reporting_pack
 
 DO $server_compilation_postcondition$
 BEGIN
-  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.fs_server_compilations'::regclass)
-     OR has_function_privilege('authenticated','public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb)','EXECUTE')
-     OR NOT has_function_privilege('service_role','public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb)','EXECUTE')
+  IF has_function_privilege('authenticated','public._fs_server_compile_snapshot(uuid,text,integer)','EXECUTE')
+     OR has_function_privilege('service_role','public._fs_server_compile_snapshot(uuid,text,integer)','EXECUTE')
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.fs_server_compilations'::regclass)
+     OR has_function_privilege('authenticated','public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.fs_record_server_compilation(uuid,uuid,text,integer,text,text,jsonb,jsonb,jsonb,text)','EXECUTE')
      OR has_table_privilege('authenticated','public.fs_server_compilations','INSERT,UPDATE,DELETE,TRUNCATE')
      OR has_table_privilege('service_role','public.fs_server_compilations','INSERT,UPDATE,DELETE,TRUNCATE')
      OR position('fs_server_compilation_blocker' IN pg_get_functiondef('public.fs_publication_blockers(uuid,text,integer)'::regprocedure))=0

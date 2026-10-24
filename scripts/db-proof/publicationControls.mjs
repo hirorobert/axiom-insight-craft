@@ -36,6 +36,8 @@ import { signoffClient } from "../../src/lib/reporting/signoff.ts";
 import { prepareReportVersion } from "../../src/lib/reporting/prepareVersion.ts";
 import { canonicalStringify, sha256Hex } from "../../src/lib/canonicalStatement/serialization.ts";
 
+import { STATEMENT_COMPILER_SHA256 } from "../../supabase/functions/_shared/statementCompiler.manifest.mjs";
+
 const FILE = "20261111100000_fs_publication_controls.sql";
 const ABSENT = process.env.PUBLICATION_CONTROLS_ABSENT === "1";
 const { group, check, refused, finish } = reporter();
@@ -259,10 +261,58 @@ async function main() {
       && rd.blockers.includes("SERVER_DOCUMENT_MISMATCH") && /SERVER_DOCUMENT_MISMATCH/.test(after ?? "");
   });
   await check("authenticated callers cannot forge a server compilation receipt or mutate one", async () => {
-    const forged = await refusal(() => asU(U.preparer,"SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb)",
-      [U.preparer,A,rid1,vFinal,storedFinal.doc_sha,depsFinal.dependenciesSha256,JSON.stringify(docFinal),"{\"findings\":[]}"]));
+    const forged = await refusal(() => asU(U.preparer,"SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+      [U.preparer,A,rid1,vFinal,storedFinal.doc_sha,depsFinal.dependenciesSha256,JSON.stringify(docFinal),"{\"findings\":[]}","{}",STATEMENT_COMPILER_SHA256]));
     const changed = await refusal(() => db.asService("UPDATE public.fs_server_compilations SET matches=true WHERE report_id=$1",[rid1]));
     return /42501/.test(forged ?? "") && /42501/.test(changed ?? "");
+  });
+
+  await check("the receipt preserves the complete source and its database-computed digest", async () => {
+    const row = await db.one("SELECT compiler_sha256,source_snapshot,source_snapshot_sha256,encode(sha256(convert_to(source_snapshot::text,'UTF8')),'hex') expected FROM public.fs_server_compilations WHERE report_id=$1 AND report_version=$2",[rid1,vFinal]);
+    return row.compiler_sha256 === STATEMENT_COMPILER_SHA256 && row.source_snapshot.saved.report_id === rid1 && row.source_snapshot.saved.report_version === vFinal
+      && Array.isArray(row.source_snapshot.evidence) && row.source_snapshot.evidence.length === storedFinal.evidence_batch_ids.length
+      && Array.isArray(row.source_snapshot.disclosures) && row.source_snapshot.companyName === docFinal.entity.legalName
+      && row.source_snapshot_sha256 === row.expected;
+  });
+  await check("complete-snapshot tampering is refused even when document and aggregate dependency identities are unchanged", async () => {
+    const { compileSavedReport } = await import("../../supabase/functions/_shared/statementCompiler.generated.mjs");
+    const compiled = await compileSavedReport(pre.d,{companyId:A,reportId:rid1,reportVersion:vFinal});
+    const count = await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1]);
+    const refusals = [];
+    for (const mutate of [s => { s.companyName += " changed"; }, s => { s.disclosures.push({textId:"forged",body:"changed"}); }, s => { s.evidence.pop(); }]) {
+      const snapshot = structuredClone(compiled.sourceSnapshot); mutate(snapshot);
+      refusals.push(await refusal(() => db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+        [U.preparer,A,rid1,vFinal,compiled.documentHash,compiled.dependenciesHash,JSON.stringify(compiled.canonicalDocument),JSON.stringify(compiled.evaluation),JSON.stringify(snapshot),STATEMENT_COMPILER_SHA256])));
+    }
+    return refusals.every(r => /PT409.*SERVER_COMPILATION_SNAPSHOT_CHANGED/.test(r ?? ""))
+      && (await db.count("SELECT count(*) n FROM public.fs_server_compilations WHERE report_id=$1",[rid1])) === count;
+  });
+
+  await check("an unreviewed compiler digest cannot obtain a receipt", async () => {
+    const { compileSavedReport } = await import("../../supabase/functions/_shared/statementCompiler.generated.mjs");
+    const compiled = await compileSavedReport(pre.d,{companyId:A,reportId:rid1,reportVersion:vFinal});
+    const code = await refusal(() => db.asService("SELECT public.fs_record_server_compilation($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10)",
+      [U.preparer,A,rid1,vFinal,compiled.documentHash,compiled.dependenciesHash,JSON.stringify(compiled.canonicalDocument),JSON.stringify(compiled.evaluation),JSON.stringify(compiled.sourceSnapshot),"0".repeat(64)]));
+    return /PT409.*SERVER_COMPILER_DIGEST_UNSUPPORTED/.test(code ?? "");
+  });
+
+  await check("snapshot guards also protect approval when source metadata changes outside aggregate dependency identities", async () => {
+    // Fault injection is confined to this disposable transaction. Rollback restores the source and every trigger.
+    await db.admin.query("BEGIN");
+    try {
+      await db.admin.query("ALTER TABLE public.financial_evidence_batches DISABLE TRIGGER USER");
+      await db.admin.query("UPDATE public.financial_evidence_batches SET source_file_name=coalesce(source_file_name,'fixture') || '.changed' WHERE evidence_batch_id=$1",[storedFinal.evidence_batch_ids[0]]);
+      await db.admin.query("SET LOCAL ROLE authenticated");
+      await db.admin.query("SELECT set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claim.role','authenticated',true)",[U.partner]);
+      const d = (await db.admin.query("SELECT public.fs_reporting_dependencies($1,$2) r",[A,Y])).rows[0].r;
+      const rd = (await db.admin.query("SELECT public.fs_report_readiness($1,$2,$3) r",[A,rid1,vFinal])).rows[0].r;
+      return d.dependenciesSha256 === depsFinal.dependenciesSha256 && rd.blockers.includes("SERVER_COMPILATION_SNAPSHOT_CHANGED");
+    } finally { await db.admin.query("ROLLBACK"); }
+  });
+  await check("the internal complete-snapshot reader is not callable by authenticated or service API roles", async () => {
+    const user = await refusal(() => asU(U.preparer,"SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));
+    const service = await refusal(() => db.asService("SELECT public._fs_server_compile_snapshot($1,$2,$3)",[A,rid1,vFinal]));
+    return /42501/.test(user ?? "") && /42501/.test(service ?? "");
   });
 
   await check("a lost compilation response retries the same version and receipt without duplicate history", async () => {

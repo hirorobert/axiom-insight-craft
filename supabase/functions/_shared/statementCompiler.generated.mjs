@@ -8339,7 +8339,8 @@ function validateStoredEvidence(batch, dates) {
 async function compileSavedReport(db, request) {
   const source = await db.rpc("fs_server_compile_input", { p_company_id: request.companyId, p_report_id: request.reportId, p_report_version: request.reportVersion });
   if (source.error) refuse(source.error.message);
-  const snapshot = source.data;
+  const frozenSource = JSON.parse(JSON.stringify(source.data));
+  const snapshot = frozenSource;
   const saved = snapshot?.saved;
   if (!saved || saved.company_id !== request.companyId || saved.report_id !== request.reportId || saved.report_version !== request.reportVersion) refuse("REPORT_VERSION_NOT_FOUND");
   const composition = parseComposition(snapshot.composition);
@@ -8391,6 +8392,7 @@ async function compileSavedReport(db, request) {
     compilerVersion: STATEMENT_COMPILER_VERSION,
     documentHash: String(saved.document_hash),
     dependenciesHash: ref.dependenciesSha256,
+    sourceSnapshot: frozenSource,
     canonicalDocument: canonical,
     evaluation: JSON.parse(canonicalStringify(evaluation)),
     matches: match

@@ -106,6 +106,7 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/compile-financial-report/index.ts",
       "supabase/functions/compile-financial-report/handler.ts",
       "supabase/functions/_shared/statementCompiler.generated.mjs",
+      "supabase/functions/_shared/statementCompiler.manifest.mjs",
       "supabase/migrations/20260920100000_workspace_setup_authority.sql",
       "supabase/migrations/20260921100000_service_enquiry_intake.sql",
       "supabase/migrations/20260922100000_service_enquiry_activation_readiness.sql",

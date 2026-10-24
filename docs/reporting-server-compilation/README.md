@@ -23,7 +23,8 @@ payloads. These cases run only in an isolated throwaway database, never a custom
    required columns and cross-row constraints; it ignores the preparer's VALID flag. It builds the complete canonical
    document and runs the existing canonical rule pack. The generators, schemas and rules are shared, not reimplemented.
 5. A service-only receipt command rechecks permission, rollout, latest version, document identity and current dependency
-   identity under the existing lineage lock. It records an append-only canonical document, evaluation and audit event.
+   identity under the existing lineage lock. It rereads and compares the complete source snapshot, then records that
+   snapshot, its database-computed SHA-256, the exact deployed compiler digest, canonical document, evaluation and audit event.
    Exact retries return the same receipt. A response lost after committing is safe to retry without another version.
 6. New REVIEWED/FINAL writes, including direct writes, require a matching receipt and an independent server evaluation
    without blocking findings. Complete JSON equality covers headings, line bindings, missing/extra structure, periods,
@@ -70,7 +71,7 @@ must identify its exact commit, migration bytes, deployable compiler closure and
 
 | Requirement | Current evidence / mandatory closure |
 | --- | --- |
-| Complete compilation snapshot | The bounded source RPC, dependency identity, receipt and publication checks are implemented in source. Publication controls and concurrency proofs must pass on the release commit. Enumerate every mutable input and prove a change before receipt recording or approval is refused. |
+| Complete compilation snapshot | The receipt stores the full bounded server source and a database-computed SHA-256. Recording rereads the complete source under the receipt lock and refuses a mismatch. The compiler closure digest is pinned in the pending migration and checked against a generated deployment manifest. Local SQL cases cover missing evidence, changed disclosure inputs and changed identity despite unchanged aggregate IDs; final-commit CI remains required. |
 | Comparative restatement | Prior-FINAL acceptance records bind reasons, actor, original report/version and exact computed differences. The prior issued document is preserved. Prove the full reason/authority/adjustment/approval chain and transition disclosures. Acceptance of current-period comparatives must not require issuance of a replacement prior-year report. |
 | Publication lifecycle | DRAFT, REVIEWED and FINAL authority is implemented. Specify and prove supersession and withdrawal independently from comparative restatement before claiming complete lifecycle coverage. |
 | Issuance recovery | Existing issue/verify/retrieve paths and orphan handling require interruption proofs at every database/storage boundary. An incomplete object must never become an available official pack. |
@@ -96,3 +97,31 @@ On 2026-10-24 the service-withholding proof's explicit forward-migration invento
 comparison and all clean-install, upgrade, refusal, history and concurrency assertions. It does not relax a grant or
 change production SQL. Final-commit CI remains required. The compiler HTTP boundary also bounds incoming **bytes while
 streaming**, rejects malformed UTF-8, and cancels oversized bodies before compilation or receipt writes.
+
+
+## Frozen source and compiler identity
+
+Each new receipt retains the exact server-read `saved`, `companyName`, `composition`, `notes`, `dependencies`, `input`,
+`evidence` and `disclosures` objects. The trusted runtime detaches this JSON before evaluation. The receipt transaction
+rereads the same bounded source under its lineage lock and requires JSON equality before insertion or replay. The
+snapshot is compared again by the approval guard. Issuance continues to bind the exact immutable approved report and
+receipt; it does not rebuild a historical approval from later live inputs. Existing issued-object retrieval is unchanged.
+The snapshot hash is computed by PostgreSQL over the retained JSONB text encoded as UTF-8; it is a database-format audit
+identity, not a cross-language JSON serialization claim. A CHECK constraint enforces its correspondence to the stored
+snapshot, and existing append-only/privilege guards protect both fields.
+
+`statementCompiler.manifest.mjs` identifies the exact bytes of `statementCompiler.generated.mjs`, including the bundled
+generators, evidence schemas, rule pack and dependency closure. The service-only writer accepts only the digest pinned
+in the reviewed, still-unapplied migration. The build check detects bundle, manifest or migration-pin drift. A different
+compiler requires a reviewed version/digest migration; silently replacing code under the same version cannot satisfy
+the deployment check. Receipt audit events record both snapshot and compiler digests.
+
+This assumes the trusted compiler deployment and service credential remain trustworthy. It does not make a database
+administrator untrusted within the database's own enforcement boundary and does not provide an external signature.
+The separate independent-signer threat model remains open.
+
+Phase 0 baseline execution: commit `d2ea291ad4fc59150565335cb322a07820b79333`, CI run `40060374782`, completed all nine
+automatic jobs successfully, including the disposable PostgreSQL contracts and the real local-Supabase/browser journeys.
+Manual staging RLS was skipped, not passed. The snapshot/digest extension requires its own final-commit CI results;
+baseline success must not be transferred to changed code. Local SQL checks use PostgreSQL-in-WASM with serialized
+connections and are not concurrency evidence. No hosted application, activation or incident closure is asserted.

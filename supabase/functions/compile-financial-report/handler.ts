@@ -1,4 +1,5 @@
 import { compileSavedReport } from "../_shared/statementCompiler.generated.mjs";
+import { STATEMENT_COMPILER_SHA256 } from "../_shared/statementCompiler.manifest.mjs";
 const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers });
 const MAX_REQUEST_BYTES = 2048;
@@ -55,7 +56,7 @@ export function compilationHandler(services: Services) {
       const compiled = await (services.compile ?? compileSavedReport)(db, p);
       const r = await services.service().rpc("fs_record_server_compilation", { p_actor: auth.data.user.id, p_company_id: p.companyId,
         p_report_id: p.reportId, p_report_version: p.reportVersion, p_document_hash: compiled.documentHash,
-        p_dependencies_hash: compiled.dependenciesHash, p_canonical_document: compiled.canonicalDocument, p_evaluation: compiled.evaluation });
+        p_dependencies_hash: compiled.dependenciesHash, p_canonical_document: compiled.canonicalDocument, p_evaluation: compiled.evaluation, p_source_snapshot: compiled.sourceSnapshot, p_compiler_sha256: STATEMENT_COMPILER_SHA256 });
       if (r.error) return reply(409, { error: r.error.message });
       return reply(200, r.data);
     } catch (error) { return reply(409, { error: error instanceof Error ? error.message : "SERVER_COMPILATION_FAILED" }); }

@@ -49,6 +49,17 @@ describe("server compilation of the complete saved document", () => {
     const w = world(); const result = await compileSavedReport(w.db, request); expect(result.matches).toBe(true);
     expect(result.canonicalDocument).toEqual(w.canonical); expect(result.evaluation.findings.length).toBeGreaterThan(0);
   });
+  it("returns a detached complete source snapshot for the receipt", async () => {
+    const w = world(); const result = await compileSavedReport(w.db, request);
+    const original = structuredClone(result.sourceSnapshot);
+    w.saved.report_document.entity.legalName = "Changed after source read";
+    w.change();
+    expect(result.sourceSnapshot).toEqual(original);
+    expect(result.sourceSnapshot.saved.report_document).toEqual(w.canonical);
+    expect(result.sourceSnapshot).toHaveProperty("disclosures");
+    expect(result.sourceSnapshot).toHaveProperty("evidence");
+    expect(result.sourceSnapshot).toHaveProperty("input");
+  });
   it.each(["label", "binding", "currency", "omission", "name"])("detects presentation tampering with correct retained monetary facts (%s)", async change => {
     const w = world(); const doc = w.saved.report_document;
     if (change === "name") doc.entity.legalName = "Another entity";

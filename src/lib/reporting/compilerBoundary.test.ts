@@ -3,7 +3,7 @@ import { compilationHandler } from "../../../supabase/functions/compile-financia
 const body = { companyId: "11111111-1111-4111-8111-111111111111", reportId: "report-1", reportVersion: 1 };
 function fixture(authenticated = true) {
   const record = vi.fn(async () => ({ data: { outcome: "compiled", matches: true }, error: null }));
-  const compile = vi.fn(async () => ({ documentHash: "a".repeat(64), dependenciesHash: "b".repeat(64), canonicalDocument: { server: true }, evaluation: { findings: [] } }));
+  const compile = vi.fn(async () => ({ documentHash: "a".repeat(64), dependenciesHash: "b".repeat(64), sourceSnapshot: { inputs: "server-read" }, canonicalDocument: { server: true }, evaluation: { findings: [] } }));
   const user = { auth: { getUser: async () => ({ data: { user: authenticated ? { id: "verified-user" } : null }, error: null }) }, rpc: vi.fn(), from: vi.fn() };
   return { record, compile, handler: compilationHandler({ user: () => user, service: () => ({ rpc: record }), compile }) };
 }
@@ -11,7 +11,7 @@ const request = (b: unknown = body, token = "Bearer verified-token") => new Requ
 describe("compiler request trust boundary", () => {
   it("records the JWT-verified actor and server result, accepting identifiers only", async () => {
     const f = fixture(); expect((await f.handler(request())).status).toBe(200);
-    expect(f.record).toHaveBeenCalledWith("fs_record_server_compilation", expect.objectContaining({ p_actor: "verified-user", p_canonical_document: { server: true }, p_report_version: 1 }));
+    expect(f.record).toHaveBeenCalledWith("fs_record_server_compilation", expect.objectContaining({ p_actor: "verified-user", p_source_snapshot: { inputs: "server-read" }, p_canonical_document: { server: true }, p_report_version: 1 }));
   });
   it.each(["actor", "document", "findings", "validationStatus", "frameworkEdition"])("rejects caller-controlled %s before compiling or recording anything", async field => {
     const f = fixture(); expect((await f.handler(request({ ...body, [field]: "forged" }))).status).toBe(400);
