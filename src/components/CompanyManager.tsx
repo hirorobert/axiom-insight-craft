@@ -32,6 +32,7 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
 import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
 import { deriveCompanyFieldLock, guardCompanyFieldChange, type ProcessingCertainty } from "@/lib/accounting/companyFieldLock";
+import { changeReportingFramework, frameworkChangeMessage, type FrameworkChangeClient, type ReportingFramework } from "@/lib/workspace/companyFramework";
 import { capacityCopy } from "@/lib/commercial/paidActions";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
@@ -328,6 +329,26 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
     if (!setSaving(true)) return;
     try {
       if (editingCompany) {
+        // The reporting framework changes ONLY through the audited server operation (20261127100000); the database refuses
+        // a direct update of it (20261128100000). Other company fields keep their direct, RLS-authorised update.
+        if (frameworkChanged && !formData.reporting_framework) {
+          // A recorded decision is changed to another framework, never cleared (the server has no "undecided" target).
+          toast.error("A recorded reporting framework can be changed to another framework but not cleared.");
+          return;
+        }
+        if (frameworkChanged && formData.reporting_framework) {
+          const change = await changeReportingFramework(supabase as unknown as FrameworkChangeClient, {
+            companyId: editingCompany.id,
+            from: (editingCompany.reporting_framework ?? null) as ReportingFramework | null,
+            to: formData.reporting_framework as ReportingFramework,
+            requestId: crypto.randomUUID(),
+          });
+          const refusal = frameworkChangeMessage(change);
+          if (refusal) {
+            toast.error(refusal);
+            return;
+          }
+        }
         const { error } = await supabase
           .from("companies")
           .update({
@@ -338,12 +359,6 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
             industry: formData.industry || null,
             fiscal_year_end: resolvedFiscalYearEnd,
             currency: formData.currency,
-            // Cast: generated types (src/integrations/supabase/types.ts) still
-            // reflect the live NOT NULL DEFAULT schema — the migration
-            // dropping it hasn't been deployed/regenerated from yet. Passing
-            // null here is intentional and correct once it is; see
-            // supabase/migrations/20260903100000_companies_reporting_framework_no_default.sql.
-            reporting_framework: formData.reporting_framework,
           } as never)
           .eq("id", editingCompany.id);
 
