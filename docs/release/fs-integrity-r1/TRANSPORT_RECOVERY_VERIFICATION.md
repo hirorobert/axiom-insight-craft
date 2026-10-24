@@ -85,3 +85,21 @@ constrained to compiler digest `49fc0852…`.
 - **STOPPED before batch 1:** the ten artifacts in `release/staged-transport-fsi/stage/` (431,558 bytes) are not staged
   (0 rows). Staging needs a privileged database session that can submit each file's exact bytes; none is available to the
   agent (sandbox session is read-only; the query tools take retyped text). Each insert refuses any byte difference.
+
+### 4.1 Batches applied (2026-10-24, 11:40–11:45 UTC)
+
+- Staging (by the owner's Codex session, 11:39:25 UTC, role postgres): independently rechecked — 10 artifacts, each
+  stored byte count and SHA-256 recomputed from the body and equal to the approved constants in the batch files; all
+  unconsumed; journal head id 76 `8001cf3e…e4c8`; kill switch true; 2 publication bindings (latest 2026-10-09), 0 consumed
+  issuances.
+- Applied through the canonical migrator, each mirror byte-identical to its approved batch file:
+  - id 77 `21325cb1…b018` fsi-1 (20261123100000 server compilation, with corrected preflight)
+  - id 78 `dc467960…76d3` fsi-2 (20261124100000 publication integrity gate)
+  - id 79 `b592d692…0f69` fsi-3 (20261125100000 FINAL authority). Backfill: one ESTABLISHED authority for the acceptance
+    company, FY2025, report v6 (the existing FINAL); no conflict.
+  - id 80 `5481a1bb…ad35` fsi-4 (20261126100000 document structure, with the staged postcondition executed in-transaction)
+- Preservation: every batch's in-transaction baseline of bindings + issued packs is the same value
+  (`26a5fb3f…7c57`) before and after; bindings still 2 (unchanged digest), issued packs 0; all 10 artifacts consumed.
+- Registered 0076–0079 in `RELEASE_JOURNAL`; migration authority OK, nothing pending; 23/23 focused tests.
+- Kill switch true; rollout unchanged (only the acceptance company); frontend not published.
+- Deployed-source verification: still PENDING — not performed.

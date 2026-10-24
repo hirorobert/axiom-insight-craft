@@ -53,7 +53,10 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(68); // + 0072/0073 TB staged batches, 0074 catalogue read predicate; staged FS applies are in order; 0070 checkout abandon is releaseApplied
+    expect(r.mirrored.length).toBe(72); // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
+    for (const [t, src] of [["0076_fsi_1_server_compilation_staged_apply", "20261123100000_fs_server_compilation.sql"], ["0077_fsi_2_integrity_gate_staged_apply", "20261124100000_fs_publication_integrity_gate.sql"], ["0078_fsi_3_final_authority_staged_apply", "20261125100000_fs_final_authority.sql"], ["0079_fsi_4_document_structure_staged_apply", "20261126100000_fs_document_structure.sql"]]) {
+      expect(r.mirrored.find((m) => m.tag === t)).toMatchObject({ source: src, how: "fsi_staged_transport" });
+    }
     expect(r.releaseApplied.map((m) => m.tag)).toEqual(["0016_pr34_apply_prereq_20260915100000", "0063_period_currency_correction", "0070_customer_checkout_abandon"]);
     expect(r.mirrored.find((m) => m.tag === "0023_security_fix_probe_and_xbrl_concept_map")).toEqual({
       tag: "0023_security_fix_probe_and_xbrl_concept_map", source: "20260927041019_security_fix_probe_and_xbrl_concept_map.sql", how: "canonical_equivalent",
@@ -74,9 +77,8 @@ describe("migration authority parity", () => {
     // 20261104100000 (platform-owner access & entity allowances) is authored and PENDING hosted application (the owner
     // applies it through the authorized journal process; it is listed here, never an error — see docs/owner-access).
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
-    // 20261123100000 (server compilation, PR #191) and 20261124100000-20261126100000 (publication integrity gate, FINAL authority,
-    // document structure, PR #192) are authored and PENDING hosted application.
-    expect(r.pending).toEqual(["20261123100000_fs_server_compilation.sql", "20261124100000_fs_publication_integrity_gate.sql", "20261125100000_fs_final_authority.sql", "20261126100000_fs_document_structure.sql"]); // Checkout abandon is 0070; tb-portfolio-a1 and tb-decisions-b1 are 0072/0073.
+    // 20261123100000–20261126100000 (fs-integrity-r1) are applied as 0076–0079 (hosted 77–80) through the staged transport.
+    expect(r.pending).toEqual([]);
     for (const t of ["0065_fs_controls_r1_staged_apply", "0066_fs_journey_r1_staged_apply", "0067_fs_bounds_r1_staged_apply", "0068_fs_capacity_r1_staged_apply", "0069_fs_memo_r1_staged_apply"]) expect(r.mirrored.find((m) => m.tag === t)?.how).toBe("staged_transport");
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");

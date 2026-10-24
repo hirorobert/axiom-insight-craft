@@ -533,6 +533,34 @@
       "when": 1792841732782,
       "tag": "0075_fs_integrity_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792842123117,
+      "tag": "0076_fsi_1_server_compilation_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792842175330,
+      "tag": "0077_fsi_2_integrity_gate_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792842221755,
+      "tag": "0078_fsi_3_final_authority_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792842277118,
+      "tag": "0079_fsi_4_document_structure_staged_apply",
+      "breakpoints": true
     }
   ]
 }
