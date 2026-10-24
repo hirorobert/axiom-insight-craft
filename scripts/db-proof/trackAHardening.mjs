@@ -78,9 +78,11 @@ async function main() {
   const admin = db.admin;
 
   group("Installation on a database that already holds authority, sign-off and a sealed pack");
-  await kase("setup.chain-before", `the chain before ${M1} applies; both batch migrations are in the chain, ${M1} before ${M2}, and nothing after them`, async () => {
+  // Reviewed later additions that follow track-a-r1 in the chain (each its own reviewed migration; none is applied here).
+  const REVIEWED_LATER = ["20261201100000_assistant_controls.sql"];
+  await kase("setup.chain-before", `the chain before ${M1} applies; both batch migrations are in the chain, ${M1} before ${M2}, and nothing after them but the reviewed later additions`, async () => {
     const chain = chainFiles(); const i1 = chain.indexOf(M1), i2 = chain.indexOf(M2);
-    if (i1 < 0 || i2 !== i1 + 1 || i2 !== chain.length - 1) return { i1, i2, last: chain[chain.length - 1] };
+    if (i1 < 0 || i2 !== i1 + 1 || JSON.stringify(chain.slice(i2 + 1)) !== JSON.stringify(REVIEWED_LATER)) return { i1, i2, after: chain.slice(i2 + 1) };
     const err = await applyChainBefore(db, M1); return err ?? true;
   });
 
