@@ -83,5 +83,10 @@ record rollback; reconcile new compilations/publications/authority events/issuan
 
 - 12/12 isolated PostgreSQL policy checks and 12/12 transport success/interruption/retry/rollback checks passed.
 - Assistant deterministic tests passed; these do not demonstrate model improvement or accountant approval.
-- Full repository check results are in `/tmp/beta-checks` during this session; sandbox-prohibited Git-mutating fixture
-  suites must run on final repository CI. Bounded results are not full clearance.
+- Full suite on `97e8c0e016d98ed406f56f2da9a273b6c9f60dd9`: **6,346 passed**, 48 skipped, 12 todo;
+  two Git-mutating suites failed because `git add` is prohibited. Full clearance **FAIL**, not PASS.
+  Full lint: **0 errors, 177 warnings**. Migration authority, compiler generation and candidate transport byte checks PASS.
+  Later added one explicit FAKE-handler success regression; rerun focused results are separate from that full-suite SHA.
+- Preview build telemetry: build OK. Browser normal `/auth` shows the sign-in form; protected workspace redirects there,
+  zero page errors. No managed session restored or minted. Authenticated reporting/AI acceptance NOT TESTED.
+- No backend migration/function deployment/publication/activation occurred. Hosted journal and original digest unchanged.
