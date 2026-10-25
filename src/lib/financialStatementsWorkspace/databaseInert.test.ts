@@ -302,6 +302,8 @@ describe("database inertness — schema and functions", () => {
       // Owner-authorized tester preflight: authenticated demo owner only, no provider calls or financial writes.
       "supabase/functions/_shared/assistantQaPolicy.ts",
       "supabase/functions/assistant-qa/index.ts",
+      // Owner-authorized INTERNAL_BETA namespace: assistant reservations only, no financial writer or approval changes.
+      "supabase/functions/_shared/internalBeta.ts",
       // Sign-off (20261017100000): fs_publication_blockers re-created with the Close Review and authoritative-input requirements (byte-pinned to its 20260919110000 body plus the marked additions); first-period declarations. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261017100000_signoff_completion_requirements.sql",
       // Statement composition (20261018100000): presentation-line vocabulary, append-only assignments and elections, the database-composed statements.
@@ -799,6 +801,7 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/trackAHardening.manifest.mjs", "scripts/db-proof/trackAStagedTransport.mjs",
       "scripts/release/trackAStagedTransport.mjs"]);
     allowed.add(".lovable/plan/execute-the-tester-only-release-2026-10-25.md");
+    allowed.add(".lovable/plan/normal-internal-beta-reporting-and-assistant-2026-10-25.md");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
