@@ -9,10 +9,12 @@ This is the ONE status file for this programme. It is updated in place; earlier 
 
 - [x] Re-read main 40c488d6 and hosted journal 83; verify the full rollout allowlist, closed global switch, and historical seq 1/2 digest.
 - [x] Run full tests/lint before evaluation: bounded run 6,338 passes; two Git-mutating fixture suites cannot run under sandbox restrictions. Lint: zero errors, 177 warnings.
-- [ ] Implement and test a separate synthetic-only assistant QA authority without recording production approvals; keep general customer AI disabled.
-- [ ] Register, prove and install the assistant exact-byte transport through the native journalled migrator; no reporting migration replay.
+- [x] Implement/deploy an authenticated demo-owner-only assistant access preflight and tester screen; spending is hard-disabled. Three scope tests added; 84 assistant checks pass. Production approvals untouched.
+- [ ] Full explicit tester enrollment and spend ledger: blocked by protected authored-migration paths in this environment; do not submit unregistered/retyped schema or alter production approvals.
+- [ ] Register, prove and install the assistant exact-byte transport through the native journalled migrator; no reporting migration replay. Authored migration creation was refused by the file tool, and no supported native local-file submission was found.
 - [ ] Run bounded prompt-v2 development evaluation only after remaining provider credits/pricing are verified; preserve originals and the total USD 5 ceiling.
-- [ ] Deploy checked functions and publish the matching tester frontend; verify authorized access and nonmember refusal.
+- [x] Deploy assistant-qa access preflight: submitted source digest a52cca6c5ba6b0d77405e7c9c75989f037631049233d4e642b0761664f23f2af; live signed-out request returns 401. No provider calls exist in this endpoint.
+- [ ] Publish matching tester frontend and verify authenticated owner/nonmember flow: source candidate e355e0c5 passed 6,341 bounded tests and lint (0 errors/177 warnings), but hosted preview status still reports 80d8853c. Do not publish the wrong build. Two Git-mutating fixture suites remain sandbox-blocked.
 - [ ] Run/reconcile supervised demo reporting checks, then shut access down with the global switch first. Session minting for the identified demo owner requires approval unavailable in the current tool context; a distinct enrolled test reviewer is also missing.
 
 The deployed-source attestation remains unresolved for public release, not a blocker to this explicitly authorized limited test.
