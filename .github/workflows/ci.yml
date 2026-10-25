@@ -1012,6 +1012,13 @@ jobs:
           createdb assistant_proof
           bun scripts/db-proof/assistantAuthority.mjs
 
+      - name: Internal beta policy and exact-byte transport (empty disposable databases, no hosted credentials or provider calls)
+        run: |
+          createdb internal_beta_policy_proof
+          INTERNAL_BETA_PROOF_URL=postgres://postgres:postgres@127.0.0.1:5432/internal_beta_policy_proof bun scripts/db-proof/internalBetaPolicy.mjs
+          createdb internal_beta_transport_proof
+          INTERNAL_BETA_PROOF_URL=postgres://postgres:postgres@127.0.0.1:5432/internal_beta_transport_proof bun scripts/db-proof/internalBetaTransport.mjs
+
       - name: Sign-off binding proof (end to end on real certifications through REVIEWED and FINAL on the one canonical path; each sign-off bound to the server document hash and the reporting dependencies; changed, extra, unbound and stale figures refused by name; FINAL immutable and a later change needs a new version; the binding trigger refuses a bypass; on the same throwaway container)
         env:
           DB_PROOF_MODE: external

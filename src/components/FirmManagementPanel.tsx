@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { describeInvitationCapabilities } from "@/lib/auth/workspaceCapabilities";
+import { InternalBetaTeamAccess } from "@/components/InternalBetaTeamAccess";
 import { PaidActionNotice } from "@/components/commercial/PaidActionNotice";
 import {
   canInviteAnother,
@@ -646,6 +647,9 @@ export function FirmManagementPanel() {
                 </table></div>}
               </section>;
             })}
+
+            <InternalBetaTeamAccess key={selectedCompany} companyId={selectedCompany}
+              members={members.filter(member => member.acceptedAt !== null)} />
 
             {/* Role legend */}
             <div className="pt-3 border-t border-border space-y-1">

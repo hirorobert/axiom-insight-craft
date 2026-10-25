@@ -81,7 +81,7 @@ async function main() {
   let patchedApplied = false;
   const tested = (await loadFunctionTree(REPO, "assistant-explain", { patch: (p, t) => {
     if (p !== "assistant-explain/index.ts") return t;
-    const out = t.replace("provider: configuredProvider(),", "provider: globalThis.__testProvider,");
+    const out = t.replace("const provider = isBeta && key ? anthropicProvider(key) : configuredProvider();", "const provider = globalThis.__testProvider;");
     patchedApplied = out !== t; return out;
   } })).handler;
   const ask = (h, uid, body) => call(h, db.pool, uid ? mintTestJwt(uid) : null, body);
