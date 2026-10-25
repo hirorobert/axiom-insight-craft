@@ -7,6 +7,12 @@ This is the ONE status file for this programme. It is updated in place; earlier 
 
 ## Authorized tester-only release — 2026-10-25
 
+### Internal-beta authorization update — 2026-10-25 10:42 UTC
+- [ ] Replace special tester-only access with normal Statements and Ask CFOClose access under one server-enforced internal-beta policy; inventory existing accounts/memberships before enrollment.
+- [ ] Preserve review separation/history and compile/evidence gates; enforce synthetic-only AI context and aggregate remaining USD 5 budget across beta calls.
+- [ ] Prepare canonical authored migrations/registered exact-byte transport, deploy matching functions, run release checks, publish and activate only verified bounded scope.
+- [ ] Verify normal sign-in flow without minting sessions; report second-login acceptance and any actual tool refusal honestly.
+
 - [x] Re-read main 40c488d6 and hosted journal 83; verify the full rollout allowlist, closed global switch, and historical seq 1/2 digest.
 - [x] Run full tests/lint before evaluation: bounded run 6,338 passes; two Git-mutating fixture suites cannot run under sandbox restrictions. Lint: zero errors, 177 warnings.
 - [x] Implement/deploy an authenticated demo-owner-only assistant access preflight and tester screen; spending is hard-disabled. Three scope tests added; 84 assistant checks pass. Production approvals untouched.
