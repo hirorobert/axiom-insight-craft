@@ -379,8 +379,11 @@ export const RELEASE_JOURNAL = {
   "0077_fsi_2_integrity_gate_staged_apply": { kind: "fsi_staged_transport", sha256: "dc467960f2c87f0f02e3b26cb6705123a4c7d4e5b3b69aa7c56eaae375c576d3" },
   "0078_fsi_3_final_authority_staged_apply": { kind: "fsi_staged_transport", sha256: "b592d692c0b63614aee8ec67cd46e09272e9527571c9b6bef28ce3fd8bdc0f69" },
   "0079_fsi_4_document_structure_staged_apply": { kind: "fsi_staged_transport", sha256: "5481a1bbbc516140ee7717b65c0eed3adf75353b77d39aa96a32513a4a2ead35" },
-  // track-a-r1 (scripts/release/trackAStagedTransport.mjs): its three forms are pinned in that module (REGISTERED_TRANSPORT_FORMS)
-  // and are added here as kind "tra_staged_transport" only once the hosted journal holds them (expected ids 81-83).
+  // track-a-r1 (scripts/release/trackAStagedTransport.mjs): its three forms are pinned in that module (REGISTERED_TRANSPORT_FORMS).
+  // Hosted id 81 (2026-10-25): bootstrap. Hosted ids 82–83 (2026-10-25): tra-1, tra-2, each executing its byte-verified staged artifacts.
+  "0080_track_a_staged_transport": { kind: "tra_staged_transport", sha256: "b92ec084d09998f6e80c7ac48d3533d6a5123c2d32f569d6efe1f792c787422f" },
+  "0081_tra_1_authority_hardening_staged_apply": { kind: "tra_staged_transport", sha256: "636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9" },
+  "0082_tra_2_framework_guard_staged_apply": { kind: "tra_staged_transport", sha256: "7be675f1066aa17090007d039a412b70a2c120fa8fab008d7bfd0ceee1b3523f" },
 };
 
 /**
