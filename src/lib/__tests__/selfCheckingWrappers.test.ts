@@ -184,7 +184,7 @@ describe("close-out: a hosted mirror of a wrapper is accepted only through a rev
       j.entries = j.entries.filter((x: { idx: number }) => x.idx <= 32);
       // ...and their reviewed entries hidden for the duration (restored below), as before the close-out.
       const hidden = Object.entries(RELEASE_JOURNAL).filter(([k, e]) => k !== tag
-        && (["release_self_checking_wrapper", "staged_transport", "tb_staged_transport", "fsi_staged_transport", "tra_staged_transport"].includes((e as { kind: string }).kind) || k === "0070_customer_checkout_abandon"));
+        && (["release_self_checking_wrapper", "staged_transport", "tb_staged_transport", "fsi_staged_transport", "tra_staged_transport", "beta_staged_transport"].includes((e as { kind: string }).kind) || k === "0070_customer_checkout_abandon"));
       for (const [k] of hidden) delete (RELEASE_JOURNAL as Record<string, unknown>)[k];
       restore = () => { for (const [k, e] of hidden) (RELEASE_JOURNAL as Record<string, unknown>)[k] = e; };
       const idx = j.entries.length;

@@ -37,6 +37,8 @@ describe("canonical beta migration registration", () => {
         }
       } finally { delete journal[tag]; }
     }
-    expect(Object.keys(journal).some(tag => /beta_staged_transport|beta_1_|beta_2_/.test(tag))).toBe(false);
+    // Exactly the three hosted mirrors applied as journal ids 84–86 are registered; nothing else.
+    expect(Object.keys(journal).filter(tag => /beta_staged_transport|beta_1_|beta_2_/.test(tag))).toEqual([
+      "0083_internal_beta_staged_transport", "0084_beta_1_assistant_controls_staged_apply", "0085_beta_2_internal_policy_staged_apply"]);
   });
 });
