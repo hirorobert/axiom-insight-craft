@@ -128,6 +128,11 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261124100000_fs_publication_integrity_gate.sql",
       "supabase/migrations/20261125100000_fs_final_authority.sql",
       "supabase/migrations/20261126100000_fs_document_structure.sql",
+      // Track A hardening (track-a-r1): FINAL-authority writes, the replacement intent, history TRUNCATE closure and the audited
+      // framework-change function (20261127100000); the database guard that makes that function the only writer of the framework
+      // (20261128100000). Two append-only tables; privileges only narrowed; no existing row changed.
+      "supabase/migrations/20261127100000_fs_track_a_authority_hardening.sql",
+      "supabase/migrations/20261128100000_companies_framework_change_guard.sql",
       "supabase/functions/_shared/serviceEnquiryContract.ts",
       "supabase/functions/_shared/serviceEnquiryChallenge.ts",
       "supabase/functions/_shared/serviceEnquiryEmail.ts",
@@ -769,7 +774,11 @@ describe("database inertness — schema and functions", () => {
       // Landing sample review (PR #145): browser acceptance of the public landing page — a local build with a placeholder
       // (unreachable loopback) backend, served by vite preview on 127.0.0.1, driven by cdp.mjs. No database, no secret,
       // no network beyond loopback, no deploy behaviour; run by hand, not wired into CI.
-      "scripts/browser-acceptance/landingSample.mjs"]);
+      "scripts/browser-acceptance/landingSample.mjs",
+      // Track A (track-a-r1): the loopback-only disposable-database proofs of the hardening and of its exact-byte staged
+      // transport, the transport generator (renders files; no connection) and its proof manifest. No deploy behaviour.
+      "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/trackAHardening.manifest.mjs", "scripts/db-proof/trackAStagedTransport.mjs",
+      "scripts/release/trackAStagedTransport.mjs"]);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 

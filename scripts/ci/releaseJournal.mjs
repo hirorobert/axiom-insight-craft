@@ -31,6 +31,7 @@ import { render as renderSelfCheckingWrapper } from "../release/selfCheckingWrap
 import { checkTransportMirror } from "../release/stagedTransport.mjs";
 import { BATCHES as TB_TRANSPORT_BATCHES, checkTransportMirror as checkTbTransportMirror } from "../release/tbStagedTransport.mjs";
 import { BATCHES as FSI_TRANSPORT_BATCHES, checkTransportMirror as checkFsiTransportMirror } from "../release/fsIntegrityStagedTransport.mjs";
+import { BATCHES as TRA_TRANSPORT_BATCHES, checkTransportMirror as checkTraTransportMirror } from "../release/trackAStagedTransport.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -378,6 +379,8 @@ export const RELEASE_JOURNAL = {
   "0077_fsi_2_integrity_gate_staged_apply": { kind: "fsi_staged_transport", sha256: "dc467960f2c87f0f02e3b26cb6705123a4c7d4e5b3b69aa7c56eaae375c576d3" },
   "0078_fsi_3_final_authority_staged_apply": { kind: "fsi_staged_transport", sha256: "b592d692c0b63614aee8ec67cd46e09272e9527571c9b6bef28ce3fd8bdc0f69" },
   "0079_fsi_4_document_structure_staged_apply": { kind: "fsi_staged_transport", sha256: "5481a1bbbc516140ee7717b65c0eed3adf75353b77d39aa96a32513a4a2ead35" },
+  // track-a-r1 (scripts/release/trackAStagedTransport.mjs): its three forms are pinned in that module (REGISTERED_TRANSPORT_FORMS)
+  // and are added here as kind "tra_staged_transport" only once the hosted journal holds them (expected ids 81-83).
 };
 
 /**
@@ -393,6 +396,16 @@ export const RELEASE_JOURNAL = {
  * count and SHA-256; no other wrapper text is ever accepted, and the source's own two forms are unchanged.
  */
 export const SUBMISSION_FORMS = Object.freeze({
+  // Track A authority hardening (track-a-r1, migration 1 of 2): authored, NOT applied; exact bytes only, through its staged transport.
+  "20261127100000_fs_track_a_authority_hardening.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 44872, sha256: "a3b39b90f8a6f2b1e48372203c26618b3f864da22db16d53a96932cc21bd9e99" }),
+    finalLfRemoved: Object.freeze({ bytes: 44871, sha256: "25d4b0badfc9a33fa577bc2dc673c5b71aeeda3e6d05201cf86b7bc70979d4c5" }),
+  }),
+  // Track A framework-change guard (track-a-r1, migration 2 of 2): authored, NOT applied; only after the frontend is published.
+  "20261128100000_companies_framework_change_guard.sql": Object.freeze({
+    identical: Object.freeze({ bytes: 3800, sha256: "80626d259948579f39b2a8f32d8df4a4baadcb6592a369801335c70399278d1d" }),
+    finalLfRemoved: Object.freeze({ bytes: 3799, sha256: "2df5f8f228331480b45632df937e14d38d859a5f5af93184e53e212addb87a88" }),
+  }),
   // Independent server compilation (PR #191): authored here, NOT applied; one atomic statement, exact bytes only.
   // The pinned compiler digest follows the deployed closure (statementCompiler.manifest.mjs); a regenerated bundle re-pins it here.
   "20261123100000_fs_server_compilation.sql": Object.freeze({
@@ -891,6 +904,20 @@ export function checkReleaseEntry(tag, text, srcBytes) {
         problems.push(`${tag}: the covered reporting source ${r.covers} differs from its approved byte identity`);
       }
       return { covers: r.covers, how: "fsi_staged_transport", outOfOrder: false, problems };
+    }
+    return { problems };
+  }
+  if (entry.kind === "tra_staged_transport") {
+    const r = checkTraTransportMirror(tag, text);
+    problems.push(...r.problems);
+    if (sha256(Buffer.from(text.replace(/\n$/, ""), "utf8")) !== entry.sha256) problems.push(`${tag}: does not match its pinned SHA-256`);
+    if (r.covers) {
+      const batch = TRA_TRANSPORT_BATCHES.find((b) => b.source === r.covers);
+      const src = srcBytes(r.covers);
+      if (!batch || !src || src.length !== batch.artifacts.source.bytes || sha256(src) !== batch.artifacts.source.sha256) {
+        problems.push(`${tag}: the covered Track A source ${r.covers} differs from its approved byte identity`);
+      }
+      return { covers: r.covers, how: "tra_staged_transport", outOfOrder: false, problems };
     }
     return { problems };
   }

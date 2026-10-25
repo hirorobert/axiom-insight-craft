@@ -31,7 +31,9 @@ import { Settings, Plus, Pencil, Trash2, Building2, ArrowRight } from "lucide-re
 import { useAuditLog } from "@/hooks/useAuditLog";
 import { validateTin } from "@/components/workspace/CompanyTinDialog";
 import { FrameworkConfirmationBanner } from "@/components/FrameworkConfirmationBanner";
-import { deriveCompanyFieldLock, guardCompanyFieldChange, type ProcessingCertainty } from "@/lib/accounting/companyFieldLock";
+import { deriveCompanyFieldLock, deriveFrameworkFieldLock, guardCompanyFieldChange, type ProcessingCertainty } from "@/lib/accounting/companyFieldLock";
+import { changeReportingFramework, frameworkRequestFor, type FrameworkChangeClient, type PendingFrameworkRequest, type ReportingFramework } from "@/lib/workspace/companyFramework";
+import { saveCompanyEdit } from "@/lib/workspace/companyEdit";
 import { capacityCopy } from "@/lib/commercial/paidActions";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
@@ -225,7 +227,13 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
   const [processingCertainty, setProcessingCertainty] = useState<ProcessingCertainty>("checking");
 
   const fieldLock = deriveCompanyFieldLock({ processingCertainty });
-  const frameworkEditable = !fieldLock.locked;
+  // The framework's own lock: a DECIDED framework follows fieldLock exactly; a never-decided one (NULL) may record its
+  // first decision, which the server permits, audits and refuses while a check runs (deriveFrameworkFieldLock).
+  const frameworkLock = deriveFrameworkFieldLock({ current: editingCompany ? editingCompany.reporting_framework : undefined, processingCertainty });
+  const frameworkEditable = !frameworkLock.locked;
+  // One request id per framework intent (company, expected current value, target): kept across an uncertain answer so a
+  // resend is replayed by the server, never applied twice; a different intent gets a new id (frameworkRequestFor).
+  const frameworkRequest = useRef<PendingFrameworkRequest | null>(null);
   const fiscalYearEndEditable = !fieldLock.locked;
 
   const correctedEngagementYearOptions = (() => {
@@ -313,6 +321,7 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
     const fiscalYearEndChanged = !!editingCompany && resolvedFiscalYearEnd !== editingCompany.fiscal_year_end;
     const guard = guardCompanyFieldChange({
       locked: !!editingCompany && fieldLock.locked,
+      frameworkLocked: !!editingCompany && frameworkLock.locked,
       frameworkChanged,
       fiscalYearEndChanged,
     });
@@ -328,26 +337,53 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
     if (!setSaving(true)) return;
     try {
       if (editingCompany) {
-        const { error } = await supabase
-          .from("companies")
-          .update({
-            name: formData.name,
-            code: formData.code || null,
-            tin: formData.tin.trim() || null,
-            description: formData.description || null,
-            industry: formData.industry || null,
-            fiscal_year_end: resolvedFiscalYearEnd,
-            currency: formData.currency,
-            // Cast: generated types (src/integrations/supabase/types.ts) still
-            // reflect the live NOT NULL DEFAULT schema — the migration
-            // dropping it hasn't been deployed/regenerated from yet. Passing
-            // null here is intentional and correct once it is; see
-            // supabase/migrations/20260903100000_companies_reporting_framework_no_default.sql.
-            reporting_framework: formData.reporting_framework,
-          } as never)
-          .eq("id", editingCompany.id);
-
-        if (error) throw error;
+        // The reporting framework changes ONLY through the audited server operation (20261127100000); the database refuses
+        // a direct update of it (20261128100000). Other company fields keep their direct, RLS-authorised update.
+        if (frameworkChanged && !formData.reporting_framework) {
+          // A recorded decision is changed to another framework, never cleared (the server has no "undecided" target).
+          toast.error("A recorded reporting framework can be changed to another framework but not cleared.");
+          return;
+        }
+        let pending: PendingFrameworkRequest | null = null;
+        if (frameworkChanged && formData.reporting_framework) {
+          pending = frameworkRequestFor(frameworkRequest.current, {
+            companyId: editingCompany.id,
+            from: (editingCompany.reporting_framework ?? null) as ReportingFramework | null,
+            to: formData.reporting_framework as ReportingFramework,
+          }, () => crypto.randomUUID());
+          frameworkRequest.current = pending;
+        }
+        const editing = editingCompany;
+        const outcome = await saveCompanyEdit({
+          changeFramework: () => changeReportingFramework(supabase as unknown as FrameworkChangeClient, pending as PendingFrameworkRequest),
+          updateDetails: async () => {
+            const { error } = await supabase
+              .from("companies")
+              .update({
+                name: formData.name,
+                code: formData.code || null,
+                tin: formData.tin.trim() || null,
+                description: formData.description || null,
+                industry: formData.industry || null,
+                fiscal_year_end: resolvedFiscalYearEnd,
+                currency: formData.currency,
+              } as never)
+              .eq("id", editing.id);
+            return { error };
+          },
+        }, { frameworkTo: pending ? pending.to : null });
+        // A definite answer ends the intent; an uncertain one keeps its request id for the resend.
+        if (outcome.kind !== "framework_uncertain") frameworkRequest.current = null;
+        if (outcome.kind !== "saved") {
+          toast.error(outcome.message);
+          // After anything that may have changed the row, re-read it before the next save: the form then sends only what
+          // is still different (after a partial save, only the details).
+          if (outcome.kind === "framework_uncertain" || outcome.kind === "partial") await refreshEditingCompany(editing.id);
+          return;
+        }
+        if (outcome.frameworkChange?.kind === "changed" && editing.reporting_framework === null && processingCertainty !== "not_processed") {
+          toast.message("Reporting framework recorded. Trial balance checks made before this decision must be run again under it.");
+        }
 
         logAction({
           action: "update_company",
@@ -403,6 +439,15 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
       toast.error("Could not confirm the company save. Your entries are kept; check the company list before retrying.");
     }
     finally { setSaving(false); }
+  };
+
+  // Re-reads the edited company after an uncertain or partial save; the user's entries stay in the form.
+  const refreshEditingCompany = async (id: string) => {
+    try {
+      const { data, error } = await supabase.from("companies").select("*").eq("id", id).maybeSingle();
+      if (!error && data) setEditingCompany(data as Company);
+    } catch { /* the toast already says the state could not be confirmed */ }
+    fetchCompanies();
   };
 
   const handleEdit = (company: Company) => {
@@ -664,11 +709,11 @@ export const CompanyManager = ({ presentation = "dialog", companyId, onDone }: {
               </Select>
               {!frameworkEditable ? (
                 <p className="text-xs text-amber-600 dark:text-amber-500" data-testid="reporting-framework-lock-reason">
-                  {fieldLock.reason}
+                  {frameworkLock.reason}
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Records the company’s reporting framework. Report availability is checked separately. Locked once trial balance data has been processed.
+                  Records the company’s reporting framework. Report availability is checked separately. Once decided, it is locked when trial balance data has been processed.
                 </p>
               )}
             </div>

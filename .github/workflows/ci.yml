@@ -1080,6 +1080,30 @@ jobs:
           grep -v '^\[PTB' proof-results/publicationAuthority.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/publicationAuthority.present.json --manifest scripts/db-proof/publicationAuthority.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Track A hardening proof (release batch track-a-r1 installed on a database that already holds a FINAL, a sign-off and a sealed pack - order guard, interrupted installation rolled back, retry, repeated application refused, fixtures byte-identical; no API role writes the FINAL authority or its history and the table owner cannot move it without a matching event; the former replacement setting is ignored and the intent cannot be forged; TRUNCATE refused for every role; the framework changes only through the audited owner-only function, which invalidates the certification it affects and refuses stale, locked, processing, unauthorised and cross-tenant attempts; FINAL and framework change serialise in both orders)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/track_a_proof
+          PROOF_RESULT_FILE: proof-results/trackAHardening.present.json
+        run: |
+          createdb track_a_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/trackAHardening.mjs > proof-results/trackAHardening.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/trackAHardening.present.exit
+          grep -v '^\[PTB' proof-results/trackAHardening.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/trackAHardening.present.json --manifest scripts/db-proof/trackAHardening.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Track A exact-byte staged transport (generated files equal their rendering; on a production-equivalent database at hosted journal id 80 - exact staging, wrong predecessor and out-of-order refused, interrupted application rolled back and retried, postcondition failure rolled back, duplicate and concurrent submissions, existing sign-off preserved)
+        env:
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/postgres
+        run: |
+          node scripts/release/trackAStagedTransport.mjs --check
+          bun scripts/db-proof/trackAStagedTransport.mjs
+
       - name: Publication FINAL authority legacy proof (a database that already holds FINALs in two lineages of one period, and one with a single lineage, BEFORE 20261125100000 - the migration records the conflict (CONFLICT_DETECTED, no pointer, nothing resolved by order or timestamp) and the single lineage's pointer; while unresolved every FINAL, issuance, seal and the next year's comparative selection refuse by name; only an approve_certification holder designates, once, audited; afterwards the other lineage is superseded)
         shell: bash
         env:

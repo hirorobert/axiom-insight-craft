@@ -56,8 +56,9 @@ describe("the period/framework lock has no reason-based override anywhere in thi
     expect(callSite).not.toMatch(/[Rr]eason/);
   });
 
-  it("the Select controls for reporting_framework and fiscal_year_end are disabled purely from the lock derivation — !frameworkEditable / !fiscalYearEndEditable, both defined as exactly `!fieldLock.locked`", () => {
-    expect(SRC).toMatch(/const frameworkEditable = !fieldLock\.locked;/);
+  it("the Select controls are disabled purely from the lock derivations — the fiscal year end from `!fieldLock.locked`; the framework from its own lock, which equals fieldLock for a decided framework and opens only the first decision of a NULL one (companyEdit.test.ts)", () => {
+    expect(SRC).toMatch(/const frameworkLock = deriveFrameworkFieldLock\(\{ current: editingCompany \? editingCompany\.reporting_framework : undefined, processingCertainty \}\);/);
+    expect(SRC).toMatch(/const frameworkEditable = !frameworkLock\.locked;/);
     expect(SRC).toMatch(/const fiscalYearEndEditable = !fieldLock\.locked;/);
   });
 });

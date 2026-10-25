@@ -276,7 +276,9 @@ describe("migration directory integrity", () => {
     // replacement, legacy-conflict designation, the scope lock shared by FINAL and official-pack sealing), pending hosted application.
     // 194 -> 195: 20261126100000_fs_document_structure.sql (the server verifies the whole presentation skeleton of a document:
     // statements, sections, line identities and labels, period bindings, casting children, fact periods, provenance), pending.
-    expect(files.length).toBe(195);
+    // 195 -> 197: 20261127100000_fs_track_a_authority_hardening.sql and 20261128100000_companies_framework_change_guard.sql
+    // (track-a-r1: FINAL-authority write closure, history TRUNCATE closure, the audited framework change and its guard).
+    expect(files.length).toBe(197);
   });
 });
 

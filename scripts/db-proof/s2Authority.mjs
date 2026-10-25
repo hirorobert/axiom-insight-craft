@@ -247,6 +247,21 @@ async function main() {
   const reason = async (up) => (await asUser(U.owner, "SELECT public.tb_upload_authority($1) r", [up]))[0].r.reason;
   const reprocess = async (uid, up, op = uuid()) => (await asUser(uid, "SELECT public.tbu_request_reprocess($1,$2,$3) r", [up, op, (await row(up)).source_file_hash]))[0].r;
   const lockPresent = async () => (await count("SELECT count(*) n FROM pg_trigger WHERE tgname='trg_fp_processing_lock'")) === 1;
+  // 20261128100000: a framework change is admitted only with its audited event recorded in the same transaction (the event
+  // set_company_reporting_framework writes before its UPDATE). The database owner records that event exactly as the function
+  // would, so the dependency mechanism under test (the AFTER UPDATE bump) is exercised on the guarded column.
+  async function withFrameworkEvent(company, fn) {
+    if (!(await one("SELECT to_regclass('public.company_framework_events') IS NOT NULL AS p")).p) return fn();
+    await admin.query("BEGIN");
+    try {
+      await admin.query(`INSERT INTO public.company_framework_events (company_id, from_framework, to_framework, reason, actor_user_id, request_id)
+        SELECT c.id, c.reporting_framework, CASE WHEN c.reporting_framework = 'full_ifrs' THEN 'ifrs_for_smes' ELSE 'full_ifrs' END, 'Proof: dependency change', c.user_id, gen_random_uuid()
+          FROM public.companies c WHERE c.id = $1`, [company]);
+      const r = await fn();
+      await admin.query("COMMIT");
+      return r;
+    } catch (e) { await admin.query("ROLLBACK"); throw e; }
+  }
   async function withPeriodLockLifted(fn) {
     if (!(await lockPresent())) return fn();
     await admin.query("BEGIN");
@@ -435,7 +450,7 @@ async function main() {
   for (const [label, change] of [
     ["a mapping decision on a consulted account", async () => asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, reviewUp, uuid(), JSON.stringify([decision("3000", "Capital", "equity", "balance_sheet", "credit"), decision("1000", "Bank", "current_assets", "balance_sheet", "debit")])])],
     ["a non-reporting decision on a consulted account", async () => asUser(U.owner, "SELECT public.resolve_account_review_batch($1,$2,$3,$4::jsonb)", [A, reviewUp, uuid(), JSON.stringify([{ account_code: "3000", account_name: "Capital", decision_action: "MARK_NON_REPORTING_ACCOUNT" }])])],
-    ["the reporting framework", async () => admin.query("UPDATE public.companies SET reporting_framework = CASE WHEN reporting_framework = 'full_ifrs' THEN 'ifrs_for_smes' ELSE 'full_ifrs' END WHERE id=$1", [A])],
+    ["the reporting framework", async () => withFrameworkEvent(A, () => admin.query("UPDATE public.companies SET reporting_framework = CASE WHEN reporting_framework = 'full_ifrs' THEN 'ifrs_for_smes' ELSE 'full_ifrs' END WHERE id=$1", [A]))],
     // A1 (20261009100000) locks a processed period's currency for every role. The dependency mechanism S2 adds is still
     // proven here: the database owner lifts that lock for this one statement (the lock itself: the check below and
     // periodsAuthority.mjs).
