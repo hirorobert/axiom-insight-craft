@@ -32,7 +32,7 @@ const { group, check, refused, finish } = reporter();
 let db;
 
 const SETTINGS = (over = {}) => ({
-  enabled: true, provider_id: "test", model: "test-model", prompt_version: "cfoclose-assistant-prompt/1", terms_version: "t1",
+  enabled: true, provider_id: "test", model: "test-model", prompt_version: "cfoclose-assistant-prompt/2", terms_version: "t1",
   max_input_tokens: 20000, max_output_tokens: 1200, max_request_seconds: 60,
   price_input_micros_per_mtok: 2000000, price_output_micros_per_mtok: 10000000, price_cache_write_micros_per_mtok: 2500000,
   price_cache_read_micros_per_mtok: 100000, price_catalogue_date: "2026-10-24", max_cost_per_request_micros: 124000,
