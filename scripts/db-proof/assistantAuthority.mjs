@@ -382,13 +382,13 @@ async function main() {
   await refused("another workspace owner cannot inspect Team enrollment", "42501", () => db.asUser(U.ownerB,"SELECT public.internal_beta_team_status($1)",[A]));
   await check("normal manager enrolls an accepted colleague without elevating their capabilities", async () => {
     const sql = "SELECT public.has_workspace_capability($1,$2,'manage_members') c";
-    const before = await db.one(sql,[A,U.preparer]);
-    const r = (await db.asUser(U.owner,"SELECT public.internal_beta_enroll_member($1,$2,'Accepted colleague internal beta access') r",[A,U.preparer])).r;
-    const after = await db.one(sql,[A,U.preparer]);
+    const before = await db.one(sql,[A,U.viewer]);
+    const r = (await db.asUser(U.owner,"SELECT public.internal_beta_enroll_member($1,$2,'Accepted colleague internal beta access') r",[A,U.viewer])).r;
+    const after = await db.one(sql,[A,U.viewer]);
     const rows = (await db.asUser(U.owner,"SELECT public.internal_beta_team_status($1) r",[A])).r;
-    return r.outcome==='recorded' && before.c===after.c && rows.some(x=>x.userId===U.preparer && x.enrolled===true);
+    return r.outcome==='recorded' && before.c===after.c && rows.some(x=>x.userId===U.viewer && x.enrolled===true);
   });
-  await refused("non-manager cannot enroll a colleague", "42501", () => db.asUser(U.preparer,"SELECT public.internal_beta_enroll_member($1,$2,'Unauthorized member enrollment attempt')",[A,U.ownerB]));
+  await refused("non-manager cannot enroll a colleague", "42501", () => db.asUser(U.viewer,"SELECT public.internal_beta_enroll_member($1,$2,'Unauthorized member enrollment attempt')",[A,U.ownerB]));
   await db.admin.query("UPDATE public.internal_beta_policy SET reporting_enabled=true WHERE singleton");
   await check("activated beta retains normal reporting for enrolled owner", async () => (await compose(U.owner)).state==='composed');
   await db.admin.query("UPDATE public.internal_beta_policy SET reporting_enabled=false WHERE singleton");
