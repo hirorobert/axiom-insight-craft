@@ -576,6 +576,290 @@ export type Database = {
           },
         ]
       }
+      ai_assistant_budgets: {
+        Row: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at: string
+          updated_by: string
+          workspace_concurrency: number
+        }
+        Insert: {
+          company_id: string
+          daily_user_quota: number
+          monthly_cap_micros: number
+          updated_at?: string
+          updated_by: string
+          workspace_concurrency: number
+        }
+        Update: {
+          company_id?: string
+          daily_user_quota?: number
+          monthly_cap_micros?: number
+          updated_at?: string
+          updated_by?: string
+          workspace_concurrency?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assistant_budgets_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_assistant_enablements: {
+        Row: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          id: string
+          terms_version: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          terms_version: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          terms_version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assistant_enablements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_assistant_overrun_reviews: {
+        Row: {
+          created_at: string
+          note: string
+          reviewed_by: string
+          run_id: string
+        }
+        Insert: {
+          created_at?: string
+          note: string
+          reviewed_by: string
+          run_id: string
+        }
+        Update: {
+          created_at?: string
+          note?: string
+          reviewed_by?: string
+          run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assistant_overrun_reviews_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: true
+            referencedRelation: "ai_assistant_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_assistant_runs: {
+        Row: {
+          action: string
+          actor_user_id: string
+          actual_cost_micros: number | null
+          attempts: number | null
+          company_id: string
+          completed_at: string | null
+          composition_sha256: string
+          context_sha256: string
+          created_at: string
+          duration_ms: number | null
+          failure_code: string | null
+          id: string
+          line_id: string
+          model: string
+          overrun_micros: number | null
+          payload_sha256: string
+          period_year: number
+          prices: Json
+          prompt_version: string
+          provider_id: string
+          region: string | null
+          request_id: string
+          reserved_cost_micros: number
+          response: Json | null
+          response_purged_at: string | null
+          retention_policy: string
+          source_refs: string[] | null
+          state: string
+          terms_version: string
+          usage: Json | null
+          validation: Json | null
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          actual_cost_micros?: number | null
+          attempts?: number | null
+          company_id: string
+          completed_at?: string | null
+          composition_sha256: string
+          context_sha256: string
+          created_at?: string
+          duration_ms?: number | null
+          failure_code?: string | null
+          id?: string
+          line_id: string
+          model: string
+          overrun_micros?: number | null
+          payload_sha256: string
+          period_year: number
+          prices: Json
+          prompt_version: string
+          provider_id: string
+          region?: string | null
+          request_id: string
+          reserved_cost_micros: number
+          response?: Json | null
+          response_purged_at?: string | null
+          retention_policy: string
+          source_refs?: string[] | null
+          state?: string
+          terms_version: string
+          usage?: Json | null
+          validation?: Json | null
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          actual_cost_micros?: number | null
+          attempts?: number | null
+          company_id?: string
+          completed_at?: string | null
+          composition_sha256?: string
+          context_sha256?: string
+          created_at?: string
+          duration_ms?: number | null
+          failure_code?: string | null
+          id?: string
+          line_id?: string
+          model?: string
+          overrun_micros?: number | null
+          payload_sha256?: string
+          period_year?: number
+          prices?: Json
+          prompt_version?: string
+          provider_id?: string
+          region?: string | null
+          request_id?: string
+          reserved_cost_micros?: number
+          response?: Json | null
+          response_purged_at?: string | null
+          retention_policy?: string
+          source_refs?: string[] | null
+          state?: string
+          terms_version?: string
+          usage?: Json | null
+          validation?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assistant_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_assistant_settings: {
+        Row: {
+          data_handling_approved_at: string | null
+          enabled: boolean
+          evaluation_approved_at: string | null
+          max_cost_per_request_micros: number | null
+          max_input_tokens: number | null
+          max_output_tokens: number | null
+          max_request_seconds: number | null
+          model: string | null
+          price_cache_read_micros_per_mtok: number | null
+          price_cache_write_micros_per_mtok: number | null
+          price_catalogue_date: string | null
+          price_input_micros_per_mtok: number | null
+          price_output_micros_per_mtok: number | null
+          prompt_version: string | null
+          provider_id: string | null
+          region: string | null
+          response_retention_days: number
+          retention_policy: string | null
+          singleton: boolean
+          terms_version: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_request_micros?: number | null
+          max_input_tokens?: number | null
+          max_output_tokens?: number | null
+          max_request_seconds?: number | null
+          model?: string | null
+          price_cache_read_micros_per_mtok?: number | null
+          price_cache_write_micros_per_mtok?: number | null
+          price_catalogue_date?: string | null
+          price_input_micros_per_mtok?: number | null
+          price_output_micros_per_mtok?: number | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          response_retention_days?: number
+          retention_policy?: string | null
+          singleton?: boolean
+          terms_version?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          data_handling_approved_at?: string | null
+          enabled?: boolean
+          evaluation_approved_at?: string | null
+          max_cost_per_request_micros?: number | null
+          max_input_tokens?: number | null
+          max_output_tokens?: number | null
+          max_request_seconds?: number | null
+          model?: string | null
+          price_cache_read_micros_per_mtok?: number | null
+          price_cache_write_micros_per_mtok?: number | null
+          price_catalogue_date?: string | null
+          price_input_micros_per_mtok?: number | null
+          price_output_micros_per_mtok?: number | null
+          prompt_version?: string | null
+          provider_id?: string | null
+          region?: string | null
+          response_retention_days?: number
+          retention_policy?: string | null
+          singleton?: boolean
+          terms_version?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       ai_consent_versions: {
         Row: {
           is_current: boolean
@@ -11226,6 +11510,63 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      ai_assistant_complete: {
+        Args: {
+          p_actual_cost_micros: number
+          p_attempts: number
+          p_duration_ms: number
+          p_failure_code: string
+          p_response: Json
+          p_run_id: string
+          p_source_refs: string[]
+          p_state: string
+          p_usage: Json
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      ai_assistant_configure: { Args: { p_settings: Json }; Returns: Json }
+      ai_assistant_purge_responses: { Args: never; Returns: Json }
+      ai_assistant_reserve: {
+        Args: {
+          p_action: string
+          p_company_id: string
+          p_composition_sha256: string
+          p_context_sha256: string
+          p_line_id: string
+          p_payload_sha256: string
+          p_period_year: number
+          p_request_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      ai_assistant_review_overrun: {
+        Args: { p_note: string; p_run_id: string }
+        Returns: Json
+      }
+      ai_assistant_set_budget: {
+        Args: {
+          p_company_id: string
+          p_daily_user_quota: number
+          p_monthly_cap_micros: number
+          p_workspace_concurrency: number
+        }
+        Returns: Json
+      }
+      ai_assistant_set_enablement: {
+        Args: {
+          p_company_id: string
+          p_enable: boolean
+          p_terms_version: string
+        }
+        Returns: Json
+      }
+      ai_assistant_status: { Args: { p_company_id: string }; Returns: Json }
+      ai_assistant_workspace_enabled: {
+        Args: { p_company_id: string }
+        Returns: boolean
       }
       ai_configure_provider: {
         Args: {

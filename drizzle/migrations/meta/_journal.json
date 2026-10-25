@@ -589,6 +589,13 @@
       "when": 1792931850234,
       "tag": "0083_internal_beta_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792932134003,
+      "tag": "0084_beta_1_assistant_controls_staged_apply",
+      "breakpoints": true
     }
   ]
 }
