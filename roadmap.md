@@ -5,6 +5,18 @@ This is the ONE status file for this programme. It is updated in place; earlier 
 
 ## Current hosted release close-out — 2026-10-22
 
+## Authorized tester-only release — 2026-10-25
+
+- [x] Re-read main 40c488d6 and hosted journal 83; verify the full rollout allowlist, closed global switch, and historical seq 1/2 digest.
+- [x] Run full tests/lint before evaluation: bounded run 6,338 passes; two Git-mutating fixture suites cannot run under sandbox restrictions. Lint: zero errors, 177 warnings.
+- [ ] Implement and test a separate synthetic-only assistant QA authority without recording production approvals; keep general customer AI disabled.
+- [ ] Register, prove and install the assistant exact-byte transport through the native journalled migrator; no reporting migration replay.
+- [ ] Run bounded prompt-v2 development evaluation only after remaining provider credits/pricing are verified; preserve originals and the total USD 5 ceiling.
+- [ ] Deploy checked functions and publish the matching tester frontend; verify authorized access and nonmember refusal.
+- [ ] Run/reconcile supervised demo reporting checks, then shut access down with the global switch first. Session minting for the identified demo owner requires approval unavailable in the current tool context; a distinct enrolled test reviewer is also missing.
+
+The deployed-source attestation remains unresolved for public release, not a blocker to this explicitly authorized limited test.
+
 - [x] Read back resumed TB generation-7 controls and the completed FY2025 acceptance run; retain owner postcondition evidence.
 - [x] Enable only acceptance company FS through the audited operator function; verify audit, other gates and original FINAL/bindings.
 - [x] Confirm existing published reporting navigation, pass 31 focused checks, and update hosted evidence with the owner-accepted source-comparison exception.
