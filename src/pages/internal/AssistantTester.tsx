@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 type QaState = { allowed: boolean; spendingEnabled?: boolean };
 export default function AssistantTester() {
   const { user, loading } = useAuth();
+  const userId = user?.id;
   const [access, setAccess] = useState<QaState | null>(null);
   const [caseId, setCaseId] = useState("1");
   const [action, setAction] = useState("explain_movement");
@@ -22,7 +23,7 @@ export default function AssistantTester() {
     if (error) { setMessage("Tester access could not be checked. Refresh to try again."); return; }
     setAccess(data as QaState);
   }
-  useEffect(() => { if (!loading && user) void refresh(); }, [loading, user?.id]);
+  useEffect(() => { if (!loading && userId) void refresh(); }, [loading, userId]);
   async function run() {
     if (lock.current || !access?.allowed || !access.spendingEnabled) return;
     lock.current = true; setBusy(true); setAnswer(null); setMessage("");

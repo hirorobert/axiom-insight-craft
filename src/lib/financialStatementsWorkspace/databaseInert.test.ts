@@ -299,6 +299,9 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261015100000_close_review_adjustments.sql",
       // Financial Statements (20261016100000): fs_reporting_input — the authoritative, adjusted reporting input (read-only). A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261016100000_fs_reporting_input.sql",
+      // Owner-authorized tester preflight: authenticated demo owner only, no provider calls or financial writes.
+      "supabase/functions/_shared/assistantQaPolicy.ts",
+      "supabase/functions/assistant-qa/index.ts",
       // Sign-off (20261017100000): fs_publication_blockers re-created with the Close Review and authoritative-input requirements (byte-pinned to its 20260919110000 body plus the marked additions); first-period declarations. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261017100000_signoff_completion_requirements.sql",
       // Statement composition (20261018100000): presentation-line vocabulary, append-only assignments and elections, the database-composed statements.
@@ -795,6 +798,7 @@ describe("database inertness — schema and functions", () => {
       // transport, the transport generator (renders files; no connection) and its proof manifest. No deploy behaviour.
       "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/trackAHardening.manifest.mjs", "scripts/db-proof/trackAStagedTransport.mjs",
       "scripts/release/trackAStagedTransport.mjs"]);
+    allowed.add(".lovable/plan/execute-the-tester-only-release-2026-10-25.md");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
