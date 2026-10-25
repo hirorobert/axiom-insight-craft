@@ -6,7 +6,7 @@ DECLARE
   c_batch CONSTANT text := 'beta-1-assistant-controls';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['cbcaf41a187b2ab0af480945a5ed58b584f72fcef677d64fc9ef04b921835903', '17974428a162e9ec820579f54a07adb9be734d5eef47ee15997a38cf25646148']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['5b328721b392025a56eab26019814ad2db3f77deef2db6e1ceffd0f219f4a550', '703c5705f9e2f413564a258f9fd7a0eea671a94dee70bc15332c31ff6e0494ca']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_beta_release_transport', 0));
