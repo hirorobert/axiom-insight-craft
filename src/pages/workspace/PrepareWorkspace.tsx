@@ -1,3 +1,4 @@
+import { ReportingPeriodHandoff } from "@/components/workspace/ReportingPeriodHandoff";
 /**
  * Prepare Data — the trial balance, stated once.
  *
@@ -704,6 +705,8 @@ export default function PrepareWorkspace() {
           </div>
         </div>
       </header>
+
+      <ReportingPeriodHandoff companyId={companyId} periodYear={periodYear} />
 
       <div className="space-y-5">
           {/* The Current Trial Balance card: file, result, totals, one reason, one action. Replace / Remove live here. */}

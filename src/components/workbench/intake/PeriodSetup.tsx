@@ -1,3 +1,4 @@
+import { resolvePeriodHandoff } from "@/lib/workspace/periodHandoff";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import type { EngagementCapability } from "@/lib/workspace/mandate";
 import { useBusyState } from "@/hooks/useBusyState";
@@ -42,10 +43,16 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
       if (error || !data) { setReadFailed(true); return; }
       const row = (data ?? []).find((r) => Number(String(r.reporting_end ?? r.fiscal_year_end).slice(0, 4)) === periodYear);
       if (!live || !row?.reporting_start || !row.reporting_end || !row.reporting_currency) return;
-      const e = { id: row.id, start: row.reporting_start.slice(0, 10), end: row.reporting_end.slice(0, 10), currency: row.reporting_currency, hasPrior: !!row.prior_period_id };
-      setExisting(e);
-      const saved = { start: e.start, end: e.end, currency: e.currency, withPrior: false, priorStart: "", priorEnd: "", priorCurrency: "" };
-      setF(saved); setBaseline(saved);
+      try {
+        const resolved = resolvePeriodHandoff(data, periodYear);
+        if (!resolved) return;
+        const { current, prior } = resolved;
+        const e = { ...current, hasPrior: !!prior };
+        setExisting(e);
+        const saved = { start: e.start, end: e.end, currency: e.currency, withPrior: !!prior,
+          priorStart: prior?.start ?? "", priorEnd: prior?.end ?? "", priorCurrency: prior && prior.currency !== e.currency ? prior.currency : "" };
+        setF(saved); setBaseline(saved);
+      } catch { setReadFailed(true); }
     }, () => { if (live) { setReading(false); setReadFailed(true); } });
     return () => { live = false; };
   }, [client, companyId, periodYear]);
@@ -102,7 +109,7 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
       <h2 id={`${id}-h`} className="text-base font-semibold">Reporting period</h2>
       {existing ? (
         <p className="text-sm text-muted-foreground" data-testid="period-existing">
-          This workspace's period: {existing.start} to {existing.end} ({existing.currency}).{existing.hasPrior ? " Its prior period is linked." : " Add the prior period below for comparatives."}
+          This workspace's period: {existing.start} to {existing.end} ({existing.currency}).{existing.hasPrior ? ` Its saved prior period is ${baseline.priorStart} to ${baseline.priorEnd}.` : " Add the prior period below for comparatives."}
         </p>
       ) : null}
       <div className="flex flex-wrap gap-3">
@@ -125,9 +132,10 @@ export function PeriodSetup({ client, companyId, periodYear, onOpened, onBusyCha
         </div>
       </div>
       <div className="flex items-center gap-2 text-sm">
-        <input id={`${id}-p`} type="checkbox" checked={f.withPrior} onChange={(e) => set("withPrior", e.target.checked)} />
+        <input id={`${id}-p`} type="checkbox" checked={f.withPrior} disabled={existing?.hasPrior} onChange={(e) => set("withPrior", e.target.checked)} />
         <label htmlFor={`${id}-p`}>Also set up the prior period (for comparatives)</label>
       </div>
+      {existing?.hasPrior && <p className="text-xs text-muted-foreground">The saved prior period remains linked. This form does not remove or move an existing period or its files.</p>}
       {f.withPrior ? (
         <div className="flex flex-wrap gap-3">
           <div><label htmlFor={`${id}-ps`} className="block text-sm">Prior start date</label><input id={`${id}-ps`} type="date" className={input} value={f.priorStart} onChange={(e) => set("priorStart", e.target.value)} /></div>
