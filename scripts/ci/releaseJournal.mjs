@@ -385,6 +385,9 @@ export const RELEASE_JOURNAL = {
   "0080_track_a_staged_transport": { kind: "tra_staged_transport", sha256: "b92ec084d09998f6e80c7ac48d3533d6a5123c2d32f569d6efe1f792c787422f" },
   "0081_tra_1_authority_hardening_staged_apply": { kind: "tra_staged_transport", sha256: "636370c97a2dc51db4867f5a5c757eabfff838b4d6cef7ab958067e8834141f9" },
   "0082_tra_2_framework_guard_staged_apply": { kind: "tra_staged_transport", sha256: "7be675f1066aa17090007d039a412b70a2c120fa8fab008d7bfd0ceee1b3523f" },
+  "0083_internal_beta_staged_transport": { kind: "beta_staged_transport", sha256: "a2286d7fa452a7b50d48f02dec1bb2b82f1498db419bfa8fa53a1464d312b519" },
+  "0084_beta_1_assistant_controls_staged_apply": { kind: "beta_staged_transport", sha256: "de36c59001a25a73b6bf14f511981c7228f4e2450bb938fa5eb88102a86c4905" },
+  "0085_beta_2_internal_policy_staged_apply": { kind: "beta_staged_transport", sha256: "80b961a8f8015cce6656e7f46cdc212744cf3b267d16ff85e9e775bb8094926f" },
 };
 
 /**
