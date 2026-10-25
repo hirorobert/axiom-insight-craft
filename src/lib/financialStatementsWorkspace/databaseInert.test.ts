@@ -441,6 +441,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
+      // Internal-beta wiring: identifier-only request, own-token composition, isolated budget RPC namespace.
+      "supabase/functions/assistant-explain/index.ts",
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
       // indexes by DEFINITION, not name — the hosted database names them uq_mappings_company_code / uq_mappings_company_name.
       // Same end state; unapplied anywhere hosted (journal head 0057). Proven on PostgreSQL by accountIdentity.mjs.
@@ -802,6 +804,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/release/trackAStagedTransport.mjs"]);
     allowed.add(".lovable/plan/execute-the-tester-only-release-2026-10-25.md");
     allowed.add(".lovable/plan/normal-internal-beta-reporting-and-assistant-2026-10-25.md");
+    allowed.add("scripts/db-proof/internalBetaPolicy.mjs");
+    allowed.add("scripts/release/internalBetaStagedTransport.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
