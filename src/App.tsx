@@ -80,6 +80,7 @@ const TrialBalanceIntake = lazy(() => import("@/pages/workspace/TrialBalanceInta
 // Online payment: loaded only when a customer opens checkout or their orders.
 const Checkout = lazy(() => import("@/pages/billing/Checkout"));
 const Orders = lazy(() => import("@/pages/billing/Orders"));
+const AssistantTester = lazy(() => import("@/pages/internal/AssistantTester"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
 const UploadTrialBalance = lazy(() => import("@/pages/UploadTrialBalance"));
@@ -187,6 +188,7 @@ function AppRoutes() {
                 <Route path="/billing/payment/return" element={<PaymentReturn />} />
                 <Route path="/commercial/admin" element={<CommercialAdmin />} />
                 <Route path="/admin/access" element={<AccessConsole />} />
+                <Route path="/internal/tester/assistant" element={<Suspense fallback={<PagePending />}><AssistantTester /></Suspense>} />
                 <Route path="/privacy" element={<Privacy />} />
                 {/* /internal/acceptance/classification-states exists only in a dev build (import.meta.env.DEV). */}
                 {ClassificationStatesAcceptance && (
