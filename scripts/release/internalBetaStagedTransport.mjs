@@ -1,4 +1,4 @@
-// INTERNAL_BETA candidate transport; authored beta source creation was REFUSED. NOT READY FOR HOSTED APPLY.
+// INTERNAL_BETA exact-byte transport. Authored sources are pinned; hosted application remains pending.
 // Reuses the immutable Track A contract in its OWN private schema, never alters that journalled module.
 // Exact-byte candidate transport: assistant controls followed by internal beta policy.
 //
@@ -19,7 +19,7 @@
 //
 // ORDER: bootstrap -> stage -> apply 1 -> apply 2 -> disabled-state verification -> frontend -> authorized activation.
 //
-// Sources are committed bytes; the beta source MUST first be promoted to its protected authored path and re-pinned.
+// Sources are committed authored bytes; the canonical migrator owns every hosted journal row.
 //
 //   node scripts/release/internalBetaStagedTransport.mjs --write | --check
 import crypto from "node:crypto";
@@ -30,11 +30,11 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const TRANSPORT_DIR = "release/staged-transport-beta";
-export const SOURCE_COMMIT = "5e4603de1c443612d1c8446c4907a84975440a5f";
+export const SOURCE_COMMIT = "18bd63b621317b8c9a608db27264bed213ceb146";
 export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id:83, tag:"0082_tra_2_framework_guard_staged_apply",hash:"7be675f1066aa17090007d039a412b70a2c120fa8fab008d7bfd0ceee1b3523f" });
 export const BOOTSTRAP_NAME = "internal_beta_staged_transport";
 export const BATCHES = Object.freeze([
-  Object.freeze({batch: "beta-1-assistant-controls", name: "beta_1_assistant_controls_staged_apply", source: "20261201100000_assistant_controls.sql", installed: "to_regclass('public.ai_assistant_settings') IS NOT NULL", artifacts: {source: Object.freeze({path:"supabase/migrations/20261201100000_assistant_controls.sql",bytes:38510,sha256:"84695443fc325657b68b159f753a788c16249fac92b0e78176e9876a4994fd3f",commit:SOURCE_COMMIT})}}),  Object.freeze({batch: "beta-2-internal-policy", name: "beta_2_internal_policy_staged_apply", source: "20261202100000_internal_beta_policy.sql", installed: "to_regclass('public.internal_beta_policy') IS NOT NULL", artifacts: {source: Object.freeze({path:"release/candidates/internal-beta/20261202100000_internal_beta_policy.sql",bytes:20177,sha256:"4497f7cf23d3bc650e6c5ad847110b339e5f5cb3a0cf17a29dc0c51adc14e726",commit:SOURCE_COMMIT})}})
+  Object.freeze({batch: "beta-1-assistant-controls", name: "beta_1_assistant_controls_staged_apply", source: "20261201100000_assistant_controls.sql", installed: "to_regclass('public.ai_assistant_settings') IS NOT NULL", artifacts: {source: Object.freeze({path:"supabase/migrations/20261201100000_assistant_controls.sql",bytes:38510,sha256:"84695443fc325657b68b159f753a788c16249fac92b0e78176e9876a4994fd3f",commit:SOURCE_COMMIT})}}),  Object.freeze({batch: "beta-2-internal-policy", name: "beta_2_internal_policy_staged_apply", source: "20261202100000_internal_beta_policy.sql", installed: "to_regclass('public.internal_beta_policy') IS NOT NULL", artifacts: {source: Object.freeze({path:"supabase/migrations/20261202100000_internal_beta_policy.sql",bytes:22030,sha256:"a8297d571dccdad22c49a747b9475c50ffa18312d8bcfd69b9c699f87b369268",commit:SOURCE_COMMIT})}})
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -250,11 +250,11 @@ export function transportForms() {
     .map((x) => ({ ...x, bytes: Buffer.byteLength(x.text), hashes: journalHashes(x.text) }));
 }
 
-/** Candidate forms are pinned after generation; they are NOT registered in the canonical release journal yet. */
+/** Reviewed transport forms. Register actual hosted entries only after canonical execution. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  internal_beta_staged_transport: "5b328721b392025a56eab26019814ad2db3f77deef2db6e1ceffd0f219f4a550",
-  beta_1_assistant_controls_staged_apply: "45dd547dbf54c965c6f01a112e2a2936683706abb95a27b0fb3a55c11c6ca8d0",
-  beta_2_internal_policy_staged_apply: "d49184947b2d00ff7ea04e77cb82c71e2cb335827754f0e878592014c70c0db6",
+  internal_beta_staged_transport: "bdbd0020aa9096b38fb553587da68070e9e21ec942e971ea88bd61891fd9b96c",
+  beta_1_assistant_controls_staged_apply: "de36c59001a25a73b6bf14f511981c7228f4e2450bb938fa5eb88102a86c4905",
+  beta_2_internal_policy_staged_apply: "80b961a8f8015cce6656e7f46cdc212744cf3b267d16ff85e9e775bb8094926f",
 });
 
 export function checkTransportMirror(tag, text) {

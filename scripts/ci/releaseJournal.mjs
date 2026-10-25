@@ -32,6 +32,7 @@ import { checkTransportMirror } from "../release/stagedTransport.mjs";
 import { BATCHES as TB_TRANSPORT_BATCHES, checkTransportMirror as checkTbTransportMirror } from "../release/tbStagedTransport.mjs";
 import { BATCHES as FSI_TRANSPORT_BATCHES, checkTransportMirror as checkFsiTransportMirror } from "../release/fsIntegrityStagedTransport.mjs";
 import { BATCHES as TRA_TRANSPORT_BATCHES, checkTransportMirror as checkTraTransportMirror } from "../release/trackAStagedTransport.mjs";
+import { BATCHES as BETA_TRANSPORT_BATCHES, checkTransportMirror as checkBetaTransportMirror } from "../release/internalBetaStagedTransport.mjs";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -921,6 +922,20 @@ export function checkReleaseEntry(tag, text, srcBytes) {
         problems.push(`${tag}: the covered Track A source ${r.covers} differs from its approved byte identity`);
       }
       return { covers: r.covers, how: "tra_staged_transport", outOfOrder: false, problems };
+    }
+    return { problems };
+  }
+  if (entry.kind === "beta_staged_transport") {
+    const r = checkBetaTransportMirror(tag, text);
+    problems.push(...r.problems);
+    if (sha256(Buffer.from(text.replace(/\n$/, ""), "utf8")) !== entry.sha256) problems.push(`${tag}: does not match its pinned SHA-256`);
+    if (r.covers) {
+      const batch = BETA_TRANSPORT_BATCHES.find((b) => b.source === r.covers);
+      const src = srcBytes(r.covers);
+      if (!batch || !src || src.length !== batch.artifacts.source.bytes || sha256(src) !== batch.artifacts.source.sha256) {
+        problems.push(`${tag}: the covered internal beta source ${r.covers} differs from its approved byte identity`);
+      }
+      return { covers: r.covers, how: "beta_staged_transport", outOfOrder: false, problems };
     }
     return { problems };
   }

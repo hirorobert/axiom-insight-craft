@@ -6,7 +6,7 @@ DECLARE
   c_batch CONSTANT text := 'beta-2-internal-policy';
   c_prior CONSTANT text := 'beta-1-assistant-controls';
   c_prior_kinds CONSTANT integer := 1;
-  c_predecessor CONSTANT text[] := ARRAY['45dd547dbf54c965c6f01a112e2a2936683706abb95a27b0fb3a55c11c6ca8d0', '72bc2e343f7f47b71e5dc5d6edcdab8b10611df9b97590b7d32e5edbbe74394a']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['de36c59001a25a73b6bf14f511981c7228f4e2450bb938fa5eb88102a86c4905', '95dccf3ec926b3fdf197e90740f96344da1c8196d308dc3b96092552dd3c9670']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_beta_release_transport', 0));
@@ -38,7 +38,7 @@ BEGIN
   END IF;
   SELECT s.body INTO v_source FROM cfoclose_beta_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'source' AND s.consumed_at IS NULL
-     AND s.body_bytes = 20177 AND s.body_sha256 = '4497f7cf23d3bc650e6c5ad847110b339e5f5cb3a0cf17a29dc0c51adc14e726';
+     AND s.body_bytes = 22030 AND s.body_sha256 = 'a8297d571dccdad22c49a747b9475c50ffa18312d8bcfd69b9c699f87b369268';
   IF v_source IS NULL THEN RAISE EXCEPTION 'BETA_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   v_baseline := (SELECT encode(sha256(convert_to(
       coalesce((SELECT string_agg(to_jsonb(f)::text, chr(10) ORDER BY f.seq) FROM public.fs_publication_bindings f), '') || chr(30) ||
@@ -64,7 +64,7 @@ BEGIN
   UPDATE cfoclose_beta_release.staged_artifacts SET consumed_at = clock_timestamp() WHERE batch = c_batch;
   INSERT INTO cfoclose_beta_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261202100000_internal_beta_policy.sql', 'baseline_sha256', v_baseline,
-      'source_sha256', '4497f7cf23d3bc650e6c5ad847110b339e5f5cb3a0cf17a29dc0c51adc14e726'));
+      'source_sha256', 'a8297d571dccdad22c49a747b9475c50ffa18312d8bcfd69b9c699f87b369268'));
   PERFORM set_config('cfoclose_beta_release.applying', '', true);
 END
 $cfoclose_beta_transport_beta_2_internal_policy$;
