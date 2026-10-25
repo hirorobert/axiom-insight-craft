@@ -805,6 +805,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add(".lovable/plan/execute-the-tester-only-release-2026-10-25.md");
     allowed.add(".lovable/plan/normal-internal-beta-reporting-and-assistant-2026-10-25.md");
     allowed.add("scripts/db-proof/internalBetaPolicy.mjs");
+    allowed.add("scripts/db-proof/internalBetaTransport.mjs");
     allowed.add("scripts/release/internalBetaStagedTransport.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
