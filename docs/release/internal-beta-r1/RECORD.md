@@ -1,5 +1,18 @@
 # Internal beta candidate — 2026-10-25
 
+## Installation result (2026-10-25, from main `dd4d5710`)
+
+- Predecessor rechecked: hosted id 83 / `7be675f1…`. Applied through the native migrator: id 84 bootstrap
+  (`a2286d7f…` = generated `bdbd0020…` + one final LF), id 85 assistant controls (`de36c590…`), id 86 beta policy
+  (`80b961a8…`). Both sources staged and accepted by the byte guard (38,510 B `84695443…`; 22,030 B `a8297d57…`), both consumed.
+- Postconditions: beta reporting and AI off, assistant settings off, 19 enrollments snapshotted, binding seq1/2 digest
+  `de1e521b…8642` unchanged, zero issued packs. Mirrors 0083–0085 registered; migration authority OK, nothing pending.
+- `assistant-explain` deployed (submitted source SHA-256 `142453b8…6629`; live bundle not independently verified).
+- Frontend publish requested from the same tree.
+- NOT activated: `internal_beta_configure` requires a signed-in commercial admin; the reporting kill switch stays engaged.
+  AI cannot be enabled: the policy requires recorded credit and pricing confirmations, which are unverified.
+- Observed: `commercial_platform_state` reads `CUSTOMER_PAYMENTS_ENABLED` (pre-existing, not changed here).
+
 ## Actual status
 
 Normal-page assistant integration is implemented as a candidate. It is NOT activated or published.
