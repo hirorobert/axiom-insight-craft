@@ -6240,6 +6240,234 @@ export type Database = {
           },
         ]
       }
+      internal_beta_assistant_runs: {
+        Row: {
+          actor_user_id: string
+          actual_cost_micros: number | null
+          attempts: number | null
+          company_id: string
+          completed_at: string | null
+          composition_sha256: string
+          cost_known: boolean
+          created_at: string
+          duration_ms: number | null
+          failure_code: string | null
+          id: string
+          model: string
+          payload_sha256: string
+          period_year: number
+          prices: Json
+          request_id: string
+          reserved_cost_micros: number
+          response: Json | null
+          state: string
+          usage: Json | null
+          validation: Json | null
+        }
+        Insert: {
+          actor_user_id: string
+          actual_cost_micros?: number | null
+          attempts?: number | null
+          company_id: string
+          completed_at?: string | null
+          composition_sha256: string
+          cost_known?: boolean
+          created_at?: string
+          duration_ms?: number | null
+          failure_code?: string | null
+          id?: string
+          model: string
+          payload_sha256: string
+          period_year: number
+          prices: Json
+          request_id: string
+          reserved_cost_micros: number
+          response?: Json | null
+          state?: string
+          usage?: Json | null
+          validation?: Json | null
+        }
+        Update: {
+          actor_user_id?: string
+          actual_cost_micros?: number | null
+          attempts?: number | null
+          company_id?: string
+          completed_at?: string | null
+          composition_sha256?: string
+          cost_known?: boolean
+          created_at?: string
+          duration_ms?: number | null
+          failure_code?: string | null
+          id?: string
+          model?: string
+          payload_sha256?: string
+          period_year?: number
+          prices?: Json
+          request_id?: string
+          reserved_cost_micros?: number
+          response?: Json | null
+          state?: string
+          usage?: Json | null
+          validation?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "internal_beta_assistant_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      internal_beta_enrollments: {
+        Row: {
+          basis: string
+          company_id: string
+          enrolled_at: string
+          revoked_at: string | null
+          user_id: string
+        }
+        Insert: {
+          basis: string
+          company_id: string
+          enrolled_at?: string
+          revoked_at?: string | null
+          user_id: string
+        }
+        Update: {
+          basis?: string
+          company_id?: string
+          enrolled_at?: string
+          revoked_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "internal_beta_enrollments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      internal_beta_events: {
+        Row: {
+          action: string
+          actor_user_id: string
+          at: string
+          detail: Json
+          reason: string
+          seq: number
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          at?: string
+          detail: Json
+          reason: string
+          seq?: never
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          at?: string
+          detail?: Json
+          reason?: string
+          seq?: never
+        }
+        Relationships: []
+      }
+      internal_beta_policy: {
+        Row: {
+          ai_enabled: boolean
+          channel: string
+          credits_confirmed_at: string | null
+          max_input_tokens: number
+          max_output_tokens: number
+          max_request_seconds: number
+          model: string | null
+          prices: Json | null
+          pricing_confirmed_at: string | null
+          prior_usage_reserved_micros: number
+          reporting_enabled: boolean
+          reservation_micros: number | null
+          revision: number
+          singleton: boolean
+          total_budget_micros: number
+        }
+        Insert: {
+          ai_enabled?: boolean
+          channel?: string
+          credits_confirmed_at?: string | null
+          max_input_tokens?: number
+          max_output_tokens?: number
+          max_request_seconds?: number
+          model?: string | null
+          prices?: Json | null
+          pricing_confirmed_at?: string | null
+          prior_usage_reserved_micros?: number
+          reporting_enabled?: boolean
+          reservation_micros?: number | null
+          revision?: number
+          singleton?: boolean
+          total_budget_micros?: number
+        }
+        Update: {
+          ai_enabled?: boolean
+          channel?: string
+          credits_confirmed_at?: string | null
+          max_input_tokens?: number
+          max_output_tokens?: number
+          max_request_seconds?: number
+          model?: string | null
+          prices?: Json | null
+          pricing_confirmed_at?: string | null
+          prior_usage_reserved_micros?: number
+          reporting_enabled?: boolean
+          reservation_micros?: number | null
+          revision?: number
+          singleton?: boolean
+          total_budget_micros?: number
+        }
+        Relationships: []
+      }
+      internal_beta_synthetic_contexts: {
+        Row: {
+          company_id: string
+          composition_sha256: string
+          operator_label: string
+          period_year: number
+          reason: string
+          recorded_at: string
+        }
+        Insert: {
+          company_id: string
+          composition_sha256: string
+          operator_label: string
+          period_year: number
+          reason: string
+          recorded_at?: string
+        }
+        Update: {
+          company_id?: string
+          composition_sha256?: string
+          operator_label?: string
+          period_year?: number
+          reason?: string
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "internal_beta_synthetic_contexts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       keyword_dictionary: {
         Row: {
           classification: Database["public"]["Enums"]["account_classification"]
@@ -12893,6 +13121,66 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      internal_beta_assistant_complete: {
+        Args: {
+          p_actual_cost_micros: number
+          p_attempts: number
+          p_duration_ms: number
+          p_failure_code: string
+          p_response: Json
+          p_run_id: string
+          p_source_refs: string[]
+          p_state: string
+          p_usage: Json
+          p_validation: Json
+        }
+        Returns: Json
+      }
+      internal_beta_assistant_reserve: {
+        Args: {
+          p_action: string
+          p_company_id: string
+          p_composition_sha256: string
+          p_context_sha256: string
+          p_line_id: string
+          p_payload_sha256: string
+          p_period_year: number
+          p_request_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      internal_beta_configure: {
+        Args: {
+          p_expected_revision: number
+          p_reason: string
+          p_settings: Json
+        }
+        Returns: Json
+      }
+      internal_beta_enroll_member: {
+        Args: { p_company_id: string; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
+      internal_beta_member: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      internal_beta_record_synthetic_context: {
+        Args: {
+          p_company_id: string
+          p_composition_sha256: string
+          p_operator_label: string
+          p_period_year: number
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      internal_beta_status: { Args: { p_company_id: string }; Returns: Json }
+      internal_beta_team_status: {
+        Args: { p_company_id: string }
+        Returns: Json
       }
       invitation_capability_summary: {
         Args: { p_company_id: string; p_user: string }
