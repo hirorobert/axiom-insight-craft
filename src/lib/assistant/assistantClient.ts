@@ -128,6 +128,7 @@ export function statusWords(state: string): string | null {
     case "disabled": return "Ask CFOClose is switched off. Your statements and reports are unaffected.";
     case "not_enabled": return "Ask CFOClose has not been enabled for this workspace.";
     case "no_budget": return "Ask CFOClose has no allowance for this workspace.";
+    case "synthetic_scope_required": return "Live beta AI can only receive a specifically authorized synthetic statement context. These records have not been authorized for sending.";
     default: return "Ask CFOClose is not available for this workspace.";
   }
 }

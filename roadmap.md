@@ -8,10 +8,12 @@ This is the ONE status file for this programme. It is updated in place; earlier 
 ## Authorized tester-only release — 2026-10-25
 
 ### Internal-beta authorization update — 2026-10-25 10:42 UTC
-- [ ] Replace special tester-only access with normal Statements and Ask CFOClose access under one server-enforced internal-beta policy; inventory existing accounts/memberships before enrollment.
-- [ ] Preserve review separation/history and compile/evidence gates; enforce synthetic-only AI context and aggregate remaining USD 5 budget across beta calls.
-- [ ] Prepare canonical authored migrations/registered exact-byte transport, deploy matching functions, run release checks, publish and activate only verified bounded scope.
-- [ ] Verify normal sign-in flow without minting sessions; report second-login acceptance and any actual tool refusal honestly.
+- [x] Implement normal Statements assistant candidate and inventory 16 users/19 companies/19 owner-only accepted memberships; server-enforced beta policy is an inert candidate, not installed.
+- [x] Preserve original binding seq1/2 digest and closed reporting state; prove isolated policy/aggregate-budget and transport controls (12+12 PostgreSQL checks). Production approvals untouched.
+- [ ] Canonical authored promotion/registration/install, matching deployment/publication/activation: BLOCKED by actual file-tool refusal on supabase/migrations creation. Exact candidate, digests and transport supplied in docs/release/internal-beta-r1/RECORD.md; no bypass.
+- [ ] Live provider activation: BLOCKED by unverified credit balance/current pricing/billing reconciliation; USD 3.6586 is conservative remaining authorization, not verified credits. No new API calls.
+- [x] Run full suite and lint: 6,346 deterministic passes; two Git-mutating fixture suites refused by sandbox (full clearance FAIL); lint 0 errors/177 warnings. Normal sign-in and protected-route redirect checked without sessions.
+- [ ] Authenticated owner/reviewer beta journey: requires normal owner login and distinct accepted reviewer; normal Team beta-enrollment control still needs wiring after authored source/registration. No sessions minted, no solo_owner.
 
 - [x] Re-read main 40c488d6 and hosted journal 83; verify the full rollout allowlist, closed global switch, and historical seq 1/2 digest.
 - [x] Run full tests/lint before evaluation: bounded run 6,338 passes; two Git-mutating fixture suites cannot run under sandbox restrictions. Lint: zero errors, 177 warnings.

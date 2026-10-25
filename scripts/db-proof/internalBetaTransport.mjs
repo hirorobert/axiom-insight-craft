@@ -1,0 +1,51 @@
+// Exact-byte transport proof on an EMPTY LOOPBACK database. Never a hosted migrator substitute.
+import assert from 'node:assert/strict';
+import pg from 'pg';
+import {renderBootstrap,renderApply,renderStage,REGISTERED_TRANSPORT_FORMS,BOOTSTRAP_PREDECESSOR} from '../release/internalBetaStagedTransport.mjs';
+const url=process.env.INTERNAL_BETA_PROOF_URL;
+if(!url||!['127.0.0.1','localhost'].includes(new URL(url).hostname)) throw new Error('EMPTY_LOOPBACK_REQUIRED');
+const db=new pg.Client({connectionString:url}); await db.connect(); let n=0;
+const ok=(label,b)=>{assert.ok(b,label);n++;console.log('PASS',label);};
+const refused=async(label,fn)=>{let bad=false;try{await fn();}catch{bad=true;}ok(label,bad);};
+try{
+  assert.equal((await db.query("select count(*)::int n from pg_tables where schemaname='public'")).rows[0].n,0);
+  await db.query(`CREATE SCHEMA auth; CREATE SCHEMA drizzle;
+    CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT NULL::uuid$$;
+    CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT current_user::text$$;
+    CREATE TABLE drizzle.__drizzle_migrations(id integer,hash text);
+    CREATE TABLE public.companies(id uuid PRIMARY KEY,user_id uuid,reporting_framework text);
+    CREATE TABLE public.firm_members(id uuid,company_id uuid,user_id uuid,accepted_at timestamptz);
+    CREATE TABLE public.commercial_admins(user_id uuid,active boolean);
+    CREATE TABLE public.fs_publication_bindings(seq bigint);
+    CREATE TABLE public.reporting_pack_issuances(id uuid,consumed_at timestamptz);
+    CREATE TABLE public.fs_report_authority(company_id uuid,period_year integer);
+    CREATE TABLE public.fs_report_authority_events(seq bigint);
+    CREATE TABLE public.financial_statements_rollout_state(singleton boolean,kill_switch boolean);
+    INSERT INTO public.financial_statements_rollout_state VALUES(true,true);
+    CREATE TABLE public.financial_statements_rollout_companies(company_id uuid,enabled boolean);
+    CREATE FUNCTION public.ai_append_only_guard() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'IMMUTABLE'; END$$;
+    CREATE FUNCTION public._workspace_access_basis(uuid,uuid) RETURNS text LANGUAGE sql AS $$SELECT NULL::text$$;
+    CREATE FUNCTION public.has_workspace_capability(uuid,uuid,text) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;
+    CREATE FUNCTION public.fs_rollout_allows(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;`);
+  await refused('wrong predecessor refuses bootstrap',()=>db.query(renderBootstrap()));
+  await db.query('insert into drizzle.__drizzle_migrations values($1,$2)',[83,BOOTSTRAP_PREDECESSOR.hash]);
+  await db.query('BEGIN'); await db.query(renderBootstrap());
+  await db.query('insert into drizzle.__drizzle_migrations values(84,$1)',[REGISTERED_TRANSPORT_FORMS.internal_beta_staged_transport]);await db.query('COMMIT');
+  ok('bootstrap installed',(await db.query("select to_regnamespace('cfoclose_beta_release') is not null b")).rows[0].b);
+  await refused('missing staging refuses apply',()=>db.query(renderApply(0)));
+  await db.query(renderStage(0,'source'));await db.query(renderStage(1,'source'));
+  ok('inert source staging creates no assistant tables',(await db.query("select to_regclass('ai_assistant_settings') is null b")).rows[0].b);
+  await refused('prior batch required',()=>db.query(renderApply(1)));
+  await db.query('BEGIN');await db.query(renderApply(0));await db.query('ROLLBACK');
+  ok('interrupted apply rolls back DDL and consumption',(await db.query("select to_regclass('ai_assistant_settings') is null b")).rows[0].b &&
+    (await db.query("select consumed_at is null b from cfoclose_beta_release.staged_artifacts where batch='beta-1-assistant-controls'")).rows[0].b);
+  await db.query('BEGIN');await db.query(renderApply(0));await db.query('insert into drizzle.__drizzle_migrations values(85,$1)',[REGISTERED_TRANSPORT_FORMS.beta_1_assistant_controls_staged_apply]);await db.query('COMMIT');
+  ok('assistant source applied unchanged and disabled',(await db.query('select enabled=false b from ai_assistant_settings')).rows[0].b);
+  await refused('duplicate consumed apply is refused',()=>db.query(renderApply(0)));
+  await db.query('BEGIN');await db.query(renderApply(1));await db.query('insert into drizzle.__drizzle_migrations values(86,$1)',[REGISTERED_TRANSPORT_FORMS.beta_2_internal_policy_staged_apply]);await db.query('COMMIT');
+  ok('beta policy applied disabled',(await db.query('select not reporting_enabled and not ai_enabled b from internal_beta_policy')).rows[0].b);
+  ok('both artifacts consumed once',(await db.query('select count(*)::int n from cfoclose_beta_release.staged_artifacts where consumed_at is not null')).rows[0].n===2);
+  await refused('staged bytes immutable',()=>db.query("update cfoclose_beta_release.staged_artifacts set body=body||'x' where batch='beta-1-assistant-controls'"));
+  ok('clients cannot reach staging',(await db.query("select has_schema_privilege('authenticated','cfoclose_beta_release','USAGE') b")).rows[0].b===false);
+  console.log(`INTERNAL_BETA_TRANSPORT: ${n}/${n} isolated PostgreSQL checks; NOT canonical registration/hosted clearance`);
+}finally{await db.end();}

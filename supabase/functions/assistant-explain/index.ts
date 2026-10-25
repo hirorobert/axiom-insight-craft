@@ -17,6 +17,7 @@ import { serve }        from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, validateAuth } from "../_shared/auth.ts";
 import { handleAssistant } from "../_shared/assistantHandler.ts";
+import { handleInternalBeta } from "../_shared/internalBeta.ts";
 import { anthropicProvider, type AssistantProvider } from "../_shared/assistantProvider.ts";
 
 const json = (body: unknown, status: number) =>
@@ -35,16 +36,28 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     const auth = await validateAuth(authHeader, corsHeaders);
     if (auth.error) return auth.error;
-    const userId = auth.result!.userId;
+    if (!auth.result || !authHeader) return json({ status: "refused", code: "UNAUTHENTICATED" }, 401);
+    const userId = auth.result.userId;
     const body = await req.json().catch(() => null);
 
-    const service = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const url = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!url || !serviceKey || !anonKey) return json({ status: "unavailable", code: "CONFIGURATION_UNAVAILABLE" }, 503);
+    const service = createClient(url, serviceKey);
     // The person's own client: the composition is read under their identity, exactly as the Statements page reads it.
-    const asPerson = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader! } },
+    const asPerson = createClient(url, anonKey, {
+      global: { headers: { Authorization: authHeader } },
     });
-    const out = await handleAssistant(userId, body, {
-      provider: configuredProvider(),
+    // Namespace comes from the database, never a request field or browser flag. Old backends retain production gates.
+    const companyId = typeof body?.companyId === "string" ? body.companyId : null;
+    const beta = companyId ? await asPerson.rpc("internal_beta_status", { p_company_id: companyId }) : null;
+    const isBeta = !beta?.error && beta?.data?.channel === "INTERNAL_BETA";
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    const provider = isBeta && key ? anthropicProvider(key) : configuredProvider();
+    const handler = isBeta ? handleInternalBeta : handleAssistant;
+    const out = await handler(userId, body, {
+      provider,
       readComposition: async (companyId, periodYear) => {
         const { data, error } = await asPerson.rpc("fs_statement_composition", { p_company_id: companyId, p_period_year: periodYear });
         if (error) throw new Error(`fs_statement_composition failed: ${error.code ?? "unknown"}`);

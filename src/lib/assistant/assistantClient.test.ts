@@ -122,10 +122,10 @@ describe("the panel", () => {
     for (const s of ["disabled", "not_enabled", "no_budget", "unavailable"]) expect(statusWords(s)).toBeTruthy();
     expect(statusWords("disabled")).toContain("unaffected");
   });
-  it("the gate is a reviewed source constant, off in this release, and fed by nothing else", () => {
-    expect(ASK_CFOCLOSE_ENABLED).toBe(false);
+  it("the presentation gate is reviewed; server eligibility remains required", () => {
+    expect(ASK_CFOCLOSE_ENABLED).toBe(true);
     const src = fs.readFileSync(path.resolve(__dirname, "gate.ts"), "utf8");
-    expect(src).toMatch(/export const ASK_CFOCLOSE_ENABLED = false;/);
+    expect(src).toMatch(/export const ASK_CFOCLOSE_ENABLED = true;/);
     expect(src).not.toMatch(/import\.meta\.env|process\.env|localStorage|sessionStorage|document\.cookie|URLSearchParams/);
   });
   it("renders answers as text (no HTML injection path) and never writes a financial record", () => {
@@ -133,7 +133,7 @@ describe("the panel", () => {
     expect(panel).not.toMatch(/dangerouslySetInnerHTML|innerHTML/);
     expect(panel).not.toMatch(/\.from\(|\.insert\(|\.update\(|\.upsert\(|\.delete\(/);
     // The only server calls: the status read and the assistant function.
-    expect([...panel.matchAll(/rpc\.current\("([a-z_]+)"/g)].map((m) => m[1])).toEqual(["ai_assistant_status"]);
+    expect([...panel.matchAll(/rpc\.current\("([a-z_]+)"/g)].map((m) => m[1])).toEqual(["internal_beta_status", "ai_assistant_status"]);
     const view = fs.readFileSync(path.resolve(__dirname, "../../components/reporting/StatementsView.tsx"), "utf8");
     expect(view.match(/ASK_CFOCLOSE_ENABLED \?/g)?.length).toBe(2);
   });

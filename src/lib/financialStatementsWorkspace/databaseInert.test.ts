@@ -302,6 +302,8 @@ describe("database inertness — schema and functions", () => {
       // Owner-authorized tester preflight: authenticated demo owner only, no provider calls or financial writes.
       "supabase/functions/_shared/assistantQaPolicy.ts",
       "supabase/functions/assistant-qa/index.ts",
+      // Owner-authorized INTERNAL_BETA namespace: assistant reservations only, no financial writer or approval changes.
+      "supabase/functions/_shared/internalBeta.ts",
       // Sign-off (20261017100000): fs_publication_blockers re-created with the Close Review and authoritative-input requirements (byte-pinned to its 20260919110000 body plus the marked additions); first-period declarations. A NEW forward-only migration pending hosted application.
       "supabase/migrations/20261017100000_signoff_completion_requirements.sql",
       // Statement composition (20261018100000): presentation-line vocabulary, append-only assignments and elections, the database-composed statements.
@@ -439,6 +441,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
+      // Internal-beta wiring: identifier-only request, own-token composition, isolated budget RPC namespace.
+      "supabase/functions/assistant-explain/index.ts",
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
       // indexes by DEFINITION, not name — the hosted database names them uq_mappings_company_code / uq_mappings_company_name.
       // Same end state; unapplied anywhere hosted (journal head 0057). Proven on PostgreSQL by accountIdentity.mjs.
@@ -799,6 +803,10 @@ describe("database inertness — schema and functions", () => {
       "scripts/db-proof/trackAHardening.mjs", "scripts/db-proof/trackAHardening.manifest.mjs", "scripts/db-proof/trackAStagedTransport.mjs",
       "scripts/release/trackAStagedTransport.mjs"]);
     allowed.add(".lovable/plan/execute-the-tester-only-release-2026-10-25.md");
+    allowed.add(".lovable/plan/normal-internal-beta-reporting-and-assistant-2026-10-25.md");
+    allowed.add("scripts/db-proof/internalBetaPolicy.mjs");
+    allowed.add("scripts/db-proof/internalBetaTransport.mjs");
+    allowed.add("scripts/release/internalBetaStagedTransport.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
