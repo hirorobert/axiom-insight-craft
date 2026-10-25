@@ -2416,6 +2416,45 @@ export type Database = {
         }
         Relationships: []
       }
+      company_framework_events: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          from_framework: string | null
+          id: string
+          reason: string
+          request_id: string
+          seq: number
+          to_framework: string
+          txid: unknown
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          from_framework?: string | null
+          id?: string
+          reason: string
+          request_id: string
+          seq?: never
+          to_framework: string
+          txid?: unknown
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          from_framework?: string | null
+          id?: string
+          reason?: string
+          request_id?: string
+          seq?: never
+          to_framework?: string
+          txid?: unknown
+        }
+        Relationships: []
+      }
       currency_registry: {
         Row: {
           code: string
@@ -4240,6 +4279,39 @@ export type Database = {
             referencedColumns: ["code"]
           },
         ]
+      }
+      fs_authority_replacement_intents: {
+        Row: {
+          actor_user_id: string | null
+          company_id: string
+          created_at: string
+          replaces_report_id: string
+          replaces_report_version: number
+          report_id: string
+          report_version: number
+          txid: unknown
+        }
+        Insert: {
+          actor_user_id?: string | null
+          company_id: string
+          created_at?: string
+          replaces_report_id: string
+          replaces_report_version: number
+          report_id: string
+          report_version: number
+          txid: unknown
+        }
+        Update: {
+          actor_user_id?: string | null
+          company_id?: string
+          created_at?: string
+          replaces_report_id?: string
+          replaces_report_version?: number
+          report_id?: string
+          report_version?: number
+          txid?: unknown
+        }
+        Relationships: []
       }
       fs_comparative_approvals: {
         Row: {
@@ -10549,6 +10621,10 @@ export type Database = {
         Args: { p_report_id: string; p_report_version: number }
         Returns: Json
       }
+      _fs_authority_scope_check: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: undefined
+      }
       _fs_claim_final_authority: {
         Args: {
           p_actor_firm_member_id: string
@@ -10652,6 +10728,14 @@ export type Database = {
       _fs_reference_statements_present: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: boolean
+      }
+      _fs_replacement_intent: {
+        Args: {
+          p_company_id: string
+          p_report_id: string
+          p_report_version: number
+        }
+        Returns: Json
       }
       _fs_reporting_input_compute: {
         Args: { p_company_id: string; p_period_year: number }
@@ -13000,6 +13084,16 @@ export type Database = {
       set_company_filing_jurisdiction: {
         Args: { p_company_id: string; p_jurisdiction: string }
         Returns: string
+      }
+      set_company_reporting_framework: {
+        Args: {
+          p_company_id: string
+          p_expected_framework: string
+          p_framework: string
+          p_reason: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       set_tb_finding_policy: {
         Args: {

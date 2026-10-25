@@ -568,6 +568,20 @@
       "when": 1792903935301,
       "tag": "0080_track_a_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792905116918,
+      "tag": "0081_tra_1_authority_hardening_staged_apply",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792905167941,
+      "tag": "0082_tra_2_framework_guard_staged_apply",
+      "breakpoints": true
     }
   ]
 }
