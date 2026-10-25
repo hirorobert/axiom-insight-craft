@@ -107,10 +107,15 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
   const model = String(r.model);
 
   let usage = ZERO;
+  // Calls whose usage the provider did not report in the documented form. Any such call makes the run's cost UNKNOWN:
+  // it is recorded at the reserved ceiling (a NULL actual cost — ai_assistant_complete), never at the partial known sum
+  // and never as zero, and no call is made to find out.
+  let unreportedCalls = 0;
   let attempts = 0;
+  const knownCost = () => (unreportedCalls > 0 ? null : costMicros(usage, prices));
   const complete = async (state: string, cost: number | null, extra: { response?: RenderedAnswer; sourceRefs?: string[]; validation?: unknown; failureCode?: string | null } = {}) => {
     const { data: c, error: e } = await deps.rpc("ai_assistant_complete", {
-      p_run_id: runId, p_state: state, p_actual_cost_micros: cost, p_usage: usage, p_attempts: attempts,
+      p_run_id: runId, p_state: state, p_actual_cost_micros: cost, p_usage: { ...usage, unreportedCalls }, p_attempts: attempts,
       p_duration_ms: Math.max(0, Math.round(deps.now() - started)), p_response: extra.response ?? null, p_source_refs: extra.sourceRefs ?? null,
       p_validation: extra.validation ?? null, p_failure_code: extra.failureCode ?? null,
     });
@@ -141,14 +146,14 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
     let raw: string;
     try {
       const out = await deps.provider.complete({ model, system: SYSTEM_PROMPT, messages: [...messages], maxTokens: maxOutput, signal: ctl.signal });
-      usage = addUsage(usage, out.usage);
+      if (out.usage) usage = addUsage(usage, out.usage); else unreportedCalls++;
       raw = out.text;
     } catch (e) {
       const kind = e instanceof ProviderError ? e.kind : "ambiguous";
       // Known-uncharged refusals keep the cost of earlier attempts; unknown outcomes are recorded at the reserved ceiling
       // (an estimate — the true charge of an unknown outcome is not reported to us).
       const known = kind === "rejected" || kind === "rate_limited";
-      await complete(kind === "rate_limited" ? "rejected" : kind, known ? costMicros(usage, prices) : null,
+      await complete(kind === "rate_limited" ? "rejected" : kind, known ? knownCost() : null,
         { failureCode: kind === "rate_limited" ? "RATE_LIMITED" : kind === "rejected" ? "PROVIDER_REJECTED" : kind === "failed" ? "PROVIDER_FAILED" : "PROVIDER_AMBIGUOUS" });
       if (kind === "rate_limited") return refused(429, "RATE_LIMITED", "The assistant service is busy. Try again in a minute. Nothing else was affected.");
       if (kind === "ambiguous") return { status: 504, body: { status: "failed", code: "PROVIDER_AMBIGUOUS",
@@ -160,7 +165,7 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
     lastErrors = v.errors;
     if (attempts < 2) messages.push({ role: "assistant", content: raw.slice(0, MAX_QUOTED_ANSWER_CHARS) }, { role: "user", content: correctionMessage(v.errors) });
   }
-  const cost = costMicros(usage, prices);
+  const cost = knownCost();
   if (!answer) {
     await complete("invalid", cost, { validation: { errors: lastErrors.slice(0, 20) }, failureCode: stopCode ?? "ANSWER_INVALID" });
     return { status: 502, body: { status: "failed", code: "ANSWER_INVALID",
@@ -180,7 +185,7 @@ export async function handleAssistant(userId: string, body: unknown, deps: Assis
 
   // ── 7. Record, then return ──────────────────────────────────────────────────────────────────────────────────
   const sourceRefs = [...new Set(answer.blocks.flatMap((b) => b.sources.map((s) => s.id)))];
-  if (!(await complete("succeeded", cost, { response: answer, sourceRefs, validation: { attempts } }))) {
+  if (!(await complete("succeeded", cost, { response: answer, sourceRefs, validation: { attempts, costKnown: unreportedCalls === 0 } }))) {
     return { status: 500, body: { status: "failed", code: "NOT_RECORDED", message: "The answer could not be recorded, so it is not shown. Ask again." } };
   }
   return { status: 200, body: { status: "answered", runId, replay: false, answer } };

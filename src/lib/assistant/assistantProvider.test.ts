@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { anthropicProvider, ceilingMicros, costMicros, ProviderError, SYSTEM_PROMPT } from "../../../supabase/functions/_shared/assistantProvider";
+import { anthropicProvider, ceilingMicros, costMicros, parseUsage, ProviderError, SYSTEM_PROMPT } from "../../../supabase/functions/_shared/assistantProvider";
 
 const req = (signal = new AbortController().signal) => ({ model: "claude-test", system: SYSTEM_PROMPT, messages: [{ role: "user" as const, content: "facts" }], maxTokens: 900, signal });
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
@@ -37,6 +37,36 @@ describe("Claude adapter", () => {
     expect(await kind(async () => new Response("", { status: 529 }))).toBe("failed");
     expect(await kind(async () => { throw new DOMException("aborted", "AbortError"); })).toBe("ambiguous");
     expect(await kind(async () => new Response("not json", { status: 200 }))).toBe("ambiguous");
+  });
+});
+
+describe("provider usage is validated, never defaulted to zero", () => {
+  it("documented usage is read exactly; absent or null cache counts mean none in that category", () => {
+    expect(parseUsage({ input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 2000, cache_read_input_tokens: 7 }))
+      .toEqual({ inputTokens: 100, outputTokens: 50, cacheWriteTokens: 2000, cacheReadTokens: 7 });
+    expect(parseUsage({ input_tokens: 100, output_tokens: 50 })).toEqual({ inputTokens: 100, outputTokens: 50, cacheWriteTokens: 0, cacheReadTokens: 0 });
+    expect(parseUsage({ input_tokens: 0, output_tokens: 1, cache_creation_input_tokens: null, cache_read_input_tokens: null }))
+      .toEqual({ inputTokens: 0, outputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0 });
+  });
+  it("missing or malformed usage is UNKNOWN (null): no object, a missing/null required count, or any invalid count", () => {
+    const unknown: unknown[] = [
+      undefined, null, "100", 100, [], {},
+      { output_tokens: 50 }, { input_tokens: 100 }, { input_tokens: null, output_tokens: 50 }, { input_tokens: 100, output_tokens: null },
+      { input_tokens: -1, output_tokens: 50 }, { input_tokens: 100, output_tokens: 1.5 }, { input_tokens: "100", output_tokens: 50 },
+      { input_tokens: Number.NaN, output_tokens: 50 }, { input_tokens: Number.POSITIVE_INFINITY, output_tokens: 50 }, { input_tokens: 2 ** 60, output_tokens: 50 },
+      { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: -5 }, { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: "7" },
+      { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0.5 },
+    ];
+    for (const u of unknown) expect(parseUsage(u), JSON.stringify(u) ?? String(u)).toBeNull();
+  });
+  it("the adapter returns usage null (not zeros) for a 200 answer whose usage is missing or malformed", async () => {
+    for (const usage of [undefined, {}, { input_tokens: 100 }, { input_tokens: 100, output_tokens: -3 }]) {
+      const fetchFn = vi.fn(async () => ok({ content: [{ type: "text", text: "{}" }], stop_reason: "end_turn", ...(usage === undefined ? {} : { usage }) }));
+      const out = await anthropicProvider("k", fetchFn as unknown as typeof fetch).complete(req());
+      expect(out.text).toBe("{}");
+      expect(out.usage, JSON.stringify(usage) ?? "absent").toBeNull();
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

@@ -205,6 +205,62 @@ describe("cost is recorded as reported, never capped", () => {
   });
 });
 
+describe("unknown provider usage is never zero cost (regression: a valid answer recorded as free)", () => {
+  const withUsage = (usages: (typeof USAGE | null)[], texts?: (req: ProviderRequest, i: number) => string) => {
+    let i = 0;
+    return { id: "double", complete: vi.fn(async (req: ProviderRequest) => { const k = i++; return { text: texts ? texts(req, k) : answerFor(req), usage: usages[k], stopReason: "end_turn" }; }) };
+  };
+  it("a valid answer whose usage is unknown: recorded with a NULL cost (the reserved ceiling), never 0; one call only", async () => {
+    const p = withUsage([null]);
+    const w = world({ provider: p });
+    const r = await handleAssistant(USER, body(), w.deps);
+    expect(r).toMatchObject({ status: 200, body: { status: "answered" } });
+    expect(p.complete).toHaveBeenCalledTimes(1);                       // no second call to find out what it cost
+    expect(w.completes).toHaveLength(1);
+    expect(w.completes[0].p_actual_cost_micros).toBeNull();
+    expect(w.completes[0]).toMatchObject({ p_state: "succeeded", p_attempts: 1, p_validation: { attempts: 1, costKnown: false },
+      p_usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, unreportedCalls: 1 } });
+  });
+  it("one known and one unknown call: the partial known sum is NOT recorded as the cost — the whole run is unknown", async () => {
+    const w = world({ provider: withUsage([USAGE, null], (req, i) => (i === 0 ? "{}" : answerFor(req))) });
+    expect((await handleAssistant(USER, body(), w.deps)).status).toBe(200);
+    expect(w.completes[0].p_actual_cost_micros).toBeNull();
+    expect(w.completes[0]).toMatchObject({ p_attempts: 2, p_usage: { inputTokens: 3000, outputTokens: 400, cacheReadTokens: 1500, unreportedCalls: 1 } });
+  });
+  it("unknown usage then an invalid answer, a stale context, or a known-uncharged refusal: every recorded cost is NULL, never 0", async () => {
+    let w = world({ provider: withUsage([null, USAGE], () => "{}") });
+    expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ code: "ANSWER_INVALID" });
+    expect(w.completes[0]).toMatchObject({ p_state: "invalid", p_actual_cost_micros: null });
+
+    const changed = structuredClone(composition) as any; changed.compositionSha256 = "c".repeat(64);
+    w = world({ provider: withUsage([null]), compositions: [composition, changed] });
+    expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ code: "STALE_CONTEXT" });
+    expect(w.completes[0]).toMatchObject({ p_state: "stale", p_actual_cost_micros: null });
+
+    let n = 0;
+    const p = { id: "double", complete: vi.fn(async (req: ProviderRequest) => { if (n++ === 0) return { text: "{}", usage: null, stopReason: "end_turn" }; throw new ProviderError("rate_limited", "429"); }) };
+    w = world({ provider: p });
+    expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ code: "RATE_LIMITED" });
+    expect(w.completes[0]).toMatchObject({ p_state: "rejected", p_actual_cost_micros: null, p_failure_code: "RATE_LIMITED" });
+  });
+  it("reported usage is still priced exactly (unchanged): 10,150 micro-units, costKnown true", async () => {
+    const w = world();
+    await handleAssistant(USER, body(), w.deps);
+    expect(w.completes[0]).toMatchObject({ p_actual_cost_micros: 10150, p_validation: { attempts: 1, costKnown: true }, p_usage: { unreportedCalls: 0 } });
+  });
+  it("through the real adapter: a 200 answer with no usage object is answered once and recorded at the ceiling", async () => {
+    const { anthropicProvider } = await import("../../../supabase/functions/_shared/assistantProvider");
+    const fetchFn = vi.fn(async (_url: string, init: RequestInit) => {
+      const sent = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ content: [{ type: "text", text: answerFor({ messages: sent.messages } as ProviderRequest) }], stop_reason: "end_turn" }), { status: 200 });
+    });
+    const w = world({ provider: anthropicProvider("k", fetchFn as unknown as typeof fetch) });
+    expect((await handleAssistant(USER, body(), w.deps)).status).toBe(200);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(w.completes[0].p_actual_cost_micros).toBeNull();
+  });
+});
+
 describe("provider failures", () => {
   const failing = (kind: ProviderError["kind"]) => ({ id: "double", complete: vi.fn(async () => { throw new ProviderError(kind, "x"); }) });
   it("ambiguous (timeout / connection lost): recorded at the reserved ceiling (null cost), never retried", async () => {
@@ -247,6 +303,10 @@ describe("replay (same request id, same payload)", () => {
     expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ status: "stale" });
     w = world({ reserve: () => ({ outcome: "replay", runId: RUN, state: "reserved" }) });
     expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ code: "IN_PROGRESS" });
+    w = world({ reserve: () => ({ outcome: "replay", runId: RUN, state: "expired", failureCode: "EXPIRED_UNCONFIRMED" }) });
+    expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ status: "failed", code: "PREVIOUS_EXPIRED" });
+    expect(providerOf(w)).not.toHaveBeenCalled();
+    expect(w.completes).toHaveLength(0);
     w = world({ reserve: () => ({ outcome: "replay", runId: RUN, state: "ambiguous" }) });
     expect((await handleAssistant(USER, body(), w.deps)).body).toMatchObject({ code: "PREVIOUS_AMBIGUOUS" });
     expect(providerOf(w)).not.toHaveBeenCalled();

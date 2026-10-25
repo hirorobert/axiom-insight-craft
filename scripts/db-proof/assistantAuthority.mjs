@@ -10,7 +10,9 @@
 //   end to end    answered figures are the composition's own figures rendered by the server; the run records cost and
 //                 usage, never the prompt; a replay calls no model; a reused id with another payload is refused;
 //   limits        per-workspace lock: concurrent reservations never exceed the monthly cap or the concurrency limit;
-//                 concurrent duplicates of one request start one reservation; expired runs keep their reserved cost;
+//                 concurrent duplicates of one request start one reservation; expired runs keep their reserved cost; a
+//                 stranded request retried by its own id alone expires instead of staying in progress; unknown usage is
+//                 recorded at the reserved cost;
 //   isolation     another workspace's member gets nothing (no reservation, no model call); a revoked member receives no
 //                 answer, not even a replay; clients cannot read the tables, reserve, complete or configure;
 //   records       a run completes once; completed runs are immutable (even to the owner) except the retention purge;
@@ -249,6 +251,66 @@ async function main() {
     const x = await db.one("SELECT state, failure_code, actual_cost_micros, reserved_cost_micros FROM public.ai_assistant_runs WHERE id=$1", [r.runId]);
     const late = (await db.asService("SELECT public.ai_assistant_complete($1,'succeeded',1,NULL,1,1,'{}'::jsonb,NULL,NULL,NULL) r", [r.runId])).r;
     return x.state === "expired" && x.failure_code === "EXPIRED_UNCONFIRMED" && x.actual_cost_micros === null && late.outcome === "already_completed" ? true : { x, late };
+  });
+  // A STRANDED request: the provider was called, then the function crashed before recording the outcome (here: the
+  // completion RPC fails), so the run stays reserved. Retrying ONLY that request id — nothing else reserves in between —
+  // must not answer IN_PROGRESS forever once it is overdue, must keep its reserved cost and must never call the model again.
+  let stranded;
+  await check("a request stranded by a crash after the provider call stays reserved (the function answers 500)", async () => {
+    await settle();
+    await budget(A, 100_000_000, 1000, 10);
+    const before = globalThis.__testProvider.complete;
+    globalThis.__testProvider.complete = async (q) => {
+      await db.admin.query("REVOKE EXECUTE ON FUNCTION public.ai_assistant_complete(uuid, text, bigint, jsonb, integer, integer, jsonb, text[], jsonb, text) FROM service_role");
+      return before(q);
+    };
+    stranded = req();
+    try {
+      const r = await ask(tested, U.owner, stranded);
+      const x = await db.one("SELECT state, actual_cost_micros FROM public.ai_assistant_runs WHERE request_id=$1", [stranded.requestId]);
+      return r.http === 500 && x.state === "reserved" && x.actual_cost_micros === null ? true : { r, x };
+    } finally {
+      globalThis.__testProvider.complete = before;
+      await db.admin.query("GRANT EXECUTE ON FUNCTION public.ai_assistant_complete(uuid, text, bigint, jsonb, integer, integer, jsonb, text[], jsonb, text) TO service_role");
+    }
+  });
+  await check("retrying the stranded id INSIDE its bound still answers IN_PROGRESS, with no model call and no new run", async () => {
+    const s = seen.length, n = await runs();
+    const r = await ask(tested, U.owner, stranded);
+    const x = await db.one("SELECT state FROM public.ai_assistant_runs WHERE request_id=$1", [stranded.requestId]);
+    return r.body.code === "IN_PROGRESS" && x.state === "reserved" && seen.length === s && (await runs()) === n ? true : { body: r.body, x };
+  });
+  await check("once overdue, retrying ONLY the stranded id expires it before replaying: PREVIOUS_EXPIRED, reserved cost kept, no model call", async () => {
+    await db.admin.query("SET session_replication_role = replica");
+    await db.admin.query("UPDATE public.ai_assistant_runs SET created_at = now() - interval '10 minutes' WHERE request_id=$1", [stranded.requestId]);
+    await db.admin.query("SET session_replication_role = origin");
+    const s = seen.length, n = await runs();
+    const spentBefore = Number((await db.one("SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) s FROM public.ai_assistant_runs WHERE company_id=$1", [A])).s);
+    const r = await ask(tested, U.owner, stranded);
+    const x = await db.one("SELECT state, failure_code, actual_cost_micros, reserved_cost_micros FROM public.ai_assistant_runs WHERE request_id=$1", [stranded.requestId]);
+    const spentAfter = Number((await db.one("SELECT COALESCE(sum(COALESCE(actual_cost_micros,reserved_cost_micros)),0) s FROM public.ai_assistant_runs WHERE company_id=$1", [A])).s);
+    const again = await ask(tested, U.owner, stranded);
+    return r.body.status === "failed" && r.body.code === "PREVIOUS_EXPIRED" && r.body.answer === undefined
+      && x.state === "expired" && x.failure_code === "EXPIRED_UNCONFIRMED" && x.actual_cost_micros === null && Number(x.reserved_cost_micros) > 0
+      && spentAfter === spentBefore && seen.length === s && (await runs()) === n && again.body.code === "PREVIOUS_EXPIRED"
+      ? true : { body: r.body, x, spentBefore, spentAfter, calls: seen.length - s };
+  });
+  await check("the expired stranded run no longer blocks its user: a NEW request id is reserved and answered", async () => {
+    const r = await ask(tested, U.owner, req());
+    return r.http === 200 && r.body.status === "answered" ? true : r.body;
+  });
+  await check("a provider answer without usage is recorded at the reserved cost (unknown, never free), the answer still returned once", async () => {
+    await settle();
+    const before = globalThis.__testProvider.complete;
+    let calls = 0;
+    globalThis.__testProvider.complete = async (q) => { calls++; const a = await before(q); return { ...a, usage: null }; };
+    try {
+      const q = req();
+      const r = await ask(tested, U.owner, q);
+      const x = await db.one("SELECT state, actual_cost_micros, reserved_cost_micros, overrun_micros, usage, validation FROM public.ai_assistant_runs WHERE request_id=$1", [q.requestId]);
+      return r.http === 200 && r.body.status === "answered" && calls === 1 && x.state === "succeeded" && x.actual_cost_micros === x.reserved_cost_micros
+        && x.overrun_micros === "0" && x.usage.unreportedCalls === 1 && x.validation.costKnown === false ? true : { body: r.body, x, calls };
+    } finally { globalThis.__testProvider.complete = before; }
   });
   await check("a daily quota is enforced per user", async () => {
     await settle();

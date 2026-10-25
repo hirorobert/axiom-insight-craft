@@ -19,11 +19,12 @@
 --                                (access re-derived, quota, concurrency, pessimistic monthly cost), idempotent per
 --                                (actor, request id) with a payload digest (same key + same payload replays; a different
 --                                payload is refused), completed once. A run left reserved past twice the request bound is
---                                EXPIRED and still counted at its reserved cost (an ambiguous call is never assumed free and
---                                never retried). The validated answer is kept for replay and purged after the configured
+--                                EXPIRED — before the idempotency lookup, so a retry of its own id sees it expired — and still
+--                                counted at its reserved cost (an ambiguous call is never assumed free and never retried). The validated answer is kept for replay and purged after the configured
 --                                retention; operational fields never hold the prompt. The cost recorded is the cost the
 --                                provider reported — NEVER capped at the reservation; an unknown cost (failed or ambiguous
---                                call) is recorded at the reservation as an estimate.
+--                                call, or usage the provider did not report in the documented form) is recorded at the
+--                                reservation as an estimate.
 --   5. ai_assistant_overrun_reviews  any run whose recorded cost exceeds its reservation (overrun_micros > 0) stops EVERY
 --                                new reservation, platform-wide, until a commercial admin records a review of it: an
 --                                overrun means the bounds or prices are wrong, so spending pauses rather than continuing.
@@ -287,6 +288,12 @@ BEGIN
   -- One lock per workspace, taken before the idempotency lookup: concurrent duplicates of one request see one reservation
   -- (the rest replay it), and concurrent reservations cannot both pass the budget, the quota or the concurrency limit.
   PERFORM pg_advisory_xact_lock(hashtextextended('ai_assistant:' || p_company_id::text, 0));
+  -- A run left reserved past twice the request bound is expired: its call may or may not have completed, so it keeps its
+  -- reserved cost (actual_cost_micros stays NULL and counts at reserved_cost_micros) and is never retried. This runs BEFORE
+  -- the idempotency lookup, so a retry of the stranded request's own id sees it expired (PREVIOUS_EXPIRED) instead of
+  -- IN_PROGRESS forever; a run inside its bound is untouched and still replays as in progress.
+  UPDATE public.ai_assistant_runs r SET state = 'expired', failure_code = 'EXPIRED_UNCONFIRMED', completed_at = clock_timestamp()
+   WHERE r.company_id = p_company_id AND r.state = 'reserved' AND r.created_at < clock_timestamp() - make_interval(secs => 2 * v_s.max_request_seconds);
   SELECT * INTO v_run FROM public.ai_assistant_runs r WHERE r.actor_user_id = p_user_id AND r.request_id = p_request_id;
   IF v_run.id IS NOT NULL THEN
     IF v_run.payload_sha256 <> p_payload_sha256 OR v_run.company_id <> p_company_id THEN
@@ -301,10 +308,6 @@ BEGIN
               AND NOT EXISTS (SELECT 1 FROM public.ai_assistant_overrun_reviews v WHERE v.run_id = r.id)) THEN
     RETURN jsonb_build_object('outcome', 'refused', 'code', 'COST_OVERRUN_REVIEW_REQUIRED');
   END IF;
-  -- A run left reserved past twice the request bound is expired: its call may or may not have completed, so it keeps its
-  -- reserved cost and is never retried.
-  UPDATE public.ai_assistant_runs r SET state = 'expired', failure_code = 'EXPIRED_UNCONFIRMED', completed_at = clock_timestamp()
-   WHERE r.company_id = p_company_id AND r.state = 'reserved' AND r.created_at < clock_timestamp() - make_interval(secs => 2 * v_s.max_request_seconds);
   SELECT * INTO v_b FROM public.ai_assistant_budgets b WHERE b.company_id = p_company_id;
   IF v_b.company_id IS NULL THEN RETURN jsonb_build_object('outcome', 'refused', 'code', 'AI_BUDGET_EXCEEDED'); END IF;
   IF EXISTS (SELECT 1 FROM public.ai_assistant_runs r WHERE r.company_id = p_company_id AND r.actor_user_id = p_user_id AND r.state = 'reserved') THEN

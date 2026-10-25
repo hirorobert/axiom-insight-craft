@@ -55,7 +55,15 @@ retention). The recorded cost is the provider-reported cost, **never capped** at
 `overrun_micros`, counts toward the monthly cap, and **pauses every new reservation platform-wide**
 (`COST_OVERRUN_REVIEW_REQUIRED`) until a commercial admin records a review (`ai_assistant_review_overrun`,
 `ai_assistant_overrun_reviews`, append-only). An unknown cost (failed or ambiguous call) is recorded at the reservation —
-an estimate, stated as such. No client can read or write any of these tables; reserve/complete are service-role only.
+an estimate, stated as such. **Usage is validated, never defaulted** (`parseUsage`, `_shared/assistantProvider.ts`):
+`input_tokens` and `output_tokens` are required non-negative safe integers; the two cache counts may be absent or null (none
+in that category) but are otherwise validated the same way. A missing or malformed usage makes that call's cost UNKNOWN: the
+whole run is then recorded with a NULL actual cost (= its reservation, never 0 and never the partial known sum), its record
+says `usage.unreportedCalls` and `validation.costKnown = false`, a valid answer is still returned once, and no call is made to
+find out what it cost. **A stranded request expires on its own retry:** `ai_assistant_reserve` expires a workspace's overdue
+reservations (past twice the request bound) under the workspace lock BEFORE its idempotency lookup, so retrying the stranded
+request's own id answers `PREVIOUS_EXPIRED` (reserved cost kept, the generation never re-run) instead of `IN_PROGRESS`
+forever; a run inside its bound still replays as `IN_PROGRESS`. No client can read or write any of these tables; reserve/complete are service-role only.
 
 **Request identity in the browser** (`src/lib/assistant/assistantClient.ts`): supabase-js returns transport errors
 (`FunctionsFetchError`, `FunctionsRelayError`, `FunctionsHttpError`) instead of throwing them. Any outcome that is not a

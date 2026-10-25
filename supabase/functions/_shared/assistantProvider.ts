@@ -33,10 +33,33 @@ export function ceilingMicros(calls: number, maxInputTokens: number, maxOutputTo
   return calls * Math.ceil((maxInputTokens * inputRate + maxOutputTokens * p.outputMicrosPerMTok) / 1_000_000);
 }
 
+/**
+ * The provider's reported usage, or null (UNKNOWN) when it is not in the documented form. `input_tokens` and `output_tokens`
+ * are required: each must be present as a non-negative safe integer. The two cache counts are optional in the Messages API
+ * (absent or null = none reported in that category, 0); when present they must be non-negative safe integers too. Anything
+ * else — no usage object, a missing or null required count, a negative, fractional, non-finite, string or oversized value —
+ * makes the whole usage unknown. Nothing is floored, clamped or defaulted to zero.
+ */
+export function parseUsage(raw: unknown): Usage | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const u = raw as Record<string, unknown>;
+  const count = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null);
+  const optional = (v: unknown) => (v === undefined || v === null ? 0 : count(v));
+  const inputTokens = count(u.input_tokens), outputTokens = count(u.output_tokens);
+  const cacheWriteTokens = optional(u.cache_creation_input_tokens), cacheReadTokens = optional(u.cache_read_input_tokens);
+  if (inputTokens === null || outputTokens === null || cacheWriteTokens === null || cacheReadTokens === null) return null;
+  return { inputTokens, outputTokens, cacheWriteTokens, cacheReadTokens };
+}
+
 // ── Provider seam ────────────────────────────────────────────────────────────────────────────────────────────────────
 export interface ProviderMessage { role: "user" | "assistant"; content: string }
 export interface ProviderRequest { model: string; system: string; messages: ProviderMessage[]; maxTokens: number; signal: AbortSignal }
-export interface ProviderAnswer { text: string; usage: Usage; stopReason: string | null }
+/**
+ * `usage` is null when the provider's answer did not report its usage in the documented form (see parseUsage): the cost of
+ * that call is UNKNOWN. Unknown is never zero — the gateway records the run at its reserved ceiling and does not call again
+ * to find out.
+ */
+export interface ProviderAnswer { text: string; usage: Usage | null; stopReason: string | null }
 /**
  * rejected     the provider refused the request before processing it (4xx other than 429): not charged.
  * rate_limited 429: not processed, not charged; the person may try again later.
@@ -80,13 +103,7 @@ export function anthropicProvider(apiKey: string, fetchFn: typeof fetch = fetch)
       try { body = await res.json(); } catch (e) { throw new ProviderError("ambiguous", e instanceof Error ? e.name : "body"); }
       const content = Array.isArray(body.content) ? body.content as { type?: string; text?: string }[] : [];
       const text = content.filter((c) => c.type === "text" && typeof c.text === "string").map((c) => c.text).join("");
-      const u = (body.usage ?? {}) as Record<string, unknown>;
-      const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
-      return {
-        text,
-        usage: { inputTokens: n(u.input_tokens), outputTokens: n(u.output_tokens), cacheWriteTokens: n(u.cache_creation_input_tokens), cacheReadTokens: n(u.cache_read_input_tokens) },
-        stopReason: typeof body.stop_reason === "string" ? body.stop_reason : null,
-      };
+      return { text, usage: parseUsage(body.usage), stopReason: typeof body.stop_reason === "string" ? body.stop_reason : null };
     },
   };
 }
