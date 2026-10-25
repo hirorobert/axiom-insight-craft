@@ -17,6 +17,8 @@ import { IFRS_FOR_SMES_2015 } from "@/lib/frameworkPacks/ifrsForSmes";
 import { statementViews, type Composition, type CompositionLine, type StatementRow, overCapacityWords } from "@/lib/statements/composition";
 import type { NotesStatus } from "@/lib/notes/notesStatus";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
+import { AskCfoClosePanel } from "./AskCfoClosePanel";
+import { ASK_CFOCLOSE_ENABLED } from "@/lib/assistant/gate";
 
 const NOT_COMPOSED: Record<string, string> = {
   unavailable: "Financial statements are not enabled for this company.",
@@ -48,6 +50,7 @@ function Composed(p: PageProps & { c: Composition }) {
   }, [p.c, tci]);
   const [open, setOpen] = useState<Row | null>(null);
   const [commentOn, setCommentOn] = useState<Row | null>(null);
+  const [askOn, setAskOn] = useState<Row | null>(null);
   const cmpYear = p.c.comparative.periodYear;
   // A reviewer comments on a figure of a SAVED version (the selected one, else the latest); the fact id is the line's current-period fact.
   const version = p.state.versions.find((v) => v.reportVersion === p.reportVersion) ?? p.state.latest?.version ?? null;
@@ -58,6 +61,8 @@ function Composed(p: PageProps & { c: Composition }) {
     { id: "cur", header: `FY${p.c.current.periodYear}`, kind: "amount", render: (r) => (r.current ? <Amt t={r.current} /> : "") },
     { id: "cmp", header: cmpYear ? `FY${cmpYear}` : "Comparative", kind: "amount", render: (r) => (r.comparative ? <span><Amt t={r.comparative} />{r.comparativeAsReported ? <span className="block text-xs text-muted-foreground">as reported <Amt t={r.comparativeAsReported} /></span> : null}</span> : "") },
     { id: "trace", header: "Lineage", render: (r) => (r.lineage ? <button type="button" className="text-primary underline" data-trace={r.lineId} onClick={() => setOpen(r)} tabIndex={-1}>Trace</button> : "") },
+    // Ask CFOClose (Release 0.1): only while the reviewed gate is on; the server still decides every request.
+    ...(ASK_CFOCLOSE_ENABLED ? [{ id: "ask", header: "Ask", render: (r: Row) => (r.kind === "line" && r.lineId ? <button type="button" className="text-primary underline" data-ask-line={r.lineId} onClick={() => setAskOn(r)} tabIndex={-1}>Ask</button> : "") }] : []),
     ...(canComment ? [{ id: "comment", header: "Review", render: (r: Row) => (r.kind === "line" && factIdOf(r) ? <button type="button" className="text-primary underline" data-comment-line={r.lineId} onClick={() => setCommentOn(r)} tabIndex={-1}>Comment</button> : "") }] : []),
   ];
   return (
@@ -84,6 +89,16 @@ function Composed(p: PageProps & { c: Composition }) {
       <SecondaryPanel open={open !== null} title={open ? `Lineage — ${open.label}` : ""} onClose={() => setOpen(null)} returnSelector={open ? `[data-trace="${open.lineId}"]` : undefined}>
         {open?.lineage ? <Lineage lineage={open.lineage} exponent={p.c.current.exponent} /> : null}
       </SecondaryPanel>
+      {ASK_CFOCLOSE_ENABLED ? (
+        <SecondaryPanel open={askOn !== null} title={askOn ? `Ask CFOClose — ${askOn.label}` : ""} onClose={() => setAskOn(null)} returnSelector={askOn ? `[data-ask-line="${askOn.lineId}"]` : undefined}>
+          {askOn?.lineId ? (
+            <AskCfoClosePanel companyId={p.companyId} periodYear={p.periodYear} legalName={p.legalName} lineId={askOn.lineId} lineLabel={askOn.label}
+              dataStatus={`Composed from certified trial balances · comparative ${p.c.comparative.state === "available" ? `FY${cmpYear}` : "not available"}${p.c.blockers.length ? ` · ${p.c.blockers.length} open blocker(s)` : ""}`}
+              onShowRecords={() => { const r = askOn; setAskOn(null); if (r.lineage) setOpen(r); }} rpc={(fn, args) => p.db.rpc(fn, args)}
+              invoke={async (name, { body }) => (p.db.invoke ? p.db.invoke(name, body) : { data: null, error: { message: "Server functions are not reachable from this page." } })} />
+          ) : null}
+        </SecondaryPanel>
+      ) : null}
       <SecondaryPanel open={commentOn !== null} title={commentOn ? `Review — ${commentOn.label}` : ""} onClose={() => setCommentOn(null)} returnSelector={commentOn ? `[data-comment-line="${commentOn.lineId}"]` : undefined}>
         {commentOn && version && factIdOf(commentOn) ? (
           <div className="space-y-4" data-testid="line-review">

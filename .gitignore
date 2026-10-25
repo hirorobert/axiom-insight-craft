@@ -32,3 +32,4 @@ __pycache__/
 
 # Browser acceptance screenshots and results (CI artifacts, never committed)
 artifacts/
+scripts/assistant-eval/results/
