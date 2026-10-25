@@ -252,9 +252,9 @@ export function transportForms() {
 
 /** Candidate forms are pinned after generation; they are NOT registered in the canonical release journal yet. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  internal_beta_staged_transport: "PENDING_PIN",
-  beta_1_assistant_controls_staged_apply: "PENDING_PIN",
-  beta_2_internal_policy_staged_apply: "PENDING_PIN",
+  internal_beta_staged_transport: "5b328721b392025a56eab26019814ad2db3f77deef2db6e1ceffd0f219f4a550",
+  beta_1_assistant_controls_staged_apply: "45dd547dbf54c965c6f01a112e2a2936683706abb95a27b0fb3a55c11c6ca8d0",
+  beta_2_internal_policy_staged_apply: "d49184947b2d00ff7ea04e77cb82c71e2cb335827754f0e878592014c70c0db6",
 });
 
 export function checkTransportMirror(tag, text) {
