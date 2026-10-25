@@ -115,3 +115,27 @@ record rollback; reconcile new compilations/publications/authority events/issuan
 - Preview build telemetry: build OK. Browser normal `/auth` shows the sign-in form; protected workspace redirects there,
   zero page errors. No managed session restored or minted. Authenticated reporting/AI acceptance NOT TESTED.
 - No backend migration/function deployment/publication/activation occurred. Hosted journal and original digest unchanged.
+## Activation from a normal administrator account (2026-10-25, migration `20261203100000`)
+
+Why a migration was needed: after hosted 84–86 the activation still could not be done from an administrator account.
+`internal_beta_configure` needs the policy revision, which no administrator could read; the reporting master switch and the
+company allowlist (`fs_set_kill_switch`, `fs_set_company_rollout`, 20260919100000) and synthetic-scope recording are
+service-role operator controls only. `20261203100000_internal_beta_admin_activation.sql` adds five admin-only, audited
+definer functions (see CLAUDE.md §9.5). It is a plain forward migration: no staged transport; its hosted mirror is accepted
+by the ordinary mirror rule (checked by simulating a `0086` mirror locally). It changes no table, policy, capability, budget
+rule or financial record, and installing it changes no state.
+
+Order after this commit is green on GitHub:
+1. Lovable applies `20261203100000_internal_beta_admin_activation.sql` with its native migrator (expected hosted id 87) — the
+   one backend step; a GitHub sync never applies a migration. No Edge Function changes.
+2. Lovable syncs the same commit and Publish publishes the matching frontend.
+3. The owner signs in normally → Settings → Commercial administration → **Internal beta** (or
+   `/commercial/admin?tab=internal-beta`): choose the acceptance company (only companies with an enrolled member can be
+   chosen), give a reason, Confirm and open. One transaction: allowlist exactly that company → beta reporting on → master
+   switch released last. **Close reporting now** engages the master switch first and empties the allowlist.
+4. AI, separately and only after checking the provider's current prices and remaining credit: with reporting open, record the
+   synthetic data (company + year; the database computes the hash), then enter the model and prices and confirm both checks.
+   The screen shows each request's reservation and how many fit the remaining allowance. **Stop assistant spending** needs no
+   revision.
+
+Proof: `scripts/db-proof/internalBetaActivation.mjs` (full chain, real certification engine): 36/36 locally.

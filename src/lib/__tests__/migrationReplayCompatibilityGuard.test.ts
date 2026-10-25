@@ -280,8 +280,9 @@ describe("migration directory integrity", () => {
     // (track-a-r1: FINAL-authority write closure, history TRUNCATE closure, the audited framework change and its guard).
     // 197 -> 198: 20261201100000_assistant_controls.sql (Ask CFOClose Release 0.1: disabled-by-default assistant settings,
     // workspace enablement, budgets, append-only runs and overrun reviews with server-only reservation; new objects only), pending.
-    // Internal beta policy follows the assistant controls; both remain pending hosted installation.
-    expect(files.length).toBe(199);
+    // Internal beta policy follows the assistant controls (both installed as hosted 85/86).
+    // 199 -> 200: 20261203100000_internal_beta_admin_activation.sql (admin-only activation controls), pending hosted application.
+    expect(files.length).toBe(200);
   });
 });
 

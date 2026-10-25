@@ -140,6 +140,10 @@ describe("database inertness — schema and functions", () => {
       // environment names it, and writes nothing but its own run record (proof: scripts/db-proof/assistantAuthority.mjs).
       "supabase/migrations/20261201100000_assistant_controls.sql",
       "supabase/migrations/20261202100000_internal_beta_policy.sql",
+      // Internal beta activation controls (20261203100000): five admin-only, audited definer functions so a signed-in
+      // commercial administrator can read the beta state and open/close reporting; new functions only (proof:
+      // scripts/db-proof/internalBetaActivation.mjs).
+      "supabase/migrations/20261203100000_internal_beta_admin_activation.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -808,6 +812,8 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/internalBetaPolicy.mjs");
     allowed.add("scripts/db-proof/internalBetaTransport.mjs");
     allowed.add("scripts/release/internalBetaStagedTransport.mjs");
+    // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
+    allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
