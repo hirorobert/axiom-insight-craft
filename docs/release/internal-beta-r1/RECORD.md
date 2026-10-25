@@ -139,3 +139,16 @@ Order after this commit is green on GitHub:
    revision.
 
 Proof: `scripts/db-proof/internalBetaActivation.mjs` (full chain, real certification engine): 36/36 locally.
+
+## Installation of `20261203100000` (2026-10-25, from main `576782fe`)
+
+- Predecessor: hosted id 86 (`80b961a8…`); entries 84–86 not repeated. Preflight state: master switch engaged, allowlist =
+  `659daa94-116c-4803-99f8-157e0bdd4c62` only, beta policy revision 1 with reporting and AI off, admin functions absent.
+- Applied through the native migrator as hosted id **87**, mirror `drizzle/migrations/0086_internal_beta_admin_activation.sql`,
+  hash `4d10e4d9732c28488a457b8ed02fe4b7f20941726eda156894abca9e8cb40e92`. Its own preflight and postcondition passed.
+- **Not byte-identical to the source** (`61b8ca42…de46`, 19,971 bytes): the submitted SQL has one fewer leading space on line
+  141 (indentation inside `internal_beta_admin_open_reporting`). No token differs; behaviour is identical. The applied mirror
+  is not edited. MIGRATION_AUTHORITY: OK (77 entries, PENDING_HOSTED_APPLY: none).
+- After: 5 admin functions present; master switch still engaged; allowlist unchanged; policy revision 1, reporting and AI off;
+  sign-off bindings 2 rows, digest `de1e521b8731b1fc5f30ee4a15c17a0834838fb0530335696aceb5fda8f78642` unchanged.
+- No function deployment, publication, activation, AI call or payment change in this step.
