@@ -12,33 +12,45 @@ Read-only inventory: 16 auth users, 19 companies, 19 accepted memberships; every
 Public signup hosted setting remains UNVERIFIED. The candidate's enrollment snapshot prevents future signup from
 self-enrolling, regardless of that setting. No email-domain guesses or privilege promotion.
 
-## Actual source-path refusal
+## Repository completion (Codex, no Lovable agent usage)
 
-Adding `supabase/migrations/20261202100000_internal_beta_policy.sql` through the file tool returned:
+The protected-editor limitation is resolved in the Git repository. Authored source now exists at
+`supabase/migrations/20261202100000_internal_beta_policy.sql`, pinned by the transport to source commit
+`18bd63b621317b8c9a608db27264bed213ceb146`. The earlier file in `release/candidates/` is an inert historical draft;
+it is not an installation source. The authored version also closes default API-role table mutation/TRUNCATE grants,
+adds manager-authorized accepted-team enrollment status, and preserves the pre-existing reporting rollout when beta is disabled.
+When beta reporting is enabled, its enrollment requirement is additional to existing rollout and capability checks.
 
-> Files under supabase/migrations/ are managed by the migration system and can't be edited, added, or copied directly.
-> Apply schema changes through the database migration tool (tool name: supabase--migration), which runs the SQL and writes the migration file for you.
+Normal Settings → Firm & Team now shows accepted members' beta enrollment to an authorized manager. The manager can
+explicitly enroll an accepted colleague; this grants no financial capability. The server checks membership and
+`manage_members` at execution. An older or unauthorized backend exposes no enrollment action.
 
-The available native `lov_database--migration` accepts SQL text and **applies immediately**, writing a Drizzle mirror;
-it has no prepare-only authored-file operation. It was NOT invoked to bypass the source-path refusal. No unregistered SQL
-was submitted and no journal was hand-edited.
+`internalBetaStagedTransport.mjs` pins committed authored bytes and generates five exact-byte files. The canonical
+release guard recognizes `beta_staged_transport` mirrors, verifies their literal SHA-256 and their source bytes,
+and rejects any changed form. No hosted rows 84–86 are registered as applied in advance.
 
-## Concrete Codex repository handoff — owner need not engineer transport
+Expected install order (hosted predecessor must still be id 83 and its recorded hash):
 
-1. Promote **byte-identically** `release/candidates/internal-beta/20261202100000_internal_beta_policy.sql` to
-   `supabase/migrations/20261202100000_internal_beta_policy.sql` in the repository environment that permits authored files.
-   Source is 20,177 UTF-8 bytes, SHA-256 `4497f7cf23d3bc650e6c5ad847110b339e5f5cb3a0cf17a29dc0c51adc14e726`.
-2. Existing assistant controls are unchanged: `supabase/migrations/20261201100000_assistant_controls.sql`, 38,510 bytes,
-   SHA-256 `84695443fc325657b68b159f753a788c16249fac92b0e78176e9876a4994fd3f`.
-3. `scripts/release/internalBetaStagedTransport.mjs` and **five generated SQL files** under
-   `release/staged-transport-beta/` already exist. Source commit pinned there is `5e4603de1c443612d1c8446c4907a84975440a5f`.
-   After promotion, change the beta artifact path to its authored path, pin the final committed source and regenerate
-   literal form hashes. Register its forms in `scripts/ci/releaseJournal.mjs` and add mirror verification there BEFORE
-   native submission. Current generated hashes are candidate-only, not canonical registration.
-4. Run the two provided loopback PostgreSQL proofs and relevant/full release checks on that exact final SHA.
-   Do not mistake candidate mirror checking for RELEASE_JOURNAL registration. No pending reporting source is replayed.
-5. Canonical install order: private bootstrap → byte-verified inert staging → assistant controls → beta policy →
-   postcondition/history readback → matching functions/frontend → explicitly audited bounded activation.
+1. Native canonical migrator applies `00_internal_beta_staged_transport.sql` (expected id 84).
+2. Load the two generated `stage/*.source.sql` files as inert, fingerprint-checked data.
+3. Native canonical migrator applies assistant controls (`10_...`, expected id 85), then beta policy (`20_...`, expected id 86).
+4. Read back exact journal/mirror identities, source consumption, disabled-state postconditions and original bindings.
+5. Register only the actual canonical mirror files/rows, deploy matching `assistant-explain`, sync/publish matching frontend.
+6. Configure and activate the authorized internal beta with bounded spending; run real authenticated journeys.
+
+The connector available to this Codex session supports database queries and website publication, but exposes neither
+Lovable's native journalled migration operation nor Edge Function deployment. The AI-agent message operation was NOT
+used because the owner requested no Lovable AI-credit consumption. Generic SQL was not substituted for canonical
+migration application, and an incompatible frontend was not published. Repository completion alone is not live readiness.
+
+## Verification for this candidate
+
+The migration authority guard passes with precisely two pending authored sources (assistant controls and beta policy).
+Five generated transport files pass exact-byte verification. Focused canonical registration/source-tamper tests pass.
+The CI database job now includes isolated policy/transport rehearsals and extends the existing real-chain assistant proof
+with beta Team enrollment, tenant denial, preserved capabilities and service-role budget/history denial.
+Final unit/build/typecheck results and CI outcome must be attached to the actual candidate SHA; preparation is not
+hosted or browser acceptance. No Claude API requests were made and no Lovable AI-agent credits were consumed.
 
 ## Policy and spend
 
@@ -61,8 +73,8 @@ UNVERIFIED; no approval timestamps are invented. Live spending must remain disab
 Owner signs in normally → Settings → Firm & Team → select company → Invite member → Partner → send invitation.
 Reviewer opens invitation and signs in with their OWN account; Dashboard accepts the invitation through the existing
 server function. Verify actual review_close/approve_certification grants; display title alone is not authority.
-The current product has no separate beta-enrollment button yet: after migration registration/install, wire
-`internal_beta_enroll_member` into this normal team row (owner reason required). Do not use a tester page or solo_owner.
+The normal Team panel includes the enrollment action, backed by `internal_beta_enroll_member` after installation.
+The action records a fixed explicit audit reason; existing capabilities remain unchanged. Do not use a tester page or solo_owner.
 One owner membership currently means second-person browser acceptance remains UNTESTED.
 
 ## Reporting acceptance retained
@@ -79,7 +91,7 @@ Activation requires verifying ALL enabled company rows while global switch is ON
 Closure engages `fs_set_kill_switch(true,reason,operator)` FIRST, then disables company rows. It stops access, not committed
 record rollback; reconcile new compilations/publications/authority events/issuances/storage exactly. No automatic TTL.
 
-## Checks
+## Earlier candidate checks (historical; not final-candidate clearance)
 
 - 12/12 isolated PostgreSQL policy checks and 12/12 transport success/interruption/retry/rollback checks passed.
 - Assistant deterministic tests passed; these do not demonstrate model improvement or accountant approval.

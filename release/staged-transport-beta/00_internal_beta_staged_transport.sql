@@ -38,7 +38,7 @@ BEGIN
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
         ('beta-1-assistant-controls', 'source', 38510, '84695443fc325657b68b159f753a788c16249fac92b0e78176e9876a4994fd3f'),
-        ('beta-2-internal-policy', 'source', 20177, '4497f7cf23d3bc650e6c5ad847110b339e5f5cb3a0cf17a29dc0c51adc14e726')
+        ('beta-2-internal-policy', 'source', 22030, 'a8297d571dccdad22c49a747b9475c50ffa18312d8bcfd69b9c699f87b369268')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_beta_release.staged_artifacts_guard() RETURNS trigger

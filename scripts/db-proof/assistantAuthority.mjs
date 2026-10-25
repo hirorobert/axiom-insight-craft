@@ -81,7 +81,7 @@ async function main() {
   let patchedApplied = false;
   const tested = (await loadFunctionTree(REPO, "assistant-explain", { patch: (p, t) => {
     if (p !== "assistant-explain/index.ts") return t;
-    const out = t.replace("provider: configuredProvider(),", "provider: globalThis.__testProvider,");
+    const out = t.replace("const provider = isBeta && key ? anthropicProvider(key) : configuredProvider();", "const provider = globalThis.__testProvider;");
     patchedApplied = out !== t; return out;
   } })).handler;
   const ask = (h, uid, body) => call(h, db.pool, uid ? mintTestJwt(uid) : null, body);
@@ -365,6 +365,34 @@ async function main() {
     const comp = await compose(U.owner);
     return r.body.code === "PROVIDER_DISABLED" && comp.state === "composed" ? true : { r: r.body, state: comp.state };
   });
+  group("Internal beta — real full-chain schema and normal accepted membership");
+  await check("shipped beta leaves the existing reporting rollout unchanged", async () => {
+    const p = await db.one("SELECT reporting_enabled,ai_enabled FROM public.internal_beta_policy WHERE singleton");
+    return !p.reporting_enabled && !p.ai_enabled && (await compose(U.owner)).state === "composed";
+  });
+  await refused("service credential cannot rewrite the aggregate beta budget", "42501", () => db.asService("UPDATE public.internal_beta_policy SET total_budget_micros=999999999"));
+  await refused("service credential cannot truncate beta history", "42501", () => db.asService("TRUNCATE public.internal_beta_assistant_runs"));
+  // The migration snapshots existing members. This disposable chain creates its world AFTER migration; explicitly seed
+  // only this fixture's owner, then exercise the real authenticated manager workflow for a later accepted colleague.
+  await db.admin.query("INSERT INTO public.internal_beta_enrollments(company_id,user_id,basis) VALUES($1,$2,'owner_enrolled_member')", [A,U.owner]);
+  await check("normal owner reads accepted Team enrollment", async () => {
+    const r = (await db.asUser(U.owner,"SELECT public.internal_beta_team_status($1) r",[A])).r;
+    return Array.isArray(r) && r.some(x=>x.userId===U.owner && x.enrolled===true);
+  });
+  await refused("another workspace owner cannot inspect Team enrollment", "42501", () => db.asUser(U.ownerB,"SELECT public.internal_beta_team_status($1)",[A]));
+  await check("normal manager enrolls an accepted colleague without elevating their capabilities", async () => {
+    const sql = "SELECT public.has_workspace_capability($1,$2,'manage_members') c";
+    const before = await db.one(sql,[A,U.viewer]);
+    const r = (await db.asUser(U.owner,"SELECT public.internal_beta_enroll_member($1,$2,'Accepted colleague internal beta access') r",[A,U.viewer])).r;
+    const after = await db.one(sql,[A,U.viewer]);
+    const rows = (await db.asUser(U.owner,"SELECT public.internal_beta_team_status($1) r",[A])).r;
+    return r.outcome==='recorded' && before.c===after.c && rows.some(x=>x.userId===U.viewer && x.enrolled===true);
+  });
+  await refused("non-manager cannot enroll a colleague", "42501", () => db.asUser(U.viewer,"SELECT public.internal_beta_enroll_member($1,$2,'Unauthorized member enrollment attempt')",[A,U.ownerB]));
+  await db.admin.query("UPDATE public.internal_beta_policy SET reporting_enabled=true WHERE singleton");
+  await check("activated beta retains normal reporting for enrolled owner", async () => (await compose(U.owner)).state==='composed');
+  await db.admin.query("UPDATE public.internal_beta_policy SET reporting_enabled=false WHERE singleton");
+
 }
 
 let crashed = false;

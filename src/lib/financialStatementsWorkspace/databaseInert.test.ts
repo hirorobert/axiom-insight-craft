@@ -139,6 +139,7 @@ describe("database inertness — schema and functions", () => {
       // assistant-explain, which reads the composed statements with the caller's token, wires a provider only when the
       // environment names it, and writes nothing but its own run record (proof: scripts/db-proof/assistantAuthority.mjs).
       "supabase/migrations/20261201100000_assistant_controls.sql",
+      "supabase/migrations/20261202100000_internal_beta_policy.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",

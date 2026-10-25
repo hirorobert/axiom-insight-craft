@@ -13,7 +13,7 @@ let checks=0;
 const ok=(name,test)=>{assert.ok(test,name); checks++; console.log('PASS',name);};
 try {
   assert.equal((await db.query("select count(*)::int n from pg_tables where schemaname='public'")).rows[0].n,0);
-  await db.query(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+  await db.query(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF; END $$;
     CREATE SCHEMA auth;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('test.uid',true),'')::uuid $$;
     CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT current_user::text $$;
@@ -34,10 +34,18 @@ try {
     INSERT INTO public.companies VALUES('${A}','${U}'),('${B}','${V}');
     INSERT INTO public.firm_members VALUES(gen_random_uuid(),'${A}','${U}',now()),(gen_random_uuid(),'${B}','${V}',now());
     INSERT INTO public.financial_statements_rollout_companies VALUES('${A}',true),('${B}',true);`);
-  await db.query(fs.readFileSync('release/candidates/internal-beta/20261202100000_internal_beta_policy.sql','utf8'));
+  await db.query(fs.readFileSync('supabase/migrations/20261202100000_internal_beta_policy.sql','utf8'));
   ok('snapshot contains exactly existing authorized owners/members',(await db.query('select count(*)::int n from internal_beta_enrollments')).rows[0].n===2);
   ok('production approvals remain unset',(await db.query('select enabled,data_handling_approved_at,evaluation_approved_at from ai_assistant_settings')).rows[0].enabled===false);
+  ok('API service cannot alter allowance',(await db.query("select has_table_privilege('service_role','internal_beta_policy','UPDATE') b")).rows[0].b===false);
+  ok('API service cannot truncate history',(await db.query("select has_table_privilege('service_role','internal_beta_assistant_runs','TRUNCATE') b")).rows[0].b===false);
   ok('client cannot reserve',(await db.query("select has_function_privilege('authenticated','internal_beta_assistant_reserve(uuid,uuid,integer,text,text,uuid,text,text,text)','EXECUTE') b")).rows[0].b===false);
+  await db.query("select set_config('test.uid',$1,false)",[U]);
+  ok('manager reads only accepted team enrollment',(await db.query('select internal_beta_team_status($1) r',[A])).rows[0].r.length===1);
+  await db.query("select set_config('test.uid',$1,false)",[V]);
+  let denied=false; try {await db.query('select internal_beta_team_status($1)',[A]);} catch {denied=true;}
+  ok('other workspace cannot read team enrollment',denied);
+  await db.query("select set_config('test.uid','',false)");
   await db.query(`UPDATE internal_beta_policy SET reporting_enabled=true,ai_enabled=true,model='FAKE',
     prices='{"inputMicrosPerMTok":2000000,"outputMicrosPerMTok":10000000,"cacheWriteMicrosPerMTok":2500000,"cacheReadMicrosPerMTok":100000}',
     reservation_micros=124000,credits_confirmed_at=now(),pricing_confirmed_at=now();
@@ -59,5 +67,8 @@ try {
   ok('completed history immutable',immutable);
   await db.query(`INSERT INTO firm_members VALUES(gen_random_uuid(),'${A}','${V}',now())`);
   ok('later accepted member is NOT auto-enrolled',(await reserve(V,A,'88888888-8888-4888-8888-888888888888')).code==='FORBIDDEN');
+  await db.query("select set_config('test.uid',$1,false)",[U]);
+  ok('manager explicitly enrolls accepted colleague',(await db.query('select internal_beta_enroll_member($1,$2,$3) r',[A,V,'Accepted colleague beta access'])).rows[0].r.outcome==='recorded');
+  ok('team status reflects enrollment',(await db.query('select internal_beta_team_status($1) r',[A])).rows[0].r.find(r=>r.userId===V)?.enrolled===true);
   console.log(`INTERNAL_BETA_POLICY: ${checks}/${checks} isolated PostgreSQL checks passed; not full-chain/hosted clearance`);
 } finally {await db.end();}

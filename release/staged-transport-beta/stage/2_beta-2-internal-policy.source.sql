@@ -1,4 +1,4 @@
-INSERT INTO cfoclose_beta_release.staged_artifacts(batch, kind, body) VALUES ('beta-2-internal-policy', 'source', $cfoclose_beta_stage_4497f7cf23d3bc65$-- INERT CANDIDATE: must become an authored supabase/migrations source before hosted submission.
+INSERT INTO cfoclose_beta_release.staged_artifacts(batch, kind, body) VALUES ('beta-2-internal-policy', 'source', $cfoclose_beta_stage_a8297d571dccdad2$-- Authored internal-beta-r1 migration. Installed only through its registered staged transport.
 -- INTERNAL_BETA is not production evaluation or data-handling approval.
 DO $preflight$
 BEGIN
@@ -106,9 +106,10 @@ CREATE OR REPLACE FUNCTION public.fs_rollout_allows(p_company_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
   SELECT coalesce((SELECT NOT kill_switch FROM public.financial_statements_rollout_state WHERE singleton),false)
     AND coalesce((SELECT enabled FROM public.financial_statements_rollout_companies WHERE company_id=p_company_id),false)
-    AND coalesce((SELECT reporting_enabled FROM public.internal_beta_policy WHERE singleton),false)
-    AND EXISTS(SELECT 1 FROM public.internal_beta_enrollments WHERE company_id=p_company_id AND revoked_at IS NULL)
-    AND (auth.uid() IS NULL OR public.internal_beta_member(auth.uid(),p_company_id));
+    -- Disabled beta preserves the existing rollout contract. When beta is activated it additionally requires enrollment.
+    AND (NOT coalesce((SELECT reporting_enabled FROM public.internal_beta_policy WHERE singleton),false)
+      OR (EXISTS(SELECT 1 FROM public.internal_beta_enrollments WHERE company_id=p_company_id AND revoked_at IS NULL)
+        AND (auth.uid() IS NULL OR public.internal_beta_member(auth.uid(),p_company_id))));
 $$;
 REVOKE ALL ON FUNCTION public.fs_rollout_allows(uuid) FROM PUBLIC,anon,authenticated;
 
@@ -252,6 +253,34 @@ $$;
 REVOKE ALL ON FUNCTION public.internal_beta_assistant_complete(uuid,text,bigint,jsonb,integer,integer,jsonb,text[],jsonb,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.internal_beta_assistant_complete(uuid,text,bigint,jsonb,integer,integer,jsonb,text[],jsonb,text) TO service_role;
 
+-- API credentials cannot rewrite the aggregate allowance, enrollment or accounting evidence through default grants.
+DO $beta_privileges$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['internal_beta_policy','internal_beta_enrollments','internal_beta_synthetic_contexts','internal_beta_events','internal_beta_assistant_runs'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, anon, authenticated, service_role', t);
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO service_role', t);
+    EXECUTE format('CREATE TRIGGER beta_no_truncate BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.ai_append_only_guard()', t);
+  END LOOP;
+END;
+$beta_privileges$;
+
+-- The normal Team window can show enrollment without giving anybody a new capability.
+CREATE FUNCTION public.internal_beta_team_status(p_company_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.internal_beta_member(auth.uid(),p_company_id)
+    OR NOT public.has_workspace_capability(p_company_id,auth.uid(),'manage_members') THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE='42501';
+  END IF;
+  RETURN coalesce((SELECT jsonb_agg(jsonb_build_object('userId',m.user_id,'enrolled',
+    EXISTS(SELECT 1 FROM public.internal_beta_enrollments e WHERE e.company_id=p_company_id AND e.user_id=m.user_id AND e.revoked_at IS NULL)))
+    FROM public.firm_members m WHERE m.company_id=p_company_id AND m.accepted_at IS NOT NULL),'[]'::jsonb);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.internal_beta_team_status(uuid) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.internal_beta_team_status(uuid) TO authenticated;
+
 DO $postcondition$
 BEGIN
   IF (SELECT ai_enabled OR reporting_enabled FROM public.internal_beta_policy WHERE singleton)
@@ -259,4 +288,4 @@ BEGIN
     OR has_function_privilege('authenticated','public.internal_beta_assistant_reserve(uuid,uuid,integer,text,text,uuid,text,text,text)','EXECUTE') THEN
     RAISE EXCEPTION 'BETA_POSTCONDITION_FAILED'; END IF;
 END;
-$postcondition$;$cfoclose_beta_stage_4497f7cf23d3bc65$);
+$postcondition$;$cfoclose_beta_stage_a8297d571dccdad2$);
