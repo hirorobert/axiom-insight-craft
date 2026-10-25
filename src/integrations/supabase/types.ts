@@ -11308,6 +11308,7 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
+      _internal_beta_require_admin: { Args: never; Returns: string }
       _invitation_valid: {
         Args: {
           p_accepted_at: string
@@ -13122,6 +13123,24 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      internal_beta_admin_close_reporting: {
+        Args: { p_reason: string }
+        Returns: Json
+      }
+      internal_beta_admin_open_reporting: {
+        Args: {
+          p_company_ids: string[]
+          p_expected_revision: number
+          p_reason: string
+        }
+        Returns: Json
+      }
+      internal_beta_admin_overview: { Args: never; Returns: Json }
+      internal_beta_admin_record_synthetic_context: {
+        Args: { p_company_id: string; p_period_year: number; p_reason: string }
+        Returns: Json
+      }
+      internal_beta_admin_stop_ai: { Args: { p_reason: string }; Returns: Json }
       internal_beta_assistant_complete: {
         Args: {
           p_actual_cost_micros: number
