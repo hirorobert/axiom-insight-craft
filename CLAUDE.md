@@ -1475,6 +1475,19 @@ person's token; the model refers to facts by id and the server renders every fig
 `scripts/db-proof/assistantAuthority.mjs`. Contracts, owner decisions and activation sequence:
 `docs/assistant/ASK_CFOCLOSE_RELEASE_0_1.md`.
 
+**Internal beta activation (`20261203100000` — authored, pending hosted application).** Installed state (hosted 84–86): beta
+reporting and AI off, reporting master switch ENGAGED. The master switch and allowlist (`fs_set_kill_switch`,
+`fs_set_company_rollout`) and synthetic-scope recording are service-role only, and the beta revision was unreadable, so no
+administrator account could activate. `20261203100000` adds five definer functions, executable by `authenticated` only and
+each refusing anyone without an ACTIVE `commercial_admins` row: `internal_beta_admin_overview` (state incl. revision),
+`internal_beta_admin_open_reporting(ids, reason, expected_revision)` (one transaction: allowlist becomes EXACTLY `ids`, each
+needs an enrolled member with access; beta reporting on; master switch released LAST), `internal_beta_admin_close_reporting`
+(master switch engaged FIRST, beta reporting off, allowlist emptied; no revision needed), `internal_beta_admin_stop_ai`,
+`internal_beta_admin_record_synthetic_context` (stores the composition hash the database computes for the administrator).
+Audit rows identical to the operator functions' (`operator_label = 'commercial-admin:<uid>'`) plus `internal_beta_events`.
+AI ON stays `internal_beta_configure` (unchanged). Screen: `/commercial/admin?tab=internal-beta`
+(`InternalBetaActivationPanel`, `src/lib/commercial/internalBetaActivation.ts`). Proof: `scripts/db-proof/internalBetaActivation.mjs`.
+
 ## 10. Current Project State (as of 2026-07-25)
 
 ### What is complete and deployed

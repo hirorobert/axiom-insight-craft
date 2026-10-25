@@ -498,6 +498,14 @@ jobs:
           createdb internal_beta_transport_proof
           INTERNAL_BETA_PROOF_URL=postgres://postgres:postgres@127.0.0.1:5432/internal_beta_transport_proof bun scripts/db-proof/internalBetaTransport.mjs
 
+      - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/beta_activation_proof
+        run: |
+          createdb beta_activation_proof
+          bun scripts/db-proof/internalBetaActivation.mjs
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

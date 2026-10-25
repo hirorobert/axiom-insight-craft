@@ -15,11 +15,14 @@
  *   Online payment the platform state (read through the checkout options) and its audited transition — opening payments to
  *                 customers is an owner decision recorded with a reason.
  *
+ *   Internal beta  open or close internal reporting for chosen companies, record synthetic data for the assistant and
+ *                 switch assistant spending on or off (InternalBetaActivationPanel; migration 20261203100000).
+ *
  * Nothing here writes a table directly, sets a payment as paid, or grants accounting authority.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { AlertCircle, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,7 @@ import { getCheckoutOptions, getProviderDiagnostics, type CheckoutOptions } from
 import { accountEligibility, isCheckoutOptions, parseProviderDiagnostics, platformLabel, providerLine, type ProviderDiagnostic } from "@/lib/commercial/onlinePaymentStatus";
 import { formatMoney } from "@/lib/commercial/planOffers";
 import { ProcessingControlPanel } from "@/components/commercial/ProcessingControlPanel";
+import { InternalBetaActivationPanel } from "@/components/commercial/InternalBetaActivationPanel";
 
 type Rpc = (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
 async function rpc(fn: string, args: Record<string, unknown> = {}) {
@@ -61,8 +65,13 @@ const REASONS: Record<string, string> = {
   PROVIDER_REQUEST_LEASE_EXPIRED: "Payment creation interrupted",
 };
 
+const TABS = ["payments", "accounts", "offers", "platform", "processing", "internal-beta"];
+
 export default function CommercialAdmin() {
   const { user, loading } = useAuth();
+  // /commercial/admin?tab=internal-beta opens a tab directly (navigation only; every action keeps its own server check).
+  const [search] = useSearchParams();
+  const initialTab = TABS.includes(search.get("tab") ?? "") ? (search.get("tab") as string) : "payments";
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [intents, setIntents] = useState<AttentionIntent[]>([]);
   const [reversals, setReversals] = useState<Reversal[]>([]);
@@ -125,13 +134,14 @@ export default function CommercialAdmin() {
       </div>
       {message && <p className="border-l-2 border-foreground pl-3 text-sm" role="status" data-testid="admin-message">{message}</p>}
 
-      <Tabs defaultValue="payments">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="h-auto flex-wrap justify-start gap-1">
           <TabsTrigger value="payments">Payments needing attention ({intents.length + reversals.length + (recoveryRead.state === "ready" ? recoveryRead.cases.length : 0)}{recoveryRead.state === "error" || recoveryRead.state === "unavailable" ? " · one list not loaded" : ""})</TabsTrigger>
           <TabsTrigger value="accounts">Accounts and manual activation</TabsTrigger>
           <TabsTrigger value="offers">Prices</TabsTrigger>
           <TabsTrigger value="platform">Online payment</TabsTrigger>
           <TabsTrigger value="processing">Processing</TabsTrigger>
+          <TabsTrigger value="internal-beta">Internal beta</TabsTrigger>
         </TabsList>
 
         <TabsContent value="payments" className="space-y-6">
@@ -180,6 +190,7 @@ export default function CommercialAdmin() {
         <TabsContent value="offers"><Offers act={act} busy={busy} /></TabsContent>
         <TabsContent value="platform"><Platform act={act} busy={busy} /></TabsContent>
         <TabsContent value="processing"><ProcessingControlPanel /></TabsContent>
+        <TabsContent value="internal-beta"><InternalBetaActivationPanel /></TabsContent>
       </Tabs>
     </div>
   );
