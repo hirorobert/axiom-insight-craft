@@ -17,7 +17,7 @@
 import { buildReviewDecision, type ReviewDecisionPayload } from "@/lib/accounting/buildReviewDecisions";
 import { classificationMeta, isClassification, type ClassificationValue } from "@/lib/accounting/classificationMeta";
 import type { FindingRow, FindingsSummary, FindingStatus, RefreshOutcome } from "@/lib/closeReview/findings";
-import type { DecisionMember } from "@/lib/workspace/reviewConfirmation";
+import { classificationWords, type DecisionMember } from "@/lib/workspace/reviewConfirmation";
 import { withContext } from "@/lib/workbench/context";
 
 /** The findings that concern ONE account's classification (A01 sign, A03 cash in credit, A10 machine suggestion). */
@@ -74,6 +74,16 @@ export function findingReturnHref(companyId: string, periodYear: number, finding
   const base = route(companyId, periodYear);
   if (!base || !parseFindingKey(findingKey)) return null;
   return withContext(`${base}/close/findings?${new URLSearchParams({ [FINDING_PARAM]: findingKey }).toString()}`, { reportVersion });
+}
+
+/**
+ * Close Review › Adjustments of the SAME workspace and year: where an amount that is itself wrong is corrected (a balanced,
+ * approved journal — 20261015100000). Offered only to a person who may propose there (prepare_close): the page decides
+ * the rest. Null when the route cannot be built.
+ */
+export function adjustmentsHref(companyId: string, periodYear: number, reportVersion: number | null): string | null {
+  const base = route(companyId, periodYear);
+  return base ? withContext(`${base}/close/adjustments`, { reportVersion }) : null;
 }
 
 /** The finding the findings page should open (validated), or null. */
@@ -316,8 +326,15 @@ export async function readCorrectionContext(r: CorrectionReaders, companyId: str
 // ── After the findings are checked again ────────────────────────────────────────────────────────────────────────────
 
 export type ReturnStatus =
-  | { kind: "no_longer_raised"; words: string }
-  | { kind: "still_raised"; words: string }
+  /** The current check (the run named) does not produce this finding key. */
+  | { kind: "no_longer_raised"; words: string; runId: string }
+  /**
+   * The current check still produces it (a NEW finding row of the new run — its history starts afresh). `usedSaved` says
+   * whether that check used the latest saved classification (true), an older one (false), or cannot tell (null: no saved
+   * mapping is readable). `remaining` names what closes it now.
+   */
+  | { kind: "still_raised"; words: string; runId: string; finding: FindingRow; findingStatus: FindingStatus; usedSaved: boolean | null; remaining: string }
+  /** No current check could be read: refused, stale, or unavailable — the finding's state is not known. */
   | { kind: "not_checked"; words: string };
 
 export const REFRESH_REFUSALS: Partial<Record<RefreshOutcome, string>> = {
@@ -336,12 +353,28 @@ const STATUS: Record<FindingStatus, string> = { open: "open", explained: "explai
  * raised" means the current check of the reviewed trial balance does not produce this finding — never that a person
  * resolved the earlier one (its history stays on the earlier run).
  */
-export function returnStatus(outcome: RefreshOutcome, ctx: Pick<CorrectionContext, "summary" | "finding" | "findingStatus">): ReturnStatus {
+export function returnStatus(outcome: RefreshOutcome, ctx: Pick<CorrectionContext, "summary" | "finding" | "findingStatus" | "mapping">): ReturnStatus {
   if (outcome !== "generated" && outcome !== "unchanged") return { kind: "not_checked", words: REFRESH_REFUSALS[outcome] ?? "The findings were not checked." };
-  if (ctx.summary.state !== "current") return { kind: "not_checked", words: "The findings could not be read after the check. Open Close Review › Findings to see them." };
-  if (!ctx.finding) return { kind: "no_longer_raised", words: "The check of the reviewed trial balance no longer raises this finding." };
-  return { kind: "still_raised", words: `The check still raises this finding; its status is ${STATUS[ctx.findingStatus ?? "open"]}.` };
+  if (ctx.summary.state !== "current") {
+    return { kind: "not_checked", words: ctx.summary.state === "stale"
+      ? "The trial balance changed again after this check, so these findings are already out of date. Check for findings again on Close Review › Findings."
+      : "The findings could not be read after the check. Open Close Review › Findings to see them." };
+  }
+  const runId = ctx.summary.runId;
+  if (!ctx.finding) return { kind: "no_longer_raised", words: "The current check of the reviewed trial balance no longer raises this finding.", runId };
+  const saved = ctx.mapping?.classification ?? null;
+  const usedSaved = saved ? saved === ctx.finding.classification : null;
+  const findingStatus = ctx.findingStatus ?? "open";
+  const remaining = ctx.finding.rule_id === "A03"
+    ? "It is mandatory: it is resolved by an approved adjustment that clears the credit balance, or by classifying the account as a liability (an overdraft)."
+    : "It is a warning: it is closed by recording an explanation on the finding (Prepare), or by a reviewer's accept / not-applicable decision (Review).";
+  const words = usedSaved === false
+    ? `The check still raises this finding, and it used ${classificationWordsSafe(ctx.finding.classification)} rather than the saved classification (${classificationWordsSafe(saved)}); its status is ${STATUS[findingStatus]}.`
+    : `The check still raises this finding${usedSaved ? ` with the saved classification (${classificationWordsSafe(saved)})` : ""}; its status is ${STATUS[findingStatus]}.`;
+  return { kind: "still_raised", words, runId, finding: ctx.finding, findingStatus, usedSaved, remaining };
 }
+
+const classificationWordsSafe = (c: string | null): string => (c ? classificationWords(c) : "no saved classification");
 
 /** The readers the page needs beyond the findings client: the run's trial balance, the mapping, its decision and member, the upload's status. */
 export type CorrectionDbReaders = Omit<CorrectionReaders, "summary" | "list" | "states"> & { uploadStatus(uploadId: string): Promise<string | null> };

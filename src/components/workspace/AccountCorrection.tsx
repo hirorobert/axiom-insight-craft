@@ -14,10 +14,11 @@ import { CLASSIFICATIONS, isClassification, type ClassificationValue } from "@/l
 import { RULE_WORDS, type FindingsClient } from "@/lib/closeReview/findings";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
-  correctionDecision, correctionScopeKey, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
+  adjustmentsHref, correctionDecision, correctionScopeKey, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
   REASON_MAX, type CorrectionContext, type CorrectionDbReaders, type CorrectionLink, type ReturnStatus, type SaveOutcome,
 } from "@/lib/workspace/accountCorrection";
-import { CLASS_GUIDANCE, correctionReasonDraft, guidanceReasonComplete } from "@/lib/workspace/correctionGuidance";
+import { AMOUNT_GUIDANCE, CLASS_GUIDANCE, authoredReason, correctionReasonDraft, findingGuidance, guidanceReasonComplete, REASON_AUTHORED_MIN } from "@/lib/workspace/correctionGuidance";
+import { ReprocessRefusedError } from "@/lib/workspace/requestReprocess";
 import { classificationWords, DECISION_WORDS, memberWords } from "@/lib/workspace/reviewConfirmation";
 
 type RpcError = { code?: string | null; message?: string | null } | null;
@@ -153,7 +154,8 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
       if (!live.current) return;
       setCheck({ phase: "done", status: ctx ? returnStatus(r.outcome, ctx) : { kind: "not_checked", words: "The findings could not be read after the check." } });
     } catch {
-      if (live.current) setCheck({ phase: "failed", words: "The findings could not be checked. Nothing was changed by this attempt. Try again." });
+      // The request may or may not have reached the server (a findings check writes a run): nothing is claimed either way.
+      if (live.current) setCheck({ phase: "failed", words: "We could not confirm whether the findings were checked. Open Close Review › Findings to see the current findings, or try again." });
     }
   };
 
@@ -163,7 +165,13 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     try { await p.startCheck(); }
     catch (e) {
       if (!live.current) return;
-      setCheck({ phase: "failed", words: `${e instanceof Error && e.message ? e.message : "The new check did not start."} Nothing was changed.` }); p.onUploadChanged(); return;
+      // A refusal is the server's own answer (one transaction: nothing changed). Anything else is an answer that did not
+      // arrive: the check may have started, so the page keeps reading the trial balance's state instead of claiming.
+      const refused = e instanceof ReprocessRefusedError;
+      setCheck({ phase: "failed", words: refused
+        ? `${e.message} Nothing was changed.`
+        : `${e instanceof Error && e.message ? e.message : "No answer came back."} We could not confirm whether a new check started; this page updates when the trial balance's state changes.` });
+      p.onUploadChanged(); return;
     }
     // The server's own state decides when the check has finished (bounded; the page keeps reading afterwards).
     let status: string | null = null;
@@ -194,11 +202,24 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
   let body: ReactNode;
   if (check.phase === "running") body = <PendingStatus label={check.step} />;
   else if (check.phase === "done") {
+    const st = check.status;
     body = (
-      <div role="status" className="space-y-2 text-[13px]" data-testid="correction-result" data-result={check.status.kind}>
-        <p className="font-medium">{check.status.words}</p>
-        {check.status.kind === "no_longer_raised" ? <p className="text-muted-foreground">The earlier finding and its history stay in the record of the earlier check.</p> : null}
-        <p>{backLink}</p>
+      <div role="status" className="space-y-2 text-[13px]" data-testid="correction-result" data-result={st.kind}
+        data-finding-key={p.link.findingKey} data-run-id={st.kind === "not_checked" ? undefined : st.runId}>
+        <p className="font-medium">{st.words}</p>
+        {st.kind === "no_longer_raised" ? <p className="text-muted-foreground">The earlier finding and its history stay in the record of the earlier check. Nothing was resolved by a person: the current check simply does not produce it.</p> : null}
+        {st.kind === "still_raised" ? (
+          <>
+            <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[max-content_1fr]" data-testid="correction-result-facts">
+              <dt className="text-muted-foreground">Classification used by this check</dt><dd data-testid="correction-result-used">{classificationWords(st.finding.classification)}</dd>
+              <dt className="text-muted-foreground">Balance</dt><dd className="tabular-nums">Debit {amount(st.finding.debit_minor)} · Credit {amount(st.finding.credit_minor)}</dd>
+            </dl>
+            {st.usedSaved ? <p data-testid="correction-result-why">{findingGuidance(st.finding, st.finding.classification).legitimateIf ?? ""} Your correction was used; it is not asked for again here.</p> : null}
+            {st.usedSaved === false ? <p data-testid="correction-result-why">The saved classification was not used by this check (it is newer than the check, or the check read another decision). Check the trial balance again before anything else.</p> : null}
+            <p data-testid="correction-result-remaining">{st.remaining}</p>
+          </>
+        ) : null}
+        <p>{backLink}{st.kind === "still_raised" && backLink ? <span className="text-muted-foreground"> — record the explanation or review decision there.</span> : null}</p>
       </div>
     );
   } else if (read.state === "loading" || p.workspaceLoading) body = <PendingStatus label="Reading the account…" />;
@@ -225,9 +246,20 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     const pendingCheck = lastCheck || view.savedNotChecked;
     const savedHere = view.kind === "needs_recheck" ? view.savedAfterCheck : view.savedNotChecked;
     const unchangedChoice = classification !== "" && classification === saved && !pendingCheck;
+    const guide = findingGuidance(f, saved);
+    const adjust = p.canCorrect ? adjustmentsHref(p.companyId, p.periodYear, p.reportVersion) : null;
+    const authored = authoredReason(reason).length;
     body = (
       <div className="space-y-4 text-[13px]">
-        <p className="rounded-md bg-muted/40 p-3"><strong>Correct the category, then recheck.</strong> Compare the saved category with what the account actually records. Saving changes the classification, not the uploaded amounts. Only the new server check can show whether the warning clears.</p>
+        <div className="space-y-1 rounded-md bg-muted/40 p-3" data-testid="correction-guidance">
+          <p><strong>What the check found.</strong> {guide.found}</p>
+          {guide.legitimateIf ? <p><strong>When this can be legitimate.</strong> {guide.legitimateIf}</p> : null}
+          <p><strong>What decides it.</strong> {guide.decides}</p>
+          <p><strong>What a correction does.</strong> {guide.correctionEffect}</p>
+          <p data-testid="correction-amount-guidance"><strong>Amounts.</strong> {AMOUNT_GUIDANCE}{adjust
+            ? <> <Link to={adjust} className="underline underline-offset-4" data-testid="correction-adjustments">Close Review › Adjustments</Link> proposes a balanced journal that a reviewer approves.</>
+            : <span className="text-muted-foreground"> Proposing an adjustment needs Prepare in this workspace.</span>}</p>
+        </div>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]" data-testid="correction-account">
           <dt className="text-muted-foreground">Account</dt><dd className="font-medium">{f.account_code ? <span className="tabular-nums">{f.account_code} </span> : null}{f.account_name}</dd>
           <dt className="text-muted-foreground">{lastCheck ? "Balance when last checked" : "Balance on the reviewed trial balance"}</dt>
@@ -239,12 +271,13 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
             {view.decision ? <span className="text-muted-foreground"> — {DECISION_WORDS[view.decision.decision_action] ?? "Decision recorded"} by {memberWords(view.decidedBy ?? undefined, p.currentUserId)}, {when(view.decision.created_at)}</span> : null}
           </dd>
         </dl>
-        {save.outcome?.kind === "saved" && pendingCheck ? <p role="status" className="font-medium" data-testid="correction-saved">Correction saved.</p> : null}
+        {save.outcome?.kind === "saved" && pendingCheck ? <p role="status" className="font-medium" data-testid="correction-saved">Correction saved (server receipt {save.outcome.batchId.slice(0, 8)}). The reviewed result of this trial balance is now out of date: its certification is invalidated until it is checked again.</p> : null}
         {pendingCheck ? (
           <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3" data-testid="correction-saved-not-checked">
             <p>{savedHere
-              ? "The saved classification is not yet used by a check. Until the trial balance is checked again it is not reviewed, and its findings are not current."
+              ? "The saved classification is not yet used by a check. Until the trial balance is checked again it is not reviewed, and its findings (this one included) still show the classification the last check used."
               : "This trial balance's reviewed result is no longer current: a classification it used has changed. Check it again to apply the saved classifications."}</p>
+            <p className="text-muted-foreground">The check runs on the server and then checks for findings again; afterwards this page says whether this exact finding is still raised, no longer raised, or could not be checked.</p>
             {p.canCorrect ? <ActionButton type="button" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground" data-testid="correction-check-again" onClick={() => setCheck({ phase: "confirm" })}>Check the trial balance again</ActionButton>
               : <p className="text-muted-foreground">Checking the trial balance again needs Prepare in this workspace.</p>}
           </div>
@@ -261,13 +294,15 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
               {unchangedChoice ? <p className="text-muted-foreground">This is already the saved classification.</p> : null}
             </div>
             <div className="space-y-1">
-              <button type="button" className="underline underline-offset-4" disabled={save.busy || !isClassification(classification) || reason.trim().length > 0} onClick={() => { if (isClassification(classification)) setReason(correctionReasonDraft(saved, classification)); }}>Help me write the reason</button>
-              <p className="text-muted-foreground">Describe what the account records and what you checked. The writing aid uses your selected categories; it does not verify your decision. Replace the bracketed instruction before saving.</p>
               <label htmlFor={ids.reason} className="block font-medium">Reason for the correction</label>
               <textarea id={ids.reason} rows={3} maxLength={REASON_MAX} className="w-full rounded-md border border-input bg-background p-2" value={reason}
-                onChange={(e) => setReason(e.target.value)} disabled={save.busy} />
+                onChange={(e) => setReason(e.target.value)} disabled={save.busy} aria-describedby={`${ids.reason}-help`} />
+              <p id={`${ids.reason}-help`} className="text-muted-foreground">Say what the account records and what you checked (ledger, register, document). The aid below only writes the opening from the categories you selected; it checks nothing and never replaces text you have typed. Saving needs at least {REASON_AUTHORED_MIN} characters of your own.</p>
+              <button type="button" className="underline underline-offset-4" data-testid="correction-reason-aid" disabled={save.busy || !isClassification(classification) || reason.trim().length > 0}
+                onClick={() => { if (isClassification(classification) && reason.trim().length === 0) setReason(correctionReasonDraft(saved, classification)); }}>Help me write the reason</button>
+              {reason.trim().length > 0 && !guidanceReasonComplete(reason) ? <p role="status" className="text-muted-foreground" data-testid="correction-reason-incomplete">{authored > 0 ? `${authored} of ${REASON_AUTHORED_MIN} characters of your own reasoning so far.` : "Replace the bracketed instruction with your own reasoning."}</p> : null}
             </div>
-            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason. Earlier decisions stay in the record and the uploaded file is not changed. The trial balance then needs to be checked again: until it is, it is not reviewed and its findings are not current.</p>
+            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason — a reviewed classification, not a verified one: CFOClose checks the form of your reason, not its accounting. Earlier decisions stay in the record and the uploaded file is not changed. The trial balance's certification is then invalidated: until it is checked again it is not reviewed and its findings are not current.</p>
             <ActionButton type="submit" busy={save.busy} busyLabel="Saving…" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
               disabled={!isClassification(classification) || !reasonValid(reason) || !guidanceReasonComplete(reason) || unchangedChoice} data-testid="correction-save">
               {save.outcome?.kind === "unknown" ? "Try again" : "Save correction"}
@@ -294,7 +329,7 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
             We could not confirm whether the correction was saved. Your choice is kept; sending it again sends the same request
             (reference {attempt.current?.requestId.slice(0, 8)}), which the server records at most once and answers with its record.
           </p>
-          {isClassification(classification) && reasonValid(reason) && (view?.kind === "ready" || view?.kind === "needs_recheck") ? (
+          {isClassification(classification) && reasonValid(reason) && guidanceReasonComplete(reason) && (view?.kind === "ready" || view?.kind === "needs_recheck") ? (
             <ActionButton type="button" busy={save.busy} busyLabel="Sending…" className="h-9 rounded-md border border-input bg-background px-3 font-medium"
               data-testid="correction-retry" onClick={() => { if (isClassification(classification)) void send(classification, reason); }}>Send the same request again</ActionButton>
           ) : null}
