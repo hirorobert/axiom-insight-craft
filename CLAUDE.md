@@ -386,6 +386,7 @@ src/
       portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
       findingDecisions.ts     ← ONLY client path to trial-balance finding decisions (record_tb_finding_decision, get_tb_finding_decisions)
       accountCorrection.ts    ← Close Review finding → that account's classification correction (resolve_account_review_batch) → confirmed re-check → findings checked again → back to the finding; bounded internal links, unconfirmed saves keep their request id
+      correctionGuidance.ts   ← Educational category guidance and user-requested reason template; no classification or AI authority
       entityPrecheck.ts       ← Same-entity pre-check before registering a new entity (the engine's name normalisation)
       savedDrafts.ts          ← Saved (unchecked) uploads: list and explicit removal (list/delete_trial_balance_draft)
       accountHome.ts          ← ONLY client path to get_account_home: routing from exact server counts, bounded samples
