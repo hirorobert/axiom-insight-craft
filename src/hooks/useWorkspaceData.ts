@@ -121,7 +121,10 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     let snapshot;
     try { snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId, requireFresh: true }); }
     catch {
-      if (mine === readSequence.current) { setLoading(false); setRefreshing(false); }
+      if (mine === readSequence.current) {
+        setLoading(false); setRefreshing(false);
+        setAccessState(previous => previous.status === "granted" ? previous : {status:"error"});
+      }
       return false;
     }
 
