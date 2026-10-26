@@ -53,7 +53,7 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(77); // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
+    expect(r.mirrored.length).toBe(78); // + 0087 team bootstrap (hosted 88) // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
     for (const [t, src] of [["0076_fsi_1_server_compilation_staged_apply", "20261123100000_fs_server_compilation.sql"], ["0077_fsi_2_integrity_gate_staged_apply", "20261124100000_fs_publication_integrity_gate.sql"], ["0078_fsi_3_final_authority_staged_apply", "20261125100000_fs_final_authority.sql"], ["0079_fsi_4_document_structure_staged_apply", "20261126100000_fs_document_structure.sql"]]) {
       expect(r.mirrored.find((m) => m.tag === t)).toMatchObject({ source: src, how: "fsi_staged_transport" });
     }
