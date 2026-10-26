@@ -610,6 +610,13 @@
       "when": 1792945778657,
       "tag": "0086_internal_beta_admin_activation",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792994421953,
+      "tag": "0087_internal_beta_team_bootstrap",
+      "breakpoints": true
     }
   ]
 }

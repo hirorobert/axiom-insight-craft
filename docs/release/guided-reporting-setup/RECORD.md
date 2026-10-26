@@ -38,3 +38,7 @@ Owner acceptance: open Complete Test Overview, enroll the existing owner, use re
 ## Remaining boundaries
 
 The separate bank-loan classification suggestion, accounting treatment/coverage expansion, live deployed-function attestation, production data approvals and AI quality evaluation are not resolved here. No claim of full IFRS/IPSAS support, full production release or completed live acceptance is made.
+
+## Installation — applied 2026-10-26
+
+Hosted journal entry 88 (predecessor 87, hash `4d10e4d9…`, verified before apply). Applied through the native registered migrator as Drizzle `0087_internal_beta_team_bootstrap`; the mirror is byte-identical to the source (3,148 bytes, SHA-256 `238d8b0664b253cd665c8e9b9532326486e86ad087f1a76dda56846cc0a0edb8`, also the hosted journal hash). Privileges: both functions executable by `authenticated` only (anon and service_role refused). Preservation: `fs_publication_bindings` 2 rows, digest `de1e521b…8642` unchanged; active enrollments 19 (unchanged). No function deployed, no access activated, nothing published. Migration authority: no pending sources.

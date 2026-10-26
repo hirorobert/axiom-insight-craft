@@ -53,7 +53,7 @@ describe("migration authority parity", () => {
     // 60: 0062, unlimited team members (pricing-p1), the registered wrapper form (hosted 63).
     // 0063, period-currency correction (currency-c1, PR #179; the registered wrapper form minus its final LF; hosted 64), is
     // applied OUT OF SOURCE ORDER (ahead of the pending 20261111100000 / 20261112100000): releaseApplied, not mirrored.
-    expect(r.mirrored.length).toBe(77); // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
+    expect(r.mirrored.length).toBe(78); // + 0087 team bootstrap (hosted 88) // + 0086 admin activation (hosted 87) // + internal-beta-r1 0084/0085 (hosted 85/86) // + 0081/0082 track-a-r1 (hosted 82/83) // + 0072/0073 TB staged batches, 0074 catalogue read predicate, 0076–0079 fs-integrity-r1 batches (hosted 77–80); 0070 checkout abandon is releaseApplied
     for (const [t, src] of [["0076_fsi_1_server_compilation_staged_apply", "20261123100000_fs_server_compilation.sql"], ["0077_fsi_2_integrity_gate_staged_apply", "20261124100000_fs_publication_integrity_gate.sql"], ["0078_fsi_3_final_authority_staged_apply", "20261125100000_fs_final_authority.sql"], ["0079_fsi_4_document_structure_staged_apply", "20261126100000_fs_document_structure.sql"]]) {
       expect(r.mirrored.find((m) => m.tag === t)).toMatchObject({ source: src, how: "fsi_staged_transport" });
     }
@@ -79,7 +79,7 @@ describe("migration authority parity", () => {
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
     // 20261123100000–20261126100000 (fs-integrity-r1) are applied as 0076–0079 (hosted 77–80) through the staged transport.
     // track-a-r1 (20261127100000, 20261128100000) applied through its staged transport (hosted 81–83).
-    expect(r.pending).toEqual(["20261204100000_internal_beta_team_bootstrap.sql"]); // the admin activation controls applied as 0086 (hosted 87). internal-beta-r1 applied as 0084/0085 (hosted 85/86). // track-a-r1 applied as 0081/0082 (hosted 82/83); Ask CFOClose (20261201100000) is authored and pending hosted application.
+    expect(r.pending).toEqual([]); // the team bootstrap applied as 0087 (hosted 88). the admin activation controls applied as 0086 (hosted 87). internal-beta-r1 applied as 0084/0085 (hosted 85/86). // track-a-r1 applied as 0081/0082 (hosted 82/83); Ask CFOClose (20261201100000) is authored and pending hosted application.
     for (const t of ["0065_fs_controls_r1_staged_apply", "0066_fs_journey_r1_staged_apply", "0067_fs_bounds_r1_staged_apply", "0068_fs_capacity_r1_staged_apply", "0069_fs_memo_r1_staged_apply"]) expect(r.mirrored.find((m) => m.tag === t)?.how).toBe("staged_transport");
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");
