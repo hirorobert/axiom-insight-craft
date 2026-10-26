@@ -118,7 +118,7 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
   };
   const pending = Object.values(picked);
   return (
-    <section aria-labelledby="h-ev" data-testid="evidence" data-mode={p.mode}>
+    <section id="reporting-evidence" className="scroll-mt-28" aria-labelledby="h-ev" data-testid="evidence" data-mode={p.mode}>
       <h2 id="h-ev" className="text-base font-semibold">Evidence for the cash-flow and changes-in-equity statements</h2>
       {p.mode === "prepare" ? (
         <p className="text-muted-foreground">CSV files. A chosen file is read and validated in this browser; it is stored only together with a saved draft version, in one server step. The latest stored file of each kind is used.</p>
@@ -160,9 +160,10 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
         </>
       ) : p.mode === "summary" && p.allowed.includes("prepare_close") ? (
         <ActionButton busy={busy} type="button" className="mt-3 rounded-md bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50" disabled={busy} onClick={() => void save()} data-testid="save-version">
-          {busy ? "Saving…" : latest ? "Save a new report version" : "Save the first report version"}
+          {busy ? "Saving…" : latest ? "Save a new draft report version" : "Save the first draft report version"}
         </ActionButton>
       ) : p.mode === "summary" ? <p className="mt-2 text-muted-foreground">A preparer saves report versions.</p> : null}
+      {p.mode === "summary" ? <p className="mt-2 text-xs text-muted-foreground">Saving creates a draft snapshot for review; it does not record REVIEWED or FINAL approval. Missing evidence and other blockers must still be resolved before sign-off.</p> : null}
       <Notice text={notice} />
       {diagnostics.length ? <ul className="mt-1 list-disc pl-5 text-xs" aria-label="Diagnostics">{diagnostics.map((d, i) => <li key={i}>{d}</li>)}</ul> : null}
     </section>

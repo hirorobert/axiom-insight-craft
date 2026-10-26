@@ -1,3 +1,5 @@
+import { PreparationNotice } from "./PreparationNotice";
+import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability } from "@/lib/reporting/preparationGuidance";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 /**
@@ -32,6 +34,7 @@ export function SchedulesView(p: PageProps) {
   const rows = notes.requirements.filter((r) => r.kind === "SCHEDULE");
   return (
     <div className="space-y-6">
+      <PreparationNotice {...p} />
       {rows.map((r) => {
         const def = IFRS_FOR_SMES_2015.schedules.find((s) => s.requirementId === r.requirementId);
         return def ? <Schedule key={r.requirementId} {...p} r={r} def={def} exponent={exponent} /> : null;
@@ -41,12 +44,14 @@ export function SchedulesView(p: PageProps) {
 }
 
 function Schedule(p: PageProps & { r: RequirementState; def: ScheduleDefinition; exponent: number }) {
+  const provisional = provisionalApplicability(p.r, p.state.composition);
   const rec = scheduleReconciliation(p.r, p.exponent);
   const [entering, setEntering] = useState(false);
   return (
     <section aria-labelledby={`h-${p.def.id}`} className="border-b border-border pb-4" data-schedule={p.def.id}>
       <h2 id={`h-${p.def.id}`} className="text-base font-semibold">{p.def.label}</h2>
-      <p className="text-sm">Status: <span data-testid={`schedule-status-${p.def.id}`}>{STATUS_WORDS[p.r.status]}</span>{p.r.sourceRef ? ` · source ${p.r.sourceRef}` : ""}</p>
+      <p className="text-sm">Status: <span data-testid={`schedule-status-${p.def.id}`}>{provisional ? PROVISIONAL_APPLICABILITY : STATUS_WORDS[p.r.status]}</span>{p.r.sourceRef ? ` · source ${p.r.sourceRef}` : ""}</p>
+      {provisional ? <p className="mt-1 text-sm text-muted-foreground">{APPLICABILITY_EXPLANATION}</p> : null}
       {rec ? (
         <table className="mt-2 text-sm" aria-label={`${p.def.label} reconciliation`}>
           <thead><tr><th /><th className="px-3 text-right">Schedule</th><th className="px-3 text-right">Statements</th></tr></thead>

@@ -1,3 +1,5 @@
+import { PreparationNotice } from "./PreparationNotice";
+import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability } from "@/lib/reporting/preparationGuidance";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 /**
@@ -37,6 +39,8 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
   const evidenceOpen = rows.filter((r) => r.blocking && r.status === "evidence_missing").length;
   const [selected, setSelected] = useState<string | null>(rows.find((r) => r.blocking && needsWork(r))?.requirementId ?? null);
   return (
+    <>
+    <PreparationNotice {...p} />
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
       <section aria-labelledby="h-req">
         <h2 id="h-req" className="mb-2 text-base font-semibold">{pack.edition.title} — {open === 0 ? "no blocking requirement is open" : `${open} blocking requirement${open === 1 ? "" : "s"} open`}</h2>
@@ -55,7 +59,7 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
                   data-requirement={r.requirementId}>
                   <span className="min-w-[14rem] flex-1">{def?.label ?? r.requirementId}{r.blocking ? "" : <span className="text-muted-foreground"> (not blocking)</span>}</span>
                   <span className="text-xs text-muted-foreground">{def?.citations.map((c) => c.paragraph).join(", ")}</span>
-                  <StatusWord value={{ text: STATUS_WORDS[r.status], tone: TONE[r.status] ?? "neutral" }} />
+                  <StatusWord value={{ text: provisionalApplicability(r, p.state.composition) ? PROVISIONAL_APPLICABILITY : STATUS_WORDS[r.status], tone: provisionalApplicability(r, p.state.composition) ? "attention" : TONE[r.status] ?? "neutral" }} />
                 </button>
               </li>
             );
@@ -65,10 +69,12 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
       {selected ? <RequirementPanel key={selected} {...p} r={rows.find((x) => x.requirementId === selected)!} label={byId.get(selected)?.label ?? selected} condition={byId.get(selected)?.condition ?? null}
         conditional={byId.get(selected)?.applicability === "CONDITIONAL"} /> : null}
     </div>
+    </>
   );
 }
 
 function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; label: string; condition: string | null; conditional: boolean }) {
+  const provisional = provisionalApplicability(p.r, p.state.composition);
   const canPrepare = p.allowed.includes("prepare_close");
   const ids = { body: useId(), source: useId(), reason: useId() };
   const [body, setBody] = useState("");
@@ -87,16 +93,18 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
     finally { setBusy(false); }
   };
   // Only a requirement the pack makes conditional takes a decision; the server refuses any other (not_decidable).
-  const decidable = p.conditional && p.r.requirementId !== "smes.note.early_application";
+  const decidable = p.conditional && !["smes.note.early_application", "smes.note.revenue", "smes.note.income_tax"].includes(p.r.requirementId);
   const writable = p.r.kind === "DISCLOSURE" && p.r.status !== "not_applicable";
   return (
-    <aside aria-labelledby="h-panel" className="space-y-3 border-l border-border pl-4 text-sm" data-testid="requirement-panel">
+    <aside aria-labelledby="h-panel" className="space-y-3 border-l border-border pl-4 text-sm lg:sticky lg:top-28 lg:max-h-[calc(100dvh-8rem)] lg:self-start lg:overflow-y-auto" data-testid="requirement-panel">
       <h2 id="h-panel" className="text-base font-semibold">{p.label}</h2>
-      <p className="text-muted-foreground">Status: {STATUS_WORDS[p.r.status]}{p.r.sourceRef ? ` · source ${p.r.sourceRef}` : ""}</p>
+      <p className="text-muted-foreground">Status: {provisional ? PROVISIONAL_APPLICABILITY : STATUS_WORDS[p.r.status]}{p.r.sourceRef ? ` · source ${p.r.sourceRef}` : ""}</p>
+      {provisional ? <p className="text-muted-foreground">{APPLICABILITY_EXPLANATION}</p> : null}
       {p.condition ? <p>Applies when: {p.condition}</p> : null}
       {p.r.status === "unsupported" ? <p role="alert" className="border-l-[3px] border-[#a12020] bg-[#fcf2f2] px-2 py-1" data-testid="unsupported-case">{p.r.basis}</p>
         : p.r.basis && p.r.status !== "provided" ? <p className="text-muted-foreground">{p.r.basis}</p> : null}
-      {p.r.status === "evidence_missing" ? <p>This statement is built from evidence (the transaction ledger or equity movements). Add it on the Sign-off page with the next report version.</p> : null}
+      {p.r.status === "evidence_missing" ? <p>This statement is built from evidence (the transaction ledger or equity movements). Add it on the Statements page with the next draft version.</p> : null}
+      {p.r.status === "evidence_missing" ? <Link className="inline-block text-primary underline" to={`${p.hrefFor("fs-statements", p.reportVersion)}#reporting-evidence`}>Add cash-flow and equity evidence →</Link> : null}
       {!canPrepare ? <p className="text-muted-foreground">A preparer records decisions and wording.</p> : (
         <>
           {decidable ? (
@@ -116,6 +124,8 @@ function RequirementPanel(p: PageProps & { n: NotesStatus; r: RequirementState; 
           {writable ? (
             <fieldset className="space-y-2">
               <legend className="font-medium">Wording</legend>
+              <p className="text-muted-foreground">Record entity-specific wording supported by your working papers. Saving wording does not approve the report or establish compliance.</p>
+              {p.r.requirementId === "smes.note.policies" ? <p className="text-muted-foreground">Describe the measurement bases and policies actually adopted for the relevant transactions and balances. Use approved policy records; do not invent policies to clear this requirement.</p> : null}
               <label htmlFor={ids.body} className="block">Disclosure text (your words, shown verbatim)<textarea id={ids.body} data-testid="wording-body" rows={6} className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={body} onChange={(e) => setBody(e.target.value)} /></label>
               <label htmlFor={ids.source} className="block">Source (document, working paper)<input id={ids.source} data-testid="wording-source" className="mt-1 block w-full rounded-md border border-input px-2 py-1" value={source} onChange={(e) => setSource(e.target.value)} /></label>
               <ActionButton busy={busy} type="button" className="rounded-md bg-primary px-3 py-1 text-primary-foreground disabled:opacity-50" disabled={busy || body.trim().length === 0 || source.trim().length < 3}

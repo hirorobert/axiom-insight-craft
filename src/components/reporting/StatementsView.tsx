@@ -71,6 +71,7 @@ function Composed(p: PageProps & { c: Composition }) {
         {p.c.pack.packId === "ifrs-for-smes/2025" ? "IFRS for SMEs (third edition, 2025)" : "IFRS for SMEs (2015 edition)"}{p.c.pack.earlyApplication ? " — early application elected" : ""} · {p.c.current.currency} ·
         composition <code>{p.c.compositionSha256.slice(0, 12)}</code>
       </p>
+      {p.c.accountsNotPresented.some((a) => a.period === "current") ? <a href="#statement-assignments" className="inline-block rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">{p.allowed.includes("prepare_close") ? "Review and assign accounts" : "View accounts awaiting assignment"} →</a> : null}
       {views.map((v) => (
         <section key={v.id} aria-labelledby={`h-${v.id}`}>
           <h2 id={`h-${v.id}`} className="mb-2 text-base font-semibold">{v.title}</h2>
@@ -167,7 +168,7 @@ function NotPresented(p: PageProps & { c: Composition }) {
     finally { setBusy(false); }
   };
   return (
-    <section aria-labelledby="h-np" data-testid="not-presented">
+    <section id="statement-assignments" className="scroll-mt-28" aria-labelledby="h-np" data-testid="not-presented">
       <h2 id="h-np" className="mb-2 text-base font-semibold">Accounts not presented ({rows.length})</h2>
       <p className="mb-2 text-sm text-muted-foreground">Totals stay missing until every account is on a compatible line. The server checks each assignment against the account's nature.</p>
       <ul className="space-y-2 text-sm">
