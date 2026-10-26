@@ -103,7 +103,8 @@ export function correctionDecision(account: { account_code: string | null; accou
 // ── Saving: three honest outcomes ───────────────────────────────────────────────────────────────────────────────────
 
 export type SaveOutcome =
-  | { kind: "saved" }
+  /** The server's canonical receipt for exactly this one decision (see parseReviewBatchReceipt). */
+  | { kind: "saved"; batchId: string }
   /** The server refused it: the function is one transaction, so nothing was saved. */
   | { kind: "refused"; words: string }
   /** No answer came back: it may or may not be saved. The same request id is kept; sending it again cannot record it twice. */
@@ -123,38 +124,82 @@ function refusalWords(e: { code?: string | null; message?: string | null }): str
   return `The correction was refused${e.code ? ` (${e.code})` : ""}. Nothing was saved.`;
 }
 
-/** A PostgreSQL or PostgREST code means the server answered (and the transaction did not commit); none means no answer. */
-export function classifySave(error: RpcError, thrown = false): SaveOutcome {
-  if (thrown) return { kind: "unknown" };
-  if (!error) return { kind: "saved" };
-  const code = (error.code ?? "").trim();
-  if (/^([0-9A-Z]{5}|PGRST\d{3})$/.test(code)) return { kind: "refused", words: refusalWords(error) };
-  return { kind: "unknown" };
+/**
+ * The canonical success receipt of resolve_account_review_batch for ONE classification decision — the shape every version
+ * of the function returns (20260816120000 … 20261007100000): a batch id, one decision logged, one mapping written, no
+ * non-reporting decision and (where the version reports it) no treatment. A replay of the same request returns the stored
+ * receipt, so a retry reconciles to the same answer. Anything else — absent, malformed, an unknown key, other counts — is
+ * NOT proof of this save and stays "unknown" (never guessed either way).
+ */
+const RECEIPT_KEYS = new Set(["batch_id", "mappings_written", "decisions_logged", "non_reporting_decisions_recorded", "treatments_recorded"]);
+export function parseReviewBatchReceipt(data: unknown, expected: { decisions: number; mappings: number }): { batchId: string } | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const r = data as Record<string, unknown>;
+  if (Object.keys(r).some((k) => !RECEIPT_KEYS.has(k))) return null;
+  const count = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
+  if (typeof r.batch_id !== "string" || !UUID.test(r.batch_id)) return null;
+  if (count(r.decisions_logged) !== expected.decisions || count(r.mappings_written) !== expected.mappings) return null;
+  if (count(r.non_reporting_decisions_recorded) !== 0) return null;
+  if ("treatments_recorded" in r && count(r.treatments_recorded) !== 0) return null;
+  return { batchId: r.batch_id };
 }
+
+/**
+ * A PostgreSQL or PostgREST code means the server answered with a refusal (the function is one transaction: nothing was
+ * saved). No error and the canonical receipt means saved. Everything else — no code, a thrown transport error, or a success
+ * without the canonical receipt — means the answer did not prove either outcome: unknown.
+ */
+export function classifySave(error: RpcError, data: unknown, expected: { decisions: number; mappings: number }, thrown = false): SaveOutcome {
+  if (thrown) return { kind: "unknown" };
+  if (error) {
+    const code = (error.code ?? "").trim();
+    return /^([0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? { kind: "refused", words: refusalWords(error) } : { kind: "unknown" };
+  }
+  const receipt = parseReviewBatchReceipt(data, expected);
+  return receipt ? { kind: "saved", batchId: receipt.batchId } : { kind: "unknown" };
+}
+
+/** One manual classification decision: one decision logged and one mapping written. */
+export const CORRECTION_RECEIPT = Object.freeze({ decisions: 1, mappings: 1 });
 
 export async function saveCorrection(
   rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: RpcError }>,
   p: { companyId: string; uploadId: string; requestId: string; decision: ReviewDecisionPayload },
 ): Promise<SaveOutcome> {
   try {
-    const { error } = await rpc("resolve_account_review_batch", { p_company_id: p.companyId, p_upload_id: p.uploadId, p_client_request_id: p.requestId, p_decisions: [p.decision] });
-    return classifySave(error);
+    const { data, error } = await rpc("resolve_account_review_batch", { p_company_id: p.companyId, p_upload_id: p.uploadId, p_client_request_id: p.requestId, p_decisions: [p.decision] });
+    return classifySave(error, data, CORRECTION_RECEIPT);
   } catch {
-    return classifySave(null, true);
+    return classifySave(null, null, CORRECTION_RECEIPT, true);
   }
 }
 
 // ── An unconfirmed save survives a reload (same request id, same content) ────────────────────────────────────────────
 
-export interface PendingSave { requestId: string; classification: ClassificationValue; reason: string }
-export const pendingKey = (uploadId: string, accountKey: string) => `cfoclose.accountCorrection.${uploadId}.${accountKey}`;
-export function parsePending(raw: string | null): PendingSave | null {
+/**
+ * An attempt whose answer was not proven is kept so a reload (or Try again) sends the SAME request — which the server
+ * replays (its idempotency key is upload × firm member × request id). It is bound to the signed-in actor, the trial
+ * balance and the account it was made for, and restored only for exactly those: another actor signed in on the same
+ * browser never sees or resends it. Without a known actor nothing is stored.
+ */
+export interface PendingSave { actor: string; uploadId: string; accountKey: string; requestId: string; classification: ClassificationValue; reason: string }
+export const pendingKey = (actor: string, uploadId: string, accountKey: string) => `cfoclose.accountCorrection.v2.${actor}.${uploadId}.${accountKey}`;
+export function parsePending(raw: string | null, expected: { actor: string; uploadId: string; accountKey: string }): PendingSave | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<PendingSave>;
-    return typeof v.requestId === "string" && UUID.test(v.requestId) && isClassification(v.classification) && typeof v.reason === "string" && reasonValid(v.reason)
-      ? { requestId: v.requestId, classification: v.classification, reason: v.reason } : null;
+    const ok = v.actor === expected.actor && v.uploadId === expected.uploadId && v.accountKey === expected.accountKey
+      && typeof v.requestId === "string" && UUID.test(v.requestId) && isClassification(v.classification) && typeof v.reason === "string" && reasonValid(v.reason);
+    return ok ? { actor: v.actor!, uploadId: v.uploadId!, accountKey: v.accountKey!, requestId: v.requestId!, classification: v.classification!, reason: v.reason! } : null;
   } catch { return null; }
+}
+
+/**
+ * The identity that owns every asynchronous result of the correction view: workspace, year, trial balance, account,
+ * finding and signed-in actor. A result started under one scope is never applied under another.
+ */
+export function correctionScopeKey(p: { companyId: string; periodYear: number; uploadId: string | null; accountKey: string; findingKey: string; actor: string | null }): string {
+  return JSON.stringify([p.companyId, p.periodYear, p.uploadId ?? "", p.accountKey, p.findingKey, p.actor ?? ""]);
 }
 
 // ── What the page shows: from the server's answers only ─────────────────────────────────────────────────────────────

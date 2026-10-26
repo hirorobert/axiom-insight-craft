@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FindingRow, FindingsSummary } from "@/lib/closeReview/findings";
 import {
-  classifySave, correctionDecision, correctionHref, correctionView, findingReturnHref, parseCorrectionLink, parseFindingKey, parseFocusFinding,
-  parsePending, readCorrectionContext, returnStatus, saveCorrection, type CorrectionContext, type CorrectionReaders,
+  classifySave, correctionDecision, correctionHref, correctionScopeKey, correctionView, findingReturnHref, parseCorrectionLink, parseFindingKey, parseFocusFinding,
+  parsePending, parseReviewBatchReceipt, pendingKey, readCorrectionContext, returnStatus, saveCorrection, type CorrectionContext, type CorrectionReaders,
 } from "./accountCorrection";
 
 const C = "d7c13682-98f1-4512-9c82-0a187609b5ea";
@@ -67,31 +67,58 @@ describe("the decision is the ordinary manual classification, with a reason and 
   });
 });
 
-describe("saving: saved, refused (nothing saved) or unknown (same request id retried)", () => {
-  it("classifies the server's answers", () => {
-    expect(classifySave(null)).toEqual({ kind: "saved" });
-    expect(classifySave({ code: "42501", message: "CAPABILITY_REQUIRED_FOR_CLASSIFICATION_DECISIONS" })).toEqual({ kind: "refused", words: expect.stringMatching(/needs Prepare.*Nothing was saved/) });
-    expect(classifySave({ code: "22023", message: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD" })).toEqual({ kind: "refused", words: expect.stringMatching(/already sent/) });
-    expect(classifySave({ code: "PGRST301", message: "JWT expired" })).toEqual({ kind: "refused", words: expect.stringMatching(/session has ended/) });
-    expect(classifySave({ code: "PT402", message: "x" }).kind).toBe("refused");
-    // No code: the request may or may not have reached the database.
-    expect(classifySave({ code: "", message: "TypeError: Failed to fetch" })).toEqual({ kind: "unknown" });
-    expect(classifySave({ message: "FetchError" })).toEqual({ kind: "unknown" });
-    expect(classifySave(null, true)).toEqual({ kind: "unknown" });
+describe("saving: saved only on the canonical receipt; refused (nothing saved); otherwise unknown (same request id retried)", () => {
+  const BATCH = "33333333-3333-4333-8333-333333333333";
+  const receipt = { batch_id: BATCH, mappings_written: 1, decisions_logged: 1, non_reporting_decisions_recorded: 0, treatments_recorded: 0 };
+  const E = { decisions: 1, mappings: 1 };
+  it("saved needs the canonical receipt for exactly one decision; a receipt from a version without treatments_recorded also counts", () => {
+    expect(classifySave(null, receipt, E)).toEqual({ kind: "saved", batchId: BATCH });
+    const { treatments_recorded: _t, ...older } = receipt;
+    expect(classifySave(null, older, E)).toEqual({ kind: "saved", batchId: BATCH });
   });
-  it("calls the one review function with one decision and the caller's request id; a thrown transport error is unknown", async () => {
+  it("a success without that receipt is NOT saved: absent, malformed, unrelated, incomplete or other counts stay unknown", () => {
+    const bad: unknown[] = [null, undefined, "ok", [receipt], {}, { ...receipt, batch_id: "x" }, { ...receipt, batch_id: undefined },
+      { ...receipt, decisions_logged: 2 }, { ...receipt, mappings_written: 0 }, { ...receipt, decisions_logged: "1" },
+      { ...receipt, non_reporting_decisions_recorded: 1 }, { ...receipt, treatments_recorded: 1 }, { ...receipt, unexpected: true },
+      { batch_id: BATCH }, { ...receipt, mappings_written: 1.5 }];
+    for (const data of bad) expect(classifySave(null, data, E), JSON.stringify(data)).toEqual({ kind: "unknown" });
+    expect(parseReviewBatchReceipt(receipt, { decisions: 2, mappings: 2 })).toBeNull();
+  });
+  it("classifies refusals (a server code: nothing was saved) and lost answers (no code, or thrown: unknown)", () => {
+    expect(classifySave({ code: "42501", message: "CAPABILITY_REQUIRED_FOR_CLASSIFICATION_DECISIONS" }, null, E)).toEqual({ kind: "refused", words: expect.stringMatching(/needs Prepare.*Nothing was saved/) });
+    expect(classifySave({ code: "22023", message: "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD" }, null, E)).toEqual({ kind: "refused", words: expect.stringMatching(/already sent/) });
+    expect(classifySave({ code: "PGRST301", message: "JWT expired" }, null, E)).toEqual({ kind: "refused", words: expect.stringMatching(/session has ended/) });
+    expect(classifySave({ code: "PT402", message: "x" }, null, E).kind).toBe("refused");
+    // An error is never read as saved, even with a receipt-shaped body beside it.
+    expect(classifySave({ code: "", message: "TypeError: Failed to fetch" }, receipt, E)).toEqual({ kind: "unknown" });
+    expect(classifySave({ message: "FetchError" }, null, E)).toEqual({ kind: "unknown" });
+    expect(classifySave(null, receipt, E, true)).toEqual({ kind: "unknown" });
+  });
+  it("calls the one review function with one decision and the caller's request id; the receipt decides; a thrown transport error is unknown", async () => {
     const calls: unknown[] = [];
-    const ok = await saveCorrection(async (fn, args) => { calls.push([fn, args]); return { data: {}, error: null }; },
-      { companyId: C, uploadId: UP, requestId: "11111111-1111-4111-8111-111111111111", decision: correctionDecision({ account_code: "95000", account_name: "Cost of sales" }, "cost_of_goods_sold", "Reason here", "A01:95000") });
-    expect(ok.kind).toBe("saved");
+    const decision = correctionDecision({ account_code: "95000", account_name: "Cost of sales" }, "cost_of_goods_sold", "Reason here", "A01:95000");
+    const ok = await saveCorrection(async (fn, args) => { calls.push([fn, args]); return { data: receipt, error: null }; },
+      { companyId: C, uploadId: UP, requestId: "11111111-1111-4111-8111-111111111111", decision });
+    expect(ok).toEqual({ kind: "saved", batchId: BATCH });
     expect(calls).toEqual([["resolve_account_review_batch", expect.objectContaining({ p_company_id: C, p_upload_id: UP, p_client_request_id: "11111111-1111-4111-8111-111111111111", p_decisions: [expect.objectContaining({ classification: "cost_of_goods_sold" })] })]]);
-    const lost = await saveCorrection(async () => { throw new TypeError("Failed to fetch"); }, { companyId: C, uploadId: UP, requestId: "r", decision: {} as never });
-    expect(lost.kind).toBe("unknown");
+    expect((await saveCorrection(async () => ({ data: null, error: null }), { companyId: C, uploadId: UP, requestId: "r", decision })).kind).toBe("unknown");
+    expect((await saveCorrection(async () => { throw new TypeError("Failed to fetch"); }, { companyId: C, uploadId: UP, requestId: "r", decision })).kind).toBe("unknown");
   });
-  it("a pending save is restored only when it is complete and well formed", () => {
-    const good = { requestId: "11111111-1111-4111-8111-111111111111", classification: "cost_of_goods_sold", reason: "Reason here" };
-    expect(parsePending(JSON.stringify(good))).toEqual(good);
-    for (const bad of [null, "{", JSON.stringify({ ...good, requestId: "x" }), JSON.stringify({ ...good, classification: "x" }), JSON.stringify({ ...good, reason: "" })]) expect(parsePending(bad)).toBeNull();
+  it("an unproven attempt is restored only for the same actor, trial balance and account (never another person's)", () => {
+    const at = { actor: "user-a", uploadId: UP, accountKey: "95000" };
+    const good = { ...at, requestId: "11111111-1111-4111-8111-111111111111", classification: "cost_of_goods_sold", reason: "Reason here" };
+    expect(parsePending(JSON.stringify(good), at)).toEqual(good);
+    expect(pendingKey("user-a", UP, "95000")).not.toBe(pendingKey("user-b", UP, "95000"));
+    for (const other of [{ ...at, actor: "user-b" }, { ...at, uploadId: "other" }, { ...at, accountKey: "91510" }]) expect(parsePending(JSON.stringify(good), other)).toBeNull();
+    // The previous, actor-less format is never restored.
+    expect(parsePending(JSON.stringify({ requestId: good.requestId, classification: good.classification, reason: good.reason }), at)).toBeNull();
+    for (const bad of [null, "{", JSON.stringify({ ...good, requestId: "x" }), JSON.stringify({ ...good, classification: "x" }), JSON.stringify({ ...good, reason: "" })]) expect(parsePending(bad, at)).toBeNull();
+  });
+  it("the scope key separates workspace, year, trial balance, account, finding and actor", () => {
+    const base = { companyId: C, periodYear: 2026, uploadId: UP, accountKey: "95000", findingKey: "A01:95000", actor: "u" };
+    const keys = new Set([base, { ...base, companyId: "x" }, { ...base, periodYear: 2025 }, { ...base, uploadId: "y" }, { ...base, uploadId: null },
+      { ...base, accountKey: "91510" }, { ...base, findingKey: "A10:95000" }, { ...base, actor: "v" }, { ...base, actor: null }].map(correctionScopeKey));
+    expect(keys.size).toBe(9);
   });
 });
 

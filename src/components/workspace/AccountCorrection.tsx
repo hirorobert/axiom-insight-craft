@@ -14,7 +14,7 @@ import { CLASSIFICATIONS, isClassification, type ClassificationValue } from "@/l
 import { RULE_WORDS, type FindingsClient } from "@/lib/closeReview/findings";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
-  correctionDecision, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
+  correctionDecision, correctionScopeKey, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
   REASON_MAX, type CorrectionContext, type CorrectionDbReaders, type CorrectionLink, type ReturnStatus, type SaveOutcome,
 } from "@/lib/workspace/accountCorrection";
 import { classificationWords, DECISION_WORDS, memberWords } from "@/lib/workspace/reviewConfirmation";
@@ -53,7 +53,18 @@ const CHECKING = new Set(["pending", "queued", "processing", "validating"]);
 type Read = { state: "loading" } | { state: "failed" } | { state: "ready"; ctx: CorrectionContext };
 type Check = { phase: "idle" } | { phase: "confirm" } | { phase: "running"; step: string } | { phase: "done"; status: ReturnStatus } | { phase: "failed"; words: string };
 
+/**
+ * The exported view re-keys its inner instance by the correction SCOPE (workspace, year, trial balance, account, finding,
+ * signed-in actor): moving to another account, trial balance or person starts from a clean state, and nothing the earlier
+ * scope started can reach the new one.
+ */
 export function AccountCorrection(p: AccountCorrectionProps) {
+  const scope = correctionScopeKey({ companyId: p.companyId, periodYear: p.periodYear, uploadId: p.upload?.id ?? null,
+    accountKey: p.link.accountKey, findingKey: p.link.findingKey, actor: p.currentUserId });
+  return <ScopedAccountCorrection key={scope} {...p} />;
+}
+
+function ScopedAccountCorrection(p: AccountCorrectionProps) {
   const ids = { h: useId(), cls: useId(), reason: useId() };
   const heading = useRef<HTMLHeadingElement>(null);
   const [read, setRead] = useState<Read>({ state: "loading" });
@@ -63,92 +74,110 @@ export function AccountCorrection(p: AccountCorrectionProps) {
   const [check, setCheck] = useState<Check>({ phase: "idle" });
   const attempt = useRef<{ payload: string; requestId: string } | null>(null);
   const seq = useRef(0);
-  const key = p.upload ? pendingKey(p.upload.id, p.link.accountKey) : null;
+  // This instance owns exactly one scope (see AccountCorrection). Once it is gone — another account, trial balance or
+  // actor, or the page left — no asynchronous completion may update anything or start a further read or check.
+  const live = useRef(true);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const actor = p.currentUserId;
+  const uploadId = p.upload?.id ?? null;
+  const key = actor && uploadId ? pendingKey(actor, uploadId, p.link.accountKey) : null;
   const back = findingReturnHref(p.companyId, p.periodYear, p.link.findingKey, p.reportVersion);
 
   const reload = useCallback(async () => {
+    if (!live.current) return null;
     const mine = ++seq.current;
     try {
       const ctx = await readCorrectionContext({ summary: p.findings.summary, list: p.findings.list, states: p.findings.states, ...p.readers }, p.companyId, p.periodYear, p.link);
-      if (mine === seq.current) setRead({ state: "ready", ctx });
+      if (!live.current || mine !== seq.current) return null;
+      setRead({ state: "ready", ctx });
       return ctx;
     } catch {
-      if (mine === seq.current) setRead({ state: "failed" });
+      if (live.current && mine === seq.current) setRead({ state: "failed" });
       return null;
     }
   }, [p.findings, p.readers, p.companyId, p.periodYear, p.link]);
 
-  useEffect(() => { void reload(); }, [reload, p.upload?.id, p.upload?.status]);
-  useEffect(() => { heading.current?.focus({ preventScroll: true }); heading.current?.scrollIntoView?.({ block: "start" }); }, [p.link.findingKey]);
+  useEffect(() => { void reload(); }, [reload, p.upload?.status]);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); heading.current?.scrollIntoView?.({ block: "start" }); }, []);
 
-  // An unconfirmed save from before a reload: its content and request id come back, so "Try again" sends the same request.
+  // An unproven save from before a reload, made by THIS actor on THIS trial balance and account: its content and request id
+  // come back, so a retry sends the same request (the server replays it). Anything else in storage is ignored.
   useEffect(() => {
-    if (!key) return;
-    const pending = parsePending(store.get(key));
+    if (!key || !actor || !uploadId) return;
+    const pending = parsePending(store.get(key), { actor, uploadId, accountKey: p.link.accountKey });
     if (!pending) return;
     setClassification(pending.classification);
     setReason(pending.reason);
     attempt.current = { payload: `${pending.classification}|${pending.reason.trim()}`, requestId: pending.requestId };
     setSave({ busy: false, outcome: { kind: "unknown" } });
-  }, [key]);
+  }, [key, actor, uploadId, p.link.accountKey]);
 
   const view = read.state === "ready" ? correctionView(read.ctx, p.upload) : null;
-  // The pending save landed (the saved classification is the one that was sent): nothing is uncertain any more.
-  useEffect(() => {
-    if (!key || (view?.kind !== "ready" && view?.kind !== "needs_recheck") || save.outcome?.kind !== "unknown" || !attempt.current) return;
-    const pendingCheck = view.kind === "needs_recheck" || view.savedNotChecked;
-    if (pendingCheck && view.mapping?.classification === classification) { store.del(key); attempt.current = null; setSave({ busy: false, outcome: { kind: "saved" } }); }
-  }, [view, key, classification, save.outcome]);
 
   // While the trial balance is being checked (by anyone), read again until it settles.
   const { onUploadChanged } = p;
   useEffect(() => {
     if (view?.kind !== "checking" || check.phase === "running") return;
-    const t = setInterval(() => onUploadChanged(), 3000);
+    const t = setInterval(() => { if (live.current) onUploadChanged(); }, 3000);
     return () => clearInterval(t);
   }, [view?.kind, check.phase, onUploadChanged]);
 
-  const onSave = async () => {
-    if ((view?.kind !== "ready" && view?.kind !== "needs_recheck") || !p.upload || !key || !isClassification(classification) || !reasonValid(reason) || save.busy) return;
-    const decision = correctionDecision({ account_code: view.finding.account_code, account_name: view.finding.account_name ?? p.link.accountKey }, classification, reason, p.link.findingKey);
-    const payload = `${classification}|${reason.trim()}`;
+  /** Sends (or, for an unproven attempt, re-sends the SAME) request; only the canonical receipt counts as saved. */
+  const send = async (cls: ClassificationValue, why: string) => {
+    if ((view?.kind !== "ready" && view?.kind !== "needs_recheck") || !uploadId || save.busy) return;
+    const decision = correctionDecision({ account_code: view.finding.account_code, account_name: view.finding.account_name ?? p.link.accountKey }, cls, why, p.link.findingKey);
+    const payload = `${cls}|${why.trim()}`;
     if (!attempt.current || attempt.current.payload !== payload) attempt.current = { payload, requestId: crypto.randomUUID() };
-    store.set(key, JSON.stringify({ requestId: attempt.current.requestId, classification, reason: reason.trim() }));
+    const requestId = attempt.current.requestId;
+    // Kept before sending, so an answer lost with the page (or a reload) is resent as the same request by the same actor.
+    if (key && actor) store.set(key, JSON.stringify({ actor, uploadId, accountKey: p.link.accountKey, requestId, classification: cls, reason: why.trim() }));
     setSave({ busy: true, outcome: null });
-    const outcome = await saveCorrection(p.rpc, { companyId: p.companyId, uploadId: p.upload.id, requestId: attempt.current.requestId, decision });
-    if (outcome.kind !== "unknown") { store.del(key); attempt.current = null; }
+    const outcome = await saveCorrection(p.rpc, { companyId: p.companyId, uploadId, requestId, decision });
+    // The stored attempt belongs to its own scope: settled outcomes clear it even if this view has gone; it stays while unknown.
+    if (outcome.kind !== "unknown" && key) store.del(key);
+    if (!live.current) return;
+    if (outcome.kind !== "unknown") attempt.current = null;
     setSave({ busy: false, outcome });
     if (outcome.kind === "saved") { setReason(""); setClassification(""); await reload(); }
   };
+  const onSave = () => { if (isClassification(classification) && reasonValid(reason)) void send(classification, reason); };
 
   const refreshFindings = async (): Promise<void> => {
+    if (!live.current) return;
     setCheck({ phase: "running", step: "Checking for findings on the reviewed trial balance…" });
     try {
       const r = await p.findings.refresh(p.companyId, p.periodYear);
+      if (!live.current) return;
       const ctx = await reload();
+      if (!live.current) return;
       setCheck({ phase: "done", status: ctx ? returnStatus(r.outcome, ctx) : { kind: "not_checked", words: "The findings could not be read after the check." } });
     } catch {
-      setCheck({ phase: "failed", words: "The findings could not be checked. Nothing was changed by this attempt. Try again." });
+      if (live.current) setCheck({ phase: "failed", words: "The findings could not be checked. Nothing was changed by this attempt. Try again." });
     }
   };
 
   const onCheckAgain = async () => {
-    if (!p.upload) return;
-    const uploadId = p.upload.id;
+    if (!uploadId) return;
     setCheck({ phase: "running", step: "Checking the trial balance with the saved classification…" });
     try { await p.startCheck(); }
-    catch (e) { setCheck({ phase: "failed", words: `${e instanceof Error && e.message ? e.message : "The new check did not start."} Nothing was changed.` }); p.onUploadChanged(); return; }
+    catch (e) {
+      if (!live.current) return;
+      setCheck({ phase: "failed", words: `${e instanceof Error && e.message ? e.message : "The new check did not start."} Nothing was changed.` }); p.onUploadChanged(); return;
+    }
     // The server's own state decides when the check has finished (bounded; the page keeps reading afterwards).
     let status: string | null = null;
     for (let i = 0; i < 90; i++) {
+      if (!live.current) return;
       status = await p.readers.uploadStatus(uploadId).catch(() => null);
       if (status && !CHECKING.has(status)) break;
       await sleep(2000);
     }
+    if (!live.current) return;
     p.onUploadChanged();
     if (!status || CHECKING.has(status)) { setCheck({ phase: "failed", words: "The check is still running. This page updates when it finishes; then check for findings." }); return; }
     if (status !== "complete") {
       await reload();
+      if (!live.current) return;
       setCheck({ phase: "done", status: { kind: "not_checked", words: status === "needs_review"
         ? "The trial balance was checked; some accounts still need review, so it is not reviewed yet and the findings were not checked."
         : "The check finished without a reviewed trial balance, so the findings were not checked. See the result on this page." } });
@@ -255,10 +284,16 @@ export function AccountCorrection(p: AccountCorrectionProps) {
       {body}
       {save.outcome?.kind === "refused" ? <p role="alert" className="text-[13px] text-destructive" data-testid="correction-refused">{save.outcome.words}</p> : null}
       {save.outcome?.kind === "unknown" && check.phase !== "running" ? (
-        <p role="alert" className="text-[13px]" data-testid="correction-unknown">
-          We could not confirm whether the correction was saved. Your choice is kept; "Try again" sends the same request
-          (reference {attempt.current?.requestId.slice(0, 8)}), so it cannot be recorded twice.
-        </p>
+        <div role="alert" className="space-y-2 text-[13px]" data-testid="correction-unknown">
+          <p>
+            We could not confirm whether the correction was saved. Your choice is kept; sending it again sends the same request
+            (reference {attempt.current?.requestId.slice(0, 8)}), which the server records at most once and answers with its record.
+          </p>
+          {isClassification(classification) && reasonValid(reason) && (view?.kind === "ready" || view?.kind === "needs_recheck") ? (
+            <ActionButton type="button" busy={save.busy} busyLabel="Sending…" className="h-9 rounded-md border border-input bg-background px-3 font-medium"
+              data-testid="correction-retry" onClick={() => { if (isClassification(classification)) void send(classification, reason); }}>Send the same request again</ActionButton>
+          ) : null}
+        </div>
       ) : null}
       {check.phase === "failed" ? <p role="alert" className="text-[13px]" data-testid="correction-check-failed">{check.words}</p> : null}
       <ConfirmDialog open={check.phase === "confirm"} title="Check the trial balance again" period={`FY${p.periodYear}`} version={null}
