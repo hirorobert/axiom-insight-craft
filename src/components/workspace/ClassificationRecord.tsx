@@ -7,8 +7,9 @@
  * (their review provenance). It writes nothing and decides nothing; a read it cannot make is said, never guessed.
  */
 import { useEffect, useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import {
   buildReviewRecord, classificationWords, recordSummary, statementAccounts,
@@ -34,6 +35,8 @@ export function ClassificationRecord({ uploadId, companyId, currentUserId, proce
 }) {
   const [read, setRead] = useState<Read>({ state: "loading" });
   const [open, setOpen] = useState(true);
+  const [search, setSearch] = useState("");
+  useEffect(() => { setSearch(""); }, [uploadId, companyId]);
   const listId = useId();
   const accounts = statementAccounts(processingResult);
 
@@ -63,8 +66,13 @@ export function ClassificationRecord({ uploadId, companyId, currentUserId, proce
   if (accounts.length === 0) return null;
   const record = read.state === "ready" ? buildReviewRecord({ accounts, decisions: read.decisions, members: read.members, mappings: read.mappings, currentUserId }) : null;
 
+  const query = search.trim().toLocaleLowerCase();
+  const visibleRows = record?.rows.filter((row) =>
+    !query || [row.account_code ?? "", row.account_name, classificationWords(row.classification)]
+      .some((value) => value.toLocaleLowerCase().includes(query))) ?? [];
+
   return (
-    <section className="border border-border bg-card" aria-labelledby={`${listId}-h`} data-testid="classification-record">
+    <section id="account-classifications" className="scroll-mt-24 border border-border bg-card" aria-labelledby={`${listId}-h`} data-testid="classification-record">
       <Button type="button" variant="ghost" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls={listId}
         className="h-auto w-full justify-between rounded-none px-5 py-3.5 sm:px-7">
         <span id={`${listId}-h`} className="text-[13px] font-semibold text-foreground">Classification record <span className="font-normal text-muted-foreground">· {accounts.length} account{accounts.length === 1 ? "" : "s"}</span></span>
@@ -75,9 +83,25 @@ export function ClassificationRecord({ uploadId, companyId, currentUserId, proce
           : read.state === "failed" ? "The classification record could not be read. The classifications themselves are unchanged — try again later."
           : recordSummary(record!, when)}
       </p>
+      <div className="border-t border-border px-5 py-3 sm:px-7">
+        <label htmlFor={`${listId}-search`} className="mb-2 block text-[13px] font-medium">Search account classifications</label>
+        <div className="flex items-center gap-2">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <Input id={`${listId}-search`} type="search" value={search}
+            placeholder="Account code, name or classification"
+            onChange={(event) => { setSearch(event.target.value); setOpen(true); }} />
+          {search && <Button type="button" variant="outline" onClick={() => setSearch("")}>Clear</Button>}
+        </div>
+        {record && <p role="status" className="mt-2 text-[12px] text-muted-foreground">
+          {visibleRows.length} of {record.rows.length} accounts shown
+        </p>}
+      </div>
+      {open && record && visibleRows.length === 0 && (
+        <p className="px-5 pb-4 text-[13px] sm:px-7">No matching accounts. Try another code or name, or clear the search.</p>
+      )}
       {open && record && (
         <ul id={listId} className="border-t border-border" data-testid="classification-record-list">
-          {record.rows.map((r) => <RecordItem key={r.key} r={r} />)}
+          {visibleRows.map((r) => <RecordItem key={r.key} r={r} />)}
         </ul>
       )}
     </section>
