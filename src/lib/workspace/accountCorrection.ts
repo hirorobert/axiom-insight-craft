@@ -167,9 +167,16 @@ export interface DecisionRead { decision_action: string; created_at: string; fir
 
 export interface CorrectionContext {
   summary: FindingsSummary;
+  /**
+   * The finding: from the CURRENT run when there is one; otherwise from the latest run of the period (the account as it was
+   * last checked — e.g. after a saved correction made the reviewed result out of date). Null when neither raises it.
+   */
   finding: FindingRow | null;
-  /** The trial balance the current findings run was checked on (null when there is no current run). */
+  /** The trial balance that run was checked on, and when the run was generated (null when there is no run). */
   runUploadId: string | null;
+  runGeneratedAt: string | null;
+  /** The minor-unit exponent of that run's currency (amounts are shown only when it is known). */
+  runExponent: number | null;
   findingStatus: FindingStatus | null;
   mapping: MappingRead | null;
   decision: DecisionRead | null;
@@ -185,6 +192,14 @@ export type CorrectionView =
   | { kind: "checking" }
   | { kind: "needs_review" }
   | { kind: "no_authority"; words: string }
+  /**
+   * The reviewed result of the trial balance in use is no longer current (a classification it used changed — for example
+   * the correction saved here) and it is not being checked: it must be checked again. The account is shown as the latest
+   * findings run saw it.
+   */
+  | { kind: "needs_recheck"; finding: FindingRow; mapping: MappingRead | null; decision: DecisionRead | null; decidedBy: DecisionMember | null;
+      /** A decision on this account was recorded after that findings run (typically the correction just saved). */
+      savedAfterCheck: boolean }
   /** Certified, but the findings have not been checked on it (after a new check, or after anything else changed it). */
   | { kind: "findings_out_of_date" }
   | { kind: "other_trial_balance" }
@@ -199,6 +214,12 @@ export function correctionView(ctx: CorrectionContext, upload: ActiveUpload): Co
   if (s.state === "unavailable") return { kind: "unavailable", words: "Close Review is not enabled for this workspace." };
   if (s.state === "no_authority") {
     if (upload?.status === "needs_review") return { kind: "needs_review" };
+    // A trial balance whose check completed but which has no reviewed result now: its inputs changed since (the server's
+    // stale-validation gate). The account is shown from the latest run that was checked on this same trial balance.
+    if (upload && ctx.finding && ctx.runUploadId === upload.id) {
+      const savedAfterCheck = !!ctx.decision && !!ctx.runGeneratedAt && Date.parse(ctx.decision.created_at) > Date.parse(ctx.runGeneratedAt);
+      return { kind: "needs_recheck", finding: ctx.finding, mapping: ctx.mapping, decision: ctx.decision, decidedBy: ctx.decidedBy, savedAfterCheck };
+    }
     return { kind: "no_authority", words: upload ? "There is no reviewed trial balance for this period at the moment." : "There is no trial balance for this period." };
   }
   if (s.state === "stale" || s.state === "not_generated") return { kind: "findings_out_of_date" };
@@ -218,6 +239,8 @@ export interface CorrectionReaders {
   list(runId: string): Promise<FindingRow[]>;
   states(companyId: string, periodYear: number): Promise<{ finding_id: string; status: FindingStatus }[]>;
   runUpload(runId: string): Promise<string | null>;
+  /** The latest findings run of the period (any authority), for when there is no current one. */
+  latestRun(companyId: string, periodYear: number): Promise<{ id: string; upload_id: string; created_at: string; exponent: number } | null>;
   mapping(companyId: string, accountKey: string): Promise<MappingRead | null>;
   decision(decisionId: string): Promise<DecisionRead | null>;
   member(firmMemberId: string): Promise<DecisionMember | null>;
@@ -225,17 +248,24 @@ export interface CorrectionReaders {
 
 export async function readCorrectionContext(r: CorrectionReaders, companyId: string, periodYear: number, link: CorrectionLink): Promise<CorrectionContext> {
   const summary = await r.summary(companyId, periodYear);
-  let finding: FindingRow | null = null, runUploadId: string | null = null, findingStatus: FindingStatus | null = null;
+  let finding: FindingRow | null = null, runUploadId: string | null = null, runGeneratedAt: string | null = null, runExponent: number | null = null;
+  let findingStatus: FindingStatus | null = null;
+  const pick = (rows: FindingRow[]) => rows.find((x) => x.finding_key === link.findingKey && x.account_key === link.accountKey) ?? null;
   if (summary.state === "current") {
     const [rows, upload] = await Promise.all([r.list(summary.runId), r.runUpload(summary.runId)]);
     runUploadId = upload;
-    finding = rows.find((x) => x.finding_key === link.findingKey && x.account_key === link.accountKey) ?? null;
+    runGeneratedAt = summary.generatedAt;
+    runExponent = summary.exponent;
+    finding = pick(rows);
     if (finding) findingStatus = (await r.states(companyId, periodYear)).find((x) => x.finding_id === finding!.id)?.status ?? null;
+  } else if (summary.state === "no_authority") {
+    const run = await r.latestRun(companyId, periodYear);
+    if (run) { runUploadId = run.upload_id; runGeneratedAt = run.created_at; runExponent = run.exponent; finding = pick(await r.list(run.id)); }
   }
   const mapping = await r.mapping(companyId, link.accountKey);
   const decision = mapping?.review_decision_id ? await r.decision(mapping.review_decision_id) : null;
   const decidedBy = decision ? await r.member(decision.firm_member_id) : null;
-  return { summary, finding, runUploadId, findingStatus, mapping, decision, decidedBy };
+  return { summary, finding, runUploadId, runGeneratedAt, runExponent, findingStatus, mapping, decision, decidedBy };
 }
 
 // ── After the findings are checked again ────────────────────────────────────────────────────────────────────────────
@@ -273,12 +303,14 @@ export type CorrectionDbReaders = Omit<CorrectionReaders, "summary" | "list" | "
 
 // ── The readers, with the person's session (RLS decides what may be seen; a row they may not see reads as none) ───────
 type One = { data: unknown; error: unknown };
-type Q = { select(c: string): Q; eq(c: string, v: unknown): Q; maybeSingle(): PromiseLike<One> };
+type Q = { select(c: string): Q; eq(c: string, v: unknown): Q; order(c: string, o: { ascending: boolean }): Q; limit(n: number): Q; maybeSingle(): PromiseLike<One> };
 export function supabaseCorrectionReaders(db: { from(t: string): unknown }): CorrectionDbReaders {
   const from = (t: string) => db.from(t) as Q;
   const one = async <T,>(q: PromiseLike<One>): Promise<T | null> => { const { data, error } = await q; if (error) throw error; return (data ?? null) as T | null; };
   return {
     runUpload: async (runId) => (await one<{ upload_id: string }>(from("close_review_finding_runs").select("upload_id").eq("id", runId).maybeSingle()))?.upload_id ?? null,
+    latestRun: (companyId, periodYear) => one(from("close_review_finding_runs").select("id, upload_id, created_at, exponent").eq("company_id", companyId).eq("period_year", periodYear)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle()),
     mapping: (companyId, accountKey) => one(from("account_mappings").select("classification, review_decision_id").eq("company_id", companyId).eq("account_key", accountKey).maybeSingle()),
     decision: (id) => one(from("account_review_decisions").select("decision_action, created_at, firm_member_id, upload_id, reason").eq("id", id).maybeSingle()),
     // A member row the reader may not see is "a member of this workspace" (memberWords), never someone else.

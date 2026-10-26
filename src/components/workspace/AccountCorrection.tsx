@@ -93,8 +93,9 @@ export function AccountCorrection(p: AccountCorrectionProps) {
   const view = read.state === "ready" ? correctionView(read.ctx, p.upload) : null;
   // The pending save landed (the saved classification is the one that was sent): nothing is uncertain any more.
   useEffect(() => {
-    if (!key || view?.kind !== "ready" || save.outcome?.kind !== "unknown" || !attempt.current) return;
-    if (view.savedNotChecked && view.mapping?.classification === classification) { store.del(key); attempt.current = null; setSave({ busy: false, outcome: { kind: "saved" } }); }
+    if (!key || (view?.kind !== "ready" && view?.kind !== "needs_recheck") || save.outcome?.kind !== "unknown" || !attempt.current) return;
+    const pendingCheck = view.kind === "needs_recheck" || view.savedNotChecked;
+    if (pendingCheck && view.mapping?.classification === classification) { store.del(key); attempt.current = null; setSave({ busy: false, outcome: { kind: "saved" } }); }
   }, [view, key, classification, save.outcome]);
 
   // While the trial balance is being checked (by anyone), read again until it settles.
@@ -106,7 +107,7 @@ export function AccountCorrection(p: AccountCorrectionProps) {
   }, [view?.kind, check.phase, onUploadChanged]);
 
   const onSave = async () => {
-    if (view?.kind !== "ready" || !p.upload || !key || !isClassification(classification) || !reasonValid(reason) || save.busy) return;
+    if ((view?.kind !== "ready" && view?.kind !== "needs_recheck") || !p.upload || !key || !isClassification(classification) || !reasonValid(reason) || save.busy) return;
     const decision = correctionDecision({ account_code: view.finding.account_code, account_name: view.finding.account_name ?? p.link.accountKey }, classification, reason, p.link.findingKey);
     const payload = `${classification}|${reason.trim()}`;
     if (!attempt.current || attempt.current.payload !== payload) attempt.current = { payload, requestId: crypto.randomUUID() };
@@ -155,7 +156,7 @@ export function AccountCorrection(p: AccountCorrectionProps) {
   };
 
   const backLink = back ? <Link to={back} className="underline underline-offset-4" data-testid="correction-back">Back to the finding</Link> : null;
-  const exponent = read.state === "ready" && read.ctx.summary.state === "current" ? read.ctx.summary.exponent : null;
+  const exponent = read.state === "ready" ? read.ctx.runExponent : null;
   const amount = (minor: string | null) => (minor === null || exponent === null ? "—" : presentAmount({ kind: "amount", minor: BigInt(minor), exponent }).text);
 
   let body: ReactNode;
@@ -186,24 +187,31 @@ export function AccountCorrection(p: AccountCorrectionProps) {
   } else {
     const f = view.finding;
     const saved = view.mapping?.classification ?? null;
-    const unchangedChoice = classification !== "" && classification === saved && !view.savedNotChecked;
+    const lastCheck = view.kind === "needs_recheck";
+    // Saved but not yet used by a check: the reviewed result is out of date (needs_recheck), or this correction is newer
+    // than the current findings (ready + savedNotChecked).
+    const pendingCheck = lastCheck || view.savedNotChecked;
+    const savedHere = view.kind === "needs_recheck" ? view.savedAfterCheck : view.savedNotChecked;
+    const unchangedChoice = classification !== "" && classification === saved && !pendingCheck;
     body = (
       <div className="space-y-4 text-[13px]">
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]" data-testid="correction-account">
           <dt className="text-muted-foreground">Account</dt><dd className="font-medium">{f.account_code ? <span className="tabular-nums">{f.account_code} </span> : null}{f.account_name}</dd>
-          <dt className="text-muted-foreground">Balance on the reviewed trial balance</dt>
+          <dt className="text-muted-foreground">{lastCheck ? "Balance when last checked" : "Balance on the reviewed trial balance"}</dt>
           <dd className="tabular-nums" data-testid="correction-balance">Debit {amount(f.debit_minor)} · Credit {amount(f.credit_minor)}</dd>
-          <dt className="text-muted-foreground">Classification used by the current check</dt><dd data-testid="correction-checked-class">{classificationWords(f.classification)}</dd>
+          <dt className="text-muted-foreground">{lastCheck ? "Classification used when last checked" : "Classification used by the current check"}</dt><dd data-testid="correction-checked-class">{classificationWords(f.classification)}</dd>
           <dt className="text-muted-foreground">Saved classification</dt>
           <dd data-testid="correction-saved-class">
             {saved ? classificationWords(saved) : "No reviewed classification is saved for this account"}
             {view.decision ? <span className="text-muted-foreground"> — {DECISION_WORDS[view.decision.decision_action] ?? "Decision recorded"} by {memberWords(view.decidedBy ?? undefined, p.currentUserId)}, {when(view.decision.created_at)}</span> : null}
           </dd>
         </dl>
-        {save.outcome?.kind === "saved" && view.savedNotChecked ? <p role="status" className="font-medium" data-testid="correction-saved">Correction saved.</p> : null}
-        {view.savedNotChecked ? (
+        {save.outcome?.kind === "saved" && pendingCheck ? <p role="status" className="font-medium" data-testid="correction-saved">Correction saved.</p> : null}
+        {pendingCheck ? (
           <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3" data-testid="correction-saved-not-checked">
-            <p>The saved classification is not yet used by the reviewed trial balance or its findings. Check the trial balance again to apply it.</p>
+            <p>{savedHere
+              ? "The saved classification is not yet used by a check. Until the trial balance is checked again it is not reviewed, and its findings are not current."
+              : "This trial balance's reviewed result is no longer current: a classification it used has changed. Check it again to apply the saved classifications."}</p>
             {p.canCorrect ? <ActionButton type="button" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground" data-testid="correction-check-again" onClick={() => setCheck({ phase: "confirm" })}>Check the trial balance again</ActionButton>
               : <p className="text-muted-foreground">Checking the trial balance again needs Prepare in this workspace.</p>}
           </div>
@@ -223,7 +231,7 @@ export function AccountCorrection(p: AccountCorrectionProps) {
               <textarea id={ids.reason} rows={3} maxLength={REASON_MAX} className="w-full rounded-md border border-input bg-background p-2" value={reason}
                 onChange={(e) => setReason(e.target.value)} disabled={save.busy} />
             </div>
-            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason. Earlier decisions stay in the record, the uploaded file is not changed, and the reviewed trial balance keeps its current result until it is checked again.</p>
+            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason. Earlier decisions stay in the record and the uploaded file is not changed. The trial balance then needs to be checked again: until it is, it is not reviewed and its findings are not current.</p>
             <ActionButton type="submit" busy={save.busy} busyLabel="Saving…" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
               disabled={!isClassification(classification) || !reasonValid(reason) || unchangedChoice} data-testid="correction-save">
               {save.outcome?.kind === "unknown" ? "Try again" : "Save correction"}

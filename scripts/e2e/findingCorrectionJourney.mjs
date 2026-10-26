@@ -369,15 +369,19 @@ async function main() {
   }
 
   startGroup("The confirmed new check, the findings checked again, and the return");
-  await check("'Check the trial balance again' asks for confirmation (period and consequences); Cancel changes nothing", async () => {
+  await check("after the save there is no reviewed result (the server's stale-validation gate); 'Check the trial balance again' asks for confirmation (period and consequences); Cancel changes nothing on the server", async () => {
+    const snap = async () => JSON.stringify({ cert: await certification(preparer), up: (await admin.from("trial_balance_uploads").select("status, processed_at, source_file_hash").eq("id", UPLOAD).single()).data,
+      runs: ((await admin.from("close_review_finding_runs").select("id").eq("company_id", A)).data ?? []).length });
+    const before = await snap();
     await go(accountUrl, "");
     await page.click('[data-testid="correction-check-again"]');
     await page.waitForSelector('[role="dialog"]');
     const d = await page.evaluate(() => document.querySelector('[role="dialog"]').innerText);
     await page.press("Escape");
-    await sleep(500);
-    const certStill = await certification(preparer);
-    return /FY2026/.test(d) && /earlier decisions and earlier findings stay in the record/.test(d) && !!certStill ? true : { d, certStill: !!certStill };
+    await sleep(800);
+    const after = await snap();
+    const noCertNow = !(await certification(preparer));
+    return /FY2026/.test(d) && /earlier decisions and earlier findings stay in the record/.test(d) && before === after && noCertNow ? true : { d, before, after, noCertNow };
   });
   await check("confirmed: the trial balance is checked with the correction, the findings are checked again, and the page says the finding is no longer raised", async () => {
     await page.click('[data-testid="correction-check-again"]');

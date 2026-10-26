@@ -14,7 +14,7 @@ const finding = (o: Partial<FindingRow> = {}): FindingRow => ({
 });
 const current: FindingsSummary = { state: "current", runId: "r1", currency: "TZS", exponent: 2, generatedAt: "2026-10-26T08:00:00Z", total: 1, unresolved: 1, unresolvedBlocking: 0, ruleStatus: {} };
 const ctx = (o: Partial<CorrectionContext> = {}): CorrectionContext => ({
-  summary: current, finding: finding(), runUploadId: UP, findingStatus: "open",
+  summary: current, finding: finding(), runUploadId: UP, runGeneratedAt: "2026-10-26T08:00:00Z", runExponent: 2, findingStatus: "open",
   mapping: { classification: "revenue", review_decision_id: "d1" },
   decision: { decision_action: "USER_ACCEPTED_SUGGESTION", created_at: "2026-10-25T17:39:56Z", firm_member_id: "m1", upload_id: UP, reason: null },
   decidedBy: null, ...o,
@@ -110,7 +110,12 @@ describe("the view comes from the server's answers only", () => {
     expect(correctionView(ctx(), { id: UP, status: "processing" }).kind).toBe("checking");
     expect(correctionView(ctx({ summary: { state: "unavailable" } }), up).kind).toBe("unavailable");
     expect(correctionView(ctx({ summary: { state: "no_authority" } }), { id: UP, status: "needs_review" }).kind).toBe("needs_review");
-    expect(correctionView(ctx({ summary: { state: "no_authority" } }), up).kind).toBe("no_authority");
+    // No reviewed result now, but the latest run was on this trial balance: it needs a new check (e.g. after a saved correction).
+    expect(correctionView(ctx({ summary: { state: "no_authority" } }), up)).toEqual(expect.objectContaining({ kind: "needs_recheck", savedAfterCheck: false }));
+    expect(correctionView(ctx({ summary: { state: "no_authority" }, decision: { decision_action: "USER_MANUAL_CLASSIFICATION", created_at: "2026-10-26T09:00:00Z", firm_member_id: "m1", upload_id: UP, reason: "r" } }), up))
+      .toEqual(expect.objectContaining({ kind: "needs_recheck", savedAfterCheck: true }));
+    expect(correctionView(ctx({ summary: { state: "no_authority" }, finding: null }), up).kind).toBe("no_authority");
+    expect(correctionView(ctx({ summary: { state: "no_authority" }, runUploadId: "another" }), up).kind).toBe("no_authority");
     expect(correctionView(ctx({ summary: { state: "stale" } }), up).kind).toBe("findings_out_of_date");
     expect(correctionView(ctx({ summary: { state: "not_generated" } }), up).kind).toBe("findings_out_of_date");
     expect(correctionView(ctx({ runUploadId: "another" }), up).kind).toBe("other_trial_balance");
@@ -123,6 +128,7 @@ describe("the view comes from the server's answers only", () => {
       list: async () => [finding({ id: "a", finding_key: "A10:95000" }), finding({ id: "b" })],
       states: async () => [{ finding_id: "b", status: "explained" }],
       runUpload: async () => UP,
+      latestRun: async () => { throw new Error("not read while a run is current"); },
       mapping: async () => ({ classification: "revenue", review_decision_id: "d1" }),
       decision: async () => ctx().decision,
       member: async () => ({ id: "m1", user_id: "u1", role: "owner", invited_email: null }),
@@ -132,6 +138,23 @@ describe("the view comes from the server's answers only", () => {
     expect(got.findingStatus).toBe("explained");
     expect(got.runUploadId).toBe(UP);
     expect(got.decidedBy?.role).toBe("owner");
+    expect(got.runExponent).toBe(2);
+  });
+  it("with no reviewed result, reads the account from the latest run of the period (its trial balance, time and exponent)", async () => {
+    const r: CorrectionReaders = {
+      summary: async () => ({ state: "no_authority" }),
+      list: async (id) => (id === "r0" ? [finding({ id: "old", run_id: "r0" })] : []),
+      states: async () => { throw new Error("no states without a current run"); },
+      runUpload: async () => { throw new Error("unused"); },
+      latestRun: async () => ({ id: "r0", upload_id: UP, created_at: "2026-10-25T17:40:00Z", exponent: 0 }),
+      mapping: async () => ({ classification: "cost_of_goods_sold", review_decision_id: "d2" }),
+      decision: async () => ({ decision_action: "USER_MANUAL_CLASSIFICATION", created_at: "2026-10-26T09:00:00Z", firm_member_id: "m1", upload_id: UP, reason: "r" }),
+      member: async () => null,
+    };
+    const got = await readCorrectionContext(r, C, 2026, parseCorrectionLink("?account=95000&finding=A01%3A95000")!);
+    expect(got).toEqual(expect.objectContaining({ runUploadId: UP, runGeneratedAt: "2026-10-25T17:40:00Z", runExponent: 0, findingStatus: null }));
+    expect(got.finding?.id).toBe("old");
+    expect(correctionView(got, { id: UP, status: "complete" })).toEqual(expect.objectContaining({ kind: "needs_recheck", savedAfterCheck: true }));
   });
 });
 
