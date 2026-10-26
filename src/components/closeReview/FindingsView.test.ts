@@ -132,7 +132,7 @@ describe("restricted users receive no unauthorized action", () => {
     const w = world({ r1: [row("r1", "1510")] }, "r1");
     m = mount(render(w.props([]))); await flush();
     open(m, "1510"); await flush();
-    expect(q(m, "finding-no-action")!.textContent).toMatch(/No decision is available to you on this finding \(a decision needs Prepare or Review in this workspace\)/);
+    expect(q(m, "finding-no-action")!.textContent).toMatch(/No action available to you on this finding\. A decision needs Prepare or Review in this workspace\./);
     expect(q(m, "finding-correct-account")).toBeNull();
     expect(q(m, "finding-correct-account-readonly")).not.toBeNull();
     const labels = [...m.container.querySelectorAll("button")].map((b) => b.textContent);

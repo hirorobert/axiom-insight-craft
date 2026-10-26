@@ -233,7 +233,7 @@ export function FindingsView(p: {
           {(() => {
             const st = statusOf(sel);
             const offered = offeredActions(sel, st, p.allowed);
-            if (offered.length === 0) return <p className="text-xs text-muted-foreground" data-testid="finding-no-action">No decision is available to you on this finding{p.allowed.includes("prepare_close") || p.allowed.includes("review_close") ? "" : " (a decision needs Prepare or Review in this workspace)"}. Comments below are discussion only and do not change its status.</p>;
+            if (offered.length === 0) return <p className="text-xs text-muted-foreground" data-testid="finding-no-action">No action available to you on this finding.{p.allowed.includes("prepare_close") || p.allowed.includes("review_close") ? "" : " A decision needs Prepare or Review in this workspace."} Comments below are discussion only and do not change its status.</p>;
             return (
               <div className="space-y-1">
                 <p className="text-sm font-medium">Record a decision on this finding</p>
