@@ -71,7 +71,13 @@ async function failureEvidence(name, detail = "") {
   if (!page) return;
   try {
     const where = await page.url();
-    const panel = await page.evaluate(() => (document.querySelector('[data-testid="account-correction"]') ?? document.querySelector("main") ?? document.body)?.innerText?.slice(0, 700) ?? "");
+    const panel = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="account-correction"]') ?? document.querySelector("main") ?? document.body;
+      const sel = root?.querySelector?.("select");
+      // innerText of a <select> lists every option; replace it with the chosen value.
+      const text = [...(root?.childNodes ?? [])].map((n) => (n.nodeType === 1 ? n.innerText : n.textContent) ?? "").join(" ");
+      return `${text.replace(/Choose a classification(?:\s+\S[^\n]*){0,10}/, "")} [select=${sel ? sel.value || "(none)" : "-"}]`.slice(0, 500);
+    });
     failures.push(`FAIL [${group}] ${name}\n  detail: ${detail}\n  at: ${where}\n  saw: ${panel.replace(/\s+/g, " ")}`);
   } catch { failures.push(`FAIL [${group}] ${name}\n  detail: ${detail}`); }
   const slug = name.replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
@@ -222,6 +228,31 @@ const setByLabel = (label, value) => page.evaluate((lab, val) => {
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return true;
 }, label, value);
+/**
+ * Fills the correction form the way a person does and proves it took: the page has settled, both fields hold the values,
+ * and Save is enabled — otherwise it throws with what the form holds (never clicks a form that did not take the input).
+ */
+async function fillCorrection(cls, reason) {
+  await page.waitForSelector('[data-testid="correction-form"]', { timeout: 45000 });
+  await sleep(1500);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const a = await setByLabel("Correct classification", cls);
+    const b = await setByLabel("Reason for the correction", reason);
+    const ok = await page.waitFor((c, r) => {
+      const f = document.querySelector('[data-testid="correction-form"]');
+      const save = document.querySelector('[data-testid="correction-save"]');
+      return !!f && f.querySelector("select")?.value === c && f.querySelector("textarea")?.value === r && !!save && !save.disabled;
+    }, [cls, reason], { timeout: 5000, label: "the form holds the input and Save is enabled" }).catch(() => false);
+    if (a && b && ok) return;
+    await sleep(1000);
+  }
+  const state = await page.evaluate(() => ({ select: document.querySelector('[data-testid="correction-form"] select')?.value ?? null,
+    reason: document.querySelector('[data-testid="correction-form"] textarea')?.value ?? null, saveDisabled: document.querySelector('[data-testid="correction-save"]')?.disabled ?? null }));
+  throw new Error(`the correction form did not take the input: ${JSON.stringify(state)}`);
+}
+const OUTCOME = '[data-testid="correction-refused"], [data-testid="correction-unknown"], [data-testid="correction-saved-not-checked"]';
+const outcomeOf = () => page.evaluate(() => ["correction-refused", "correction-unknown", "correction-saved-not-checked"].filter((t) => document.querySelector(`[data-testid="${t}"]`)));
+
 async function widths(name) {
   const problems = {};
   for (const [w, h] of [[1280, 900], [375, 812]]) {
@@ -304,10 +335,9 @@ async function main() {
     await rpc(owner, "revoke_member_capability", { p_company_id: A, p_user: U.preparer.id, p_capability: "prepare_close", p_reason: "Journey: refused save" });
     let words = null;
     try {
-      await setByLabel("Correct classification", "cost_of_goods_sold");
-      await setByLabel("Reason for the correction", "Cost of goods sold, not revenue: debit balance from purchases");
+      await fillCorrection("cost_of_goods_sold", "Cost of goods sold, not revenue: debit balance from purchases");
       await page.click('[data-testid="correction-save"]');
-      await page.waitForSelector('[data-testid="correction-refused"], [data-testid="correction-unknown"], [data-testid="correction-saved-not-checked"]', { timeout: 30000 });
+      await page.waitForSelector(OUTCOME, { timeout: 30000 });
       words = await tText("correction-refused") ?? `NOT REFUSED: ${await tText("account-correction")}`;
     } finally {
       // Restored whatever happened, so a failure here never cascades into the checks that follow.
@@ -320,12 +350,12 @@ async function main() {
   await check("unknown: the save reaches the server but its answer is cut → 'could not confirm', the choice is kept; the decision WAS recorded once", async () => {
     await go(accountUrl, "");
     await page.waitForSelector('[data-testid="correction-form"]', { timeout: 45000 });
-    await setByLabel("Correct classification", "cost_of_goods_sold");
-    await setByLabel("Reason for the correction", "Cost of goods sold, not revenue: debit balance from purchases");
+    await fillCorrection("cost_of_goods_sold", "Cost of goods sold, not revenue: debit balance from purchases");
     const cutter = await cutResponses("*resolve_account_review_batch*");
     await page.click('[data-testid="correction-save"]');
-    await page.waitForSelector('[data-testid="correction-unknown"]', { timeout: 30000 });
-    await cutter.stop();
+    try { await page.waitForSelector(OUTCOME, { timeout: 30000 }); } finally { await cutter.stop(); }
+    const seen = await outcomeOf();
+    if (!seen.includes("correction-unknown")) return { seen, cut: cutter.cut.length, decisions: (await decisionRows()).length };
     const words = await tText("correction-unknown");
     const kept = await page.evaluate(() => document.querySelector('[data-testid="correction-form"] select')?.value);
     const after = await decisionRows();
@@ -335,7 +365,8 @@ async function main() {
   });
   await check("'Try again' sends the SAME request id: the server replays it; still exactly one new decision; the page says saved, not yet checked", async () => {
     await page.click('[data-testid="correction-save"]');
-    await page.waitForSelector('[data-testid="correction-saved-not-checked"]', { timeout: 30000 });
+    await page.waitForSelector(OUTCOME, { timeout: 30000 });
+    await page.waitForSelector('[data-testid="correction-saved-not-checked"]', { timeout: 15000 });
     const after = await decisionRows();
     const batches = (await admin.from("account_review_batches").select("client_request_id").eq("company_id", A).eq("client_request_id", unknownRequest)).data ?? [];
     const mapping = (await admin.from("account_mappings").select("classification, normal_balance, is_cash_account").eq("company_id", A).eq("account_key", ACC).single()).data;
@@ -430,8 +461,11 @@ async function main() {
   });
   await check("the account's address, opened again, says the current check does not raise this finding (no form)", async () => {
     await go(accountUrl, "");
-    await page.waitForSelector('[data-testid="correction-not-raised"]', { timeout: 45000 });
-    return (await page.evaluate(() => !document.querySelector('[data-testid="correction-form"]'))) ? true : "form shown";
+    // Any settled state of the panel, then exactly the expected one.
+    const shown = await page.waitFor(() => ["correction-not-raised", "correction-findings-out-of-date", "correction-saved-not-checked", "correction-form"]
+      .find((t) => document.querySelector(`[data-testid="${t}"]`)) ?? null, [], { timeout: 45000, label: "a settled account state" });
+    const form = await page.evaluate(() => !!document.querySelector('[data-testid="correction-form"]'));
+    return shown === "correction-not-raised" && !form ? true : { shown, form, panel: await tText("account-correction") };
   });
 
   startGroup("Every request stayed on loopback");
@@ -449,7 +483,7 @@ for (const f of failed) log(`  FAILED [${f.group}] ${f.name}`);
 const ok = !crashed && failed.length === 0 && results.length > 0;
 log(ok ? "FINDING_CORRECTION_JOURNEY: ALL PASSED" : "FINDING_CORRECTION_JOURNEY: FAILED");
 annotate(ok ? "notice" : "error", `finding-correction ${ok ? "ALL PASSED" : "FAILED"} (${results.length - failed.length}/${results.length})`,
-  [...results.map((r) => `${r.ok ? "PASS" : "FAIL"} [${r.group}] ${r.name}`), "", ...failures].join("\n"));
+  [...failures, "", `passed: ${results.filter((r) => r.ok).map((r) => r.name.slice(0, 48)).join(" · ")}`].join("\n"));
 fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ ok, results }, null, 2));
 try { await browser.close(); } catch { /* */ }
 try { await new Promise((r) => preview.httpServer.close(() => r())); } catch { /* */ }
