@@ -7,6 +7,7 @@ import { PendingStatus } from "@/components/feedback/Activity";
  * server. Rules that were not evaluated are listed with their reason — never shown as passed.
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { presentAmount } from "@/lib/presentation/amounts";
 import {
   ACTION_REFUSALS, KIND_WORDS, offeredActions, findingResolved, findingStatus, REFRESH_WORDS, RESOLUTION_WORDS, RULE_STATUS_WORDS, RULE_WORDS, STATUS_WORDS,
@@ -31,6 +32,12 @@ export function FindingsView(p: {
   allowed: readonly string[];
   currentUserId: string | null;
   reviewHref: string;
+  /** Where a finding about one account's classification opens that account (null: not offered for this finding). */
+  correctionHref?: (f: FindingRow) => string | null;
+  /** A finding to open on arrival (from a link back to it); said when the current check no longer raises it. */
+  focusFindingKey?: string | null;
+  /** Reports the opened finding, so the page can keep it in its address (Back and reload return to it). */
+  onSelectFinding?: (findingKey: string | null) => void;
   newRequestId?: () => string;
 }) {
   const ids = { table: useId(), text: useId(), evidence: useId() };
@@ -65,6 +72,18 @@ export function FindingsView(p: {
     }
   }, [p.client, p.companyId, p.periodYear]);
   useEffect(() => { void load(); }, [load]);
+  // Open the finding named by the address once the current run is read (once per key); say so when it is not raised.
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    const k = p.focusFindingKey ?? null;
+    if (!k || focused.current === k || !summary) return;
+    if (summary.state !== "current") return;
+    focused.current = k;
+    const row = rows.find((r) => r.finding_key === k);
+    if (row) setSelected(row.id);
+    else setNotice("The current check of the reviewed trial balance no longer raises that finding.");
+  }, [p.focusFindingKey, summary, rows]);
+  const select = (r: FindingRow) => { setSelected(r.id); p.onSelectFinding?.(r.finding_key); };
   useEffect(() => { if (selected) { detailHeading.current?.focus(); detailHeading.current?.scrollIntoView?.({ block: "nearest" }); } }, [selected]);
 
   const evOf = (id: string) => events.filter((e) => e.subject_id === id);
@@ -117,7 +136,7 @@ export function FindingsView(p: {
       <p className="text-sm" data-testid="findings-counts">
         {summary.total === 0 ? "No findings on the current reviewed trial balance." : `${summary.unresolved} of ${summary.total} unresolved · ${summary.unresolvedBlocking} blocking`}
       </p>
-      {nextOpen ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" onClick={() => setSelected(nextOpen.id)}>Next open item</button> : null}
+      {nextOpen ? <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground" onClick={() => select(nextOpen)}>Next open item</button> : null}
       {rows.length > 0 ? (
         <div className="relative w-full max-w-full overflow-x-auto rounded-md border border-border">
         <table className="w-full border-collapse text-sm" aria-label="Findings">
@@ -139,7 +158,7 @@ export function FindingsView(p: {
                   <td className={`${TD} whitespace-nowrap text-right tabular-nums`}><Amount minor={r.credit_minor} exponent={summary.exponent} /></td>
                   <td className={`${TD} whitespace-nowrap`}>{r.severity === "blocking" ? (r.mandatory ? "Blocking · mandatory" : "Blocking") : "Warning"}</td>
                   <td className={TD}>{STATUS_WORDS[st]}{resolvedOf(r) ? "" : st === "open" ? "" : " · not yet resolved"}</td>
-                  <td className={`${TD} whitespace-nowrap`}><button type="button" className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => setSelected(r.id)} aria-pressed={isSel}
+                  <td className={`${TD} whitespace-nowrap`}><button type="button" className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => select(r)} aria-pressed={isSel}
                     aria-label={`Open ${RULE_WORDS[r.rule_id]?.title ?? r.rule_id}${r.account_name ? ` for ${r.account_name}` : ""}`}>Review finding</button></td>
                 </tr>
               );
@@ -159,6 +178,15 @@ export function FindingsView(p: {
           <h3 className="text-sm font-semibold" tabIndex={-1} ref={detailHeading}>{RULE_WORDS[sel.rule_id]?.title}{sel.account_name ? ` — ${sel.account_code ? `${sel.account_code} ` : ""}${sel.account_name}` : ""}</h3>
           <p className="text-sm">{RULE_WORDS[sel.rule_id]?.explain}</p>
           <p className="text-sm">{RESOLUTION_WORDS[sel.required_resolution]}{sel.mandatory ? " — mandatory: it cannot be accepted or marked not applicable." : ""}</p>
+          {(() => {
+            const href = p.correctionHref?.(sel) ?? null;
+            return href ? (
+              <p className="text-sm">
+                <Link to={href} className="font-medium underline underline-offset-4" data-testid="finding-correct-account">Review this account&rsquo;s classification</Link>
+                <span className="text-muted-foreground"> — if the classification is wrong, correct it there; the trial balance is then checked again and this finding with it.</span>
+              </p>
+            ) : null;
+          })()}
           {(() => {
             const st = statusOf(sel);
             const offered = offeredActions(sel, st, p.allowed);

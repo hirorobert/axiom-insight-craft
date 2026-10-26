@@ -775,6 +775,8 @@ describe("database inertness — schema and functions", () => {
       // FS workload measurement on the same local stack (invented companies; client-observed API round trips recorded, no
       // assertion on timing; loopback only, no secret, no deploy behaviour).
       "scripts/e2e/workloadJourney.mjs",
+      // The finding-correction journey on the same local stack (invented company; loopback only, no secret, no deploy behaviour).
+      "scripts/e2e/findingCorrectionJourney.mjs",
       // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
       // without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/certificationCapacity.mjs",
@@ -815,6 +817,8 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/internalBetaStagedTransport.mjs");
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
+    // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
+    allowed.add("scripts/db-proof/classificationSuggestions.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });

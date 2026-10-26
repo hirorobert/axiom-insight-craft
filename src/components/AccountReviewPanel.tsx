@@ -11,6 +11,7 @@
  * mapping — the accountant's decision is what gets written.
  */
 
+import { CLASSIFICATIONS, classificationMeta } from "@/lib/accounting/classificationMeta";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
@@ -162,43 +163,9 @@ interface AccountReviewPanelProps {
 
 // ── Classification helpers ─────────────────────────────────────────────────
 
-const CLASSIFICATIONS = [
-  { value: "current_assets",          label: "Current Assets" },
-  { value: "non_current_assets",      label: "Non-Current Assets" },
-  { value: "current_liabilities",     label: "Current Liabilities" },
-  { value: "non_current_liabilities", label: "Non-Current Liabilities" },
-  { value: "equity",                  label: "Equity" },
-  { value: "revenue",                 label: "Revenue" },
-  { value: "cost_of_goods_sold",      label: "Cost of Goods Sold" },
-  { value: "operating_expenses",      label: "Operating Expenses" },
-  { value: "other_income",            label: "Other Income" },
-  { value: "taxes",                   label: "Taxes" },
-] as const;
-
 const CLASS_LABEL: Record<string, string> = Object.fromEntries(
   CLASSIFICATIONS.map((c) => [c.value, c.label]),
 );
-
-interface ClassMeta {
-  statement: string;
-  normal_balance: "debit" | "credit";
-}
-
-function classificationMeta(cls: string): ClassMeta {
-  const table: Record<string, ClassMeta> = {
-    current_assets:          { statement: "balance_sheet",    normal_balance: "debit"  },
-    non_current_assets:      { statement: "balance_sheet",    normal_balance: "debit"  },
-    current_liabilities:     { statement: "balance_sheet",    normal_balance: "credit" },
-    non_current_liabilities: { statement: "balance_sheet",    normal_balance: "credit" },
-    equity:                  { statement: "balance_sheet",    normal_balance: "credit" },
-    revenue:                 { statement: "income_statement", normal_balance: "credit" },
-    cost_of_goods_sold:      { statement: "income_statement", normal_balance: "debit"  },
-    operating_expenses:      { statement: "income_statement", normal_balance: "debit"  },
-    other_income:            { statement: "income_statement", normal_balance: "credit" },
-    taxes:                   { statement: "income_statement", normal_balance: "debit"  },
-  };
-  return table[cls] ?? { statement: "income_statement", normal_balance: "debit" };
-}
 
 // Stable per-row key — mirrors accountKey() in the edge function.
 function rowKey(a: NeedsReviewAccount): string {
