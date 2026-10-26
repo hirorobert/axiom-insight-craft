@@ -706,9 +706,9 @@ export default function PrepareWorkspace() {
         </div>
       </header>
 
-      <ReportingPeriodHandoff companyId={companyId} periodYear={periodYear} />
+      <ReportingPeriodHandoff companyId={companyId} periodYear={periodYear} currentFile={upload?.file_name ?? null} />
 
-      <div className="space-y-5">
+      <div id="current-trial-balance" className="space-y-5 scroll-mt-6">
           {/* The Current Trial Balance card: file, result, totals, one reason, one action. Replace / Remove live here. */}
           {upload && !showUploader && (
             <>

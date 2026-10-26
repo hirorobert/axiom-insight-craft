@@ -144,6 +144,7 @@ describe("database inertness — schema and functions", () => {
       // commercial administrator can read the beta state and open/close reporting; new functions only (proof:
       // scripts/db-proof/internalBetaActivation.mjs).
       "supabase/migrations/20261203100000_internal_beta_admin_activation.sql",
+      "supabase/migrations/20261204100000_internal_beta_team_bootstrap.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",

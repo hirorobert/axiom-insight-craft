@@ -56,7 +56,7 @@ export interface UseEngagementMandateReturn {
   /** The person holds review_close in this workspace and the account has a current plan (never a job title). */
   canAmend: boolean;
   loading: boolean;
-  refresh: () => void;
+  refresh: () => Promise<void>;
   /** Opens (or reuses) the engagement with this scope; resolves to its id. */
   createEngagement: (
     capabilities: EngagementCapability[],

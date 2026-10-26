@@ -1,3 +1,4 @@
+import { ReportingAccessNextStep } from "./ReportingAccessNextStep";
 import type { ReactNode } from "react";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -20,7 +21,7 @@ const DETAILS: Partial<Record<WorkbenchGroupId, string>> = {
 };
 /** A readable projection of the authorised workbench. No local progress, permissions or completion inference. */
 export function CompanyWorkspaceHome({ children }: { children?: ReactNode }) {
-  const { company, companyId, periodYear } = useWorkspace();
+  const { company, companyId, periodYear, access } = useWorkspace();
   const { search } = useLocation();
   const context = { reportVersion: parseReportVersion(search) };
   const navigation = useOutletContext<CompanyHomeNavigation | undefined>();
@@ -34,6 +35,7 @@ export function CompanyWorkspaceHome({ children }: { children?: ReactNode }) {
       <ManagementLink to={`/settings?section=companies&company=${encodeURIComponent(companyId)}`} className="mt-3 inline-flex min-h-11 items-center text-sm text-primary underline underline-offset-4">Company details &amp; settings</ManagementLink>
     </header>
     {children}
+    <ReportingAccessNextStep companyId={companyId} owner={access?.kind === "owner"} />
     {!children && navigation?.next && <div className="mb-6 border-l-4 border-primary bg-muted/30 p-4"><p className="mb-2 text-sm font-medium">Next step</p><Link className="inline-flex min-h-11 items-center gap-3 bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring" to={withContext(navigation.next.href, context)}>{navigation.next.label}<span aria-hidden="true">→</span></Link></div>}
     <h2 className="mb-3 text-base font-semibold">Reporting workflow</h2>
     <ol className="divide-y divide-border border border-border" aria-label="Company tasks">

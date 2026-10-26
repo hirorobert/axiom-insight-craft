@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import { useBusyState } from "@/hooks/useBusyState";
 import { useActivity } from "@/components/feedback/useActivity";
@@ -27,7 +28,9 @@ import { useActivity } from "@/components/feedback/useActivity";
 //   viewer  — read-only (findings, reports, PDF export)
 // ============================================================
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useManagementSurface } from "@/components/account/managementState";
+import { settingsWorkspace } from "@/lib/workspace/settingsContinuity";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,9 +128,20 @@ const ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
 
 export function FirmManagementPanel() {
   const { user } = useAuth();
+  const surface = useManagementSurface();
+  const [query] = useSearchParams();
+  const requestedCompany = query.get("company");
+  const originCompany = settingsWorkspace(surface?.origin ?? null)?.companyId;
+  const selectedRef = useRef("");
+  const memberRead = useRef(0);
   const [companies, setCompanies]       = useState<Company[]>([]);
   const [members, setMembers]           = useState<FirmMember[]>([]);
-  const [selectedCompany, setSelected]  = useState<string>("");
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
+  const setSelected = (id: string) => {
+    selectedRef.current=id;
+    setSelectedCompany(id);
+    if (user) { try { sessionStorage.setItem(`cfoclose:team-company:${user.id}`,id); } catch { /* Optional navigation preference. */ } }
+  };
   const [changing, setChanging] = useBusyState("Updating team access…");
   const [loading, setLoading]           = useState(true);
   const [showInvite, setShowInvite]     = useState(false);
@@ -190,9 +204,11 @@ export function FirmManagementPanel() {
 
       const coList = (cos ?? []) as Company[];
       setCompanies(coList);
-      if (coList.length > 0 && !selectedCompany) {
-        setSelected(coList[0].id);
-      }
+      let remembered: string | null = null;
+      try { remembered = sessionStorage.getItem(`cfoclose:team-company:${user.id}`); } catch { /* Optional. */ }
+      // Navigation preference only; candidates must be present in the server-listed owned companies.
+      const preferred = [selectedRef.current, requestedCompany, originCompany, remembered].find(id => coList.some(c => c.id === id));
+      setSelected(preferred ?? coList[0]?.id ?? "");
     } catch (err) {
       console.error("FirmManagementPanel fetch error:", err);
       toast.error("Failed to load companies");
@@ -204,6 +220,8 @@ export function FirmManagementPanel() {
   // Fetch members for the selected company
   const fetchMembers = async (companyId: string) => {
     if (!companyId) return;
+    const mine=++memberRead.current;
+    setMembers([]);
     try {
       const { data: rows, error } = await supabase
         .from("firm_members")
@@ -242,7 +260,7 @@ export function FirmManagementPanel() {
         email:        r.invited_email ?? undefined,
       }));
 
-      setMembers(enriched);
+      if (mine === memberRead.current && selectedRef.current === companyId) setMembers(enriched);
     } catch (err) {
       console.error("fetchMembers error:", err);
       toast.error("Failed to load members");
@@ -479,7 +497,7 @@ export function FirmManagementPanel() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { fetchOwned(); }}
+              onClick={() => { void fetchOwned(); if (selectedCompany) { void fetchMembers(selectedCompany); void fetchSeats(selectedCompany); } }}
               disabled={loading}
               className="gap-1.5"
             >

@@ -265,6 +265,7 @@ export const TrialBalanceUpload = ({
         <strong>Upload destination: {lockedCompanyName ? `${lockedCompanyName} · ` : ""}FY{periodYear}</strong>
         <span className="block text-xs text-muted-foreground">Confirm that this file’s balances belong to this period before uploading.</span>
       </p>}
+      {file && flow.phase === "selected" && periodYear && [...file.name.matchAll(/(?:^|[^a-z0-9])FY[_ -]?(20\d{2})(?=$|[^a-z0-9])/gi)].some(m => Number(m[1]) !== periodYear) && <p role="alert" className="border border-amber-500 p-3 text-sm">The filename mentions another reporting year. This upload will be saved under FY{periodYear}. Check the file’s actual dates and balances before continuing; choose the other year above if needed.</p>}
       <input
         ref={fileInputRef}
         type="file"

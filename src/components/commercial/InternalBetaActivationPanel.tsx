@@ -1,3 +1,4 @@
+import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -136,6 +137,7 @@ export function InternalBetaActivationPanel() {
                 <span className="font-mono text-xs text-muted-foreground">{c.companyId}</span>
                 {c.allowlisted && <Badge variant="outline">Open list</Badge>}
                 <span className="text-xs text-muted-foreground">{c.enrolledMembers} enrolled</span>
+                {c.enrolledMembers === 0 && <ManagementLink className="text-sm underline" to={`/settings?section=firm&company=${encodeURIComponent(c.companyId)}`}>Enroll an accepted owner or team member</ManagementLink>}
                 {c.syntheticScopes.length > 0 && <span className="text-xs text-muted-foreground">synthetic data: {c.syntheticScopes.map((s) => s.periodYear).join(", ")}</span>}
               </li>
             );
