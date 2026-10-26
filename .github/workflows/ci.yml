@@ -1236,7 +1236,7 @@ jobs:
           bun scripts/release/renderAcceptanceFixtures.mjs --check
           bun scripts/db-proof/acceptanceFixtures.mjs
 
-      - name: Classification suggestions proof (classification-r1 — the REAL process-trial-balance handler on the unchanged acceptance files, both years, fresh company, no global mappings; every suggestion equals the fixture, the bank loan goes to review with no suggestion and never cash; accepted suggestions certify both years with EXPECTED_TOTALS; names with and without qualifiers; reviewed mappings keep precedence; and BEFORE mode: the pre-fix handler at main 5b2f087b must reproduce the four registered wrong suggestions; on the same throwaway container)
+      - name: Classification suggestions proof (classification-r1 — the REAL process-trial-balance handler on the unchanged acceptance files, both years, fresh company, no global mappings; every suggestion equals the fixture, the bank loan goes to review with no suggestion and never cash; accepted suggestions certify both years with EXPECTED_TOTALS; names with and without qualifiers; reviewed mappings keep precedence; and BEFORE mode, the pre-fix handler at main 5b2f087b must reproduce the four registered wrong suggestions; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/classification_proof
