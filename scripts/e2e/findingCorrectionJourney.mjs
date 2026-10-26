@@ -43,6 +43,11 @@ const key = () => crypto.randomBytes(18).toString("base64url");
 const results = [];
 let group = "";
 const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "journey.log"), s + "\n"); };
+/** A GitHub annotation (readable through the checks API even where the run's logs and artifacts are not). */
+const annotate = (level, title, msg) => { if (process.env.GITHUB_ACTIONS) console.log(`::${level} title=${title.replace(/[\r\n:,]/g, " ").slice(0, 120)}::${String(msg).replace(/%/g, "%25").replace(/\r/g, "").replace(/\n/g, "%0A").slice(0, 2000)}`); };
+// A failure during setup (before the first check) is reported, never silent.
+process.on("uncaughtException", (e) => { annotate("error", "finding-correction setup", e?.stack ?? e); log(`SETUP FAILURE: ${e?.stack ?? e}`); process.exit(1); });
+process.on("unhandledRejection", (e) => { annotate("error", "finding-correction setup", e?.stack ?? e); log(`SETUP FAILURE: ${e?.stack ?? e}`); process.exit(1); });
 const startGroup = (g) => { group = g; log(`\n== ${g}`); };
 let page;
 async function check(name, fn) {
@@ -51,11 +56,13 @@ async function check(name, fn) {
     const ok = r === true;
     results.push({ group, name, ok });
     log(`  ${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n        ${JSON.stringify(r)?.slice(0, 1500)}`}`);
+    if (!ok) annotate("error", `finding-correction: ${group}`, `${name}\n${JSON.stringify(r)?.slice(0, 1500)}`);
     if (!ok) await failureEvidence(name);
     return ok;
   } catch (e) {
     results.push({ group, name, ok: false });
     log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split("\n").slice(0, 3).join(" | ")}`);
+    annotate("error", `finding-correction: ${group}`, `${name}\n${String(e?.stack ?? e).split("\n").slice(0, 4).join("\n")}`);
     await failureEvidence(name);
     return false;
   }
@@ -421,12 +428,14 @@ async function main() {
 }
 
 let crashed = false;
-try { await main(); } catch (e) { crashed = true; log(`\nINFRASTRUCTURE FAILURE: ${e?.stack ?? e}`); await failureEvidence("infrastructure"); }
+try { await main(); } catch (e) { crashed = true; log(`\nINFRASTRUCTURE FAILURE: ${e?.stack ?? e}`); annotate("error", "finding-correction infrastructure", e?.stack ?? e); await failureEvidence("infrastructure"); }
 const failed = results.filter((r) => !r.ok);
 log(`\nchecks: ${results.length}   passed: ${results.length - failed.length}   failed: ${failed.length}`);
 for (const f of failed) log(`  FAILED [${f.group}] ${f.name}`);
 const ok = !crashed && failed.length === 0 && results.length > 0;
 log(ok ? "FINDING_CORRECTION_JOURNEY: ALL PASSED" : "FINDING_CORRECTION_JOURNEY: FAILED");
+annotate(ok ? "notice" : "error", `finding-correction ${ok ? "ALL PASSED" : "FAILED"} (${results.length - failed.length}/${results.length})`,
+  results.map((r) => `${r.ok ? "PASS" : "FAIL"} [${r.group}] ${r.name}`).join("\n"));
 fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ ok, results }, null, 2));
 try { await browser.close(); } catch { /* */ }
 try { await new Promise((r) => preview.httpServer.close(() => r())); } catch { /* */ }
