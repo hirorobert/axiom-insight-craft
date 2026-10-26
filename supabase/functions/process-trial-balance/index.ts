@@ -286,10 +286,23 @@ const SUBTOTAL_ROW_PATTERNS = [
 /** Auto-classification patterns — name → { statement, classification, normal_balance } */
 interface AutoClass { statement: string; classification: string; normal_balance: "debit"|"credit"; line_item: string; is_payroll?: boolean; is_retained?: boolean; is_cash?: boolean; }
 
-const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }> = [
+/**
+ * A rule either suggests a classification (`result`) or, when the name cannot decide one, sends the account to review with
+ * NO suggestion and says why (`review`). Rules are tried in order and the first match is the candidate; a later rule wins
+ * only when its match CONTAINS the candidate's match (a more specific phrase around the same words): "cost of sales" over
+ * "sales", "accumulated depreciation" over "depreciation", "interest income" over "income", "bank loan" over "bank"
+ * (autoClassifyAccount; classification-r1). A match elsewhere in the name never displaces the candidate.
+ */
+type AutoRule = { patterns: RegExp[]; result: AutoClass } | { patterns: RegExp[]; review: string };
+
+const AUTO_CLASSIFICATION_RULES: AutoRule[] = [
   // ── INCOME STATEMENT — Revenue ─────────────────────────────────────────────
   { patterns: [/\brevenue\b/i, /\bsale[s]?\b/i, /\bincome(?!\s+tax)\b/i, /\bmapato\b/i, /\bturnover\b/i],
     result: { statement: "income_statement", classification: "revenue", normal_balance: "credit", line_item: "Revenue" }},
+
+  // ── INCOME STATEMENT — Other income (more specific than "income" above; wins by containment) ─────────────────
+  { patterns: [/\binterest\s+(?:income|received|earned)\b/i, /\bdividend\s+income\b/i, /\bother\s+income\b/i],
+    result: { statement: "income_statement", classification: "other_income", normal_balance: "credit", line_item: "Other Income" }},
 
   // ── INCOME STATEMENT — Cost of Goods Sold ──────────────────────────────────
   // Must come BEFORE operating_expenses so "cost of sales" routes to cogs not opex
@@ -460,6 +473,13 @@ const AUTO_CLASSIFICATION_RULES: Array<{ patterns: RegExp[]; result: AutoClass }
     ],
     result: { statement: "balance_sheet", classification: "non_current_liabilities", normal_balance: "credit", line_item: "Long-term Borrowings" }},
 
+  // ── Loans and borrowings whose maturity the name does not give: review, NO suggestion ─────────────────────────
+  // Whether a loan is a current or a non-current liability (or a loan receivable) is a judgement on its terms, never a
+  // reading of its name, and "bank" in "Bank loan" must not make it cash. Names that DO say it ("long term loan",
+  // "short-term loan", "term loan", "overdraft", "loan interest", "borrowing costs") contain this match and win.
+  { patterns: [/\b(?:bank\s+)?loans?\b/i, /\bborrowings?\b/i],
+    review: "A loan or borrowing: whether it is a current or a non-current liability (or a loan receivable) depends on its terms, which the name does not give. Choose its classification." },
+
   // ── BALANCE SHEET — Equity ─────────────────────────────────────────────────
   { patterns: [/\bshare\s+capital\b/i, /\bpaid[_-]?up\s+capital\b/i, /\bordinary\s+share[s]?\b/i, /\bmtaji\b/i],
     result: { statement: "balance_sheet", classification: "equity", normal_balance: "credit", line_item: "Share Capital" }},
@@ -477,14 +497,33 @@ interface ClassificationResult extends AutoClass {
   confidence: "high" | "medium";
 }
 
-function autoClassifyAccount(name: string): ClassificationResult | null {
-  const normalized = name.trim();
-  for (const rule of AUTO_CLASSIFICATION_RULES) {
-    if (rule.patterns.some(p => p.test(normalized))) {
-      return { ...rule.result, confidence: "high" };
-    }
+/** The longest match of any of the rule's patterns in `name`, or null. */
+function ruleMatch(rule: AutoRule, name: string): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  for (const p of rule.patterns) {
+    const m = new RegExp(p.source, p.flags.replace("g", "")).exec(name);
+    if (m && (!best || m[0].length > best.end - best.start)) best = { start: m.index, end: m.index + m[0].length };
   }
-  return null;
+  return best;
+}
+
+function autoClassifyAccount(name: string): ClassificationResult | { review: string } | null {
+  const normalized = name.trim();
+  const matches = AUTO_CLASSIFICATION_RULES
+    .map((rule) => ({ rule, span: ruleMatch(rule, normalized) }))
+    .filter((x): x is { rule: AutoRule; span: { start: number; end: number } } => x.span !== null);
+  if (matches.length === 0) return null;
+  // First match in rule order, then the longest match that CONTAINS it, repeatedly (never one elsewhere in the name).
+  let chosen = matches[0];
+  for (;;) {
+    const wider = matches
+      .filter((x) => x.span.start <= chosen.span.start && x.span.end >= chosen.span.end
+        && x.span.end - x.span.start > chosen.span.end - chosen.span.start)
+      .sort((a, b) => (b.span.end - b.span.start) - (a.span.end - a.span.start))[0];
+    if (!wider) break;
+    chosen = wider;
+  }
+  return "review" in chosen.rule ? { review: chosen.rule.review } : { ...chosen.rule.result, confidence: "high" };
 }
 
 // ── Stable per-row map key ────────────────────────────────────────────────────
@@ -692,10 +731,15 @@ function classifyAccountTiered(
       // which handles compound account names deterministically.
       // Regression: classification.test.js tests 4–5 (account 6054),
       //             tests 11–14 (Equipment Repairs, Motor Vehicle Insurance).
+      // A shorter expense term that lies INSIDE the winning term is part of that more specific phrase, not a conflict:
+      // "accumulated depreciation" contains "depreciation" and names the asset's contra account, not the expense
+      // (classification-r1, docs/release/classification-r1/RECORD.md). Only an expense term found ELSEWHERE in the name
+      // ("Repair & Maintenance — Motor Vehicles") still sends the account to the compound-name rules.
       const winnerClass = classes[0];
+      const winnerTerm  = topHits[0].term;
       const hasOpexConflict =
         (winnerClass === "non_current_assets" || winnerClass === "non_current_liabilities") &&
-        hits.some(k => k.classification === "operating_expenses");
+        hits.some(k => k.classification === "operating_expenses" && !winnerTerm.includes(k.term));
       if (!hasOpexConflict) {
         const meta = classificationMeta(winnerClass);
         return {
@@ -718,7 +762,10 @@ function classifyAccountTiered(
     let bestKwd: KeywordRow | null = null;
     for (const k of kwdExact) {
       const d = levenshtein(normName, k.term);
-      if (d <= 2 && d < bestDist) { bestDist = d; bestKwd = k; }
+      // A distance of 2 on a short word is a different word ("bank" ~ "land"), not a typo: at most 1 edit below 8
+      // characters, 2 from 8 (classification-r1).
+      const allowed = Math.min(normName.length, k.term.length) < 8 ? 1 : 2;
+      if (d <= allowed && d < bestDist) { bestDist = d; bestKwd = k; }
     }
     if (bestKwd) {
       const meta = classificationMeta(bestKwd.classification);
@@ -734,6 +781,9 @@ function classifyAccountTiered(
 
   // ── Tier 5: AUTO_CLASSIFICATION_RULES regex (autoClassifyAccount, unchanged) ─
   const auto = autoClassifyAccount(account.account_name);
+  if (auto && "review" in auto) {
+    return { status: "needs_review", reason: auto.review };
+  }
   if (auto) {
     return {
       status: "classified",
