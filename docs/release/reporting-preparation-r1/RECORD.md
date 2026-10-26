@@ -33,3 +33,8 @@ No hosted browser acceptance, function-source attestation or accountant sign-off
 The automatic applicability issue also exists in the server status contract. This candidate qualifies its UI meaning without altering that contract, readiness, requirement counts or financial calculations. A separate reviewed forward migration is needed if changing the server states.
 
 Installed historical migrations are untouched. The known incorrect saved mappings remain until separately corrected through authorized review and reprocessing. Genuine contra treatment and assisted placement/matching remain separate follow-ups.
+
+
+## Independent review correction
+
+The initial evidence link had the correct scoped href, but router navigation could occur before async statement content existed. Added a bounded workbench anchor/focus effect for only the assignment/evidence targets after successful reads, and focusable section targets. Two additional component tests exercise delayed rendering and reject arbitrary hash targets. Exact-head CI must rerun after this change; earlier green checks do not clear it.

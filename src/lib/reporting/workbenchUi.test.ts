@@ -32,8 +32,8 @@ function server(over: Partial<Record<string, () => unknown>> = {}): ReportingDb 
   };
 }
 const settle = async () => { for (let i = 0; i < 6; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-const render = async (db: ReportingDb, page: ReportingPage, allowed: string[] = ["prepare_close"]) => {
-  m = mount(h(MemoryRouter, null, h(ReportingWorkbench, { page, companyId: "c1", periodYear: 2026, legalName: "Synthetic SME Limited", db, allowed, reportVersion: 2,
+const render = async (db: ReportingDb, page: ReportingPage, allowed: string[] = ["prepare_close"], entry = "/") => {
+  m = mount(h(MemoryRouter, { initialEntries: [entry] }, h(ReportingWorkbench, { page, companyId: "c1", periodYear: 2026, legalName: "Synthetic SME Limited", db, allowed, reportVersion: 2,
     hrefFor: (p: ReportingPage, v: number | null) => `/${p}${v ? `?v=${v}` : ""}` })));
   await settle();
 };
@@ -184,5 +184,28 @@ describe("incomplete presentation is not a final applicability decision", () => 
     expect((document.querySelector('[data-testid="wording-body"]') as HTMLTextAreaElement).value).toBe("");
     click(document.querySelector('[data-requirement="smes.set.scf"]')!);
     expect(document.querySelector('a[href="/fs-statements?v=2#reporting-evidence"]')).not.toBeNull();
+  });
+});
+
+
+describe("preparation links after asynchronous page loading", () => {
+  it("lands and focuses the evidence section once content is read", async () => {
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrolled: string[] = [];
+    HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+    try {
+      await render(server(), "fs-statements", ["prepare_close"], "/fs-statements?v=2#reporting-evidence");
+      expect(scrolled).toContain("reporting-evidence");
+      expect(document.activeElement?.id).toBe("reporting-evidence");
+    } finally { HTMLElement.prototype.scrollIntoView = original; }
+  });
+  it("ignores arbitrary hash targets", async () => {
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrolled: string[] = [];
+    HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+    try {
+      await render(server(), "fs-statements", ["prepare_close"], "/fs-statements#h-SFP");
+      expect(scrolled).toEqual([]);
+    } finally { HTMLElement.prototype.scrollIntoView = original; }
   });
 });

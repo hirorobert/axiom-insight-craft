@@ -118,7 +118,7 @@ export function EvidenceIntake(p: PageProps & { mode: "prepare" | "summary" }) {
   };
   const pending = Object.values(picked);
   return (
-    <section id="reporting-evidence" className="scroll-mt-28" aria-labelledby="h-ev" data-testid="evidence" data-mode={p.mode}>
+    <section id="reporting-evidence" tabIndex={-1} className="scroll-mt-28" aria-labelledby="h-ev" data-testid="evidence" data-mode={p.mode}>
       <h2 id="h-ev" className="text-base font-semibold">Evidence for the cash-flow and changes-in-equity statements</h2>
       {p.mode === "prepare" ? (
         <p className="text-muted-foreground">CSV files. A chosen file is read and validated in this browser; it is stored only together with a saved draft version, in one server step. The latest stored file of each kind is used.</p>

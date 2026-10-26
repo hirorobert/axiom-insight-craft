@@ -168,7 +168,7 @@ function NotPresented(p: PageProps & { c: Composition }) {
     finally { setBusy(false); }
   };
   return (
-    <section id="statement-assignments" className="scroll-mt-28" aria-labelledby="h-np" data-testid="not-presented">
+    <section id="statement-assignments" tabIndex={-1} className="scroll-mt-28" aria-labelledby="h-np" data-testid="not-presented">
       <h2 id="h-np" className="mb-2 text-base font-semibold">Accounts not presented ({rows.length})</h2>
       <p className="mb-2 text-sm text-muted-foreground">Totals stay missing until every account is on a compatible line. The server checks each assignment against the account's nature.</p>
       <ul className="space-y-2 text-sm">
