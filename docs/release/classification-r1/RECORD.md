@@ -67,7 +67,7 @@ decisions are append-only.
 
 ## Deployment
 
-Takes effect only when **`process-trial-balance` is deployed** from this commit (closure digest in the PR description). No
+Takes effect only when **`process-trial-balance` is deployed** from this commit: closure digest `d0e8eb018c50e870d561c1bd45b21472ab0d29fd57c199cee852bd6f9dee19db` (`node scripts/release/functionClosure.mjs process-trial-balance`; pinned as REQUIRED in `scripts/release/verifyDeployedClosure.mjs`, the previous `89dfebd2…` now KNOWN_OLDER). A deploy response is not an attestation: verify the downloaded bundle with `verifyDeployedClosure.mjs`. No
 migration. Merging or publishing the frontend alone does NOT activate it. It changes only new suggestions: the test
 company's saved (wrong) mappings stay until a reviewer corrects them in Account review — see the correction plan in the PR.
 

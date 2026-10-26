@@ -20,8 +20,9 @@ export const KNOWN_CLOSURES = Object.freeze({
   // PR #176 (FS first slice): the mapping read is paged (DEFECT-PTB-MAPPINGS-API-ROW-CAP-001). The closure deployed hosted on
   // 2026-10-18 (tb-release-r1, EVIDENCE.md) read at most 1,000 mappings and must be redeployed.
   "process-trial-balance": Object.freeze({
-    required: { sha256: "89dfebd2bfc96c73cf766468881db73eb1290f37cd34164880fba64d6cd934e3", source: "Trial Balance workflow: generation 7 with exhaustive finding/rule agreement and final-schema certification enforcement (20261118100000)" },
-    known: [{ sha256: "e2553c3b559a9bead72f5afd022d568419c0a6ea1b542ea25a6ade1a7b975bd8", source: "main daa23e4 (PR #176 merged; generation 6): PR #176: account_mappings read page by page by KEYSET on the immutable id (_shared/pagedSelect.ts selectAllRowsByKey; Codex review blocker 2)" },
+    required: { sha256: "d0e8eb018c50e870d561c1bd45b21472ab0d29fd57c199cee852bd6f9dee19db", source: "classification-r1: specific names win over general words in classification suggestions (docs/release/classification-r1/RECORD.md); no migration" },
+    known: [{ sha256: "89dfebd2bfc96c73cf766468881db73eb1290f37cd34164880fba64d6cd934e3", source: "main through 5b2f087b (generation 7, before classification-r1): wrong suggestions for cost of sales, accumulated depreciation, bank loan, interest income with a qualifier" },
+      { sha256: "e2553c3b559a9bead72f5afd022d568419c0a6ea1b542ea25a6ade1a7b975bd8", source: "main daa23e4 (PR #176 merged; generation 6): PR #176: account_mappings read page by page by KEYSET on the immutable id (_shared/pagedSelect.ts selectAllRowsByKey; Codex review blocker 2)" },
       { sha256: "67cbf27b09e68fbfb70c8d1562a5fdd7063f284bf7cdda9280a81edbf25607fd", source: "main through 942764f (deployed hosted 2026-10-18, tb-release-r1): one unpaged select, at most 1,000 mappings applied" },
       { sha256: "85670e5ae5bd01a737ca7a30f90f9b779784d272ad4422c5d94f36e2f7ba8a6e", source: "PR #176 bbb9ad2-018f1f4 (never deployed): OFFSET-window pages, unsafe against a concurrent unrelated mapping change" }],
   }),
