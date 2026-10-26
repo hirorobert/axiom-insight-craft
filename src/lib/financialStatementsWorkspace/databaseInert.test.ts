@@ -815,6 +815,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/internalBetaStagedTransport.mjs");
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
+    allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
