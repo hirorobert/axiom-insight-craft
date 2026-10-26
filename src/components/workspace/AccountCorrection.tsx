@@ -27,6 +27,8 @@ export interface AccountCorrectionProps {
   reportVersion: number | null;
   /** The workspace's active trial balance (the one the page shows). */
   upload: { id: string; status: string } | null;
+  /** The workspace is still being read: its trial balance is not known yet (never shown as "a different trial balance"). */
+  workspaceLoading?: boolean;
   /** Prepare, exercisable now, with the processing entitlement — the same authority the server checks. */
   canCorrect: boolean;
   currentUserId: string | null;
@@ -169,7 +171,7 @@ export function AccountCorrection(p: AccountCorrectionProps) {
         <p>{backLink}</p>
       </div>
     );
-  } else if (read.state === "loading") body = <PendingStatus label="Reading the account…" />;
+  } else if (read.state === "loading" || p.workspaceLoading) body = <PendingStatus label="Reading the account…" />;
   else if (read.state === "failed" || !view) body = <p role="alert" className="text-[13px]">The account could not be read. Nothing was changed. <button type="button" className="underline" onClick={() => void reload()}>Try again</button></p>;
   else if (view.kind === "checking") body = <PendingStatus label="The trial balance is being checked…" />;
   else if (view.kind === "unavailable" || view.kind === "no_authority") body = <p role="status" className="text-[13px]">{view.words} {backLink}</p>;

@@ -117,7 +117,7 @@ function deriveFiscalPeriod(
 }
 
 export default function PrepareWorkspace() {
-  const { upload: rawUpload, uploads: rawUploads, uploadsTotal, company, companyId, periodYear, refreshUpload, access } = useWorkspace();
+  const { upload: rawUpload, uploads: rawUploads, uploadsTotal, company, companyId, periodYear, refreshUpload, access, loading: workspaceLoading } = useWorkspace();
   // Prepare-only access (an explicit capability grant, PR #32): upload, replace, validate, discard and Undo. Account
   // review, mapping, the framework prompt and evidence reconciliation belong to other authorities and are not shown.
   const prepareOnly = isPrepareOnly(access);
@@ -721,7 +721,7 @@ export default function PrepareWorkspace() {
       {correctionLink && (
         <AccountCorrection
           companyId={companyId} periodYear={periodYear} link={correctionLink} reportVersion={parseReportVersion(`?${searchParams.toString()}`)}
-          upload={upload ? { id: upload.id, status: upload.status } : null} canCorrect={mayDecide} currentUserId={user?.id ?? null}
+          upload={upload ? { id: upload.id, status: upload.status } : null} workspaceLoading={workspaceLoading} canCorrect={mayDecide} currentUserId={user?.id ?? null}
           findings={correctionFindings} readers={correctionReaders}
           rpc={(fn, args) => supabase.rpc(fn as never, args as never) as never}
           startCheck={async () => { if (upload) await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession }); }}
