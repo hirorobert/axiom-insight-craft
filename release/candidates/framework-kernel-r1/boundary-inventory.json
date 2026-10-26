@@ -1,0 +1,116 @@
+{
+  "schema": "framework-kernel-boundary-inventory/1",
+  "evidence": "SOURCE_ONLY",
+  "files": [
+    {
+      "file": "src/lib/statements/composition.ts",
+      "sha256": "58622f25cbb91b16123b9123e13c78bdb84b44cdf83a1b4681939df65baaa498",
+      "matches": [
+        {
+          "line": 39,
+          "text": "pack: z.object({ family: z.literal(\"ifrs-for-smes\"), linesVersion: z.string(), packId: z.enum([\"ifrs-for-smes/2015\", \"ifrs-for-smes/2025\"]), earlyApplication: z.boolean() }),"
+        }
+      ]
+    },
+    {
+      "file": "src/lib/notes/notesStatus.ts",
+      "sha256": "c8762b133053dc81c8358463df35934bed1b07887e856365d9d4a5dbe941e843",
+      "matches": [
+        {
+          "line": 30,
+          "text": "state: z.literal(\"evaluated\"), contract: z.enum([\"fs-notes-status/2\", \"fs-notes-status/3\"]), packId: z.enum([\"ifrs-for-smes/2015\", \"ifrs-for-smes/2025\"]),"
+        }
+      ]
+    },
+    {
+      "file": "src/lib/reporting/serverCompilation.ts",
+      "sha256": "c5795751bae7f2ff62649018e1deb7279a63cc34eeb7d32e80b06c45ef7b8296",
+      "matches": [
+        {
+          "line": 49,
+          "text": "if (c.pack.packId !== \"ifrs-for-smes/2015\") refuse(\"FRAMEWORK_EDITION_UNSUPPORTED\");"
+        },
+        {
+          "line": 56,
+          "text": "if (saved.provenance_origin !== \"TRIAL_BALANCE_DERIVED\" || (doc?.framework as { kind?: string })?.kind !== \"IFRS_FOR_SMES\") refuse(\"PUBLICATION_PATH_UNSUPPORTED\");"
+        }
+      ]
+    },
+    {
+      "file": "src/lib/financialGeneration/composedReport.ts",
+      "sha256": "7608364981f5a5a7cd8bbc7ecec4e0177a09cbae0745ffc4d0f7a9117f5341f1",
+      "matches": [
+        {
+          "line": 83,
+          "text": "const profile = FRAMEWORK_PROFILES.IFRS_FOR_SMES;"
+        },
+        {
+          "line": 125,
+          "text": "framework: { kind: \"IFRS_FOR_SMES\", version: c.pack.packId },"
+        },
+        {
+          "line": 136,
+          "text": "const applied = applyEvidence({ report: base, profile: FRAMEWORK_PROFILES.IFRS_FOR_SMES, evidence: input.evidence, cashScope, mappingCoverage });"
+        }
+      ]
+    },
+    {
+      "file": "supabase/migrations/20261018100000_fs_statement_composition.sql",
+      "sha256": "18b239b602796b0f7071b4cd56c69611cca3e244f88af3c1c797ce79b461f7ca",
+      "matches": [
+        {
+          "line": 36,
+          "text": "pack_family    TEXT    NOT NULL CHECK (pack_family = 'ifrs-for-smes'),"
+        },
+        {
+          "line": 92,
+          "text": "pack_family    TEXT        NOT NULL CHECK (pack_family = 'ifrs-for-smes'),"
+        },
+        {
+          "line": 156,
+          "text": "-- Outcomes: recorded | unchanged | forbidden | feature_disabled | invalid_request | framework_not_ifrs_for_smes."
+        },
+        {
+          "line": 171,
+          "text": "RETURN jsonb_build_object('outcome', 'framework_not_ifrs_for_smes');"
+        },
+        {
+          "line": 185,
+          "text": "-- framework_not_ifrs_for_smes | request_reused."
+        },
+        {
+          "line": 209,
+          "text": "RETURN jsonb_build_object('outcome', 'framework_not_ifrs_for_smes');"
+        }
+      ]
+    },
+    {
+      "file": "supabase/migrations/20261123100000_fs_server_compilation.sql",
+      "sha256": "7e25c896d34365c7ade29ee095f397a9d85979c74a5d2f5c8a9565ec1501e172",
+      "matches": [
+        {
+          "line": 32,
+          "text": "compiler_sha256 text NOT NULL CHECK (compiler_sha256 = '49fc0852e33ce71604f4c1430916144910a700ab33873a3ef8e8ad85adbf4789'),"
+        },
+        {
+          "line": 157,
+          "text": "IF d->>'packId' IS DISTINCT FROM 'ifrs-for-smes/2015' OR jsonb_typeof(p_canonical_document) IS DISTINCT FROM 'object'"
+        }
+      ]
+    },
+    {
+      "file": "scripts/buildStatementCompiler.mjs",
+      "sha256": "8f3a4f36832c697309768973b8a6f09e7cc110b936fb55de7bdb48c64356c0a9",
+      "matches": [
+        {
+          "line": 15,
+          "text": "const migration = fs.readFileSync(path.join(root, 'supabase/migrations/20261123100000_fs_server_compilation.sql'), 'utf8');"
+        },
+        {
+          "line": 18,
+          "text": "if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifest || !migration.includes(`compiler_sha256 = '${digest}'`)) throw Error('STATEMENT_COMPILER_MANIFEST_DRIFT: regenerate and review the pending migration compiler digest');"
+        }
+      ]
+    }
+  ]
+}
