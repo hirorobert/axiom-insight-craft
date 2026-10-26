@@ -17,6 +17,7 @@ import {
   correctionDecision, correctionScopeKey, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
   REASON_MAX, type CorrectionContext, type CorrectionDbReaders, type CorrectionLink, type ReturnStatus, type SaveOutcome,
 } from "@/lib/workspace/accountCorrection";
+import { CLASS_GUIDANCE, correctionReasonDraft, guidanceReasonComplete } from "@/lib/workspace/correctionGuidance";
 import { classificationWords, DECISION_WORDS, memberWords } from "@/lib/workspace/reviewConfirmation";
 
 type RpcError = { code?: string | null; message?: string | null } | null;
@@ -140,7 +141,7 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     setSave({ busy: false, outcome });
     if (outcome.kind === "saved") { setReason(""); setClassification(""); await reload(); }
   };
-  const onSave = () => { if (isClassification(classification) && reasonValid(reason)) void send(classification, reason); };
+  const onSave = () => { if (isClassification(classification) && reasonValid(reason) && guidanceReasonComplete(reason)) void send(classification, reason); };
 
   const refreshFindings = async (): Promise<void> => {
     if (!live.current) return;
@@ -226,6 +227,7 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
     const unchangedChoice = classification !== "" && classification === saved && !pendingCheck;
     body = (
       <div className="space-y-4 text-[13px]">
+        <p className="rounded-md bg-muted/40 p-3"><strong>Correct the category, then recheck.</strong> Compare the saved category with what the account actually records. Saving changes the classification, not the uploaded amounts. Only the new server check can show whether the warning clears.</p>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]" data-testid="correction-account">
           <dt className="text-muted-foreground">Account</dt><dd className="font-medium">{f.account_code ? <span className="tabular-nums">{f.account_code} </span> : null}{f.account_name}</dd>
           <dt className="text-muted-foreground">{lastCheck ? "Balance when last checked" : "Balance on the reviewed trial balance"}</dt>
@@ -255,16 +257,19 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
                 <option value="">Choose a classification</option>
                 {CLASSIFICATIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
+              {isClassification(classification) ? <p role="status" className="text-muted-foreground" data-testid="classification-help">{CLASS_GUIDANCE[classification]}</p> : null}
               {unchangedChoice ? <p className="text-muted-foreground">This is already the saved classification.</p> : null}
             </div>
             <div className="space-y-1">
+              <button type="button" className="underline underline-offset-4" disabled={save.busy || !isClassification(classification) || reason.trim().length > 0} onClick={() => { if (isClassification(classification)) setReason(correctionReasonDraft(saved, classification)); }}>Help me write the reason</button>
+              <p className="text-muted-foreground">Describe what the account records and what you checked. The writing aid uses your selected categories; it does not verify your decision. Replace the bracketed instruction before saving.</p>
               <label htmlFor={ids.reason} className="block font-medium">Reason for the correction</label>
               <textarea id={ids.reason} rows={3} maxLength={REASON_MAX} className="w-full rounded-md border border-input bg-background p-2" value={reason}
                 onChange={(e) => setReason(e.target.value)} disabled={save.busy} />
             </div>
             <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason. Earlier decisions stay in the record and the uploaded file is not changed. The trial balance then needs to be checked again: until it is, it is not reviewed and its findings are not current.</p>
             <ActionButton type="submit" busy={save.busy} busyLabel="Saving…" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
-              disabled={!isClassification(classification) || !reasonValid(reason) || unchangedChoice} data-testid="correction-save">
+              disabled={!isClassification(classification) || !reasonValid(reason) || !guidanceReasonComplete(reason) || unchangedChoice} data-testid="correction-save">
               {save.outcome?.kind === "unknown" ? "Try again" : "Save correction"}
             </ActionButton>
           </form>

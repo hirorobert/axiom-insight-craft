@@ -83,7 +83,7 @@ export function FindingsView(p: {
     if (row) setSelected(row.id);
     else setNotice("The current check of the reviewed trial balance no longer raises that finding.");
   }, [p.focusFindingKey, summary, rows]);
-  const select = (r: FindingRow) => { setSelected(r.id); p.onSelectFinding?.(r.finding_key); };
+  const select = (r: FindingRow) => { setNotice(null); setText(""); setEvidence(""); setSelected(r.id); p.onSelectFinding?.(r.finding_key); };
   useEffect(() => { if (selected) { detailHeading.current?.focus(); detailHeading.current?.scrollIntoView?.({ block: "nearest" }); } }, [selected]);
 
   const evOf = (id: string) => events.filter((e) => e.subject_id === id);
@@ -182,8 +182,8 @@ export function FindingsView(p: {
             const href = p.correctionHref?.(sel) ?? null;
             return href ? (
               <p className="text-sm">
-                <Link to={href} className="font-medium underline underline-offset-4" data-testid="finding-correct-account">Review this account&rsquo;s classification</Link>
-                <span className="text-muted-foreground"> — if the classification is wrong, correct it there; the trial balance is then checked again and this finding with it.</span>
+                <Link to={href} className="inline-flex rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground" data-testid="finding-correct-account">Review this account&rsquo;s classification</Link>
+                <span className="text-muted-foreground"> — start here if the category may be wrong. Correct it, recheck the trial balance, then return to the updated finding. Writing an explanation below does not change the category.</span>
               </p>
             ) : null;
           })()}
@@ -193,6 +193,7 @@ export function FindingsView(p: {
             if (offered.length === 0) return <p className="text-xs text-muted-foreground">No action available to you on this finding.</p>;
             return (
               <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">Use these decisions when you have reviewed the finding. Record explanation saves your reasoning; Accept records acceptance without correcting the account; Mark not applicable records why the finding does not apply. None changes a classification or an uploaded amount. Comments below are discussion only.</p>
                 <label htmlFor={ids.text} className="block text-sm font-medium">{st === "open" ? "Explanation or reason" : "Reason for reopening"}</label>
                 <textarea id={ids.text} rows={3} maxLength={4000} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} onChange={(e) => setText(e.target.value)} />
                 {sel.required_resolution === "evidence" && st === "open" ? (

@@ -160,3 +160,22 @@ describe("an unproven attempt belongs to the actor who made it", () => {
     expect(sessionStorage.length).toBe(0);
   });
 });
+
+
+describe("reason writing assistance", () => {
+  it("does not choose or save a category, and blocks the incomplete draft until the user supplies their reasoning", async () => {
+    const w = world(); const t = deferredRpc();
+    m = mount(render(w.props("95000", t.rpc))); await flush();
+    expect(m.container.querySelector("select")!.value).toBe("");
+    fill(m, "cost_of_goods_sold", "");
+    const help = [...m.container.querySelectorAll("button")].find(b => b.textContent === "Help me write the reason")!;
+    click(help); await flush();
+    expect(m.container.querySelector("textarea")!.value).toContain("[describe");
+    expect((q(m, "correction-save") as HTMLButtonElement).disabled).toBe(true);
+    expect(t.pending).toHaveLength(0);
+    typeInto(m.container.querySelector("textarea")!, "Cost of inventory sold; checked against the cost ledger.");
+    expect((q(m, "correction-save") as HTMLButtonElement).disabled).toBe(false);
+    expect(help.disabled).toBe(true);
+    expect(t.pending).toHaveLength(0);
+  });
+});
