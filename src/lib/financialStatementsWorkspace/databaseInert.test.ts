@@ -775,6 +775,8 @@ describe("database inertness — schema and functions", () => {
       // FS workload measurement on the same local stack (invented companies; client-observed API round trips recorded, no
       // assertion on timing; loopback only, no secret, no deploy behaviour).
       "scripts/e2e/workloadJourney.mjs",
+      // The finding-correction journey on the same local stack (invented company; loopback only, no secret, no deploy behaviour).
+      "scripts/e2e/findingCorrectionJourney.mjs",
       // Certification capacity (repair A): the loopback-only real-PostgreSQL proof (reproduces the refusal on the chain
       // without the repair, then proves it). No deploy behaviour.
       "scripts/db-proof/certificationCapacity.mjs",
