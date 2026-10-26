@@ -707,6 +707,11 @@ export default function PrepareWorkspace() {
       </header>
 
       <ReportingPeriodHandoff companyId={companyId} periodYear={periodYear} currentFile={upload?.file_name ?? null} />
+      {upload && !showReviewPanel && (
+        <a href="#account-classifications" className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-primary underline underline-offset-4">
+          Search account classifications by code or name
+        </a>
+      )}
 
       <div id="current-trial-balance" className="space-y-5 scroll-mt-6">
           {/* The Current Trial Balance card: file, result, totals, one reason, one action. Replace / Remove live here. */}

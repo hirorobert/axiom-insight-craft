@@ -8,7 +8,7 @@ import { act, createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { axeViolations, click, mount, type Mounted } from "@/lib/workbench/testkit/dom";
+import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import {
   buildReviewRecord, confirmActionLabel, recordSummary, rowConfirmation, statementAccounts, ROW_CONFIRMATION_LABEL,
   type StoredDecision,
@@ -134,6 +134,29 @@ describe("after saving: what was confirmed, how and by whom; what stood on a pre
     expect(q('[data-testid="record-c:4000"]')?.textContent).toMatch(/Suggestion confirmed by you \(owner\)/);
     expect(q('[data-testid="record-c:2000"]')?.textContent).toMatch(/Previously reviewed/);
     expect(new Set(calls)).toEqual(new Set(["account_review_decisions", "firm_members", "account_mappings"]));
+    expect(await axeViolations(mounted!.container)).toEqual([]);
+  });
+
+  it("searches saved accounts by code, name and classification without additional reads or writes", async () => {
+    const { calls, q } = await mountRecord({});
+    const reads = calls.length;
+    const search = q('input[type="search"]') as HTMLInputElement;
+    typeInto(search, " 2000 ");
+    expect(q('[data-testid="record-c:2000"]')).not.toBeNull();
+    expect(q('[data-testid="record-c:1000"]')).toBeNull();
+    typeInto(search, "INVENTED BANK");
+    expect(q('[data-testid="record-c:1000"]')).not.toBeNull();
+    typeInto(search, "Revenue");
+    expect(mounted!.container.querySelectorAll('[data-testid^="record-c:"]')).toHaveLength(2);
+    typeInto(search, "no-such-account");
+    expect(mounted!.container.textContent).toContain("No matching accounts");
+    click([...mounted!.container.querySelectorAll("button")].find((b) => b.textContent === "Clear")!);
+    expect(mounted!.container.querySelectorAll('[data-testid^="record-c:"]')).toHaveLength(4);
+    expect(calls).toHaveLength(reads);
+    click(q('button[aria-expanded]')!);
+    typeInto(search, "4000");
+    expect(q('button[aria-expanded]')!.getAttribute("aria-expanded")).toBe("true");
+    expect(q('[data-testid="record-c:4000"]')).not.toBeNull();
     expect(await axeViolations(mounted!.container)).toEqual([]);
   });
 
