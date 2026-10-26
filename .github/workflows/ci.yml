@@ -505,6 +505,13 @@ jobs:
         run: |
           createdb beta_activation_proof
           bun scripts/db-proof/internalBetaActivation.mjs
+      - name: New-company first beta enrollment authority and concurrency proof
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/beta_team_bootstrap_proof
+        run: |
+          createdb beta_team_bootstrap_proof
+          bun scripts/db-proof/internalBetaTeamBootstrap.mjs
 
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:

@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount, click, axeViolations, type Mounted } from "@/lib/workbench/testkit/dom";
 import { ManagementContext } from "@/components/account/managementState";
 import { WORKSPACE_SETTINGS_SAVED } from "@/lib/workspace/settingsContinuity";
-const fixture = vi.hoisted(() => ({ query: vi.fn(), rpc: vi.fn(), register: vi.fn() }));
+const fixture = vi.hoisted(() => ({ query: vi.fn(), rpc: vi.fn(), register: vi.fn(), snapshot: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {
   from: () => ({ select: () => ({ eq: (_: string, id: string) => fixture.query(id) }) }),
   rpc: (...args: unknown[]) => fixture.rpc(...args),
 } }));
+vi.mock("@/lib/workspace/fetchWorkspaceSnapshot", () => ({ fetchWorkspaceSnapshot: (...args:unknown[]) => fixture.snapshot(...args) }));
 import { supabase } from "@/integrations/supabase/client";
 import { ReportingPeriodHandoff } from "./ReportingPeriodHandoff";
 import { PeriodSetup } from "@/components/workbench/intake/PeriodSetup";
@@ -23,6 +24,7 @@ beforeEach(() => {
   fixture.query.mockReset().mockResolvedValue({ data: periods, error: null });
   fixture.rpc.mockReset().mockResolvedValue({ data: { outcome: "not_eligible", currency: "TZS", block: { code: "ACCEPTED_CERTIFICATION" } }, error: null });
   fixture.register.mockReset();
+  fixture.snapshot.mockReset().mockResolvedValue({upload:null,workspaceState:{missions:{prepare:{status:"not_started"}}}});
 });
 afterEach(() => { ui?.unmount(); ui=undefined; document.body.innerHTML=""; });
 const card = (companyId="company-a", periodYear=2025) => h(MemoryRouter, null, h(ReportingPeriodHandoff, { companyId, periodYear }));
@@ -52,11 +54,30 @@ describe("prior period settings regression", () => {
   });
 });
 describe("in-flow period navigation", () => {
+  it("the comparative year does not demand an unnecessary third-year upload",async()=>{
+    ui=mount(card("company-a",2024));await flush();
+    expect(document.body.textContent).toContain("comparative year for FY2025");
+    expect(document.body.textContent).not.toContain("No prior period is linked");
+  });
+  it("shows the saved prior-year file and its canonical review status",async()=>{
+    fixture.snapshot.mockResolvedValue({upload:{file_name:"prior.csv"},workspaceState:{missions:{prepare:{status:"passed"}}}});
+    ui=mount(card());await flush();expect(document.body.textContent).toContain("prior.csv · Reviewed");
+  });
+  it("prior-year action explicitly opens only that year's existing server review command",async()=>{
+    fixture.rpc.mockResolvedValue({data:{engagementId:"e24",periodId:"p24",created:true,granted:["FINANCIAL_STATEMENTS"]},error:null});
+    ui=mount(card());await flush();const b=[...document.querySelectorAll("button")].find(b=>b.textContent==="Upload or review FY2024")!;
+    click(b);click(b);await flush();
+    expect(fixture.rpc.mock.calls.filter(c=>c[0]==="open_engagement_with_scope")).toHaveLength(1);
+    expect(fixture.rpc).toHaveBeenCalledWith("open_engagement_with_scope",expect.objectContaining({p_company_id:"company-a",p_period_year:2024,p_capabilities:["FINANCIAL_STATEMENTS"]}));
+  });
   it("states actual dates/currency and links to FY2024; carries no FY2025 upload or version query", async () => {
     ui=mount(card()); await flush();
     expect(document.body.textContent).toContain("2025-01-01 to 2025-12-31 · TZS");
     expect(document.querySelector('a[href="/workspace/company-a/2024/trial-balance/review"]')).not.toBeNull();
     expect(document.body.textContent).toContain("does not move your current file");
+    expect(document.body.textContent).toContain("Current-year trial balance · FY2025");
+    expect(document.body.textContent).toContain("Prior-year comparative · FY2024");
+    expect(document.body.textContent).toContain("No prior-year trial balance uploaded.");
     expect(await axeViolations(ui.container)).toEqual([]);
   });
   it("the prior-year page offers a return to the actual linked following year", async () => {

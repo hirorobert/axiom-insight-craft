@@ -150,6 +150,8 @@ export interface FetchWorkspaceSnapshotArgs {
   companyId: string;
   periodYear: number;
   requestedUploadId?: string | null;
+  /** Refuse a failed upload read instead of treating it as an empty period. */
+  requireFresh?: boolean;
   /** Pass already-fetched company/uploads rows to avoid a redundant query (the hub bulk-fetches these once per company). */
   companyOverride?: WorkspaceCompany | null;
   uploadsOverride?: WorkspaceUpload[];
@@ -184,6 +186,7 @@ export async function fetchWorkspaceSnapshot(args: FetchWorkspaceSnapshotArgs): 
       .or(`period_year.eq.${Number(periodYear)},period_year.is.null`)
       .order("uploaded_at", { ascending: false })
       .limit(50);
+    if (args.requireFresh && res.error) throw Error("Trial balance read unavailable");
     uploads = (res.data ?? []) as WorkspaceUpload[];
     uploadsTotal = typeof res.count === "number" ? res.count : uploads.length;
   }

@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { deriveWorkbenchNavigation } from "@/lib/workbench/routes";
 import { CompanyWorkspaceHome } from "./CompanyWorkspaceHome";
+vi.mock("@/contexts/AuthContext", () => ({useAuth: () => ({user:null})}));
+vi.mock("@/hooks/useReportingAccess", () => ({useReportingAccess: () => ({state:"loading"})}));
 vi.mock("@/contexts/WorkspaceContext", () => ({ useWorkspace: () => ({ company: { name: "DIVINE" }, companyId: "company-1", periodYear: 2025 }) }));
 function render(reporting: boolean, version = "") {
   const model = deriveWorkbenchNavigation("/workspace/company-1/2025", [{ id: "overview", label: "Overview", href: "/workspace/company-1/2025", disabled: false }, { id: "prepare", label: "Trial Balance", href: "/workspace/company-1/2025/prepare", disabled: false }], undefined, reporting);

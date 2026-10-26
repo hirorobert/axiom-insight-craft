@@ -1,3 +1,4 @@
+import { WorkspaceRefreshButton } from "@/components/workspace/WorkspaceRefreshButton";
 import { ManagementLink } from "@/components/account/ManagementNavigation";
 import { useActivity } from "@/components/feedback/useActivity";
 import { PagePending } from "@/components/feedback/Activity";
@@ -49,7 +50,6 @@ import {
   Clock,
   Minus,
   Settings,
-  RefreshCw,
   LogOut,
   LifeBuoy,
   Mail,
@@ -376,17 +376,8 @@ function WorkspaceLayoutContent() {
 
             {/* Right: refresh + user menu (sign out always visible in dropdown). The entity allowance lives in Settings. */}
             <div className="col-start-2 row-start-1 flex shrink-0 items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={workspaceData.refreshUpload}
-                title="Refresh data"
-                aria-label="Refresh data"
-                data-testid="workspace-refresh"
-                className="h-9 w-9 p-0"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </Button>
+              <WorkspaceRefreshButton companyId={companyId} periodYear={periodYear}
+                reads={[workspaceData.refreshUpload, engagementApi.refresh]} />
               {user && <WorkspacePlanChip companyId={companyId} />}
               {user && <UserMenu email={user.email ?? "user"} />}
             </div>

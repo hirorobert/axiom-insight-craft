@@ -37,7 +37,7 @@ export interface UseWorkspaceDataReturn {
   loading: boolean;
   /** True while a background re-read is in flight. Never blanks the UI. */
   refreshing: boolean;
-  refreshUpload: () => void;
+  refreshUpload: () => Promise<boolean>;
   /** Server-decided access (get_workspace_access): owner, member, capability (Prepare only), denied or error. */
   accessState: WorkspaceAccessState;
   /** Shorthand for accessState.access when granted, else null. */
@@ -98,7 +98,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     const mine = ++readSequence.current;
     if (!user || !cId || !pYear) {
       setLoading(false);
-      return;
+      return false;
     }
 
     if (hasLoadedRef.current) setRefreshing(true);
@@ -106,7 +106,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
 
     // Access first: a workspace the caller may not open is never read at all (fail closed, no partial render).
     const nextAccess = await fetchWorkspaceAccess(cId).catch((): WorkspaceAccessState => ({ status: "error" }));
-    if (mine !== readSequence.current) return;
+    if (mine !== readSequence.current) return false;
     if (nextAccess.status !== "granted") {
       // A background re-read that fails transiently keeps the last known grant; a definitive answer always wins,
       // so a revocation takes effect on the next read.
@@ -115,12 +115,20 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
       hasLoadedRef.current = true;
       setLoading(false);
       setRefreshing(false);
-      return;
+      return false;
     }
 
-    const snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId });
+    let snapshot;
+    try { snapshot = await fetchWorkspaceSnapshot({ companyId: cId, periodYear: pYear, requestedUploadId, requireFresh: true }); }
+    catch {
+      if (mine === readSequence.current) {
+        setLoading(false); setRefreshing(false);
+        setAccessState(previous => previous.status === "granted" ? previous : {status:"error"});
+      }
+      return false;
+    }
 
-    if (mine !== readSequence.current) return;
+    if (mine !== readSequence.current) return false;
 
     // Keep the last known company on a transient read failure — never blank the masthead mid-session. The
     // companies row is owner-only; anyone else gets the resolver's minimum metadata (never the TIN or code).
@@ -141,6 +149,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
     hasLoadedRef.current = true;
     setLoading(false);
     setRefreshing(false);
+    return true;
   }, [user, cId, pYear, requestedUploadId]);
 
   // A different company/period is a genuinely new book — gate first paint again.
@@ -200,7 +209,7 @@ export function useWorkspaceData(): UseWorkspaceDataReturn {
   }, [user, cId, pYear]);
 
   const refreshUpload = useCallback(() => {
-    fetchData();
+    return fetchData();
   }, [fetchData]);
 
   return {
