@@ -67,6 +67,7 @@ const STEP_WORD: Record<StepStatus, string> = { done: "Done", active: "In progre
 
 export const TrialBalanceUpload = ({
   lockedCompanyId,
+  lockedCompanyName,
   periodYear,
   engagementId = null,
   periodId = null,
@@ -260,6 +261,10 @@ export const TrialBalanceUpload = ({
 
   return (
     <section id="upload" className="relative space-y-4" data-testid="trial-balance-upload" data-phase={flow.phase}>
+      {periodYear && <p className="border-l-2 border-primary bg-primary/5 px-3 py-2 text-sm" data-testid="upload-target-period">
+        <strong>Upload destination: {lockedCompanyName ? `${lockedCompanyName} · ` : ""}FY{periodYear}</strong>
+        <span className="block text-xs text-muted-foreground">Confirm that this file’s balances belong to this period before uploading.</span>
+      </p>}
       <input
         ref={fileInputRef}
         type="file"

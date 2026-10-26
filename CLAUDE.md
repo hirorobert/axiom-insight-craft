@@ -381,6 +381,7 @@ src/
       frameworkOptions.ts     ← persistable framework identities/labels shared by company setup and portfolio
       companyFramework.ts     ← ONLY browser path to change a company's reporting framework (set_company_reporting_framework; audited, owner-only; 20261127100000/20261128100000)
       companyEdit.ts          ← One company-edit save: framework (audited function) then details; reports saved / not saved / uncertain / partial exactly
+      periodHandoff.ts        ← Saved current/prior period identity and explicit year navigation; no filename inference
       portfolioFrameworks.ts  ← bounded, RLS-authorized framework labels for the visible portfolio page (display only)
       portfolioClient.ts      ← ONLY client path to list_portfolio_engagements (server-paged, keyset, view token)
       findingDecisions.ts     ← ONLY client path to trial-balance finding decisions (record_tb_finding_decision, get_tb_finding_decisions)
