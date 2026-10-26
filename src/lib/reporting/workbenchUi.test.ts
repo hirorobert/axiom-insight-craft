@@ -32,8 +32,8 @@ function server(over: Partial<Record<string, () => unknown>> = {}): ReportingDb 
   };
 }
 const settle = async () => { for (let i = 0; i < 6; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); };
-const render = async (db: ReportingDb, page: ReportingPage, allowed: string[] = ["prepare_close"]) => {
-  m = mount(h(MemoryRouter, null, h(ReportingWorkbench, { page, companyId: "c1", periodYear: 2026, legalName: "Synthetic SME Limited", db, allowed, reportVersion: 2,
+const render = async (db: ReportingDb, page: ReportingPage, allowed: string[] = ["prepare_close"], entry = "/") => {
+  m = mount(h(MemoryRouter, { initialEntries: [entry] }, h(ReportingWorkbench, { page, companyId: "c1", periodYear: 2026, legalName: "Synthetic SME Limited", db, allowed, reportVersion: 2,
     hrefFor: (p: ReportingPage, v: number | null) => `/${p}${v ? `?v=${v}` : ""}` })));
   await settle();
 };
@@ -132,5 +132,80 @@ describe("the commercial candidate's journey fixes", () => {
     const sum = document.querySelector('[data-testid="evidence"]')!;
     expect(sum.getAttribute("data-mode")).toBe("summary");
     expect(sum.querySelectorAll('input[type="file"]')).toHaveLength(0);
+  });
+});
+
+
+describe("incomplete presentation is not a final applicability decision", () => {
+  const incomplete = { ...composition, totals: { ...composition.totals, current: { state: "incomplete", notPresented: 1 } },
+    accountsNotPresented: [{ period: "current", accountKey: "95000", accountCode: "95000", accountName: "Cost of sales", classification: "revenue", status: "unassigned", lineId: null }], blockers: ["PRESENTATION_UNASSIGNED:1"] };
+  const automatic = { requirementId: "smes.note.revenue", kind: "DISCLOSURE", blocking: true, status: "not_applicable" };
+  it("qualifies automatic revenue applicability, preserves recorded decisions and edition status, and links to scoped preparation", async () => {
+    const db = server({ fs_statement_composition: () => incomplete, fs_notes_status: () => ({ ...NOTES, requirements: [automatic,
+      { requirementId: "smes.note.related_parties", kind: "DISCLOSURE", blocking: true, status: "not_applicable", decisionId: "recorded-decision" },
+      { requirementId: "smes.note.early_application", kind: "DISCLOSURE", blocking: true, status: "not_applicable" }] }) });
+    await render(db, "fs-notes");
+    expect(document.querySelector('[data-requirement="smes.note.revenue"]')!.textContent).toContain("Awaiting complete statement presentation");
+    expect(document.querySelector('[data-requirement="smes.note.related_parties"]')!.textContent).toContain("Not applicable");
+    expect(document.querySelector('[data-requirement="smes.note.early_application"]')!.textContent).toContain("Not applicable");
+    expect(document.querySelector('[data-testid="preparation-prerequisite"] a')!.getAttribute("href")).toBe("/fs-statements?v=2");
+    click(document.querySelector('[data-requirement="smes.note.revenue"]')!);
+    expect(document.querySelector('[data-testid="requirement-panel"]')!.textContent).toContain("Missing presentation is not evidence");
+    expect([...document.querySelectorAll('[data-testid="requirement-panel"] button')].some((b) => /^(Applies|Does not apply)$/.test(b.textContent ?? ""))).toBe(false);
+    expect(db.calls.filter((c) => /assign|record|decide|approve|commit/.test(c))).toEqual([]);
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+  it("qualifies schedules without enabling an unsupported write; viewer gets a permission explanation", async () => {
+    await render(server({ fs_statement_composition: () => incomplete, fs_notes_status: () => ({ ...NOTES, requirements: [
+      { requirementId: "smes.schedule.ppe", kind: "SCHEDULE", blocking: true, status: "not_applicable" }] }) }), "fs-schedules", []);
+    expect(document.body.textContent).toContain("Awaiting complete statement presentation");
+    expect(document.body.textContent).toContain("A member with preparation permission");
+    expect([...document.querySelectorAll("button")].some((b) => b.textContent?.includes("Enter the schedule"))).toBe(false);
+  });
+  it("retains genuine server non-applicability when presentation is complete", async () => {
+    await render(server({ fs_notes_status: () => ({ ...NOTES, requirements: [automatic] }) }), "fs-notes");
+    expect(document.querySelector('[data-testid="preparation-prerequisite"]')).toBeNull();
+    expect(document.querySelector('[data-requirement="smes.note.revenue"]')!.textContent).toContain("Not applicable");
+  });
+  it("provides a real assignment destination and explains draft saving", async () => {
+    await render(server({ fs_statement_composition: () => incomplete }), "fs-statements");
+    const link = document.querySelector('a[href="#statement-assignments"]')!;
+    expect(link.textContent).toContain("Review and assign accounts");
+    expect(document.getElementById("statement-assignments")).not.toBeNull();
+    m?.unmount(); m = null; document.body.innerHTML = "";
+    await render(server(), "signoff");
+    expect(document.querySelector('[data-testid="save-version"]')!.textContent).toContain("Save the first draft report version");
+    expect(document.body.textContent).toContain("does not record REVIEWED or FINAL approval");
+  });
+  it("shows policy guidance without inventing wording and sends evidence work to Statements", async () => {
+    await render(server({ fs_notes_status: () => ({ ...NOTES, requirements: [NOTES.requirements[0],
+      { requirementId: "smes.set.scf", kind: "STATEMENT", blocking: true, status: "evidence_missing" }] }) }), "fs-notes");
+    expect(document.querySelector('[data-testid="requirement-panel"]')!.textContent).toContain("policies actually adopted");
+    expect((document.querySelector('[data-testid="wording-body"]') as HTMLTextAreaElement).value).toBe("");
+    click(document.querySelector('[data-requirement="smes.set.scf"]')!);
+    expect(document.querySelector('a[href="/fs-statements?v=2#reporting-evidence"]')).not.toBeNull();
+  });
+});
+
+
+describe("preparation links after asynchronous page loading", () => {
+  it("lands and focuses the evidence section once content is read", async () => {
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrolled: string[] = [];
+    HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+    try {
+      await render(server(), "fs-statements", ["prepare_close"], "/fs-statements?v=2#reporting-evidence");
+      expect(scrolled).toContain("reporting-evidence");
+      expect(document.activeElement?.id).toBe("reporting-evidence");
+    } finally { HTMLElement.prototype.scrollIntoView = original; }
+  });
+  it("ignores arbitrary hash targets", async () => {
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrolled: string[] = [];
+    HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+    try {
+      await render(server(), "fs-statements", ["prepare_close"], "/fs-statements#h-SFP");
+      expect(scrolled).toEqual([]);
+    } finally { HTMLElement.prototype.scrollIntoView = original; }
   });
 });

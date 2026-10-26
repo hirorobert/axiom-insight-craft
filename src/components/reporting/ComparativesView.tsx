@@ -1,3 +1,4 @@
+import { PreparationNotice } from "./PreparationNotice";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 import { PendingStatus } from "@/components/feedback/Activity";
@@ -47,6 +48,7 @@ function Evaluated(p: PageProps & { s: ComparativeStatus; c: Composition }) {
   };
   return (
     <div className="space-y-6 text-sm">
+      <PreparationNotice {...p} />
       <section aria-labelledby="h-cs" data-testid="comparative-state" data-state={cs.state}>
         <h2 id="h-cs" className="text-base font-semibold">FY{p.c.comparative.periodYear ?? p.periodYear - 1}: {words.title}</h2>
         <p>{words.detail}</p>

@@ -9,7 +9,7 @@ import { PendingStatus } from "@/components/feedback/Activity";
  * everything (nothing is patched locally). Responses that arrive after the context changed are discarded.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import type { NextAction } from "@/lib/reporting/nextAction";
 import { nextActionFor, readReportingSnapshot, reportingClients } from "@/lib/reporting/reportingState";
 import type { PageProps, ReportingPage, ReportingProps, ReportingState } from "./shared";
@@ -25,6 +25,8 @@ const TITLES: Record<ReportingPage, string> = {
 };
 
 export function ReportingWorkbench(p: ReportingProps) {
+  const { hash } = useLocation();
+  const root = useRef<HTMLDivElement>(null);
   const clients = useMemo(() => reportingClients(p.db), [p.db]);
   const [state, setState] = useState<ReportingState | null>(null);
   const [reading, setReading] = useState(true);
@@ -47,8 +49,16 @@ export function ReportingWorkbench(p: ReportingProps) {
 
   const next: NextAction | null = state ? nextActionFor(state, p.allowed) : null;
 
+  // Router navigation can reach the hash before async statement content exists. Only the two owned targets are allowed.
+  useEffect(() => {
+    if (reading || error || !state || !["#statement-assignments", "#reporting-evidence"].includes(hash)) return;
+    const target = root.current?.querySelector<HTMLElement>(hash);
+    target?.scrollIntoView?.({ block: "start" });
+    target?.focus({ preventScroll: true });
+  }, [hash, p.page, reading, error, state]);
+
   return (
-    <div className="space-y-4 p-4" data-testid="reporting-workbench">
+    <div ref={root} className="space-y-4 p-4" data-testid="reporting-workbench">
       <h1 className="text-lg font-semibold">{TITLES[p.page]} · FY{p.periodYear}</h1>
       {error ? (
         <p role="alert" className="text-sm">The reporting state could not be read: {error}{" "}
