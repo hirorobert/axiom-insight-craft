@@ -1236,6 +1236,16 @@ jobs:
           bun scripts/release/renderAcceptanceFixtures.mjs --check
           bun scripts/db-proof/acceptanceFixtures.mjs
 
+      - name: Classification suggestions proof (classification-r1 — the REAL process-trial-balance handler on the unchanged acceptance files, both years, fresh company, no global mappings; every suggestion equals the fixture, the bank loan goes to review with no suggestion and never cash; accepted suggestions certify both years with EXPECTED_TOTALS; names with and without qualifiers; reviewed mappings keep precedence; and BEFORE mode: the pre-fix handler at main 5b2f087b must reproduce the four registered wrong suggestions; on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/classification_proof
+        run: |
+          createdb classification_proof
+          bun scripts/db-proof/classificationSuggestions.mjs
+          createdb classification_before
+          BEFORE_REF=5b2f087ba35f898404cea83f839b5eaff8760b15 DB_PROOF_CONN=postgres://postgres:postgres@127.0.0.1:5432/classification_before bun scripts/db-proof/classificationSuggestions.mjs
+
       - name: Readiness read-only proof (DEFECT D-2; the client transport as PostgREST runs it, STABLE functions in a READ ONLY transaction; 25006 reproduced on two existing drafts before 20261023100000; after it and a schema reload readiness reads, both drafts survive byte for byte, the Close Review gate and REVIEWED and FINAL by role hold, stale versions are refused, a readiness read writes nothing; no other STABLE function writes; on the same throwaway container)
         env:
           DB_PROOF_MODE: external
