@@ -44,7 +44,9 @@ const results = [];
 let group = "";
 const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "journey.log"), s + "\n"); };
 /** A GitHub annotation (readable through the checks API even where the run's logs and artifacts are not). */
-const annotate = (level, title, msg) => { if (process.env.GITHUB_ACTIONS) console.log(`::${level} title=${title.replace(/[\r\n:,]/g, " ").slice(0, 120)}::${String(msg).replace(/%/g, "%25").replace(/\r/g, "").replace(/\n/g, "%0A").slice(0, 2000)}`); };
+const annotate = (level, title, msg) => { if (process.env.GITHUB_ACTIONS) console.log(`::${level} title=${title.replace(/[\r\n:,]/g, " ").slice(0, 120)}::${String(msg).replace(/%/g, "%25").replace(/\r/g, "").replace(/\n/g, "%0A").slice(0, 60000)}`); };
+/** What each failed check saw: its detail, the address and the panel's visible text (one annotation at the end). */
+const failures = [];
 // A failure during setup (before the first check) is reported, never silent.
 process.on("uncaughtException", (e) => { annotate("error", "finding-correction setup", e?.stack ?? e); log(`SETUP FAILURE: ${e?.stack ?? e}`); process.exit(1); });
 process.on("unhandledRejection", (e) => { annotate("error", "finding-correction setup", e?.stack ?? e); log(`SETUP FAILURE: ${e?.stack ?? e}`); process.exit(1); });
@@ -56,19 +58,22 @@ async function check(name, fn) {
     const ok = r === true;
     results.push({ group, name, ok });
     log(`  ${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n        ${JSON.stringify(r)?.slice(0, 1500)}`}`);
-    if (!ok) annotate("error", `finding-correction: ${group}`, `${name}\n${JSON.stringify(r)?.slice(0, 1500)}`);
-    if (!ok) await failureEvidence(name);
+    if (!ok) await failureEvidence(name, JSON.stringify(r)?.slice(0, 1500));
     return ok;
   } catch (e) {
     results.push({ group, name, ok: false });
     log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split("\n").slice(0, 3).join(" | ")}`);
-    annotate("error", `finding-correction: ${group}`, `${name}\n${String(e?.stack ?? e).split("\n").slice(0, 4).join("\n")}`);
-    await failureEvidence(name);
+    await failureEvidence(name, String(e?.stack ?? e).split("\n").slice(0, 2).join(" | "));
     return false;
   }
 }
-async function failureEvidence(name) {
+async function failureEvidence(name, detail = "") {
   if (!page) return;
+  try {
+    const where = await page.url();
+    const panel = await page.evaluate(() => (document.querySelector('[data-testid="account-correction"]') ?? document.querySelector("main") ?? document.body)?.innerText?.slice(0, 700) ?? "");
+    failures.push(`FAIL [${group}] ${name}\n  detail: ${detail}\n  at: ${where}\n  saw: ${panel.replace(/\s+/g, " ")}`);
+  } catch { failures.push(`FAIL [${group}] ${name}\n  detail: ${detail}`); }
   const slug = name.replace(/[^a-z0-9]+/gi, "-").slice(0, 60);
   try { await page.screenshot(path.join(OUT, `FAIL-${slug}.png`)); } catch { /* */ }
   try { fs.writeFileSync(path.join(OUT, `FAIL-${slug}.txt`), `${await page.url()}\n\n${await page.bodyText()}`); } catch { /* */ }
@@ -297,12 +302,17 @@ async function main() {
     await go(accountUrl, "");
     await page.waitForSelector('[data-testid="correction-form"]', { timeout: 45000 });
     await rpc(owner, "revoke_member_capability", { p_company_id: A, p_user: U.preparer.id, p_capability: "prepare_close", p_reason: "Journey: refused save" });
-    await setByLabel("Correct classification", "cost_of_goods_sold");
-    await setByLabel("Reason for the correction", "Cost of goods sold, not revenue: debit balance from purchases");
-    await page.click('[data-testid="correction-save"]');
-    await page.waitForSelector('[data-testid="correction-refused"]', { timeout: 30000 });
-    const words = await tText("correction-refused");
-    await rpc(owner, "grant_member_capability", { p_company_id: A, p_user: U.preparer.id, p_capability: "prepare_close", p_reason: "Journey: restored" });
+    let words = null;
+    try {
+      await setByLabel("Correct classification", "cost_of_goods_sold");
+      await setByLabel("Reason for the correction", "Cost of goods sold, not revenue: debit balance from purchases");
+      await page.click('[data-testid="correction-save"]');
+      await page.waitForSelector('[data-testid="correction-refused"], [data-testid="correction-unknown"], [data-testid="correction-saved-not-checked"]', { timeout: 30000 });
+      words = await tText("correction-refused") ?? `NOT REFUSED: ${await tText("account-correction")}`;
+    } finally {
+      // Restored whatever happened, so a failure here never cascades into the checks that follow.
+      await rpc(owner, "grant_member_capability", { p_company_id: A, p_user: U.preparer.id, p_capability: "prepare_close", p_reason: "Journey: restored" });
+    }
     const after = await decisionRows();
     return /Nothing was saved/.test(words) && after.length === BEFORE.decisions.length ? true : { words, decisions: after.length };
   });
@@ -439,7 +449,7 @@ for (const f of failed) log(`  FAILED [${f.group}] ${f.name}`);
 const ok = !crashed && failed.length === 0 && results.length > 0;
 log(ok ? "FINDING_CORRECTION_JOURNEY: ALL PASSED" : "FINDING_CORRECTION_JOURNEY: FAILED");
 annotate(ok ? "notice" : "error", `finding-correction ${ok ? "ALL PASSED" : "FAILED"} (${results.length - failed.length}/${results.length})`,
-  results.map((r) => `${r.ok ? "PASS" : "FAIL"} [${r.group}] ${r.name}`).join("\n"));
+  [...results.map((r) => `${r.ok ? "PASS" : "FAIL"} [${r.group}] ${r.name}`), "", ...failures].join("\n"));
 fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ ok, results }, null, 2));
 try { await browser.close(); } catch { /* */ }
 try { await new Promise((r) => preview.httpServer.close(() => r())); } catch { /* */ }
