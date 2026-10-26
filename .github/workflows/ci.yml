@@ -395,6 +395,10 @@ jobs:
         if: failure()
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/drafts/edge-runtime.log 2>&1
 
+      - name: Finding correction journey (the production build in headless Chrome on the same stack; a cost-of-sales account saved as Revenue raises a Close Review finding, which opens that account on the trial balance page; a refused save and a save whose answer is cut by the browser, retried with the same request id - exactly one decision recorded; the confirmed new check and the findings checked again; Back, reload, a viewer read-only, another account refused; the uploaded object, earlier decisions and the earlier findings run preserved; 1280 and 375 px)
+        if: always()
+        run: node scripts/e2e/findingCorrectionJourney.mjs real-app-evidence/finding-correction
+
       - name: Processing resource evidence (always; the runtime version and its own CPU-limit and worker-retirement lines with each admitted check's worker, number in that worker, status, wall and CPU time; read-only)
         if: always()
         run: |

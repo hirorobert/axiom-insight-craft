@@ -12,7 +12,7 @@ import { ReportingPeriodHandoff } from "@/components/workspace/ReportingPeriodHa
  * Everything that states the result reads one model: trialBalanceVerdict.ts (the certification ledger).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
@@ -29,6 +29,10 @@ import { ClassificationBreakdown } from "@/components/certification/Classificati
 import { ValidationReport } from "@/components/ValidationReport";
 import { AccountReviewPanel } from "@/components/AccountReviewPanel";
 import { ClassificationRecord } from "@/components/workspace/ClassificationRecord";
+import { AccountCorrection } from "@/components/workspace/AccountCorrection";
+import { findingsClient } from "@/lib/closeReview/findings";
+import { parseCorrectionLink, supabaseCorrectionReaders } from "@/lib/workspace/accountCorrection";
+import { parseReportVersion } from "@/lib/workbench/context";
 import {
   applyDiscardSuppression,
   suppressUpload,
@@ -688,6 +692,14 @@ export default function PrepareWorkspace() {
     return () => window.clearTimeout(t);
   }, [focusUnresolved, showReviewPanel]);
 
+  // A Close Review finding opened ONE account here (?account=&finding=): its correction journey (accountCorrection.ts).
+  // Prepare-only access never sees it (account review is not theirs); the server decides every step regardless.
+  const correctionLink = useMemo(() => (prepareOnly ? null : parseCorrectionLink(`?${searchParams.toString()}`)), [prepareOnly, searchParams]);
+  const correctionFindings = useMemo(() => findingsClient(supabase as unknown as Parameters<typeof findingsClient>[0]), []);
+  const correctionReaders = useMemo(() => supabaseCorrectionReaders(supabase as unknown as { from(t: string): unknown }), []);
+  const refetchCertification = certReadiness.refetch;
+  const onCorrectionUploadChanged = useCallback(() => { refreshUpload(); refetchCertification(); }, [refreshUpload, refetchCertification]);
+
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-10">
       <header className="border-b border-border pb-4">
@@ -706,6 +718,16 @@ export default function PrepareWorkspace() {
         </div>
       </header>
 
+      {correctionLink && (
+        <AccountCorrection
+          companyId={companyId} periodYear={periodYear} link={correctionLink} reportVersion={parseReportVersion(`?${searchParams.toString()}`)}
+          upload={upload ? { id: upload.id, status: upload.status } : null} canCorrect={mayDecide} currentUserId={user?.id ?? null}
+          findings={correctionFindings} readers={correctionReaders}
+          rpc={(fn, args) => supabase.rpc(fn as never, args as never) as never}
+          startCheck={async () => { if (upload) await requestReprocess(supabase as unknown as ReprocessClient, upload.id, { ensureFreshSession }); }}
+          onUploadChanged={onCorrectionUploadChanged}
+        />
+      )}
       <ReportingPeriodHandoff companyId={companyId} periodYear={periodYear} currentFile={upload?.file_name ?? null} />
       {upload && !showReviewPanel && (
         <a href="#account-classifications" className="inline-flex w-fit items-center gap-2 text-[13px] font-medium text-primary underline underline-offset-4">
