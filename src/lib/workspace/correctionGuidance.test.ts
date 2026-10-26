@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CLASSIFICATIONS } from "@/lib/accounting/classificationMeta";
 import type { FindingRow } from "@/lib/closeReview/findings";
-import { AMOUNT_GUIDANCE, authoredReason, balanceSides, CLASS_GUIDANCE, correctionReasonDraft, findingGuidance, guidanceReasonComplete, REASON_AUTHORED_MIN } from "./correctionGuidance";
+import { AMOUNT_GUIDANCE, authoredReason, balanceSides, CLASS_GUIDANCE, DISPOSITION_LIMITS, correctionReasonDraft, findingGuidance, guidanceReasonComplete, REASON_AUTHORED_MIN } from "./correctionGuidance";
 
 const finding = (o: Partial<FindingRow> = {}): FindingRow => ({
   id: "f1", run_id: "r1", rule_id: "A01", finding_key: "A01:1510", severity: "warning", kind: "risk_indicator", mandatory: false,
@@ -15,9 +15,11 @@ describe("category guidance", () => {
     for (const words of Object.values(CLASS_GUIDANCE)) expect(words).not.toMatch(/keep the original/i);
     expect(AMOUNT_GUIDANCE).toMatch(/does not change the uploaded amount/);
     expect(AMOUNT_GUIDANCE).toMatch(/adjustment workflow/);
-    expect(CLASS_GUIDANCE.non_current_assets).toMatch(/Accumulated depreciation is a credit against the related asset/);
-    expect(CLASS_GUIDANCE.operating_expenses).toMatch(/this year's depreciation expense/);
-    expect(CLASS_GUIDANCE.current_liabilities).toMatch(/name alone does not establish/);
+    expect(CLASS_GUIDANCE.non_current_assets).toMatch(/accumulated depreciation \(a credit against that cost\) and the period's depreciation charge are three different balances/);
+    expect(CLASS_GUIDANCE.operating_expenses).toMatch(/unless the applicable framework requires that charge to be included in the cost of another asset/);
+    expect(AMOUNT_GUIDANCE).toMatch(/an adjustment, not a reclassification/);
+    for (const words of Object.values(CLASS_GUIDANCE)) expect(words).not.toMatch(/\balways\b|\bnever\b|\binvariably\b|IAS \d|IFRS \d|paragraph/);
+    expect(CLASS_GUIDANCE.current_liabilities).toMatch(/Maturity comes from the agreement and the reporting-date facts, not from the account name/);
   });
 });
 
@@ -26,15 +28,17 @@ describe("finding guidance keeps facts, possibilities and judgement apart", () =
     const g = findingGuidance(finding(), null);
     expect(g.found).toBe("The check used Operating Expenses, which expects a debit balance; the trial balance carries a credit balance on this account.");
     expect(JSON.stringify(g)).not.toMatch(/\bwrong\b/i);
-    expect(g.decides).toMatch(/A name alone does not establish the treatment/);
+    expect(g.decides).toMatch(/A name or a balance side is a signal to review, not evidence/);
     expect(g.explanationRemains).toBe(true);
   });
   it("after a correction to an asset category, says the warning is raised again and is closed by an explanation — not by repeating the correction", () => {
     const g = findingGuidance(finding({ classification: "non_current_assets" }), "non_current_assets");
-    expect(g.legitimateIf).toMatch(/accumulated depreciation/);
+    expect(g.legitimateIf).toMatch(/may be legitimate where the account reduces a related asset \(accumulated depreciation, an allowance\)/);
+    expect(g.legitimateIf).toMatch(/the credit balance alone establishes none of these/);
     expect(g.correctionEffect).toMatch(/raised again after the check/);
-    expect(g.correctionEffect).toMatch(/does not yet record contra-account treatment|records a confirmed treatment only for a current-asset closing-stock credit/);
-    expect(g.correctionEffect).toMatch(/recording your explanation/);
+    expect(g.correctionEffect).toMatch(/records a confirmed treatment only for a current-asset closing-stock credit/);
+    expect(g.correctionEffect).toMatch(/closed by a decision on it/);
+    expect(DISPOSITION_LIMITS).toMatch(/does not record a contra-account treatment, prove the balance or its presentation, replace required evidence or independent review/);
   });
   it("while a saved classification has not been rechecked, says so instead of asking for a correction", () => {
     const g = findingGuidance(finding(), "non_current_assets");

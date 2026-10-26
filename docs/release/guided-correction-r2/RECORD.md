@@ -1,9 +1,13 @@
 # Guided account correction r2 — review of the journey, bounded repair, and what remains
 
-Base: PR #204 head `b384f9d56cdb1f0b50d3d63dbea1213769af788a` (`codex/guided-correction`, one commit on main
-`53e6e37724d6b387dc113ffcba244f58e2a82301` = the #203 merge). Candidate branch: `fix/guided-correction-r2`. Candidate only:
-no migration, no Edge Function change, no hosted record, no activation setting, no AI provider call, no API spending.
-**Depends on #204** (it is based on #204's exact head and must merge after it, or be re-based if #204 changes).
+Base: PR #204 (`codex/guided-correction`), first at `b384f9d`, then merged at its current head
+`c14c398daf1b303befb343506b4012b32778caa2` (one commit on main `53e6e37724d6b387dc113ffcba244f58e2a82301` = the #203
+merge). Candidate branch: `fix/guided-correction-r2`. Candidate only: no migration, no Edge Function change, no hosted
+record, no activation setting, no AI provider call, no API spending. **Depends on #204** (must merge after it).
+
+Revision r2.1 (review of #205 at `5088c7f`): #204 integrated at `c14c398`; the e2e assertion repaired with scoped
+evidence; asynchronous ownership in `FindingsView` proven and fixed; provenance wording corrected; disposition separated
+from accounting correctness; categorical guidance made conditional; optional detail collapsed.
 
 The journey under review (unchanged in shape): Close Review › Findings → "Review this account's classification" →
 Prepare page `AccountCorrection` (`?account=&finding=`) → `resolve_account_review_batch` (canonical receipt) →
@@ -19,8 +23,11 @@ Prepare page `AccountCorrection` (`?account=&finding=`) → `resolve_account_rev
 | D4 | `FindingsView` | The opened finding was remembered by its **id**, which belongs to one run. "Check again" produced a new run with new ids: the detail disappeared silently while the address still named the finding; a finding the new run no longer raised was not said to be gone. | `selected` = `r.id`, `sel = rows.find(r => r.id === selected)` at #204 head. | Fixed: selection by `finding_key`; after a check the key is re-read from the new run; every notice carries `data-finding-key` and `data-run-id` and names the finding in words. |
 | D5 | #204 reason aid | `guidanceReasonComplete` only tested for the bracketed placeholder: "Changing from Revenue to Cost of goods sold because ." passed as a reason. | `correctionGuidance.ts` at #204 head. | Fixed: at least `REASON_AUTHORED_MIN` (10) characters must be the person's own beyond the template; the page counts them. The aid never replaces typed text (disabled while text exists, and guarded in the handler). |
 | D6 | `FindingsView` | The prominent correction button was shown to every reader, including a reviewer without `prepare_close`, who then landed on a read-only page. | `correctionHref` rendered unconditionally. | Fixed: primary button only with `prepare_close`; otherwise a plain "Open this account … Correcting it needs Prepare" link. Server authority unchanged. |
-| D7 | #204 repository checks | #204 adds `src/lib/workspace/correctionGuidance.ts` without listing it in CLAUDE.md §7 — `src/lib/__tests__/claudeFileMap.test.ts` **fails** at #204 head (passes at main `53e6e37`). The PR body's "41 focused tests passed" did not include it. | `bunx vitest run src/lib/__tests__/claudeFileMap.test.ts` at `b384f9d`: 1 failed. | Fixed here (CLAUDE.md entry). #204 itself still fails that test until it is merged with this or amended. |
+| D7 | #204 repository checks | At `b384f9d`, #204 added `src/lib/workspace/correctionGuidance.ts` without listing it in CLAUDE.md §7, so `claudeFileMap.test.ts` failed (it passed at main). | `bunx vitest run src/lib/__tests__/claudeFileMap.test.ts` at `b384f9d`: 1 failed. | **Resolved in #204 itself** at `c14c398` (its own CLAUDE.md entry). This candidate merges that head; the two entries were combined deliberately into one line (the module's wider r2 role plus #204's "no classification or AI authority"). The earlier claim that #204 "still fails" is withdrawn. |
 | D8 | correction page | After a save the page said "Correction saved." without the receipt or the consequence (certification invalidated, re-check needed to see the finding's state). | `AccountCorrection.tsx` l.242 at #204 head. | Fixed: receipt reference and the invalidation stated; the one re-check path is the next action. |
+| D9 | `FindingsView` asynchronous ownership (r2.1) | A refresh or decision started on finding A and finishing after the person opened finding B cleared B's selection, wiped text/evidence typed for B and moved the address (`setSelected(null)`, `setText("")`, `onSelectFinding(null)` from A's closure); a refresh finishing after the workspace or actor changed did the same to the new context. | `FindingsView.ownership.test.ts` on `5088c7f`: A, B (recorded) and both C cases **fail** (4 of 6); on the repair all 6 pass. | Fixed: the view is re-keyed by scope (workspace, year, actor) with a `live` guard, like `AccountCorrection`; the SELECTION has its own epoch — old work may still refresh the list (the run is what it is) but may not clear a newer selection, text or evidence, nor navigate; notices stay bound to their finding and run. Request identity after an unknown outcome is unchanged. |
+| — | withdrawn (r2.1) | "A newer read finishing before an older one shows the older run" and "a detour through another finding loses the pending request id" — not reproducible: the `seq` guard on `load` and the content-keyed `pending` request id already hold. | Ownership tests D and B-unknown pass on `5088c7f` unchanged. | Kept as regression guards. |
+| — | corrected (r2.1) | r2 said "Your correction was used" after a re-check. Equal categories prove agreement with the latest saved mapping, not that this check consumed that decision; no decision identity is read. | — | Now: "This check uses the same classification as the latest saved mapping." (`sameAsSaved`, categories only). |
 
 **Withdrawn / not reproduced.** (a) "Open beside a notice claiming the finding disappeared" as a *literal* simultaneous state
 was not reproduced from the code: the table lists only the current run's rows. The real contradiction was D4 (the address
@@ -40,9 +47,12 @@ server's contract and is not duplicated or interpreted in the browser.
 On **Close Review › Findings**, opening an A01/A03/A10 finding shows, in this order: *What the check found* (the
 classification the check used and the side the balance is on, from the finding row), *When this can be legitimate*,
 *What decides it*, then the correction button (Prepare) or a read-only link, then *Record a decision on this finding* with
-each offered decision's effect in words (explanation = reasoning, not a correction; accept = a reviewer's judgement, not a
-fix; not applicable = a recorded reason, not a way past an unresolved issue), the statement that comments are discussion
-only, and the history/comments.
+each offered decision's effect in words (explanation = reasoning, not a correction and not proof the balance is right;
+accept = a reviewer's judgement, not a fix; not applicable = a recorded reason, not a way past an unresolved issue), the
+limitation stated once (a decision closes the finding under the current rules; it records no contra-account treatment,
+proves nothing about the balance or presentation, and replaces neither evidence nor independent review nor other
+reporting requirements), that comments are discussion only, and the history/comments. Optional detail ("when this could
+be legitimate", "what decides it", amounts) is behind a native `<details>` disclosure (keyboard-operable) on both pages.
 
 On the **trial balance page** (`AccountCorrection`): the same four facts/possibility/judgement lines, the amount sentence
 with the Adjustments link where allowed, the account's balance, *Classification used by the current check* and *Saved
@@ -71,14 +81,19 @@ Operating Expenses; credit 25,000.00).
    earlier run's finding and its history untouched.
 
 **Automated evidence** (this candidate): `AccountCorrection.journey.test.ts` runs steps 2–4 on the real component against a
-fake server; `FindingsView.test.ts` runs steps 1 and 5's surface (effects, notices, selection across runs).
+fake server; `FindingsView.test.ts` and `FindingsView.ownership.test.ts` run steps 1 and 5's surface (effects, notices,
+selection across runs, ownership of late completions); `scripts/e2e/findingCorrectionJourney.mjs` runs the whole journey
+in the real application on a local Supabase stack in CI (the "Back to the finding" check now verifies workspace, year,
+finding key, the current run id, the named notice, the absence of that finding's row, detail and controls, and that the
+other finding stays visible).
 **Human usability testing: not performed.** No representative user has been observed on this candidate; nothing here
 claims "no coaching required". That observation is the owner's next step, with the script above.
 
 ## 4. Tests
 
 New: `src/components/workspace/AccountCorrection.journey.test.ts` (11), `src/components/closeReview/FindingsView.test.ts`
-(7), `src/lib/workspace/correctionGuidance.test.ts` (rewritten, 10), `accountCorrection.test.ts` (return status extended).
+(7), `src/components/closeReview/FindingsView.ownership.test.ts` (6, deferred-response reproductions A–D),
+`src/lib/workspace/correctionGuidance.test.ts` (rewritten, 10), `accountCorrection.test.ts` (return status extended).
 Preserved and passing: `AccountCorrection.scope.test.ts` (7, concurrency and receipts), `AccountCorrection.review.test.ts`
 (2), `findings.test.ts` (13). Coverage of the brief's list: corrected classification with a remaining warning ✔; changed but
 not rechecked ✔; switching findings with an old notice ✔; typed reasoning surviving help ✔; unknown save + same-request

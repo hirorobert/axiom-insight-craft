@@ -17,7 +17,7 @@ import {
   adjustmentsHref, correctionDecision, correctionScopeKey, correctionView, findingReturnHref, parsePending, pendingKey, readCorrectionContext, reasonValid, returnStatus, saveCorrection,
   REASON_MAX, type CorrectionContext, type CorrectionDbReaders, type CorrectionLink, type ReturnStatus, type SaveOutcome,
 } from "@/lib/workspace/accountCorrection";
-import { AMOUNT_GUIDANCE, CLASS_GUIDANCE, authoredReason, correctionReasonDraft, findingGuidance, guidanceReasonComplete, REASON_AUTHORED_MIN } from "@/lib/workspace/correctionGuidance";
+import { AMOUNT_GUIDANCE, CLASS_GUIDANCE, DISPOSITION_LIMITS, authoredReason, correctionReasonDraft, findingGuidance, guidanceReasonComplete, REASON_AUTHORED_MIN } from "@/lib/workspace/correctionGuidance";
 import { ReprocessRefusedError } from "@/lib/workspace/requestReprocess";
 import { classificationWords, DECISION_WORDS, memberWords } from "@/lib/workspace/reviewConfirmation";
 
@@ -214,12 +214,13 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
               <dt className="text-muted-foreground">Classification used by this check</dt><dd data-testid="correction-result-used">{classificationWords(st.finding.classification)}</dd>
               <dt className="text-muted-foreground">Balance</dt><dd className="tabular-nums">Debit {amount(st.finding.debit_minor)} · Credit {amount(st.finding.credit_minor)}</dd>
             </dl>
-            {st.usedSaved ? <p data-testid="correction-result-why">{findingGuidance(st.finding, st.finding.classification).legitimateIf ?? ""} Your correction was used; it is not asked for again here.</p> : null}
-            {st.usedSaved === false ? <p data-testid="correction-result-why">The saved classification was not used by this check (it is newer than the check, or the check read another decision). Check the trial balance again before anything else.</p> : null}
+            {st.sameAsSaved ? <p data-testid="correction-result-why">This check uses the same classification as the latest saved mapping, so no further classification change is asked for here. {findingGuidance(st.finding, st.finding.classification).legitimateIf ?? ""}</p> : null}
+            {st.sameAsSaved === false ? <p data-testid="correction-result-why">This check recorded a different classification from the latest saved mapping. Check the trial balance again before anything else.</p> : null}
             <p data-testid="correction-result-remaining">{st.remaining}</p>
+            {st.finding.rule_id !== "A03" ? <p className="text-muted-foreground" data-testid="correction-result-limits">{DISPOSITION_LIMITS}</p> : null}
           </>
         ) : null}
-        <p>{backLink}{st.kind === "still_raised" && backLink ? <span className="text-muted-foreground"> — record the explanation or review decision there.</span> : null}</p>
+        <p>{backLink}{st.kind === "still_raised" && backLink ? <span className="text-muted-foreground"> — record the decision there.</span> : null}</p>
       </div>
     );
   } else if (read.state === "loading" || p.workspaceLoading) body = <PendingStatus label="Reading the account…" />;
@@ -253,12 +254,18 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
       <div className="space-y-4 text-[13px]">
         <div className="space-y-1 rounded-md bg-muted/40 p-3" data-testid="correction-guidance">
           <p><strong>What the check found.</strong> {guide.found}</p>
-          {guide.legitimateIf ? <p><strong>When this can be legitimate.</strong> {guide.legitimateIf}</p> : null}
-          <p><strong>What decides it.</strong> {guide.decides}</p>
           <p><strong>What a correction does.</strong> {guide.correctionEffect}</p>
-          <p data-testid="correction-amount-guidance"><strong>Amounts.</strong> {AMOUNT_GUIDANCE}{adjust
-            ? <> <Link to={adjust} className="underline underline-offset-4" data-testid="correction-adjustments">Close Review › Adjustments</Link> proposes a balanced journal that a reviewer approves.</>
-            : <span className="text-muted-foreground"> Proposing an adjustment needs Prepare in this workspace.</span>}</p>
+          <details className="text-muted-foreground">
+            <summary className="cursor-pointer text-foreground underline-offset-4 hover:underline">More: when this can be legitimate, what decides it, and amounts</summary>
+            <div className="mt-1 space-y-1">
+              {guide.legitimateIf ? <p><strong className="text-foreground">When this could be legitimate.</strong> {guide.legitimateIf}</p> : null}
+              <p><strong className="text-foreground">What decides it.</strong> {guide.decides}</p>
+              <p data-testid="correction-amount-guidance"><strong className="text-foreground">Amounts.</strong> {AMOUNT_GUIDANCE}{adjust
+                ? <> <Link to={adjust} className="text-foreground underline underline-offset-4" data-testid="correction-adjustments">Close Review › Adjustments</Link> proposes a balanced journal that a reviewer approves.</>
+                : <span> Proposing an adjustment needs Prepare in this workspace.</span>}</p>
+              {guide.explanationRemains ? <p>{DISPOSITION_LIMITS}</p> : null}
+            </div>
+          </details>
         </div>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]" data-testid="correction-account">
           <dt className="text-muted-foreground">Account</dt><dd className="font-medium">{f.account_code ? <span className="tabular-nums">{f.account_code} </span> : null}{f.account_name}</dd>
@@ -302,7 +309,7 @@ function ScopedAccountCorrection(p: AccountCorrectionProps) {
                 onClick={() => { if (isClassification(classification) && reason.trim().length === 0) setReason(correctionReasonDraft(saved, classification)); }}>Help me write the reason</button>
               {reason.trim().length > 0 && !guidanceReasonComplete(reason) ? <p role="status" className="text-muted-foreground" data-testid="correction-reason-incomplete">{authored > 0 ? `${authored} of ${REASON_AUTHORED_MIN} characters of your own reasoning so far.` : "Replace the bracketed instruction with your own reasoning."}</p> : null}
             </div>
-            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason — a reviewed classification, not a verified one: CFOClose checks the form of your reason, not its accounting. Earlier decisions stay in the record and the uploaded file is not changed. The trial balance's certification is then invalidated: until it is checked again it is not reviewed and its findings are not current.</p>
+            <p className="text-muted-foreground">Saving records a review decision for this account in this company, by you, with your reason — a reviewed classification, not a verified one (CFOClose checks the form of your reason, not its accounting). Earlier decisions and the uploaded file are unchanged. The certification is then invalidated until the trial balance is checked again.</p>
             <ActionButton type="submit" busy={save.busy} busyLabel="Saving…" className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
               disabled={!isClassification(classification) || !reasonValid(reason) || !guidanceReasonComplete(reason) || unchangedChoice} data-testid="correction-save">
               {save.outcome?.kind === "unknown" ? "Try again" : "Save correction"}

@@ -454,10 +454,29 @@ async function main() {
   });
   await check("'Back to the finding' lands on Close Review › Findings for that finding, which says the current check no longer raises it", async () => {
     await page.click('[data-testid="correction-back"]');
-    await page.waitForText("no longer raises that finding", { timeout: 45000 });
+    // The notice is bound to the finding and the run it was read from (data attributes), never matched as loose page text.
+    await page.waitForSelector(`[data-testid="findings-notice"][data-finding-key="${FINDING}"][data-run-id]`, { timeout: 45000 });
     const url = await page.url();
+    const s = await rpc(preparer, "close_review_findings_summary", { p_company_id: A, p_period_year: Y });
+    const seen = await page.evaluate((finding, other) => {
+      const n = document.querySelector('[data-testid="findings-notice"]');
+      return {
+        notice: n?.innerText ?? null, key: n?.dataset.findingKey ?? null, run: n?.dataset.runId ?? null,
+        absentRow: !!document.querySelector(`[data-testid="finding-${finding}"]`),
+        detail: !!document.querySelector('[data-testid="finding-detail"]'),
+        correction: !!document.querySelector('[data-testid="finding-correct-account"], [data-testid="finding-correct-account-readonly"]'),
+        decisions: [...document.querySelectorAll("button")].map((b) => b.innerText.trim()).filter((t) => ["Record explanation", "Accept", "Mark not applicable", "Reopen"].includes(t)),
+        otherRow: document.querySelector(`[data-testid="finding-${other}"]`)?.innerText ?? null,
+      };
+    }, FINDING, `A01:${CODES.depreciationAcc}`);
     const w = await widths("06-back-to-findings");
-    return url.includes(`/close/findings?finding=${encodeURIComponent(FINDING)}`) && w === true ? true : { url, w };
+    const ok = url.includes(`/workspace/${A}/${Y}/close/findings?finding=${encodeURIComponent(FINDING)}`)
+      && s.state === "current" && seen.run === s.runId && seen.key === FINDING
+      && new RegExp(`no longer raises “Balance on the unexpected side” for account ${ACC}`).test(seen.notice ?? "")
+      && !seen.absentRow && !seen.detail && !seen.correction && seen.decisions.length === 0
+      && /Accumulated depreciation/.test(seen.otherRow ?? "") && /Open/.test(seen.otherRow ?? "")
+      && w === true;
+    return ok ? true : { url, summary: s, seen, w };
   });
   await check("the account's address, opened again, says the current check does not raise this finding (no form)", async () => {
     await go(accountUrl, "");

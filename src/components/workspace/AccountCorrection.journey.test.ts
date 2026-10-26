@@ -90,8 +90,10 @@ describe("facts, possibilities and judgement are kept apart on the page", () => 
     expect(q(m, "correction-saved-class")!.textContent).toContain("Operating Expenses");
     const g = q(m, "correction-guidance")!.textContent!;
     expect(g).toContain("What the check found. The check used Operating Expenses, which expects a debit balance; the trial balance carries a credit balance");
-    expect(g).toContain("When this can be legitimate.");
+    expect(g).toContain("What a correction does.");
+    expect(g).toContain("When this could be legitimate.");   // inside the expandable detail
     expect(g).toContain("What decides it.");
+    expect(m.container.querySelector('[data-testid="correction-guidance"] details')).not.toBeNull();
     expect(g).not.toMatch(/classification is wrong|category is wrong|is misclassified/i);
     // The amount guidance names the real adjustment workflow (Close Review › Adjustments) for a person who may propose there.
     expect(q(m, "correction-amount-guidance")!.textContent).toContain("Changing the classification does not change the uploaded amount");
@@ -105,7 +107,7 @@ describe("a corrected classification whose warning legitimately remains", () => 
     const w = world({ runs: [RUN1, { id: "run-2", classification: "non_current_assets", generatedAt: "2026-10-26T13:00:00Z" }] });
     m = mount(render(w.props())); await flush();
     choose(m, "non_current_assets");
-    expect(q(m, "classification-help")!.textContent).toMatch(/Accumulated depreciation is a credit against the related asset/);
+    expect(q(m, "classification-help")!.textContent).toMatch(/accumulated depreciation \(a credit against that cost\)/);
     typeInto(m.container.querySelector("textarea")!, "Accumulated depreciation on plant per the fixed-asset register; reduces the plant cost.");
     click(q(m, "correction-save")!); await flush();
     expect(w.calls.rpc).toHaveLength(1);
@@ -124,10 +126,12 @@ describe("a corrected classification whose warning legitimately remains", () => 
     expect(result.getAttribute("data-finding-key")).toBe("A01:1510");
     expect(result.getAttribute("data-run-id")).toBe("run-2");
     expect(q(m, "correction-result-used")!.textContent).toBe("Non-Current Assets");
-    expect(result.textContent).toMatch(/still raises this finding with the saved classification \(Non-Current Assets\)/);
+    expect(result.textContent).toMatch(/still raises this finding; it uses the same classification as the latest saved mapping \(Non-Current Assets\)/);
+    expect(q(m, "correction-result-why")!.textContent).toMatch(/^This check uses the same classification as the latest saved mapping, so no further classification change is asked for here\./);
     expect(q(m, "correction-result-why")!.textContent).toMatch(/accumulated depreciation/);
-    expect(q(m, "correction-result-why")!.textContent).toMatch(/Your correction was used; it is not asked for again here/);
-    expect(q(m, "correction-result-remaining")!.textContent).toMatch(/closed by recording an explanation on the finding/);
+    expect(result.textContent).not.toMatch(/your correction was used|decision was used/i);
+    expect(q(m, "correction-result-remaining")!.textContent).toMatch(/closed by recording an explanation \(Prepare\)/);
+    expect(q(m, "correction-result-limits")!.textContent).toMatch(/does not record a contra-account treatment, prove the balance or its presentation/);
     expect(q(m, "correction-form")).toBeNull();
     expect(q(m, "correction-check-again")).toBeNull();
     expect((q(m, "correction-back") as HTMLAnchorElement).getAttribute("href")).toBe(`/workspace/${C}/2025/close/findings?finding=A01%3A1510`);

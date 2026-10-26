@@ -329,11 +329,12 @@ export type ReturnStatus =
   /** The current check (the run named) does not produce this finding key. */
   | { kind: "no_longer_raised"; words: string; runId: string }
   /**
-   * The current check still produces it (a NEW finding row of the new run — its history starts afresh). `usedSaved` says
-   * whether that check used the latest saved classification (true), an older one (false), or cannot tell (null: no saved
-   * mapping is readable). `remaining` names what closes it now.
+   * The current check still produces it (a NEW finding row of the new run — its history starts afresh). `sameAsSaved`
+   * compares CATEGORIES only: the classification this check recorded equals the latest saved mapping's (true), differs
+   * (false), or cannot be compared (null: no saved mapping is readable). Equal categories do not prove which decision the
+   * check consumed; nothing here infers a decision identity. `remaining` names what closes the finding now.
    */
-  | { kind: "still_raised"; words: string; runId: string; finding: FindingRow; findingStatus: FindingStatus; usedSaved: boolean | null; remaining: string }
+  | { kind: "still_raised"; words: string; runId: string; finding: FindingRow; findingStatus: FindingStatus; sameAsSaved: boolean | null; remaining: string }
   /** No current check could be read: refused, stale, or unavailable — the finding's state is not known. */
   | { kind: "not_checked"; words: string };
 
@@ -363,15 +364,15 @@ export function returnStatus(outcome: RefreshOutcome, ctx: Pick<CorrectionContex
   const runId = ctx.summary.runId;
   if (!ctx.finding) return { kind: "no_longer_raised", words: "The current check of the reviewed trial balance no longer raises this finding.", runId };
   const saved = ctx.mapping?.classification ?? null;
-  const usedSaved = saved ? saved === ctx.finding.classification : null;
+  const sameAsSaved = saved ? saved === ctx.finding.classification : null;
   const findingStatus = ctx.findingStatus ?? "open";
   const remaining = ctx.finding.rule_id === "A03"
     ? "It is mandatory: it is resolved by an approved adjustment that clears the credit balance, or by classifying the account as a liability (an overdraft)."
-    : "It is a warning: it is closed by recording an explanation on the finding (Prepare), or by a reviewer's accept / not-applicable decision (Review).";
-  const words = usedSaved === false
-    ? `The check still raises this finding, and it used ${classificationWordsSafe(ctx.finding.classification)} rather than the saved classification (${classificationWordsSafe(saved)}); its status is ${STATUS[findingStatus]}.`
-    : `The check still raises this finding${usedSaved ? ` with the saved classification (${classificationWordsSafe(saved)})` : ""}; its status is ${STATUS[findingStatus]}.`;
-  return { kind: "still_raised", words, runId, finding: ctx.finding, findingStatus, usedSaved, remaining };
+    : "It is a warning: under the current rules it is closed by recording an explanation (Prepare) or a reviewer's Accept / Not applicable decision (Review).";
+  const words = sameAsSaved === false
+    ? `The check still raises this finding. It recorded ${classificationWordsSafe(ctx.finding.classification)}, which differs from the latest saved mapping (${classificationWordsSafe(saved)}); its status is ${STATUS[findingStatus]}.`
+    : `The check still raises this finding${sameAsSaved ? `; it uses the same classification as the latest saved mapping (${classificationWordsSafe(saved)})` : ""}; its status is ${STATUS[findingStatus]}.`;
+  return { kind: "still_raised", words, runId, finding: ctx.finding, findingStatus, sameAsSaved, remaining };
 }
 
 const classificationWordsSafe = (c: string | null): string => (c ? classificationWords(c) : "no saved classification");

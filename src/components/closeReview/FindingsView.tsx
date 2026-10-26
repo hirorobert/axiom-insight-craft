@@ -14,19 +14,19 @@ import {
   type FindingAction, type FindingRow, type FindingsClient, type FindingStatus, type FindingsSummary,
 } from "@/lib/closeReview/findings";
 import type { TimelineClient, TimelineEventRow } from "@/lib/closeReview/timeline";
-import { findingGuidance } from "@/lib/workspace/correctionGuidance";
+import { DISPOSITION_LIMITS, findingGuidance } from "@/lib/workspace/correctionGuidance";
 import { ReviewTimeline } from "./ReviewTimeline";
 
 const ACTION_LABEL: Record<FindingAction, string> = { explain: "Record explanation", accept: "Accept", not_applicable: "Mark not applicable", reopen: "Reopen" };
 /** What each decision does, in the words the page shows beside it. The database still decides each one. */
 const ACTION_EFFECT: Record<FindingAction, (f: Pick<FindingRow, "severity" | "required_resolution">) => string> = {
   explain: (f) => f.required_resolution === "evidence"
-    ? "records your explanation with the workpaper reference; with the reference, the finding counts as resolved (status Explained)."
+    ? "records your explanation with the workpaper reference; with the reference, the finding counts as resolved under the current rules (status Explained)."
     : f.severity === "warning"
-      ? "records your reasoning why the balance is legitimate as it stands; the finding counts as resolved (status Explained). It is not a correction: the classification and the balance stay as they are."
+      ? "records your reasoning; the finding counts as resolved under the current rules (status Explained). It is not a correction — the classification and the balance stay as they are — and it does not prove the balance is right."
       : "records your reasoning (status Explained). It does not resolve this blocking finding, which needs its required correction.",
-  accept: () => "a reviewer accepts the finding as it stands, without a correction or an explanation (status Accepted). It is a review judgement, recorded under your name — not a fix.",
-  not_applicable: () => "a reviewer records that this check does not apply to this account, with the reason why (status Not applicable). It is not a way past an unresolved issue: the reason is on the record.",
+  accept: () => "a reviewer accepts the finding as it stands, without a correction or an explanation (status Accepted). A review judgement recorded under your name, not a fix.",
+  not_applicable: () => "a reviewer records, with the reason, that this check does not apply to this account (status Not applicable). Not a way past an unresolved issue: the reason is on the record.",
   reopen: () => "sets the finding back to Open; the earlier decision stays in the history.",
 };
 
@@ -36,7 +36,7 @@ function Amount({ minor, exponent }: { minor: string | null; exponent: number })
   return <span className="tabular-nums">{a.text}</span>;
 }
 
-export function FindingsView(p: {
+export interface FindingsViewProps {
   companyId: string;
   periodYear: number;
   client: FindingsClient;
@@ -51,7 +51,18 @@ export function FindingsView(p: {
   /** Reports the opened finding, so the page can keep it in its address (Back and reload return to it). */
   onSelectFinding?: (findingKey: string | null) => void;
   newRequestId?: () => string;
-}) {
+}
+
+/**
+ * Re-keyed by the SCOPE (workspace, year, signed-in actor): another workspace, year or person starts from a clean view,
+ * and nothing an earlier scope started (a read, a check, a decision) can reach it — the same ownership rule as the account
+ * correction (AccountCorrection.tsx).
+ */
+export function FindingsView(p: FindingsViewProps) {
+  return <ScopedFindingsView key={JSON.stringify([p.companyId, p.periodYear, p.currentUserId ?? ""])} {...p} />;
+}
+
+function ScopedFindingsView(p: FindingsViewProps) {
   const ids = { table: useId(), text: useId(), evidence: useId() };
   const [summary, setSummary] = useState<FindingsSummary | null>(null);
   const [rows, setRows] = useState<FindingRow[]>([]);
@@ -68,6 +79,13 @@ export function FindingsView(p: {
   const [evidence, setEvidence] = useState("");
   const pending = useRef<{ key: string; id: string } | null>(null);
   const seq = useRef(0);
+  // This instance owns one scope: once it is gone, no asynchronous completion may update, clear, navigate or read again.
+  const live = useRef(true);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  // Ownership of the SELECTED finding is separate from ownership of the list: every change of selection starts a new
+  // epoch, and work begun under an earlier epoch may refresh the list (the run is what it is) but may not clear the
+  // selection, the typed text or the evidence, nor move the address.
+  const epoch = useRef(0);
   // Reviewing a finding moves focus to its detail (keyboard and screen-reader users land where the work is).
   const detailHeading = useRef<HTMLHeadingElement | null>(null);
   const newId = p.newRequestId ?? (() => crypto.randomUUID());
@@ -79,10 +97,10 @@ export function FindingsView(p: {
       let r: FindingRow[] = []; let e: (TimelineEventRow & { subject_id: string })[] = [];
       let st: { finding_id: string; status: FindingStatus; resolved: boolean }[] = [];
       if (s.state === "current") { r = await p.client.list(s.runId); e = await p.client.events(r.map((x) => x.id)); st = await p.client.states(p.companyId, p.periodYear); }
-      if (mine !== seq.current) return;
+      if (!live.current || mine !== seq.current) return;
       setSummary(s); setRows(r); setEvents(e); setServerStates(new Map(st.map((x) => [x.finding_id, { status: x.status, resolved: x.resolved }]))); setError(null);
     } catch {
-      if (mine === seq.current) setError("The findings could not be read. Nothing was changed.");
+      if (live.current && mine === seq.current) setError("The findings could not be read. Nothing was changed.");
     }
   }, [p.client, p.companyId, p.periodYear]);
   useEffect(() => { void load(); }, [load]);
@@ -94,10 +112,10 @@ export function FindingsView(p: {
     if (summary.state !== "current") return;
     focused.current = k;
     const row = rows.find((r) => r.finding_key === k);
-    if (row) setSelected(row.finding_key);
+    if (row) { epoch.current++; setSelected(row.finding_key); }
     else setNotice({ words: `The current check of the reviewed trial balance no longer raises ${findingWords(k)}.`, findingKey: k, runId: summary.runId });
   }, [p.focusFindingKey, summary, rows]);
-  const select = (r: FindingRow) => { setNotice(null); setText(""); setEvidence(""); setSelected(r.finding_key); p.onSelectFinding?.(r.finding_key); };
+  const select = (r: FindingRow) => { epoch.current++; setNotice(null); setText(""); setEvidence(""); setSelected(r.finding_key); p.onSelectFinding?.(r.finding_key); };
   useEffect(() => { if (selected) { detailHeading.current?.focus(); detailHeading.current?.scrollIntoView?.({ block: "nearest" }); } }, [selected]);
 
   const evOf = (id: string) => events.filter((e) => e.subject_id === id);
@@ -105,32 +123,47 @@ export function FindingsView(p: {
   const resolvedOf = (r: FindingRow): boolean => serverStates.get(r.id)?.resolved ?? findingResolved(r, evOf(r.id));
   const refresh = async () => {
     if (!setBusy(true)) return;
+    const mine = epoch.current;
+    const opened = selected;
     try {
       const r = await p.client.refresh(p.companyId, p.periodYear);
+      if (!live.current) return;
       const s = await p.client.summary(p.companyId, p.periodYear);
+      if (!live.current) return;
       const runId = s.state === "current" ? s.runId : null;
-      // The opened finding is re-read from the new run by its key: still raised, or no longer raised (said, tied to that run).
-      const stillRaised = selected && runId ? (await p.client.list(runId)).some((x) => x.finding_key === selected) : null;
-      if (selected && runId && !stillRaised) {
-        setNotice({ words: `${REFRESH_WORDS[r.outcome]} The current check no longer raises ${findingWords(selected)}.`, findingKey: selected, runId });
-        setSelected(null); setText(""); setEvidence(""); p.onSelectFinding?.(null);
+      // The finding that was open when the check started is re-read from the new run by its key.
+      const stillRaised = opened && runId ? (await p.client.list(runId)).some((x) => x.finding_key === opened) : null;
+      if (!live.current) return;
+      if (opened && runId && !stillRaised) {
+        // Said, and tied to that finding and run. The selection is cleared only while it is still that finding's
+        // (same epoch): a finding the person opened meanwhile, and anything typed for it, is theirs to keep.
+        setNotice({ words: `${REFRESH_WORDS[r.outcome]} The current check no longer raises ${findingWords(opened)}.`, findingKey: opened, runId });
+        if (mine === epoch.current) { setSelected(null); setText(""); setEvidence(""); p.onSelectFinding?.(null); }
       } else setNotice({ words: REFRESH_WORDS[r.outcome], findingKey: null, runId });
       await load();
     }
     // The request may have reached the server (a check writes a run), so nothing is claimed either way.
-    catch { setNotice({ words: "We could not confirm whether the check ran. Reload to see the current findings.", findingKey: null, runId: null }); }
-    finally { setBusy(false); }
+    catch { if (live.current) setNotice({ words: "We could not confirm whether the check ran. Reload to see the current findings.", findingKey: null, runId: null }); }
+    finally { if (live.current) setBusy(false); }
   };
   const act = async (f: FindingRow, action: FindingAction) => {
     const key = `${f.id}|${action}|${text}|${evidence}`;
     if (!pending.current || pending.current.key !== key) pending.current = { key, id: newId() };
     if (!setBusy(true)) return;
+    const mine = epoch.current;
     try {
       const r = await p.client.act(f.id, action, text.trim(), evidence.trim() || null, pending.current.id);
-      if (r.outcome === "recorded") { pending.current = null; setText(""); setEvidence(""); setNotice({ words: `${STATUS_WORDS[r.status ?? "open"]} — recorded for ${findingWords(f.finding_key)}.`, findingKey: f.finding_key, runId: f.run_id }); await load(); }
-      else setNotice({ words: ACTION_REFUSALS[r.outcome], findingKey: f.finding_key, runId: f.run_id });
-    } catch { setNotice({ words: "Could not confirm the decision. Your text is kept. Check the finding’s recorded status before retrying.", findingKey: f.finding_key, runId: f.run_id }); }
-    finally { setBusy(false); }
+      if (!live.current) return;
+      if (r.outcome === "recorded") {
+        pending.current = null;
+        // The text box is cleared only while it still holds this decision's text (same epoch); text typed since for
+        // another finding is never touched. The notice names the finding it is about.
+        if (mine === epoch.current) { setText(""); setEvidence(""); }
+        setNotice({ words: `${STATUS_WORDS[r.status ?? "open"]} — recorded for ${findingWords(f.finding_key)}.`, findingKey: f.finding_key, runId: f.run_id });
+        await load();
+      } else setNotice({ words: ACTION_REFUSALS[r.outcome], findingKey: f.finding_key, runId: f.run_id });
+    } catch { if (live.current) setNotice({ words: "Could not confirm the decision. Your text is kept. Check the finding’s recorded status before retrying.", findingKey: f.finding_key, runId: f.run_id }); }
+    finally { if (live.current) setBusy(false); }
   };
 
   if (error) return <p role="alert">{error} <button type="button" className="underline" onClick={() => void load()}>Try again</button></p>;
@@ -213,8 +246,14 @@ export function FindingsView(p: {
             return (
               <div className="space-y-2 rounded-md bg-muted/40 p-3 text-sm" data-testid="finding-guidance">
                 <p><strong>What the check found.</strong> {guide.found}</p>
-                {guide.legitimateIf ? <p><strong>When this can be legitimate.</strong> {guide.legitimateIf}</p> : null}
-                <p><strong>What decides it.</strong> {guide.decides}</p>
+                <details className="text-muted-foreground">
+                  <summary className="cursor-pointer text-foreground underline-offset-4 hover:underline">More: when this could be legitimate, and what decides it</summary>
+                  <div className="mt-1 space-y-1">
+                    {guide.legitimateIf ? <p><strong className="text-foreground">When this could be legitimate.</strong> {guide.legitimateIf}</p> : null}
+                    <p><strong className="text-foreground">What decides it.</strong> {guide.decides}</p>
+                    {guide.explanationRemains ? <p>{DISPOSITION_LIMITS}</p> : null}
+                  </div>
+                </details>
                 {st === "open" ? (
                   mayCorrect ? (
                     <p>
@@ -239,7 +278,7 @@ export function FindingsView(p: {
                 <p className="text-sm font-medium">Record a decision on this finding</p>
                 <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted-foreground" data-testid="finding-action-effects">
                   {offered.map((a) => <li key={a}><strong className="text-foreground">{ACTION_LABEL[a]}</strong> — {ACTION_EFFECT[a](sel)}</li>)}
-                  <li>None of these changes the account&rsquo;s classification or the uploaded amount. Comments in the history below are discussion only: they do not change the status.</li>
+                  <li>None of these changes the account&rsquo;s classification or the uploaded amount, records a contra-account treatment, or replaces required evidence or independent review. Comments in the history below are discussion only: they do not change the status.</li>
                 </ul>
                 <label htmlFor={ids.text} className="block text-sm font-medium">{st === "open" ? "Explanation or reason" : "Reason for reopening"}</label>
                 <textarea id={ids.text} rows={3} maxLength={4000} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={text} onChange={(e) => setText(e.target.value)} />

@@ -104,14 +104,16 @@ describe("decisions state their effects; a comment is never a resolution", () =>
     m = mount(render(w.props(["prepare_close"]))); await flush();
     open(m, "1510"); await flush();
     let effects = q(m, "finding-action-effects")!.textContent!;
-    expect(effects).toMatch(/Record explanation — records your reasoning why the balance is legitimate as it stands/);
+    expect(effects).toMatch(/Record explanation — records your reasoning; the finding counts as resolved under the current rules/);
+    expect(effects).toMatch(/does not prove the balance is right/);
+    expect(effects).toMatch(/records a contra-account treatment, or replaces required evidence or independent review/);
     expect(effects).toMatch(/It is not a correction/);
     expect(effects).toMatch(/Comments in the history below are discussion only: they do not change the status/);
     expect(effects).not.toMatch(/Accept —/);
     m.rerender(render(w.props(["review_close"]))); await flush();
     effects = q(m, "finding-action-effects")!.textContent!;
     expect(effects).toMatch(/Accept — a reviewer accepts the finding as it stands, without a correction/);
-    expect(effects).toMatch(/Mark not applicable — .*It is not a way past an unresolved issue/);
+    expect(effects).toMatch(/Mark not applicable — .*Not a way past an unresolved issue/);
     expect(effects).not.toMatch(/Record explanation —/);
   });
   it("the correction is the prominent action for Prepare and a read-only link for a reviewer without Prepare", async () => {
@@ -120,7 +122,8 @@ describe("decisions state their effects; a comment is never a resolution", () =>
     open(m, "1510"); await flush();
     expect(q(m, "finding-correct-account")).not.toBeNull();
     expect(q(m, "finding-guidance")!.textContent).toMatch(/What the check found\. The check used Operating Expenses/);
-    expect(q(m, "finding-guidance")!.textContent).toMatch(/When this can be legitimate\./);
+    expect(q(m, "finding-guidance")!.textContent).toMatch(/When this could be legitimate\./);
+    expect(m.container.querySelector('[data-testid="finding-guidance"] details')).not.toBeNull();
     m.rerender(render(w.props(["review_close"]))); await flush();
     expect(q(m, "finding-correct-account")).toBeNull();
     expect(q(m, "finding-correct-account-readonly")!.textContent).toMatch(/Correcting it needs Prepare/);
