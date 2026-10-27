@@ -130,7 +130,7 @@ GRANT EXECUTE ON FUNCTION public.fs_equipment_context(uuid,integer),public.fs_sa
 CREATE FUNCTION public.fs_commit_equipment_preparation(p_company_id uuid,p_period_year integer,p_payload jsonb,p_expected_id uuid,p_source_document_id uuid,p_expected_note_id uuid,p_body text,p_requirement_id text,p_request_id uuid,p_expected_schedule_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE v_refusal text; v_work jsonb; v_schedule jsonb; v_note jsonb; v_rows jsonb; v_movements jsonb;
- v_schedule_request uuid; v_note_request uuid; v_current_schedule uuid;
+ v_schedule_request uuid; v_note_request uuid; v_current_schedule uuid; v_existing_rows jsonb;
 BEGIN
  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE='28000'; END IF;
  v_refusal:=public._fs_notes_refusal(p_company_id,auth.uid());
@@ -143,8 +143,9 @@ BEGIN
  PERFORM pg_advisory_xact_lock(hashtextextended('fs_equipment_policy_request:'||auth.uid()::text||':'||v_note_request::text,0));
  PERFORM pg_advisory_xact_lock(hashtextextended('fs_notes:'||p_company_id::text||':'||p_period_year::text,0));
  IF NOT EXISTS(SELECT 1 FROM public.fs_schedule_submissions WHERE actor_user_id=auth.uid() AND request_id=v_schedule_request) THEN
-   SELECT id INTO v_current_schedule FROM public.fs_schedule_submissions WHERE company_id=p_company_id AND period_year=p_period_year AND schedule_id='ppe' ORDER BY seq DESC LIMIT 1;
+   SELECT id,rows INTO v_current_schedule,v_existing_rows FROM public.fs_schedule_submissions WHERE company_id=p_company_id AND period_year=p_period_year AND schedule_id='ppe' ORDER BY seq DESC LIMIT 1;
    IF v_current_schedule IS DISTINCT FROM p_expected_schedule_id THEN RETURN jsonb_build_object('outcome','stale_schedule'); END IF;
+   IF jsonb_array_length(v_existing_rows)>1 THEN RETURN jsonb_build_object('outcome','multi_class_schedule'); END IF;
  END IF;
  BEGIN
    v_work:=public.fs_save_equipment_workpaper(p_company_id,p_period_year,p_payload,p_expected_id,p_source_document_id,p_request_id);

@@ -86,7 +86,6 @@ function EquipmentWorkpaper(
   );
   const statementChanged = reviewedComposition !== p.compositionSha256;
   const [expectedPriorEnd, setExpectedPriorEnd] = useState<string | null>(null);
-  const [replaceConfirmed, setReplaceConfirmed] = useState(false);
   const existingSchedule =
     p.state.notes &&
     "requirements" in p.state.notes &&
@@ -180,7 +179,6 @@ function EquipmentWorkpaper(
   }, [opened, p.clients, p.companyId, p.periodYear, p.compositionSha256]);
   const touch = (movementChange = false) => {
     setDirty(true);
-    setReplaceConfirmed(false);
     if (movementChange) setMovementCoverageConfirmed(false);
   };
   const resetSource = (f: File | null) => {
@@ -299,7 +297,7 @@ function EquipmentWorkpaper(
   const ready =
     movementCoverageConfirmed &&
     !statementChanged &&
-    (!existingSchedule || replaceConfirmed) &&
+    !existingSchedule &&
     bridge.state === "agrees" &&
     rec.state === "agrees" &&
     policy.assetClass.trim().length >= 3 &&
@@ -415,7 +413,6 @@ function EquipmentWorkpaper(
       setRead(parsed.read ? { ...parsed.read, preview: new Blob([]) } : null);
       setConfirmed(false);
       setMovementCoverageConfirmed(false);
-      setReplaceConfirmed(false);
       setDirty(true);
       setNotice(
         "Saved answers restored for review. The original page preview is not loaded. Reconfirm source figures and movement coverage before recording a schedule.",
@@ -624,7 +621,6 @@ function EquipmentWorkpaper(
                 onClick={() => {
                   setReviewedComposition(p.compositionSha256);
                   setConfirmed(false);
-                  setReplaceConfirmed(false);
                 }}
               >
                 Review refreshed statement figures
@@ -1047,7 +1043,6 @@ function EquipmentWorkpaper(
                 onChange={(e) => {
                   setMovementCoverageConfirmed(e.target.checked);
                   setDirty(true);
-                  setReplaceConfirmed(false);
                 }}
               />
               <span>
@@ -1290,18 +1285,12 @@ function EquipmentWorkpaper(
               Comparatives.
             </p>
             {existingSchedule ? (
-              <label className="flex gap-2">
-                <input
-                  data-testid="confirm-replace-schedule"
-                  type="checkbox"
-                  checked={replaceConfirmed}
-                  onChange={(e) => setReplaceConfirmed(e.target.checked)}
-                />
-                <span>
-                  Replace the existing whole PPE schedule with this one asset
-                  class. I have included every relevant equipment amount.
-                </span>
-              </label>
+              <p className="text-sm" role="status">
+                A PPE schedule already exists. This one-class worksheet cannot
+                replace it. Keep this workpaper for reference and use the full
+                schedule editor to preserve every asset class.
+                {" "}<Link className="underline" to={p.hrefFor("fs-notes", p.reportVersion)}>Open the full schedule editor</Link>
+              </p>
             ) : null}
             <div className="flex flex-wrap gap-2">
               <button

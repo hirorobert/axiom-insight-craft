@@ -117,3 +117,14 @@ Deployment and product limits:
 6. Accountant-led usability, actual Enduimet evidence, current-period recognition/measurement judgments and wider-framework support remain open. A source-reference catalogue is not a verified standards-compliance engine.
 
 Reference review: IFRS Foundation Module 17 explicitly covers the 2015 edition; educational commentary is distinguished from the Standard. The product contains original questions and links, not copied illustrative reports, source PDFs or Foundation logos. Commercial content permissions remain to be established before licensed content is embedded. UN Chapter 16/Corporate Guidance remain comparison/research references for a separately admitted IPSAS pack; older IPSAS references and UN-specific policies must not become universal product rules.
+
+
+## Accounting assessment reconciliation — PR #209
+
+Reviewed accounting handoff at db8dccbd47bfe52323e8711c530349fb6cf730cc against candidate a7182309. Charter references: P1/P4, G4/G5, section 11.3 atomicity and 11.5 coverage acceptance. Charter remains pending adoption.
+
+Confirmed release protection: single-class wizard no longer replaces an existing PPE schedule. It links to the full schedule editor; workpaper export remains available. The atomic candidate also rejects a latest multi-class schedule under the existing period lock, before writes; exact prior request replay is preserved. New component and real-DB cases exercise these paths. This is a protective restriction, not a multi-class guided implementation.
+
+Confirmed follow-ups, not solved here: gross rollforward and movement provenance; structured per-class depreciation estimates; disposal proceeds and gains/losses; conditional disclosures and pack coverage; reusable requirement-linked answers and restatement integration. Depreciation need not all appear as one expense line (e.g. capitalization or by-function presentation): follow-up must reconcile destinations rather than impose unconditional equality. Reviewed prose and arithmetic do not establish full equipment compliance. No framework content or compiler changes authorized by this reconciliation.
+
+Original PDF retention still depends on membership and scanner availability; authenticated browser/accountant acceptance and canonical migration promotion remain open. No hosted changes or paid calls performed. Previous green CI applies only to a7182309; revised checks must pass on the new commit.

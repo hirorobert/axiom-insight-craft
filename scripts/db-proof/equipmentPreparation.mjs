@@ -460,6 +460,14 @@ try {
       return r.outcome === "recorded" && r.sourceRetained === true;
     },
   );
+  await check("one-class atomic commit cannot erase a multi-class schedule", async () => {
+    const rows = ["Equipment", "Vehicles"].map(classLabel => ({classLabel, openingMinor:"800000", closingMinor:"700000", movements:[{kind:"depreciation",amountMinor:"-100000"}]}));
+    const recorded = (await db.asUser(U.preparer, "SELECT public.fs_record_schedule($1,2026,'ppe',$2::jsonb,'Synthetic multi-class register',$3) r", [A, JSON.stringify(rows), uuid()])).r;
+    if (recorded.outcome !== "recorded") return false;
+    const c = await context(), before = await atomicCounts();
+    const r = (await db.asUser(U.preparer, "SELECT public.fs_commit_equipment_preparation($1,2026,$2::jsonb,$3,NULL,$4,$5,'smes.note.policies',$6,$7) r", [A, JSON.stringify(payload), c.workpaper.id, c.policy.id, atomicBody, uuid(), c.scheduleId])).r;
+    return r.outcome === "multi_class_schedule" && await atomicCounts() === before && (await context()).scheduleId === c.scheduleId;
+  });
   await db.admin.query(
     "UPDATE public.firm_members SET accepted_at=NULL WHERE company_id=$1 AND user_id=$2",
     [A, U.preparer],

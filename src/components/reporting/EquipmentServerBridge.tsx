@@ -217,6 +217,8 @@ export function EquipmentServerBridge(p: {
             ? "Another person changed the policy note. Your proposal is kept. Read the latest note and reconcile it before retrying."
             : r.outcome === "stale_schedule"
               ? "The equipment schedule changed. Read the current preparation and reconcile the newer schedule before replacing it."
+              : r.outcome === "multi_class_schedule"
+                ? "The PPE schedule contains multiple asset classes. Nothing was saved. Use the full schedule editor to preserve all classes."
               : r.outcome === "stale_inputs"
                 ? "The reporting inputs changed. Refresh the statements and save a reviewed current workpaper before inserting wording."
                 : r.outcome === "recorded"

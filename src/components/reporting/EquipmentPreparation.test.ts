@@ -190,21 +190,16 @@ it("retains request identity after an unknown save; never says nothing was recor
   await flush();
   expect(record.mock.calls[0][5]).toBe(record.mock.calls[1][5]);
 });
-it("requires explicit whole-schedule replacement confirmation", async () => {
+it("refuses to replace any existing schedule from the single-class wizard", async () => {
   const p = props();
-  p.state.notes = {
-    state: "evaluated",
-    requirements: [
-      { requirementId: "smes.schedule.ppe", submissionId: "saved" },
-    ],
-  } as never;
+  p.state.notes = {state: "evaluated", requirements: [{requirementId: "smes.schedule.ppe", submissionId: "saved"}]} as never;
   await start(p);
   await complete();
   expect(button("Record equipment schedule").disabled).toBe(true);
-  click(m!.container.querySelector("[data-testid=confirm-replace-schedule]")!);
-  expect(button("Record equipment schedule").disabled).toBe(false);
-  fill("Closing carrying amount", "13000");
-  expect(button("Record equipment schedule").disabled).toBe(true);
+  expect(m!.container.querySelector("[data-testid=confirm-replace-schedule]")).toBeNull();
+  expect(text()).toContain("This one-class worksheet cannot replace it");
+  expect([...m!.container.querySelectorAll("a")].find(a => a.textContent === "Open the full schedule editor")?.getAttribute("href")).toContain("fs-notes");
+  expect(record).not.toHaveBeenCalled();
 });
 it("does not expose editing to a reader and never upgrades a draft to compliance", async () => {
   m = mount(
