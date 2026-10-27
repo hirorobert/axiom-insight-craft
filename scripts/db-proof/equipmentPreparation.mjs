@@ -24,7 +24,7 @@ try {
   await W.rollout(A, true);
   await W.rollout(B, true);
   const k = await certifier(db, U);
-  await prepareReporting(db, W, k);
+  await prepareReporting(db, W, k, { equipmentSchedule: false });
   await check("authored migration matches the reviewed candidate and is installed by the full chain", async () => {
     const candidate=fs.readFileSync(`${REPO}/release/candidates/guided-equipment-r1/workpaper.sql`,"utf8");
     const authored=fs.readFileSync(`${REPO}/supabase/migrations/20261205100000_fs_equipment_preparation.sql`,"utf8");
@@ -236,6 +236,19 @@ try {
       ) === fingerprint,
   );
 
+  const createRequest=uuid();
+  const createRows=[{classLabel:"Equipment",openingMinor:"1600000",closingMinor:"1400000",movements:[{kind:"depreciation",amountMinor:"-200000"}]}];
+  const createOnly=(request=createRequest,rows=createRows,actor=U.preparer)=>db.asUser(actor,"SELECT public.fs_create_equipment_schedule($1,2026,$2::jsonb,'Synthetic create-only register',$3) r",[A,JSON.stringify(rows),request]).then(x=>x.r);
+  await check("concurrent wizard creates converge without replacement",async()=>{
+    const results=await Promise.all(Array.from({length:12},()=>createOnly()));
+    return results.every(r=>r.outcome==="recorded" && r.submissionId===results[0].submissionId);
+  });
+  await check("a different request cannot replace an existing schedule",async()=>{
+    const before=(await context()).scheduleId;
+    return (await createOnly(uuid())).outcome==="schedule_exists" && (await context()).scheduleId===before;
+  });
+  await check("create-only replay rejects a changed original intent",async()=> (await createOnly(createRequest,[{...createRows[0],classLabel:"Other equipment"}])).outcome==="request_reused");
+  await check("viewer cannot use create-only schedule authority",async()=> (await createOnly(uuid(),createRows,U.viewer)).outcome==="forbidden");
   group("Atomic preparation commit");
   const atomicBase = await context();
   const atomicRequest = uuid(),

@@ -38,6 +38,11 @@ export function workpaperClient(db: Pick<ReportingDb, "rpc">) {
     return data;
   };
   return {
+    async createSchedule(companyId: string, periodYear: number, rows: unknown[], sourceRef: string, requestId: string) {
+      return z.object({outcome: z.string(), submissionId: uuid.optional()}).passthrough().parse(await call("fs_create_equipment_schedule", {
+        p_company_id: companyId, p_period_year: periodYear, p_rows: rows, p_source_ref: sourceRef, p_request_id: requestId,
+      }));
+    },
     async context(
       companyId: string,
       periodYear: number,

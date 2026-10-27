@@ -162,4 +162,23 @@ BEGIN
 END; $$;
 REVOKE ALL ON FUNCTION public.fs_commit_equipment_preparation(uuid,integer,jsonb,uuid,uuid,uuid,text,text,uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.fs_commit_equipment_preparation(uuid,integer,jsonb,uuid,uuid,uuid,text,text,uuid,uuid) TO authenticated;
+-- Wizard-only create: a newer schedule is never replaced, even if the browser read was stale.
+CREATE FUNCTION public.fs_create_equipment_schedule(p_company_id uuid,p_period_year integer,p_rows jsonb,p_source_ref text,p_request_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE v_refusal text;
+BEGIN
+ IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE='28000'; END IF;
+ v_refusal:=public._fs_notes_refusal(p_company_id,auth.uid());
+ IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome',v_refusal); END IF;
+ IF p_request_id IS NULL OR jsonb_typeof(p_rows) IS DISTINCT FROM 'array' THEN RETURN jsonb_build_object('outcome','invalid_request'); END IF;
+ IF jsonb_array_length(p_rows)<>1 THEN RETURN jsonb_build_object('outcome','invalid_request'); END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended('fs_notes:'||p_company_id::text||':'||p_period_year::text,0));
+ IF EXISTS(SELECT 1 FROM public.fs_schedule_submissions WHERE company_id=p_company_id AND period_year=p_period_year AND schedule_id='ppe')
+ AND NOT EXISTS(SELECT 1 FROM public.fs_schedule_submissions WHERE actor_user_id=auth.uid() AND request_id=p_request_id) THEN
+   RETURN jsonb_build_object('outcome','schedule_exists');
+ END IF;
+ RETURN public.fs_record_schedule(p_company_id,p_period_year,'ppe',p_rows,p_source_ref,p_request_id);
+END; $$;
+REVOKE ALL ON FUNCTION public.fs_create_equipment_schedule(uuid,integer,jsonb,text,uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.fs_create_equipment_schedule(uuid,integer,jsonb,text,uuid) TO authenticated;
 COMMIT;

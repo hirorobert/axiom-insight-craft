@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { workpaperClient } from "@/lib/preparation/workpaperClient";
 import { parseEquipmentEditor } from "@/lib/preparation/editorSchema";
 import { EquipmentServerBridge } from "./EquipmentServerBridge";
 import {
@@ -508,10 +509,9 @@ function EquipmentWorkpaper(
         ? `PPE workpaper; prior sha256 ${read!.sha256} page ${read!.page}; ${source.trim()}`
         : `PPE workpaper; manual prior reference ${priorReference.trim().slice(0, 100)}; ${source.trim()}`;
     try {
-      const r = await p.clients.notes.recordSchedule(
+      const r = await workpaperClient(p.db).createSchedule(
         p.companyId,
         p.periodYear,
-        "ppe",
         rows,
         reference,
         attempt.idFor(
@@ -540,7 +540,9 @@ function EquipmentWorkpaper(
         setNotice(
           r.outcome === "recorded"
             ? "Could not confirm the schedule save: the server receipt is incomplete. Retry the same unchanged schedule."
-            : outcomeText(r),
+            : r.outcome === "schedule_exists"
+              ? "A PPE schedule was recorded while you were preparing. Nothing was replaced. Open the full schedule editor to review every asset class."
+              : outcomeText({ ...r, outcome: r.outcome }),
         );
     } catch {
       if (live.current && generation.current === g)

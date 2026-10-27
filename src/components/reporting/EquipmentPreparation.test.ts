@@ -67,6 +67,10 @@ function props(over: Partial<PageProps> = {}): PageProps {
         ],
       },
     },
+    db: {rpc: async (name: string, args: Record<string, unknown>) => {
+      if(name !== "fs_create_equipment_schedule") throw new Error("Unexpected RPC");
+      return {data: await record(args.p_company_id,args.p_period_year,"ppe",args.p_rows,args.p_source_ref,args.p_request_id),error:null};
+    }},
     clients: {
       notes: { recordSchedule: record },
       signoff: {
@@ -332,4 +336,11 @@ it("keeps a confirmed save distinct from a failed status refresh", async () => {
   expect(text()).toContain("another save is not needed");
   expect(text()).not.toContain("Could not confirm the schedule save");
   expect(record).toHaveBeenCalledTimes(1);
+});
+
+it("keeps edits when a schedule was created after the page loaded", async () => {
+  record.mockResolvedValueOnce({outcome:"schedule_exists"});
+  await start(); await complete(); click(button("Record equipment schedule")); await flush();
+  expect(text()).toContain("Nothing was replaced");
+  expect(field("Asset class").value).toBe("Equipment");
 });
