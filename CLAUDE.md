@@ -1,5 +1,11 @@
 # AXIOM Insight Craft — Claude Code Institutional Memory
 
+## Development charter — required reading
+
+Before changing CFOClose, read [the development charter](docs/architecture/CFOCLOSE_DEVELOPMENT_CHARTER.md). Reference applicable requirements in the work plan and PR. Do not silently deviate. Any exception must identify the requirement, reason, affected controls and tests, and obtain the required approval through a recorded amendment.
+
+The charter records target requirements, not proof of implementation or framework compliance. Its adoption and accounting review status must remain explicit. Existing repository controls remain in force pending recorded adoption; unresolved conflicts must be reported, not silently resolved by assuming an exception. No charter instruction grants permission to spend credits, merge, deploy, publish or activate hosted features.
+
 This file is read automatically by Claude Code at the start of every session.
 It contains every architectural decision, constraint, and invariant established
 across the full development history of this project. Do not skip it.
