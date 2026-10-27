@@ -1,4 +1,4 @@
--- UNAPPLIED CANDIDATE. Run only in a disposable proof database until reviewed and canonically registered.
+-- Authored forward migration; NOT applied hosted. Equipment preparation remains advisory.
 -- Advisory workpaper storage + compare-and-set note insertion. Does not add framework support or change readiness.
 BEGIN;
 CREATE TABLE public.fs_equipment_workpapers (

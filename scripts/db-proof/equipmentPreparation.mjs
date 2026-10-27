@@ -25,18 +25,12 @@ try {
   await W.rollout(B, true);
   const k = await certifier(db, U);
   await prepareReporting(db, W, k);
-  await check(
-    "candidate installs only in this throwaway database",
-    async () => {
-      await db.admin.query(
-        fs.readFileSync(
-          `${REPO}/release/candidates/guided-equipment-r1/workpaper.sql`,
-          "utf8",
-        ),
-      );
-      return true;
-    },
-  );
+  await check("authored migration matches the reviewed candidate and is installed by the full chain", async () => {
+    const candidate=fs.readFileSync(`${REPO}/release/candidates/guided-equipment-r1/workpaper.sql`,"utf8");
+    const authored=fs.readFileSync(`${REPO}/supabase/migrations/20261205100000_fs_equipment_preparation.sql`,"utf8");
+    const row=await db.one("SELECT to_regclass('public.fs_equipment_workpapers')::text t");
+    return candidate===authored && row.t!==null;
+  });
   const compose = (
     await db.asUser(
       U.owner,

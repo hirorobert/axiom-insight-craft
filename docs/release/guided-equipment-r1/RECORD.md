@@ -128,3 +128,10 @@ Confirmed release protection: single-class wizard no longer replaces an existing
 Confirmed follow-ups, not solved here: gross rollforward and movement provenance; structured per-class depreciation estimates; disposal proceeds and gains/losses; conditional disclosures and pack coverage; reusable requirement-linked answers and restatement integration. Depreciation need not all appear as one expense line (e.g. capitalization or by-function presentation): follow-up must reconcile destinations rather than impose unconditional equality. Reviewed prose and arithmetic do not establish full equipment compliance. No framework content or compiler changes authorized by this reconciliation.
 
 Original PDF retention still depends on membership and scanner availability; authenticated browser/accountant acceptance and canonical migration promotion remain open. No hosted changes or paid calls performed. Previous green CI applies only to a7182309; revised checks must pass on the new commit.
+
+
+## Canonical authored source — pending installation
+
+The reviewed candidate is now byte-identical to authored source `supabase/migrations/20261205100000_fs_equipment_preparation.sql`. This supersedes the earlier statement that no authored source exists. The migration authority must report exactly this pending source, with no new Drizzle mirror or hosted journal entry. CI applies the authored source once through its full disposable chain; the equipment proof checks candidate parity rather than applying it twice. Historical proof guards admit only this exact additional filename.
+
+No hosted installation, expected hosted journal head or active rollout is asserted. The final source still requires review and final-SHA CI. Authenticated retained-original browser testing and accountant acceptance remain outstanding. This does not authorize installation or publication.
