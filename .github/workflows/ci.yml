@@ -118,6 +118,11 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit -p tsconfig.app.json
 
+      - name: Inert framework-kernel contract (typecheck and source-boundary inventory; no hosted access)
+        run: |
+          bunx tsc --noEmit -p release/candidates/framework-kernel-r1/tsconfig.json
+          node release/candidates/framework-kernel-r1/inventory.mjs --check
+
       - name: Package-manager authority (one lockfile, pinned Bun, no competing installer)
         run: |
           node scripts/ci/assertSingleLockfile.mjs
