@@ -1,5 +1,11 @@
 # Project implementation rules
 
+## Development charter — required reading
+
+Before changing CFOClose, read [the development charter](docs/architecture/CFOCLOSE_DEVELOPMENT_CHARTER.md). Reference applicable requirements in the work plan and PR. Do not silently deviate. Any exception must identify the requirement, reason, affected controls and tests, and obtain the required approval through a recorded amendment.
+
+The charter records target requirements, not proof of implementation or framework compliance. Its adoption and accounting review status must remain explicit. Existing repository controls remain in force pending recorded adoption; unresolved conflicts must be reported, not silently resolved by assuming an exception. No charter instruction grants permission to spend credits, merge, deploy, publish or activate hosted features.
+
 - Keep pricing and public plan features in the existing catalogue/matrix mirror, and render them through one reusable catalogue; the database remains the authority for entitlements, while page selection is temporary, because there is no checkout or saved plan selection.
 - Decide first-run setup only after the existing workspace-discovery read and both billing/capacity reads have resolved; keep all historical workspaces reachable when a plan ends, because an absent plan must not erase archive access.
 - Expose fixture-only account-state previews exclusively behind development-only routes, with no customer reads or writes, because visual acceptance must not mutate or expose live financial data.
