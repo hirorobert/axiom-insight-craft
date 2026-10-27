@@ -158,6 +158,7 @@ function EquipmentWorkpaper(
     setOpened(false);
   });
   useEffect(() => {
+    if (!opened) return;
     let current = true;
     p.clients.signoff.input(p.companyId, p.periodYear).then(
       (i) => {
@@ -176,7 +177,7 @@ function EquipmentWorkpaper(
     return () => {
       current = false;
     };
-  }, [p.clients, p.companyId, p.periodYear, p.compositionSha256]);
+  }, [opened, p.clients, p.companyId, p.periodYear, p.compositionSha256]);
   const touch = (movementChange = false) => {
     setDirty(true);
     setReplaceConfirmed(false);
@@ -575,7 +576,7 @@ function EquipmentWorkpaper(
         ? 2
         : rec.state !== "agrees"
           ? 3
-          : !draft.text
+          : !draft.text || missingPreparation > 0
             ? 4
             : 5;
   const editPolicy = (key: keyof EquipmentPolicy, value: string) => {

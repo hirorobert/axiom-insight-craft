@@ -137,13 +137,18 @@ try {
   for (const verb of [
     "UPDATE public.fs_equipment_workpapers SET period_year=2025",
     "DELETE FROM public.fs_equipment_workpapers",
-    "TRUNCATE public.fs_equipment_workpapers",
+    "TRUNCATE public.fs_equipment_workpapers CASCADE",
   ])
     await refused(
       `owner cannot mutate history: ${verb.split(" ")[0]}`,
       "42501",
       () => db.admin.query(verb),
     );
+  await refused(
+    "policy insertion history cannot be truncated by the table owner",
+    "42501",
+    () => db.admin.query("TRUNCATE public.fs_equipment_policy_insertions"),
+  );
   for (const role of ["anon", "service_role"])
     await refused(`${role} cannot call preparation context`, "42501", () =>
       db.asRole(role, null, "SELECT public.fs_equipment_context($1,2026)", [A]),
@@ -333,6 +338,29 @@ try {
         )
       ).r;
       return r.outcome === "stale" && (await atomicCounts()) === allBefore;
+    },
+  );
+  await check(
+    "a newer schedule is refused before any atomic write",
+    async () => {
+      const r = (
+        await db.asUser(
+          U.preparer,
+          "SELECT public.fs_commit_equipment_preparation($1,2026,$2::jsonb,$3,NULL,$4,$5,'smes.note.policies',$6,$7) r",
+          [
+            A,
+            JSON.stringify(payload),
+            atomicCurrent.workpaper.id,
+            atomicCurrent.policy.id,
+            atomicBody,
+            uuid(),
+            uuid(),
+          ],
+        )
+      ).r;
+      return (
+        r.outcome === "stale_schedule" && (await atomicCounts()) === allBefore
+      );
     },
   );
   group("Disclosure target, rollback and retained-source metadata");
