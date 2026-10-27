@@ -145,6 +145,7 @@ describe("database inertness — schema and functions", () => {
       // scripts/db-proof/internalBetaActivation.mjs).
       "supabase/migrations/20261203100000_internal_beta_admin_activation.sql",
       "supabase/migrations/20261204100000_internal_beta_team_bootstrap.sql",
+      "supabase/migrations/20261205100000_fs_equipment_preparation.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -819,21 +820,30 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
     allowed.add("scripts/db-proof/classificationSuggestions.mjs");
+    allowed.add("scripts/db-proof/equipmentPreparation.mjs"); // Exact candidate proof; loopback-only, no hosted apply.
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
+    // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
+    // These exact additions require PR review; no glob/prefix exception and no deploy capability.
+    for (const file of ["scripts/build/localOcrAssets.ts", "scripts/preparation/assertOcrAssets.mjs", "scripts/preparation/ocrSmoke.mjs", "scripts/preparation/syntheticScan.mjs"]) allowed.add(file);
     expect(unreviewedPaths(changed, allowed)).toEqual([]);
   });
 
-  it("package.json adds no dependency relative to the exact base (fflate, the audited zip reader behind the secure XLSX intake, is already declared)", () => {
+  it("package.json adds only exact reviewed local PDF/OCR runtime packages and the existing test-only exceptions relative to the exact base", () => {
     const diff = gitStrict(`diff -U0 ${baseSha()}...HEAD -- package.json`).split(/\r?\n/).filter((l) => /^\+/.test(l) && !/^\+\+\+/.test(l));
     // Reviewed exception (workbench F1): two TEST-ONLY devDependencies, exact-pinned, used by the jsdom keyboard/focus
     // tests and axe-core accessibility checks (src/lib/workbench/testkit/dom.ts). Never a runtime dependency.
     const REVIEWED_DEV_DEPENDENCIES = new Set(['+    "axe-core": "4.10.3",', '+    "jsdom": "26.1.0",', '+    "pg": "8.23.1",']);
-    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l))).toEqual([]);
+    // Bounded on-device PDF/OCR candidate: exact versions, with every runtime asset bundled on the app origin.
+    // Adding any other package/version still fails this guard. None creates a database or provider connection.
+    const REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES = new Map([["@tesseract.js-data/eng", "1.0.0"], ["pdfjs-dist", "6.4.299"], ["tesseract.js", "6.0.1"]]);
+    const reviewedRuntimeLines = new Set([...REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES].map(([name, version]) => `+    "${name}": "${version}",`));
+    expect(diff.filter((l) => /"[@\w./-]+":\s*"[\^~]?\d/.test(l) && !REVIEWED_DEV_DEPENDENCIES.has(l) && !reviewedRuntimeLines.has(l))).toEqual([]);
     const pkgNow = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
     for (const name of ["axe-core", "jsdom"]) {
       expect(pkgNow.dependencies?.[name], `${name} must never be a runtime dependency`).toBeUndefined();
       if (pkgNow.devDependencies?.[name] !== undefined) expect(pkgNow.devDependencies[name]).toMatch(/^\d+\.\d+\.\d+$/);
     }
+    for (const [name, version] of REVIEWED_LOCAL_DOCUMENT_DEPENDENCIES) expect(pkgNow.dependencies[name]).toBe(version);
     expect(pkgNow.dependencies.fflate).toBeDefined();
   });
 });

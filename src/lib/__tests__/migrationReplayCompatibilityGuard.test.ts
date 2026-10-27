@@ -282,7 +282,7 @@ describe("migration directory integrity", () => {
     // workspace enablement, budgets, append-only runs and overrun reviews with server-only reservation; new objects only), pending.
     // Internal beta policy follows the assistant controls (both installed as hosted 85/86).
     // 199 -> 200: 20261203100000_internal_beta_admin_activation.sql (admin-only activation controls), pending hosted application.
-    expect(files.length).toBe(201);
+    expect(files.length).toBe(202); // equipment preparation forward migration, pending hosted apply
   });
 });
 

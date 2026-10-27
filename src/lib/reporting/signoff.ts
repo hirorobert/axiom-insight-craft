@@ -17,6 +17,7 @@ export interface ReportingDb {
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>;
   select(table: string, filters: Record<string, string | number | boolean>): PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>;
   /** A server function (Edge Function) call, when the transport offers one; absent on the loopback harness. */
+  invokeForm?(name: string, body: FormData): PromiseLike<{ data: unknown; error: { message: string } | null }>;
   invoke?(name: string, body: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message: string } | null }>;
 }
 

@@ -326,7 +326,7 @@ export const WORDS_1_2_0 = Object.freeze({
 export const DECISIONS_1_2_0 = Object.freeze(["smes.note.events_after", "smes.note.related_party_control", "smes.note.related_party_transactions"]);
 
 /** Everything up to (not including) evidence and a report: certified years, presentation, Close Review, notes, comparatives. */
-export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true, uploads = true } = {}) {
+export async function prepareReporting(db, W, k, { year = 2026, comparativesApproved = true, pack120 = true, uploads = true, equipmentSchedule = true } = {}) {
   const { U, A } = W;
   const asU = (uid, sql, p) => db.asUser(uid, sql, p);
   if (uploads) {
@@ -350,7 +350,7 @@ export async function prepareReporting(db, W, k, { year = 2026, comparativesAppr
     for (const [id, text] of Object.entries(WORDS_1_2_0)) await asU(U.preparer, "SELECT public.fs_record_disclosure($1,$2,$3,$4,'Notes v1',$5)", [A, year, id, text, uuid()]);
     for (const id of DECISIONS_1_2_0) await asU(U.preparer, "SELECT public.fs_decide_requirement($1,$2,$3,'not_applicable','None in the periods presented; no parent or controlling party',$4)", [A, year, id, uuid()]);
   }
-  await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
+  if (equipmentSchedule) await asU(U.preparer, "SELECT public.fs_record_schedule($1,$2,'ppe',$3::jsonb,'Fixed asset register 2026',$4)", [A, year,
     JSON.stringify([{ classLabel: "Equipment", openingMinor: "1600000", closingMinor: "1400000", movements: [{ kind: "depreciation", amountMinor: "-200000" }] }]), uuid()]);
   if (comparativesApproved) await asU(U.partner, "SELECT public.fs_approve_comparatives($1,$2,true,'Agreed to the signed 2025 statements',$3) r", [A, year, uuid()]);
 }

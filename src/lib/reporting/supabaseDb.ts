@@ -13,6 +13,11 @@ export function supabaseReportingDb(client: unknown): ReportingDb {
   return {
     rpc: (fn, args) => c.rpc(fn, args),
     select: (table, filters) => c.from(table).select("*").match(filters),
+    invokeForm: async (name, body) => {
+      if (!c.functions) return { data: null, error: { message: "Server functions are not reachable from this page." } };
+      const r = await c.functions.invoke(name, { body });
+      return { data: r.data, error: r.error ? { message: String((r.error as { message?: string }).message ?? r.error) } : null };
+    },
     invoke: async (name, body) => {
       if (!c.functions) return { data: null, error: { message: "Server functions are not reachable from this page." } };
       const r = await c.functions.invoke(name, { body });
