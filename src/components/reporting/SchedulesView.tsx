@@ -1,3 +1,4 @@
+import { EquipmentPreparation } from "./EquipmentPreparation";
 import { PreparationNotice } from "./PreparationNotice";
 import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability } from "@/lib/reporting/preparationGuidance";
 import { useBusyState } from "@/hooks/useBusyState";
@@ -35,6 +36,7 @@ export function SchedulesView(p: PageProps) {
   return (
     <div className="space-y-6">
       <PreparationNotice {...p} />
+      <EquipmentPreparation {...p} />
       {rows.map((r) => {
         const def = IFRS_FOR_SMES_2015.schedules.find((s) => s.requirementId === r.requirementId);
         return def ? <Schedule key={r.requirementId} {...p} r={r} def={def} exponent={exponent} /> : null;
@@ -92,9 +94,9 @@ function Entry(p: PageProps & { r: RequirementState; def: ScheduleDefinition; ex
     try {
       const rows = built.map((b) => ({ classLabel: b.classLabel, openingMinor: b.openingMinor!, closingMinor: b.closingMinor!, movements: b.movements.map((m) => ({ kind: m.kind, amountMinor: m.amountMinor! })) }));
       const r = await p.clients.notes.recordSchedule(p.companyId, p.periodYear, p.def.id, rows, source.trim(), attempt.idFor(JSON.stringify([rows, source])));
-      setNotice(r.outcome === "recorded" ? "Schedule recorded; the server reconciled it to the statements." : outcomeText(r));
+      setNotice(r.outcome === "recorded" ? "Schedule recorded. Review the refreshed server reconciliation before proceeding." : outcomeText(r));
       if (r.outcome === "recorded") { attempt.done(); await p.refresh(); p.onDone(); }
-    } catch (e) { setNotice(e instanceof Error ? e.message : "Nothing was recorded."); }
+    } catch (e) { setNotice("Could not confirm the schedule save. Retry the same unchanged schedule to retrieve the server result."); }
     finally { setBusy(false); }
   };
   return (

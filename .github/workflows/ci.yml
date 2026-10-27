@@ -138,8 +138,16 @@ jobs:
           NODE_OPTIONS: --require=${{ github.workspace }}/scripts/ci/unitNetworkGuard.cjs
         run: bun run test
 
+      - name: Local OCR smoke (synthetic image, locked local model, no API)
+        env:
+          NODE_OPTIONS: --require=${{ github.workspace }}/scripts/ci/unitNetworkGuard.cjs
+        run: node scripts/preparation/ocrSmoke.mjs
+
       - name: Build
         run: bun run build
+
+      - name: Exact bundled OCR runtime assets
+        run: node scripts/preparation/assertOcrAssets.mjs
 
       - name: Jurisdiction pack isolation (the pack is a separate lazy chunk; entry chunks carry no statutory wording)
         run: node scripts/ci/assertPackIsolation.mjs dist

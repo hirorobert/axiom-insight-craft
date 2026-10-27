@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { execSync } from "child_process";
+import { localOcrAssets } from "./scripts/build/localOcrAssets";
 
 function getGitSha(): string {
   try {
@@ -27,7 +28,7 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_GIT_SHA": JSON.stringify(getGitSha()),
     "import.meta.env.VITE_BUILD_TIMESTAMP": JSON.stringify(getBuildTimestamp()),
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [localOcrAssets(), react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
