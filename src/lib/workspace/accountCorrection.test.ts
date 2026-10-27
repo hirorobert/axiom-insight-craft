@@ -187,11 +187,17 @@ describe("the view comes from the server's answers only", () => {
 
 describe("return status after the findings are checked again", () => {
   it("says whether the current check still raises the finding — never that a person resolved it", () => {
-    expect(returnStatus("generated", ctx({ finding: null }))).toEqual({ kind: "no_longer_raised", words: expect.stringMatching(/no longer raises/) });
-    expect(returnStatus("unchanged", ctx())).toEqual({ kind: "still_raised", words: expect.stringMatching(/still raises.*open/) });
+    expect(returnStatus("generated", ctx({ finding: null }))).toEqual({ kind: "no_longer_raised", words: expect.stringMatching(/no longer raises/), runId: "r1" });
+    expect(returnStatus("unchanged", ctx())).toMatchObject({ kind: "still_raised", words: expect.stringMatching(/still raises.*same classification as the latest saved mapping \(Revenue\).*open/), runId: "r1", sameAsSaved: true, findingStatus: "open" });
+    // The check used an older classification than the saved one: said, and the next step is the re-check, not an explanation.
+    const older = returnStatus("generated", ctx({ mapping: { classification: "cost_of_goods_sold", review_decision_id: "d2" } }));
+    expect(older).toMatchObject({ kind: "still_raised", sameAsSaved: false, words: expect.stringMatching(/recorded Revenue, which differs from the latest saved mapping \(Cost of Goods Sold\)/) });
+    expect(returnStatus("generated", ctx({ mapping: null }))).toMatchObject({ kind: "still_raised", sameAsSaved: null });
+    expect(returnStatus("generated", ctx({ finding: finding({ rule_id: "A03" }) }))).toMatchObject({ remaining: expect.stringMatching(/approved adjustment/) });
+    expect(returnStatus("generated", ctx()).kind === "still_raised" && returnStatus("generated", ctx())).toMatchObject({ remaining: expect.stringMatching(/recording an explanation/) });
     expect(returnStatus("generated", ctx({ findingStatus: "explained" })).words).toMatch(/explained/);
     expect(returnStatus("no_authority", ctx()).kind).toBe("not_checked");
     expect(returnStatus("forbidden", ctx()).words).toMatch(/needs Prepare/);
-    expect(returnStatus("generated", ctx({ summary: { state: "stale" } })).kind).toBe("not_checked");
+    expect(returnStatus("generated", ctx({ summary: { state: "stale" } }))).toMatchObject({ kind: "not_checked", words: expect.stringMatching(/changed again after this check/) });
   });
 });
