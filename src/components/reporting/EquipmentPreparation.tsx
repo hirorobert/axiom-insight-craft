@@ -174,7 +174,12 @@ function EquipmentWorkpaper(
     touch();
   };
   const readPage = async () => {
-    if (!file || reading) return;
+    if (
+      !file ||
+      reading ||
+      (activeRead.current && !activeRead.current.signal.aborted)
+    )
+      return;
     const g = ++generation.current,
       controller = new AbortController();
     activeRead.current = controller;
@@ -204,7 +209,10 @@ function EquipmentWorkpaper(
           "The page could not be read. Try a different page or a clearer PDF. No financial facts were recorded.",
         );
     } finally {
-      if (live.current && generation.current === g) setReading(false);
+      if (live.current && generation.current === g) {
+        activeRead.current = null;
+        setReading(false);
+      }
     }
   };
   const op = signedMinor(opening, p.exponent),
@@ -361,7 +369,14 @@ function EquipmentWorkpaper(
         setNotice(
           "Schedule recorded. Policy wording and the original PDF are not stored by this action. Download the workpaper, then review the policy draft in Notes.",
         );
-        await p.refresh();
+        try {
+          await p.refresh();
+        } catch {
+          if (live.current && generation.current === g)
+            setNotice(
+              `Schedule recorded (receipt ${r.submissionId}). The status could not be refreshed. Reload the page to check the server reconciliation; another save is not needed. Policy wording and the original PDF are not stored by this action.`,
+            );
+        }
       } else
         setNotice(
           r.outcome === "recorded"

@@ -321,3 +321,20 @@ it("ignores a late PDF read after changing workspace", async () => {
   expect(text()).not.toContain("Late old-company text");
   expect(record).not.toHaveBeenCalled();
 });
+
+it("keeps a confirmed save distinct from a failed status refresh", async () => {
+  await start(
+    props({
+      refresh: vi.fn(async () => {
+        throw new Error("refresh lost");
+      }),
+    }),
+  );
+  await complete();
+  click(button("Record equipment schedule"));
+  await flush();
+  expect(text()).toContain("Schedule recorded (receipt");
+  expect(text()).toContain("another save is not needed");
+  expect(text()).not.toContain("Could not confirm the schedule save");
+  expect(record).toHaveBeenCalledTimes(1);
+});
