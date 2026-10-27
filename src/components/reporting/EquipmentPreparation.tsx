@@ -1,4 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { parseEquipmentEditor } from "@/lib/preparation/editorSchema";
+import { EquipmentServerBridge } from "./EquipmentServerBridge";
+import {
+  EQUIPMENT_QUESTIONS,
+  EQUIPMENT_SOURCE,
+  EQUIPMENT_CONTENT_VERSION,
+  grossReconciliation,
+  preparationInputs,
+  type GrossBalances,
+} from "@/lib/preparation/equipmentRequirements";
 import { Link } from "react-router-dom";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import { presentationPending } from "@/lib/reporting/preparationGuidance";
@@ -83,6 +93,16 @@ function EquipmentWorkpaper(
     p.state.notes.requirements.some(
       (r) => r.requirementId === "smes.schedule.ppe" && !!r.submissionId,
     );
+  const [sourceDocumentId, setSourceDocumentId] = useState<string | null>(null);
+  const [gross, setGross] = useState<Record<keyof GrossBalances, string>>({
+    openingGross: "",
+    openingDepreciation: "",
+    openingImpairment: "",
+    closingGross: "",
+    closingDepreciation: "",
+    closingImpairment: "",
+  });
+  const [judgements, setJudgements] = useState<Record<string, string>>({});
   const [opened, setOpened] = useState(false),
     [dirty, setDirty] = useState(false);
   const [sourceMode, setSourceMode] = useState<"pdf" | "reference">("pdf"),
@@ -125,7 +145,7 @@ function EquipmentWorkpaper(
     };
   }, []);
   useEffect(() => {
-    if (!read) {
+    if (!read || read.preview.size === 0) {
       setImage("");
       return;
     }
@@ -167,6 +187,7 @@ function EquipmentWorkpaper(
     activeRead.current?.abort();
     setReading(false);
     setFile(f);
+    setSourceDocumentId(null);
     setRead(null);
     setConfirmed(false);
     setPriorAmount("");
@@ -283,42 +304,80 @@ function EquipmentWorkpaper(
     policy.assetClass.trim().length >= 3 &&
     source.trim().length >= 3 &&
     /^\d{4}-\d{2}-\d{2}$/.test(priorDate);
+  const buildWorkpaper = () => ({
+    contract: "cfoclose-equipment-workpaper/1",
+    status: "preparation-not-approval",
+    companyId: p.companyId,
+    periodYear: p.periodYear,
+    compositionSha256: reviewedComposition,
+    statementChanged,
+    currency: p.currency,
+    exponent: p.exponent,
+    priorSource: {
+      fileName: file?.name ?? null,
+      fact,
+      extraction: read
+        ? {
+            method: read.method,
+            text: read.text.slice(0, 8000),
+            characterCount: read.text.length,
+            excerptTruncated: read.text.length > 8000,
+          }
+        : null,
+    },
+    openingBridge: {
+      adjustments: bridgeRows,
+      openingMinor: op,
+      result: bridge,
+    },
+    schedule: {
+      classLabel: policy.assetClass,
+      movementCoverageConfirmed,
+      movements,
+      closingMinor: cl,
+      result: rec,
+    },
+    policy: { answers: policy, draft },
+    contentVersion: EQUIPMENT_CONTENT_VERSION,
+    editor: {
+      sourceMode,
+      priorReference,
+      page,
+      priorAmount,
+      priorDate,
+      priorCurrency,
+      priorUnits,
+      opening,
+      closing,
+      adjustments,
+      movementValues,
+      source,
+      policy,
+      gross,
+      judgements,
+      read: read
+        ? {
+            sha256: read.sha256,
+            page: read.page,
+            pages: read.pages,
+            text: read.text,
+            method: read.method,
+          }
+        : null,
+    },
+    grossBalances: gross,
+    judgements,
+    exclusions: [
+      "Not an audit or framework compliance conclusion",
+      "Policy draft has not been saved in report notes",
+      "Original PDF must be retained separately",
+    ],
+  });
   const exportWorkpaper = () => {
-    const data = {
-      contract: "cfoclose-equipment-workpaper/1",
-      status: "preparation-not-approval",
-      companyId: p.companyId,
-      periodYear: p.periodYear,
-      compositionSha256: reviewedComposition,
-      statementChanged,
-      currency: p.currency,
-      exponent: p.exponent,
-      priorSource: {
-        fileName: file?.name ?? null,
-        fact,
-        extraction: read ? { method: read.method, text: read.text } : null,
-      },
-      openingBridge: {
-        adjustments: bridgeRows,
-        openingMinor: op,
-        result: bridge,
-      },
-      schedule: {
-        classLabel: policy.assetClass,
-        movementCoverageConfirmed,
-        movements,
-        closingMinor: cl,
-        result: rec,
-      },
-      policy: { answers: policy, draft },
-      exclusions: [
-        "Not an audit or framework compliance conclusion",
-        "Policy draft has not been saved in report notes",
-        "Original PDF must be retained separately",
-      ],
-    };
     const url = URL.createObjectURL(
-      new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+      new Blob([JSON.stringify(buildWorkpaper(), null, 2)], {
+        type: "application/json",
+      }),
     );
     const a = document.createElement("a");
     a.href = url;
@@ -329,6 +388,108 @@ function EquipmentWorkpaper(
       "Workpaper downloaded. Keep the original PDF with it. The download is not a server save or an approval.",
     );
   };
+  const restore = (data: unknown, documentId: string | null) => {
+    try {
+      const parsed = parseEquipmentEditor(data, p.companyId, p.periodYear);
+      generation.current++;
+      activeRead.current?.abort();
+      setReading(false);
+      setFile(null);
+      setSourceDocumentId(documentId);
+      setSourceMode(parsed.sourceMode);
+      setPriorReference(parsed.priorReference);
+      setPage(parsed.page);
+      setPriorAmount(parsed.priorAmount);
+      setPriorDate(parsed.priorDate);
+      setPriorCurrency(parsed.priorCurrency);
+      setPriorUnits(parsed.priorUnits);
+      setOpening(parsed.opening);
+      setClosing(parsed.closing);
+      setAdjustments(parsed.adjustments);
+      setMovementValues(parsed.movementValues);
+      setSource(parsed.source);
+      setPolicy(parsed.policy);
+      setGross(parsed.gross);
+      setJudgements(parsed.judgements);
+      setRead(parsed.read ? { ...parsed.read, preview: new Blob([]) } : null);
+      setConfirmed(false);
+      setMovementCoverageConfirmed(false);
+      setReplaceConfirmed(false);
+      setDirty(true);
+      setNotice(
+        "Saved answers restored for review. The original page preview is not loaded. Reconfirm source figures and movement coverage before recording a schedule.",
+      );
+    } catch {
+      setNotice(
+        "Saved preparation did not match this company, period or supported editor version. Current edits were kept.",
+      );
+    }
+  };
+  const retainSource = async () => {
+    if (!file || !read || !p.db.invokeForm || busy) return;
+    setBusy(true);
+    const g = generation.current;
+    try {
+      const form = new FormData();
+      form.set("companyId", p.companyId);
+      form.set("periodYear", priorDate.slice(0, 4));
+      form.set("file", file);
+      const result = await p.db.invokeForm("financial-statement-intake", form);
+      if (!live.current || generation.current !== g) return;
+      const id = (result.data as { documentId?: string } | null)?.documentId;
+      if (result.error || !id || !/^[a-f0-9-]{36}$/i.test(id))
+        throw new Error("not confirmed");
+      setSourceDocumentId(id);
+      setNotice(
+        "Original intake acknowledged. Save the workpaper to have the server verify and link the original document fingerprint.",
+      );
+    } catch {
+      if (live.current && generation.current === g)
+        setNotice(
+          "Original PDF retention was not confirmed. The existing intake requires accepted membership and an available malware scanner. Your local file is kept; no scan bypass is used.",
+        );
+    } finally {
+      if (live.current && generation.current === g) setBusy(false);
+    }
+  };
+  const grossResult = grossReconciliation(
+    Object.fromEntries(
+      Object.entries(gross).map(([k, v]) => [
+        k,
+        signedMinor(v, p.exponent) ?? "",
+      ]),
+    ) as GrossBalances,
+    op,
+    cl,
+  );
+  const preparation = preparationInputs(
+    policy,
+    grossResult.state,
+    movementCoverageConfirmed ? rec.state : "incomplete",
+    judgements,
+  );
+  const missingPreparation = preparation.filter((q) => !q.entered).length;
+  const equipmentNote =
+    missingPreparation === 0 && draft.text && op !== null && cl !== null
+      ? [
+          `${policy.assetClass} — equipment disclosure draft`,
+          `Currency: ${p.currency}; amounts in whole currency units.`,
+          `Opening gross amount ${gross.openingGross}; accumulated depreciation ${gross.openingDepreciation}; accumulated impairment ${gross.openingImpairment}; carrying amount ${formatMinor(op, p.exponent)}.`,
+          `Closing gross amount ${gross.closingGross}; accumulated depreciation ${gross.closingDepreciation}; accumulated impairment ${gross.closingImpairment}; carrying amount ${formatMinor(cl, p.exponent)}.`,
+          ...movements.map(
+            (m) =>
+              `${definition.movements.find((d) => d.kind === m.kind)?.label ?? m.kind}: ${formatMinor(m.amountMinor, p.exponent)}.`,
+          ),
+          `Component assessment: ${judgements.components}.`,
+          `Restrictions, security and purchase commitments: ${judgements.restrictions}.`,
+          policy.basis === "revaluation"
+            ? `Valuation information: ${judgements.revaluation}.`
+            : null,
+          `Supporting movement record: ${source}. See the accounting policies for measurement and depreciation estimates.`,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : null;
   const save = async () => {
     if (!ready || busy) return;
     setBusy(true);
@@ -913,6 +1074,108 @@ function EquipmentWorkpaper(
             aria-label="Equipment policy"
           >
             <h3 className="font-medium">4. Confirm the policy choices</h3>
+            <p role="status" className="text-sm">
+              Equipment preparation inputs: {missingPreparation} still need
+              attention. Entered answers still require accounting review; this
+              is not a compliance verdict.
+            </p>
+            <details open>
+              <summary>Preparation questions and source references</summary>
+              <p className="text-sm">
+                SME 2015 only. These questions are original preparation
+                guidance, not a complete compliance checklist. Independent
+                accounting review is pending.
+              </p>
+              <ul className="space-y-3">
+                {preparation.map((q) => (
+                  <li key={q.id}>
+                    <p className="font-medium">
+                      {q.question} —{" "}
+                      {q.entered
+                        ? "input supplied; review required"
+                        : "needs input"}
+                    </p>
+                    {q.usesExistingFields ? (
+                      <p className="text-sm">
+                        Answer using the measurement, estimates, movements or
+                        gross-balance fields on this page.
+                      </p>
+                    ) : (
+                      <label className="block">
+                        Your answer and supporting record
+                        <textarea
+                          maxLength={2000}
+                          aria-label={`${q.question} — answer and supporting record`}
+                          className={inputClass}
+                          value={judgements[q.id] ?? ""}
+                          onChange={(e) => {
+                            setJudgements((old) => ({
+                              ...old,
+                              [q.id]: e.target.value,
+                            }));
+                            touch();
+                          }}
+                        />
+                      </label>
+                    )}
+                    <p className="text-sm">{q.evidence}</p>
+                    <a
+                      href={EQUIPMENT_SOURCE.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm underline"
+                    >
+                      Source reference: {q.refs.join(", ")}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+            <details>
+              <summary>Gross amounts, depreciation and impairment</summary>
+              <p className="text-sm">
+                Enter accumulated deductions as positive amounts for this
+                reconciliation. This does not change the original ledger credit
+                signs. Blank is unknown; enter zero only when verified.
+              </p>
+              {(Object.keys(gross) as (keyof GrossBalances)[]).map((key) => (
+                <label key={key} className="block">
+                  {
+                    {
+                      openingGross: "Opening gross amount",
+                      openingDepreciation: "Opening accumulated depreciation",
+                      openingImpairment: "Opening accumulated impairment",
+                      closingGross: "Closing gross amount",
+                      closingDepreciation: "Closing accumulated depreciation",
+                      closingImpairment: "Closing accumulated impairment",
+                    }[key]
+                  }
+                  <input
+                    inputMode="decimal"
+                    className={inputClass}
+                    value={gross[key]}
+                    onChange={(e) => {
+                      setGross((old) => ({ ...old, [key]: e.target.value }));
+                      touch();
+                    }}
+                  />
+                </label>
+              ))}
+              <p role="status">
+                Gross-to-net checks:{" "}
+                {grossResult.state === "agrees"
+                  ? "opening and closing arithmetic agrees"
+                  : grossResult.state === "incomplete"
+                    ? "gross amounts or deductions are still missing"
+                    : "gross amounts and deductions do not agree to the carrying amounts"}
+                .
+              </p>
+              <p className="text-sm">
+                This is additional preparation evidence. It does not turn a
+                reconciled carrying-value schedule into a complete equipment
+                disclosure.
+              </p>
+            </details>
             <p className="text-sm">
               No useful life or tax rate is assumed. Decide from expected use,
               condition, maintenance, obsolescence and legal limits. This draft
@@ -998,6 +1261,23 @@ function EquipmentWorkpaper(
             )}
           </section>
           <section id={`${id}-step-5`} className="space-y-2 scroll-mt-24">
+            {equipmentNote ? (
+              <label className="block">
+                Equipment disclosure preview — review required
+                <textarea
+                  readOnly
+                  rows={12}
+                  className={inputClass}
+                  value={equipmentNote}
+                />
+              </label>
+            ) : (
+              <p className="text-sm">
+                Complete the equipment inputs and both reconciliations to
+                prepare the disclosure preview. Saving a carrying-value schedule
+                alone does not complete this note.
+              </p>
+            )}
             <h3 className="font-medium">
               5. Save the schedule, then complete the report
             </h3>
@@ -1060,6 +1340,38 @@ function EquipmentWorkpaper(
               Review comparative figures and any restatement
             </Link>
           </section>
+          {p.db ? (
+            <>
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={
+                  busy ||
+                  !file ||
+                  !read ||
+                  !confirmed ||
+                  !priorDate ||
+                  !p.db.invokeForm
+                }
+                onClick={() => void retainSource()}
+              >
+                Store original PDF through checked intake
+              </button>
+              <EquipmentServerBridge
+                key={`${p.companyId}:${p.periodYear}`}
+                db={p.db}
+                companyId={p.companyId}
+                periodYear={p.periodYear}
+                payload={buildWorkpaper()}
+                canCommit={ready && missingPreparation === 0 && !reading}
+                policy={draft.text}
+                equipmentNote={equipmentNote}
+                onRestore={restore}
+                refresh={p.refresh}
+                sourceDocumentId={sourceDocumentId}
+              />
+            </>
+          ) : null}
           <Notice text={notice} />
         </fieldset>
       )}

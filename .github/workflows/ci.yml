@@ -525,6 +525,14 @@ jobs:
           createdb beta_team_bootstrap_proof
           bun scripts/db-proof/internalBetaTeamBootstrap.mjs
 
+      - name: Equipment preparation candidate proof (disposable database only; does not register or install hosted SQL)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/equipment_preparation_proof
+        run: |
+          createdb equipment_preparation_proof
+          bun scripts/db-proof/equipmentPreparation.mjs
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

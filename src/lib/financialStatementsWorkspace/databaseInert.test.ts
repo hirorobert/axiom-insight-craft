@@ -819,6 +819,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
     allowed.add("scripts/db-proof/classificationSuggestions.mjs");
+    allowed.add("scripts/db-proof/equipmentPreparation.mjs"); // Exact candidate proof; loopback-only, no hosted apply.
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

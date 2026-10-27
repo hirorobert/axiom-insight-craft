@@ -90,3 +90,30 @@ Content author and independent accounting reviewer: **not assigned**. No custome
 Source adapters → reviewed facts with provenance → opening bridge → supported schedules/treatments → presentation lines → policy and disclosure answers → deterministic tie-outs → versioned server compilation → governed review and issuance.
 
 Build the next area against this contract after the equipment path is proven. Do not rebuild existing SME calculations or start ERP connectors to bypass missing preparation content. Full IFRS and IPSAS remain explicit parallel content/research workstreams, not implied support in this preparation assistant. None of this authorizes paid research, hosted installation, merging or publication.
+
+## Revision 2 — referenced preparation content and persistence candidate (27 October 2026)
+
+This section supersedes the earlier statements that the candidate contains no new RPC or SQL. **Hosted state is unchanged.** New SQL is deliberately inert at `release/candidates/guided-equipment-r1/workpaper.sql`; it is not an authored/applied migration or a journal mirror. The candidate must pass its disposable-database proof, independent review and canonical migration registration before hosted installation is considered.
+
+Implemented in this revision:
+
+- Original-wording SME 2015 equipment questions with paragraph references, primary-source URL, checked date, content version and explicit independent-accountant-review-pending status. Existing structured policy answers are reused rather than asking the same question again. Revaluation questions are conditional. UN material is not substituted for SME requirements.
+- Gross opening/closing amounts, accumulated depreciation and impairment, checked independently against carrying amounts. A blank deduction remains unknown; the user must confirm zero. These display deductions do not change original ledger signs.
+- A disclosure preview combining confirmed preparation inputs and reconciled amounts, without invented note numbers or a compliance verdict.
+- Strictly scoped, bounded restoration of saved editor data. Restoring answers does not restore an original PDF preview or automatically reconfirm evidence.
+- An authenticated append-only workpaper store with expected-revision checks, request replay, exact request reuse checks, no direct API-role table writes and no UPDATE/DELETE/TRUNCATE history rewriting.
+- Compare-and-set insertion into either accounting policies or the broader subclassifications disclosure. Existing wording is presented and preserved in a proposal; the preparer must review the WHOLE destination note. PPE wording alone is never presented as complete policies or all subclassification disclosures. Another writer's newer text causes refusal rather than overwrite.
+- A database commit function that records the workpaper revision, calls the existing validated schedule authority and records the selected reviewed note in one transaction. Any refused schedule/note rolls back the new workpaper and schedule. Stable derived step IDs support receipt replay. Request locks precede the period lock.
+- Explicit unknown-outcome recovery retaining the original atomic request and its preconditions; editing later browser inputs cannot change the retried operation. Loading a newer note does not silently adopt its revision for an old proposal.
+- Optional original-PDF retention through the EXISTING `financial-statement-intake` transport. Its malware scan and membership checks remain intact. A receipt is not treated as a linked source until the workpaper function verifies the document's company and fingerprint. A missing original is recorded as not retained; quarantined/failed/superseded sources cannot be inserted as current support.
+
+Deployment and product limits:
+
+1. The existing document intake requires accepted firm membership and a configured, available malware scanner. Owner-only access without that membership is not repaired here. No membership is fabricated, no unscanned storage bypass is introduced, and no paid scan/provider call has been made for validation. This is an explicit remaining integration limitation, not a passed owner-only retention journey.
+2. The source proof links synthetic document METADATA; it does not prove that a production storage object exists or has the right bytes. Real retained-original testing is still required through the normal authenticated intake.
+3. No new SQL has been applied hosted. The candidate functions do not exist there until separately reviewed and installed. The UI reports unavailable storage rather than claiming a save.
+4. The local environment cannot run PostgreSQL as a non-root user. The new real-database proof is wired to CI's disposable PostgreSQL container. Do not report that proof as locally executed.
+5. The earlier end-to-end and DB checks at `b9daaf7e` do not clear this larger revision. Final candidate CI must be checked again.
+6. Accountant-led usability, actual Enduimet evidence, current-period recognition/measurement judgments and wider-framework support remain open. A source-reference catalogue is not a verified standards-compliance engine.
+
+Reference review: IFRS Foundation Module 17 explicitly covers the 2015 edition; educational commentary is distinguished from the Standard. The product contains original questions and links, not copied illustrative reports, source PDFs or Foundation logos. Commercial content permissions remain to be established before licensed content is embedded. UN Chapter 16/Corporate Guidance remain comparison/research references for a separately admitted IPSAS pack; older IPSAS references and UN-specific policies must not become universal product rules.
