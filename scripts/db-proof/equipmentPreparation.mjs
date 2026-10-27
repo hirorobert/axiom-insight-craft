@@ -1,7 +1,7 @@
-// Full chain, then the explicitly UNAPPLIED candidate. Disposable loopback database only; no hosted settings.
+// Prior chain, then the unapplied authored source inside a migrator-owned transaction. Disposable database only.
 import fs from "node:fs";
 import {
-  applyChain,
+  applyChainBefore,
   makeWorld,
   certifier,
   prepareReporting,
@@ -16,9 +16,26 @@ let db,
 try {
   db = await openDatabase("equipment_preparation_proof");
   await check(
-    "current full chain applies",
-    async () => (await applyChain(db)) ?? true,
+    "chain before equipment applies",
+    async () => (await applyChainBefore(db, "20261205100000_fs_equipment_preparation.sql")) ?? true,
   );
+  const installSql=fs.readFileSync(`${REPO}/supabase/migrations/20261205100000_fs_equipment_preparation.sql`,"utf8");
+  await check("native-owned transaction rolls back every equipment object after a late failure",async()=>{
+    let code;
+    await db.admin.query("BEGIN");
+    try {
+      await db.admin.query(installSql);
+      await db.admin.query("SELECT 1/0");
+    } catch(e) {code=e.code;} finally {await db.admin.query("ROLLBACK");}
+    const r=await db.one("SELECT to_regclass('public.fs_equipment_workpapers') IS NULL AND to_regclass('public.fs_equipment_policy_insertions') IS NULL AND to_regprocedure('public.fs_create_equipment_schedule(uuid,integer,jsonb,text,uuid)') IS NULL AS absent");
+    return code==="22012" && r.absent;
+  });
+  await check("unchanged source installs in the native-owned transaction",async()=>{
+    await db.admin.query("BEGIN");
+    try {await db.admin.query(installSql); await db.admin.query("COMMIT");}
+    catch(e) {await db.admin.query("ROLLBACK"); throw e;}
+    return true;
+  });
   const W = await makeWorld(db),
     { U, A, B } = W;
   await W.rollout(A, true);
