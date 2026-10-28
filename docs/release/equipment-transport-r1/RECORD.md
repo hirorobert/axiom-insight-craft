@@ -20,6 +20,8 @@ Schedules 2 / definitions 5 / disclosures 9, unchanged hashes respectively `7fe2
 
 Backend installation prerequisite is satisfied; publication remains separately authorized. Authenticated equipment workflow/accounting acceptance and deployed-function source attestation were not performed by this installation.
 
+Bookkeeping verification: generator check OK; migration authority OK (80 covered-source mirrors, no pending sources); 300 tests passed across 15 equipment/preparation/journal/transport files; focused ESLint exited 0. The historical self-checking-wrapper fixture was updated to hide equipment registrations when reconstructing its pre-release journal; no live journal was edited. Automatic preview builds reported build OK. A separate production build/typecheck was not manually run (platform harness owns those checks); final-SHA CI typecheck/production-build evidence is not asserted here.
+
 ## Historical candidate record (retained below)
 
 ## Purpose and authority
