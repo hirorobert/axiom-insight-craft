@@ -1,0 +1,88 @@
+{
+  "synthetic": true,
+  "label": "Case 1: the acceptance-r1 engagement (the hosted demo company's dedicated FY2025/FY2024 engagement, replicated on a disposable database)",
+  "legalName": "Acceptance Synthetic Engagement",
+  "fixtureDir": "docs/release/acceptance-r1",
+  "periodYear": 2025,
+  "current": { "start": "2025-01-01", "end": "2025-12-31" },
+  "prior": { "start": "2024-01-01", "end": "2024-12-31" },
+  "currency": "TZS",
+  "hostedState": {
+    "decisions": "decisions_FY2025.csv",
+    "wording": "notes_wording_FY2025.csv",
+    "wordingSource": "Acceptance notes v1",
+    "ppeSchedule": "ppe_schedule_FY2025.csv",
+    "placeholderMarker": "(acceptance placeholder)"
+  },
+  "closeReview": { "explanation": "Accumulated depreciation is a contra-asset by design", "source": "Fixed asset register 2025 (synthetic)" },
+  "authorisationDate": "28 February 2026",
+  "equipment": {
+    "register": "docs/release/equipment-guided-start-r1/fixtures/equipment-register-FY2025.csv",
+    "openingMinor": "1600000",
+    "expectedDepreciationMinor": "200000",
+    "expectedClosingMinor": "1400000",
+    "classes": [
+      {
+        "classId": "55555555-5555-4555-8555-555555555555",
+        "label": "Equipment",
+        "origin": "existing",
+        "accounts": "91500 Equipment at cost; 91510 Accumulated depreciation",
+        "opening": { "grossMinor": "2000000", "accumulatedDepreciationMinor": "400000", "accumulatedImpairmentMinor": "0", "carryingMinor": "1600000" },
+        "closing": { "grossMinor": "2000000", "accumulatedDepreciationMinor": "600000", "accumulatedImpairmentMinor": "0", "carryingMinor": "1400000" },
+        "movements": [
+          { "kind": "depreciation", "grossMinor": "0", "accumulatedDepreciationMinor": "200000", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "SYNTHETIC equipment-register-FY2025.csv, E-001" }, "note": "" }
+        ],
+        "disposals": [],
+        "estimate": {
+          "basis": "cost", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "residualMinor": "0", "convention": "full-period",
+          "factors": { "usage": "Fictional two-shift operation", "wear": "Fictional annual maintenance plan", "obsolescence": "Fictional replacement assessment: no earlier obsolescence", "legalLimits": "Fictional contract review: no shorter restriction" },
+          "chargeSource": "calculated", "registerChargeMinor": "", "registerReference": "",
+          "items": [
+            { "label": "SYNTHETIC E-001", "costMinor": "2000000", "residualMinor": "0", "openingAccumulatedMinor": "400000", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2023-01-01", "derecognisedOn": "" }
+          ],
+          "calculatedChargeMinor": "200000",
+          "chargeDifference": { "amountMinor": "", "explanation": "", "evidence": "" },
+          "changedSincePrior": "no", "changeDescription": "", "changeEffectMinor": "",
+          "rationale": "Fictional entity plans to replace this uniform equipment after ten years of two-shift use; no sale proceeds expected.",
+          "evidence": "SYNTHETIC scenario.md: fictional replacement plan, not real management evidence"
+        },
+        "answers": {
+          "recognition": { "status": "answered", "text": "Fictional entity bought and controls E-001; invented invoice SYN-2023-001.", "evidence": "SYNTHETIC scenario.md; not real management evidence", "checkedBy": "Fictional test preparer", "flags": {} },
+          "components": { "status": "answered", "text": "Fictional E-001 is uniform and has no significant separately replaceable parts.", "evidence": "SYNTHETIC scenario.md; not real management evidence", "checkedBy": "Fictional test preparer", "flags": {} }
+        }
+      }
+    ],
+    "destinations": [
+      { "target": "sci.operating_expenses_by_function", "amountMinor": "200000", "evidence": "SYNTHETIC trial_balance_FY2025_current.csv account 96200", "explanation": "" }
+    ],
+    "entityAnswers": {
+      "restrictions_security": { "status": "none_with_basis", "text": "", "evidence": "SYNTHETIC scenario.md: no security, title restriction or pledge", "checkedBy": "Fictional test preparer", "flags": {} },
+      "commitments": { "status": "none_with_basis", "text": "", "evidence": "SYNTHETIC scenario.md: no equipment commitments", "checkedBy": "Fictional test preparer", "flags": {} },
+      "impairment": { "status": "answered", "text": "Fictional preparer checked for damage, idle items, obsolescence and early disposal plans at 31 December 2025 and found no indicator.", "evidence": "SYNTHETIC scenario.md; not real management evidence", "checkedBy": "Fictional test preparer", "flags": { "indicator_present": false } },
+      "events_after": { "status": "none_with_basis", "text": "", "evidence": "SYNTHETIC scenario.md: no equipment event between 31 December 2025 and the fictional authorisation date 28 February 2026", "checkedBy": "Fictional test preparer", "flags": {} },
+      "framework_history": { "status": "answered", "text": "Fictional entity also applied the IFRS for SMEs in the prior year; this is not its first set of IFRS for SMEs statements.", "evidence": "SYNTHETIC scenario.md; not real management evidence", "checkedBy": "Fictional test preparer", "flags": { "first_smes_statements": false } }
+    }
+  },
+  "decisions": [],
+  "notes": {
+    "source": "Complete SME report: synthetic FY2025 engagement file",
+    "general": {
+      "smes.note.policies": "Basis of preparation. These financial statements are prepared on the historical cost basis. Inventories are measured at the lower of cost and estimated selling price less costs to complete and sell. Trade receivables are measured at the transaction price less any impairment. The bank loan is measured at amortised cost. Revenue from the sale of goods is recognised when the goods are delivered to the customer. Income tax expense is the current tax on the taxable profit of the year at the enacted rate.",
+      "smes.note.estimates": "The key source of estimation uncertainty is the useful life of equipment, set out below. No other assumption about the future has a significant risk of causing a material adjustment within the next financial year.",
+      "smes.note.subclassifications": "Trade and other receivables of TZS 4,300.00 (2024: TZS 3,000.00) are all amounts due from customers. Inventories of TZS 2,200.00 (2024: TZS 1,800.00) are finished goods. Trade and other payables of TZS 3,100.00 (2024: TZS 2,500.00) are all amounts due to suppliers."
+    },
+    "wording": {
+      "smes.note.compliance": "These financial statements have been prepared in accordance with the International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs), 2015 edition. They report a synthetic acceptance engagement of the demo company, prepared to exercise the product.",
+      "smes.note.identification": "Acceptance Synthetic Engagement is a synthetic private company limited by shares with its registered office in Dar es Salaam, Tanzania. These financial statements cover the year ended 31 December 2025, with comparative figures for the year ended 31 December 2024, and are presented in Tanzanian shillings (TZS) to two decimal places.",
+      "smes.note.judgements": "Apart from the estimates described in the estimates note, no judgement made in applying the accounting policies had a significant effect on the amounts recognised.",
+      "smes.note.share_capital": "Share capital of TZS 10,000.00 comprises 10,000 ordinary shares of TZS 1.00 each, authorised, issued and fully paid, unchanged in both years. Each share carries one vote and an equal right to dividends; no share is subject to any restriction. A dividend of TZS 700.00 was paid in the year (2024: TZS 700.00).",
+      "smes.note.going_concern": "The directors assessed the entity's ability to continue as a going concern for at least twelve months from 28 February 2026. Operating activities generated TZS 6,200.00 of cash in the year, cash at 31 December 2025 is TZS 12,500.00 and the bank loan of TZS 8,000.00 is repaid at TZS 1,000.00 a year; no material uncertainty was identified.",
+      "smes.note.authorisation": "These financial statements were authorised for issue by the directors on 28 February 2026. The directors have the power to amend them after issue.",
+      "smes.note.kmp_compensation": "Key management personnel compensation, all short-term employee benefits included in salaries, totalled TZS 1,800.00 (2024: TZS 1,700.00).",
+      "smes.note.cash_components": "Cash and cash equivalents of TZS 12,500.00 (2024: TZS 8,000.00) comprise the balance on the main operating bank account (account 91000). There are no overdrafts, restricted balances or other cash equivalents.",
+      "smes.note.income_tax": "Tax expense of TZS 900.00 (2024: TZS 700.00) is current income tax on the profit before tax of TZS 6,000.00 (2024: TZS 3,800.00) at the flat rate the synthetic scenario applies; no reconciling item arises. No deferred tax arises because the carrying amounts of assets and liabilities equal their tax bases. Income tax payable at 31 December 2025 is TZS 900.00 (2024: TZS 700.00).",
+      "smes.note.revenue": "Revenue of TZS 30,000.00 (2024: TZS 25,000.00) arises entirely from the sale of goods and is recognised when the goods are delivered to the customer. Other income of TZS 500.00 (2024: TZS 400.00) is interest received on the bank balance."
+    }
+  },
+  "laterChange": { "requirementId": "smes.note.judgements", "body": "Apart from the estimates described in the estimates note, no judgement had a significant effect on the amounts recognised. (Wording revised after issue, to show that the issued FINAL record is unchanged.)", "source": "Later change after issue" }
+}

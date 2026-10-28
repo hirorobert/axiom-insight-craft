@@ -1,0 +1,10 @@
+transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line
+T1,2024-09-30,81000,Receipts from customers,46500.00,,OPERATING,Receipts from customers
+T2,2025-03-31,81000,Payments to suppliers and employees,,38594.00,OPERATING,Payments to suppliers and employees
+T3,2024-10-01,81000,Purchase of motor vehicle V-2,,7300.00,INVESTING,Purchase of property plant and equipment
+T4,2024-12-31,81000,Purchase of machine M-3,,10950.00,INVESTING,Purchase of property plant and equipment
+T5,2025-01-01,81000,Proceeds from sale of machine M-2,5042.00,,INVESTING,Proceeds from disposal of property plant and equipment
+T6,2024-11-15,81000,Dividend paid,,1000.00,FINANCING,Dividends paid
+T7,2025-06-15,81000,Repayment of loan from director,,2000.00,FINANCING,Repayment of loan from director
+T8,2025-06-20,81000,Interest paid to director,,600.00,OPERATING,Interest paid
+T9,2025-06-25,81000,Income tax paid,,800.00,OPERATING,Income tax paid

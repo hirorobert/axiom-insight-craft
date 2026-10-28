@@ -838,6 +838,9 @@ describe("database inertness — schema and functions", () => {
     // of serveReporting.mjs (already reviewed above). Neither reaches a hosted project, applies SQL hosted or deploys anything.
     allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
     allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
+    // Complete SME report: the loopback-only disposable-database proof of one complete report on two synthetic cases (reviewed
+    // case manifest, structured result validated by validateProofResult). Reads fixture files; reaches no hosted project.
+    allowed.add("scripts/db-proof/completeSmeReport.mjs"); allowed.add("scripts/db-proof/completeSmeReport.manifest.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

@@ -1,0 +1,41 @@
+{
+  "results": [
+    {
+      "name": "the Schedules page offers the guided preparation; the recorded one-class schedule is loaded with its carrying amounts and recorded depreciation, and nothing else is assumed",
+      "ok": true
+    },
+    {
+      "name": "recorded zero-effect entries remain until an explicit evidenced review; the recorded nonzero depreciation is kept",
+      "ok": true
+    },
+    {
+      "name": "the prior figure is confirmed from a referenced record; Equipment is split and Motor vehicles added; both classes roll forward and agree to the statement line; a typo leaves an exact difference that is never balanced",
+      "ok": true
+    },
+    {
+      "name": "the mandatory questions are asked, conditional ones are not; 'none' needs who checked; once every applicable question is answered the three proposals appear with every class",
+      "ok": true
+    },
+    {
+      "name": "the three whole notes are prepared keeping the existing wording, reviewed, and recorded with every class and the answers in one server call; the server reconciles the two-class schedule",
+      "ok": true
+    },
+    {
+      "name": "after leaving the page and opening it again, the recorded preparation is read back and restored explicitly: both classes with their amounts and estimates and every answer are exactly as recorded; the server still holds the recorded schedule, workpaper and ten answers",
+      "ok": true
+    },
+    {
+      "name": "another preparer records a three-class schedule meanwhile; this page's next save is refused (stale schedule), every edit is retained, and re-reading brings the third class into the preparation",
+      "ok": true
+    },
+    {
+      "name": "a viewer sees no equipment preparation and reads no preparation context",
+      "ok": true
+    },
+    {
+      "name": "the preparation at 1280 px and 375 px (the page without the harness's fixed sidebar, as the product lays it out): no horizontal overflow, no cut-off control, no unlabeled field",
+      "ok": true
+    }
+  ],
+  "finishedAt": "2026-10-28T17:49:38.956Z"
+}

@@ -1,0 +1,21 @@
+Account code,Account name,Classification,Statement,Normal balance,Cash account
+81000,Bank (sme case 2),current_assets,balance_sheet,debit,yes
+81100,Trade receivables (sme case 2),current_assets,balance_sheet,debit,no
+81200,Inventories (sme case 2),current_assets,balance_sheet,debit,no
+81500,Plant and machinery at cost (sme case 2),non_current_assets,balance_sheet,debit,no
+81510,Accumulated depreciation plant and machinery (sme case 2),non_current_assets,balance_sheet,credit,no
+81600,Motor vehicles at cost (sme case 2),non_current_assets,balance_sheet,debit,no
+81610,Accumulated depreciation motor vehicles (sme case 2),non_current_assets,balance_sheet,credit,no
+82000,Trade payables (sme case 2),current_liabilities,balance_sheet,credit,no
+82100,Income tax payable (sme case 2),current_liabilities,balance_sheet,credit,no
+82500,Loan from director (sme case 2),non_current_liabilities,balance_sheet,credit,no
+83000,Share capital (sme case 2),equity,balance_sheet,credit,no
+83100,Retained earnings (sme case 2),equity,balance_sheet,credit,no
+84000,Sales (sme case 2),revenue,income_statement,credit,no
+84200,Gain on disposal of plant (sme case 2),other_income,income_statement,credit,no
+85000,Cost of sales (sme case 2),cost_of_goods_sold,income_statement,debit,no
+86000,Salaries (sme case 2),operating_expenses,income_statement,debit,no
+86100,Rent (sme case 2),operating_expenses,income_statement,debit,no
+86200,Depreciation (sme case 2),operating_expenses,income_statement,debit,no
+86300,Interest on director loan (sme case 2),operating_expenses,income_statement,debit,no
+87000,Income tax expense (sme case 2),taxes,income_statement,debit,no

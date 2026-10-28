@@ -1,0 +1,21 @@
+Account code,Presentation line
+81000,sfp.cash_and_cash_equivalents
+81100,sfp.trade_and_other_receivables
+81200,sfp.inventories
+81500,sfp.property_plant_and_equipment
+81510,sfp.property_plant_and_equipment
+81600,sfp.property_plant_and_equipment
+81610,sfp.property_plant_and_equipment
+82000,sfp.trade_and_other_payables
+82100,sfp.current_tax
+82500,sfp.other_financial_liabilities
+83000,sfp.equity_attributable_to_owners
+83100,sfp.equity_attributable_to_owners
+84000,sci.revenue
+84200,sci.other_income
+85000,sci.cost_of_sales
+86000,sci.operating_expenses_by_function
+86100,sci.operating_expenses_by_function
+86200,sci.operating_expenses_by_function
+86300,sci.finance_costs
+87000,sci.tax_expense
