@@ -624,6 +624,13 @@
       "when": 1793194657471,
       "tag": "0088_equipment_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793194892849,
+      "tag": "0089_eqp_1_preparation_staged_apply",
+      "breakpoints": true
     }
   ]
 }
