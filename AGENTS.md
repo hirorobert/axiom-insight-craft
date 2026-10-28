@@ -1,5 +1,7 @@
 # Project implementation rules
 
+External accounting resources: before adopting third-party IFRS/taxonomy code, content or skills, read [the adoption register](docs/research/EXTERNAL_REFERENCE_REGISTER.md). Preserve its source-verification, licensing, framework and deferred-scope boundaries. Reference the applicable decision in the plan and PR; do not silently install or embed a resource.
+
 ## Development charter — required reading
 
 Before changing CFOClose, read [the development charter](docs/architecture/CFOCLOSE_DEVELOPMENT_CHARTER.md). Reference applicable requirements in the work plan and PR. Do not silently deviate. Any exception must identify the requirement, reason, affected controls and tests, and obtain the required approval through a recorded amendment.
