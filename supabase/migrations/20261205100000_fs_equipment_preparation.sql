@@ -1,6 +1,5 @@
 -- Authored forward migration; NOT applied hosted. Equipment preparation remains advisory.
 -- Advisory workpaper storage + compare-and-set note insertion. Does not add framework support or change readiness.
-BEGIN;
 CREATE TABLE public.fs_equipment_workpapers (
   seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -181,4 +180,3 @@ BEGIN
 END; $$;
 REVOKE ALL ON FUNCTION public.fs_create_equipment_schedule(uuid,integer,jsonb,text,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.fs_create_equipment_schedule(uuid,integer,jsonb,text,uuid) TO authenticated;
-COMMIT;

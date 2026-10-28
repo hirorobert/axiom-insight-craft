@@ -140,3 +140,20 @@ No hosted installation, expected hosted journal head or active rollout is assert
 ## Final release review — create-only wizard schedule path
 
 Confirmed a time-of-check/time-of-use gap in schedule-only saving: the browser could see no schedule and the generic existing replacement RPC could later overwrite a concurrently created schedule. The wizard now calls `fs_create_equipment_schedule`, which checks permission and takes the shared period lock, refuses an existing schedule for a new request, and delegates validated exact-request replay to the existing schedule authority. The full multi-class editor retains its existing deliberate editing workflow. Added component refusal/retained-edit coverage and real-DB create concurrency, duplicate replay, changed-intent refusal and viewer denial. Both SQL copies remain byte-identical; the previous source digest is superseded and must not be used for installation. Final-SHA CI is required again. No hosted changes made.
+
+## Native migrator compatibility correction — proposed, not installed
+
+Lovable reported that the native migrator owns its transaction and refuses outer BEGIN/COMMIT. It stopped without installing the equipment source; reported hosted head remains 88. This is platform-reported evidence, not an independent hosted check by Codex.
+
+This amendment changes only the two outer transaction-control lines in the still-unapplied source and its byte-identical candidate copy. New identity: 18,476 bytes, SHA-256 `6a2a33c7d6c35d917172a1df42561e7d6a4ce2838a96e27764889bc75e61b9f7`. The previous fingerprint `b6bbf88d…981da` is superseded for installation. A regression test reconstructs the prior file and pins its original digest, proving no function body, SQL token or privilege statement changed. No applied migration, mirror or journal entry is edited.
+
+Charter references: B1, section 11.3 atomicity, 11.4 release evidence and section 12 amendment review. No exception to applied-history immutability is requested: the source is pending, not applied. Review and owner approval of this new source revision remain required before merge/install.
+
+The disposable database proof now applies the exact authored source inside a migrator-owned transaction. An injected late divide-by-zero must roll back equipment tables and the create-only function; then the same source must install successfully. This does not certify the managed migrator itself; its actual installed identity still needs verification and registration.
+
+Recheck hosted history immediately before installation; if this migration is unexpectedly present, stop and compare rather than reapply. Preserve actual pre-install switches: Lovable reported reporting kill_switch=false, AI off and CUSTOMER_PAYMENTS_ENABLED. This release neither authorizes changing those settings nor claims their business acceptance. Record enabled company scope as well: kill_switch=false alone does not prove every company has reporting access. Preserve all existing schedules/disclosures and the original two-binding digest. Publishing remains a separate owner action after backend verification.
+
+
+### #210 exact-base CI guard correction
+
+Initial CI at 29e1b94f passed PostgreSQL transaction rollback/install proofs and the existing real application journey, but failed both guard-bearing jobs: the migration was registered as an addition, not a modification relative to the current main base. Registered only this exact unapplied source path in the reviewed-modification set. The change scanner, exact comparison base and refusal of unregistered paths remain unchanged. The prior-byte reconstruction test still restricts the source correction to the two outer transaction statements. Re-run the guard with explicit DB_INERT_BASE_SHA=2b8e31cb2eb552632299aed551fa77889982b9d7, matching this PR's base, and require final-SHA CI. No hosted actions or credit use.
