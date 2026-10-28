@@ -146,6 +146,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261203100000_internal_beta_admin_activation.sql",
       "supabase/migrations/20261204100000_internal_beta_team_bootstrap.sql",
       "supabase/migrations/20261205100000_fs_equipment_preparation.sql",
+      // Multi-class, evidence-linked equipment preparation (20261206100000): requirement-linked answers (append-only), a pure
+      // validator, context/draft/commit functions for the /2 workpaper; new objects only, no existing table, row or privilege
+      // changed (proof: scripts/db-proof/equipmentMulticlass.mjs).
+      "supabase/migrations/20261206100000_fs_equipment_multiclass.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",

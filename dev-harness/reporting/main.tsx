@@ -25,6 +25,8 @@ if (!import.meta.env.DEV) throw new Error("dev-harness is a non-production tool 
 const q = new URLSearchParams(window.location.search);
 const bridge = q.get("bridge") ?? "http://127.0.0.1:54998";
 const simUser = q.get("as") ?? "preparer";
+// `nav=off` renders the reporting pages without the harness's fixed sidebar (for width checks at phone size).
+const showNav = q.get("nav") !== "off";
 const db = reportingBridgeDb(bridge, simUser);
 
 const REPORTING = new Set<WorkbenchPageId>(["fs-statements", "fs-notes", "fs-schedules", "fs-comparatives", "signoff", "exports"]);
@@ -40,11 +42,13 @@ function Harness({ seed }: { seed: { companyId: string; periodYear: number } }) 
   const version = parseReportVersion(search);
   const model = useMemo(() => deriveWorkbenchNavigation("", ITEMS, ALL_PAGES, true), []);
   return (
-    <div className="min-h-screen" style={{ display: "grid", gridTemplateColumns: "15rem minmax(0, 1fr)" }}>
-      <aside className="border-r border-border bg-muted/30 p-3" data-testid="workbench-nav">
-        <p className="mb-3 text-xs text-muted-foreground">Harness · signed in as <strong data-testid="sim-user">{simUser}</strong> (simulated)</p>
-        <WorkbenchNav model={model} activePage={page} reportVersion={version} groupStatus={() => null} />
-      </aside>
+    <div className="min-h-screen" style={{ display: "grid", gridTemplateColumns: showNav ? "15rem minmax(0, 1fr)" : "minmax(0, 1fr)" }}>
+      {showNav ? (
+        <aside className="border-r border-border bg-muted/30 p-3" data-testid="workbench-nav">
+          <p className="mb-3 text-xs text-muted-foreground">Harness · signed in as <strong data-testid="sim-user">{simUser}</strong> (simulated)</p>
+          <WorkbenchNav model={model} activePage={page} reportVersion={version} groupStatus={() => null} />
+        </aside>
+      ) : null}
       <main>
         {page && REPORTING.has(page) ? (
           <ReportingWorkbench key={`${page}`} page={page as ReportingPage} companyId={seed.companyId} periodYear={seed.periodYear} legalName="Synthetic SME Limited" db={db}

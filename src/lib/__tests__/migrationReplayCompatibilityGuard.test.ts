@@ -282,7 +282,9 @@ describe("migration directory integrity", () => {
     // workspace enablement, budgets, append-only runs and overrun reviews with server-only reservation; new objects only), pending.
     // Internal beta policy follows the assistant controls (both installed as hosted 85/86).
     // 199 -> 200: 20261203100000_internal_beta_admin_activation.sql (admin-only activation controls), pending hosted application.
-    expect(files.length).toBe(202); // equipment preparation forward migration, pending hosted apply
+    // 202 -> 203: 20261206100000_fs_equipment_multiclass.sql (multi-class, evidence-linked equipment preparation: answers
+    // as facts, the /2 workpaper validator, context, draft and atomic commit), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(203); // equipment preparation (20261205100000) and its multi-class completion (20261206100000), both pending hosted apply
   });
 });
 

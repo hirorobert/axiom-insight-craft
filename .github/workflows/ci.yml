@@ -538,6 +538,23 @@ jobs:
           createdb equipment_preparation_proof
           bun scripts/db-proof/equipmentPreparation.mjs
 
+      - name: Multi-class equipment preparation proof (20261206100000 on the full chain - the context loads the recorded classes, notes and prior answers; a changed statement, a stale workpaper/schedule/note, a dropped class, a gross or accumulated roll-forward difference, unaccounted depreciation destinations, a tax-class estimate and an unresolved mandatory question are refused before any write; twelve concurrent identical commits record one workpaper, one two-class schedule, the answers and the whole reviewed notes; replay and changed intent; a disposal with confirmed proceeds and capitalised depreciation; a class retired only with a reason; answers offered to the next period; append-only history; a FINAL issued before is byte-identical after; revoked access; structured result validated against the manifest; disposable database only, no hosted SQL registered or installed)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/equipment_multiclass_proof
+          PROOF_RESULT_FILE: proof-results/equipmentMulticlass.present.json
+        run: |
+          createdb equipment_multiclass_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/equipmentMulticlass.mjs > proof-results/equipmentMulticlass.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/equipmentMulticlass.present.exit
+          grep -v '^\[PTB' proof-results/equipmentMulticlass.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/equipmentMulticlass.present.json --manifest scripts/db-proof/equipmentMulticlass.manifest.mjs --mode present --exit-code "$code"
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -1301,6 +1318,22 @@ jobs:
         with:
           name: reporting-journey-evidence
           path: reporting-journey-evidence
+          if-no-files-found: ignore
+
+      - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/equipment_journey
+        run: |
+          createdb equipment_journey
+          node scripts/browser-acceptance/equipmentJourney.mjs equipment-journey-evidence
+
+      - name: Upload the equipment journey evidence (screenshots, journey log, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equipment-journey-evidence
+          path: equipment-journey-evidence
           if-no-files-found: ignore
 
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
