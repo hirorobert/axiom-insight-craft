@@ -25,7 +25,7 @@ the native migrator at the 20261205100000 step, exactly as #210 describes).
 | Requirement | How this slice meets it | Where |
 |---|---|---|
 | P1/R1 provenance | Every movement names its record (register, ledger account, journal, reviewed workpaper); every class names its accounts; estimates record rationale, factors and evidence; a tax class or template is refused as an estimate | `equipmentSchedule.ts` (`sourcePresent`), `_fs_equipment_v2_problems` (`MOVEMENT_SOURCE_MISSING`, `ESTIMATE_NOT_ENTITY_SPECIFIC`) |
-| P2/R2 deterministic calculation | Depreciation calculated from recorded inputs only, exact minor-unit arithmetic, half-up rounding named in the result, fixtures AC-11/12/13 | `depreciation.ts`, `depreciation.test.ts` |
+| P2/R2 deterministic calculation | Depreciation calculated from recorded inputs only, exact minor-unit arithmetic, half-up rounding named in the result; the annual life or rate scaled by the recorded convention's fraction of a year (never a twelve-month assumption); the server recalculates every item and refuses a schedule that differs from the charge without an explained difference; fixtures AC-11/12/13 plus short, long, leap, non-calendar, addition and disposal periods | `depreciation.ts`, `depreciation.test.ts`, `_fs_equipment_depreciation_charge`, proof `calc.sql-equals-typescript-fixtures` |
 | P3/R7 proposals | Policy, estimates and equipment-note wording generated from confirmed answers; recorded only when a named person saves the WHOLE note | `equipmentProposals.ts`, `EquipmentServerBridge.tsx`, `fs_commit_equipment_preparation_v2` |
 | P6 server enforcement | Both roll-forward identities, net identity, disposal tie, destinations tie, class preservation, statement agreement, mandatory answers re-checked by the server before any write | `_fs_equipment_v2_problems` |
 | R4 opening bridge | Net bridge kept; gross and accumulated opening amounts bridged to the prior report (AC-23); residual never balanced | `openingGrossBridge`, step 2 of the page |
@@ -49,8 +49,12 @@ REVIEWED_LATER, omega3/activationReadiness/serviceEnquiry lists).
 - `fs_equipment_answers` — append-only facts per (company, period, class, question): status, the answer object
   (text, evidence, who checked, flags), the workpaper revision they came from. RLS, no API-role privileges, immutable
   triggers (reuses `_fs_equipment_immutable`).
-- `_fs_equipment_v2_problems(payload, existing_rows, composition, require_complete)` — pure validator, revoked from API
-  roles. Codes: `CONTRACT`, `CLASSES_COUNT`, `PAYLOAD_SHAPE`, `CLASS_MALFORMED`, `CLASS_ID_REPEATED`,
+- `_fs_equipment_rational`, `_fs_equipment_whole_months`, `_fs_equipment_depreciation_charge(item, period_start, period_end,
+  convention)` — the database's copy of the calculator (same arithmetic as `depreciation.ts`, proven equal on the
+  fixture set by proof case `calc.sql-equals-typescript-fixtures`), revoked from API roles.
+- `_fs_equipment_v2_problems(payload, existing_rows, composition, require_complete, period_start, period_end)` — pure
+  validator, revoked from API roles. The commit reads the period from `fs_reporting_input` (current reporting start and
+  end). Codes: `CONTRACT`, `CLASSES_COUNT`, `PAYLOAD_SHAPE`, `CLASS_MALFORMED`, `CLASS_ID_REPEATED`,
   `CLASS_LABEL_REPEATED`, `BALANCE_MALFORMED`, `NET_IDENTITY`, `MOVEMENT_KIND_UNKNOWN`, `MOVEMENT_KIND_REPEATED`,
   `MOVEMENT_MALFORMED`, `MOVEMENT_SIGN`, `MOVEMENT_SOURCE_MISSING`, `ROLLFORWARD_GROSS`,
   `ROLLFORWARD_ACCUMULATED_DEPRECIATION`, `ROLLFORWARD_ACCUMULATED_IMPAIRMENT`, `DISPOSAL_ITEMS_MISSING`,
@@ -58,7 +62,11 @@ REVIEWED_LATER, omega3/activationReadiness/serviceEnquiry lists).
   `DISPOSAL_IMPAIRMENT_MISMATCH`, `ESTIMATE_INCOMPLETE`, `ESTIMATE_NOT_ENTITY_SPECIFIC`, `ANSWER_MALFORMED`,
   `EXPENSED_COSTS_CAPITALISED`, `QUESTION_UNRESOLVED`, `QUESTIONS_UNRESOLVED`, `RETIREMENT_MALFORMED`,
   `CLASS_DROPPED`, `STATEMENT_CLOSING_MISMATCH`, `DESTINATION_MALFORMED`, `DESTINATION_LINE_ABSENT`,
-  `DEPRECIATION_EXCEEDS_LINE`, `DEPRECIATION_DESTINATIONS_MISMATCH`.
+  `DEPRECIATION_EXCEEDS_LINE`, `DEPRECIATION_DESTINATIONS_MISMATCH`, and — per class, the review amendment —
+  `CHARGE_NOT_CALCULABLE` (an item lacks an input; the missing ones named), `CHARGE_RECALCULATION_MISMATCH` (the
+  browser's declared calculated charge is not the server's), `DEPRECIATION_CHARGE_MISMATCH` (the recorded depreciation
+  is not the register's or the recalculated charge and no explained difference is given), `CHARGE_DIFFERENCE_MISMATCH`
+  (an explained difference whose amount is not the actual difference).
 - `fs_equipment_context_v2` — latest workpaper (any contract), the three notes, the recorded schedule's classes, the
   latest answer per question for this period and the prior period.
 - `fs_save_equipment_workpaper_v2` — draft save (contract /2; compare-and-set; replay).
@@ -105,8 +113,8 @@ Requirement rows (R-xx) and acceptance cases (AC-xx) are those of `docs/accounti
 | 2 Movements linked to sources; both roll-forwards; no invented balancing movement (R-23, R-13; AC-05, AC-06, AC-33) | roll-forward, source and difference cases | `commit.missing-movement-never-balanced`, `commit.rollforward-difference-refused` | typo difference |
 | 2 Transfers, revaluation/OCI, other, business combinations (signed columns) | `MOVEMENT_SIGN` case; editor convention | schedule authority sign rule (AC-07) | — |
 | 3 Structured estimates; tax class refused (R-14 to R-18; AC-35) | `equipmentQuestions.test` estimate cases | `commit.tax-class-estimate-refused` | — |
-| 3 Deterministic depreciation; components; part-year; change in estimate (AC-11, AC-12, AC-13) | `depreciation.test` (10 cases) | — (advisory; compared on the page) | — |
-| 3 Calculated vs register-supplied charge distinguished | `ClassEditor` charge status; `chargeSource` required | `ESTIMATE_INCOMPLETE` | — |
+| 3 Deterministic depreciation; components; part-year; change in estimate (AC-11, AC-12, AC-13) | `depreciation.test` (18 cases: twelve-month, six-month, eighteen-month, leap, non-calendar, addition, disposal, partial-month refusal, reducing balance, units, cap, insufficiency) | `calc.sql-equals-typescript-fixtures` (SQL equals the same figures) | — |
+| 3 Calculated vs register-supplied charge distinguished; the recorded depreciation IS the charge or the difference is explained for its exact amount (server-enforced) | `ClassEditor` charge status; `equipmentQuestions.test` charge-consistency cases; `EquipmentPreparation.test` "REVIEW FINDING…" | `commit.register-charge-mismatch-refused`, `commit.calculated-charge-tampering-refused` | — |
 | 4 Depreciation destinations incl. capitalised (R-13) | `depreciationTieOut` cases | `commit.destinations-mismatch-refused`, `commit.disposal-gain-and-capitalised-depreciation` | tie-out |
 | 4 Disposal proceeds, carrying amount, gain/loss from confirmed inputs (R-20; AC-06) | `disposalResults` cases; unresolved proceeds | `commit.disposal-gain-and-capitalised-depreciation` | — |
 | 5 Conditional questions with triggers; impairment every period; follow-ups (R-03…R-31; AC-14…AC-30) | `equipmentQuestions.test` trigger cases | `commit.unresolved-question-refuses-notes` | questions (only applicable asked) |
@@ -121,12 +129,48 @@ Requirement rows (R-xx) and acceptance cases (AC-xx) are those of `docs/accounti
 ## 5. Evidence (local, on this branch; CI evidence is recorded on the PR against the exact head)
 
 - Unit: `bun run test` full suite — see the PR for the count on the exact head.
-- Proof: `DB_PROOF_MODULES_DIR=… bun scripts/db-proof/equipmentMulticlass.mjs` — 26/26 cases, structured result
+- Proof: `DB_PROOF_MODULES_DIR=… bun scripts/db-proof/equipmentMulticlass.mjs` — 29/29 cases, structured result
   `PROOF RESULT VALID (present)` against `equipmentMulticlass.manifest.mjs` (embedded PostgreSQL 16).
 - Journey: `node scripts/browser-acceptance/equipmentJourney.mjs` — see the PR for the check count on the exact head;
   screenshots `01-loaded-class` … `07-width-375` in the evidence folder.
 - `bunx tsc --noEmit -p tsconfig.app.json`, `bun run lint`, `bun run build`, `node scripts/ci/assertPackIsolation.mjs dist`,
   `node scripts/ci/assertMigrationAuthority.mjs`, `node scripts/ci/assertSingleLockfile.mjs`.
+
+### 5.1 Review amendment (independent review of head `4260548`): time basis and server recalculation
+
+**Finding 1 — time basis.** `depreciationCharge` multiplied the annual charge by `daysAvailable / daysInPeriod`, so a
+six-month period in which the asset was available throughout carried the full annual charge.
+- Failing-before, reproduced on `4260548`: `depreciationCharge({cost 1,200,000, life 10, straight-line}, 2026-01-01..2026-06-30, "daily")`
+  returned `chargeMinor "120000"` (the annual charge); the scratch test asserting it is not the annual charge failed.
+- Passing-after: `depreciation.ts` `equipment-depreciation/2` scales the annual charge by the recorded convention's
+  fraction of a YEAR: **daily** = days available ÷ days in the year beginning at the period start (365 or 366; days
+  available run from the later of the period start and the available-for-use date to the earlier of the period end
+  and the day before derecognition); **full-period** = whole months in the period ÷ 12 for any item available at any
+  time in the period (a period that is not a whole number of months is refused for this convention, never
+  approximated; month arithmetic clamps the day as PostgreSQL does); **units of production** take no time fraction.
+  The same six-month case now gives 59,507 (daily, 181/365) or 60,000 (full-period, 6/12); eighteen months give
+  179,507 / 180,000; a leap year 366/366; 1 July–30 June 365/365 (366 across 29 February). The convention is disclosed
+  in the policy proposal wording (`CONVENTION_WORDS`) and named in every result's `basis`.
+
+**Finding 2 — no server recalculation.** The validator checked that calculated items existed but never tied them, or
+the register's charge, to the recorded depreciation movement; a direct RPC could record any depreciation beside any
+declared charge.
+- Failing-before, reproduced with `scratchpad/beforeAfter.mjs` against the migration text at `4260548`
+  (SHA-256 `2981e93dab3e08f9c7d662c90ac25f0100b8d720f7238ad29f9529978a028138`): a direct
+  `fs_commit_equipment_preparation_v2` with a register charge of 125,000 and a recorded depreciation of 100,000 for the
+  same class returned `outcome: "recorded"`, the schedule row carried `-100000` and one workpaper was written.
+- Passing-after, same RPC against the amended text (SHA-256
+  `c73085b386cb461977b9072b4ec753ea23c0bf8f8474e1693a86fad3f97e585e`): `outcome: "invalid_preparation"`, problems
+  `DEPRECIATION_CHARGE_MISMATCH:Equipment`, the fixture schedule untouched (`-200000`), zero workpapers written.
+- Enforcement now: `_fs_equipment_depreciation_charge` recomputes every declared item for the period read from
+  `fs_reporting_input`; the browser's declared total must equal the server's (`CHARGE_RECALCULATION_MISMATCH`); the
+  class's recorded depreciation must equal the register's figure or the recalculated charge, or carry an explanation
+  and evidence for exactly the difference (`DEPRECIATION_CHARGE_MISMATCH`, `CHARGE_DIFFERENCE_MISMATCH`); an item that
+  cannot be calculated is named (`CHARGE_NOT_CALCULABLE`). Proof cases `commit.register-charge-mismatch-refused` and
+  `commit.calculated-charge-tampering-refused` reproduce both tamperings by direct RPC and the honest commit that is
+  accepted; `calc.sql-equals-typescript-fixtures` proves the SQL gives the TypeScript fixtures' figures.
+- The page mirrors the rule (`chargeConsistencyProblems`): a difference shows explanation and evidence fields for its
+  exact amount and blocks recording until given; nothing is ever adjusted for the preparer.
 
 Failing-before / passing-after (confirmed gaps of #209, reproduced on `main` by reading the code and now covered):
 - G-3 single class replaced a multi-class schedule: before, `fs_commit_equipment_preparation` built exactly one row;
@@ -197,8 +241,11 @@ author's signature.
 - **Conditional questions** are evaluated in the browser; the server enforces the always-mandatory ones
   (`QUESTION_UNRESOLVED`) and refuses when the browser reports unresolved conditional ones (`QUESTIONS_UNRESOLVED`); a
   tampering client could omit a conditional question — the recorded answers make that visible, not impossible.
-- **Depreciation calculation** is advisory: compared with the schedule's charge on the page, never written into the
-  schedule; the server stores the declared items but does not recompute.
+- **Depreciation calculation** never writes the schedule: the preparer records the movement, and the server refuses it
+  unless it equals the register's or the recalculated charge or the difference is explained for its exact amount. The
+  register's own figure is taken as given (its reference is recorded; the register is not read).
+- **Conventions** are exactly two (daily; full-period by whole months). Mid-month conventions, half-year conventions
+  and a 360-day year are not offered; a partial-month period must use the daily convention.
 - **Pack rows** for 10.18, 20.13, 24.6, 27.32, 35.13 are not added (register slice, separate PR per #209 §5.4); the
   proposals carry the wording into the existing policies / estimates / subclassifications notes.
 - **Events after the period** feeds the proposal text; the `smes.note.events_after` decision is still recorded on Notes.

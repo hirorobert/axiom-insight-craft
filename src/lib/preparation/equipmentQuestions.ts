@@ -222,6 +222,36 @@ export function estimateProblems(e: ClassEstimate, componentsIdentified: boolean
   return out;
 }
 
+/**
+ * The schedule's depreciation for a class must be its charge — the register's figure, or the calculation over the
+ * items — or the difference must be explained and evidenced for exactly that amount. Mirrors the server's
+ * DEPRECIATION_CHARGE_MISMATCH / CHARGE_DIFFERENCE_MISMATCH / CHARGE_NOT_CALCULABLE refusals.
+ */
+export function chargeConsistencyProblems(cls: EquipmentClass, period: { start: string; end: string } | null): { problems: string[]; expectedMinor: string | null; scheduleMinor: string | null; differenceMinor: string | null } {
+  const e = cls.estimate;
+  const dep = cls.movements.find((m) => m.kind === "depreciation");
+  const schedule = dep ? value(dep.accumulatedDepreciationMinor) : 0n;
+  let expected: bigint | null = null;
+  const problems: string[] = [];
+  if (e.chargeSource === "register") expected = value(e.registerChargeMinor);
+  else if (e.chargeSource === "calculated") {
+    if (!period) problems.push("The reporting period dates are needed to calculate the charge.");
+    else {
+      const r = classCharge(e.items, period, e.convention);
+      if (r.state === "calculated") expected = BigInt(r.chargeMinor);
+      else problems.push(`The charge cannot be calculated yet: ${r.items.filter((i) => i.result.state === "insufficient").map((i) => `${i.label || "item"} needs ${(i.result as { missing: string[] }).missing.join(", ")}`).join("; ") || "add the assets or components"}.`);
+    }
+  }
+  if (expected === null || schedule === null) return { problems, expectedMinor: expected === null ? null : expected.toString(), scheduleMinor: schedule === null ? null : schedule.toString(), differenceMinor: null };
+  const diff = schedule - expected;
+  if (diff !== 0n) {
+    const d = e.chargeDifference;
+    if (value(d.amountMinor) === null || !hasText(d.explanation) || !hasText(d.evidence)) problems.push(`The schedule's depreciation (${schedule}) differs from the ${e.chargeSource === "register" ? "register's" : "calculated"} charge (${expected}) by ${diff}: explain the difference and name its evidence, or correct the schedule. Nothing is adjusted for you.`);
+    else if (BigInt(d.amountMinor) !== diff) problems.push(`The explained difference (${d.amountMinor}) is not the actual difference (${diff}).`);
+  }
+  return { problems, expectedMinor: expected.toString(), scheduleMinor: schedule.toString(), differenceMinor: diff.toString() };
+}
+
 export type EvaluatedQuestion = {
   def: QuestionDefinition;
   classId: string | null;
@@ -266,10 +296,7 @@ export function evaluateQuestions(prep: EquipmentPreparationV2, period: { start:
       else if (def.structured === "estimate") {
         const e = estimateProblems(cls.estimate, flag(cls.answers.components, "components_identified"));
         problems = def.id === "basis" ? e.filter((p) => /measurement basis/.test(p)) : def.id === "method" ? e.filter((p) => /method|rate|output|changed/.test(p)) : e.filter((p) => !/measurement basis|method|rate as a percentage|expected output|changed/.test(p));
-        if (def.id === "estimates" && cls.estimate.chargeSource === "calculated" && cls.estimate.items.length) {
-          const r = classCharge(cls.estimate.items, period, cls.estimate.convention);
-          if (r.state === "insufficient") problems.push(`The charge cannot be calculated yet: ${r.items.filter((i) => i.result.state === "insufficient").map((i) => `${i.label || "item"} needs ${(i.result as { missing: string[] }).missing.join(", ")}`).join("; ")}.`);
-        }
+        if (def.id === "estimates" && problems.length === 0) problems.push(...chargeConsistencyProblems(cls, period.start && period.end ? period : null).problems);
       } else if (def.structured === "disposals") {
         const r = disposalResults(cls.disposals);
         problems = roll.problems.filter((p) => /dispos/i.test(p));

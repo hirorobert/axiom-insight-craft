@@ -24,6 +24,7 @@ const estimate = z.object({
   convention: z.enum(["", ...DEPRECIATION_CONVENTIONS]),
   factors: z.object({ usage: text, wear: text, obsolescence: text, legalLimits: text }).strict(),
   chargeSource: z.enum(["", "calculated", "register"]), registerChargeMinor: amount, registerReference: short, items: z.array(item).max(200),
+  calculatedChargeMinor: amount, chargeDifference: z.object({ amountMinor: amount, explanation: text, evidence: text }).strict(),
   changedSincePrior: z.enum(["", "yes", "no"]), changeDescription: text, changeEffectMinor: amount, rationale: text, evidence: text,
 }).strict();
 const cls = z.object({

@@ -28,6 +28,10 @@ export type ClassEstimate = {
   registerChargeMinor: string;
   registerReference: string;
   items: DepreciationItem[];
+  /** The browser's calculation over the items (derived; the server recalculates and must agree). */
+  calculatedChargeMinor: string;
+  /** The schedule's depreciation less the charge, when they differ: explained and evidenced for exactly that amount. */
+  chargeDifference: { amountMinor: string; explanation: string; evidence: string };
   changedSincePrior: "yes" | "no" | "";
   changeDescription: string;
   changeEffectMinor: string;
@@ -36,7 +40,7 @@ export type ClassEstimate = {
 };
 export const emptyEstimate = (): ClassEstimate => ({
   basis: "", method: "", lifeYears: "", ratePercent: "", totalUnits: "", unitsThisPeriod: "", residualMinor: "", convention: "",
-  factors: { usage: "", wear: "", obsolescence: "", legalLimits: "" }, chargeSource: "", registerChargeMinor: "", registerReference: "", items: [],
+  factors: { usage: "", wear: "", obsolescence: "", legalLimits: "" }, chargeSource: "", registerChargeMinor: "", registerReference: "", items: [], calculatedChargeMinor: "", chargeDifference: { amountMinor: "", explanation: "", evidence: "" },
   changedSincePrior: "", changeDescription: "", changeEffectMinor: "", rationale: "", evidence: "",
 });
 

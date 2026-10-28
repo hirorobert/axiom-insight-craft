@@ -222,8 +222,18 @@ export function ClassEditor(p: {
         </div>
       ) : null}
       <p role="status" className="text-sm" data-testid={`charge-${cls.classId}`}>
-        {e.chargeSource === "" ? "Say where the charge comes from to compare it with the schedule." : chargeMinor === null ? "The charge is not available yet." : `${e.chargeSource === "calculated" ? "Calculated" : "Register"} charge ${formatMinor(chargeMinor, exponent)}; schedule depreciation ${scheduleCharge === null ? "not entered" : formatMinor(scheduleCharge.toString(), exponent)}${chargeDifference === null ? "" : chargeDifference === "0" ? "; they agree" : `; difference ${formatMinor(chargeDifference, exponent)} — explain it or correct the schedule; nothing is adjusted for you`}.`}
+        {e.chargeSource === "" ? "Say where the charge comes from to compare it with the schedule." : chargeMinor === null ? "The charge is not available yet." : `${e.chargeSource === "calculated" ? "Calculated" : "Register"} charge ${formatMinor(chargeMinor, exponent)}; schedule depreciation ${scheduleCharge === null ? "not entered" : formatMinor(scheduleCharge.toString(), exponent)}${chargeDifference === null ? "" : chargeDifference === "0" ? "; they agree" : `; difference ${formatMinor(chargeDifference, exponent)} — explain it below or correct the schedule; nothing is adjusted for you, and the server refuses an unexplained difference`}.`}
       </p>
+      {chargeDifference !== null && chargeDifference !== "0" ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          <label className="block text-sm">Why the schedule's depreciation differs from the charge by {formatMinor(chargeDifference, exponent)}
+            <input className={input} aria-label={`${L}: charge difference explanation`} value={e.chargeDifference.explanation} onChange={(ev) => setEst({ chargeDifference: { amountMinor: formatMinor(chargeDifference, exponent), explanation: ev.target.value, evidence: e.chargeDifference.evidence } })} />
+          </label>
+          <label className="block text-sm">Evidence for that difference
+            <input className={input} aria-label={`${L}: charge difference evidence`} value={e.chargeDifference.evidence} onChange={(ev) => setEst({ chargeDifference: { amountMinor: formatMinor(chargeDifference, exponent), explanation: e.chargeDifference.explanation, evidence: ev.target.value } })} />
+          </label>
+        </div>
+      ) : null}
       <div className="grid gap-2 md:grid-cols-2">
         <label className="block text-sm">Did the life, residual value or method change since last year?
           <select className={input} aria-label={`${L}: changed since prior`} value={e.changedSincePrior} onChange={(ev) => setEst({ changedSincePrior: ev.target.value as typeof e.changedSincePrior })}>

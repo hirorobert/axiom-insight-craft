@@ -60,6 +60,7 @@ export function deriveClass(c: EditorClass, exponent: number): EquipmentClass {
     movements: c.movements.map((m) => deriveMovement(m, exponent)),
     disposals: c.disposals.map((d) => deriveDisposal(d, exponent)),
     estimate: { ...e, residualMinor: minorOrText(e.residualMinor, exponent), registerChargeMinor: minorOrText(e.registerChargeMinor, exponent), changeEffectMinor: minorOrText(e.changeEffectMinor, exponent),
+      calculatedChargeMinor: "", chargeDifference: { ...e.chargeDifference, amountMinor: minorOrText(e.chargeDifference.amountMinor, exponent) },
       items: e.items.map((i) => ({ ...i, costMinor: minorOrText(i.costMinor, exponent), residualMinor: minorOrText(i.residualMinor, exponent), openingAccumulatedMinor: minorOrText(i.openingAccumulatedMinor, exponent) })) },
     answers: c.answers as Record<string, Answer>,
   };

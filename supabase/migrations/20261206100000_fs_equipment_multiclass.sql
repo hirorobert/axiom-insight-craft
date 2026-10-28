@@ -38,10 +38,103 @@ REVOKE ALL ON SEQUENCE public.fs_equipment_answers_seq_seq FROM PUBLIC, anon, au
 CREATE TRIGGER fs_equipment_answers_immutable BEFORE UPDATE OR DELETE ON public.fs_equipment_answers FOR EACH ROW EXECUTE FUNCTION public._fs_equipment_immutable();
 CREATE TRIGGER fs_equipment_answers_no_truncate BEFORE TRUNCATE ON public.fs_equipment_answers FOR EACH STATEMENT EXECUTE FUNCTION public._fs_equipment_immutable();
 
+-- Decimal text ("2.5") as an exact fraction num/den (numeric integers); NULLs when it is not a decimal of up to 6 places.
+CREATE FUNCTION public._fs_equipment_rational(p_text text, OUT num numeric, OUT den numeric)
+RETURNS record LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public AS $$
+DECLARE v text := btrim(coalesce(p_text, ''));
+BEGIN
+  IF v !~ '^[0-9]{1,15}(\.[0-9]{1,6})?$' THEN num := NULL; den := NULL; RETURN; END IF;
+  num := replace(v, '.', '')::numeric;
+  den := ('1' || repeat('0', length(split_part(v, '.', 2))))::numeric;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._fs_equipment_rational(text) FROM PUBLIC, anon, authenticated, service_role;
+
+-- The number of whole months from p_start through p_end (p_end + 1 day = p_start + n months, days clamped to the month);
+-- NULL when the period is not a whole number of months.
+CREATE FUNCTION public._fs_equipment_whole_months(p_start date, p_end date)
+RETURNS integer LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public AS $$
+DECLARE n integer; d date;
+BEGIN
+  IF p_start IS NULL OR p_end IS NULL OR p_end < p_start THEN RETURN NULL; END IF;
+  FOR n IN 1..600 LOOP
+    d := (p_start + (n * interval '1 month'))::date;
+    IF d = p_end + 1 THEN RETURN n; ELSIF d > p_end + 1 THEN RETURN NULL; END IF;
+  END LOOP;
+  RETURN NULL;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._fs_equipment_whole_months(date, date) FROM PUBLIC, anon, authenticated, service_role;
+
+-- The depreciation charge of one declared item for the period, the SAME arithmetic as the browser's
+-- src/lib/preparation/depreciation.ts (equipment-depreciation/2): exact integer minor units, half-up rounding at the
+-- end, the annual charge scaled by the recorded convention's fraction of a year — daily: days available over the days
+-- in the year beginning at the period start; full-period: whole months in the period over twelve for any item
+-- available at any time in the period; units of production: no time fraction. Returns
+-- {state:'calculated', chargeMinor, daysAvailable, daysInYear, fractionNum, fractionDen, capped} or {state:'insufficient', missing:[...]}.
+CREATE FUNCTION public._fs_equipment_depreciation_charge(p_item jsonb, p_start date, p_end date, p_convention text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public AS $$
+DECLARE
+  NAT_RE CONSTANT text := '^(0|[1-9][0-9]{0,30})$';
+  v_missing text[] := '{}'; v_method text := coalesce(p_item->>'method', '');
+  v_cost numeric; v_res numeric; v_open numeric; v_life record; v_rate record; v_total record; v_units record;
+  v_avail date; v_derec date; v_from date; v_to date; v_days integer; v_year_days integer; v_months integer;
+  v_fn numeric; v_fd numeric; v_num numeric; v_den numeric; v_carrying numeric; v_remaining numeric; v_depreciable numeric; v_charge numeric; v_capped boolean;
+BEGIN
+  IF jsonb_typeof(p_item) IS DISTINCT FROM 'object' THEN RETURN jsonb_build_object('state', 'insufficient', 'missing', jsonb_build_array('item')); END IF;
+  IF coalesce(p_item->>'costMinor', '') !~ NAT_RE THEN v_missing := array_append(v_missing, 'cost'); ELSE v_cost := (p_item->>'costMinor')::numeric; END IF;
+  IF coalesce(p_item->>'residualMinor', '') !~ NAT_RE THEN v_missing := array_append(v_missing, 'residual value (0 only if the entity genuinely expects nothing)'); ELSE v_res := (p_item->>'residualMinor')::numeric; END IF;
+  IF coalesce(p_item->>'openingAccumulatedMinor', '') !~ NAT_RE THEN v_missing := array_append(v_missing, 'accumulated depreciation at the start of the period'); ELSE v_open := (p_item->>'openingAccumulatedMinor')::numeric; END IF;
+  IF v_method NOT IN ('straight-line', 'reducing-balance', 'units-of-production') THEN v_missing := array_append(v_missing, 'depreciation method'); END IF;
+  IF coalesce(p_convention, '') NOT IN ('full-period', 'daily') THEN v_missing := array_append(v_missing, 'part-period convention (the entity''s policy)'); END IF;
+  IF p_start IS NULL OR p_end IS NULL OR p_end < p_start THEN v_missing := array_append(v_missing, 'reporting period dates'); END IF;
+  IF coalesce(p_item->>'availableFrom', '') <> '' THEN
+    BEGIN v_avail := (p_item->>'availableFrom')::date; IF to_char(v_avail, 'YYYY-MM-DD') <> p_item->>'availableFrom' THEN RAISE EXCEPTION 'date'; END IF;
+    EXCEPTION WHEN OTHERS THEN v_missing := array_append(v_missing, 'available-for-use date'); END;
+  END IF;
+  IF coalesce(p_item->>'derecognisedOn', '') <> '' THEN
+    BEGIN v_derec := (p_item->>'derecognisedOn')::date; IF to_char(v_derec, 'YYYY-MM-DD') <> p_item->>'derecognisedOn' THEN RAISE EXCEPTION 'date'; END IF;
+    EXCEPTION WHEN OTHERS THEN v_missing := array_append(v_missing, 'derecognition date'); END;
+  END IF;
+  IF v_method = 'straight-line' THEN v_life := public._fs_equipment_rational(p_item->>'lifeYears'); IF v_life.num IS NULL OR v_life.num = 0 THEN v_missing := array_append(v_missing, 'useful life in years'); END IF; END IF;
+  IF v_method = 'reducing-balance' THEN v_rate := public._fs_equipment_rational(p_item->>'ratePercent'); IF v_rate.num IS NULL OR v_rate.num = 0 THEN v_missing := array_append(v_missing, 'annual rate (percent)'); END IF; END IF;
+  IF v_method = 'units-of-production' THEN
+    v_total := public._fs_equipment_rational(p_item->>'totalUnits'); v_units := public._fs_equipment_rational(p_item->>'unitsThisPeriod');
+    IF v_total.num IS NULL OR v_total.num = 0 THEN v_missing := array_append(v_missing, 'total expected output'); END IF;
+    IF v_units.num IS NULL THEN v_missing := array_append(v_missing, 'output this period'); END IF;
+  END IF;
+  IF p_start IS NOT NULL AND p_end IS NOT NULL AND p_end >= p_start AND p_convention = 'full-period' AND v_method <> 'units-of-production' THEN
+    v_months := public._fs_equipment_whole_months(p_start, p_end);
+    IF v_months IS NULL THEN v_missing := array_append(v_missing, 'a period of whole months (the full-period convention needs one; use the daily convention for a partial month)'); END IF;
+  END IF;
+  IF cardinality(v_missing) > 0 THEN RETURN jsonb_build_object('state', 'insufficient', 'missing', to_jsonb(v_missing)); END IF;
+  v_year_days := (p_start + interval '1 year')::date - p_start;
+  v_from := greatest(p_start, coalesce(v_avail, p_start));
+  v_to := least(p_end, coalesce(v_derec - 1, p_end));
+  v_days := greatest(0, v_to - v_from + 1);
+  IF p_convention = 'daily' THEN v_fn := v_days; v_fd := v_year_days;
+  ELSIF v_days = 0 THEN v_fn := 0; v_fd := 1;
+  ELSE v_fn := v_months; v_fd := 12; END IF;
+  v_carrying := v_cost - v_open;
+  v_remaining := greatest(v_carrying - v_res, 0);
+  v_depreciable := greatest(v_cost - v_res, 0);
+  IF v_method = 'straight-line' THEN v_num := v_depreciable * v_life.den * v_fn; v_den := v_life.num * v_fd;
+  ELSIF v_method = 'reducing-balance' THEN v_num := v_carrying * v_rate.num * v_fn; v_den := 100 * v_rate.den * v_fd;
+  ELSE v_num := v_depreciable * v_units.num * v_total.den; v_den := v_total.num * v_units.den; v_fn := v_units.num; v_fd := v_total.num; END IF;
+  IF v_num < 0 THEN v_num := 0; END IF;
+  v_charge := div(2 * v_num + v_den, 2 * v_den);
+  v_capped := v_charge > v_remaining;
+  IF v_capped THEN v_charge := v_remaining; END IF;
+  RETURN jsonb_build_object('state', 'calculated', 'chargeMinor', v_charge::text, 'daysAvailable', v_days, 'daysInYear', v_year_days, 'fractionNum', v_fn::text, 'fractionDen', v_fd::text, 'capped', v_capped);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._fs_equipment_depreciation_charge(jsonb, date, date, text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Pure validation of a /2 workpaper payload. Returns a JSON array of problems (empty = valid). p_existing_rows are the
 -- classes of the latest recorded schedule; p_composition is fs_statement_composition's result; p_require_complete adds
--- the checks a reviewed-note commit needs (every mandatory question resolved, no unresolved applicable question).
-CREATE FUNCTION public._fs_equipment_v2_problems(p_payload jsonb, p_existing_rows jsonb, p_composition jsonb, p_require_complete boolean)
+-- the checks a reviewed-note commit needs (every mandatory question resolved, no unresolved applicable question);
+-- p_period_start/p_period_end are the reporting period (fs_reporting_input) the depreciation items are recalculated for.
+CREATE FUNCTION public._fs_equipment_v2_problems(p_payload jsonb, p_existing_rows jsonb, p_composition jsonb, p_require_complete boolean, p_period_start date, p_period_end date)
 RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, public AS $$
 DECLARE
   INT_RE CONSTANT text := '^(0|-?[1-9][0-9]{0,30})$';
@@ -59,7 +152,7 @@ DECLARE
   v_sg numeric; v_sd numeric; v_si numeric; v_g numeric; v_dd numeric; v_ii numeric; v_eff numeric;
   v_disp_g numeric; v_disp_d numeric; v_disp_i numeric; v_sum_c numeric; v_sum_d numeric; v_sum_i numeric;
   v_dep_total numeric := 0; v_dest_total numeric := 0; v_amt numeric; v_line numeric; v_closing_total numeric := 0; v_composed numeric;
-  v_ok boolean;
+  v_ok boolean; v_est_ok boolean; v_class_dep numeric; v_expected numeric; v_calc numeric; v_calc_ok boolean; v_r jsonb; v_diff numeric; v_cdiff jsonb; it jsonb;
 BEGIN
   IF jsonb_typeof(p_payload) IS DISTINCT FROM 'object' OR p_payload->>'contract' IS DISTINCT FROM 'cfoclose-equipment-workpaper/2' THEN
     RETURN jsonb_build_array(jsonb_build_object('code', 'CONTRACT'));
@@ -105,7 +198,7 @@ BEGIN
     v_closing_total := v_closing_total + v_cc;
 
     -- Movements: known kind once, three exact components, the pack's direction on the derived carrying effect, a source.
-    v_sg := 0; v_sd := 0; v_si := 0; v_kinds := '{}'; v_ok := true;
+    v_sg := 0; v_sd := 0; v_si := 0; v_kinds := '{}'; v_ok := true; v_class_dep := 0;
     v_disp_g := NULL; v_disp_d := NULL; v_disp_i := NULL;
     FOR m IN SELECT value FROM jsonb_array_elements(c->'movements') LOOP
       v_kind := m->>'kind';
@@ -128,7 +221,7 @@ BEGIN
         v_problems := v_problems || jsonb_build_object('code', 'MOVEMENT_SOURCE_MISSING', 'class', v_label, 'kind', v_kind);
       END IF;
       v_sg := v_sg + v_g; v_sd := v_sd + v_dd; v_si := v_si + v_ii;
-      IF v_kind = 'depreciation' THEN v_dep_total := v_dep_total + v_dd; END IF;
+      IF v_kind = 'depreciation' THEN v_dep_total := v_dep_total + v_dd; v_class_dep := v_dd; END IF;
       IF v_kind = 'disposals' THEN v_disp_g := v_g; v_disp_d := v_dd; v_disp_i := v_ii; END IF;
     END LOOP;
     IF v_ok THEN
@@ -177,6 +270,47 @@ BEGIN
        OR (v_est->>'changedSincePrior' = 'yes' AND (length(btrim(coalesce(v_est->>'changeDescription', ''))) < 3 OR coalesce(v_est->>'changeEffectMinor', '') !~ INT_RE))
        OR length(btrim(coalesce(v_est->>'rationale', ''))) < 3 OR length(btrim(coalesce(v_est->>'evidence', ''))) < 3 THEN
       v_problems := v_problems || jsonb_build_object('code', 'ESTIMATE_INCOMPLETE', 'class', v_label);
+      v_est_ok := false;
+    ELSE
+      v_est_ok := true;
+    END IF;
+    -- The recorded depreciation must be the charge: the register's figure, or the server's own recalculation of every
+    -- declared item (which must also equal what the browser declared). Any difference needs an explanation and evidence
+    -- for exactly that amount; nothing is adjusted and nothing is taken on the browser's word.
+    IF v_est_ok THEN
+      v_expected := NULL;
+      IF v_est->>'chargeSource' = 'register' THEN
+        v_expected := (v_est->>'registerChargeMinor')::numeric;
+      ELSE
+        v_calc := 0; v_calc_ok := true;
+        FOR it IN SELECT value FROM jsonb_array_elements(v_est->'items') LOOP
+          v_r := public._fs_equipment_depreciation_charge(it, p_period_start, p_period_end, v_est->>'convention');
+          IF v_r->>'state' IS DISTINCT FROM 'calculated' THEN
+            v_problems := v_problems || jsonb_build_object('code', 'CHARGE_NOT_CALCULABLE', 'class', v_label, 'item', coalesce(it->>'label', ''), 'missing', coalesce(v_r->'missing', '[]'::jsonb));
+            v_calc_ok := false;
+          ELSE
+            v_calc := v_calc + (v_r->>'chargeMinor')::numeric;
+          END IF;
+        END LOOP;
+        IF v_calc_ok THEN
+          IF coalesce(v_est->>'calculatedChargeMinor', '') !~ NAT_RE OR (v_est->>'calculatedChargeMinor')::numeric <> v_calc THEN
+            v_problems := v_problems || jsonb_build_object('code', 'CHARGE_RECALCULATION_MISMATCH', 'class', v_label, 'declaredMinor', coalesce(v_est->>'calculatedChargeMinor', ''), 'serverMinor', v_calc::text);
+          END IF;
+          v_expected := v_calc;
+        END IF;
+      END IF;
+      IF v_expected IS NOT NULL THEN
+        v_diff := v_class_dep - v_expected;
+        IF v_diff <> 0 THEN
+          v_cdiff := v_est->'chargeDifference';
+          IF jsonb_typeof(v_cdiff) IS DISTINCT FROM 'object' OR coalesce(v_cdiff->>'amountMinor', '') !~ INT_RE
+             OR length(btrim(coalesce(v_cdiff->>'explanation', ''))) < 3 OR length(btrim(coalesce(v_cdiff->>'evidence', ''))) < 3 THEN
+            v_problems := v_problems || jsonb_build_object('code', 'DEPRECIATION_CHARGE_MISMATCH', 'class', v_label, 'scheduleMinor', v_class_dep::text, 'chargeMinor', v_expected::text, 'differenceMinor', v_diff::text);
+          ELSIF (v_cdiff->>'amountMinor')::numeric <> v_diff THEN
+            v_problems := v_problems || jsonb_build_object('code', 'CHARGE_DIFFERENCE_MISMATCH', 'class', v_label, 'explainedMinor', v_cdiff->>'amountMinor', 'differenceMinor', v_diff::text);
+          END IF;
+        END IF;
+      END IF;
     END IF;
     IF (coalesce(v_est->>'rationale', '') || ' ' || coalesce(v_est->>'evidence', '') || ' ' || coalesce(v_est->>'lifeYears', '') || ' ' || coalesce(v_est->'factors'->>'usage', '') || ' ' || coalesce(v_est->'factors'->>'wear', '')
         || ' ' || coalesce(v_est->'factors'->>'obsolescence', '') || ' ' || coalesce(v_est->'factors'->>'legalLimits', '')) ~* TEMPLATE_RE THEN
@@ -279,7 +413,7 @@ BEGIN
   RETURN v_problems;
 END;
 $$;
-REVOKE ALL ON FUNCTION public._fs_equipment_v2_problems(jsonb, jsonb, jsonb, boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public._fs_equipment_v2_problems(jsonb, jsonb, jsonb, boolean, date, date) FROM PUBLIC, anon, authenticated, service_role;
 
 -- The preparation context: latest workpaper (any contract), the three notes, the recorded schedule's classes, and the
 -- latest recorded answer per question of this period and of the prior period (reusable facts, charter L8).
@@ -361,7 +495,7 @@ DECLARE
   v_refusal text; v_prior public.fs_equipment_workpapers; v_request jsonb; v_current_wp uuid; v_current_schedule uuid; v_existing_rows jsonb := '[]'::jsonb;
   v_comp jsonb; v_problems jsonb; v_source_sha text; v_wp_id uuid; v_at timestamptz; v_rows jsonb; v_schedule jsonb; v_schedule_request uuid;
   v_notes_out jsonb := '[]'::jsonb; n jsonb; c jsonb; v_req text; v_reqs text[] := '{}'; v_note_request uuid; v_current_note uuid; v_result jsonb; v_answers integer := 0;
-  v_key text; v_val jsonb; v_source text; v_sub uuid;
+  v_key text; v_val jsonb; v_source text; v_sub uuid; v_input jsonb; v_period_start date; v_period_end date;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
   v_refusal := public._fs_notes_refusal(p_company_id, auth.uid());
@@ -425,7 +559,12 @@ BEGIN
       RETURN jsonb_build_object('outcome', 'stale_note', 'requirementId', n->>'requirementId', 'currentId', v_current_note);
     END IF;
   END LOOP;
-  v_problems := public._fs_equipment_v2_problems(p_payload, v_existing_rows, v_comp, jsonb_array_length(p_notes) > 0);
+  -- The reporting period the depreciation items are recalculated for: the authoritative reporting input's current dates.
+  v_input := public.fs_reporting_input(p_company_id, p_period_year);
+  BEGIN
+    v_period_start := (v_input#>>'{current,reportingStart}')::date; v_period_end := (v_input#>>'{current,reportingEnd}')::date;
+  EXCEPTION WHEN OTHERS THEN v_period_start := NULL; v_period_end := NULL; END;
+  v_problems := public._fs_equipment_v2_problems(p_payload, v_existing_rows, v_comp, jsonb_array_length(p_notes) > 0, v_period_start, v_period_end);
   IF jsonb_array_length(v_problems) > 0 THEN RETURN jsonb_build_object('outcome', 'invalid_preparation', 'problems', v_problems); END IF;
   IF p_source_document_id IS NOT NULL THEN
     SELECT d.sha256 INTO v_source_sha FROM public.financial_statement_documents d

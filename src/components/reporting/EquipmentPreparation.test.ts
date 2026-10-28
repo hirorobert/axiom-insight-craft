@@ -281,3 +281,22 @@ it("does not expose the preparation to a reader", async () => {
   expect(text()).toBe("");
   expect(rpc).not.toHaveBeenCalled();
 });
+
+it("REVIEW FINDING: a register charge that differs from the recorded depreciation blocks recording until the exact difference is explained with evidence; the page never adjusts the figure", async () => {
+  await start();
+  await completePreparation();
+  set(el("Motor vehicles: register charge"), "1,000.00"); await flush();
+  // Any class change withdraws the coverage confirmation; the preparer confirms it again, and the difference alone still blocks.
+  click(m!.container.querySelector("[data-testid=confirm-movement-coverage]")!); await flush();
+  expect(text()).toContain("difference -250.00");
+  expect(text()).toContain("the server refuses an unexplained difference");
+  expect((m!.container.querySelector("[data-testid=commit-classes]") as HTMLButtonElement).disabled).toBe(true);
+  set(el("Motor vehicles: charge difference explanation"), "Register still carries a pickup scrapped in January");
+  set(el("Motor vehicles: charge difference evidence"), "Register reconciliation R-3"); await flush();
+  click(m!.container.querySelector("[data-testid=confirm-movement-coverage]")!); await flush();
+  expect((m!.container.querySelector("[data-testid=commit-classes]") as HTMLButtonElement).disabled).toBe(false);
+  click(m!.container.querySelector("[data-testid=commit-classes]")!); await flush();
+  const payload = commitCalls()[0][1].p_payload as { classes: { estimate: { chargeDifference: { amountMinor: string; explanation: string } } }[] };
+  expect(payload.classes[1].estimate.chargeDifference).toMatchObject({ amountMinor: "-25000", explanation: "Register still carries a pickup scrapped in January" });
+  expect((el("Motor vehicles: Depreciation for the year Accumulated depreciation") as HTMLInputElement).value).toBe("750.00");
+});

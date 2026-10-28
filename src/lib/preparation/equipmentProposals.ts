@@ -5,6 +5,7 @@
  * reviewer saves the whole note through the server.
  */
 import { formatMinor } from "./equipment";
+import { CONVENTION_WORDS } from "./depreciation";
 import { classRollForward, disposalResults, movementCarryingMinor, PPE_MOVEMENT_KINDS, value, type DepreciationDestination } from "./equipmentSchedule";
 import type { Answer, EquipmentClass } from "./equipmentModel";
 
@@ -24,7 +25,7 @@ const methodWords = (e: EquipmentClass["estimate"]) =>
     : e.method === "reducing-balance" ? `on a reducing-balance basis at ${e.ratePercent.trim()}% per year`
       : e.method === "units-of-production" ? `by units of production over a total expected output of ${e.totalUnits.trim()} units`
         : "(method not recorded)";
-const conventionWords = (c: string) => (c === "daily" ? "pro rata by day from the date the asset is available for use" : c === "full-period" ? "for the full period in which the asset is available for use" : "(convention not recorded)");
+const conventionWords = (c: string) => (c === "daily" || c === "full-period" ? CONVENTION_WORDS[c] : "(convention not recorded)");
 const answered = (a: Answer | undefined) => !!a && a.status === "answered" && a.text.trim().length >= 3;
 const none = (a: Answer | undefined) => !!a && a.status === "none_with_basis";
 

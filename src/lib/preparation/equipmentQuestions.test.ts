@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EQUIPMENT_QUESTIONS_V2, EQUIPMENT_SOURCE_V2, answerProblems, entityEstimateTextProblem, estimateProblems, evaluateQuestions, unresolvedQuestions } from "./equipmentQuestions";
+import { EQUIPMENT_QUESTIONS_V2, EQUIPMENT_SOURCE_V2, answerProblems, chargeConsistencyProblems, entityEstimateTextProblem, estimateProblems, evaluateQuestions, unresolvedQuestions } from "./equipmentQuestions";
 import { emptyAnswer, emptyBalances, emptyEstimate, type Answer, type EquipmentClass, type EquipmentPreparationV2 } from "./equipmentModel";
 
 const period = { start: "2026-01-01", end: "2026-12-31" };
@@ -123,5 +123,30 @@ describe("the question catalogue", () => {
     expect(q.problems).toEqual(expect.arrayContaining(["Name the accounts that make up Equipment.", "Class names must be unique."]));
     expect(evaluateQuestions(prep({ classes: [] }), period).find((x) => x.def.id === "classes")!.problems).toEqual(["Add at least one class."]);
     expect(emptyBalances().grossMinor).toBe("");
+  });
+});
+
+describe("charge consistency: the schedule's depreciation is the charge, or the difference is explained for exactly its amount", () => {
+  it("a register charge equal to the movement is consistent; a different one needs an explanation and evidence for the exact difference", () => {
+    const c = cls();
+    expect(chargeConsistencyProblems(c, period)).toMatchObject({ problems: [], expectedMinor: "200000", scheduleMinor: "200000", differenceMinor: "0" });
+    c.estimate.registerChargeMinor = "225000";
+    let r = chargeConsistencyProblems(c, period);
+    expect(r.differenceMinor).toBe("-25000");
+    expect(r.problems.join(" ")).toContain("differs from the register's charge (225000) by -25000");
+    c.estimate.chargeDifference = { amountMinor: "-20000", explanation: "Register includes an item scrapped in January", evidence: "Register reconciliation R-3" };
+    r = chargeConsistencyProblems(c, period);
+    expect(r.problems.join(" ")).toContain("explained difference (-20000) is not the actual difference (-25000)");
+    c.estimate.chargeDifference.amountMinor = "-25000";
+    expect(chargeConsistencyProblems(c, period).problems).toEqual([]);
+  });
+  it("a calculated charge is recomputed from the items for the period; the browser never trusts a declared figure", () => {
+    const c = cls({ estimate: { ...cls().estimate, chargeSource: "calculated", registerChargeMinor: "", registerReference: "", calculatedChargeMinor: "999", items: [{ label: "Press", costMinor: "2000000", residualMinor: "0", openingAccumulatedMinor: "400000", method: "straight-line", lifeYears: "10", ratePercent: "", totalUnits: "", unitsThisPeriod: "", availableFrom: "", derecognisedOn: "" }] } });
+    expect(chargeConsistencyProblems(c, period)).toMatchObject({ problems: [], expectedMinor: "200000", differenceMinor: "0" });
+    expect(chargeConsistencyProblems(c, { start: "2026-01-01", end: "2026-06-30" }).problems.join(" ")).toContain("differs from the calculated charge (100000) by 100000");
+    expect(chargeConsistencyProblems(c, null).problems).toEqual(["The reporting period dates are needed to calculate the charge."]);
+    c.estimate.items[0].lifeYears = "";
+    expect(chargeConsistencyProblems(c, period).problems.join(" ")).toContain("Press needs useful life in years");
+    expect(evaluateQuestions(prep({ classes: [c] }), period).find((q) => q.def.id === "estimates")!.resolved).toBe(false);
   });
 });

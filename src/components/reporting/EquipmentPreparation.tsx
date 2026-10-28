@@ -4,9 +4,9 @@ import { useManagementEditGuard } from "@/components/account/managementState";
 import { presentationPending } from "@/lib/reporting/preparationGuidance";
 import { formatMinor, openingAnchorDate, openingBridge, parseSourceAmount, type BridgeAdjustment, type SourceFact } from "@/lib/preparation/equipment";
 import { classPreservation, classRollForward, depreciationTieOut, DESTINATION_TARGETS, EQUIPMENT_CONTENT_VERSION_V2, EQUIPMENT_CONTRACT_V2, openingGrossBridge, totalCarrying, value, type DepreciationDestination } from "@/lib/preparation/equipmentSchedule";
-import { DEPRECIATION_CALCULATOR_VERSION } from "@/lib/preparation/depreciation";
+import { classCharge, DEPRECIATION_CALCULATOR_VERSION } from "@/lib/preparation/depreciation";
 import { classFromScheduleRow, deriveClass, emptyEditorClass, minorOrText, type EditorClass } from "@/lib/preparation/equipmentEditor";
-import { EQUIPMENT_QUESTIONS_VERSION, EQUIPMENT_SOURCE_V2, estimateProblems, evaluateQuestions, questionKey, unresolvedQuestions, type EvaluatedQuestion } from "@/lib/preparation/equipmentQuestions";
+import { chargeConsistencyProblems, EQUIPMENT_QUESTIONS_VERSION, EQUIPMENT_SOURCE_V2, estimateProblems, evaluateQuestions, questionKey, unresolvedQuestions, type EvaluatedQuestion } from "@/lib/preparation/equipmentQuestions";
 import { equipmentNoteProposalV2, estimatesProposalV2, policyProposalV2 } from "@/lib/preparation/equipmentProposals";
 import { parseEquipmentEditorV2, type EquipmentEditorV2 } from "@/lib/preparation/editorSchema";
 import type { Answer } from "@/lib/preparation/equipmentModel";
@@ -101,7 +101,11 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
   } : null;
 
   // ── Derived checks: every class, the bridge, the tie-out, preservation, the questions ──
-  const derived = editor.classes.map((c) => deriveClass(c, p.exponent));
+  const derived = editor.classes.map((c) => {
+    const d = deriveClass(c, p.exponent);
+    if (d.estimate.chargeSource === "calculated" && period) { const r = classCharge(d.estimate.items, period, d.estimate.convention); d.estimate.calculatedChargeMinor = r.state === "calculated" ? r.chargeMinor : ""; }
+    return d;
+  });
   const rolls = derived.map((c) => classRollForward(c.label, { opening: c.opening, closing: c.closing }, c.movements, c.disposals));
   const openingTotal = totalCarrying(derived, "opening"), closingTotal = totalCarrying(derived, "closing");
   const bridgeRows: BridgeAdjustment[] = editor.adjustments.map((a) => ({ amountMinor: minorOrText(a.amount, p.exponent), reason: `${a.category ? `[${a.category}] ` : ""}${a.reason}`, evidence: a.evidence }));
@@ -114,7 +118,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
   const prep = { classes: derived, retiredClasses: editor.retiredClasses, destinations: derivedDestinations, entityAnswers: editor.entityAnswers as Record<string, Answer> };
   const questions = evaluateQuestions(prep, period ?? { start: "", end: "" });
   const unresolved = unresolvedQuestions(questions);
-  const classEstimateProblems = derived.map((c) => estimateProblems(c.estimate, c.answers.components?.status === "answered" && c.answers.components.flags.components_identified === true));
+  const classEstimateProblems = derived.map((c) => [...estimateProblems(c.estimate, c.answers.components?.status === "answered" && c.answers.components.flags.components_identified === true), ...chargeConsistencyProblems(c, period).problems]);
   const ready = editor.classes.length > 0 && rolls.every((r) => r.state === "agrees") && bridge.state === "agrees" && (grossBridge.state === "agrees" || grossBridge.state === "not_provided")
     && preservation.problems.length === 0 && tie.state === "agrees" && statementDifference === "0" && !statementChanged && coverageConfirmed && !!period && /^\d{4}-\d{2}-\d{2}$/.test(editor.priorDate)
     && classEstimateProblems.every((x) => x.length === 0);

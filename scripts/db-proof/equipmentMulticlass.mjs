@@ -106,7 +106,7 @@ async function main() {
     const r = await db.one(`SELECT to_regclass('public.fs_equipment_answers') IS NOT NULL t,
       to_regprocedure('public.fs_commit_equipment_preparation_v2(uuid,integer,jsonb,uuid,uuid,uuid,jsonb,uuid)') IS NOT NULL c,
       to_regprocedure('public.fs_equipment_context_v2(uuid,integer)') IS NOT NULL x, to_regprocedure('public.fs_save_equipment_workpaper_v2(uuid,integer,jsonb,uuid,uuid,uuid)') IS NOT NULL s,
-      has_function_privilege('authenticated','public._fs_equipment_v2_problems(jsonb,jsonb,jsonb,boolean)','EXECUTE') internal_exposed`);
+      has_function_privilege('authenticated','public._fs_equipment_v2_problems(jsonb,jsonb,jsonb,boolean,date,date)','EXECUTE') internal_exposed`);
     return r.t && r.c && r.x && r.s && r.internal_exposed === false ? true : r;
   });
   const W = await makeWorld(db);
@@ -160,8 +160,9 @@ async function main() {
     const c = await ctx();
     return r1.outcome === "recorded" && r2.outcome === "stale" && r2.currentId === r1.workpaperId && r3.outcome === "invalid_request" && c.workpaper?.id === r1.workpaperId && c.workpaper.contract === "cfoclose-equipment-workpaper/2" ? true : { r1, r2, r3 };
   });
-  const draftId = (await ctx()).workpaper.id;
-  const scheduleId = base.schedule.id;
+  let draftId = (await ctx()).workpaper.id;
+  const scheduleId0 = base.schedule.id;
+  let scheduleId = scheduleId0;
   const notesFor = (c, policyText, estimatesText) => [
     { requirementId: "smes.note.policies", expectedTextId: c.notes["smes.note.policies"]?.id ?? null, body: `${c.notes["smes.note.policies"]?.body ?? ""}\n\nEquipment — reviewed section\n\n${policyText}` },
     { requirementId: "smes.note.estimates", expectedTextId: c.notes["smes.note.estimates"]?.id ?? null, body: `${c.notes["smes.note.estimates"]?.body ?? ""}\n\n${estimatesText}` },
@@ -219,6 +220,78 @@ async function main() {
     const codes = (r.problems ?? []).map((x) => `${x.code}:${x.class}`), codes2 = (r2.problems ?? []).map((x) => `${x.code}:${x.class}`);
     return codes.includes("ESTIMATE_NOT_ENTITY_SPECIFIC:Motor vehicles") && codes2.includes("ESTIMATE_INCOMPLETE:Motor vehicles") && (await unchanged()) ? true : { codes, codes2 };
   });
+  group("Depreciation recalculated by the server");
+  const sqlCharge = (item, start, end, convention) => db.one("SELECT public._fs_equipment_depreciation_charge($1::jsonb,$2::date,$3::date,$4) r", [JSON.stringify(item), start, end, convention]).then((x) => x.r);
+  const baseItem = { label: "Machine", costMinor: "1200000", residualMinor: "0", openingAccumulatedMinor: "0", method: "straight-line", lifeYears: "10", ratePercent: "", totalUnits: "", unitsThisPeriod: "", availableFrom: "", derecognisedOn: "" };
+  await kase("calc.sql-equals-typescript-fixtures", "the database's calculator gives the hand-calculated figures of src/lib/preparation/depreciation.test.ts: twelve-month, six-month, eighteen-month, leap, non-calendar, addition, disposal, reducing balance, units, cap, partial-month refusal", async () => {
+    const expect = [
+      [{}, "2026-01-01", "2026-12-31", "daily", "120000"], [{}, "2026-01-01", "2026-12-31", "full-period", "120000"],
+      [{}, "2026-01-01", "2026-06-30", "daily", "59507"], [{}, "2026-01-01", "2026-06-30", "full-period", "60000"],
+      [{}, "2026-01-01", "2027-06-30", "daily", "179507"], [{}, "2026-01-01", "2027-06-30", "full-period", "180000"],
+      [{}, "2028-01-01", "2028-12-31", "daily", "120000"], [{ availableFrom: "2028-12-31" }, "2028-01-01", "2028-12-31", "daily", "328"],
+      [{}, "2025-07-01", "2026-06-30", "daily", "120000"], [{}, "2027-07-01", "2028-06-30", "daily", "120000"], [{}, "2025-07-01", "2026-06-30", "full-period", "120000"],
+      [{ availableFrom: "2026-04-01" }, "2026-01-01", "2026-06-30", "daily", "29918"], [{ availableFrom: "2026-04-01" }, "2026-01-01", "2026-06-30", "full-period", "60000"],
+      [{ derecognisedOn: "2026-04-01" }, "2026-01-01", "2026-06-30", "daily", "29589"], [{ derecognisedOn: "2025-12-15" }, "2026-01-01", "2026-06-30", "full-period", "0"], [{ availableFrom: "2026-08-01" }, "2026-01-01", "2026-06-30", "full-period", "0"],
+      [{}, "2026-01-01", "2026-06-15", "daily", "54575"],
+      [{ costMinor: "1000000", method: "reducing-balance", ratePercent: "25" }, "2026-01-01", "2026-06-30", "daily", "123973"],
+      [{ costMinor: "1000000", openingAccumulatedMinor: "250000", method: "reducing-balance", ratePercent: "25" }, "2026-01-01", "2026-12-31", "full-period", "187500"],
+      [{ costMinor: "100001", method: "reducing-balance", ratePercent: "33.333" }, "2026-01-01", "2026-12-31", "full-period", "33333"],
+      [{ costMinor: "800000", method: "units-of-production", totalUnits: "100000", unitsThisPeriod: "12000" }, "2026-01-01", "2026-06-15", "full-period", "96000"],
+      [{ costMinor: "900000", residualMinor: "100000", lifeYears: "4", availableFrom: "2026-10-01" }, "2026-01-01", "2026-12-31", "daily", "50411"],
+      [{ costMinor: "900000", residualMinor: "950000", lifeYears: "4" }, "2026-01-01", "2026-12-31", "full-period", "0"],
+      [{ costMinor: "1000000", residualMinor: "100000", openingAccumulatedMinor: "850000" }, "2026-01-01", "2026-12-31", "full-period", "50000"],
+      [{ costMinor: "365000", lifeYears: "1", derecognisedOn: "2026-04-01" }, "2026-01-01", "2026-12-31", "daily", "90000"],
+    ];
+    const got = [];
+    for (const [over, s, e, conv, want] of expect) { const r = await sqlCharge({ ...baseItem, ...over }, s, e, conv); if (r.state !== "calculated" || r.chargeMinor !== want) got.push({ over, s, e, conv, want, r }); }
+    const partial = await sqlCharge(baseItem, "2026-01-01", "2026-06-15", "full-period");
+    const noLife = await sqlCharge({ ...baseItem, lifeYears: "" }, "2026-01-01", "2026-12-31", "daily");
+    const badDate = await sqlCharge({ ...baseItem, availableFrom: "2026-02-30" }, "2026-01-01", "2026-12-31", "daily");
+    return got.length === 0 && partial.state === "insufficient" && /whole months/.test(partial.missing.join()) && noLife.missing.join() === "useful life in years" && badDate.missing.join() === "available-for-use date" ? true : { got, partial, noLife, badDate };
+  });
+  await kase("commit.register-charge-mismatch-refused", "REVIEW FINDING: a direct RPC whose register charge (1,250) differs from the recorded depreciation (1,000) is refused by name (DEPRECIATION_CHARGE_MISMATCH, difference -25,000 minor) with nothing written; an explanation for a different amount is refused (CHARGE_DIFFERENCE_MISMATCH); the exact explained difference with evidence is accepted by the validator", async () => {
+    const p = payloadFor(A, compose.compositionSha256);
+    p.classes[0].movements = [dep("100000")]; p.classes[0].closing.accumulatedDepreciationMinor = "350000"; p.classes[0].closing.carryingMinor = "900000";
+    p.classes[1].closing.carryingMinor = "500000"; p.classes[1].closing.accumulatedDepreciationMinor = "250000"; p.classes[1].movements = [dep("100000")]; // keeps the 14,000 total
+    p.destinations = [{ target: "sci.operating_expenses_by_function", amountMinor: "200000", evidence: "Expense ledger 6200", explanation: "" }];
+    const r1 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    const mm = (r1.problems ?? []).find((x) => x.code === "DEPRECIATION_CHARGE_MISMATCH" && x.class === "Equipment");
+    p.classes[0].estimate.chargeDifference = { amountMinor: "-20000", explanation: "Register includes an item scrapped in January", evidence: "Register reconciliation R-3" };
+    const r2 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    const cd = (r2.problems ?? []).find((x) => x.code === "CHARGE_DIFFERENCE_MISMATCH");
+    p.classes[0].estimate.chargeDifference.amountMinor = "-25000";
+    const r3 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    const vehiclesOnly = (r3.problems ?? []).filter((x) => x.class === "Equipment");
+    return r1.outcome === "invalid_preparation" && mm?.scheduleMinor === "100000" && mm.chargeMinor === "125000" && mm.differenceMinor === "-25000"
+      && r2.outcome === "invalid_preparation" && cd?.explainedMinor === "-20000" && cd.differenceMinor === "-25000"
+      && r3.outcome === "invalid_preparation" && vehiclesOnly.length === 0 && (r3.problems ?? []).some((x) => x.code === "DEPRECIATION_CHARGE_MISMATCH" && x.class === "Motor vehicles")
+      && (await unchanged()) ? true : { r1: r1.outcome, mm, r2: r2.outcome, cd, r3 };
+  });
+  await kase("commit.calculated-charge-tampering-refused", "REVIEW FINDING: a direct RPC declaring a calculated charge equal to the recorded depreciation (1,000) while its items compute 1,200 is refused (CHARGE_RECALCULATION_MISMATCH: declared 100,000, server 120,000) and the recorded depreciation itself is refused (DEPRECIATION_CHARGE_MISMATCH); an item that cannot be calculated is named (CHARGE_NOT_CALCULABLE); an honest 1,200 is accepted by the validator", async () => {
+    const items = [{ ...baseItem, label: "Motor", costMinor: "400000", lifeYears: "5" }, { ...baseItem, label: "Frame", costMinor: "600000", lifeYears: "15" }];
+    const p = payloadFor(A, compose.compositionSha256);
+    p.classes[0].estimate = estimate({ chargeSource: "calculated", registerChargeMinor: "", registerReference: "", items, calculatedChargeMinor: "100000" });
+    p.classes[0].movements = [dep("100000")]; p.classes[0].closing.accumulatedDepreciationMinor = "350000"; p.classes[0].closing.carryingMinor = "900000";
+    p.classes[1].closing.carryingMinor = "500000"; p.classes[1].closing.accumulatedDepreciationMinor = "250000"; p.classes[1].movements = [dep("100000")]; p.classes[1].estimate.registerChargeMinor = "100000";
+    p.destinations = [{ target: "sci.operating_expenses_by_function", amountMinor: "200000", evidence: "Expense ledger 6200", explanation: "" }];
+    const r1 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    const rc = (r1.problems ?? []).find((x) => x.code === "CHARGE_RECALCULATION_MISMATCH");
+    const dm = (r1.problems ?? []).find((x) => x.code === "DEPRECIATION_CHARGE_MISMATCH" && x.class === "Equipment");
+    p.classes[0].estimate.items[0].lifeYears = "";
+    const r2 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    const nc = (r2.problems ?? []).find((x) => x.code === "CHARGE_NOT_CALCULABLE");
+    p.classes[0].estimate.items[0].lifeYears = "5"; p.classes[0].estimate.calculatedChargeMinor = "120000"; p.classes[0].movements = [dep("120000")];
+    p.classes[0].closing.accumulatedDepreciationMinor = "370000"; p.classes[0].closing.carryingMinor = "880000";
+    p.classes[1].closing.carryingMinor = "520000"; p.classes[1].closing.accumulatedDepreciationMinor = "230000"; p.classes[1].movements = [dep("80000")]; p.classes[1].estimate.registerChargeMinor = "80000";
+    const r3 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId });
+    return r1.outcome === "invalid_preparation" && rc?.declaredMinor === "100000" && rc.serverMinor === "120000" && dm?.chargeMinor === "120000"
+      && r2.outcome === "invalid_preparation" && nc?.item === "Motor" && nc.missing.join() === "useful life in years"
+      && r3.outcome === "recorded" && (await ctx()).schedule.rows[0].movements[0].amountMinor === "-120000" ? true : { r1: r1.outcome, rc, dm, r2: r2.outcome, nc, r3 };
+  });
+  // The honest commit above recorded a new workpaper and schedule; later cases expect the latest revisions (the
+  // fixture's original schedule id stays available as a superseded revision).
+  const afterCalc = await ctx();
+  draftId = afterCalc.workpaper.id; scheduleId = afterCalc.schedule.id; counts.base = await counts();
   await kase("commit.unresolved-question-refuses-notes", "with reviewed notes attached, an unresolved mandatory question (impairment assessment) refuses the commit; without notes the same payload is a valid schedule-only save and is still refused for the missing answer", async () => {
     const c = await ctx();
     const p = payloadFor(A, compose.compositionSha256); delete p.entityAnswers.impairment;
@@ -267,7 +340,7 @@ async function main() {
     const c = await ctx(); const before = await counts();
     const p = payloadFor(A, compose.compositionSha256);
     const r1 = await commit(p, { expectedWorkpaper: draftId, expectedSchedule: c.schedule.id });
-    const r2 = await commit(p, { expectedWorkpaper: c.workpaper.id, expectedSchedule: scheduleId });
+    const r2 = await commit(p, { expectedWorkpaper: c.workpaper.id, expectedSchedule: scheduleId0 });
     const r3 = await commit(p, { expectedWorkpaper: c.workpaper.id, expectedSchedule: c.schedule.id, notes: [{ requirementId: "smes.note.policies", expectedTextId: base.notes["smes.note.policies"].id, body: "Would overwrite another writer." }] });
     return r1.outcome === "stale" && r1.currentId === c.workpaper.id && r2.outcome === "stale_schedule" && r2.currentId === c.schedule.id && r3.outcome === "stale_note" && r3.requirementId === "smes.note.policies" && (await counts()) === before ? true : { r1: r1.outcome, r2: r2.outcome, r3: r3.outcome };
   });
@@ -319,21 +392,22 @@ async function main() {
       try { await db.asRole(role, null, "SELECT public.fs_equipment_context_v2($1,2026)", [A]); refusals.push(`${role}:ctx:allowed`); } catch (e) { refusals.push(`${role}:ctx:${e.code}`); }
       try { await db.asRole(role, null, "SELECT public.fs_commit_equipment_preparation_v2($1,2026,'{}'::jsonb,NULL,NULL,NULL,'[]'::jsonb,$2)", [A, uuid()]); refusals.push(`${role}:commit:allowed`); } catch (e) { refusals.push(`${role}:commit:${e.code}`); }
     }
-    try { await db.asRole("authenticated", U.preparer, "SELECT public._fs_equipment_v2_problems('{}'::jsonb,'[]'::jsonb,'{}'::jsonb,false)", []); refusals.push("validator:allowed"); } catch (e) { refusals.push(`validator:${e.code}`); }
+    try { await db.asRole("authenticated", U.preparer, "SELECT public._fs_equipment_v2_problems('{}'::jsonb,'[]'::jsonb,'{}'::jsonb,false,NULL,NULL)", []); refusals.push("validator:allowed"); } catch (e) { refusals.push(`validator:${e.code}`); }
     return refusals.every((r) => r.endsWith(":42501")) ? true : refusals;
   });
   await kase("history.earlier-records-preserved", "every schedule submission and disclosure text that existed before the preparation is byte-identical afterwards (append-only history; the first class record is still there)", async () => {
     const earlier = hex(JSON.stringify([
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId])).rows,
+      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId0])).rows,
       (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_disclosure_texts t WHERE t.id = ANY($1::uuid[])", [[base.notes["smes.note.policies"].id, base.notes["smes.note.estimates"].id, base.notes["smes.note.subclassifications"].id]])).rows,
     ]));
     const beforeRows = hex(JSON.stringify([
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId])).rows,
+      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId0])).rows,
       (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_disclosure_texts t WHERE t.id = ANY($1::uuid[])", [[base.notes["smes.note.policies"].id, base.notes["smes.note.estimates"].id, base.notes["smes.note.subclassifications"].id]])).rows,
     ]));
-    const first = await db.one("SELECT rows FROM public.fs_schedule_submissions WHERE id=$1", [scheduleId]);
+    const first = await db.one("SELECT rows FROM public.fs_schedule_submissions WHERE id=$1", [scheduleId0]);
     const totalSubs = await db.count("SELECT count(*) n FROM public.fs_schedule_submissions WHERE company_id=$1 AND schedule_id='ppe'", [A]);
-    return earlier === beforeRows && first.rows.length === 1 && first.rows[0].closingMinor === "1400000" && totalSubs === 4 ? true : { totalSubs, first: first.rows };
+    // fixture + the honest calculated-charge commit + the multi-class commit + the disposal commit + the retirement = 5 submissions.
+    return earlier === beforeRows && first.rows.length === 1 && first.rows[0].closingMinor === "1400000" && totalSubs === 5 ? true : { totalSubs, first: first.rows };
   });
 
   group("Issued history");
