@@ -135,8 +135,9 @@ review", as the equipment-r2 record already states.
 
 - `evidence/completeSmeReport.present.json` (28/28, `PROOF RESULT VALID (present)`), `evidence/completeSmeReport.evidence.json`
   (per case: composition, outstanding-before rows, the questions asked, the server's per-item recalculation, the
-  resolution table, versions, figures, ties, review, issuance digests, history), `evidence/completeSmeReport.present.log`.
-- `evidence/equipmentJourney.results.json` and `.log`: 9/9 in headless Chrome, including "after leaving the page and
+  resolution table, versions, figures, ties, review, issuance digests, history). The full proof and journey logs are
+  not committed (`*.log` is ignored); CI uploads them with the proof results of the exact head.
+- `evidence/equipmentJourney.results.json`: 9/9 in headless Chrome, including "after leaving the page and
   opening it again, the recorded preparation is read back and restored explicitly".
 - Run: `DB_PROOF_MODULES_DIR=<dir> bun scripts/db-proof/completeSmeReport.mjs`, then
   `node scripts/ci/validateProofResult.mjs proof-results/completeSmeReport.present.json --manifest scripts/db-proof/completeSmeReport.manifest.mjs --mode present`;
