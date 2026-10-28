@@ -2,6 +2,14 @@
 
 Assessed 28 October 2026. Status: reference decisions, not implemented capabilities, accounting approval or commercial licensing clearance. Governing document: [Development charter](../architecture/CFOCLOSE_DEVELOPMENT_CHARTER.md). Relevant stages: B3 equipment, B5 requirements/content, B8 full IFRS and B9 connectors. Digital tagging is an output extension; it is not a prerequisite for completing the current equipment journey.
 
+## Owner scope decision — 28 October 2026
+
+Current product/launch priority is IFRS for SMEs. Full IFRS implementation and launch are deferred until future resources and explicit authorization; no full-IFRS or insurance-engine work is a prerequisite of SME completion. The present implementation targets SME 2015; third-edition support remains a separately verified scope, not an automatic consequence of this decision. The longer-term charter remains a roadmap; this narrows current delivery priority without declaring its other stages complete. This decision does not silently change IPSAS admission or authorize IPSAS launch.
+
+The owner authorizes use of supplied references for the current pre-launch research/design work. This does not establish a vendor commercial licence or permission to embed copyrighted taxonomy/Standard content. Keep intended use and actual permissions explicit. Full-IFRS 2025 taxonomy remains research material, not the SME engine. Obtain and inspect the correct SME taxonomy entry point before proposing any SME digital-tagging integration. No additional owner consent is needed merely to inspect already supplied documents offline.
+
+Execution: clear #210's installation correction, independently review #211's SME equipment implementation, install approved sources and verify a normal signed-in SME preparation journey. Full-IFRS taxonomy/IFRS17 resources stay parked and must not expand Claude's current equipment branch.
+
 ## Decisions carried forward
 
 | Resource | Decision | Concrete use | Trigger / boundary |
