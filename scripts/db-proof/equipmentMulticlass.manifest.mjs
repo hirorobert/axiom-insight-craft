@@ -24,6 +24,7 @@ export const CASES = Object.freeze([
   { id: "commit.notes-whole-and-preserving", kind: "control", modes: ["present"] },
   { id: "commit.replay-returns-receipt", kind: "control", modes: ["present"] },
   { id: "commit.changed-intent-refused", kind: "control", modes: ["present"] },
+  { id: "commit.zero-effect-review-retained", kind: "control", modes: ["present"] },
   { id: "commit.stale-workpaper-schedule-note-refused", kind: "control", modes: ["present"] },
   { id: "commit.disposal-gain-and-capitalised-depreciation", kind: "control", modes: ["present"] },
   { id: "commit.retire-class-with-reason", kind: "control", modes: ["present"] },

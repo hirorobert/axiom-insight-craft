@@ -94,6 +94,7 @@ export function classFromScheduleRow(row: { classLabel: string; openingMinor: st
     else if (kind === "additions" || kind === "business_combinations") em.grossMinor = abs;
     else if (kind === "impairment_profit_or_loss") em.accumulatedImpairmentMinor = formatMinor((-BigInt(m.amountMinor)).toString(), exponent);
     else em.note = `Recorded carrying-amount effect ${formatMinor(m.amountMinor, exponent)}: enter its cost and accumulated deductions.`;
+    if (BigInt(m.amountMinor) === 0n) em.note = RECORDED_ZERO_NOTE;
     c.movements.push(em);
   }
   return c;
@@ -101,3 +102,25 @@ export function classFromScheduleRow(row: { classLabel: string; openingMinor: st
 
 /** Positive display of a stored amount for fixed-direction columns, signed for the others. */
 export const movementSign = (kind: PpeMovementKind) => MOVEMENT_SIGN[kind];
+
+
+export const RECORDED_ZERO_NOTE = "Recorded net effect is zero. This does not prove that no underlying movement occurred.";
+/** Never classify cancelling nonzero columns, invalid text or a new unsourced row as a removable recorded zero. */
+export function isRecordedZeroMovement(m: EditorMovement, exponent: number): boolean {
+  return m.note === RECORDED_ZERO_NOTE && [m.grossMinor, m.accumulatedDepreciationMinor, m.accumulatedImpairmentMinor]
+    .every(v => v.trim() === "" || parseSourceAmount(v, exponent, 0) === "0");
+}
+/** Explicit preparer action only. Retain who, which entries and evidence as an answer in the existing atomic save. */
+export function excludeReviewedZeroMovements(cls: EditorClass, exponent: number, checkedBy: string, evidence: string): EditorClass {
+  if (checkedBy.trim().length < 3 || evidence.trim().length < 3) throw new Error("Name who checked and the underlying evidence.");
+  const removed = cls.movements.filter(m => isRecordedZeroMovement(m, exponent));
+  if (!removed.length) return cls;
+  const kinds = removed.map(m => m.kind);
+  return { ...cls, movements: cls.movements.filter(m => !isRecordedZeroMovement(m, exponent)), answers: {
+    ...cls.answers,
+    zero_effect_row_review: { status: "answered", checkedBy: checkedBy.trim(), evidence: evidence.trim(),
+      text: `During preparation, the reviewer checked the underlying records and excluded recorded zero-net rows for: ${kinds.join(", ")}. This records the removal decision; movements subsequently added remain separately evidenced and reconciled.`,
+      flags: Object.fromEntries(kinds.map(kind => [kind, true])),
+    },
+  } };
+}

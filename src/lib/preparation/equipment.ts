@@ -214,6 +214,14 @@ export function formatMinor(minor: string, exponent: number): string {
   return `${n < 0n ? "-" : ""}${exponent ? `${abs.slice(0, -exponent)}.${abs.slice(-exponent)}` : abs}`;
 }
 
+/** Presentation only: exact integer arithmetic and reconciliation results are unchanged. */
+export type EquipmentAmountDisplay = { currency: string; exponent: number };
+export function formatEquipmentAmount(minor: string | bigint, display?: EquipmentAmountDisplay): string {
+  if (!display) return minor.toString();
+  const [whole, fraction] = formatMinor(minor.toString(), display.exponent).split(".");
+  return `${display.currency} ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction === undefined ? "" : `.${fraction}`}`;
+}
+
 /** Normalize printed source units exactly; malformed grouping and unsupported precision are refused. */
 export function parseSourceAmount(
   text: string,

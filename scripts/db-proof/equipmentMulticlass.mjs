@@ -20,9 +20,11 @@
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) bun scripts/db-proof/equipmentMulticlass.mjs
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/equipmentMulticlass.mjs
 import crypto from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { applyChain, certifier, clientDb, csv, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, makeWorld, openDatabase, prepareReporting, REPO, reporter, uuid } from "./lib/reportingKit.mjs";
+import { classFromScheduleRow, excludeReviewedZeroMovements } from "../../src/lib/preparation/equipmentEditor.ts";
 import { CASES, PROOF } from "./equipmentMulticlass.manifest.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
@@ -335,6 +337,19 @@ async function main() {
   await kase("commit.changed-intent-refused", "the same request with a different payload is refused (request_reused)", async () => {
     const p = { ...commitPayload, destinations: [...commitPayload.destinations, { target: "other", amountMinor: "0", evidence: "x y z", explanation: "nothing" }] };
     return (await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId, notes: commitNotes, request: commitRequest })).outcome === "request_reused" ? true : "accepted";
+  });
+  await kase("commit.zero-effect-review-retained", "an explicit evidenced zero-effect cleanup decision is retained by the real atomic server commit and replay, without dropping classes or changing their reconciled figures", async () => {
+    const c = await ctx();
+    const review = excludeReviewedZeroMovements(classFromScheduleRow({ classLabel: "Equipment", openingMinor: "1000000", closingMinor: "875000", movements: [{kind:"depreciation", amountMinor:"-125000"}, {kind:"disposals", amountMinor:"0"}] }, 2), 2,
+      "Synthetic test reviewer", "SYNTHETIC disposal log: no such events").answers.zero_effect_row_review;
+    const p = payloadFor(A, compose.compositionSha256); p.classes[0].answers.zero_effect_row_review = review;
+    const request = uuid();
+    const opts = { expectedWorkpaper: c.workpaper.id, expectedSchedule: c.schedule.id, request };
+    const r = await commit(p, opts); const again = await commit(p, opts); const after = await ctx();
+    const fact = after.answers.find(x => x.questionId === "zero_effect_row_review" && x.classKey === EQUIPMENT_ID);
+    return r.outcome === "recorded" && r.answersRecorded === 10 && again.replay === true && again.workpaperId === r.workpaperId
+      && fact?.workpaperId === r.workpaperId && isDeepStrictEqual(fact.answer, review)
+      && after.schedule.rows.length === 2 && (await ppeStatus()).status === "reconciled" ? true : {r,again,fact};
   });
   await kase("commit.stale-workpaper-schedule-note-refused", "a commit against the superseded workpaper, schedule or note revision is refused by name with nothing written", async () => {
     const c = await ctx(); const before = await counts();

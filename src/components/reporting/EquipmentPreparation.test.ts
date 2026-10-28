@@ -191,9 +191,9 @@ it("a difference is shown exactly and never balanced; the record button stays di
   await completePreparation();
   set(el("Equipment: Depreciation for the year Accumulated depreciation"), "1,000.00");
   await flush();
-  expect(text()).toContain("Accumulated depreciation: opening plus movements does not equal closing (difference 25000)");
+  expect(text()).toContain("Accumulated depreciation: opening plus movements does not equal closing (difference TZS 250.00)");
   expect((m!.container.querySelector("[data-testid=commit-classes]") as HTMLButtonElement).disabled).toBe(true);
-  expect(m!.container.querySelector("[data-testid=tieout-status]")!.textContent).toContain("differ by -25000");
+  expect(m!.container.querySelector("[data-testid=tieout-status]")!.textContent).toContain("differ by TZS -250.00");
 });
 
 it("conditional questions follow the facts: additions open the cost question, its flags open follow-ups, and expensed items block it", async () => {
@@ -299,4 +299,115 @@ it("REVIEW FINDING: a register charge that differs from the recorded depreciatio
   const payload = commitCalls()[0][1].p_payload as { classes: { estimate: { chargeDifference: { amountMinor: string; explanation: string } } }[] };
   expect(payload.classes[1].estimate.chargeDifference).toMatchObject({ amountMinor: "-25000", explanation: "Register still carries a pickup scrapped in January" });
   expect((el("Motor vehicles: Depreciation for the year Accumulated depreciation") as HTMLInputElement).value).toBe("750.00");
+});
+
+it("starts by reading and loading the recorded classes without two hidden setup clicks", async () => {
+  await start();
+  expect(rpc.mock.calls.filter(([n]) => n === "fs_equipment_context_v2")).toHaveLength(1);
+  expect(el("Equipment: opening carrying amount (net)")).not.toBeNull();
+  expect((el("Equipment: opening carrying amount (net)") as HTMLInputElement).value).toBe("16000.00");
+  expect((el("Equipment: closing total cost before depreciation (gross carrying amount)") as HTMLInputElement).value).toBe("");
+  expect(commitCalls()).toHaveLength(0);
+});
+
+it("a failed initial read explains the problem and offers a read-only retry", async () => {
+  rpc.mockRejectedValueOnce(new Error("network unavailable"));
+  await start();
+  expect(text()).toContain("Server preparation storage could not be read");
+  click(button("Read the recorded preparation")); await flush();
+  expect(el("Equipment: opening carrying amount (net)")).not.toBeNull();
+  expect(rpc.mock.calls.every(([name]) => name === "fs_equipment_context_v2")).toBe(true);
+});
+
+it("shows a depreciation mismatch in currency units without changing its exact amount", async () => {
+  await start(); await completePreparation();
+  set(el("Equipment: Depreciation for the year Accumulated depreciation"), "1,000.00"); await flush();
+  const warning=m!.container.querySelector("[data-testid=tieout-status]")!.textContent!;
+  expect(warning).toContain("TZS");
+  expect(warning).toContain("-250.00");
+  expect(warning).not.toContain("-25000");
+  expect((m!.container.querySelector("[data-testid=commit-classes]") as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("a late initial read never overwrites a class the preparer already typed", async () => {
+  let resolve!: (r: unknown) => void;
+  rpc.mockImplementationOnce(() => new Promise(r => { resolve=r; }));
+  await start();
+  click(button("Add a class")); set(el("Class name"),"My unsaved class");
+  await act(async()=>resolve({data:context(),error:null})); await flush();
+  expect((el("Class name") as HTMLInputElement).value).toBe("My unsaved class");
+  expect(m!.container.querySelectorAll('[aria-label="Class name"]')).toHaveLength(1);
+  expect(text()).toContain('has a class "Equipment" that this preparation does not include');
+  expect(commitCalls()).toHaveLength(0);
+});
+
+it("a saved workpaper requires explicit restoration and is never replaced with the schedule automatically", async () => {
+  rpc.mockImplementationOnce(async()=>({data:context({workpaper:{id:WP,payload:{},sourceDocumentId:null,createdAt:"",contract:"cfoclose-equipment-workpaper/2"}}),error:null}));
+  await start();
+  expect(rpc.mock.calls.filter(([n])=>n==="fs_equipment_context_v2")).toHaveLength(1);
+  expect(m!.container.querySelectorAll('[aria-label="Class name"]')).toHaveLength(0);
+  expect(button("Restore the saved preparation")).toBeDefined();
+  expect(text()).not.toContain("the destinations account for the whole charge");
+  expect(commitCalls()).toHaveLength(0);
+});
+
+it("recorded zero-effect entries are retained until an explicit evidenced review, not silently treated as no events", async () => {
+  rpc.mockImplementation(async(name:string,args:Record<string,unknown>)=> name==="fs_equipment_context_v2"
+    ? {data:context({schedule:{id:SCHED,sourceRef:"Synthetic prior schedule",createdAt:"",contentSha256:"a".repeat(64),rows:[{...RECORDED,movements:[...RECORDED.movements,{kind:"additions",amountMinor:"0"},{kind:"disposals",amountMinor:"0"}]}]}}),error:null}
+    : {data:{outcome:"recorded",workpaperId:WP,sourceRetained:false},error:null});
+  await start();
+  expect(m!.container.querySelectorAll('[data-recorded-zero]')).toHaveLength(2);
+  expect(text()).toContain("Zero net effect can hide a fully depreciated disposal");
+  const confirm=button("I checked: none of these events occurred — remove these zero-effect entries");
+  expect((confirm as HTMLButtonElement).disabled).toBe(true);
+  set(el("Equipment: zero-effect reviewer"),"Synthetic preparer");
+  expect((confirm as HTMLButtonElement).disabled).toBe(true);
+  set(el("Equipment: zero-effect evidence"),"Synthetic register and disposal log reviewed; no such events");
+  click(confirm); await flush();
+  expect(m!.container.querySelectorAll('[data-recorded-zero]')).toHaveLength(0);
+  expect(el("Equipment: Depreciation for the year Accumulated depreciation")).not.toBeNull();
+  expect(text()).toContain("Zero-effect entry review retained");
+  click(button("Save a draft")); await flush();
+  const call=rpc.mock.calls.find(([name])=>name==="fs_save_equipment_workpaper_v2")!;
+  const payload=call[1].p_payload as {classes:{movements:{kind:string}[];answers:Record<string,unknown>}[]};
+  expect(payload.classes[0].movements.map(m=>m.kind)).toEqual(["depreciation"]);
+  expect(payload.classes[0].answers.zero_effect_row_review).toMatchObject({status:"answered",checkedBy:"Synthetic preparer",evidence:"Synthetic register and disposal log reviewed; no such events",flags:{additions:true,disposals:true}});
+  expect(commitCalls()).toHaveLength(0);
+});
+
+it("the synthetic FY2025 workpaper restores, produces reviewed whole notes, saves and reloads through the real screen (fake transport)",async()=>{
+  const fs=await import("node:fs");
+  const f=JSON.parse(fs.readFileSync("docs/release/equipment-guided-start-r1/fixtures/synthetic-equipment-case.json","utf8"));
+  let stored=f;
+  rpc.mockImplementation(async(name:string,args:Record<string,unknown>)=>{
+    if(name==="fs_equipment_context_v2")return {data:context({workpaper:{id:WP,payload:stored,sourceDocumentId:null,createdAt:"",contract:"cfoclose-equipment-workpaper/2"}}),error:null};
+    if(name==="fs_commit_equipment_preparation_v2"){
+      stored=args.p_payload;
+      return {data:{outcome:"recorded",workpaperId:WP,schedule:{outcome:"unchanged"},notes:(args.p_notes as {requirementId:string}[]).map(n=>({...n,outcome:"recorded",textId:POL})),answersRecorded:7,sourceRetained:false},error:null};
+    }
+    throw new Error("Unexpected RPC");
+  });
+  const clients={signoff:{input:async()=>({comparative:{reportingEnd:"2024-12-31"},current:{reportingStart:"2025-01-01",reportingEnd:"2025-12-31"}})}};
+  const p=props({companyId:f.companyId,periodYear:2025,legalName:"CFOClose Complete Test",clients:clients as unknown as PageProps["clients"]});
+  await start(p);click(button("Restore the saved preparation"));await flush();
+  expect((el("Equipment: opening carrying amount (net)") as HTMLInputElement).value).toBe("16000.00");
+  expect((m!.container.querySelector('[data-testid=confirm-prior-figure]') as HTMLInputElement).checked).toBe(false);
+  expect(commitCalls()).toHaveLength(0);
+  click(m!.container.querySelector('[data-testid=confirm-prior-figure]')!);
+  click(m!.container.querySelector('[data-testid=confirm-movement-coverage]')!);await flush();
+  expect(text()).toContain("Every applicable question is answered");
+  expect(text()).toContain("Calculated charge 2000.00; schedule depreciation 2000.00; they agree");
+  click(button("Prepare the three note proposals for review"));await flush();
+  click(m!.container.querySelector('[data-testid=notes-reviewed]')!);
+  click(m!.container.querySelector('[data-testid=commit-all]')!);await flush();
+  expect(commitCalls()).toHaveLength(1);
+  const args=commitCalls()[0][1];
+  expect(args.p_expected_workpaper_id).toBe(WP);
+  expect((args.p_payload as {classes:{estimate:{calculatedChargeMinor:string}}[]}).classes[0].estimate.calculatedChargeMinor).toBe("200000");
+  expect((args.p_notes as {body:string}[])[0].body).toContain("Historical cost.");
+  expect(args.p_notes).toHaveLength(3);
+  click(button("Read the recorded preparation"));await flush();click(button("Restore the saved preparation"));await flush();
+  expect((el("Equipment: closing carrying amount (net)") as HTMLInputElement).value).toBe("14000.00");
+  expect((m!.container.querySelector('[data-testid=confirm-prior-figure]') as HTMLInputElement).checked).toBe(false);
+  expect(commitCalls()).toHaveLength(1);
 });

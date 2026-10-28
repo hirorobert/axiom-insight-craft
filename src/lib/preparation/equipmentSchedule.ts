@@ -4,7 +4,7 @@
  * every identity before anything is stored. Amounts are exact integer minor units as strings; nothing is rounded,
  * nothing is balanced for the preparer — an unexplained difference stays a difference.
  */
-import { MINOR } from "./equipment";
+import { MINOR, formatEquipmentAmount, type EquipmentAmountDisplay } from "./equipment";
 
 export const EQUIPMENT_CONTRACT_V2 = "cfoclose-equipment-workpaper/2";
 export const EQUIPMENT_CONTENT_VERSION_V2 = "sme-2015-equipment-preparation/2";
@@ -116,7 +116,8 @@ export type RollForwardResult = {
  * date, and opening + movements = closing in every column. Every movement needs a source (register, ledger account,
  * journal or reviewed workpaper); a blank component is unknown, not zero.
  */
-export function classRollForward(label: string, balances: ClassBalances, movements: readonly ClassMovement[], disposals: readonly DisposalItem[]): RollForwardResult {
+export function classRollForward(label: string, balances: ClassBalances, movements: readonly ClassMovement[], disposals: readonly DisposalItem[], display?: EquipmentAmountDisplay): RollForwardResult {
+  const money = (v: string | bigint) => formatEquipmentAmount(v, display);
   const problems: string[] = [];
   const cols = ["grossMinor", "accumulatedDepreciationMinor", "accumulatedImpairmentMinor"] as const;
   const bal = (b: BalanceSet) => ({ g: nonNegative(b.grossMinor), d: nonNegative(b.accumulatedDepreciationMinor), i: nonNegative(b.accumulatedImpairmentMinor), c: value(b.carryingMinor) });
@@ -154,9 +155,9 @@ export function classRollForward(label: string, balances: ClassBalances, movemen
         sc += cost; sd += ad; si += ai;
       }
       if (ok && disposals.length) {
-        if (sc !== -dg) problems.push(`Disposed cost ${sc} does not equal the cost removed in the disposals movement ${-dg}.`);
-        if (sd !== -dd) problems.push(`Accumulated depreciation eliminated ${sd} does not equal the disposals movement ${-dd}.`);
-        if (si !== -di) problems.push(`Accumulated impairment eliminated ${si} does not equal the disposals movement ${-di}.`);
+        if (sc !== -dg) problems.push(`Disposed cost ${money(sc)} does not equal the cost removed in the disposals movement ${money(-dg)}.`);
+        if (sd !== -dd) problems.push(`Accumulated depreciation eliminated ${money(sd)} does not equal the disposals movement ${money(-dd)}.`);
+        if (si !== -di) problems.push(`Accumulated impairment eliminated ${money(si)} does not equal the disposals movement ${money(-di)}.`);
       }
     }
   }
@@ -166,7 +167,7 @@ export function classRollForward(label: string, balances: ClassBalances, movemen
   const out: string[] = [];
   if (openingNet !== 0n) out.push("Opening gross less accumulated depreciation and impairment does not equal the opening carrying amount.");
   if (closingNet !== 0n) out.push("Closing gross less accumulated depreciation and impairment does not equal the closing carrying amount.");
-  for (const col of cols) if (diff[col] !== "0") out.push(`${col === "grossMinor" ? "Gross cost" : col === "accumulatedDepreciationMinor" ? "Accumulated depreciation" : "Accumulated impairment"}: opening plus movements does not equal closing (difference ${diff[col]}). Find the missing movement; nothing is inferred.`);
+  for (const col of cols) if (diff[col] !== "0") out.push(`${col === "grossMinor" ? "Gross cost" : col === "accumulatedDepreciationMinor" ? "Accumulated depreciation" : "Accumulated impairment"}: opening plus movements does not equal closing (difference ${money(diff[col])}). Find the missing movement; nothing is inferred.`);
   if (diff.carryingMinor !== "0" && !out.length) out.push("The carrying-amount schedule does not add up.");
   const agrees = out.length === 0;
   return {
@@ -220,7 +221,9 @@ export function depreciationTieOut(
   classes: readonly { movements: readonly ClassMovement[] }[],
   destinations: readonly DepreciationDestination[],
   composedLines: readonly { lineId: string; amountMinor: string }[],
+  display?: EquipmentAmountDisplay,
 ): TieOutResult {
+  const money = (v: string | bigint) => formatEquipmentAmount(v, display);
   const problems: string[] = [];
   let schedule = 0n, complete = true;
   for (const c of classes) for (const m of c.movements) if (m.kind === "depreciation") { const d = value(m.accumulatedDepreciationMinor); if (d === null) complete = false; else schedule += d; }
@@ -241,11 +244,11 @@ export function depreciationTieOut(
   }
   if (!complete) return { state: "incomplete", problems, scheduleDepreciationMinor: null, destinationsMinor: null, differenceMinor: null, lines };
   const diff = schedule - total;
-  if (diff !== 0n) problems.push(`Depreciation per the schedule (${schedule}) and its destinations (${total}) differ by ${diff}. Explain where the rest went; no journal is posted here.`);
+  if (diff !== 0n) problems.push(`Depreciation per the schedule (${money(schedule)}) and its destinations (${money(total)}) differ by ${money(diff)}. Explain where the rest went; no journal is posted here.`);
   const byNature = composedLines.find((l) => l.lineId === "sci.depreciation_and_amortisation");
   const sentByNature = lines.filter((l) => l.target === "sci.depreciation_and_amortisation").reduce((n, l) => n + BigInt(l.amountMinor), 0n);
   if (byNature && sentByNature !== BigInt(byNature.amountMinor) && destinations.some((d) => d.target === "sci.depreciation_and_amortisation") && !destinations.some((d) => hasText(d.explanation)))
-    problems.push(`The composed depreciation and amortisation line (${byNature.amountMinor}) differs from the depreciation sent to it (${sentByNature}); explain the difference (for example amortisation on that line).`);
+    problems.push(`The composed depreciation and amortisation line (${money(byNature.amountMinor)}) differs from the depreciation sent to it (${money(sentByNature)}); explain the difference (for example amortisation on that line).`);
   return { state: problems.length ? "difference" : "agrees", problems, scheduleDepreciationMinor: schedule.toString(), destinationsMinor: total.toString(), differenceMinor: diff.toString(), lines };
 }
 

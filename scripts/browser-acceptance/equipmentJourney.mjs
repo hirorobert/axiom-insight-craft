@@ -10,7 +10,7 @@
 //             accumulated depreciation; a typo leaves an exact difference that is never balanced
 //   tie-out   the 2,000 charge is tied to the expense line it is presented in (bounded by the composed line)
 //   questions only the applicable questions are asked; "none" needs who checked; the proposals appear when all are answered
-//   record    classes, nine answers and three reviewed whole notes are recorded in one server transaction; the server's
+//   record    classes, ten answers (including the zero-entry review) and three reviewed whole notes are recorded in one server transaction; the server's
 //             schedule status reads Reconciled with two classes; the notes keep their existing wording
 //   race      another preparer records a three-class schedule meanwhile; the page's next save is refused by name, every
 //             edit is retained, and re-reading the preparation brings the third class in (never dropped)
@@ -63,6 +63,9 @@ try {
   await vite.seen;
   const seed = await (await fetch(`${ready.bridge}/seed`, { method: "POST", headers: { "x-sim-user": "owner" }, body: "{}" })).json();
   const rpc = async (as, fn, body) => { const r = await fetch(`${ready.bridge}/rpc/${fn}`, { method: "POST", headers: { "content-type": "application/json", "x-sim-user": as }, body: JSON.stringify(body) }); return r.json(); };
+  const initial = await rpc("preparer", "fs_record_schedule", { p_company_id: seed.companyId, p_period_year: seed.periodYear, p_schedule_id: "ppe", p_source_ref: "SYNTHETIC recorded zero-effect entries for review", p_request_id: crypto.randomUUID(),
+    p_rows: [{classLabel:"Equipment",openingMinor:"1600000",closingMinor:"1400000",movements:[{kind:"additions",amountMinor:"0"},{kind:"disposals",amountMinor:"0"},{kind:"depreciation",amountMinor:"-200000"}]}] });
+  if (!["recorded", "unchanged"].includes(initial.outcome)) throw new Error(`Synthetic zero-entry setup refused: ${JSON.stringify(initial)}`);
   browser = await Browser.launch();
   const url = (as, hash, nav = true) => `http://127.0.0.1:${HARNESS_PORT}/dev-harness/reporting/index.html?bridge=${encodeURIComponent(ready.bridge)}&as=${as}${nav ? "" : "&nav=off"}#${hash}`;
   const open = async (as) => { const ctx = await browser.newContext(); const p = await ctx.newPage(); await p.setViewport(1280, 900); return p; };
@@ -121,14 +124,22 @@ try {
     await go(preparer, "preparer", "/statements/schedules", "Prepare equipment from supporting records");
     await preparer.click({ text: "Start guided equipment preparation" });
     await preparer.waitForText("1. Read the prior report");
-    await preparer.click({ text: "Read the recorded preparation" });
-    await preparer.waitForText("The recorded schedule has 1 class: Equipment.", { timeout: 20000 });
-    await preparer.click({ text: "Load the recorded classes into this preparation" });
-    await preparer.waitForText("1 recorded class loaded");
+    await preparer.waitForSelector('[aria-label="Equipment: opening carrying amount (net)"]', { timeout: 20000 });
     const opening = await fieldValue(preparer, "Equipment: opening carrying amount (net)"), dep = await fieldValue(preparer, "Equipment: Depreciation for the year Accumulated depreciation"), gross = await fieldValue(preparer, "Equipment: opening total cost before depreciation (gross carrying amount)");
     const life = await fieldValue(preparer, "Equipment: useful life in years");
     await shot(preparer, "01-loaded-class");
     return opening === "16000.00" && dep === "2000.00" && gross === "" && life === null ? true : { opening, dep, gross, life };
+  });
+  await check("recorded zero-effect entries remain until an explicit evidenced review; the recorded nonzero depreciation is kept", async () => {
+    const before = await preparer.evaluate(() => document.querySelectorAll('[data-recorded-zero]').length);
+    if (before !== 2) return {before};
+    const checked = await setField(preparer, "Equipment: zero-effect reviewer", "Synthetic browser-test preparer");
+    const evidence = await setField(preparer, "Equipment: zero-effect evidence", "SYNTHETIC purchase and disposal log: no such events");
+    if (checked !== true || evidence !== true) return {checked,evidence};
+    await preparer.click({text:"I checked: none of these events occurred — remove these zero-effect entries"});
+    await preparer.waitForText("Zero-effect entry review retained");
+    return (await preparer.evaluate(() => document.querySelectorAll('[data-recorded-zero]').length)) === 0
+      && (await fieldValue(preparer, "Equipment: Depreciation for the year Accumulated depreciation")) === "2000.00";
   });
   log("\n== Prior report, two classes, destinations");
   await check("the prior figure is confirmed from a referenced record; Equipment is split and Motor vehicles added; both classes roll forward and agree to the statement line; a typo leaves an exact difference that is never balanced", async () => {
@@ -154,7 +165,7 @@ try {
     // Any change to a class withdraws the coverage confirmation; the preparer confirms it again after the correction.
     const coverageWithdrawn = !(await preparer.evaluate(() => document.querySelector('[data-testid="confirm-movement-coverage"]').checked));
     await preparer.click('[data-testid="confirm-movement-coverage"]');
-    const commitDisabledDuringTypo = /difference 25000/.test(typo) && coverageWithdrawn;
+    const commitDisabledDuringTypo = /difference TZS 250.00/.test(typo) && coverageWithdrawn;
     return /agree to the server statement line/.test(statement) && /account for the whole charge/.test(tie) && /arithmetic agrees/.test(bridgeS) && /Roll-forward of Motor vehicles: cost, accumulated depreciation/.test(body) && commitDisabledDuringTypo ? true : { statement, tie, bridgeS, typo: typo.slice(0, 300) };
   });
   log("\n== Only the applicable questions; proposals when answered");
@@ -187,7 +198,7 @@ try {
     const ppe = status.requirements?.find((x) => x.requirementId === "smes.schedule.ppe");
     await go(preparer, "preparer", "/statements/schedules", "Property, plant and equipment");
     const shown = await preparer.evaluate(() => document.querySelector('[data-testid="schedule-status-ppe"]')?.innerText);
-    return policyNote.startsWith("Historical cost.") && ctx.schedule?.rows?.length === 2 && ctx.schedule.rows.map((x) => x.classLabel).join("|") === "Equipment|Motor vehicles" && ctx.answers?.length === 9
+    return policyNote.startsWith("Historical cost.") && ctx.schedule?.rows?.length === 2 && ctx.schedule.rows.map((x) => x.classLabel).join("|") === "Equipment|Motor vehicles" && ctx.answers?.length === 10 && ctx.answers.some(a => a.questionId === "zero_effect_row_review" && a.answer.checkedBy === "Synthetic browser-test preparer")
       && ctx.notes["smes.note.policies"].body.startsWith("Historical cost.") && ctx.notes["smes.note.estimates"].body.startsWith("Useful lives.") && ppe?.status === "reconciled" && /Reconciled/.test(shown ?? "")
       ? true : { rows: ctx.schedule?.rows?.length, answers: ctx.answers?.length, ppe: ppe?.status, shown };
   });
