@@ -617,6 +617,13 @@
       "when": 1792994421953,
       "tag": "0087_internal_beta_team_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793194657471,
+      "tag": "0088_equipment_staged_transport",
+      "breakpoints": true
     }
   ]
 }
