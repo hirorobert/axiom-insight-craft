@@ -1,0 +1,6 @@
+Evidence status,Class,Asset,Available for use,Cost TZS,Residual TZS,Useful life years,Method,Convention,Opening accumulated depreciation TZS,Opening carrying amount TZS,Addition TZS,Disposal cost TZS,Disposal accumulated depreciation TZS,Disposal proceeds TZS,Disposal date,Current depreciation TZS,Closing accumulated depreciation TZS,Closing carrying amount TZS
+SYNTHETIC SOFTWARE TEST ONLY,Plant and machinery,M-1 mill,2021-07-01,12000.00,0.00,10,straight-line,daily,3600.00,8400.00,,,,,,1200.00,4800.00,7200.00
+SYNTHETIC SOFTWARE TEST ONLY,Plant and machinery,M-2 bottling line,2021-07-01,7300.00,0.00,10,straight-line,daily,2190.00,5110.00,,7300.00,2558.00,5042.00,2025-01-01,368.00,0.00,0.00
+SYNTHETIC SOFTWARE TEST ONLY,Plant and machinery,M-3 dryer,2024-12-31,10950.00,0.00,10,straight-line,daily,0.00,0.00,10950.00,,,,,546.00,546.00,10404.00
+SYNTHETIC SOFTWARE TEST ONLY,Motor vehicles,V-1 pickup,2022-07-01,8000.00,0.00,5,straight-line,daily,3200.00,4800.00,,,,,,1600.00,4800.00,3200.00
+SYNTHETIC SOFTWARE TEST ONLY,Motor vehicles,V-2 delivery van,2024-10-01,7300.00,0.00,5,straight-line,daily,0.00,0.00,7300.00,,,,,1092.00,1092.00,6208.00

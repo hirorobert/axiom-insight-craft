@@ -1,0 +1,1288 @@
+{
+  "proof": "completeSmeReport",
+  "startedAt": "2026-10-28T17:51:16.560Z",
+  "finishedAt": "2026-10-28T17:51:42.867Z",
+  "evidence": {
+    "c1": {
+      "label": "Case 1: the acceptance-r1 engagement (the hosted demo company's dedicated FY2025/FY2024 engagement, replicated on a disposable database)",
+      "legalName": "Acceptance Synthetic Engagement",
+      "periodYear": 2025,
+      "current": {
+        "start": "2025-01-01",
+        "end": "2025-12-31"
+      },
+      "prior": {
+        "start": "2024-01-01",
+        "end": "2024-12-31"
+      },
+      "composition": {
+        "state": "composed",
+        "ppe": "1400000",
+        "ppePrior": "1600000",
+        "compositionSha256": "095a8f84d20497170b1e2b5f617a56c70d2c3bcceb606ac6fd6e02c99f99ad2c"
+      },
+      "outstandingBefore": {
+        "blockers": [
+          "STATEMENT_EVIDENCE_MISSING:smes.set.socie",
+          "STATEMENT_EVIDENCE_MISSING:smes.set.scf"
+        ],
+        "count": 11,
+        "rows": [
+          {
+            "requirementId": "smes.note.policies",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.judgements",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.estimates",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.subclassifications",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.share_capital",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.going_concern",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.authorisation",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.kmp_compensation",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.cash_components",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.income_tax",
+            "status": "provided",
+            "placeholder": true
+          },
+          {
+            "requirementId": "smes.note.revenue",
+            "status": "provided",
+            "placeholder": true
+          }
+        ]
+      },
+      "questions": {
+        "asked": [
+          "classes:resolved",
+          "restrictions_security:none_with_basis",
+          "commitments:none_with_basis",
+          "impairment:answered",
+          "events_after:none_with_basis",
+          "framework_history:answered",
+          "recognition@55555555-5555-4555-8555-555555555555:answered",
+          "components@55555555-5555-4555-8555-555555555555:answered",
+          "basis@55555555-5555-4555-8555-555555555555:resolved",
+          "estimates@55555555-5555-4555-8555-555555555555:resolved",
+          "method@55555555-5555-4555-8555-555555555555:resolved",
+          "gross@55555555-5555-4555-8555-555555555555:resolved",
+          "movements@55555555-5555-4555-8555-555555555555:resolved"
+        ],
+        "unresolved": []
+      },
+      "equipment": {
+        "workpaperId": "d14a659b-99d7-4178-86df-083b47f2604f",
+        "scheduleSubmissionId": "9c2f5f46-1a09-4094-a88d-9dbc0d51f698",
+        "answersRecorded": 7,
+        "notes": [
+          {
+            "textId": "7f84d5f0-7090-4ea1-8c84-709109077a6c",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.policies"
+          },
+          {
+            "textId": "b0077e1a-fef4-49e5-b549-9bb5c8ef7b9e",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.estimates"
+          },
+          {
+            "textId": "d6c32197-074a-42fa-a784-648b148fa4d6",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.subclassifications"
+          }
+        ],
+        "items": [
+          {
+            "class": "Equipment",
+            "item": "SYNTHETIC E-001",
+            "state": "calculated",
+            "chargeMinor": "200000",
+            "basis": null
+          }
+        ],
+        "perClass": [
+          {
+            "label": "Equipment",
+            "calculated": "200000",
+            "serverSum": "200000",
+            "recorded": "-200000"
+          }
+        ],
+        "totalDepreciationMinor": "200000",
+        "schedule": {
+          "status": "reconciled",
+          "scheduleClosingMinor": "1400000",
+          "composedClosingMinor": "1400000",
+          "scheduleOpeningMinor": "1600000",
+          "composedOpeningMinor": "1600000",
+          "sourceRef": "Reviewed equipment workpaper d14a659b-99d7-4178-86df-083b47f2604f"
+        }
+      },
+      "resolution": [
+        {
+          "requirementId": "smes.set.sfp",
+          "kind": "STATEMENT",
+          "before": "composed",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.sci",
+          "kind": "STATEMENT",
+          "before": "composed",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.socie",
+          "kind": "STATEMENT",
+          "before": "evidence_missing",
+          "controls": "unchanged",
+          "after": "evidence_missing",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.scf",
+          "kind": "STATEMENT",
+          "before": "evidence_missing",
+          "controls": "unchanged",
+          "after": "evidence_missing",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.notes",
+          "kind": "STATEMENT",
+          "before": "derived",
+          "controls": "unchanged",
+          "after": "derived",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.period.annual",
+          "kind": "PERIOD",
+          "before": "satisfied",
+          "controls": "unchanged",
+          "after": "satisfied",
+          "basis": "A twelve-month period.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.compliance",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.identification",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.policies",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper d14a659b-99d7-4178-86df-083b47f2604f"
+        },
+        {
+          "requirementId": "smes.note.judgements",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.estimates",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper d14a659b-99d7-4178-86df-083b47f2604f"
+        },
+        {
+          "requirementId": "smes.note.subclassifications",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper d14a659b-99d7-4178-86df-083b47f2604f"
+        },
+        {
+          "requirementId": "smes.note.share_capital",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.schedule.ppe",
+          "kind": "SCHEDULE",
+          "before": "reconciled",
+          "controls": "fs_commit_equipment_preparation_v2 (schedule)",
+          "after": "reconciled",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper d14a659b-99d7-4178-86df-083b47f2604f"
+        },
+        {
+          "requirementId": "smes.schedule.investment_property_cost",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.investment_property_fair_value",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.intangibles",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.provisions",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.early_application",
+          "kind": "DISCLOSURE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "The edition is applied from its effective date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.going_concern",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.authorisation",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.kmp_compensation",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.cash_components",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.income_tax",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": "The composed line sci.tax_expense carries an amount; the disclosure applies.",
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.revenue",
+          "kind": "DISCLOSURE",
+          "before": "provided (placeholder wording)",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": "The composed line sci.revenue carries an amount; the disclosure applies.",
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file"
+        },
+        {
+          "requirementId": "smes.note.events_after",
+          "kind": "DISCLOSURE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No non-adjusting event after the synthetic period",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.related_party_control",
+          "kind": "DISCLOSURE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "The synthetic entity has no parent or controlling party",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.related_party_transactions",
+          "kind": "DISCLOSURE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No related party transaction in the synthetic periods",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_e",
+          "kind": "LINE_ITEM",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No discontinued operation in the synthetic periods",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_g",
+          "kind": "LINE_ITEM",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No item of 5.4(b) other comprehensive income in the synthetic periods",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_h",
+          "kind": "LINE_ITEM",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No equity-accounted investee in the synthetic periods",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_i",
+          "kind": "LINE_ITEM",
+          "before": "composed",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": "No other comprehensive income (5.5(g) and (h) decided not applicable): total comprehensive income equals profit or loss (5.5(i)).",
+          "sourceRef": null
+        }
+      ],
+      "afterBlockers": [
+        "STATEMENT_EVIDENCE_MISSING:smes.set.socie",
+        "STATEMENT_EVIDENCE_MISSING:smes.set.scf"
+      ],
+      "versions": {
+        "blockedVersion": 2,
+        "blockers": [
+          "CLOSE_REVIEW_FINDINGS_NOT_CHECKED"
+        ],
+        "closeReviewFindings": [
+          "A01:A01:91510"
+        ],
+        "readyVersion": 3,
+        "ready": true,
+        "readyBlockers": [],
+        "notesBlockers": [],
+        "statementEvidence": [
+          "smes.set.sfp:composed",
+          "smes.set.sci:composed",
+          "smes.set.socie:evidence_present",
+          "smes.set.scf:evidence_present",
+          "smes.set.notes:derived"
+        ]
+      },
+      "figures": {
+        "Total assets CURRENT": "3300000",
+        "Total assets COMPARATIVE_1": "2880000",
+        "Total equity CURRENT": "2100000",
+        "Total equity COMPARATIVE_1": "1660000",
+        "Total liabilities CURRENT": "1200000",
+        "Total liabilities COMPARATIVE_1": "1220000",
+        "Profit before tax CURRENT": "600000",
+        "Profit before tax COMPARATIVE_1": "380000",
+        "Profit for the period CURRENT": "510000",
+        "Profit for the period COMPARATIVE_1": "310000",
+        "Total comprehensive income CURRENT": "510000",
+        "Total comprehensive income COMPARATIVE_1": "310000",
+        "Net cash from operating activities CURRENT": "620000",
+        "Net cash from operating activities COMPARATIVE_1": "470000",
+        "Net cash from financing activities CURRENT": "-170000",
+        "Net cash from financing activities COMPARATIVE_1": "-170000",
+        "Cash at the end of the period CURRENT": "1250000",
+        "Cash at the end of the period COMPARATIVE_1": "800000",
+        "Total equity at the end of the period CURRENT": "2100000",
+        "Total equity at the end of the period COMPARATIVE_1": "1660000",
+        "PPE schedule closing": "1400000"
+      },
+      "reconciliations": {
+        "ties": {
+          "cashCurrent": {
+            "a": "1250000",
+            "b": "1250000",
+            "agrees": true
+          },
+          "cashComparative": {
+            "a": "800000",
+            "b": "800000",
+            "agrees": true
+          },
+          "openingCash": {
+            "a": "800000",
+            "b": "800000",
+            "agrees": true
+          },
+          "equityCurrent": {
+            "a": "2100000",
+            "b": "2100000",
+            "agrees": true
+          },
+          "equityComparative": {
+            "a": "1660000",
+            "b": "1660000",
+            "agrees": true
+          },
+          "ppeClosing": {
+            "a": "1400000",
+            "b": "1400000",
+            "agrees": true
+          },
+          "ppeOpening": {
+            "a": "1600000",
+            "b": "1600000",
+            "agrees": true
+          },
+          "depreciation": {
+            "a": "200000",
+            "b": "200000",
+            "agrees": true
+          },
+          "depreciationWithinPresentedLine": {
+            "depreciation": "200000",
+            "line": "990000",
+            "agrees": true
+          }
+        },
+        "blockers": []
+      },
+      "review": {
+        "policy": "separate_approvers",
+        "reviewed": "REVIEWED",
+        "sameApproverRefusal": "SIGNOFF_SEPARATE_APPROVERS_REQUIRED: the final approval must be recorded by someone other than the reviewer (the company",
+        "final": "FINAL",
+        "publications": [
+          "3:REVIEWED",
+          "3:FINAL"
+        ]
+      },
+      "issuance": {
+        "issuanceId": "ea0af079-cf50-422c-8f73-17238c3173ee",
+        "fileName": "official-reporting-pack-2025-ea0af079-cf50-422c-8f73-17238c3173ee.json",
+        "bytes": 343244,
+        "localSha256": "dc75ae191592dc884f862082a712dab672cc7ee75532451f1f41e616165a790a",
+        "sealedSha256": "dc75ae191592dc884f862082a712dab672cc7ee75532451f1f41e616165a790a",
+        "verify": {
+          "outcome": "intact",
+          "official": true,
+          "superseded": false
+        },
+        "retrieved": "retrieved",
+        "retrievedSha256": "dc75ae191592dc884f862082a712dab672cc7ee75532451f1f41e616165a790a",
+        "superseded": false
+      },
+      "history": {
+        "laterChange": "recorded",
+        "finalRowsIdentical": true,
+        "verifyAfter": {
+          "outcome": "intact",
+          "official": true,
+          "superseded": false
+        },
+        "staleBlockers": [
+          "REPORTING_DEPENDENCIES_STALE",
+          "SERVER_COMPILATION_STALE"
+        ],
+        "newVersion": 4,
+        "publications": [
+          "3:REVIEWED",
+          "3:FINAL"
+        ]
+      }
+    },
+    "c2": {
+      "label": "Case 2: Mwanza Agro Supplies (synthetic): year to 30 June, two equipment classes, an addition and a disposal with proceeds, a director's loan and a post-period dividend",
+      "legalName": "Mwanza Agro Supplies Limited (synthetic)",
+      "periodYear": 2025,
+      "current": {
+        "start": "2024-07-01",
+        "end": "2025-06-30"
+      },
+      "prior": {
+        "start": "2023-07-01",
+        "end": "2024-06-30"
+      },
+      "composition": {
+        "state": "composed",
+        "ppe": "2701200",
+        "ppePrior": "1831000",
+        "compositionSha256": "90a8383db7e47eb3748b023b813f48b4fa19f8f5115aa0a5c1922fd3f6d07ea1"
+      },
+      "outstandingBefore": {
+        "blockers": [
+          "STATEMENT_EVIDENCE_MISSING:smes.set.socie",
+          "STATEMENT_EVIDENCE_MISSING:smes.set.scf",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.compliance",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.identification",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.policies",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.judgements",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.estimates",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.subclassifications",
+          "REQUIREMENT_UNDECIDED:smes.note.share_capital",
+          "SCHEDULE_MISSING:ppe",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.going_concern",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.authorisation",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.kmp_compensation",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.cash_components",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.income_tax",
+          "REQUIRED_DISCLOSURE_MISSING:smes.note.revenue",
+          "REQUIREMENT_UNDECIDED:smes.note.events_after",
+          "REQUIREMENT_UNDECIDED:smes.note.related_party_control",
+          "REQUIREMENT_UNDECIDED:smes.note.related_party_transactions",
+          "REQUIREMENT_UNDECIDED:smes.sci.5_5_e",
+          "REQUIREMENT_UNDECIDED:smes.sci.5_5_g",
+          "REQUIREMENT_UNDECIDED:smes.sci.5_5_h"
+        ],
+        "count": 21,
+        "rows": [
+          {
+            "requirementId": "smes.note.compliance",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.identification",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.policies",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.judgements",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.estimates",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.subclassifications",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.share_capital",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.schedule.ppe",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.going_concern",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.authorisation",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.kmp_compensation",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.cash_components",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.income_tax",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.revenue",
+            "status": "missing",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.events_after",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.related_party_control",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.note.related_party_transactions",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.sci.5_5_e",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.sci.5_5_g",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.sci.5_5_h",
+            "status": "undecided",
+            "placeholder": false
+          },
+          {
+            "requirementId": "smes.sci.5_5_i",
+            "status": "undecided",
+            "placeholder": false
+          }
+        ]
+      },
+      "questions": {
+        "asked": [
+          "classes:resolved",
+          "restrictions_security:none_with_basis",
+          "commitments:none_with_basis",
+          "impairment:answered",
+          "events_after:answered",
+          "framework_history:answered",
+          "recognition@66666666-6666-4666-8666-666666666666:answered",
+          "components@66666666-6666-4666-8666-666666666666:answered",
+          "basis@66666666-6666-4666-8666-666666666666:resolved",
+          "estimates@66666666-6666-4666-8666-666666666666:resolved",
+          "method@66666666-6666-4666-8666-666666666666:resolved",
+          "gross@66666666-6666-4666-8666-666666666666:resolved",
+          "movements@66666666-6666-4666-8666-666666666666:resolved",
+          "addition_cost@66666666-6666-4666-8666-666666666666:answered",
+          "disposals@66666666-6666-4666-8666-666666666666:resolved",
+          "recognition@77777777-7777-4777-8777-777777777777:answered",
+          "components@77777777-7777-4777-8777-777777777777:answered",
+          "basis@77777777-7777-4777-8777-777777777777:resolved",
+          "estimates@77777777-7777-4777-8777-777777777777:resolved",
+          "method@77777777-7777-4777-8777-777777777777:resolved",
+          "gross@77777777-7777-4777-8777-777777777777:resolved",
+          "movements@77777777-7777-4777-8777-777777777777:resolved",
+          "addition_cost@77777777-7777-4777-8777-777777777777:answered"
+        ],
+        "unresolved": []
+      },
+      "equipment": {
+        "workpaperId": "dfbfa4c9-0970-4c38-a48b-cd211530066a",
+        "scheduleSubmissionId": "5aa6babc-30ef-46df-ac8b-0840753555e7",
+        "answersRecorded": 12,
+        "notes": [
+          {
+            "textId": "54d5dfce-d907-40d2-a20c-d9fdbfe537c9",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.policies"
+          },
+          {
+            "textId": "2347d392-0c2a-4515-9d96-5ee2074ab5b1",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.estimates"
+          },
+          {
+            "textId": "4ba01691-b8c6-49fe-96de-3795db4f0d7d",
+            "outcome": "recorded",
+            "withdrawn": false,
+            "requirementId": "smes.note.subclassifications"
+          }
+        ],
+        "items": [
+          {
+            "class": "Plant and machinery",
+            "item": "M-1 mill",
+            "state": "calculated",
+            "chargeMinor": "120000",
+            "basis": null
+          },
+          {
+            "class": "Plant and machinery",
+            "item": "M-2 bottling line",
+            "state": "calculated",
+            "chargeMinor": "36800",
+            "basis": null
+          },
+          {
+            "class": "Plant and machinery",
+            "item": "M-3 dryer",
+            "state": "calculated",
+            "chargeMinor": "54600",
+            "basis": null
+          },
+          {
+            "class": "Motor vehicles",
+            "item": "V-1 pickup",
+            "state": "calculated",
+            "chargeMinor": "160000",
+            "basis": null
+          },
+          {
+            "class": "Motor vehicles",
+            "item": "V-2 delivery van",
+            "state": "calculated",
+            "chargeMinor": "109200",
+            "basis": null
+          }
+        ],
+        "perClass": [
+          {
+            "label": "Plant and machinery",
+            "calculated": "211400",
+            "serverSum": "211400",
+            "recorded": "-211400"
+          },
+          {
+            "label": "Motor vehicles",
+            "calculated": "269200",
+            "serverSum": "269200",
+            "recorded": "-269200"
+          }
+        ],
+        "totalDepreciationMinor": "480600",
+        "schedule": {
+          "status": "reconciled",
+          "scheduleClosingMinor": "2701200",
+          "composedClosingMinor": "2701200",
+          "scheduleOpeningMinor": "1831000",
+          "composedOpeningMinor": "1831000",
+          "sourceRef": "Reviewed equipment workpaper dfbfa4c9-0970-4c38-a48b-cd211530066a"
+        }
+      },
+      "resolution": [
+        {
+          "requirementId": "smes.set.sfp",
+          "kind": "STATEMENT",
+          "before": "composed",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.sci",
+          "kind": "STATEMENT",
+          "before": "composed",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.socie",
+          "kind": "STATEMENT",
+          "before": "evidence_missing",
+          "controls": "unchanged",
+          "after": "evidence_missing",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.scf",
+          "kind": "STATEMENT",
+          "before": "evidence_missing",
+          "controls": "unchanged",
+          "after": "evidence_missing",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.set.notes",
+          "kind": "STATEMENT",
+          "before": "derived",
+          "controls": "unchanged",
+          "after": "derived",
+          "basis": null,
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.period.annual",
+          "kind": "PERIOD",
+          "before": "satisfied",
+          "controls": "unchanged",
+          "after": "satisfied",
+          "basis": "A twelve-month period.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.compliance",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.identification",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.policies",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper dfbfa4c9-0970-4c38-a48b-cd211530066a"
+        },
+        {
+          "requirementId": "smes.note.judgements",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.estimates",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper dfbfa4c9-0970-4c38-a48b-cd211530066a"
+        },
+        {
+          "requirementId": "smes.note.subclassifications",
+          "kind": "DISCLOSURE",
+          "before": "provided",
+          "controls": "fs_commit_equipment_preparation_v2 (reviewed whole note)",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper dfbfa4c9-0970-4c38-a48b-cd211530066a"
+        },
+        {
+          "requirementId": "smes.note.share_capital",
+          "kind": "DISCLOSURE",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:applicable + fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.schedule.ppe",
+          "kind": "SCHEDULE",
+          "before": "reconciled",
+          "controls": "fs_commit_equipment_preparation_v2 (schedule)",
+          "after": "reconciled",
+          "basis": null,
+          "sourceRef": "Reviewed equipment workpaper dfbfa4c9-0970-4c38-a48b-cd211530066a"
+        },
+        {
+          "requirementId": "smes.schedule.investment_property_cost",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.investment_property_fair_value",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.intangibles",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.schedule.provisions",
+          "kind": "SCHEDULE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "No carrying amount on the composed statement at either date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.early_application",
+          "kind": "DISCLOSURE",
+          "before": "not_applicable",
+          "controls": "unchanged",
+          "after": "not_applicable",
+          "basis": "The edition is applied from its effective date.",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.note.going_concern",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.authorisation",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.kmp_compensation",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.cash_components",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.income_tax",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": "The composed line sci.tax_expense carries an amount; the disclosure applies.",
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.revenue",
+          "kind": "DISCLOSURE",
+          "before": "missing",
+          "controls": "fs_record_disclosure",
+          "after": "provided",
+          "basis": "The composed line sci.revenue carries an amount; the disclosure applies.",
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.events_after",
+          "kind": "DISCLOSURE",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:applicable + fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.related_party_control",
+          "kind": "DISCLOSURE",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:applicable + fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.note.related_party_transactions",
+          "kind": "DISCLOSURE",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:applicable + fs_record_disclosure",
+          "after": "provided",
+          "basis": null,
+          "sourceRef": "Complete SME report: synthetic FY2025 engagement file (case 2)"
+        },
+        {
+          "requirementId": "smes.sci.5_5_e",
+          "kind": "LINE_ITEM",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:not_applicable",
+          "after": "not_applicable",
+          "basis": "No operation was discontinued in either year; the M-2 sale is an asset disposal within continuing operations",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_g",
+          "kind": "LINE_ITEM",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:not_applicable",
+          "after": "not_applicable",
+          "basis": "No item of other comprehensive income arose in either year: no revaluation, foreign operation, hedge or actuarial gain or loss",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_h",
+          "kind": "LINE_ITEM",
+          "before": "undecided",
+          "controls": "fs_decide_requirement:not_applicable",
+          "after": "not_applicable",
+          "basis": "The entity holds no investment in an associate or jointly controlled entity",
+          "sourceRef": null
+        },
+        {
+          "requirementId": "smes.sci.5_5_i",
+          "kind": "LINE_ITEM",
+          "before": "undecided",
+          "controls": "unchanged",
+          "after": "composed",
+          "basis": "No other comprehensive income (5.5(g) and (h) decided not applicable): total comprehensive income equals profit or loss (5.5(i)).",
+          "sourceRef": null
+        }
+      ],
+      "afterBlockers": [
+        "STATEMENT_EVIDENCE_MISSING:smes.set.socie",
+        "STATEMENT_EVIDENCE_MISSING:smes.set.scf"
+      ],
+      "versions": {
+        "blockedVersion": 2,
+        "blockers": [
+          "CLOSE_REVIEW_FINDINGS_NOT_CHECKED"
+        ],
+        "closeReviewFindings": [
+          "A01:A01:81610",
+          "A01:A01:81510"
+        ],
+        "readyVersion": 3,
+        "ready": true,
+        "readyBlockers": [],
+        "notesBlockers": [],
+        "statementEvidence": [
+          "smes.set.sfp:composed",
+          "smes.set.sci:composed",
+          "smes.set.socie:evidence_present",
+          "smes.set.scf:evidence_present",
+          "smes.set.notes:derived"
+        ]
+      },
+      "figures": {
+        "Total assets CURRENT": "4285000",
+        "Total assets COMPARATIVE_1": "4185000",
+        "Total equity CURRENT": "3245000",
+        "Total equity COMPARATIVE_1": "3025000",
+        "Total liabilities CURRENT": "1040000",
+        "Total liabilities COMPARATIVE_1": "1160000",
+        "Profit before tax CURRENT": "440000",
+        "Profit before tax COMPARATIVE_1": "205000",
+        "Profit for the period CURRENT": "320000",
+        "Profit for the period COMPARATIVE_1": "125000",
+        "Total comprehensive income CURRENT": "320000",
+        "Total comprehensive income COMPARATIVE_1": "125000",
+        "Net cash from operating activities CURRENT": "650600",
+        "Net cash from operating activities COMPARATIVE_1": "423000",
+        "Net cash from investing activities CURRENT": "-1320800",
+        "Net cash from investing activities COMPARATIVE_1": "5000",
+        "Net cash from financing activities CURRENT": "-300000",
+        "Net cash from financing activities COMPARATIVE_1": "-100000",
+        "Cash at the end of the period CURRENT": "633800",
+        "Cash at the end of the period COMPARATIVE_1": "1604000",
+        "Total equity at the end of the period CURRENT": "3245000",
+        "Total equity at the end of the period COMPARATIVE_1": "3025000",
+        "PPE schedule closing": "2701200"
+      },
+      "reconciliations": {
+        "ties": {
+          "cashCurrent": {
+            "a": "633800",
+            "b": "633800",
+            "agrees": true
+          },
+          "cashComparative": {
+            "a": "1604000",
+            "b": "1604000",
+            "agrees": true
+          },
+          "openingCash": {
+            "a": "1604000",
+            "b": "1604000",
+            "agrees": true
+          },
+          "equityCurrent": {
+            "a": "3245000",
+            "b": "3245000",
+            "agrees": true
+          },
+          "equityComparative": {
+            "a": "3025000",
+            "b": "3025000",
+            "agrees": true
+          },
+          "ppeClosing": {
+            "a": "2701200",
+            "b": "2701200",
+            "agrees": true
+          },
+          "ppeOpening": {
+            "a": "1831000",
+            "b": "1831000",
+            "agrees": true
+          },
+          "depreciation": {
+            "a": "480600",
+            "b": "480600",
+            "agrees": true
+          },
+          "depreciationWithinPresentedLine": {
+            "depreciation": "480600",
+            "line": "1480600",
+            "agrees": true
+          }
+        },
+        "blockers": []
+      },
+      "review": {
+        "policy": "separate_approvers",
+        "reviewed": "REVIEWED",
+        "sameApproverRefusal": "SIGNOFF_SEPARATE_APPROVERS_REQUIRED: the final approval must be recorded by someone other than the reviewer (the company",
+        "final": "FINAL",
+        "publications": [
+          "3:REVIEWED",
+          "3:FINAL"
+        ]
+      },
+      "issuance": {
+        "issuanceId": "468c87d7-baae-4aac-9748-1be328e750f4",
+        "fileName": "official-reporting-pack-2025-468c87d7-baae-4aac-9748-1be328e750f4.json",
+        "bytes": 370058,
+        "localSha256": "4ed30ac7c0d5d94ed7c1d740ccdf121564d1436159cc0cb41a6c60124402253f",
+        "sealedSha256": "4ed30ac7c0d5d94ed7c1d740ccdf121564d1436159cc0cb41a6c60124402253f",
+        "verify": {
+          "outcome": "intact",
+          "official": true,
+          "superseded": false
+        },
+        "retrieved": "retrieved",
+        "retrievedSha256": "4ed30ac7c0d5d94ed7c1d740ccdf121564d1436159cc0cb41a6c60124402253f",
+        "superseded": false
+      },
+      "history": {
+        "laterChange": "recorded",
+        "finalRowsIdentical": true,
+        "verifyAfter": {
+          "outcome": "intact",
+          "official": true,
+          "superseded": false
+        },
+        "staleBlockers": [
+          "REPORTING_DEPENDENCIES_STALE",
+          "SERVER_COMPILATION_STALE"
+        ],
+        "newVersion": 4,
+        "publications": [
+          "3:REVIEWED",
+          "3:FINAL"
+        ]
+      }
+    }
+  }
+}

@@ -1009,6 +1009,18 @@ verified against any server authority (stated): disclosure wording and policies 
 `fs_notes_status`), the entity's legal name (20261123100000 binds it to `companies.name` at compilation), the labels of
 cash-flow lines and equity components (they ARE the evidence rows' own text, verified to match those rows).
 
+**DEFECT-FS-NEW-ACCOUNT-COMPARATIVE-CASTING-001** — Severity: HIGH — Status: OPEN / SIGN-OFF BLOCKER
+
+An account present only in the current year's certified trial balance blocks sign-off of the financial statements:
+the compiler's `subtotal-casting` rule returns `INSUFFICIENT_EVIDENCE` for the comparative period on the line the
+account is presented in (its detail line has no comparative fact), while `fs_statement_composition` presents a
+comparative amount of 0 for the same line from zero accounts. A nil-balance row for the account in the prior-year
+trial balance does not help: `process-trial-balance` drops pure-zero rows as sentinels. Found by the second synthetic
+case of `scripts/db-proof/completeSmeReport.mjs` (2026-10-28; `docs/release/complete-sme-report/RECORD.md` §6). Not
+fixed there; needs a product decision (nil for casting when the comparative trial balance is certified and complete,
+or a declared-nil account row) and its own migration/compiler change. Do not work around it in fixtures without
+saying so.
+
 ### 9.2 Registered Commercial Go-Live Gates
 
 **LEGAL_PROFESSIONAL_REVIEW_REQUIRED_BEFORE_PAID_GO_LIVE** — not a code

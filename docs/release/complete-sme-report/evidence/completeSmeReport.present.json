@@ -1,0 +1,124 @@
+{
+  "proof": "completeSmeReport",
+  "mode": "present",
+  "manifestSha256": "99d50d1dcbfa28e5cbee266bca83927df953a945c1ab6d87e7be688e796855f1",
+  "startedAt": "2026-10-28T17:51:16.560Z",
+  "finishedAt": "2026-10-28T17:51:42.867Z",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.chain-applies",
+      "outcome": "pass"
+    },
+    {
+      "id": "static.one-runner-no-case-branch",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.setup.engagement",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.notes.outstanding-before",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.equipment.applicable-questions-answered",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.equipment.draft-retained-on-reload",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.equipment.recorded-from-register",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.equipment.reload-shows-recorded",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.notes.every-requirement-resolved",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.statements.version-after-close-review",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.statements.expected-totals",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.statements.reconciliations",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.review.policy-and-two-approvers",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.issuance.official-pack-verified",
+      "outcome": "pass"
+    },
+    {
+      "id": "c1.final.preserved-after-later-change",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.setup.engagement",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.notes.outstanding-before",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.equipment.applicable-questions-answered",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.equipment.draft-retained-on-reload",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.equipment.recorded-from-register",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.equipment.reload-shows-recorded",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.notes.every-requirement-resolved",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.statements.version-after-close-review",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.statements.expected-totals",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.statements.reconciliations",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.review.policy-and-two-approvers",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.issuance.official-pack-verified",
+      "outcome": "pass"
+    },
+    {
+      "id": "c2.final.preserved-after-later-change",
+      "outcome": "pass"
+    }
+  ]
+}

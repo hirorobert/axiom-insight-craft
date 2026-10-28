@@ -1,0 +1,21 @@
+Account code,Account name,Debit,Credit
+81000,Bank (sme case 2),6338.00,
+81100,Trade receivables (sme case 2),6000.00,
+81200,Inventories (sme case 2),3500.00,
+81500,Plant and machinery at cost (sme case 2),22950.00,
+81510,Accumulated depreciation plant and machinery (sme case 2),,5346.00
+81600,Motor vehicles at cost (sme case 2),15300.00,
+81610,Accumulated depreciation motor vehicles (sme case 2),,5892.00
+82000,Trade payables (sme case 2),,4200.00
+82100,Income tax payable (sme case 2),,1200.00
+82500,Loan from director (sme case 2),,5000.00
+83000,Share capital (sme case 2),,25000.00
+83100,Retained earnings (sme case 2),,4250.00
+84000,Sales (sme case 2),,48000.00
+84200,Gain on disposal of plant (sme case 2),,300.00
+85000,Cost of sales (sme case 2),28494.00,
+86000,Salaries (sme case 2),7000.00,
+86100,Rent (sme case 2),3000.00,
+86200,Depreciation (sme case 2),4806.00,
+86300,Interest on director loan (sme case 2),600.00,
+87000,Income tax expense (sme case 2),1200.00,

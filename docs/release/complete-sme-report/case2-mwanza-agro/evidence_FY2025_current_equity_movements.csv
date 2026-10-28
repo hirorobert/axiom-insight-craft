@@ -1,0 +1,7 @@
+component,movement_type,amount,description
+Share capital,OPENING_BALANCE,25000.00,
+Share capital,CLOSING_BALANCE,25000.00,
+Retained earnings,OPENING_BALANCE,5250.00,
+Retained earnings,PROFIT_OR_LOSS,3200.00,
+Retained earnings,DIVIDENDS_OR_DISTRIBUTIONS,-1000.00,Dividends paid
+Retained earnings,CLOSING_BALANCE,7450.00,

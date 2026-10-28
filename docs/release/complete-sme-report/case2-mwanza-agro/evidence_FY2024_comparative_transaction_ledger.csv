@@ -1,0 +1,9 @@
+transaction_id,date,cash_account_code,description,receipt,payment,activity,cash_flow_line
+P1,2023-09-30,81000,Receipts from customers,39500.00,,OPERATING,Receipts from customers
+P2,2024-03-31,81000,Payments to suppliers and employees,,33870.00,OPERATING,Payments to suppliers and employees
+P3,2024-06-15,81000,Repayment of loan from director,,1000.00,FINANCING,Repayment of loan from director
+P4,2024-06-20,81000,Interest paid to director,,700.00,OPERATING,Interest paid
+P5,2024-06-25,81000,Income tax paid,,700.00,OPERATING,Income tax paid
+P6,2024-06-30,81000,No equipment purchased in the year (explicit nil),,0.00,INVESTING,Purchase of property plant and equipment
+P7,2024-03-15,81000,Proceeds from sale of fully depreciated tool T-9,50.00,,INVESTING,Proceeds from disposal of property plant and equipment
+P8,2024-06-30,81000,No dividend paid in the year (explicit nil),,0.00,FINANCING,Dividends paid

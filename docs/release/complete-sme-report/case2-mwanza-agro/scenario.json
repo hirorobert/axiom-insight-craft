@@ -1,0 +1,133 @@
+{
+  "synthetic": true,
+  "label": "Case 2: Mwanza Agro Supplies (synthetic): year to 30 June, two equipment classes, an addition and a disposal with proceeds, a director's loan and a post-period dividend",
+  "legalName": "Mwanza Agro Supplies Limited (synthetic)",
+  "fixtureDir": "docs/release/complete-sme-report/case2-mwanza-agro",
+  "periodYear": 2025,
+  "current": { "start": "2024-07-01", "end": "2025-06-30" },
+  "prior": { "start": "2023-07-01", "end": "2024-06-30" },
+  "currency": "TZS",
+  "hostedState": null,
+  "closeReview": { "explanation": "Accumulated depreciation accounts are contra-assets by design", "source": "Synthetic fixed asset register FY2025 (case 2)" },
+  "authorisationDate": "30 September 2025",
+  "equipment": {
+    "register": "docs/release/complete-sme-report/case2-mwanza-agro/equipment-register-FY2025.csv",
+    "openingMinor": "1831000",
+    "expectedDepreciationMinor": "480600",
+    "expectedClosingMinor": "2701200",
+    "classes": [
+      {
+        "classId": "66666666-6666-4666-8666-666666666666",
+        "label": "Plant and machinery",
+        "origin": "new",
+        "accounts": "81500 Plant and machinery at cost; 81510 Accumulated depreciation plant and machinery",
+        "opening": { "grossMinor": "1930000", "accumulatedDepreciationMinor": "579000", "accumulatedImpairmentMinor": "0", "carryingMinor": "1351000" },
+        "closing": { "grossMinor": "2295000", "accumulatedDepreciationMinor": "534600", "accumulatedImpairmentMinor": "0", "carryingMinor": "1760400" },
+        "movements": [
+          { "kind": "additions", "grossMinor": "1095000", "accumulatedDepreciationMinor": "0", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "Supplier invoice INV-2024-412 (M-3 dryer), paid 31 December 2024" }, "note": "" },
+          { "kind": "disposals", "grossMinor": "-730000", "accumulatedDepreciationMinor": "-255800", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "Disposal note DN-2025-01 (M-2 bottling line)" }, "note": "" },
+          { "kind": "depreciation", "grossMinor": "0", "accumulatedDepreciationMinor": "211400", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "SYNTHETIC equipment-register-FY2025.csv (case 2), plant and machinery" }, "note": "" }
+        ],
+        "disposals": [
+          { "reference": "M-2 bottling line", "date": "2025-01-01", "costMinor": "730000", "accumulatedDepreciationMinor": "255800", "accumulatedImpairmentMinor": "0", "proceedsMinor": "504200", "source": { "type": "register", "reference": "Sale agreement SA-2025-01 and bank receipt T5 of 1 January 2025" } }
+        ],
+        "estimate": {
+          "basis": "cost", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "residualMinor": "0", "convention": "daily",
+          "factors": { "usage": "Single-shift seasonal processing", "wear": "Serviced after every season", "obsolescence": "No replacement technology expected within the lives used", "legalLimits": "No lease or licence limits the use of any item" },
+          "chargeSource": "calculated", "registerChargeMinor": "", "registerReference": "",
+          "items": [
+            { "label": "M-1 mill", "costMinor": "1200000", "residualMinor": "0", "openingAccumulatedMinor": "360000", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2021-07-01", "derecognisedOn": "" },
+            { "label": "M-2 bottling line", "costMinor": "730000", "residualMinor": "0", "openingAccumulatedMinor": "219000", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2021-07-01", "derecognisedOn": "2025-01-01" },
+            { "label": "M-3 dryer", "costMinor": "1095000", "residualMinor": "0", "openingAccumulatedMinor": "0", "method": "straight-line", "lifeYears": "10", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2024-12-31", "derecognisedOn": "" }
+          ],
+          "calculatedChargeMinor": "211400",
+          "chargeDifference": { "amountMinor": "", "explanation": "", "evidence": "" },
+          "changedSincePrior": "no", "changeDescription": "", "changeEffectMinor": "",
+          "rationale": "Ten years for every machine reflects the expected seasonal use and the maintenance plan; no residual value because machines are scrapped at the end of their use.",
+          "evidence": "Synthetic replacement plan and maintenance schedule (case 2); not real management evidence"
+        },
+        "answers": {
+          "recognition": { "status": "answered", "text": "All three machines are owned and controlled; invoices INV-2021-050, INV-2021-051 and INV-2024-412 are on file.", "evidence": "Synthetic purchase file (case 2)", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+          "components": { "status": "answered", "text": "No machine has a significant part with a materially different useful life.", "evidence": "Synthetic engineering review (case 2)", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+          "addition_cost": { "status": "answered", "text": "M-3 dryer: purchase price TZS 10,950.00 including delivery and installation, paid on 31 December 2024 when it was ready for use; no deferred payment, exchange, dismantling obligation or expensed item.", "evidence": "Supplier invoice INV-2024-412 and bank payment T4", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+          "disposals": { "status": "answered", "text": "M-2 bottling line sold on 1 January 2025 for TZS 5,042.00 received in cash; cost TZS 7,300.00 and accumulated depreciation TZS 2,558.00 derecognised; gain TZS 300.00 presented in other income.", "evidence": "Sale agreement SA-2025-01 and bank receipt T5", "checkedBy": "Synthetic preparer (case 2)", "flags": {} }
+        }
+      },
+      {
+        "classId": "77777777-7777-4777-8777-777777777777",
+        "label": "Motor vehicles",
+        "origin": "new",
+        "accounts": "81600 Motor vehicles at cost; 81610 Accumulated depreciation motor vehicles",
+        "opening": { "grossMinor": "800000", "accumulatedDepreciationMinor": "320000", "accumulatedImpairmentMinor": "0", "carryingMinor": "480000" },
+        "closing": { "grossMinor": "1530000", "accumulatedDepreciationMinor": "589200", "accumulatedImpairmentMinor": "0", "carryingMinor": "940800" },
+        "movements": [
+          { "kind": "additions", "grossMinor": "730000", "accumulatedDepreciationMinor": "0", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "Supplier invoice INV-2024-377 (V-2 delivery van), paid 1 October 2024" }, "note": "" },
+          { "kind": "depreciation", "grossMinor": "0", "accumulatedDepreciationMinor": "269200", "accumulatedImpairmentMinor": "0", "source": { "type": "register", "reference": "SYNTHETIC equipment-register-FY2025.csv (case 2), motor vehicles" }, "note": "" }
+        ],
+        "disposals": [],
+        "estimate": {
+          "basis": "cost", "method": "straight-line", "lifeYears": "5", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "residualMinor": "0", "convention": "daily",
+          "factors": { "usage": "Daily deliveries on rural roads", "wear": "Serviced every 10,000 km", "obsolescence": "None expected", "legalLimits": "None" },
+          "chargeSource": "calculated", "registerChargeMinor": "", "registerReference": "",
+          "items": [
+            { "label": "V-1 pickup", "costMinor": "800000", "residualMinor": "0", "openingAccumulatedMinor": "320000", "method": "straight-line", "lifeYears": "5", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2022-07-01", "derecognisedOn": "" },
+            { "label": "V-2 delivery van", "costMinor": "730000", "residualMinor": "0", "openingAccumulatedMinor": "0", "method": "straight-line", "lifeYears": "5", "ratePercent": "", "totalUnits": "", "unitsThisPeriod": "", "availableFrom": "2024-10-01", "derecognisedOn": "" }
+          ],
+          "calculatedChargeMinor": "269200",
+          "chargeDifference": { "amountMinor": "", "explanation": "", "evidence": "" },
+          "changedSincePrior": "no", "changeDescription": "", "changeEffectMinor": "",
+          "rationale": "Five years for every vehicle reflects the expected road use before replacement; no residual value is expected after that use.",
+          "evidence": "Synthetic fleet plan (case 2); not real management evidence"
+        },
+        "answers": {
+          "recognition": { "status": "answered", "text": "Both vehicles are owned and registered in the entity's name; registration cards on file.", "evidence": "Synthetic vehicle file (case 2)", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+          "components": { "status": "answered", "text": "No vehicle has a significant part with a materially different useful life.", "evidence": "Synthetic fleet review (case 2)", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+          "addition_cost": { "status": "answered", "text": "V-2 delivery van: purchase price TZS 7,300.00 including registration, paid on 1 October 2024 when it was ready for use; no deferred payment, exchange, dismantling obligation or expensed item.", "evidence": "Supplier invoice INV-2024-377 and bank payment T3", "checkedBy": "Synthetic preparer (case 2)", "flags": {} }
+        }
+      }
+    ],
+    "destinations": [
+      { "target": "sci.operating_expenses_by_function", "amountMinor": "480600", "evidence": "Expense ledger 86200 Depreciation (case 2)", "explanation": "" }
+    ],
+    "entityAnswers": {
+      "restrictions_security": { "status": "none_with_basis", "text": "", "evidence": "Loan agreement with the director: unsecured; no title restriction on any item", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+      "commitments": { "status": "none_with_basis", "text": "", "evidence": "Purchase order register at 30 June 2025: no open order for equipment", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+      "impairment": { "status": "answered", "text": "Checked at 30 June 2025 for damage, idle items, obsolescence and plans to dispose early; none found. The M-2 sale was completed at a gain.", "evidence": "Synthetic impairment checklist (case 2)", "checkedBy": "Synthetic preparer (case 2)", "flags": { "indicator_present": false } },
+      "events_after": { "status": "answered", "text": "No event affecting equipment between 30 June 2025 and the authorisation date 30 September 2025. The dividend declared on 15 August 2025 is a non-adjusting event disclosed in the notes.", "evidence": "Board minutes of 15 August and 30 September 2025 (synthetic)", "checkedBy": "Synthetic preparer (case 2)", "flags": {} },
+      "framework_history": { "status": "answered", "text": "The entity applied the IFRS for SMEs in the prior year; this is not its first set of IFRS for SMEs statements.", "evidence": "Prior-year financial statements (synthetic)", "checkedBy": "Synthetic preparer (case 2)", "flags": { "first_smes_statements": false } }
+    }
+  },
+  "decisions": [
+    { "requirementId": "smes.note.share_capital", "decision": "applicable", "reason": "The entity has 25,000 issued ordinary shares (account 83000)" },
+    { "requirementId": "smes.sci.5_5_e", "decision": "not_applicable", "reason": "No operation was discontinued in either year; the M-2 sale is an asset disposal within continuing operations" },
+    { "requirementId": "smes.sci.5_5_g", "decision": "not_applicable", "reason": "No item of other comprehensive income arose in either year: no revaluation, foreign operation, hedge or actuarial gain or loss" },
+    { "requirementId": "smes.sci.5_5_h", "decision": "not_applicable", "reason": "The entity holds no investment in an associate or jointly controlled entity" },
+    { "requirementId": "smes.note.events_after", "decision": "applicable", "reason": "A dividend of TZS 1,500.00 was declared on 15 August 2025, after the reporting date" },
+    { "requirementId": "smes.note.related_party_control", "decision": "applicable", "reason": "The entity is controlled by its sole shareholder and director" },
+    { "requirementId": "smes.note.related_party_transactions", "decision": "applicable", "reason": "The director's loan (account 82500) and its interest (account 86300) are related party transactions" }
+  ],
+  "notes": {
+    "source": "Complete SME report: synthetic FY2025 engagement file (case 2)",
+    "general": {
+      "smes.note.policies": "Basis of preparation. These financial statements are prepared on the historical cost basis. Inventories are measured at the lower of cost and estimated selling price less costs to complete and sell. Trade receivables are measured at the transaction price less any impairment. The loan from the director is measured at amortised cost. Revenue from the sale of goods is recognised when the goods are delivered to the customer. A gain on the disposal of equipment is the difference between the net proceeds and the carrying amount and is presented in other income. Income tax expense is the current tax on the taxable profit of the year at the enacted rate.",
+      "smes.note.estimates": "The key sources of estimation uncertainty are the useful lives of plant and machinery and of motor vehicles, set out below. No other assumption about the future has a significant risk of causing a material adjustment within the next financial year.",
+      "smes.note.subclassifications": "Trade and other receivables of TZS 6,000.00 (2024: TZS 4,500.00) are all amounts due from customers. Inventories of TZS 3,500.00 (2024: TZS 3,000.00) are finished agricultural supplies held for sale. Trade and other payables of TZS 4,200.00 (2024: TZS 3,800.00) are all amounts due to suppliers. Borrowings of TZS 5,000.00 (2024: TZS 7,000.00) are the loan from the director described in the related party note."
+    },
+    "wording": {
+      "smes.note.compliance": "These financial statements have been prepared in accordance with the International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs), 2015 edition. They report a synthetic entity created to exercise the product.",
+      "smes.note.identification": "Mwanza Agro Supplies Limited (synthetic) is a private company limited by shares with its registered office in Mwanza, Tanzania; it buys and sells agricultural supplies. These financial statements cover the year ended 30 June 2025, with comparative figures for the year ended 30 June 2024, and are presented in Tanzanian shillings (TZS) to two decimal places.",
+      "smes.note.judgements": "The directors judged that the sale of the M-2 bottling line was the disposal of a single asset within continuing operations and not a discontinued operation. Apart from this and the estimates described in the estimates note, no judgement had a significant effect on the amounts recognised.",
+      "smes.note.share_capital": "Share capital of TZS 25,000.00 comprises 25,000 ordinary shares of TZS 1.00 each, authorised, issued and fully paid, unchanged in both years, all held by the director. Each share carries one vote and an equal right to dividends; no share is subject to any restriction. An interim dividend of TZS 1,000.00 was paid on 15 November 2024 (2024: nil).",
+      "smes.note.going_concern": "The directors assessed the entity's ability to continue as a going concern for at least twelve months from 30 September 2025. Operating activities generated TZS 6,506.00 of cash in the year, cash at 30 June 2025 is TZS 6,338.00 after equipment purchases of TZS 18,250.00, and the director has confirmed in writing that the loan of TZS 5,000.00 will not be called within that period; no material uncertainty was identified.",
+      "smes.note.authorisation": "These financial statements were authorised for issue by the board of directors on 30 September 2025. The directors have the power to amend them after issue.",
+      "smes.note.kmp_compensation": "Key management personnel compensation, all short-term employee benefits included in salaries, totalled TZS 2,400.00 (2024: TZS 2,200.00).",
+      "smes.note.cash_components": "Cash and cash equivalents of TZS 6,338.00 (2024: TZS 16,040.00) comprise the balance on the main operating bank account (account 81000). There are no overdrafts, restricted balances or other cash equivalents.",
+      "smes.note.income_tax": "Tax expense of TZS 1,200.00 (2024: TZS 800.00) is current income tax assessed on the taxable profit of the year under the synthetic scenario's tax rules; the difference from the profit before tax of TZS 4,400.00 (2024: TZS 2,050.00) at the enacted rate arises from non-deductible expenses. No deferred tax arises because the carrying amounts of assets and liabilities equal their tax bases. Income tax payable at 30 June 2025 is TZS 1,200.00 (2024: TZS 800.00).",
+      "smes.note.revenue": "Revenue of TZS 48,000.00 (2024: TZS 40,000.00) arises entirely from the sale of agricultural supplies and is recognised when the goods are delivered to the customer. Other income of TZS 300.00 (2024: TZS 50.00) is the gain on the sale of the M-2 bottling line (2024: a fully depreciated tool).",
+      "smes.note.events_after": "On 15 August 2025 the directors declared a dividend of TZS 1,500.00 (TZS 0.06 per share), payable on 30 October 2025. The dividend was declared after the reporting date and is not recognised as a liability at 30 June 2025. No other event after the reporting date requires adjustment or disclosure.",
+      "smes.note.related_party_control": "The entity is controlled by its sole shareholder and director, who holds all 25,000 ordinary shares. There is no parent entity.",
+      "smes.note.related_party_transactions": "Loan from the director: the balance at 30 June 2025 is TZS 5,000.00 (2024: TZS 7,000.00) after a repayment of TZS 2,000.00 on 15 June 2025 (2024: TZS 1,000.00). The loan is unsecured and repayable at the entity's discretion; interest of TZS 600.00 (2024: TZS 700.00) was charged under the loan agreement and paid in the year. No amount due to the director was written off, and no guarantee was given or received. The director's compensation is disclosed in the key management personnel note."
+    }
+  },
+  "laterChange": { "requirementId": "smes.note.judgements", "body": "The directors judged that the sale of the M-2 bottling line was the disposal of a single asset within continuing operations. (Wording revised after issue, to show that the issued FINAL record is unchanged.)", "source": "Later change after issue (case 2)" }
+}

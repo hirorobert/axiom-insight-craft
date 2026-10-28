@@ -12,6 +12,8 @@
 //   questions only the applicable questions are asked; "none" needs who checked; the proposals appear when all are answered
 //   record    classes, ten answers (including the zero-entry review) and three reviewed whole notes are recorded in one server transaction; the server's
 //             schedule status reads Reconciled with two classes; the notes keep their existing wording
+//   reload    the page is left and opened again; the recorded preparation is read back and restored explicitly with
+//             both classes, their amounts and estimates and every answer exactly as recorded
 //   race      another preparer records a three-class schedule meanwhile; the page's next save is refused by name, every
 //             edit is retained, and re-reading the preparation brings the third class in (never dropped)
 //   access    a viewer sees no preparation; widths 1280 and 375 px checked for overflow and unlabeled fields
@@ -201,6 +203,28 @@ try {
     return policyNote.startsWith("Historical cost.") && ctx.schedule?.rows?.length === 2 && ctx.schedule.rows.map((x) => x.classLabel).join("|") === "Equipment|Motor vehicles" && ctx.answers?.length === 10 && ctx.answers.some(a => a.questionId === "zero_effect_row_review" && a.answer.checkedBy === "Synthetic browser-test preparer")
       && ctx.notes["smes.note.policies"].body.startsWith("Historical cost.") && ctx.notes["smes.note.estimates"].body.startsWith("Useful lives.") && ppe?.status === "reconciled" && /Reconciled/.test(shown ?? "")
       ? true : { rows: ctx.schedule?.rows?.length, answers: ctx.answers?.length, ppe: ppe?.status, shown };
+  });
+  log("\n== Save, reload, verify retention");
+  await check("after leaving the page and opening it again, the recorded preparation is read back and restored explicitly: both classes with their amounts and estimates and every answer are exactly as recorded; the server still holds the recorded schedule, workpaper and ten answers", async () => {
+    await go(preparer, "preparer", "/statements", "Statement of Financial Position");
+    await go(preparer, "preparer", "/statements/schedules", "Prepare equipment from supporting records");
+    await preparer.click({ text: "Start guided equipment preparation" });
+    await preparer.waitForText("1. Read the prior report");
+    await preparer.click({ text: "Read the recorded preparation" });
+    await preparer.waitForText("A saved preparation is available", { timeout: 20000 });
+    await preparer.click({ text: "Restore the saved preparation" });
+    await preparer.waitForText("Saved preparation restored for review");
+    await sleep(300);
+    const names = await preparer.evaluate(() => [...document.querySelectorAll('[aria-label="Class name"]')].map((e) => e.value));
+    const closing = await fieldValue(preparer, "Motor vehicles: closing carrying amount (net)");
+    const dep = await fieldValue(preparer, "Equipment: Depreciation for the year Accumulated depreciation");
+    const life = await fieldValue(preparer, "Motor vehicles: useful life in years");
+    const impairment = await fieldValue(preparer, "impairment answer");
+    const recognition = await fieldValue(preparer, "Motor vehicles: recognition answer");
+    const ctx = await rpc("preparer", "fs_equipment_context_v2", { p_company_id: seed.companyId, p_period_year: seed.periodYear });
+    await shot(preparer, "04b-restored-after-reload");
+    return names.join("|") === "Equipment|Motor vehicles" && closing === "5,250.00" && dep === "1,250.00" && life === "10" && /No damage/.test(impairment ?? "") && /All items owned/.test(recognition ?? "")
+      && ctx.schedule?.id === recordedScheduleId && !!ctx.workpaper?.id && ctx.answers?.length === 10 ? true : { names, closing, dep, life, impairment, recognition, schedule: ctx.schedule?.id, recordedScheduleId, workpaper: ctx.workpaper?.id, answers: ctx.answers?.length };
   });
   log("\n== A concurrent change is refused by name; edits are retained; the new class is never dropped");
   await check("another preparer records a three-class schedule meanwhile; this page's next save is refused (stale schedule), every edit is retained, and re-reading brings the third class into the preparation", async () => {

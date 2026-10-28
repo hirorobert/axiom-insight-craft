@@ -570,6 +570,23 @@ jobs:
           grep -v '^\[PTB' proof-results/equipmentMulticlass.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/equipmentMulticlass.present.json --manifest scripts/db-proof/equipmentMulticlass.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Complete SME report proof (one complete report end to end through the product's own controls, on two materially different synthetic cases driven by one runner - the acceptance-r1 engagement replicated with its hosted state, and Mwanza Agro with a year to 30 June, two equipment classes, an addition and a disposal with proceeds, a director's loan and a post-period dividend; register-based equipment preparation with the server's own recalculation, a draft read back identical, every pack requirement resolved with its basis, the six evidence files, Close Review, every expected total and cross-statement tie on the stored document, REVIEWED and FINAL under separate approvers, the official pack issued, hashed, verified and retrieved, FINAL rows byte-identical after a later change; structured result and evidence file validated against the manifest; disposable database only)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/complete_sme_report_proof
+          PROOF_RESULT_FILE: proof-results/completeSmeReport.present.json
+        run: |
+          createdb complete_sme_report_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/completeSmeReport.mjs > proof-results/completeSmeReport.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/completeSmeReport.present.exit
+          grep -v '^\[PTB' proof-results/completeSmeReport.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/completeSmeReport.present.json --manifest scripts/db-proof/completeSmeReport.manifest.mjs --mode present --exit-code "$code"
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -1335,7 +1352,7 @@ jobs:
           path: reporting-journey-evidence
           if-no-files-found: ignore
 
-      - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
+      - name: Equipment preparation browser journey (headless Chrome drives the real Schedules page over the loopback bridge as a preparer - the recorded one-class schedule loaded with nothing assumed, two classes rolled forward through cost and accumulated depreciation, a typo left as an exact difference, the depreciation tied to its expense line, only the applicable questions asked, three whole notes recorded with every class and the answers in one transaction and reconciled by the server, the page left and opened again with the recorded preparation restored exactly, a concurrent three-class schedule refused by name with every edit retained and the new class loaded, a viewer refused, 1280 and 375 px)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/equipment_journey
