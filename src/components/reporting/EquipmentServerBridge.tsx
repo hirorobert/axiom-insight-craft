@@ -1,430 +1,147 @@
 import { canonicalStringify } from "@/lib/canonicalStatement/serialization";
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBusyState } from "@/hooks/useBusyState";
-import {
-  workpaperClient,
-  policyProposal,
-  type EquipmentContext,
-} from "@/lib/preparation/workpaperClient";
+import { commitProblemWords, noteProposal, NOTE_REQUIREMENTS, workpaperClient, type EquipmentContextV2, type NoteInsertion, type NoteRequirement } from "@/lib/preparation/workpaperClient";
 import type { ReportingDb } from "@/lib/reporting/signoff";
-import { Notice, useAttempt, outcomeText } from "./shared";
+import { Notice, useAttempt } from "./shared";
 
-/** Optional until the candidate migration is reviewed/installed. Never treats an unavailable backend as a save. */
+const NOTE_WORDS: Record<NoteRequirement, { label: string; heading: string }> = {
+  "smes.note.policies": { label: "Accounting policies (equipment section)", heading: "Equipment — reviewed section" },
+  "smes.note.subclassifications": { label: "Equipment note (classes, cost, depreciation and movements)", heading: "Property, plant and equipment — reviewed section" },
+  "smes.note.estimates": { label: "Key sources of estimation uncertainty (equipment)", heading: "Equipment estimates — reviewed section" },
+};
+const button = "rounded-md border border-input px-3 py-2 text-sm disabled:opacity-50";
+
+/**
+ * Keeps the preparation in CFOClose: reads the saved context (recorded classes, notes, prior answers), saves drafts,
+ * and records the reviewed preparation — every class, the answers and the reviewed notes — in ONE server transaction.
+ * Never treats an unavailable backend or a lost response as a save; an unknown outcome keeps its request identity.
+ */
 export function EquipmentServerBridge(p: {
   db: ReportingDb;
   companyId: string;
   periodYear: number;
   payload: Record<string, unknown>;
-  policy: string | null;
+  /** Every class reconciles, the bridge agrees and the statements are the reviewed ones. */
   canCommit: boolean;
-  equipmentNote: string | null;
-  onRestore: (data: unknown, sourceDocumentId: string | null) => void;
-  refresh: () => Promise<void>;
+  /** canCommit and every applicable question resolved: the reviewed notes may be saved with it. */
+  canCommitNotes: boolean;
+  proposals: Record<NoteRequirement, string | null>;
   sourceDocumentId: string | null;
+  onContext: (c: EquipmentContextV2) => void;
+  onRestore: (data: unknown, sourceDocumentId: string | null) => void;
+  onLoadClasses: (rows: NonNullable<EquipmentContextV2["schedule"]>["rows"]) => void;
+  refresh: () => Promise<void>;
+  /** A stable request identity per attempt (tests supply a deterministic one). */
+  newRequestId?: () => string;
 }) {
   const api = useMemo(() => workpaperClient(p.db), [p.db]);
-  const [target, setTarget] = useState<"policy" | "equipmentNote">("policy");
-  const [proposalScheduleId, setProposalScheduleId] = useState<string | null>(
-    null,
-  );
-  const [proposalWorkpaperId, setProposalWorkpaperId] = useState<string | null>(
-    null,
-  );
-  const [proposalInputs, setProposalInputs] = useState<string | null>(null);
-  const inputsKey = canonicalStringify([p.payload, p.sourceDocumentId]);
-  const [proposalBaseId, setProposalBaseId] = useState<string | null>(null);
-  const targetDraft = target === "policy" ? p.policy : p.equipmentNote;
-  const [context, setContext] = useState<EquipmentContext | null>(null),
-    [notice, setNotice] = useState<string | null>(null);
-  const [body, setBody] = useState(""),
-    [reviewed, setReviewed] = useState(false),
-    [proposalFor, setProposalFor] = useState<string | null>(null);
+  const [context, setContext] = useState<EquipmentContextV2 | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useBusyState();
   const [unknownCommit, setUnknownCommit] = useState(false);
   const pendingRetry = useRef<null | (() => Promise<void>)>(null);
-  const [busy, setBusy] = useBusyState();
   const live = useRef(true);
-  const saveAttempt = useAttempt(),
-    policyAttempt = useAttempt();
-  useEffect(() => {
-    live.current = true;
-    return () => {
-      live.current = false;
-    };
-  }, []);
-  const currentSaved =
-    !!context?.workpaper &&
-    context.workpaper.sourceDocumentId === p.sourceDocumentId &&
-    canonicalStringify(context.workpaper.payload) ===
-      canonicalStringify(p.payload);
-  const targetRecord = context?.[target] ?? null;
-  const proposalCurrent =
-    proposalFor === targetDraft &&
-    proposalInputs === inputsKey &&
-    proposalBaseId === (targetRecord?.id ?? null);
+  const draftAttempt = useAttempt(p.newRequestId), commitAttempt = useAttempt(p.newRequestId);
+  // Proposals are bound to the inputs and the note revisions they were prepared from.
+  const inputsKey = canonicalStringify([p.payload, p.sourceDocumentId]);
+  const [prepared, setPrepared] = useState<{ inputsKey: string; workpaperId: string | null; scheduleId: string | null; bodies: Record<NoteRequirement, string>; baseIds: Record<NoteRequirement, string | null> } | null>(null);
+  const [reviewed, setReviewed] = useState(false);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const proposalCurrent = !!prepared && prepared.inputsKey === inputsKey && !!context && prepared.workpaperId === (context.workpaper?.id ?? null) && prepared.scheduleId === (context.schedule?.id ?? null)
+    && NOTE_REQUIREMENTS.every((r) => prepared.baseIds[r] === (context.notes[r]?.id ?? null));
+  const currentSaved = !!context?.workpaper && context.workpaper.sourceDocumentId === p.sourceDocumentId && canonicalStringify(context.workpaper.payload) === canonicalStringify(p.payload);
+
   const load = async () => {
     if (!setBusy(true)) return;
     try {
       const c = await api.context(p.companyId, p.periodYear);
-      if (live.current) {
-        setContext(c);
-        setReviewed(false);
-
-        setNotice(
-          c.workpaper
-            ? "Saved preparation is available. Restore it explicitly to replace this browser draft."
-            : "No saved equipment workpaper yet.",
-        );
-      }
+      if (!live.current) return;
+      setContext(c); setReviewed(false); p.onContext(c);
+      setNotice(`${c.schedule ? `The recorded schedule has ${c.schedule.rows.length} class${c.schedule.rows.length === 1 ? "" : "es"}: ${c.schedule.rows.map((r) => r.classLabel).join(", ")}.` : "No equipment schedule is recorded yet."} ${c.workpaper ? (c.workpaper.contract === "cfoclose-equipment-workpaper/2" ? "A saved preparation is available; restore it explicitly to replace this browser draft." : "A saved single-class workpaper exists; it cannot be restored into this multi-class preparation.") : "No saved preparation yet."} ${c.priorAnswers.length ? `${c.priorAnswers.length} answers from the prior period can be reused after review.` : ""}`.trim());
     } catch {
-      if (live.current)
-        setNotice(
-          "Server preparation storage could not be read. The candidate backend may not be installed, or access may have changed. Your browser draft is kept; download it before leaving.",
-        );
-    } finally {
-      if (live.current) setBusy(false);
-    }
+      if (live.current) setNotice("Server preparation storage could not be read. The backend may not be installed, or access may have changed. Your browser draft is kept; download it before leaving.");
+    } finally { if (live.current) setBusy(false); }
   };
-  const save = async () => {
+  const saveDraft = async () => {
     if (!context || !setBusy(true)) return;
-    const key = JSON.stringify([
-      p.payload,
-      context.workpaper?.id ?? null,
-      p.sourceDocumentId,
-    ]);
     try {
-      const r = await api.save(
-        p.companyId,
-        p.periodYear,
-        p.payload,
-        context.workpaper?.id ?? null,
-        p.sourceDocumentId,
-        saveAttempt.idFor(key),
-      );
+      const r = await api.saveDraft(p.companyId, p.periodYear, p.payload, context.workpaper?.id ?? null, p.sourceDocumentId, draftAttempt.idFor(JSON.stringify([p.payload, context.workpaper?.id ?? null, p.sourceDocumentId])));
       if (!live.current) return;
       if (r.outcome === "recorded" && r.workpaperId) {
-        saveAttempt.done();
-        setContext({
-          ...context,
-          workpaper: {
-            id: r.workpaperId,
-            payload: p.payload,
-            sourceDocumentId: p.sourceDocumentId,
-            createdAt: r.createdAt ?? "",
-          },
-        });
-        setNotice(
-          `Workpaper saved (${r.workpaperId}). ${r.sourceRetained ? "The server linked its retained original document." : "The original PDF is NOT retained by this save; retain/upload it separately."} This does not save a schedule or approve the report.`,
-        );
-      } else
-        setNotice(
-          r.outcome === "recorded"
-            ? "Could not confirm the workpaper save: incomplete receipt. Retry unchanged."
-            : r.outcome === "stale"
-              ? "A newer workpaper exists. Read it before deciding how to reconcile your draft. Your edits are kept."
-              : r.outcome === "source_required"
-                ? "Retain the original PDF through checked intake and save the linked workpaper before inserting this note."
-                : r.outcome === "source_stale"
-                  ? "The linked original is superseded or unavailable for review. Resolve the source record before inserting wording."
-                  : outcomeText({ ...r, outcome: r.outcome }),
-        );
-    } catch {
-      if (live.current)
-        setNotice(
-          "Could not confirm the workpaper save. Retry the same unchanged workpaper with its original request identity.",
-        );
-    } finally {
-      if (live.current) setBusy(false);
-    }
+        draftAttempt.done();
+        setContext({ ...context, workpaper: { id: r.workpaperId, payload: p.payload, sourceDocumentId: p.sourceDocumentId, createdAt: r.createdAt ?? "", contract: "cfoclose-equipment-workpaper/2" } });
+        setNotice(`Draft saved (${r.workpaperId}). ${r.sourceRetained ? "The server linked the retained original document." : "The original PDF is NOT retained by this save."} A draft records no schedule, answer or note.`);
+      } else setNotice(r.outcome === "recorded" ? "Could not confirm the draft save: incomplete receipt. Retry unchanged." : commitProblemWords({ outcome: r.outcome, currentId: r.currentId ?? undefined }));
+    } catch { if (live.current) setNotice("Could not confirm the draft save. Retry the same unchanged draft with its original request identity."); }
+    finally { if (live.current) setBusy(false); }
   };
-  const record = async () => {
-    if (
-      !context ||
-      !p.canCommit ||
-      !reviewed ||
-      !proposalCurrent ||
-      !setBusy(true)
-    )
-      return;
-    const key = JSON.stringify([
-      p.payload,
-      p.sourceDocumentId,
-      proposalWorkpaperId,
-      proposalBaseId,
-      body,
-      target,
-    ]);
-    pendingRetry.current = record;
+  const commit = async (withNotes: boolean) => {
+    if (!context || !p.canCommit || (withNotes && (!p.canCommitNotes || !reviewed || !proposalCurrent)) || !setBusy(true)) return;
+    const notes: NoteInsertion[] = withNotes && prepared ? NOTE_REQUIREMENTS.filter((r) => prepared.bodies[r].trim()).map((r) => ({ requirementId: r, expectedTextId: prepared.baseIds[r], body: prepared.bodies[r] })) : [];
+    const expectedWorkpaper = withNotes && prepared ? prepared.workpaperId : context.workpaper?.id ?? null;
+    const expectedSchedule = withNotes && prepared ? prepared.scheduleId : context.schedule?.id ?? null;
+    const key = JSON.stringify([p.payload, p.sourceDocumentId, expectedWorkpaper, expectedSchedule, notes]);
+    pendingRetry.current = () => commit(withNotes);
     try {
-      const r = await api.commit(
-        p.companyId,
-        p.periodYear,
-        p.payload,
-        proposalWorkpaperId,
-        p.sourceDocumentId,
-        proposalBaseId,
-        body,
-        target === "policy"
-          ? "smes.note.policies"
-          : "smes.note.subclassifications",
-        policyAttempt.idFor(key),
-        proposalScheduleId,
-      );
+      const r = await api.commit(p.companyId, p.periodYear, p.payload, expectedWorkpaper, p.sourceDocumentId, expectedSchedule, notes, commitAttempt.idFor(key));
       if (!live.current) return;
-      if (
-        r.outcome === "recorded" &&
-        r.workpaperId &&
-        (r.note?.outcome === "unchanged" || r.note?.textId) &&
-        (r.schedule?.outcome === "unchanged" || r.schedule?.submissionId)
-      ) {
-        policyAttempt.done();
-        setUnknownCommit(false);
-        pendingRetry.current = null;
-        setContext({
-          ...context,
-          scheduleId: r.schedule?.submissionId ?? context.scheduleId ?? null,
-          workpaper: {
-            id: r.workpaperId,
-            payload: p.payload,
-            sourceDocumentId: p.sourceDocumentId,
-            createdAt: r.createdAt ?? "",
-          },
-          [target]: {
-            id: r.note?.textId ?? targetRecord!.id,
-            body,
-            sourceRef: `Reviewed equipment workpaper ${r.workpaperId}`,
-          },
-        });
-        setReviewed(false);
-        setProposalFor(null);
-        if (r.replay) setContext(null);
-        setNotice(
-          r.replay
-            ? "Previous save confirmed by its server receipt. Read the current preparation before making further changes."
-            : "Workpaper, schedule and reviewed note saved together. This is not a FINAL approval or a conclusion that all disclosures are complete.",
-        );
-        try {
-          await p.refresh();
-        } catch {
-          if (live.current)
-            setNotice(
-              "Policy wording recorded; the readiness display could not refresh. Reload to read the server status.",
-            );
-        }
+      const scheduleOk = r.schedule?.outcome === "unchanged" || !!r.schedule?.submissionId;
+      const notesOk = (r.notes ?? []).length === notes.length && (r.notes ?? []).every((n) => n.outcome === "unchanged" || !!n.textId);
+      if (r.outcome === "recorded" && r.workpaperId && scheduleOk && notesOk) {
+        commitAttempt.done(); setUnknownCommit(false); pendingRetry.current = null;
+        setNotice(r.replay ? "The earlier save was confirmed by its server receipt. Read the current preparation before making further changes." : `Recorded: workpaper ${r.workpaperId}, ${notes.length ? `every class, ${r.answersRecorded ?? 0} answers and ${notes.length} reviewed note${notes.length === 1 ? "" : "s"}` : "every class and the answers"} in one transaction. The server's reconciliation decides readiness; this is not an approval.`);
+        setContext(null); setPrepared(null); setReviewed(false);
+        try { await p.refresh(); } catch { if (live.current) setNotice("Recorded; the readiness display could not refresh. Reload to read the server status."); }
       } else {
         setUnknownCommit(r.outcome === "recorded");
-        setNotice(
-          r.outcome === "stale"
-            ? "Another person changed the policy note. Your proposal is kept. Read the latest note and reconcile it before retrying."
-            : r.outcome === "stale_schedule"
-              ? "The equipment schedule changed. Read the current preparation and reconcile the newer schedule before replacing it."
-              : r.outcome === "multi_class_schedule"
-                ? "The PPE schedule contains multiple asset classes. Nothing was saved. Use the full schedule editor to preserve all classes."
-              : r.outcome === "stale_inputs"
-                ? "The reporting inputs changed. Refresh the statements and save a reviewed current workpaper before inserting wording."
-                : r.outcome === "recorded"
-                  ? "Could not confirm policy insertion: incomplete receipt. Retry unchanged."
-                  : r.outcome === "source_required"
-                    ? "Retain the original PDF through checked intake and save the linked workpaper before inserting this note."
-                    : r.outcome === "source_stale"
-                      ? "The linked original is superseded or unavailable for review. Resolve the source record before inserting wording."
-                      : outcomeText({ ...r, outcome: r.outcome }),
-        );
+        setNotice(r.outcome === "recorded" ? "Could not confirm the save: incomplete receipt. Retry unchanged." : `${commitProblemWords(r)} Your edits are kept.`);
       }
-    } catch {
-      if (live.current) setUnknownCommit(true);
-      if (live.current)
-        setNotice(
-          "Could not confirm policy insertion. Retry the unchanged proposal to retrieve its server receipt.",
-        );
-    } finally {
-      if (live.current) setBusy(false);
-    }
+    } catch { if (live.current) { setUnknownCommit(true); setNotice("Could not confirm the save. Retry the unchanged preparation to retrieve its server receipt; nothing is lost."); } }
+    finally { if (live.current) setBusy(false); }
+  };
+  const prepareNotes = () => {
+    if (!context) return;
+    const bodies = Object.fromEntries(NOTE_REQUIREMENTS.map((r) => [r, p.proposals[r] ? noteProposal(context.notes[r]?.body ?? null, NOTE_WORDS[r].heading, p.proposals[r]!) : ""])) as Record<NoteRequirement, string>;
+    const baseIds = Object.fromEntries(NOTE_REQUIREMENTS.map((r) => [r, context.notes[r]?.id ?? null])) as Record<NoteRequirement, string | null>;
+    setPrepared({ inputsKey, workpaperId: context.workpaper?.id ?? null, scheduleId: context.schedule?.id ?? null, bodies, baseIds });
+    setReviewed(false);
   };
   return (
-    <section
-      className="space-y-3 rounded-md border border-border p-3"
-      aria-label="Saved equipment workpaper and policy insertion"
-    >
-      <h4 className="font-medium">Keep preparation in CFOClose</h4>
-      <p className="text-sm">
-        Save an unfinished workpaper as a draft, or save the workpaper,
-        validated schedule and selected reviewed note together in one database
-        transaction. Neither approves the report. Backend installation is
-        required.
-      </p>
-      <button
-        type="button"
-        disabled={busy || unknownCommit}
-        className="rounded-md border px-3 py-2 disabled:opacity-50"
-        onClick={() => void load()}
-      >
-        Read saved preparation and current policy
-      </button>
+    <section className="space-y-3 rounded-md border border-border p-3" aria-label="Saved equipment preparation and reviewed notes">
+      <h4 className="font-medium">Keep the preparation in CFOClose</h4>
+      <p className="text-sm">Read what is recorded, save a draft, or record every class, the answers and the reviewed notes together in one server transaction. Nothing here approves the report.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => void load()}>Read the recorded preparation</button>
+        {context?.schedule ? <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => p.onLoadClasses(context.schedule!.rows)}>Load the recorded classes into this preparation</button> : null}
+        {context?.workpaper?.contract === "cfoclose-equipment-workpaper/2" ? <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => p.onRestore(context.workpaper!.payload, context.workpaper!.sourceDocumentId)}>Restore the saved preparation</button> : null}
+        {context ? <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => void saveDraft()}>Save a draft</button> : null}
+        {context ? <button type="button" disabled={busy || unknownCommit || !p.canCommit} className={button} data-testid="commit-classes" onClick={() => void commit(false)}>Record every class and the answers</button> : null}
+      </div>
+      {context ? <p className="text-sm">{currentSaved ? "This draft matches the saved preparation." : "Browser changes are not saved yet."}{!p.canCommit ? " Recording needs every class reconciled, the opening bridge agreed and the reviewed statements current." : ""}</p> : null}
       {context ? (
-        <>
-          {context.workpaper ? (
-            <button
-              type="button"
-              disabled={busy || unknownCommit}
-              className="ml-2 rounded-md border px-3 py-2"
-              onClick={() =>
-                p.onRestore(
-                  context.workpaper!.payload,
-                  context.workpaper!.sourceDocumentId,
-                )
-              }
-            >
-              Restore saved browser draft
-            </button>
-          ) : null}
-          <button
-            type="button"
-            disabled={busy || unknownCommit}
-            className="block rounded-md border px-3 py-2 disabled:opacity-50"
-            onClick={() => void save()}
-          >
-            Save workpaper to CFOClose
-          </button>
-          <p className="text-sm">
-            {currentSaved
-              ? "This draft matches the saved workpaper."
-              : "Browser changes are not saved in the workpaper yet."}
-          </p>
-          <label className="block">
-            Note to prepare
-            <select
-              disabled={busy || unknownCommit || !!proposalFor}
-              value={target}
-              onChange={(e) =>
-                setTarget(e.target.value as "policy" | "equipmentNote")
-              }
-              className="block rounded-md border p-2"
-            >
-              <option value="policy">Accounting policies</option>
-              <option value="equipmentNote">
-                Equipment within subclassifications and asset disclosures
-              </option>
-            </select>
-          </label>
-          <button
-            type="button"
-            disabled={busy || unknownCommit || !targetDraft || !p.canCommit}
-            className="rounded-md border px-3 py-2 disabled:opacity-50"
-            onClick={() => {
-              setBody(policyProposal(targetRecord?.body ?? null, targetDraft!));
-              setProposalFor(targetDraft);
-              setProposalBaseId(targetRecord?.id ?? null);
-              setProposalInputs(inputsKey);
-              setProposalWorkpaperId(context.workpaper?.id ?? null);
-              setProposalScheduleId(context.scheduleId ?? null);
-              setReviewed(false);
-            }}
-          >
-            Prepare note insertion for review
-          </button>
-          {proposalFor && !proposalCurrent ? (
-            <div role="alert">
-              <p>
-                The note or preparation changed. Your proposal is kept.
-                Reconcile it against the latest wording before recording.
-              </p>
-              <label className="block">
-                Current saved note
-                <textarea
-                  readOnly
-                  rows={5}
-                  value={targetRecord?.body ?? ""}
-                  className="block w-full rounded-md border p-2"
-                />
+        <div className="space-y-2">
+          <button type="button" disabled={busy || unknownCommit || !p.canCommitNotes} className={button} data-testid="prepare-notes" onClick={prepareNotes}>Prepare the three note proposals for review</button>
+          {!p.canCommitNotes ? <p className="text-sm">Note proposals need every applicable question answered.</p> : null}
+          {prepared && !proposalCurrent ? <p role="alert" className="text-sm">The preparation or a recorded note changed since these proposals were prepared. Prepare them again from the current figures; your wording is kept here until then.</p> : null}
+          {prepared ? NOTE_REQUIREMENTS.map((r) => (
+            <label key={r} className="block text-sm">{NOTE_WORDS[r].label} — the WHOLE note as it will be recorded (existing wording kept; review all of it)
+              <textarea rows={8} maxLength={20000} className="mt-1 block w-full rounded-md border border-input bg-background p-2 text-sm" aria-label={`Proposed ${NOTE_WORDS[r].label}`} value={prepared.bodies[r]} disabled={busy || unknownCommit}
+                onChange={(ev) => { setPrepared({ ...prepared, bodies: { ...prepared.bodies, [r]: ev.target.value } }); setReviewed(false); }} />
+            </label>
+          )) : null}
+          {prepared ? (
+            <>
+              <label className="flex gap-2 text-sm">
+                <input type="checkbox" data-testid="notes-reviewed" checked={reviewed} disabled={busy || unknownCommit || !proposalCurrent} onChange={(ev) => setReviewed(ev.target.checked)} />
+                <span>I reviewed each whole note, its evidence and the other applicable policies; record this wording for review.</span>
               </label>
-              <button
-                type="button"
-                disabled={busy || unknownCommit || proposalFor !== targetDraft}
-                onClick={() => {
-                  setProposalBaseId(targetRecord?.id ?? null);
-                  setProposalWorkpaperId(context.workpaper?.id ?? null);
-                  setProposalScheduleId(context.scheduleId ?? null);
-                  setProposalInputs(inputsKey);
-                  setReviewed(false);
-                }}
-              >
-                I reconciled my proposal with this current note
-              </button>
-            </div>
+              <button type="button" disabled={busy || unknownCommit || !reviewed || !proposalCurrent || !p.canCommitNotes} className={button} data-testid="commit-all" onClick={() => void commit(true)}>Record every class, the answers and the reviewed notes together</button>
+            </>
           ) : null}
-          {proposalFor ? (
-            <div className="space-y-2">
-              <p className="text-sm">
-                Existing wording is preserved in this proposal. Review the
-                ENTIRE note, remove duplicate or conflicting wording, and
-                include other applicable policies or asset disclosures.
-                Equipment wording alone is not a complete note.
-              </p>
-              <label className="block">
-                Full proposed note
-                <textarea
-                  rows={10}
-                  maxLength={20000}
-                  className="mt-1 block w-full rounded-md border p-2"
-                  value={body}
-                  disabled={busy || unknownCommit}
-                  onChange={(e) => {
-                    setBody(e.target.value);
-                    setReviewed(false);
-                  }}
-                />
-              </label>
-              <label className="flex gap-2">
-                <input
-                  type="checkbox"
-                  checked={reviewed}
-                  disabled={busy || unknownCommit || !proposalCurrent}
-                  onChange={(e) => setReviewed(e.target.checked)}
-                />
-                <span>
-                  I reviewed the full note, its evidence and other applicable
-                  policies; record this wording for review.
-                </span>
-              </label>
-              <button
-                type="button"
-                disabled={
-                  busy ||
-                  unknownCommit ||
-                  !reviewed ||
-                  !body.trim() ||
-                  !proposalCurrent
-                }
-                className="rounded-md border px-3 py-2 disabled:opacity-50"
-                onClick={() => void record()}
-              >
-                Save workpaper, schedule and reviewed note together
-              </button>
-              <button
-                type="button"
-                disabled={busy || unknownCommit}
-                onClick={() => {
-                  setProposalFor(null);
-                  setBody("");
-                  setReviewed(false);
-                }}
-              >
-                Discard this insertion proposal
-              </button>
-            </div>
-          ) : null}
-        </>
+        </div>
       ) : null}
-      {unknownCommit ? (
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-md border px-3 py-2"
-          onClick={() => void pendingRetry.current?.()}
-        >
-          Retry the original unconfirmed save
-        </button>
-      ) : null}
+      {unknownCommit ? <button type="button" disabled={busy} className={button} onClick={() => void pendingRetry.current?.()}>Retry the original unconfirmed save</button> : null}
       <Notice text={notice} />
     </section>
   );

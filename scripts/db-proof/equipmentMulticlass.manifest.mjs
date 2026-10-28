@@ -1,0 +1,35 @@
+// The reviewed case manifest of scripts/db-proof/equipmentMulticlass.mjs (20261206100000: multi-class, evidence-linked
+// equipment preparation). Every case must pass in present mode; the structured result is validated by
+// scripts/ci/validateProofResult.mjs against this list.
+export const PROOF = "equipmentMulticlass";
+export const CASES = Object.freeze([
+  { id: "setup.chain-applies", kind: "setup", modes: ["present"] },
+  { id: "setup.world-and-fixtures", kind: "setup", modes: ["present"] },
+  { id: "static.no-outer-transaction-no-bare-write", kind: "control", modes: ["present"] },
+  { id: "ctx.viewer-outsider-refused", kind: "control", modes: ["present"] },
+  { id: "ctx.existing-classes-loaded", kind: "control", modes: ["present"] },
+  { id: "draft.save-stale-and-v1-contract", kind: "control", modes: ["present"] },
+  { id: "commit.cross-company-refused", kind: "control", modes: ["present"] },
+  { id: "commit.stale-inputs-refused", kind: "control", modes: ["present"] },
+  { id: "commit.rollforward-difference-refused", kind: "control", modes: ["present"] },
+  { id: "commit.missing-movement-never-balanced", kind: "control", modes: ["present"] },
+  { id: "commit.class-dropped-refused", kind: "control", modes: ["present"] },
+  { id: "commit.destinations-mismatch-refused", kind: "control", modes: ["present"] },
+  { id: "commit.tax-class-estimate-refused", kind: "control", modes: ["present"] },
+  { id: "calc.sql-equals-typescript-fixtures", kind: "control", modes: ["present"] },
+  { id: "commit.register-charge-mismatch-refused", kind: "control", modes: ["present"] },
+  { id: "commit.calculated-charge-tampering-refused", kind: "control", modes: ["present"] },
+  { id: "commit.unresolved-question-refuses-notes", kind: "control", modes: ["present"] },
+  { id: "commit.multiclass-recorded-concurrently", kind: "control", modes: ["present"] },
+  { id: "commit.notes-whole-and-preserving", kind: "control", modes: ["present"] },
+  { id: "commit.replay-returns-receipt", kind: "control", modes: ["present"] },
+  { id: "commit.changed-intent-refused", kind: "control", modes: ["present"] },
+  { id: "commit.stale-workpaper-schedule-note-refused", kind: "control", modes: ["present"] },
+  { id: "commit.disposal-gain-and-capitalised-depreciation", kind: "control", modes: ["present"] },
+  { id: "commit.retire-class-with-reason", kind: "control", modes: ["present"] },
+  { id: "answers.reused-next-period", kind: "control", modes: ["present"] },
+  { id: "history.append-only-and-api-roles", kind: "control", modes: ["present"] },
+  { id: "history.earlier-records-preserved", kind: "control", modes: ["present"] },
+  { id: "issued.final-untouched-by-later-preparation", kind: "control", modes: ["present"] },
+  { id: "access.revoked-preparer-refused", kind: "control", modes: ["present"] },
+]);

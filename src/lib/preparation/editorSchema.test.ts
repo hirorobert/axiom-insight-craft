@@ -1,79 +1,30 @@
 import { expect, it } from "vitest";
-import { parseEquipmentEditor } from "./editorSchema";
+import { parseEquipmentEditorV2 } from "./editorSchema";
+import { emptyAnswer, emptyBalances, emptyEstimate } from "./equipmentModel";
+
 const editor = {
-  sourceMode: "reference",
-  priorReference: "Prior register",
-  page: "1",
-  priorAmount: "16000",
-  priorDate: "2024-12-31",
-  priorCurrency: "TZS",
-  priorUnits: "0",
-  opening: "16000",
-  closing: "14000",
-  adjustments: [],
-  movementValues: { depreciation: "2000" },
-  source: "Current register",
-  policy: {
-    assetClass: "Equipment",
-    basis: "cost",
-    method: "straight-line",
-    usefulLife: "Decided by entity",
-    residualValue: "0",
-    rationale: "Expected use",
-    evidence: "Register",
-  },
-  gross: {
-    openingGross: "20000",
-    openingDepreciation: "4000",
-    openingImpairment: "0",
-    closingGross: "20000",
-    closingDepreciation: "6000",
-    closingImpairment: "0",
-  },
-  judgements: { components: "No separately significant parts" },
-  read: null,
+  sourceMode: "reference", priorReference: "Prior register", page: "1", priorAmount: "16000", priorGross: "", priorAccumulated: "", priorDate: "2025-12-31", priorCurrency: "TZS", priorUnits: "0",
+  adjustments: [{ amount: "200", reason: "Approved correction", evidence: "Journal J1", category: "correction" }],
+  classes: [{
+    classId: "11111111-1111-4111-8111-111111111111", label: "Equipment", origin: "existing", accounts: "1500, 1510",
+    opening: { ...emptyBalances(), carryingMinor: "1600000" }, closing: emptyBalances(),
+    movements: [{ kind: "depreciation", grossMinor: "0", accumulatedDepreciationMinor: "200000", accumulatedImpairmentMinor: "0", source: { type: "register", reference: "Register" }, note: "" }],
+    disposals: [], estimate: emptyEstimate(), answers: { recognition: { ...emptyAnswer(), status: "answered", text: "Owned", evidence: "Invoices" } },
+  }],
+  retiredClasses: [], destinations: [{ target: "sci.operating_expenses_by_function", amountMinor: "200000", evidence: "Ledger 6200", explanation: "" }],
+  entityAnswers: { commitments: emptyAnswer() }, read: null,
 };
-const data = {
-  contract: "cfoclose-equipment-workpaper/1",
-  companyId: "A",
-  periodYear: 2025,
-  editor,
-};
-it("restores only a bounded, correctly scoped editor snapshot", () => {
-  expect(parseEquipmentEditor(data, "A", 2025).opening).toBe("16000");
-  expect(() => parseEquipmentEditor(data, "B", 2025)).toThrow();
-  expect(() => parseEquipmentEditor(data, "A", 2024)).toThrow();
-  expect(() =>
-    parseEquipmentEditor(
-      { ...data, editor: { ...editor, unexpected: "injected" } },
-      "A",
-      2025,
-    ),
-  ).toThrow();
-  expect(() =>
-    parseEquipmentEditor(
-      { ...data, editor: { ...editor, movementValues: { invented: "2000" } } },
-      "A",
-      2025,
-    ),
-  ).toThrow();
-  expect(() =>
-    parseEquipmentEditor(
-      {
-        ...data,
-        editor: {
-          ...editor,
-          read: {
-            sha256: "a".repeat(64),
-            page: 201,
-            pages: 201,
-            text: "",
-            method: "ocr",
-          },
-        },
-      },
-      "A",
-      2025,
-    ),
-  ).toThrow();
+const payload = { contract: "cfoclose-equipment-workpaper/2", companyId: "company-a", periodYear: 2026, editor };
+
+it("restores a strictly bounded multi-class editor for the same company and period only", () => {
+  expect(parseEquipmentEditorV2(payload, "company-a", 2026).classes[0].label).toBe("Equipment");
+  expect(() => parseEquipmentEditorV2(payload, "company-b", 2026)).toThrow();
+  expect(() => parseEquipmentEditorV2({ ...payload, periodYear: 2025 }, "company-a", 2026)).toThrow();
+});
+it("refuses the single-class contract, unknown keys, unknown movement kinds and oversized text as a whole", () => {
+  expect(() => parseEquipmentEditorV2({ ...payload, contract: "cfoclose-equipment-workpaper/1" }, "company-a", 2026)).toThrow();
+  expect(() => parseEquipmentEditorV2({ ...payload, editor: { ...editor, extra: 1 } }, "company-a", 2026)).toThrow();
+  expect(() => parseEquipmentEditorV2({ ...payload, editor: { ...editor, classes: [{ ...editor.classes[0], movements: [{ ...editor.classes[0].movements[0], kind: "plug" }] }] } }, "company-a", 2026)).toThrow();
+  expect(() => parseEquipmentEditorV2({ ...payload, editor: { ...editor, classes: [{ ...editor.classes[0], accounts: "x".repeat(2001) }] } }, "company-a", 2026)).toThrow();
+  expect(() => parseEquipmentEditorV2({ ...payload, editor: { ...editor, classes: [{ ...editor.classes[0], classId: "not-a-uuid" }] } }, "company-a", 2026)).toThrow();
 });
