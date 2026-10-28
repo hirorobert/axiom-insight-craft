@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MINOR } from "./equipment";
 import type { ReportingDb } from "@/lib/reporting/signoff";
 /**
  * The browser's client of the multi-class equipment preparation functions (20261206100000). Every call carries the
@@ -19,7 +20,7 @@ const contextSchema = z.object({
   notes: z.object({ "smes.note.policies": noteSchema, "smes.note.subclassifications": noteSchema, "smes.note.estimates": noteSchema }),
   schedule: z.object({
     id: uuid, sourceRef: z.string(), createdAt: z.string(), contentSha256: z.string(),
-    rows: z.array(z.object({ classLabel: z.string(), openingMinor: z.string(), closingMinor: z.string(), movements: z.array(z.object({ kind: z.string(), amountMinor: z.string() })) })),
+    rows: z.array(z.object({ classLabel: z.string(), openingMinor: z.string().regex(MINOR), closingMinor: z.string().regex(MINOR), movements: z.array(z.object({ kind: z.string(), amountMinor: z.string().regex(MINOR) })) })),
   }).nullable(),
   answers: z.array(answerRecord),
   priorAnswers: z.array(answerRecord),

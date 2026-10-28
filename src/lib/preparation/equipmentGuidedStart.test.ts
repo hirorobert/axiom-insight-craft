@@ -75,3 +75,10 @@ it("the declared synthetic FY2025 case reconciles exactly without claiming real 
   expect(policyProposalV2([c],"TZS",2)).toContain("10 years");
   expect(equipmentNoteProposalV2([c],editor.entityAnswers,destinations,"TZS",2)).toContain("14000.00");
 });
+
+import { workpaperClient } from "./workpaperClient";
+it("refuses malformed recorded amounts before automatic class conversion can run",async()=>{
+  const ctx={outcome:"available",contract:"fs-equipment-context/2",workpaper:null,notes:{"smes.note.policies":null,"smes.note.estimates":null,"smes.note.subclassifications":null},answers:[],priorAnswers:[],schedule:{id:"11111111-1111-4111-8111-111111111111",sourceRef:"Synthetic register",createdAt:"",contentSha256:"a".repeat(64),rows:[{classLabel:"Equipment",openingMinor:"not-an-amount",closingMinor:"0",movements:[]}]}};
+  const client=workpaperClient({rpc:async()=>({data:ctx,error:null})});
+  await expect(client.context("company",2025)).rejects.toThrow();
+});
