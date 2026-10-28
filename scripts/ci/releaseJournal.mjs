@@ -389,6 +389,10 @@ export const RELEASE_JOURNAL = {
   "0083_internal_beta_staged_transport": { kind: "beta_staged_transport", sha256: "bdbd0020aa9096b38fb553587da68070e9e21ec942e971ea88bd61891fd9b96c" },
   "0084_beta_1_assistant_controls_staged_apply": { kind: "beta_staged_transport", sha256: "de36c59001a25a73b6bf14f511981c7228f4e2450bb938fa5eb88102a86c4905" },
   "0085_beta_2_internal_policy_staged_apply": { kind: "beta_staged_transport", sha256: "80b961a8f8015cce6656e7f46cdc212744cf3b267d16ff85e9e775bb8094926f" },
+  // equipment-r1, installed 2026-10-28 as hosted ids 89–91; exact registered forms, no final LF added.
+  "0088_equipment_staged_transport": { kind: "equipment_staged_transport", sha256: "bdc337e3030a44df205f80dbdc5b3ce50c3eadb0d3599cc57207ccef96a811fc" },
+  "0089_eqp_1_preparation_staged_apply": { kind: "equipment_staged_transport", sha256: "92ea5a25c14dc6b31b8cbcf6160982eedb239df99004215d1cf702ced469c47b" },
+  "0090_eqp_2_multiclass_staged_apply": { kind: "equipment_staged_transport", sha256: "ed1ceb09ff9d1bd85a022e38cff680ed725855df4898061cc97d6830763a3644" },
 };
 
 /**
