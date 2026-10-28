@@ -1,4 +1,28 @@
-# Equipment staged installation transport r1 — candidate, NOT installed
+# Equipment staged installation transport r1 — installed 2026-10-28
+
+## Hosted installation evidence — 2026-10-28 UTC
+
+Owner-authorized installation from merged PR #213, source HEAD `5877ba715e90f4f5911f1211786ca768af10dc80`. Independently confirmed predecessor 88/hash `238d8b0664b253cd665c8e9b9532326486e86ad087f1a76dda56846cc0a0edb8`; neither target nor the release schema existed. Generator check passed. Prior owner-confirmed database/Storage recovery artifacts remain historical references, not a new restore test.
+
+| Hosted id | Actual native mirror | Bytes | SHA-256 |
+|---|---|---:|---|
+| 89 | `0088_equipment_staged_transport` | 7,393 | `bdc337e3030a44df205f80dbdc5b3ce50c3eadb0d3599cc57207ccef96a811fc` |
+| 90 | `0089_eqp_1_preparation_staged_apply` | 9,348 | `92ea5a25c14dc6b31b8cbcf6160982eedb239df99004215d1cf702ced469c47b` |
+| 91 | `0090_eqp_2_multiclass_staged_apply` | 9,755 | `ed1ceb09ff9d1bd85a022e38cff680ed725855df4898061cc97d6830763a3644` |
+
+All three mirrors are byte-identical to the registered transport files (no added final LF). Both generated INSERTs were submitted through the privileged data tool as inert text; database recomputation confirmed 18,476 / 54,129 UTF-8 bytes and the pinned source SHA-256s before execution. Both rows are consumed; exactly two applied events record predecessors 89 and 90. No source was submitted directly as executable SQL.
+
+Postconditions passed: all target tables/functions exist; exposed equipment functions are executable by authenticated only, internal helpers by none of anon/authenticated/service_role. Release schema USAGE and helper EXECUTE remain denied to those three roles. Both atomic applies verified their explicit preserved-table perimeter under SHARE locks (baseline hashes `df93184cbd5dd4467c8158be880297e3c9b214705a14553755236b44cc674b83` and `275644037ef82d0d3ef67c6d6c711cab7584b61f8d5203680569336523a6bb2a`).
+
+Original seq 1/2: two rows; canonical digest unchanged `de1e521b8731b1fc5f30ee4a15c17a0834838fb0530335696aceb5fda8f78642`. Canonical bytes are `string_agg(to_jsonb(row)::text, E'\n' ORDER BY seq)` converted to UTF-8, with no trailing newline—not a JSON array. Individual row hashes still match the historical record.
+
+Schedules 2 / definitions 5 / disclosures 9, unchanged hashes respectively `7fe258a74daddf20a78b0d74be46e7d201c1e5a7f08674c1a56ca609c9406710`, `03a924a1ffae276b21f269099010ac7d30c92b9bd8241aea007b4a693f4763dc`, `5e0a0ce8a29cb35610369d96131107a18c92eb483b2dc3e1387a3736de8b2e51`. New workpaper and answer tables are empty. Actual runtime settings preserved: reporting kill switch false, beta reporting true/revision 4, general/beta AI false, commercial state CUSTOMER_PAYMENTS_ENABLED. This installation neither endorses nor changes those settings. No file operation, financial correction, function deployment, paid call, publication or activation occurred.
+
+Backend installation prerequisite is satisfied; publication remains separately authorized. Authenticated equipment workflow/accounting acceptance and deployed-function source attestation were not performed by this installation.
+
+Bookkeeping verification: generator check OK; migration authority OK (80 covered-source mirrors, no pending sources); 300 tests passed across 15 equipment/preparation/journal/transport files; focused ESLint exited 0. The historical self-checking-wrapper fixture was updated to hide equipment registrations when reconstructing its pre-release journal; no live journal was edited. Automatic preview builds reported build OK. A separate production build/typecheck was not manually run (platform harness owns those checks); final-SHA CI typecheck/production-build evidence is not asserted here.
+
+## Historical candidate record (retained below)
 
 ## Purpose and authority
 

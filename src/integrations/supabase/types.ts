@@ -4886,6 +4886,183 @@ export type Database = {
           },
         ]
       }
+      fs_equipment_answers: {
+        Row: {
+          actor_user_id: string
+          answer: Json
+          class_key: string | null
+          class_label: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          question_id: string
+          seq: number
+          status: string
+          workpaper_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          answer: Json
+          class_key?: string | null
+          class_label?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          question_id: string
+          seq?: never
+          status: string
+          workpaper_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          answer?: Json
+          class_key?: string | null
+          class_label?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          question_id?: string
+          seq?: never
+          status?: string
+          workpaper_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_equipment_answers_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_equipment_answers_workpaper_id_fkey"
+            columns: ["workpaper_id"]
+            isOneToOne: false
+            referencedRelation: "fs_equipment_workpapers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_equipment_policy_insertions: {
+        Row: {
+          actor_user_id: string
+          body_sha256: string
+          company_id: string
+          created_at: string
+          expected_policy_id: string | null
+          id: string
+          period_year: number
+          receipt: Json
+          request_id: string
+          requirement_id: string
+          workpaper_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          body_sha256: string
+          company_id: string
+          created_at?: string
+          expected_policy_id?: string | null
+          id?: string
+          period_year: number
+          receipt: Json
+          request_id: string
+          requirement_id: string
+          workpaper_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          body_sha256?: string
+          company_id?: string
+          created_at?: string
+          expected_policy_id?: string | null
+          id?: string
+          period_year?: number
+          receipt?: Json
+          request_id?: string
+          requirement_id?: string
+          workpaper_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_equipment_policy_insertions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_equipment_policy_insertions_workpaper_id_fkey"
+            columns: ["workpaper_id"]
+            isOneToOne: false
+            referencedRelation: "fs_equipment_workpapers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fs_equipment_workpapers: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          payload: Json
+          period_year: number
+          request_id: string
+          request_payload: Json
+          seq: number
+          source_document_id: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          payload: Json
+          period_year: number
+          request_id: string
+          request_payload: Json
+          seq?: never
+          source_document_id?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          payload?: Json
+          period_year?: number
+          request_id?: string
+          request_payload?: Json
+          seq?: never
+          source_document_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fs_equipment_workpapers_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fs_equipment_workpapers_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "financial_statement_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fs_first_period_declarations: {
         Row: {
           action: string
@@ -11166,6 +11343,34 @@ export type Database = {
         Args: { p_company_id: string; p_period_year: number }
         Returns: string
       }
+      _fs_equipment_depreciation_charge: {
+        Args: {
+          p_convention: string
+          p_end: string
+          p_item: Json
+          p_start: string
+        }
+        Returns: Json
+      }
+      _fs_equipment_rational: {
+        Args: { p_text: string }
+        Returns: Record<string, unknown>
+      }
+      _fs_equipment_v2_problems: {
+        Args: {
+          p_composition: Json
+          p_existing_rows: Json
+          p_payload: Json
+          p_period_end: string
+          p_period_start: string
+          p_require_complete: boolean
+        }
+        Returns: Json
+      }
+      _fs_equipment_whole_months: {
+        Args: { p_end: string; p_start: string }
+        Returns: number
+      }
       _fs_ev_cell: {
         Args: { p_col: string; p_doc: Json; p_row: Json }
         Returns: string
@@ -12355,6 +12560,34 @@ export type Database = {
         }
         Returns: Json
       }
+      fs_commit_equipment_preparation: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_expected_id: string
+          p_expected_note_id: string
+          p_expected_schedule_id: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+          p_requirement_id: string
+          p_source_document_id: string
+        }
+        Returns: Json
+      }
+      fs_commit_equipment_preparation_v2: {
+        Args: {
+          p_company_id: string
+          p_expected_schedule_id: string
+          p_expected_workpaper_id: string
+          p_notes: Json
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+          p_source_document_id: string
+        }
+        Returns: Json
+      }
       fs_commit_revision: {
         Args: {
           p_company_id: string
@@ -12393,6 +12626,16 @@ export type Database = {
       }
       fs_comparatives_status: {
         Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_create_equipment_schedule: {
+        Args: {
+          p_company_id: string
+          p_period_year: number
+          p_request_id: string
+          p_rows: Json
+          p_source_ref: string
+        }
         Returns: Json
       }
       fs_decide_requirement: {
@@ -12445,6 +12688,14 @@ export type Database = {
           p_period_year: number
           p_reason: string
         }
+        Returns: Json
+      }
+      fs_equipment_context: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      fs_equipment_context_v2: {
+        Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
       fs_evidence_statements: {
@@ -12540,6 +12791,18 @@ export type Database = {
           p_request_id: string
           p_requirement_id: string
           p_source_ref: string
+        }
+        Returns: Json
+      }
+      fs_record_reviewed_equipment_note: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_expected_policy_id: string
+          p_period_year: number
+          p_request_id: string
+          p_requirement_id: string
+          p_workpaper_id: string
         }
         Returns: Json
       }
@@ -12708,6 +12971,28 @@ export type Database = {
         Returns: Json
       }
       fs_rollout_allows: { Args: { p_company_id: string }; Returns: boolean }
+      fs_save_equipment_workpaper: {
+        Args: {
+          p_company_id: string
+          p_expected_id: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+          p_source_document_id: string
+        }
+        Returns: Json
+      }
+      fs_save_equipment_workpaper_v2: {
+        Args: {
+          p_company_id: string
+          p_expected_id: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+          p_source_document_id: string
+        }
+        Returns: Json
+      }
       fs_save_evaluation: {
         Args: {
           p_company_id: string

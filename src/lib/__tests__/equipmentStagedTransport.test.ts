@@ -67,9 +67,14 @@ describe("equipment exact-byte staged transport", () => {
       } finally {delete registry[tag];}
     }
   });
-  it("does not claim any installation or add pending authored migrations", () => {
-    expect(Object.keys(RELEASE_JOURNAL).some(x=>x.includes("eqp_") || x.includes("equipment_staged_transport"))).toBe(false);
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(BATCHES.map(b=>b.source));
+  it("registers only the three actual installed mirrors and has no pending equipment sources", () => {
+    const tags=["0088_equipment_staged_transport","0089_eqp_1_preparation_staged_apply","0090_eqp_2_multiclass_staged_apply"];
+    expect(Object.keys(RELEASE_JOURNAL).filter(x=>x.includes("eqp_") || x.includes("equipment_staged_transport"))).toEqual(tags);
+    for (const [i,f] of transportForms().entries()) {
+      expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
+      expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
+    }
+    expect(checkMigrationAuthority(ROOT).pending).toEqual([]);
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
@@ -77,6 +82,15 @@ describe("equipment exact-byte staged transport", () => {
     try {
       fs.cpSync(path.join(ROOT,"supabase/migrations"),path.join(dir,"supabase/migrations"),{recursive:true});
       fs.cpSync(path.join(ROOT,"drizzle"),path.join(dir,"drizzle"),{recursive:true});
+      // Reconstruct the pre-equipment journal in this disposable fixture only; hosted history is immutable.
+      const beforePath=path.join(dir,"drizzle/migrations/meta/_journal.json");
+      const before=JSON.parse(fs.readFileSync(beforePath,"utf8"));
+      for(const e of before.entries.filter((e: {idx:number})=>e.idx>=88)) {
+        fs.rmSync(path.join(dir,"drizzle/migrations",`${e.tag}.sql`));
+        fs.rmSync(path.join(dir,"drizzle/migrations/meta",`${String(e.idx).padStart(4,"0")}_snapshot.json`));
+      }
+      before.entries=before.entries.filter((e: {idx:number})=>e.idx<88);
+      fs.writeFileSync(beforePath,JSON.stringify(before));
       const jf=path.join(dir,"drizzle/migrations/meta/_journal.json");const j=JSON.parse(fs.readFileSync(jf,"utf8"));let when=j.entries.at(-1).when;
       for(const f of transportForms()) {
         const idx=j.entries.length;const tag=`${String(idx).padStart(4,"0")}_${f.name}`;
