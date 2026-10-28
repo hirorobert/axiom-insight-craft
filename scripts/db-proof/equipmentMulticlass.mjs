@@ -20,9 +20,11 @@
 //   DB_PROOF_MODE=external DB_PROOF_CONN=postgres://… (a throwaway, EMPTY loopback database) bun scripts/db-proof/equipmentMulticlass.mjs
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/equipmentMulticlass.mjs
 import crypto from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { applyChain, certifier, clientDb, csv, EVIDENCE_FY2025_COMPARATIVE, EVIDENCE_FY2026, FY2026, makeWorld, openDatabase, prepareReporting, REPO, reporter, uuid } from "./lib/reportingKit.mjs";
+import { classFromScheduleRow, excludeReviewedZeroMovements } from "../../src/lib/preparation/equipmentEditor.ts";
 import { CASES, PROOF } from "./equipmentMulticlass.manifest.mjs";
 import { ingestEvidence } from "../../src/lib/financialEvidence/intake.ts";
 import { signoffClient } from "../../src/lib/reporting/signoff.ts";
@@ -151,6 +153,12 @@ async function main() {
     return base.outcome === "available" && base.schedule?.rows?.length === 1 && base.schedule.rows[0].classLabel === "Equipment" && base.notes["smes.note.policies"]?.body === "Historical cost."
       && base.notes["smes.note.estimates"]?.body === "Useful lives." && base.notes["smes.note.subclassifications"]?.body === "All receivables from third parties." && base.answers.length === 0 && base.priorAnswers.length === 0 && base.workpaper === null ? true : base;
   });
+  const scheduleId0 = base.schedule.id;
+  const historicalRows = async () => hex(JSON.stringify([
+      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId0])).rows,
+      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_disclosure_texts t WHERE t.id = ANY($1::uuid[]) ORDER BY t.id", [[base.notes["smes.note.policies"].id, base.notes["smes.note.estimates"].id, base.notes["smes.note.subclassifications"].id]])).rows,
+  ]));
+  const historicalBefore = await historicalRows();
   await kase("draft.save-stale-and-v1-contract", "a draft saves (compare-and-set), a second save against the old revision is stale, and the single-class /1 contract is not a /2 draft", async () => {
     const draft = payloadFor(A, compose.compositionSha256, { classes: [equipmentClass()], entityAnswers: {} });
     const save = (expected, req = uuid(), p = draft) => asU(U.preparer, "SELECT public.fs_save_equipment_workpaper_v2($1,2026,$2::jsonb,$3,NULL,$4) r", [A, JSON.stringify(p), expected, req]).then((x) => x.r);
@@ -161,7 +169,6 @@ async function main() {
     return r1.outcome === "recorded" && r2.outcome === "stale" && r2.currentId === r1.workpaperId && r3.outcome === "invalid_request" && c.workpaper?.id === r1.workpaperId && c.workpaper.contract === "cfoclose-equipment-workpaper/2" ? true : { r1, r2, r3 };
   });
   let draftId = (await ctx()).workpaper.id;
-  const scheduleId0 = base.schedule.id;
   let scheduleId = scheduleId0;
   const notesFor = (c, policyText, estimatesText) => [
     { requirementId: "smes.note.policies", expectedTextId: c.notes["smes.note.policies"]?.id ?? null, body: `${c.notes["smes.note.policies"]?.body ?? ""}\n\nEquipment — reviewed section\n\n${policyText}` },
@@ -336,6 +343,19 @@ async function main() {
     const p = { ...commitPayload, destinations: [...commitPayload.destinations, { target: "other", amountMinor: "0", evidence: "x y z", explanation: "nothing" }] };
     return (await commit(p, { expectedWorkpaper: draftId, expectedSchedule: scheduleId, notes: commitNotes, request: commitRequest })).outcome === "request_reused" ? true : "accepted";
   });
+  await kase("commit.zero-effect-review-retained", "an explicit evidenced zero-effect cleanup decision is retained by the real atomic server commit and replay, without dropping classes or changing their reconciled figures", async () => {
+    const c = await ctx();
+    const review = excludeReviewedZeroMovements(classFromScheduleRow({ classLabel: "Equipment", openingMinor: "1000000", closingMinor: "875000", movements: [{kind:"depreciation", amountMinor:"-125000"}, {kind:"disposals", amountMinor:"0"}] }, 2), 2,
+      "Synthetic test reviewer", "SYNTHETIC disposal log: no such events").answers.zero_effect_row_review;
+    const p = payloadFor(A, compose.compositionSha256); p.classes[0].answers.zero_effect_row_review = review;
+    const request = uuid();
+    const opts = { expectedWorkpaper: c.workpaper.id, expectedSchedule: c.schedule.id, request };
+    const r = await commit(p, opts); const again = await commit(p, opts); const after = await ctx();
+    const fact = after.answers.find(x => x.questionId === "zero_effect_row_review" && x.classKey === EQUIPMENT_ID);
+    return r.outcome === "recorded" && r.answersRecorded === 10 && again.replay === true && again.workpaperId === r.workpaperId
+      && fact?.workpaperId === r.workpaperId && isDeepStrictEqual(fact.answer, review)
+      && after.schedule.rows.length === 2 && (await ppeStatus()).status === "reconciled" ? true : {r,again,fact};
+  });
   await kase("commit.stale-workpaper-schedule-note-refused", "a commit against the superseded workpaper, schedule or note revision is refused by name with nothing written", async () => {
     const c = await ctx(); const before = await counts();
     const p = payloadFor(A, compose.compositionSha256);
@@ -396,18 +416,11 @@ async function main() {
     return refusals.every((r) => r.endsWith(":42501")) ? true : refusals;
   });
   await kase("history.earlier-records-preserved", "every schedule submission and disclosure text that existed before the preparation is byte-identical afterwards (append-only history; the first class record is still there)", async () => {
-    const earlier = hex(JSON.stringify([
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId0])).rows,
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_disclosure_texts t WHERE t.id = ANY($1::uuid[])", [[base.notes["smes.note.policies"].id, base.notes["smes.note.estimates"].id, base.notes["smes.note.subclassifications"].id]])).rows,
-    ]));
-    const beforeRows = hex(JSON.stringify([
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_schedule_submissions t WHERE t.id = $1", [scheduleId0])).rows,
-      (await admin.query("SELECT to_jsonb(t)::text j FROM public.fs_disclosure_texts t WHERE t.id = ANY($1::uuid[])", [[base.notes["smes.note.policies"].id, base.notes["smes.note.estimates"].id, base.notes["smes.note.subclassifications"].id]])).rows,
-    ]));
+    const historicalAfter = await historicalRows();
     const first = await db.one("SELECT rows FROM public.fs_schedule_submissions WHERE id=$1", [scheduleId0]);
     const totalSubs = await db.count("SELECT count(*) n FROM public.fs_schedule_submissions WHERE company_id=$1 AND schedule_id='ppe'", [A]);
-    // fixture + the honest calculated-charge commit + the multi-class commit + the disposal commit + the retirement = 5 submissions.
-    return earlier === beforeRows && first.rows.length === 1 && first.rows[0].closingMinor === "1400000" && totalSubs === 5 ? true : { totalSubs, first: first.rows };
+    // Fixture + calculated-charge commit + multi-class commit + evidenced zero review + disposal + retirement = 6 submissions.
+    return historicalAfter === historicalBefore && first.rows.length === 1 && first.rows[0].closingMinor === "1400000" && totalSubs === 6 ? true : { totalSubs, first: first.rows };
   });
 
   group("Issued history");

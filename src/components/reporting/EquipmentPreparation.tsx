@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useManagementEditGuard } from "@/components/account/managementState";
 import { presentationPending } from "@/lib/reporting/preparationGuidance";
-import { formatMinor, openingAnchorDate, openingBridge, parseSourceAmount, type BridgeAdjustment, type SourceFact } from "@/lib/preparation/equipment";
+import { formatEquipmentAmount, formatMinor, openingAnchorDate, openingBridge, parseSourceAmount, type BridgeAdjustment, type SourceFact } from "@/lib/preparation/equipment";
 import { classPreservation, classRollForward, depreciationTieOut, DESTINATION_TARGETS, EQUIPMENT_CONTENT_VERSION_V2, EQUIPMENT_CONTRACT_V2, openingGrossBridge, totalCarrying, value, type DepreciationDestination } from "@/lib/preparation/equipmentSchedule";
 import { classCharge, DEPRECIATION_CALCULATOR_VERSION } from "@/lib/preparation/depreciation";
 import { classFromScheduleRow, deriveClass, emptyEditorClass, minorOrText, type EditorClass } from "@/lib/preparation/equipmentEditor";
@@ -53,6 +53,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
   const [reading, setReading] = useState(false), [read, setRead] = useState<ReadPage | null>(null), [image, setImage] = useState("");
   const [confirmed, setConfirmed] = useState(false), [coverageConfirmed, setCoverageConfirmed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const editingStarted = useRef(false);
   const generation = useRef(0), live = useRef(true), activeRead = useRef<AbortController | null>(null);
   const id = useId();
   useEffect(() => { live.current = true; return () => { live.current = false; activeRead.current?.abort(); }; }, []);
@@ -73,7 +74,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
     }, () => { if (current) { setExpectedPriorEnd(null); setPeriod(null); } });
     return () => { current = false; };
   }, [opened, p.clients, p.companyId, p.periodYear, p.compositionSha256]);
-  const edit = (patch: Partial<Editor>, movementChange = false) => { setEditor((e) => ({ ...e, ...patch })); setDirty(true); if (movementChange) setCoverageConfirmed(false); };
+  const edit = (patch: Partial<Editor>, movementChange = false) => { editingStarted.current = true; setEditor((e) => ({ ...e, ...patch })); setDirty(true); if (movementChange) setCoverageConfirmed(false); };
   const setClass = (i: number, next: EditorClass) => edit({ classes: editor.classes.map((c, j) => (j === i ? next : c)) }, true);
 
   // ── Step 1: the prior report (one figure read from the page; optional printed gross and accumulated amounts) ──
@@ -106,19 +107,19 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
     if (d.estimate.chargeSource === "calculated" && period) { const r = classCharge(d.estimate.items, period, d.estimate.convention); d.estimate.calculatedChargeMinor = r.state === "calculated" ? r.chargeMinor : ""; }
     return d;
   });
-  const rolls = derived.map((c) => classRollForward(c.label, { opening: c.opening, closing: c.closing }, c.movements, c.disposals));
+  const rolls = derived.map((c) => classRollForward(c.label, { opening: c.opening, closing: c.closing }, c.movements, c.disposals, { currency: p.currency, exponent: p.exponent }));
   const openingTotal = totalCarrying(derived, "opening"), closingTotal = totalCarrying(derived, "closing");
   const bridgeRows: BridgeAdjustment[] = editor.adjustments.map((a) => ({ amountMinor: minorOrText(a.amount, p.exponent), reason: `${a.category ? `[${a.category}] ` : ""}${a.reason}`, evidence: a.evidence }));
   const bridge = openingBridge(fact, bridgeRows, openingTotal ?? "", { entity: p.legalName, priorPeriodEnd: expectedPriorEnd ?? "", currency: p.currency, exponent: p.exponent });
   const grossBridge = openingGrossBridge({ grossMinor: editor.priorGross.trim() ? (priorGrossMinor ?? "x") : null, accumulatedMinor: editor.priorAccumulated.trim() ? (priorAccumulatedMinor ?? "x") : null }, derived);
   const derivedDestinations: DepreciationDestination[] = editor.destinations.map((d) => ({ ...d, amountMinor: minorOrText(d.amountMinor, p.exponent) }));
-  const tie = depreciationTieOut(derived, derivedDestinations, p.composedLines);
+  const tie = depreciationTieOut(derived, derivedDestinations, p.composedLines, { currency: p.currency, exponent: p.exponent });
   const preservation = classPreservation(context?.schedule?.rows ?? [], derived, editor.retiredClasses);
   const statementDifference = closingTotal !== null && p.statementClosingMinor !== null && value(p.statementClosingMinor) !== null ? (BigInt(closingTotal) - BigInt(p.statementClosingMinor)).toString() : null;
   const prep = { classes: derived, retiredClasses: editor.retiredClasses, destinations: derivedDestinations, entityAnswers: editor.entityAnswers as Record<string, Answer> };
-  const questions = evaluateQuestions(prep, period ?? { start: "", end: "" });
+  const questions = evaluateQuestions(prep, period ?? { start: "", end: "" }, { currency: p.currency, exponent: p.exponent });
   const unresolved = unresolvedQuestions(questions);
-  const classEstimateProblems = derived.map((c) => [...estimateProblems(c.estimate, c.answers.components?.status === "answered" && c.answers.components.flags.components_identified === true), ...chargeConsistencyProblems(c, period).problems]);
+  const classEstimateProblems = derived.map((c) => [...estimateProblems(c.estimate, c.answers.components?.status === "answered" && c.answers.components.flags.components_identified === true), ...chargeConsistencyProblems(c, period, { currency: p.currency, exponent: p.exponent }).problems]);
   const ready = editor.classes.length > 0 && rolls.every((r) => r.state === "agrees") && bridge.state === "agrees" && (grossBridge.state === "agrees" || grossBridge.state === "not_provided")
     && preservation.problems.length === 0 && tie.state === "agrees" && statementDifference === "0" && !statementChanged && coverageConfirmed && !!period && /^\d{4}-\d{2}-\d{2}$/.test(editor.priorDate)
     && classEstimateProblems.every((x) => x.length === 0);
@@ -145,10 +146,19 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
     setTimeout(() => URL.revokeObjectURL(url), 0);
     setNotice("Workpaper downloaded. Keep the original PDF with it. The download is not a server save or an approval.");
   };
+  const receiveContext = (next: EquipmentContextV2) => {
+    setContext(next);
+    // Only prefill a pristine browser draft. Saved workpapers require explicit restore; late reads never erase typing.
+    if (!next.workpaper && next.schedule && !editingStarted.current) {
+      setEditor(current => current.classes.length || editingStarted.current ? current : {
+        ...current, classes: next.schedule!.rows.map(row => classFromScheduleRow(row, p.exponent)),
+      });
+    }
+  };
   const restore = (data: unknown, documentId: string | null) => {
     try {
       const parsed = parseEquipmentEditorV2(data, p.companyId, p.periodYear);
-      generation.current++; activeRead.current?.abort(); setReading(false); setFile(null); setSourceDocumentId(documentId);
+      editingStarted.current = true; generation.current++; activeRead.current?.abort(); setReading(false); setFile(null); setSourceDocumentId(documentId);
       const { read: savedRead, ...rest } = parsed;
       setEditor(rest); setRead(savedRead ? { ...savedRead, preview: new Blob([]) } : null); setConfirmed(false); setCoverageConfirmed(false); setDirty(true);
       setNotice("Saved preparation restored for review. The original page preview is not loaded. Reconfirm the source figures and the coverage of each class before recording.");
@@ -179,7 +189,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
     else edit({ entityAnswers: { ...editor.entityAnswers, [q.def.id]: a } });
   };
   const nextStep = !priorSourceReady || !confirmed ? 1 : bridge.state !== "agrees" || grossBridge.state === "difference" ? 2 : !editor.classes.length || rolls.some((r) => r.state !== "agrees") || !coverageConfirmed ? 3 : tie.state !== "agrees" ? 4 : unresolved.length ? 5 : 6;
-  const money = (m: string | null) => (m === null || value(m) === null ? "—" : `${formatMinor(m, p.exponent)} ${p.currency}`);
+  const money = (m: string | null) => (m === null || value(m) === null ? "—" : formatEquipmentAmount(m, { currency: p.currency, exponent: p.exponent }));
   return (
     <section className="space-y-4 rounded-lg border border-border p-4" aria-labelledby={`${id}-heading`}>
       <h2 id={`${id}-heading`} className="font-semibold">Prepare equipment from supporting records</h2>
@@ -334,7 +344,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
               </fieldset>
             ))}
             <button type="button" className={buttonClass} data-testid="add-destination" onClick={() => edit({ destinations: [...editor.destinations, { target: "", amountMinor: "", evidence: "", explanation: "" }] })}>Add a destination</button>
-            <p role="status" data-testid="tieout-status">Depreciation tie-out: {tie.state === "agrees" ? "the destinations account for the whole charge" : tie.state === "incomplete" ? `more information needed. ${tie.problems.join(" ")}` : tie.problems.join(" ")}</p>
+            <p role="status" data-testid="tieout-status">Depreciation tie-out: {!editor.classes.length ? "load or add the equipment classes before checking the charge; zero has not been established" : tie.state === "agrees" ? "the destinations account for the whole charge" : tie.state === "incomplete" ? `more information needed. ${tie.problems.join(" ")}` : tie.problems.join(" ")}</p>
           </section>
 
           <section id={`${id}-step-5`} className="space-y-2 scroll-mt-24" aria-label="Preparation questions">
@@ -365,7 +375,7 @@ function EquipmentWorkpaper(p: PageProps & { currency: string; exponent: number;
           </section>
           {p.db ? (
             <EquipmentServerBridge key={`${p.companyId}:${p.periodYear}`} db={p.db} companyId={p.companyId} periodYear={p.periodYear} payload={buildWorkpaper()} canCommit={ready} canCommitNotes={canCommitNotes} proposals={proposals}
-              sourceDocumentId={sourceDocumentId} onContext={setContext} onRestore={restore} onLoadClasses={loadClasses} refresh={p.refresh} newRequestId={p.newRequestId} />
+              sourceDocumentId={sourceDocumentId} onContext={receiveContext} onRestore={restore} onLoadClasses={loadClasses} refresh={p.refresh} newRequestId={p.newRequestId} />
           ) : null}
           <p className="text-xs text-muted-foreground">Questions: {questions.length} applicable, {unresolved.length} unresolved ({unresolved.map(questionKey).slice(0, 6).join(", ")}{unresolved.length > 6 ? ", …" : ""}).</p>
           <Notice text={notice} />

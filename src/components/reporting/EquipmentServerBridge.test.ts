@@ -85,3 +85,40 @@ it("a draft save is a draft: compare-and-set on the latest revision, no schedule
   click(button("Restore the saved preparation"));
   expect(w.props.onRestore).toHaveBeenCalledWith(w.props.payload, null);
 });
+
+it("StrictMode ignores a late superseded read and performs no automatic write", async () => {
+  const w=world();let resolve!: (r:unknown)=>void;
+  w.rpc.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+  const {StrictMode}=await import("react");
+  m=mount(h(StrictMode,null,h(EquipmentServerBridge,w.props)));await flush();
+  expect(w.rpc.mock.calls.filter(([name])=>name==="fs_equipment_context_v2")).toHaveLength(2);
+  const current=w.props.onContext.mock.calls[0][0];
+  await act(async()=>resolve({data:{...current,schedule:null},error:null}));await flush();
+  expect(w.props.onContext).toHaveBeenCalledTimes(1);
+  expect(text()).toContain("The recorded schedule has 1 class");
+  expect(w.rpc.mock.calls.every(([name])=>name==="fs_equipment_context_v2")).toBe(true);
+});
+
+it("a late read from the old company cannot populate the newly selected company", async()=>{
+  const w=world();let resolve!: (r:unknown)=>void;
+  w.rpc.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+  m=mount(h(EquipmentServerBridge,{...w.props,key:"company-a"}));await flush();
+  const next={...w.props,companyId:"company-b",onContext:vi.fn()};
+  m.rerender(h(EquipmentServerBridge,{...next,key:"company-b"}));await flush();
+  const current=next.onContext.mock.calls[0][0];
+  await act(async()=>resolve({data:{...current,schedule:null},error:null}));await flush();
+  expect(w.props.onContext).not.toHaveBeenCalled();expect(next.onContext).toHaveBeenCalledTimes(1);
+  expect(text()).toContain("The recorded schedule has 1 class");
+});
+
+it("a manual read synchronously blocks saving even before React renders the loading state",async()=>{
+  const w=world();m=mount(h(EquipmentServerBridge,w.props));await flush();
+  let resolve!: (r:unknown)=>void;
+  w.rpc.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+  const readButton=button("Read the recorded preparation"),saveButton=button("Save a draft");
+  act(()=>{readButton.click();saveButton.click();});
+  expect(w.rpc.mock.calls.every(([name])=>name==="fs_equipment_context_v2")).toBe(true);
+  const context=w.props.onContext.mock.calls[0][0];
+  await act(async()=>resolve({data:context,error:null}));await flush();
+  expect(w.rpc.mock.calls.every(([name])=>name==="fs_equipment_context_v2")).toBe(true);
+});

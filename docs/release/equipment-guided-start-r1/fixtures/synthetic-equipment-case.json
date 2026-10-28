@@ -1,0 +1,175 @@
+{
+  "fixtureOnly": true,
+  "synthetic": true,
+  "notManagementEvidence": true,
+  "title": "SYNTHETIC software acceptance inputs — no compliance assertion",
+  "companyId": "d7c13682-98f1-4512-9c82-0a187609b5ea",
+  "periodYear": 2025,
+  "period": {
+    "start": "2025-01-01",
+    "end": "2025-12-31"
+  },
+  "contract": "cfoclose-equipment-workpaper/2",
+  "editor": {
+    "sourceMode": "reference",
+    "priorReference": "SYNTHETIC equipment-register-FY2025.csv, opening at 2024-12-31",
+    "page": "1",
+    "priorAmount": "16000.00",
+    "priorGross": "20000.00",
+    "priorAccumulated": "4000.00",
+    "priorDate": "2024-12-31",
+    "priorCurrency": "TZS",
+    "priorUnits": "0",
+    "adjustments": [],
+    "classes": [
+      {
+        "classId": "55555555-5555-4555-8555-555555555555",
+        "label": "Equipment",
+        "origin": "existing",
+        "accounts": "91500 Equipment at cost; 91510 Accumulated depreciation",
+        "opening": {
+          "grossMinor": "20000.00",
+          "accumulatedDepreciationMinor": "4000.00",
+          "accumulatedImpairmentMinor": "0.00",
+          "carryingMinor": "16000.00"
+        },
+        "closing": {
+          "grossMinor": "20000.00",
+          "accumulatedDepreciationMinor": "6000.00",
+          "accumulatedImpairmentMinor": "0.00",
+          "carryingMinor": "14000.00"
+        },
+        "movements": [
+          {
+            "kind": "depreciation",
+            "grossMinor": "",
+            "accumulatedDepreciationMinor": "2000.00",
+            "accumulatedImpairmentMinor": "",
+            "source": {
+              "type": "register",
+              "reference": "SYNTHETIC equipment-register-FY2025.csv, E-001"
+            },
+            "note": "Invented software acceptance case only"
+          }
+        ],
+        "disposals": [],
+        "estimate": {
+          "basis": "cost",
+          "method": "straight-line",
+          "lifeYears": "10",
+          "ratePercent": "",
+          "totalUnits": "",
+          "unitsThisPeriod": "",
+          "residualMinor": "0.00",
+          "convention": "full-period",
+          "factors": {
+            "usage": "Fictional two-shift operation",
+            "wear": "Fictional annual maintenance plan",
+            "obsolescence": "Fictional replacement assessment: no earlier obsolescence",
+            "legalLimits": "Fictional contract review: no shorter restriction"
+          },
+          "chargeSource": "calculated",
+          "registerChargeMinor": "",
+          "registerReference": "",
+          "items": [
+            {
+              "label": "SYNTHETIC E-001",
+              "costMinor": "20000.00",
+              "residualMinor": "0.00",
+              "openingAccumulatedMinor": "4000.00",
+              "method": "straight-line",
+              "lifeYears": "10",
+              "ratePercent": "",
+              "totalUnits": "",
+              "unitsThisPeriod": "",
+              "availableFrom": "2023-01-01",
+              "derecognisedOn": ""
+            }
+          ],
+          "calculatedChargeMinor": "",
+          "chargeDifference": {
+            "amountMinor": "",
+            "explanation": "",
+            "evidence": ""
+          },
+          "changedSincePrior": "no",
+          "changeDescription": "",
+          "changeEffectMinor": "",
+          "rationale": "Fictional entity plans to replace this uniform equipment after ten years of two-shift use; no sale proceeds expected.",
+          "evidence": "SYNTHETIC scenario.md: fictional replacement plan, not real management evidence"
+        },
+        "answers": {
+          "recognition": {
+            "status": "answered",
+            "text": "Fictional entity bought and controls E-001; invented invoice SYN-2023-001.",
+            "evidence": "SYNTHETIC scenario.md; not real management evidence",
+            "checkedBy": "Fictional test preparer",
+            "flags": {}
+          },
+          "components": {
+            "status": "answered",
+            "text": "Fictional E-001 is uniform and has no significant separately replaceable parts.",
+            "evidence": "SYNTHETIC scenario.md; not real management evidence",
+            "checkedBy": "Fictional test preparer",
+            "flags": {}
+          }
+        }
+      }
+    ],
+    "retiredClasses": [],
+    "destinations": [
+      {
+        "target": "sci.operating_expenses_by_function",
+        "amountMinor": "2000.00",
+        "evidence": "SYNTHETIC trial_balance_FY2025_current.csv account 96200",
+        "explanation": ""
+      }
+    ],
+    "entityAnswers": {
+      "restrictions_security": {
+        "status": "none_with_basis",
+        "text": "Fictional scenario explicitly specifies no such events.",
+        "evidence": "SYNTHETIC scenario.md; not real management evidence",
+        "checkedBy": "Fictional test preparer",
+        "flags": {}
+      },
+      "commitments": {
+        "status": "none_with_basis",
+        "text": "Fictional scenario explicitly specifies no such events.",
+        "evidence": "SYNTHETIC scenario.md; not real management evidence",
+        "checkedBy": "Fictional test preparer",
+        "flags": {}
+      },
+      "impairment": {
+        "status": "none_with_basis",
+        "text": "Fictional scenario explicitly specifies no such events.",
+        "evidence": "SYNTHETIC scenario.md; not real management evidence",
+        "checkedBy": "Fictional test preparer",
+        "flags": {}
+      },
+      "events_after": {
+        "status": "none_with_basis",
+        "text": "Fictional scenario explicitly specifies no such events.",
+        "evidence": "SYNTHETIC scenario.md; not real management evidence",
+        "checkedBy": "Fictional test preparer",
+        "flags": {}
+      },
+      "framework_history": {
+        "status": "answered",
+        "text": "Fictional entity also used IFRS for SMEs in the prior year; this is not first adoption.",
+        "evidence": "SYNTHETIC scenario.md; not real management evidence",
+        "checkedBy": "Fictional test preparer",
+        "flags": {}
+      }
+    },
+    "read": null
+  },
+  "expected": {
+    "openingMinor": "1600000",
+    "closingMinor": "1400000",
+    "depreciationMinor": "200000",
+    "statementExpenseLineMinor": "990000",
+    "openingBridgeDifferenceMinor": "0",
+    "depreciationDifferenceMinor": "0"
+  }
+}

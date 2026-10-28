@@ -1,5 +1,6 @@
 import { canonicalStringify } from "@/lib/canonicalStatement/serialization";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActivity } from "@/components/feedback/useActivity";
 import { useBusyState } from "@/hooks/useBusyState";
 import { commitProblemWords, noteProposal, NOTE_REQUIREMENTS, workpaperClient, type EquipmentContextV2, type NoteInsertion, type NoteRequirement } from "@/lib/preparation/workpaperClient";
 import type { ReportingDb } from "@/lib/reporting/signoff";
@@ -38,7 +39,13 @@ export function EquipmentServerBridge(p: {
   const api = useMemo(() => workpaperClient(p.db), [p.db]);
   const [context, setContext] = useState<EquipmentContextV2 | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useBusyState();
+  const [writing, setBusy] = useBusyState();
+  const [loading, setLoading] = useState(false);
+  const busy = writing || loading;
+  useActivity(loading, "Reading equipment preparation…");
+  const readGeneration = useRef(0);
+  const readingLock = useRef(false), writingLock = useRef(false);
+  const callbacks = useRef(p); callbacks.current = p;
   const [unknownCommit, setUnknownCommit] = useState(false);
   const pendingRetry = useRef<null | (() => Promise<void>)>(null);
   const live = useRef(true);
@@ -52,19 +59,25 @@ export function EquipmentServerBridge(p: {
     && NOTE_REQUIREMENTS.every((r) => prepared.baseIds[r] === (context.notes[r]?.id ?? null));
   const currentSaved = !!context?.workpaper && context.workpaper.sourceDocumentId === p.sourceDocumentId && canonicalStringify(context.workpaper.payload) === canonicalStringify(p.payload);
 
-  const load = async () => {
-    if (!setBusy(true)) return;
+  const readBlocked = useRef(false); readBlocked.current = writing || unknownCommit;
+  const load = useCallback(async () => {
+    if (readBlocked.current || writingLock.current) return;
+    const generation = ++readGeneration.current;
+    readingLock.current = true; setLoading(true);
     try {
       const c = await api.context(p.companyId, p.periodYear);
-      if (!live.current) return;
-      setContext(c); setReviewed(false); p.onContext(c);
+      if (!live.current || readGeneration.current !== generation) return;
+      setContext(c); setReviewed(false); callbacks.current.onContext(c);
       setNotice(`${c.schedule ? `The recorded schedule has ${c.schedule.rows.length} class${c.schedule.rows.length === 1 ? "" : "es"}: ${c.schedule.rows.map((r) => r.classLabel).join(", ")}.` : "No equipment schedule is recorded yet."} ${c.workpaper ? (c.workpaper.contract === "cfoclose-equipment-workpaper/2" ? "A saved preparation is available; restore it explicitly to replace this browser draft." : "A saved single-class workpaper exists; it cannot be restored into this multi-class preparation.") : "No saved preparation yet."} ${c.priorAnswers.length ? `${c.priorAnswers.length} answers from the prior period can be reused after review.` : ""}`.trim());
     } catch {
-      if (live.current) setNotice("Server preparation storage could not be read. The backend may not be installed, or access may have changed. Your browser draft is kept; download it before leaving.");
-    } finally { if (live.current) setBusy(false); }
-  };
+      if (live.current && readGeneration.current === generation) setNotice("Server preparation storage could not be read. The backend may not be installed, or access may have changed. Your browser draft is kept; download it before leaving.");
+    } finally { if (readGeneration.current === generation) { readingLock.current = false; if (live.current) setLoading(false); } }
+  }, [api, p.companyId, p.periodYear]);
+  const invalidateReads = useCallback(() => { readGeneration.current++; }, []);
+  useEffect(() => { void load(); return invalidateReads; }, [load, invalidateReads]);
   const saveDraft = async () => {
-    if (!context || !setBusy(true)) return;
+    if (!context || readingLock.current || !setBusy(true)) return;
+    writingLock.current = true;
     try {
       const r = await api.saveDraft(p.companyId, p.periodYear, p.payload, context.workpaper?.id ?? null, p.sourceDocumentId, draftAttempt.idFor(JSON.stringify([p.payload, context.workpaper?.id ?? null, p.sourceDocumentId])));
       if (!live.current) return;
@@ -74,10 +87,11 @@ export function EquipmentServerBridge(p: {
         setNotice(`Draft saved (${r.workpaperId}). ${r.sourceRetained ? "The server linked the retained original document." : "The original PDF is NOT retained by this save."} A draft records no schedule, answer or note.`);
       } else setNotice(r.outcome === "recorded" ? "Could not confirm the draft save: incomplete receipt. Retry unchanged." : commitProblemWords({ outcome: r.outcome, currentId: r.currentId ?? undefined }));
     } catch { if (live.current) setNotice("Could not confirm the draft save. Retry the same unchanged draft with its original request identity."); }
-    finally { if (live.current) setBusy(false); }
+    finally { writingLock.current = false; if (live.current) setBusy(false); }
   };
   const commit = async (withNotes: boolean) => {
-    if (!context || !p.canCommit || (withNotes && (!p.canCommitNotes || !reviewed || !proposalCurrent)) || !setBusy(true)) return;
+    if (!context || readingLock.current || !p.canCommit || (withNotes && (!p.canCommitNotes || !reviewed || !proposalCurrent)) || !setBusy(true)) return;
+    writingLock.current = true;
     const notes: NoteInsertion[] = withNotes && prepared ? NOTE_REQUIREMENTS.filter((r) => prepared.bodies[r].trim()).map((r) => ({ requirementId: r, expectedTextId: prepared.baseIds[r], body: prepared.bodies[r] })) : [];
     const expectedWorkpaper = withNotes && prepared ? prepared.workpaperId : context.workpaper?.id ?? null;
     const expectedSchedule = withNotes && prepared ? prepared.scheduleId : context.schedule?.id ?? null;
@@ -98,7 +112,7 @@ export function EquipmentServerBridge(p: {
         setNotice(r.outcome === "recorded" ? "Could not confirm the save: incomplete receipt. Retry unchanged." : `${commitProblemWords(r)} Your edits are kept.`);
       }
     } catch { if (live.current) { setUnknownCommit(true); setNotice("Could not confirm the save. Retry the unchanged preparation to retrieve its server receipt; nothing is lost."); } }
-    finally { if (live.current) setBusy(false); }
+    finally { writingLock.current = false; if (live.current) setBusy(false); }
   };
   const prepareNotes = () => {
     if (!context) return;
@@ -111,6 +125,7 @@ export function EquipmentServerBridge(p: {
     <section className="space-y-3 rounded-md border border-border p-3" aria-label="Saved equipment preparation and reviewed notes">
       <h4 className="font-medium">Keep the preparation in CFOClose</h4>
       <p className="text-sm">Read what is recorded, save a draft, or record every class, the answers and the reviewed notes together in one server transaction. Nothing here approves the report.</p>
+      {loading ? <p role="status">Reading the recorded equipment preparation…</p> : null}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => void load()}>Read the recorded preparation</button>
         {context?.schedule ? <button type="button" disabled={busy || unknownCommit} className={button} onClick={() => p.onLoadClasses(context.schedule!.rows)}>Load the recorded classes into this preparation</button> : null}

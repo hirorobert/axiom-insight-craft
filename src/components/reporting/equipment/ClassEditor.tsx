@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { formatMinor } from "@/lib/preparation/equipment";
 import { classCharge } from "@/lib/preparation/depreciation";
 import { MOVEMENT_SOURCE_TYPES, PPE_MOVEMENT_KINDS, type PpeMovementKind, type RollForwardResult, disposalResults, movementCarryingMinor, value } from "@/lib/preparation/equipmentSchedule";
-import { emptyDisposal, emptyItem, emptyMovement, movementColumns, type EditorClass, type EditorMovement } from "@/lib/preparation/equipmentEditor";
+import { emptyDisposal, emptyItem, emptyMovement, isRecordedZeroMovement, excludeReviewedZeroMovements, movementColumns, type EditorClass, type EditorMovement } from "@/lib/preparation/equipmentEditor";
 import type { EquipmentClass } from "@/lib/preparation/equipmentModel";
 
 const KIND_LABEL: Record<PpeMovementKind, string> = {
@@ -19,13 +20,16 @@ export function ClassEditor(p: {
   estimateProblems: string[]; canRemove: boolean; onChange: (next: EditorClass) => void; onRemove: () => void;
 }) {
   const { cls, exponent } = p;
+  const [zeroReviewer, setZeroReviewer] = useState("");
+  const [zeroEvidence, setZeroEvidence] = useState("");
+  const recordedZeros = cls.movements.filter(m => isRecordedZeroMovement(m, exponent));
   const L = cls.label.trim() || "this class";
   const set = (patch: Partial<EditorClass>) => p.onChange({ ...cls, ...patch });
   const setBal = (at: "opening" | "closing", key: keyof EditorClass["opening"], v: string) => set({ [at]: { ...cls[at], [key]: v } } as Partial<EditorClass>);
   const setMove = (i: number, patch: Partial<EditorMovement>) => set({ movements: cls.movements.map((m, j) => (j === i ? { ...m, ...patch } : m)) });
   const setEst = (patch: Partial<EditorClass["estimate"]>) => set({ estimate: { ...cls.estimate, ...patch } });
   const unusedKinds = PPE_MOVEMENT_KINDS.filter((k) => !cls.movements.some((m) => m.kind === k));
-  const hasDisposals = cls.movements.some((m) => m.kind === "disposals");
+  const hasDisposals = cls.movements.some((m) => m.kind === "disposals" && !isRecordedZeroMovement(m, exponent));
   const disposal = disposalResults(p.derived.disposals);
   const dep = p.derived.movements.find((m) => m.kind === "depreciation");
   const scheduleCharge = dep ? value(dep.accumulatedDepreciationMinor) : null;
@@ -61,6 +65,19 @@ export function ClassEditor(p: {
 
       <h4 className="font-medium">What happened to {L} during the year</h4>
       <p className="text-xs text-muted-foreground">Each change is stated in its columns: cost, accumulated depreciation, accumulated impairment. The effect on the carrying amount follows from them. Fixed-direction changes take positive amounts; for the other kinds a minus sign reduces the column. Every change names its record.</p>
+      {recordedZeros.length ? (
+        <section className="rounded-md border border-border p-3 space-y-2" aria-label={`${L}: review recorded zero-effect entries`}>
+          <p>{recordedZeros.length} recorded entries have zero net effect: {recordedZeros.map(m => KIND_LABEL[m.kind]).join(", ")}.</p>
+          <p className="text-sm">Zero net effect can hide a fully depreciated disposal or offsetting changes. Expand an entry below to complete its gross columns. Remove these entries together only after checking that none of their underlying events occurred.</p>
+          <label className="block text-sm">Who checked the records<input className={input} maxLength={200} aria-label={`${L}: zero-effect reviewer`} value={zeroReviewer} onChange={e => setZeroReviewer(e.target.value)} /></label>
+          <label className="block text-sm">Records checked<input className={input} maxLength={2000} aria-label={`${L}: zero-effect evidence`} value={zeroEvidence} onChange={e => setZeroEvidence(e.target.value)} /></label>
+          <button type="button" className={button} disabled={zeroReviewer.trim().length < 3 || zeroEvidence.trim().length < 3}
+            onClick={() => p.onChange(excludeReviewedZeroMovements(cls, exponent, zeroReviewer, zeroEvidence))}>
+            I checked: none of these events occurred — remove these zero-effect entries
+          </button>
+        </section>
+      ) : null}
+      {cls.answers.zero_effect_row_review ? <p className="text-sm" data-testid="zero-effect-review">Zero-effect entry review retained: {cls.answers.zero_effect_row_review.text} Checked by {cls.answers.zero_effect_row_review.checkedBy}; evidence: {cls.answers.zero_effect_row_review.evidence}.</p> : null}
       {cls.movements.map((m, i) => {
         const cols = movementColumns(m.kind);
         const effect = movementCarryingMinor(p.derived.movements[i]);
@@ -70,7 +87,7 @@ export function ClassEditor(p: {
               <input inputMode="decimal" className={input} aria-label={`${L}: ${KIND_LABEL[m.kind]} ${label}`} value={m[key]} onChange={(ev) => setMove(i, { [key]: ev.target.value } as Partial<EditorMovement>)} />
             </label>
           );
-        return (
+        const fields = (
           <fieldset key={m.kind} className="min-w-0 space-y-1 rounded-md border border-border p-2" data-movement={m.kind}>
             <legend className="px-1 text-sm font-medium">{KIND_LABEL[m.kind]}</legend>
             {m.note ? <p className="text-xs">{m.note}</p> : null}
@@ -94,6 +111,9 @@ export function ClassEditor(p: {
             <button type="button" className={button} onClick={() => set({ movements: cls.movements.filter((_, j) => j !== i) })}>Remove this change</button>
           </fieldset>
         );
+        return isRecordedZeroMovement(m, exponent)
+          ? <details key={m.kind} data-recorded-zero={m.kind}><summary className="cursor-pointer text-sm">Review zero-effect entry: {KIND_LABEL[m.kind]}</summary>{fields}</details>
+          : fields;
       })}
       {unusedKinds.length ? (
         <label className="block text-sm">Add a kind of change

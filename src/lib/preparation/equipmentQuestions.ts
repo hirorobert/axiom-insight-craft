@@ -4,6 +4,7 @@
  * the product's own, not the Standard's. Status: independent accounting review pending (no reviewer is named). This
  * module decides which questions apply and whether each is resolved; it never decides an accounting treatment.
  */
+import { formatEquipmentAmount, type EquipmentAmountDisplay } from "./equipment";
 import { classRollForward, disposalResults, movementCarryingMinor, value } from "./equipmentSchedule";
 import { classCharge, DEPRECIATION_METHODS, DEPRECIATION_CONVENTIONS } from "./depreciation";
 import type { Answer, AnswerStatus, ClassEstimate, EquipmentClass, EquipmentPreparationV2 } from "./equipmentModel";
@@ -227,7 +228,8 @@ export function estimateProblems(e: ClassEstimate, componentsIdentified: boolean
  * items — or the difference must be explained and evidenced for exactly that amount. Mirrors the server's
  * DEPRECIATION_CHARGE_MISMATCH / CHARGE_DIFFERENCE_MISMATCH / CHARGE_NOT_CALCULABLE refusals.
  */
-export function chargeConsistencyProblems(cls: EquipmentClass, period: { start: string; end: string } | null): { problems: string[]; expectedMinor: string | null; scheduleMinor: string | null; differenceMinor: string | null } {
+export function chargeConsistencyProblems(cls: EquipmentClass, period: { start: string; end: string } | null, display?: EquipmentAmountDisplay): { problems: string[]; expectedMinor: string | null; scheduleMinor: string | null; differenceMinor: string | null } {
+  const money = (v: string | bigint) => formatEquipmentAmount(v, display);
   const e = cls.estimate;
   const dep = cls.movements.find((m) => m.kind === "depreciation");
   const schedule = dep ? value(dep.accumulatedDepreciationMinor) : 0n;
@@ -246,8 +248,8 @@ export function chargeConsistencyProblems(cls: EquipmentClass, period: { start: 
   const diff = schedule - expected;
   if (diff !== 0n) {
     const d = e.chargeDifference;
-    if (value(d.amountMinor) === null || !hasText(d.explanation) || !hasText(d.evidence)) problems.push(`The schedule's depreciation (${schedule}) differs from the ${e.chargeSource === "register" ? "register's" : "calculated"} charge (${expected}) by ${diff}: explain the difference and name its evidence, or correct the schedule. Nothing is adjusted for you.`);
-    else if (BigInt(d.amountMinor) !== diff) problems.push(`The explained difference (${d.amountMinor}) is not the actual difference (${diff}).`);
+    if (value(d.amountMinor) === null || !hasText(d.explanation) || !hasText(d.evidence)) problems.push(`The schedule's depreciation (${money(schedule)}) differs from the ${e.chargeSource === "register" ? "register's" : "calculated"} charge (${money(expected)}) by ${money(diff)}: explain the difference and name its evidence, or correct the schedule. Nothing is adjusted for you.`);
+    else if (BigInt(d.amountMinor) !== diff) problems.push(`The explained difference (${money(d.amountMinor)}) is not the actual difference (${money(diff)}).`);
   }
   return { problems, expectedMinor: expected.toString(), scheduleMinor: schedule.toString(), differenceMinor: diff.toString() };
 }
@@ -265,7 +267,7 @@ export type EvaluatedQuestion = {
  * The applicable questions for the whole preparation, each with its resolution. Only unanswered applicable questions
  * need attention (charter 11.5); a confirmed answer is reused by every output that depends on it.
  */
-export function evaluateQuestions(prep: EquipmentPreparationV2, period: { start: string; end: string }): EvaluatedQuestion[] {
+export function evaluateQuestions(prep: EquipmentPreparationV2, period: { start: string; end: string }, display?: EquipmentAmountDisplay): EvaluatedQuestion[] {
   const out: EvaluatedQuestion[] = [];
   const entity = prep.entityAnswers;
   for (const def of EQUIPMENT_QUESTIONS_V2) {
@@ -285,7 +287,7 @@ export function evaluateQuestions(prep: EquipmentPreparationV2, period: { start:
     out.push({ def, classId: null, classLabel: null, status: a?.status ?? "unresolved", resolved: !problems.length, problems });
   }
   for (const cls of prep.classes) {
-    const roll = classRollForward(cls.label, { opening: cls.opening, closing: cls.closing }, cls.movements, cls.disposals);
+    const roll = classRollForward(cls.label, { opening: cls.opening, closing: cls.closing }, cls.movements, cls.disposals, display);
     for (const def of EQUIPMENT_QUESTIONS_V2) {
       if (def.scope !== "class") continue;
       if (def.trigger && !def.trigger({ cls, entity })) continue;
@@ -296,7 +298,7 @@ export function evaluateQuestions(prep: EquipmentPreparationV2, period: { start:
       else if (def.structured === "estimate") {
         const e = estimateProblems(cls.estimate, flag(cls.answers.components, "components_identified"));
         problems = def.id === "basis" ? e.filter((p) => /measurement basis/.test(p)) : def.id === "method" ? e.filter((p) => /method|rate|output|changed/.test(p)) : e.filter((p) => !/measurement basis|method|rate as a percentage|expected output|changed/.test(p));
-        if (def.id === "estimates" && problems.length === 0) problems.push(...chargeConsistencyProblems(cls, period.start && period.end ? period : null).problems);
+        if (def.id === "estimates" && problems.length === 0) problems.push(...chargeConsistencyProblems(cls, period.start && period.end ? period : null, display).problems);
       } else if (def.structured === "disposals") {
         const r = disposalResults(cls.disposals);
         problems = roll.problems.filter((p) => /dispos/i.test(p));
