@@ -515,6 +515,21 @@ jobs:
           createdb internal_beta_transport_proof
           INTERNAL_BETA_PROOF_URL=postgres://postgres:postgres@127.0.0.1:5432/internal_beta_transport_proof bun scripts/db-proof/internalBetaTransport.mjs
 
+      - name: Equipment exact-byte transport (approved sources, real predecessor chain, tamper/order/rollback/concurrency/preservation)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/equipment_transport_proof
+          PROOF_RESULT_FILE: proof-results/equipmentTransport.present.json
+        run: |
+          createdb equipment_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/equipmentTransport.mjs > proof-results/equipmentTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/equipmentTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/equipmentTransport.present.json --manifest scripts/db-proof/equipmentTransport.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
