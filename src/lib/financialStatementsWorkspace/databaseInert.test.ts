@@ -825,6 +825,11 @@ describe("database inertness — schema and functions", () => {
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
     allowed.add("scripts/db-proof/classificationSuggestions.mjs");
     allowed.add("scripts/db-proof/equipmentPreparation.mjs"); // Exact candidate proof; loopback-only, no hosted apply.
+    // Multi-class equipment preparation (20261206100000): the loopback-only disposable-database proof with its reviewed case
+    // manifest (structured result validated by validateProofResult), and the headless-Chrome journey over the loopback bridge
+    // of serveReporting.mjs (already reviewed above). Neither reaches a hosted project, applies SQL hosted or deploys anything.
+    allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
+    allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.
