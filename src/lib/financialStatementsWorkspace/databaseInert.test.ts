@@ -448,6 +448,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
+      // #210: unapplied equipment source only; native migrator owns the transaction.
+      // equipmentMigrationTransport.test.ts reconstructs the prior approved digest,
+      // proving only the outer BEGIN/COMMIT lines changed. Applied history is untouched.
+      "supabase/migrations/20261205100000_fs_equipment_preparation.sql",
       // Internal-beta wiring: identifier-only request, own-token composition, isolated budget RPC namespace.
       "supabase/functions/assistant-explain/index.ts",
       // Account identity (repair B) hosted correction (#153, release 96305da): 20261108100000 identifies the account-identity
