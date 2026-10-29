@@ -39,9 +39,15 @@ describe("the journey script", () => {
 describe("signed URLs are never printed", () => {
   it("both journeys redact tokens in everything they print or record", () => {
     const api = read("scripts/e2e/sourceDownloadJourney.mjs"), main = read("scripts/e2e/localStackJourney.mjs");
-    expect(api).toMatch(/const redact = /); expect(api).toMatch(/const log = (s) => { const t = redact(s)/);
-    expect(api).toMatch(/detail: r === true ? undefined : JSON.parse(redact(/);
-    expect(main).toMatch(/$1…/);
+    // Literal substrings (not patterns): the assertions name the exact redaction code that must stay in the journeys.
+    expect(api).toContain("const redact = ");
+    expect(api).toContain("const log = (s) => { const t = redact(s);");
+    expect(api).toContain("detail: r === true ? undefined : JSON.parse(redact(");
+    expect(main).toContain('replace(/([?&](token|apikey|access_token)=)[^&]*/gi, "$1…")');
+    // and the redaction itself behaves: a token in a URL or a JSON url/token field never survives
+    const redact = (text: string) => String(text).replace(/([?&](?:token|apikey|access_token)=)[^&"\s]*/gi, "$1…").replace(/("(?:url|signedUrl|token)"\s*:\s*)"[^"]*"/gi, '$1"…"');
+    const out = redact(JSON.stringify({ a: { url: "http://kong:8000/x?token=SECRET&download=a" }, b: "see http://h/y?token=SECRET2 end", token: "SECRET3" }));
+    expect(out).not.toMatch(/SECRET/);
   });
   it("the retrieval policy proposals exist and say they are not implemented", () => {
     const p = read("docs/release/source-download/POLICY_PROPOSALS.md");
