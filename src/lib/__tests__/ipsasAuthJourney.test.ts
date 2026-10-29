@@ -71,6 +71,8 @@ describe("the journey script", () => {
   });
   it("states which boundaries are real and which are operator actions in its results", () => {
     expect(src).toMatch(/real: \[/); expect(src).toMatch(/operatorActionsByServiceRole/); expect(src).toMatch(/notUsed: \[/);
+    // operator-created fixtures must never be presented as tested onboarding
+    expect(src).toMatch(/notProvenByThisJourney: \[[^\]]*invitation[^\]]*membership acceptance[^\]]*rollout configuration/);
   });
 });
 

@@ -481,6 +481,8 @@ finally {
   fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, gaps, boundaries: {
     real: ["GoTrue sign-in (browser and API)", "PostgREST (browser and API)", "RLS and function grants (direct calls with real JWTs)", "private Storage (real uploader into the private bucket; refusal of outsider, viewer, anon and public URL)", "process-trial-balance edge function", "production build served on loopback in headless Chrome"],
     operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "read the stored object back to verify its bytes (integrity only, not an owner-retrieval check)", "revoke members", "create the outsider's own company"],
+    // Operator-created fixtures are legitimate set-up for this test, but they are NOT tested user onboarding.
+    notProvenByThisJourney: ["invitation of a member through the UI", "membership acceptance through the UI", "rollout configuration through the UI", "capability grants to a collaborator", "owner retrieval of the uploaded source file (see gaps)"],
     notUsed: ["hosted project", "paid services", "AI", "simulated identity", "loopback bridge", "dev harness"] }, finishedAt: new Date().toISOString() }, null, 2));
   try { await browser?.close(); } catch { /* */ }
   try { await preview?.close(); } catch { /* */ }
