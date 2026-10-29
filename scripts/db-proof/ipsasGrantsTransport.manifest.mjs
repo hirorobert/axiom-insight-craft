@@ -20,6 +20,7 @@ export const CASES = Object.freeze([
   { id: "apply.late-failure-rolls-back", kind: "control", modes: ["present"] },
   { id: "apply.baseline-change-rolls-back", kind: "control", modes: ["present"] },
   { id: "apply.privilege-postcondition-rolls-back", kind: "control", modes: ["present"] },
+  { id: "apply.binding-independent-of-session-search-path", kind: "control", modes: ["present"] },
   { id: "apply.concurrent-installed-exactly-once", kind: "control", modes: ["present"] },
   { id: "apply.duplicate-refused", kind: "control", modes: ["present"] },
   { id: "installed.equals-direct-application", kind: "control", modes: ["present"] },

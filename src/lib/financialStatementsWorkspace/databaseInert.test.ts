@@ -843,6 +843,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/ipsasGrantsStagedTransport.mjs");
     allowed.add("scripts/db-proof/ipsasGrantsTransport.mjs");
     allowed.add("scripts/db-proof/ipsasGrantsTransport.manifest.mjs");
+    allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.

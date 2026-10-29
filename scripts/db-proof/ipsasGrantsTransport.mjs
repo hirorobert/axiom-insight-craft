@@ -31,6 +31,9 @@ const CATALOG = `SELECT x FROM (
   UNION ALL SELECT 'trg:'||pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relnamespace='public'::regnamespace AND c.relname LIKE 'ipsas\\_grant\\_%' AND NOT t.tgisinternal
   UNION ALL SELECT 'fn:'||p.proname||':'||pg_get_function_identity_arguments(p.oid)||':'||p.prosecdef||':'||p.provolatile::text||':'||coalesce(p.proacl::text,'')||':'||coalesce(p.proconfig::text,'')||':'||md5(pg_get_functiondef(p.oid))
     FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.proname IN ('_ipsas_natj','_ipsas_grants_period','_ipsas_tb_sum','_ipsas_grant_subject_sha','_ipsas_grants_assess','_ipsas_grants_live','ipsas_grants_context','ipsas_save_grants','ipsas_confirm_grant')
+  UNION ALL SELECT 'bind:'||c.relname||':'||coalesce((SELECT n.nspname||'.'||p.proname FROM pg_depend dp JOIN pg_proc p ON p.oid=dp.refobjid JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE dp.classid='pg_attrdef'::regclass AND dp.objid=d.oid AND dp.refclassid='pg_proc'::regclass LIMIT 1),'pg_catalog-pinned')
+    FROM pg_attrdef d JOIN pg_class c ON c.oid=d.adrelid WHERE c.relnamespace='public'::regnamespace AND c.relname LIKE 'ipsas\\_grant\\_%'
 ) q ORDER BY x`;
 // Deparsing (pg_get_expr, pg_get_functiondef) depends on the search_path of the READING session, and an unqualified name in the
 // migration binds through the search_path of the EXECUTING session. Both the reference run and every installation therefore use a
@@ -142,6 +145,27 @@ try {
   const refClient = await db.pool.connect();
   try { await refClient.query("BEGIN"); try { await refClient.query(migrationText(GRANTS_FILE)); reference = await catalog(refClient, { inTx: true }); } finally { await refClient.query("ROLLBACK"); } } finally { refClient.release(); }
   await notInstalled();
+  await kase("apply.binding-independent-of-session-search-path", async () => {
+    // The migration has unqualified names (DEFAULT gen_random_uuid()). Control first: in this chain pgcrypto is installed in public, so the
+    // ambiguity is real - the SOURCE run directly under a path that lists public before pg_catalog binds the public function.
+    assert((await row("SELECT to_regprocedure('public.gen_random_uuid()') IS NOT NULL v")).v, "the chain provides a public.gen_random_uuid()");
+    const run = async (searchPath, sql) => {
+      const c = await db.pool.connect();
+      try { await c.query("BEGIN"); await c.query(`SET LOCAL search_path TO ${searchPath}`); await c.query(sql); return await catalog(c, { inTx: true }); }
+      finally { try { await c.query("ROLLBACK"); } catch { /* */ } c.release(); }
+    };
+    const unpinned = await run("public, pg_catalog", migrationText(GRANTS_FILE));
+    assert(unpinned.facts.some((f) => f.startsWith("bind:") && f.endsWith("public.gen_random_uuid")), "control: the unpinned direct run bound the public function");
+    assert.notEqual(unpinned.d, reference.d);
+    assert(reference.facts.filter((f) => f.startsWith("bind:")).every((f) => f.endsWith("pg_catalog-pinned")), "the default-session reference binds the core function");
+    // The transport's apply pins the path for the source: whatever the migrator's session path, the result is the core binding.
+    for (const searchPath of ['"$user", public', "public, pg_catalog", "pg_catalog, public", "public", "extensions, public"]) {
+      const installed = await run(searchPath, renderApply(0));
+      assert.deepEqual(installed.facts.filter((f) => f.startsWith("bind:")), reference.facts.filter((f) => f.startsWith("bind:")), `binding under ${searchPath}`);
+      assert.equal(installed.d, reference.d, `catalogue under ${searchPath}`);
+    }
+    await notInstalled();
+  });
   await kase("apply.concurrent-installed-exactly-once", async () => {
     const clients = await Promise.all([db.pool.connect(), db.pool.connect()]);
     try {
