@@ -122,6 +122,7 @@ jobs:
         run: |
           bunx tsc --noEmit -p release/candidates/framework-kernel-r1/tsconfig.json
           node release/candidates/framework-kernel-r1/inventory.mjs --check
+          bunx tsc --noEmit -p release/candidates/ipsas-accrual-r1/tsconfig.json
 
       - name: Package-manager authority (one lockfile, pinned Bun, no competing installer)
         run: |

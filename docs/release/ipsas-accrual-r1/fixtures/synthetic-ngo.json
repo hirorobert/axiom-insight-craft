@@ -1,0 +1,957 @@
+{
+  "fixtureOnly": true,
+  "notManagementEvidence": true,
+  "notAccountingValidation": true,
+  "expected": {
+    "current": {
+      "assetsMinor": "2300000",
+      "liabilitiesMinor": "500000",
+      "netAssetsMinor": "1800000",
+      "revenueMinor": "1200000",
+      "expenseMinor": "700000",
+      "surplusMinor": "500000",
+      "positionDifferenceMinor": "0"
+    },
+    "comparative": {
+      "assetsMinor": "1700000",
+      "liabilitiesMinor": "400000",
+      "netAssetsMinor": "1300000",
+      "revenueMinor": "1000000",
+      "expenseMinor": "600000",
+      "surplusMinor": "400000",
+      "positionDifferenceMinor": "0"
+    },
+    "currentCashClosingMinor": "900000",
+    "comparativeCashClosingMinor": "500000",
+    "grantRevenueMinor": "1200000",
+    "grantObligationsMinor": "400000"
+  },
+  "input": {
+    "schema": "ipsas-ngo-source/1",
+    "scope": {
+      "companyId": "synthetic-ngo-no-hosted-record",
+      "period": {
+        "start": "2025-07-01",
+        "end": "2026-06-30"
+      },
+      "currency": "TZS",
+      "scale": 2
+    },
+    "legalName": "SYNTHETIC NGO \u2014 NOT A REAL ENTITY",
+    "profile": {
+      "companyId": "synthetic-ngo-no-hosted-record",
+      "period": {
+        "start": "2025-07-01",
+        "end": "2026-06-30"
+      },
+      "currency": "TZS",
+      "scale": 2,
+      "basis": "accrual",
+      "jurisdiction": "TZ",
+      "jurisdictionEvidence": {
+        "id": "jurisdiction",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "5034c6c269d0f8daef7de42cf2d5a09779c350e53479e11e9c0d523a4a2b3e9b",
+        "locator": "jurisdiction-profile.json",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      "entityEvidence": {
+        "id": "management-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+        "locator": "management-fixture.md",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      "functionalCurrency": "TZS",
+      "groupAssessment": "single-entity-confirmed",
+      "adoption": "continuing-accrual",
+      "publicBudget": "yes",
+      "elections": {
+        "leases43": null,
+        "ppe45": null,
+        "measurement46": null,
+        "heldForSale44": null,
+        "revenue47": null,
+        "transfers48": null,
+        "concessionary2027": null
+      },
+      "initialApplications": {
+        "leases43": "2025-07-01",
+        "ppe45": "2025-07-01",
+        "revenue47": null,
+        "transfers48": null
+      },
+      "transition": {
+        "revenue47": null,
+        "transfers48": null,
+        "workpapers": {
+          "leases43": "SYNTHETIC zero-adjustment lease transition assessment",
+          "ppe45": "SYNTHETIC cost-model opening assessment"
+        },
+        "evidence": {
+          "id": "management-current",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+          "locator": "management-fixture.md",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        }
+      },
+      "comparative": {
+        "start": "2024-07-01",
+        "end": "2025-06-30"
+      }
+    },
+    "evidence": [
+      {
+        "id": "management-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+        "locator": "management-fixture.md",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "management-prior",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2024-07-01",
+          "end": "2025-06-30"
+        },
+        "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+        "locator": "management-fixture.md",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "jurisdiction",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "5034c6c269d0f8daef7de42cf2d5a09779c350e53479e11e9c0d523a4a2b3e9b",
+        "locator": "jurisdiction-profile.json",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "tb-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "721137651d071859a23ae1d4579d7474ae7bedb880b7c24de9a2bc7e302d9e17",
+        "locator": "tb-current.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "tb-prior",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2024-07-01",
+          "end": "2025-06-30"
+        },
+        "sourceRevision": "0710a03a16b20098f8eff42443a0043d03f6b0671ab1a5d1b87c524c6a407fb7",
+        "locator": "tb-prior.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "cash-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "0cf2459f54f8ede3d8c38d1d9a19cc0716af66cedf53c178cdf0e505534d897f",
+        "locator": "cash-current.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      {
+        "id": "cash-prior",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2024-07-01",
+          "end": "2025-06-30"
+        },
+        "sourceRevision": "d77a3a4e5bd5515b37187be17f0a0e82784f3538d6573ba5235b414e665c3671",
+        "locator": "cash-prior.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      }
+    ],
+    "current": {
+      "period": {
+        "start": "2025-07-01",
+        "end": "2026-06-30"
+      },
+      "mode": "pre-close",
+      "completenessEvidence": {
+        "id": "tb-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "721137651d071859a23ae1d4579d7474ae7bedb880b7c24de9a2bc7e302d9e17",
+        "locator": "tb-current.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      "accounts": [
+        {
+          "id": "bank",
+          "code": "1000",
+          "label": "Bank",
+          "debitMinor": "900000",
+          "creditMinor": "0",
+          "lineId": "cash",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "cost",
+          "code": "1500",
+          "label": "Equipment cost",
+          "debitMinor": "1600000",
+          "creditMinor": "0",
+          "lineId": "ppe",
+          "section": "non-current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "accdep",
+          "code": "1510",
+          "label": "Accumulated depreciation",
+          "debitMinor": "0",
+          "creditMinor": "400000",
+          "lineId": "ppe",
+          "section": "non-current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "ar",
+          "code": "1200",
+          "label": "Receivables",
+          "debitMinor": "200000",
+          "creditMinor": "0",
+          "lineId": "receivables",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "grant-liab",
+          "code": "2300",
+          "label": "Grant obligations",
+          "debitMinor": "0",
+          "creditMinor": "400000",
+          "lineId": "grant_obligations",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "ap",
+          "code": "2100",
+          "label": "Payables",
+          "debitMinor": "0",
+          "creditMinor": "100000",
+          "lineId": "payables",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "na",
+          "code": "3000",
+          "label": "Accumulated surplus before current result",
+          "debitMinor": "0",
+          "creditMinor": "1300000",
+          "lineId": "accumulated",
+          "section": "net-assets",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "rev",
+          "code": "4000",
+          "label": "Grant revenue",
+          "debitMinor": "0",
+          "creditMinor": "1200000",
+          "lineId": "grants",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "staff",
+          "code": "6000",
+          "label": "Salaries",
+          "debitMinor": "500000",
+          "creditMinor": "0",
+          "lineId": "employees",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        },
+        {
+          "id": "dep",
+          "code": "6200",
+          "label": "Depreciation",
+          "debitMinor": "200000",
+          "creditMinor": "0",
+          "lineId": "depreciation",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-current"
+        }
+      ],
+      "cash": {
+        "completenessEvidence": {
+          "id": "cash-current",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "sourceRevision": "0cf2459f54f8ede3d8c38d1d9a19cc0716af66cedf53c178cdf0e505534d897f",
+          "locator": "cash-current.csv",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        },
+        "openings": [
+          {
+            "accountId": "bank",
+            "openingMinor": "500000",
+            "exchangeEffectMinor": "0",
+            "evidenceId": "cash-current"
+          }
+        ],
+        "movements": [
+          {
+            "id": "receipt",
+            "accountId": "bank",
+            "activity": "operating",
+            "label": "Grant receipts",
+            "amountMinor": "1300000",
+            "transferId": null,
+            "evidenceId": "cash-current"
+          },
+          {
+            "id": "salary",
+            "accountId": "bank",
+            "activity": "operating",
+            "label": "Payments to employees",
+            "amountMinor": "-500000",
+            "transferId": null,
+            "evidenceId": "cash-current"
+          },
+          {
+            "id": "purchase",
+            "accountId": "bank",
+            "activity": "investing",
+            "label": "Equipment purchases",
+            "amountMinor": "-400000",
+            "transferId": null,
+            "evidenceId": "cash-current"
+          }
+        ]
+      },
+      "netAssets": {
+        "openingMinor": "1300000",
+        "evidenceId": "management-current",
+        "otherMovements": [],
+        "completenessEvidence": {
+          "id": "management-current",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+          "locator": "management-fixture.md",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        }
+      },
+      "currency": "TZS",
+      "scale": 2,
+      "basis": "accrual"
+    },
+    "comparative": {
+      "period": {
+        "start": "2024-07-01",
+        "end": "2025-06-30"
+      },
+      "mode": "pre-close",
+      "completenessEvidence": {
+        "id": "tb-prior",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2024-07-01",
+          "end": "2025-06-30"
+        },
+        "sourceRevision": "0710a03a16b20098f8eff42443a0043d03f6b0671ab1a5d1b87c524c6a407fb7",
+        "locator": "tb-prior.csv",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      "accounts": [
+        {
+          "id": "bank",
+          "code": "1000",
+          "label": "Bank",
+          "debitMinor": "500000",
+          "creditMinor": "0",
+          "lineId": "cash",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "cost",
+          "code": "1500",
+          "label": "Equipment cost",
+          "debitMinor": "1200000",
+          "creditMinor": "0",
+          "lineId": "ppe",
+          "section": "non-current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "accdep",
+          "code": "1510",
+          "label": "Accumulated depreciation",
+          "debitMinor": "0",
+          "creditMinor": "200000",
+          "lineId": "ppe",
+          "section": "non-current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "ar",
+          "code": "1200",
+          "label": "Receivables",
+          "debitMinor": "200000",
+          "creditMinor": "0",
+          "lineId": "receivables",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "grant-liab",
+          "code": "2300",
+          "label": "Grant obligations",
+          "debitMinor": "0",
+          "creditMinor": "300000",
+          "lineId": "grant_obligations",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "ap",
+          "code": "2100",
+          "label": "Payables",
+          "debitMinor": "0",
+          "creditMinor": "100000",
+          "lineId": "payables",
+          "section": "current",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "na",
+          "code": "3000",
+          "label": "Accumulated surplus before current result",
+          "debitMinor": "0",
+          "creditMinor": "900000",
+          "lineId": "accumulated",
+          "section": "net-assets",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "rev",
+          "code": "4000",
+          "label": "Grant revenue",
+          "debitMinor": "0",
+          "creditMinor": "1000000",
+          "lineId": "grants",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "staff",
+          "code": "6000",
+          "label": "Salaries",
+          "debitMinor": "400000",
+          "creditMinor": "0",
+          "lineId": "employees",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        },
+        {
+          "id": "dep",
+          "code": "6200",
+          "label": "Depreciation",
+          "debitMinor": "200000",
+          "creditMinor": "0",
+          "lineId": "depreciation",
+          "section": "performance",
+          "zeroDisposition": null,
+          "evidenceId": "tb-prior"
+        }
+      ],
+      "cash": {
+        "completenessEvidence": {
+          "id": "cash-prior",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2024-07-01",
+            "end": "2025-06-30"
+          },
+          "sourceRevision": "d77a3a4e5bd5515b37187be17f0a0e82784f3538d6573ba5235b414e665c3671",
+          "locator": "cash-prior.csv",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        },
+        "openings": [
+          {
+            "accountId": "bank",
+            "openingMinor": "300000",
+            "exchangeEffectMinor": "0",
+            "evidenceId": "cash-prior"
+          }
+        ],
+        "movements": [
+          {
+            "id": "receipt",
+            "accountId": "bank",
+            "activity": "operating",
+            "label": "Grant receipts",
+            "amountMinor": "1000000",
+            "transferId": null,
+            "evidenceId": "cash-prior"
+          },
+          {
+            "id": "salary",
+            "accountId": "bank",
+            "activity": "operating",
+            "label": "Payments to employees",
+            "amountMinor": "-400000",
+            "transferId": null,
+            "evidenceId": "cash-prior"
+          },
+          {
+            "id": "purchase",
+            "accountId": "bank",
+            "activity": "investing",
+            "label": "Equipment purchases",
+            "amountMinor": "-400000",
+            "transferId": null,
+            "evidenceId": "cash-prior"
+          }
+        ]
+      },
+      "netAssets": {
+        "openingMinor": "900000",
+        "evidenceId": "management-prior",
+        "otherMovements": [],
+        "completenessEvidence": {
+          "id": "management-prior",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2024-07-01",
+            "end": "2025-06-30"
+          },
+          "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+          "locator": "management-fixture.md",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        }
+      },
+      "currency": "TZS",
+      "scale": 2,
+      "basis": "accrual"
+    },
+    "openingAdjustments": [],
+    "grants": [
+      {
+        "profile": {
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "currency": "TZS",
+          "scale": 2,
+          "basis": "accrual",
+          "jurisdiction": "TZ",
+          "jurisdictionEvidence": {
+            "id": "jurisdiction",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "5034c6c269d0f8daef7de42cf2d5a09779c350e53479e11e9c0d523a4a2b3e9b",
+            "locator": "jurisdiction-profile.json",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          },
+          "entityEvidence": {
+            "id": "management-current",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+            "locator": "management-fixture.md",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          },
+          "functionalCurrency": "TZS",
+          "groupAssessment": "single-entity-confirmed",
+          "adoption": "continuing-accrual",
+          "publicBudget": "yes",
+          "elections": {
+            "leases43": null,
+            "ppe45": null,
+            "measurement46": null,
+            "heldForSale44": null,
+            "revenue47": null,
+            "transfers48": null,
+            "concessionary2027": null
+          },
+          "initialApplications": {
+            "leases43": "2025-07-01",
+            "ppe45": "2025-07-01",
+            "revenue47": null,
+            "transfers48": null
+          },
+          "transition": {
+            "revenue47": null,
+            "transfers48": null,
+            "workpapers": {
+              "leases43": "SYNTHETIC zero-adjustment lease transition assessment",
+              "ppe45": "SYNTHETIC cost-model opening assessment"
+            },
+            "evidence": {
+              "id": "management-current",
+              "companyId": "synthetic-ngo-no-hosted-record",
+              "period": {
+                "start": "2025-07-01",
+                "end": "2026-06-30"
+              },
+              "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+              "locator": "management-fixture.md",
+              "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+              "confirmedAt": "2026-10-29T08:00:00Z"
+            }
+          },
+          "comparative": {
+            "start": "2024-07-01",
+            "end": "2025-06-30"
+          }
+        },
+        "grantId": "new-grant",
+        "evidence": [
+          {
+            "id": "management-current",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+            "locator": "management-fixture.md",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          }
+        ],
+        "classification": "enforceable-condition",
+        "considerationMinor": "1300000",
+        "recognisedResourcesMinor": "1300000",
+        "priorCumulativeRevenueMinor": "0",
+        "obligations": [
+          {
+            "id": "training",
+            "allocatedMinor": "800000",
+            "satisfiedMinor": "800000",
+            "evidenceId": "management-current"
+          },
+          {
+            "id": "outreach",
+            "allocatedMinor": "500000",
+            "satisfiedMinor": "400000",
+            "evidenceId": "management-current"
+          }
+        ],
+        "complexities": {
+          "variableConsideration": false,
+          "financing": false,
+          "agent": false,
+          "nonCash": false,
+          "modification": false,
+          "creditLoss": false
+        }
+      },
+      {
+        "profile": {
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "currency": "TZS",
+          "scale": 2,
+          "basis": "accrual",
+          "jurisdiction": "TZ",
+          "jurisdictionEvidence": {
+            "id": "jurisdiction",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "5034c6c269d0f8daef7de42cf2d5a09779c350e53479e11e9c0d523a4a2b3e9b",
+            "locator": "jurisdiction-profile.json",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          },
+          "entityEvidence": {
+            "id": "management-current",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+            "locator": "management-fixture.md",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          },
+          "functionalCurrency": "TZS",
+          "groupAssessment": "single-entity-confirmed",
+          "adoption": "continuing-accrual",
+          "publicBudget": "yes",
+          "elections": {
+            "leases43": null,
+            "ppe45": null,
+            "measurement46": null,
+            "heldForSale44": null,
+            "revenue47": null,
+            "transfers48": null,
+            "concessionary2027": null
+          },
+          "initialApplications": {
+            "leases43": "2025-07-01",
+            "ppe45": "2025-07-01",
+            "revenue47": null,
+            "transfers48": null
+          },
+          "transition": {
+            "revenue47": null,
+            "transfers48": null,
+            "workpapers": {
+              "leases43": "SYNTHETIC zero-adjustment lease transition assessment",
+              "ppe45": "SYNTHETIC cost-model opening assessment"
+            },
+            "evidence": {
+              "id": "management-current",
+              "companyId": "synthetic-ngo-no-hosted-record",
+              "period": {
+                "start": "2025-07-01",
+                "end": "2026-06-30"
+              },
+              "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+              "locator": "management-fixture.md",
+              "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+              "confirmedAt": "2026-10-29T08:00:00Z"
+            }
+          },
+          "comparative": {
+            "start": "2024-07-01",
+            "end": "2025-06-30"
+          }
+        },
+        "grantId": "earlier-grant",
+        "evidence": [
+          {
+            "id": "management-current",
+            "companyId": "synthetic-ngo-no-hosted-record",
+            "period": {
+              "start": "2025-07-01",
+              "end": "2026-06-30"
+            },
+            "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+            "locator": "management-fixture.md",
+            "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+            "confirmedAt": "2026-10-29T08:00:00Z"
+          }
+        ],
+        "classification": "enforceable-condition",
+        "considerationMinor": "300000",
+        "recognisedResourcesMinor": "300000",
+        "priorCumulativeRevenueMinor": "0",
+        "obligations": [
+          {
+            "id": "later-services",
+            "allocatedMinor": "300000",
+            "satisfiedMinor": "0",
+            "evidenceId": "management-current"
+          }
+        ],
+        "complexities": {
+          "variableConsideration": false,
+          "financing": false,
+          "agent": false,
+          "nonCash": false,
+          "modification": false,
+          "creditLoss": false
+        }
+      }
+    ],
+    "fx": [],
+    "budget": {
+      "companyId": "synthetic-ngo-no-hosted-record",
+      "period": {
+        "start": "2025-07-01",
+        "end": "2026-06-30"
+      },
+      "currency": "TZS",
+      "scale": 2,
+      "publiclyAvailable": "yes",
+      "applicabilityEvidence": {
+        "id": "management-current",
+        "companyId": "synthetic-ngo-no-hosted-record",
+        "period": {
+          "start": "2025-07-01",
+          "end": "2026-06-30"
+        },
+        "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+        "locator": "management-fixture.md",
+        "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+        "confirmedAt": "2026-10-29T08:00:00Z"
+      },
+      "budgetBasis": "cash",
+      "budgetPeriod": {
+        "start": "2025-07-01",
+        "end": "2026-06-30"
+      },
+      "evidence": [
+        {
+          "id": "management-current",
+          "companyId": "synthetic-ngo-no-hosted-record",
+          "period": {
+            "start": "2025-07-01",
+            "end": "2026-06-30"
+          },
+          "sourceRevision": "42dab58cf3b80b78096cb5eb939e152633701439f4c7718e33f695608bbf5219",
+          "locator": "management-fixture.md",
+          "confirmedBy": "SYNTHETIC PREPARER \u2014 not a real confirmation",
+          "confirmedAt": "2026-10-29T08:00:00Z"
+        }
+      ],
+      "rows": [
+        {
+          "id": "grant",
+          "label": "Grant receipts",
+          "activity": "operating",
+          "direction": "receipt",
+          "performance": "revenue",
+          "originalMinor": "1400000",
+          "finalMinor": "1300000",
+          "actualMinor": "1300000",
+          "evidenceId": "management-current",
+          "varianceAssessment": null,
+          "varianceExplanation": null,
+          "revisionExplanation": "SYNTHETIC approved budget revision in management fixture."
+        },
+        {
+          "id": "staff",
+          "label": "Employee payments",
+          "activity": "operating",
+          "direction": "payment",
+          "performance": "expense",
+          "originalMinor": "450000",
+          "finalMinor": "500000",
+          "actualMinor": "500000",
+          "evidenceId": "management-current",
+          "varianceAssessment": null,
+          "varianceExplanation": null,
+          "revisionExplanation": "SYNTHETIC approved budget revision in management fixture."
+        },
+        {
+          "id": "ppe",
+          "label": "Equipment purchases",
+          "activity": "investing",
+          "direction": "payment",
+          "performance": "neither",
+          "originalMinor": "350000",
+          "finalMinor": "400000",
+          "actualMinor": "400000",
+          "evidenceId": "management-current",
+          "varianceAssessment": null,
+          "varianceExplanation": null,
+          "revisionExplanation": "SYNTHETIC approved budget revision in management fixture."
+        }
+      ],
+      "anchors": [
+        {
+          "name": "operating",
+          "financialStatementMinor": "800000",
+          "evidenceId": "management-current",
+          "bridge": []
+        },
+        {
+          "name": "investing",
+          "financialStatementMinor": "-400000",
+          "evidenceId": "management-current",
+          "bridge": []
+        },
+        {
+          "name": "financing",
+          "financialStatementMinor": "0",
+          "evidenceId": "management-current",
+          "bridge": []
+        }
+      ],
+      "completenessEvidenceId": "management-current"
+    },
+    "assessments": []
+  }
+}
