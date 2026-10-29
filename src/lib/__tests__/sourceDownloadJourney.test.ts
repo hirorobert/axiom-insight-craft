@@ -1,0 +1,83 @@
+/**
+ * The original-file retrieval journey (scripts/e2e/sourceDownloadJourney.mjs, CI job real-app-e2e) needs a local Supabase stack,
+ * so it cannot run in this suite. What this suite pins is what CAN be checked without one: the journey signs in for real, refuses
+ * anything but a loopback stack, covers each required refusal, keeps operator actions apart from the user flows, and the CI job runs
+ * it without a secret; the Edge Function holds the same rules as the unit-tested decision module; and no Storage policy is widened.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = path.resolve(__dirname, "../../..");
+const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
+
+describe("the journey script", () => {
+  const src = read("scripts/e2e/sourceDownloadJourney.mjs");
+  it("signs people in with passwords and refuses anything but a loopback stack", () => {
+    expect(src).toMatch(/signInWithPassword/);
+    expect(src).toMatch(/assertLocalStack/);
+  });
+  it("covers authorized retrieval with byte integrity and a short expiry, and the real clock expiry", () => {
+    for (const needle of ["byte for byte", "expires_in <= 120", "exp.exp - exp.iat <= 120", "stops working after its expiry", "waiting"]) expect(src, needle).toContain(needle);
+  });
+  it("covers every refusal: no right, cross-company, injected fields, no session, direct bucket, revoked, missing object", () => {
+    for (const needle of ["no right on the company", "cross-company", "path, bucket or user", "no session", "Direct bucket restrictions", "revokes the collaborator", "no longer in storage"]) expect(src, needle).toContain(needle);
+  });
+  it("the collaborator's grant and revocation go through the OWNER's own RPCs, not the service role", () => {
+    expect(src).toMatch(/owner\.c\.rpc\("grant_workspace_capability"/);
+    expect(src).toMatch(/owner\.c\.rpc\("revoke_workspace_capability"/);
+    expect(src).not.toMatch(/admin\.rpc\("(grant|revoke)_workspace_capability"/);
+    expect(src).not.toMatch(/admin\.from\("workspace_capability_grants"\)\.(insert|update)/);
+  });
+  it("records the residual window and what is not proven, and keeps operator actions listed apart", () => {
+    expect(src).toMatch(/DOWNLOAD-URL-OUTLIVES-REVOCATION-UNTIL-EXPIRY/);
+    expect(src).toMatch(/operatorActionsByServiceRole/);
+    expect(src).toMatch(/notProven: \[[^\]]*invitations[^\]]*membership acceptance[^\]]*rollout configuration/);
+  });
+});
+
+describe("the Edge Function", () => {
+  const fn = read("supabase/functions/trial-balance-source-download/index.ts");
+  it("authenticates, binds the upload to the company, re-authorizes with the shared capability predicate on every request and signs a short-lived URL", () => {
+    expect(fn).toMatch(/runSourceDownload\(/);
+    expect(fn).toMatch(/can_user_act_on_workspace/);
+    expect(fn).toMatch(/DOWNLOAD_CAPABILITY/);
+    expect(fn).toMatch(/createSignedUrl\(path, seconds/);
+    expect(fn).toMatch(/\.eq\("id", uploadId\)/);
+  });
+  it("reads only the columns it needs, never writes, and never echoes the URL or token into its log", () => {
+    expect(fn).toMatch(/select\("id, company_id, user_id, file_path, file_name, file_size, source_file_hash"\)/);
+    expect(fn).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    const logLine = fn.split("\n").find((l) => l.includes("console.log")) ?? "";
+    expect(logLine).not.toMatch(/\burl\b|token|signedUrl/);
+  });
+  it("the shared module's capability is the one that governs uploading, and the expiry is short", () => {
+    const shared = read("supabase/functions/_shared/sourceDownload.ts");
+    expect(shared).toMatch(/DOWNLOAD_CAPABILITY = "manage_source_files"/);
+    expect(read("supabase/functions/_shared/sourceUpload.ts")).toMatch(/SOURCE_CAPABILITY = "manage_source_files"/);
+    expect(shared).toMatch(/DOWNLOAD_EXPIRY_SECONDS = 60/);
+  });
+});
+
+describe("direct bucket restrictions are preserved", () => {
+  it("this change adds no migration and no Storage policy", () => {
+    const sqlFiles = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql"));
+    // The newest policy on this bucket is still the personal-folder one; a migration naming the retrieval function would be a sign of drift.
+    for (const f of sqlFiles) expect(read(`supabase/migrations/${f}`), f).not.toMatch(/trial-balance-source-download/);
+  });
+});
+
+describe("the CI job", () => {
+  const wf = read(".github/workflows/ci.yml");
+  const start = wf.indexOf("\n  real-app-e2e:");
+  const next = wf.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
+  const job = next < 0 ? wf.slice(start) : wf.slice(start, start + 1 + next);
+  it("runs the retrieval journey on the local stack, always; no link, push, deploy, login or secret", () => {
+    expect(job).toMatch(/if: always\(\)\n\s+run: node scripts\/e2e\/sourceDownloadJourney\.mjs real-app-evidence\/source-download/);
+    expect(job).toMatch(/real-app-evidence\/source-download\/edge-runtime\.log/);
+    expect(job).not.toMatch(/secrets\.|environment:|vars\.|supabase\s+(link|login|db\s+push|functions\s+deploy)/);
+  });
+  it("no step name contains a colon followed by a space (it would void every check on the pull request)", () => {
+    for (const m of job.matchAll(/^\s+- name: (.*)$/gm)) expect(m[1], m[1].slice(0, 60)).not.toMatch(/: /);
+  });
+});

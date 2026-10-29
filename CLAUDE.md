@@ -381,6 +381,7 @@ src/
       discardSuppression.ts   ← Discarded-upload suppression rules
       resolveActiveUpload.ts  ← Which upload is the active one
       resolveNextActionDestination.ts ← Next-action routing
+      sourceDownload.ts       ← ONLY client path to the original uploaded trial-balance file (trial-balance-source-download function; SHA-256 checked before saving)
       periodCurrency.ts       ← ONLY client path to the period-currency correction RPCs (get_period_currency_correction / correct_period_currency); server-decided recovery view
       currencyReasons.ts      ← Currency-correction reason presets (explicit choice; none pre-selected)
       checkDetail.ts          ← A check's detail without restating findings the card already lists
@@ -550,6 +551,7 @@ supabase/
     process-trial-balance/    ← TB ingestion + classification
     trial-balance-storage-cleanup/ ← Authorized, server-verified removal of an upload operation's bound file (PR #32)
     trial-balance-source-signer/   ← Single-object signed upload URL for a reserved workspace-scoped source (PR #32)
+    trial-balance-source-download/ ← Capability-checked, per-request signed download (60 s) of an upload's original file; the bucket stays private
     trial-balance-source-sweeper/  ← Scheduled, ticketed, server-only purge/reclaim of source objects (PR #32)
     trial-balance-draft/           ← Draft sign / commit / cancel (Phase 2 P2-2, 20261106100000); recovery protocol in _shared/draftUpload.ts
     hesabu-validate/          ← H-01 to H-12 assurance assertions

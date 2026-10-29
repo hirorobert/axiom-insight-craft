@@ -422,6 +422,14 @@ jobs:
           docker logs "$EDGE" > real-app-evidence/drafts/edge-runtime-always.log 2>&1 || true
           grep -E "Using supabase-edge-runtime|\[PTB\] worker=|\[PTB\] Ingested|CPU time (soft|hard) limit|early termination|WorkerRequestCancelled|Detected file" real-app-evidence/drafts/edge-runtime-always.log | grep -v "Detected file: mto-" || true
 
+      - name: Original file retrieval journey (the same stack; real Auth and the application's own upload sequence into the private bucket; the owner and a collaborator the owner granted are served a signed URL for exactly their upload, byte for byte against the recorded SHA-256; a person with no right, another company's owner, injected fields, anon and direct bucket reads are all refused; a revoked collaborator is refused on the next request; a missing object is reported as unavailable; an issued URL is allowed to expire)
+        if: always()
+        run: node scripts/e2e/sourceDownloadJourney.mjs real-app-evidence/source-download
+
+      - name: Keep the local Edge Functions log with the retrieval evidence when that journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/source-download/edge-runtime.log 2>&1
+
       - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments

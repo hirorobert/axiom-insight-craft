@@ -453,6 +453,51 @@ async function main() {
     return !contradiction ? true : { exact, overview: overview.slice(0, 600) };
   });
 
+  startGroup("Download original: the visible action, a real browser download of the exact file, and who is not offered it");
+  const downloadFnStatus = async (who) => {
+    const { data } = await who.api.auth.getSession();
+    const res = await fetch(`${apiUrl}/functions/v1/trial-balance-source-download`, { method: "POST",
+      headers: { Authorization: `Bearer ${data.session.access_token}`, apikey: anonKey, "Content-Type": "application/json" }, body: JSON.stringify({ upload_id: currentUpload, company_id: A }) });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  await check("the owner finds 'Download original' under File options; pressing it saves the exact uploaded file in the browser, checked against the server's recorded fingerprint", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-download-"));
+    try { await page.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: dir }); }
+    catch { await page.browser.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dir }); }
+    await go(`${base}/trial-balance/review?manage=source`, "");
+    await page.waitForSelector('[data-testid="download-original-trial-balance"]', { timeout: 45000 });
+    await shot("05c-download-original");
+    const before = page.requests.length;
+    await page.click('[data-testid="download-original-trial-balance"]');
+    // The notice is a toast: read it first, before it goes away; then wait for the file the browser saved.
+    const told = await page.waitFor(() => /matches the fingerprint|could not be compared/.test(document.body.innerText), [], { label: "download notice", timeout: 30000 }).catch(() => false);
+    let saved = null;
+    for (let i = 0; i < 60 && !saved; i++) {
+      await sleep(500);
+      saved = fs.readdirSync(dir).find((f) => !/\.crdownload$|\.tmp$/i.test(f)) ?? null;
+    }
+    if (!saved) return { saved, requests: page.requests.slice(before).filter((u) => /trial-balance-source-download|storage/.test(u)).map((u) => u.replace(/token=[^&]+/, "token=…")) };
+    const bytes = fs.readFileSync(path.join(dir, saved));
+    const sent = page.requests.slice(before).filter((u) => /\/functions\/v1\/trial-balance-source-download/.test(u)).length;
+    const row = (await admin.from("trial_balance_uploads").select("source_file_hash, file_name").eq("id", currentUpload).single()).data;
+    const same = bytes.equals(fs.readFileSync(tbCurrent)) && (!row.source_file_hash || row.source_file_hash === crypto.createHash("sha256").update(bytes).digest("hex"));
+    return same && sent === 1 && told ? true : { saved, same, sent, told, recorded: !!row.source_file_hash };
+  });
+  await check("a preparer and a partner (members without source-file authority) are refused by the SERVER; the page offers the preparer no download", async () => {
+    const refusals = [await downloadFnStatus(preparer), await downloadFnStatus(partner)];
+    const keep = page;
+    const p2 = await openPage();
+    page = p2;
+    try {
+      await signIn(U.preparer);
+      await go(`${base}/trial-balance/review?manage=source`, "");
+      await sleep(6000);
+      const seen = await page.evaluate(() => ({ mode: document.querySelector('[data-testid="manage-trial-balance"]')?.getAttribute("data-mode") ?? null, button: !!document.querySelector('[data-testid="download-original-trial-balance"]') }));
+      log(`        preparer's page: manage area mode=${seen.mode ?? "(not shown)"}; download offered=${seen.button}`);
+      return refusals.every((r) => r.status === 403 && r.body?.outcome === "forbidden" && !r.body?.url) && !seen.button ? true : { refusals, seen };
+    } finally { page = keep; }
+  });
+
   startGroup("Reporting journey: the next action follows the server's prerequisites");
   { const { error } = await admin.rpc("fs_set_company_rollout", { p_company_id: A, p_enabled: true, p_reason: "Local end-to-end journey", p_operator_label: "e2e" }); if (error) throw new Error(`rollout: ${error.message}`); }
   await check("Overview: with reporting enabled, the one next action is to run the Close Review checks — not 'Open trial balance', not a statements step", async () => {
