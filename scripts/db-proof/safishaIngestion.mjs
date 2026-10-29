@@ -257,44 +257,69 @@ async function main() {
     const base2 = await scenarios(H.old, S.old, { precreate: true });
     for (const k of ["creation", "preparer", "concurrent", "identicalRows", "sources", "overlap"]) observe(`${k} (existing reconciliation)`, base2[k]);
 
-    console.log("\n== Preflight on the old schema (after the baseline left real duplicates): read-only, counts exact");
-    await check("safishaIngestionPreflight.sql changes nothing and its counts equal an independent recount", async () => {
+    console.log("\n== Preflight on the old schema: read-only, counts exact, for inputs with and without exact duplicates");
+    // Where duplicates come from, stated precisely. The old-handler baseline above MAY leave exact duplicate rows - that depends on a race between 8
+    // simultaneous non-atomic ingests, so whether it does is OBSERVED here, never assumed and never asserted. The preflight is therefore checked on three
+    // inputs, each inside its own transaction that is rolled back (the shared baseline is never changed by this section):
+    //   as-left   exactly what the baseline produced (race output, whatever it is): no premise about duplicates;
+    //   zero      the same data with every exact duplicate removed inside the transaction: the preflight must report none;
+    //   seeded    DELIBERATELY SEEDED legacy duplicate (an existing row inserted again unchanged, which the old schema permits): not race output.
+    // In every case the same two assertions hold: the preflight statement changes nothing (a digest of the three tables taken in READ ONLY mode
+    // immediately before and after it) and each count equals an independent recount computed here from the rows.
+    const PREFLIGHT_SQL = fs.readFileSync(path.join(REPO, "scripts/db-preflight/safishaIngestionPreflight.sql"), "utf8");
+    const preflightCase = async (label, prepare, expectation) => {
       const db = S.old.pool;
-      // The duplicates this check needs normally come from a race (8 simultaneous old-handler ingests). When the race is not lost the baseline
-      // holds none and the premise below (duplicate_groups > 0) fails for a timing reason (seen in CI: 3 rows instead of 12). So the premise is
-      // made deterministic: if the baseline left no exact duplicate group, one existing legacy row is inserted again unchanged - exactly what the
-      // old schema permits and what the preflight exists to find. Everything below (the recount, the unchanged digest) is unaffected.
-      if (Number((await db.query(`SELECT count(*) n FROM (SELECT 1 FROM public.safisha_transactions GROUP BY reconciliation_id, source_id, raw_row_hash HAVING count(*) > 1) g`)).rows[0].n) === 0) {
-        const cols = (await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='safisha_transactions' AND column_name <> 'id' AND is_generated='NEVER' AND is_identity='NO' ORDER BY ordinal_position`)).rows.map((r) => `"${r.column_name}"`).join(", ");
-        await db.query(`INSERT INTO public.safisha_transactions (${cols}) SELECT ${cols} FROM public.safisha_transactions ORDER BY id LIMIT 1`);
-      }
-      const digest = async () => (await db.query(`SELECT (SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) FROM public.safisha_transactions t)
-        || (SELECT md5(coalesce(string_agg(r::text, ',' ORDER BY r::text), '')) FROM public.safisha_reconciliations r)
-        || (SELECT md5(coalesce(string_agg(u::text, ',' ORDER BY u::text), '')) FROM public.trial_balance_uploads u) AS d`)).rows[0].d;
-      const before = await digest();
-      const c = await db.connect(); let rows;
-      try { await c.query("BEGIN READ ONLY"); rows = (await c.query(fs.readFileSync(path.join(REPO, "scripts/db-preflight/safishaIngestionPreflight.sql"), "utf8"))).rows; await c.query("ROLLBACK"); }
-      finally { c.release(); }
-      const got = Object.fromEntries(rows.map((r) => [r.item, Number(r.n)]));
-      const tx = (await db.query("SELECT reconciliation_id r, source_id s, raw_row_hash h, raw_row_number n FROM public.safisha_transactions")).rows;
-      const tally = (keyOf) => { const m = new Map(); for (const t of tx) { const k = keyOf(t); m.set(k, (m.get(k) ?? 0) + 1); } return [...m.values()]; };
-      const groups = tally((t) => `${t.r}|${t.s}|${t.h}`);
-      const lineGroups = tally((t) => `${t.r}|${t.s}|${t.h}|${t.n}`);
-      const sources = new Map(); for (const t of tx) { const k = `${t.r}|${t.h}`; sources.set(k, new Set([...(sources.get(k) ?? []), t.s])); }
-      const recs = (await db.query("SELECT r.tb_upload_id, r.sealed, u.safisha_status FROM public.safisha_reconciliations r JOIN public.trial_balance_uploads u ON u.id=r.tb_upload_id")).rows;
-      const perUpload = new Map(); for (const r of recs.filter((x) => !x.sealed)) perUpload.set(r.tb_upload_id, (perUpload.get(r.tb_upload_id) ?? 0) + 1);
-      const want = {
-        cross_source_hash_pairs: [...sources.values()].filter((v) => v.size > 1).length,
-        duplicate_extra_rows: groups.filter((n) => n > 1).reduce((a, n) => a + n - 1, 0),
-        duplicate_groups: groups.filter((n) => n > 1).length,
-        legacy_rows: tx.length,
-        reconciliations_without_status: recs.filter((r) => !r.sealed && r.safisha_status === null).length,
-        same_line_duplicate_extra_rows: lineGroups.filter((n) => n > 1).reduce((a, n) => a + n - 1, 0),
-        unsealed_per_upload_over_one: [...perUpload.values()].filter((n) => n > 1).length,
-      };
-      const unchanged = before === (await digest());
-      return unchanged && JSON.stringify(got) === JSON.stringify(want) && want.duplicate_groups > 0 ? true : { unchanged, got, want };
-    });
+      const c = await db.connect();
+      try {
+        await c.query("BEGIN");
+        const setup = prepare ? await prepare(c) : "none";
+        await c.query("SET TRANSACTION READ ONLY");
+        const digest = async () => (await c.query(`SELECT (SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) FROM public.safisha_transactions t)
+          || (SELECT md5(coalesce(string_agg(r::text, ',' ORDER BY r::text), '')) FROM public.safisha_reconciliations r)
+          || (SELECT md5(coalesce(string_agg(u::text, ',' ORDER BY u::text), '')) FROM public.trial_balance_uploads u) AS d`)).rows[0].d;
+        const before = await digest();
+        const rows = (await c.query(PREFLIGHT_SQL)).rows;
+        const after = await digest();
+        const got = Object.fromEntries(rows.map((r) => [r.item, Number(r.n)]));
+        const tx = (await c.query("SELECT reconciliation_id r, source_id s, raw_row_hash h, raw_row_number n FROM public.safisha_transactions")).rows;
+        const tally = (keyOf) => { const m = new Map(); for (const t of tx) { const k = keyOf(t); m.set(k, (m.get(k) ?? 0) + 1); } return [...m.values()]; };
+        const groups = tally((t) => `${t.r}|${t.s}|${t.h}`);
+        const lineGroups = tally((t) => `${t.r}|${t.s}|${t.h}|${t.n}`);
+        const sources = new Map(); for (const t of tx) { const k = `${t.r}|${t.h}`; sources.set(k, new Set([...(sources.get(k) ?? []), t.s])); }
+        const recs = (await c.query("SELECT r.tb_upload_id, r.sealed, u.safisha_status FROM public.safisha_reconciliations r JOIN public.trial_balance_uploads u ON u.id=r.tb_upload_id")).rows;
+        const perUpload = new Map(); for (const r of recs.filter((x) => !x.sealed)) perUpload.set(r.tb_upload_id, (perUpload.get(r.tb_upload_id) ?? 0) + 1);
+        const want = {
+          cross_source_hash_pairs: [...sources.values()].filter((v) => v.size > 1).length,
+          duplicate_extra_rows: groups.filter((n) => n > 1).reduce((a, n) => a + n - 1, 0),
+          duplicate_groups: groups.filter((n) => n > 1).length,
+          legacy_rows: tx.length,
+          reconciliations_without_status: recs.filter((r) => !r.sealed && r.safisha_status === null).length,
+          same_line_duplicate_extra_rows: lineGroups.filter((n) => n > 1).reduce((a, n) => a + n - 1, 0),
+          unsealed_per_upload_over_one: [...perUpload.values()].filter((n) => n > 1).length,
+        };
+        console.log(`  input ${label}: setup=${setup}; legacy_rows=${want.legacy_rows}; duplicate_groups=${want.duplicate_groups}; duplicate_extra_rows=${want.duplicate_extra_rows}`);
+        const unchanged = before === after;
+        const countsEqual = JSON.stringify(got) === JSON.stringify(want);
+        const expected = expectation(want);
+        return unchanged && countsEqual && expected ? true : { unchanged, got, want, expected };
+      } finally { try { await c.query("ROLLBACK"); } catch { /* */ } c.release(); }
+    };
+    const legacyColumns = async (c) => (await c.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='safisha_transactions' AND column_name <> 'id' AND is_generated='NEVER' AND is_identity='NO' ORDER BY ordinal_position`)).rows.map((r) => `"${r.column_name}"`).join(", ");
+    await check("preflight, input AS LEFT by the baseline (race output, whatever it is - no premise about duplicates): changes nothing and every count equals an independent recount",
+      () => preflightCase("as-left", null, (w) => w.legacy_rows > 0));
+    await check("preflight, input with NO exact duplicates (every exact duplicate removed inside a rolled-back transaction, triggers bypassed there only): changes nothing, reports none, counts equal the recount",
+      () => preflightCase("zero-duplicates", async (c) => {
+        // The table is append-only by trigger (even on the old schema), so inside this rolled-back transaction ONLY the triggers are bypassed to remove the duplicates.
+        await c.query("SET LOCAL session_replication_role = replica");
+        const r = await c.query(`DELETE FROM public.safisha_transactions t USING (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY reconciliation_id, source_id, raw_row_hash ORDER BY id) rn FROM public.safisha_transactions) x WHERE rn > 1) d WHERE t.id = d.id`);
+        return `removed ${r.rowCount} exact duplicate row(s)`;
+      }, (w) => w.duplicate_groups === 0 && w.duplicate_extra_rows === 0 && w.legacy_rows > 0));
+    await check("preflight, input with a DELIBERATELY SEEDED legacy duplicate (an existing row inserted again unchanged - not race output): changes nothing, finds it, counts equal the recount",
+      () => preflightCase("seeded-duplicate", async (c) => {
+        const cols = await legacyColumns(c);
+        const r = await c.query(`INSERT INTO public.safisha_transactions (${cols}) SELECT ${cols} FROM public.safisha_transactions ORDER BY id LIMIT 1`);
+        return `seeded ${r.rowCount} duplicate row(s)`;
+      }, (w) => w.duplicate_groups >= 1 && w.duplicate_extra_rows >= 1));
 
     if (!candidatePresent) {
       console.log(`\n${MIGRATION} is not in this tree yet: baseline only.`);
