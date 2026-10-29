@@ -55,25 +55,43 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const [wp, setWp] = useState<WorkpaperDraft>(() => emptyWorkpaper(companyId, periodYear));
   const [prior, setPrior] = useState<PriorDraft>(() => emptyPrior(companyId, periodYear));
   const [saves, setSaves] = useState<Record<string, SaveState>>({});
-  const identities = useRef<Record<string, { id: string; fp: string }>>({});
+  /** The request last sent per save key, kept whole (payload, expected revision, identity) so an unknown outcome is retried as THE SAME request. */
+  const identities = useRef<Record<string, { id: string; fp: string; call: (requestId: string) => ReturnType<typeof client.save>; snapshot?: { wp?: string; prior?: string } }>>({});
   const [grantsNext, setGrantsNext] = useState<PrepTask | null>(null);
   const scope = useRef(`${companyId}:${periodYear}`);
   scope.current = `${companyId}:${periodYear}`;
+  /** The signed-in actor's client: an answer that belongs to another client is never applied. */
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  /** Only the newest operation per key may change that key's state; only one request per key is in flight. */
+  const ops = useRef<Record<string, symbol>>({});
+  const inflight = useRef<Set<string>>(new Set());
+  /** Only the newest started read may set the server's version (an older read finishing late must not roll it back). */
+  const readSeq = useRef(0);
 
-  /** Refetches the server's version. Each draft is replaced only when asked: saving one thing never discards unsaved edits to another. */
-  const refresh = useCallback(async (resetWp: boolean, resetPrior: boolean) => {
-    const mine = `${companyId}:${periodYear}`;
+  /**
+   * Refetches the server's version. A draft is touched only as asked, and never destroys newer work:
+   *   "reset"             replace the draft with the server's version (initial load; explicit discard)
+   *   { ifSnapshot: fp }  adopt the server's version only if the draft is still exactly the snapshot that was submitted - an edit typed
+   *                       after submission stays, and stays unsaved
+   * Saving one thing never discards unsaved edits to another.
+   */
+  type Adopt = "reset" | { ifSnapshot: string } | undefined;
+  const refresh = useCallback(async (adoptWp: Adopt, adoptPrior: Adopt) => {
+    const mine = `${companyId}:${periodYear}`, myClient = client, seq = ++readSeq.current;
+    const stale = () => scope.current !== mine || clientRef.current !== myClient || readSeq.current !== seq;
+    const take = <T,>(adopt: Adopt, server: T) => (cur: T): T => (adopt === "reset" ? server : adopt && stableJson(cur) === adopt.ifSnapshot ? server : cur);
     try {
       const r = await client.context(companyId, periodYear);
-      if (scope.current !== mine) return; // a late answer for another company or year is discarded
+      if (stale()) return; // a late answer for another company, year, actor or an older read is discarded
       if (r.outcome !== "available") { setLoad({ kind: "refused", outcome: r.outcome }); return; }
       const ctx = r as IpsasContext;
       setLoad({ kind: "ready", ctx });
-      if (resetWp) setWp((ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear));
-      if (resetPrior) setPrior((ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear));
-    } catch { if (scope.current === mine) setLoad({ kind: "unknown" }); }
+      if (adoptWp) setWp(take(adoptWp, (ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear)));
+      if (adoptPrior) setPrior(take(adoptPrior, (ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear)));
+    } catch { if (!stale()) setLoad({ kind: "unknown" }); }
   }, [client, companyId, periodYear]);
-  useEffect(() => { setLoad({ kind: "loading" }); setSaves({}); identities.current = {}; void refresh(true, true); }, [refresh]);
+  useEffect(() => { setLoad({ kind: "loading" }); setSaves({}); identities.current = {}; ops.current = {}; inflight.current = new Set(); void refresh("reset", "reset"); }, [refresh]);
 
   const ctx = load.kind === "ready" ? load.ctx : null;
   const savedWp = (ctx?.workpaper?.payload as unknown as WorkpaperDraft | undefined) ?? null;
@@ -81,30 +99,55 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const wpDirty = stableJson(wp) !== stableJson(savedWp ?? emptyWorkpaper(companyId, periodYear));
   const priorDirty = stableJson(prior) !== stableJson(savedPrior ?? emptyPrior(companyId, periodYear));
 
-  const run = async (key: string, fp: string, call: (requestId: string) => ReturnType<typeof client.save>, after?: () => void) => {
+  /**
+   * One request per key is in flight; its answer confirms the SUBMITTED snapshot only (`snapshot` = what was sent). An answer that belongs to
+   * another company, period or actor, or to an operation that has since been superseded, is dropped without touching any state. An unknown
+   * outcome keeps the original request, so "send the same request again" resends exactly that request with its original identity.
+   */
+  const run = async (key: string, fp: string, call: (requestId: string) => ReturnType<typeof client.save>, snapshot?: { wp?: string; prior?: string }) => {
+    if (inflight.current.has(key)) return; // never two uncontrolled submissions for the same thing
+    const mine = scope.current, myClient = clientRef.current;
     const cur = identities.current[key];
     const id = cur && cur.fp === fp ? cur.id : newId(); // an unknown outcome retries with the ORIGINAL identity
-    identities.current[key] = { id, fp };
+    identities.current[key] = { id, fp, call, snapshot };
+    const op = Symbol(key);
+    ops.current[key] = op;
+    inflight.current.add(key);
+    const live = () => scope.current === mine && clientRef.current === myClient && ops.current[key] === op;
     setSaves((s) => ({ ...s, [key]: { kind: "pending", requestId: id } }));
     try {
       const r = await call(id);
+      if (!live()) return;
       const next = afterReceipt(id, r);
       setSaves((s) => ({ ...s, [key]: next }));
       if (next.kind !== "unknown") delete identities.current[key];
-      if (next.kind === "saved") { await refresh(key === "workpaper", key === "prior"); after?.(); }
-    } catch { setSaves((s) => ({ ...s, [key]: afterFailure(id) })); }
+      inflight.current.delete(key);
+      if (next.kind === "saved") await refresh(snapshot?.wp ? { ifSnapshot: snapshot.wp } : undefined, snapshot?.prior ? { ifSnapshot: snapshot.prior } : undefined);
+    } catch {
+      if (!live()) return;
+      inflight.current.delete(key);
+      setSaves((s) => ({ ...s, [key]: afterFailure(id) }));
+    }
   };
   const save = (kind: PreparationKind) => {
-    const payload = (kind === "ppe_workpaper" ? wp : prior) as unknown as Record<string, unknown>;
+    const payload = structuredClone(kind === "ppe_workpaper" ? wp : prior) as unknown as Record<string, unknown>;
     const expected = (kind === "ppe_workpaper" ? ctx?.workpaper?.id : ctx?.priorFigures?.id) ?? null;
     const key = kind === "ppe_workpaper" ? "workpaper" : "prior";
-    void run(key, stableJson({ payload, expected }), (rid) => client.save(companyId, periodYear, kind, payload, expected, rid));
+    const snapshot = stableJson(payload);
+    void run(key, stableJson({ payload, expected }), (rid) => client.save(companyId, periodYear, kind, payload, expected, rid), kind === "ppe_workpaper" ? { wp: snapshot } : { prior: snapshot });
   };
   const confirm = (kind: "ppe_class_estimate" | "prior_figure_set", subject: string) => {
     const rev = kind === "ppe_class_estimate" ? ctx?.workpaper?.id : ctx?.priorFigures?.id;
     if (!rev) return;
     void run(`confirm:${subject}`, stableJson({ kind, subject, rev }), (rid) => client.confirm(companyId, periodYear, kind, subject, rev, rid));
   };
+  /** "Send the same request again": the stored original request (never the current draft) with its original identity. */
+  const retry = (key: string) => {
+    const orig = identities.current[key];
+    if (!orig) return;
+    void run(key, orig.fp, orig.call, orig.snapshot);
+  };
+  const isPending = (key: string) => saves[key]?.kind === "pending";
 
   // The review is computed from what the SERVER holds, never from unsaved edits.
   const review = useMemo(() => {
@@ -126,7 +169,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   }, [ctx, savedWp, savedPrior, legalName]);
 
   if (load.kind === "loading") return <p role="status" className="py-8 text-sm text-muted-foreground">Loading the saved preparation…</p>;
-  if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh(true, true)}>Try again</Button></div>;
+  if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh("reset", "reset")}>Try again</Button></div>;
   if (load.kind === "refused") return <p role="alert" className="py-8 text-sm">{refusalWords(load.outcome)}</p>;
   const a = ctx!.assessment;
   const next = review?.preview.nextAction ?? (savedWp ? grantsNext : null);
@@ -190,10 +233,10 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
             ))}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setPrior((p) => ({ ...p, items: [...p.items, { id: `ITEM-${p.items.length + 1}`, groupId: "", lineId: "ppe", kind: "posted-journal", amountMinor: "", evidenceRef: "", authorityReference: "" }] }))}>Add an explained difference</Button>
-              <Button type="button" size="sm" disabled={!edit || !priorDirty} onClick={() => save("prior_figures")}>Save prior figure</Button>
-              <Button type="button" variant="outline" size="sm" disabled={!canConfirm || priorDirty || !ctx?.priorFigures || a.priorConfirmed} onClick={() => confirm("prior_figure_set", "prior_figures")}>{a.priorConfirmed ? "Confirmed against the printed page" : "Confirm against the printed page"}</Button>
+              <Button type="button" size="sm" disabled={!edit || !priorDirty || isPending("prior")} onClick={() => save("prior_figures")}>Save prior figure</Button>
+              <Button type="button" variant="outline" size="sm" disabled={!canConfirm || priorDirty || !ctx?.priorFigures || a.priorConfirmed || isPending("confirm:prior_figures")} onClick={() => confirm("prior_figure_set", "prior_figures")}>{a.priorConfirmed ? "Confirmed against the printed page" : "Confirm against the printed page"}</Button>
             </div>
-            <SaveBanner state={saves.prior ?? saves["confirm:prior_figures"] ?? { kind: "idle" }} onRetry={() => save("prior_figures")} />
+            <SaveBanner state={saves.prior ?? saves["confirm:prior_figures"] ?? { kind: "idle" }} onRetry={() => retry(saves.prior ? "prior" : "confirm:prior_figures")} />
             {!canConfirm && <p className="text-xs text-muted-foreground">Confirmation needs a reviewer on this engagement.</p>}
           </div>
         </section>
@@ -258,12 +301,12 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
                 <Text id={`c${i}-ev`} name="Evidence reviewed" value={c.estimate.evidence} disabled={!edit} onChange={(v) => setClass(i, (x) => ({ ...x, estimate: { ...x.estimate, evidence: v } }))} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={!canConfirm || wpDirty || !ctx?.workpaper || a.confirmedClasses[c.classId] === true} onClick={() => confirm("ppe_class_estimate", c.classId)}>
+                <Button type="button" variant="outline" size="sm" disabled={!canConfirm || wpDirty || !ctx?.workpaper || a.confirmedClasses[c.classId] === true || isPending(`confirm:${c.classId}`)} onClick={() => confirm("ppe_class_estimate", c.classId)}>
                   {a.confirmedClasses[c.classId] ? "Estimates confirmed" : "Confirm these estimates"}</Button>
                 <span className="text-xs text-muted-foreground">{a.confirmedClasses[c.classId] ? "A confirmation applies to these exact estimates; any change voids it." : wpDirty ? "Save first; a confirmation applies to the saved estimates." : "Until confirmed, the estimates are proposals."}</span>
                 <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setWp((w) => ({ ...w, classes: w.classes.filter((_, j) => j !== i) }))}>Remove class</Button>
               </div>
-              <SaveBanner state={saves[`confirm:${c.classId}`] ?? { kind: "idle" }} onRetry={() => confirm("ppe_class_estimate", c.classId)} />
+              <SaveBanner state={saves[`confirm:${c.classId}`] ?? { kind: "idle" }} onRetry={() => retry(`confirm:${c.classId}`)} />
             </fieldset>
           ))}
           <Button type="button" variant="outline" disabled={!edit} onClick={() => setWp((w) => ({ ...w, classes: [...w.classes, emptyClass()] }))}>Add an asset class</Button>
@@ -287,10 +330,10 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" disabled={!edit || !wpDirty} onClick={() => save("ppe_workpaper")}>Save preparation</Button>
-            <Button type="button" variant="outline" disabled={!wpDirty} onClick={() => void refresh(true, true)}>Discard edits and reload the saved version</Button>
+            <Button type="button" disabled={!edit || !wpDirty || isPending("workpaper")} onClick={() => save("ppe_workpaper")}>Save preparation</Button>
+            <Button type="button" variant="outline" disabled={!wpDirty} onClick={() => void refresh("reset", "reset")}>Discard edits and reload the saved version</Button>
           </div>
-          <SaveBanner state={saves.workpaper ?? { kind: "idle" }} onRetry={() => save("ppe_workpaper")} />
+          <SaveBanner state={saves.workpaper ?? { kind: "idle" }} onRetry={() => retry("workpaper")} />
         </section>
       )}
 

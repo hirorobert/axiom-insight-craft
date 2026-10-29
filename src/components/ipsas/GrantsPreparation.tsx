@@ -47,22 +47,34 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
   const [problem, setProblem] = useState<string | null>(null);
   const [draft, setDraft] = useState<GrantsDraft>(() => emptyGrantsDraft(companyId, periodYear));
   const [saves, setSaves] = useState<Record<string, SaveState>>({});
-  const identities = useRef<Record<string, { id: string; fp: string }>>({});
+  /** The request last sent per save key, kept whole so an unknown outcome is retried as THE SAME request (payload and identity). */
+  const identities = useRef<Record<string, { id: string; fp: string; call: (requestId: string) => Promise<{ outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }>; snapshot?: string }>>({});
   const scope = useRef(`${companyId}:${periodYear}`);
   scope.current = `${companyId}:${periodYear}`;
+  /** The signed-in actor's client: an answer that belongs to another client is never applied. */
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  /** Only the newest operation per key may change that key's state; one request per key is in flight; only the newest started read may set the server's version. */
+  const ops = useRef<Record<string, symbol>>({});
+  const inflight = useRef<Set<string>>(new Set());
+  const readSeq = useRef(0);
 
-  const refresh = useCallback(async (reset: boolean) => {
-    const mine = `${companyId}:${periodYear}`;
+  /** "reset" replaces the draft with the server's version (initial load, explicit discard); { ifSnapshot } adopts it only if the draft is still exactly what was submitted, so an edit typed after submission stays and stays unsaved. */
+  type Adopt = "reset" | { ifSnapshot: string } | undefined;
+  const refresh = useCallback(async (adopt: Adopt) => {
+    const mine = `${companyId}:${periodYear}`, myClient = client, seq = ++readSeq.current;
+    const stale = () => scope.current !== mine || clientRef.current !== myClient || readSeq.current !== seq;
     try {
       const r = await client.context(companyId, periodYear);
-      if (scope.current !== mine) return; // a late answer for another company or year is discarded
+      if (stale()) return; // a late answer for another company, year, actor or an older read is discarded
       if (r.outcome !== "available") { setProblem(refusalWords(r.outcome)); setCtx(null); return; }
       const c = r as GrantsContext;
       setProblem(null); setCtx(c);
-      if (reset) setDraft((c.register?.payload as unknown as GrantsDraft) ?? emptyGrantsDraft(companyId, periodYear));
-    } catch { if (scope.current === mine) setProblem("We could not read the saved grants. Nothing has changed."); }
+      const server = (c.register?.payload as unknown as GrantsDraft) ?? emptyGrantsDraft(companyId, periodYear);
+      if (adopt) setDraft((cur) => (adopt === "reset" ? server : stableJson(cur) === adopt.ifSnapshot ? server : cur));
+    } catch { if (!stale()) setProblem("We could not read the saved grants. Nothing has changed."); }
   }, [client, companyId, periodYear]);
-  useEffect(() => { setCtx(null); setSaves({}); identities.current = {}; void refresh(true); }, [refresh]);
+  useEffect(() => { setCtx(null); setSaves({}); identities.current = {}; ops.current = {}; inflight.current = new Set(); void refresh("reset"); }, [refresh]);
 
   const saved = (ctx?.register?.payload as unknown as GrantsDraft | undefined) ?? null;
   const dirty = stableJson(draft) !== stableJson(saved ?? emptyGrantsDraft(companyId, periodYear));
@@ -86,20 +98,45 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
   const reported = nextTask ?? unsavedNothing;
   useEffect(() => { onNextTask?.(reported); }, [reported?.id, onNextTask]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const run = async (key: string, fp: string, call: (requestId: string) => Promise<{ outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }>, resetAfter: boolean) => {
+  /**
+   * One request per key is in flight; its answer confirms the SUBMITTED snapshot only. An answer that belongs to another company, period or
+   * actor, or to an operation that has since been superseded, is dropped without touching any state. An unknown outcome keeps the original
+   * request, so "send the same request again" resends exactly that request with its original identity.
+   */
+  const run = async (key: string, fp: string, call: (requestId: string) => Promise<{ outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }>, snapshot?: string) => {
+    if (inflight.current.has(key)) return; // never two uncontrolled submissions for the same thing
+    const mine = scope.current, myClient = clientRef.current;
     const cur = identities.current[key];
     const id = cur && cur.fp === fp ? cur.id : newId(); // an unknown outcome retries with the ORIGINAL identity
-    identities.current[key] = { id, fp };
+    identities.current[key] = { id, fp, call, snapshot };
+    const op = Symbol(key);
+    ops.current[key] = op;
+    inflight.current.add(key);
+    const live = () => scope.current === mine && clientRef.current === myClient && ops.current[key] === op;
     setSaves((s) => ({ ...s, [key]: { kind: "pending", requestId: id } }));
     try {
-      const next = afterReceipt(id, await call(id));
+      const r = await call(id);
+      if (!live()) return;
+      const next = afterReceipt(id, r);
       setSaves((s) => ({ ...s, [key]: next }));
       if (next.kind !== "unknown") delete identities.current[key];
-      if (next.kind === "saved") await refresh(resetAfter);
-    } catch { setSaves((s) => ({ ...s, [key]: afterFailure(id) })); }
+      inflight.current.delete(key);
+      if (next.kind === "saved") await refresh(snapshot ? { ifSnapshot: snapshot } : undefined);
+    } catch {
+      if (!live()) return;
+      inflight.current.delete(key);
+      setSaves((s) => ({ ...s, [key]: afterFailure(id) }));
+    }
   };
-  const save = () => { const expected = ctx?.register?.id ?? null; void run("save", stableJson({ draft, expected }), (rid) => client.save(companyId, periodYear, draft as unknown as Record<string, unknown>, expected, rid), true); };
-  const confirm = (grantId: string) => { const rev = ctx?.register?.id; if (rev) void run(`confirm:${grantId}`, stableJson({ grantId, rev }), (rid) => client.confirm(companyId, periodYear, grantId, rev, rid), false); };
+  const save = () => {
+    const payload = structuredClone(draft) as unknown as Record<string, unknown>;
+    const expected = ctx?.register?.id ?? null;
+    void run("save", stableJson({ draft: payload, expected }), (rid) => client.save(companyId, periodYear, payload, expected, rid), stableJson(payload));
+  };
+  const confirm = (grantId: string) => { const rev = ctx?.register?.id; if (rev) void run(`confirm:${grantId}`, stableJson({ grantId, rev }), (rid) => client.confirm(companyId, periodYear, grantId, rev, rid)); };
+  /** "Send the same request again": the stored original request (never the current draft) with its original identity. */
+  const retry = (key: string) => { const orig = identities.current[key]; if (orig) void run(key, orig.fp, orig.call, orig.snapshot); };
+  const isPending = (key: string) => saves[key]?.kind === "pending";
 
   if (area !== "prepare" && area !== "review") return null;
   if (problem) return <p role="alert" className="py-4 text-sm">{problem}</p>;
@@ -199,11 +236,11 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
             <Text id={`gr${i}-cxb`} name="Basis for the answers above" value={g.complexityBasis} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, complexityBasis: v }))} />
             {fig && <p className="text-sm" role="status" data-testid={`gr${i}-figures`}>Server figures: revenue this period <strong>{fromMinor(fig.periodRevenueMinor) || "not computed"}</strong>; cumulative {fromMinor(fig.cumulativeRevenueMinor) || "not computed"}; unfulfilled obligation {fromMinor(fig.liabilityMinor) || "not computed"}; receivable {fromMinor(fig.receivableMinor) || "not computed"}.</p>}
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={!canConfirm || dirty || !ctx.register || live?.confirmedGrants[g.grantId] === true} onClick={() => confirm(g.grantId)}>{live?.confirmedGrants[g.grantId] ? "Assessment confirmed" : "Confirm this assessment"}</Button>
+              <Button type="button" variant="outline" size="sm" disabled={!canConfirm || dirty || !ctx.register || live?.confirmedGrants[g.grantId] === true || isPending(`confirm:${g.grantId}`)} onClick={() => confirm(g.grantId)}>{live?.confirmedGrants[g.grantId] ? "Assessment confirmed" : "Confirm this assessment"}</Button>
               <span className="text-xs text-muted-foreground">{live?.confirmedGrants[g.grantId] ? "Applies to this exact grant and period; any change voids it." : dirty ? "Save first; a confirmation applies to the saved grant." : "Until confirmed, the classification and figures are proposals."}</span>
               <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setDraft((d) => ({ ...d, grants: d.grants.filter((_, j) => j !== i) }))}>Remove grant</Button>
             </div>
-            <Banner state={saves[`confirm:${g.grantId}`] ?? { kind: "idle" }} onRetry={() => confirm(g.grantId)} />
+            <Banner state={saves[`confirm:${g.grantId}`] ?? { kind: "idle" }} onRetry={() => retry(`confirm:${g.grantId}`)} />
           </fieldset>
         );
       })}
@@ -228,10 +265,10 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
         })}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" disabled={!edit || !dirty} onClick={save}>Save grants</Button>
-        <Button type="button" variant="outline" className="h-auto whitespace-normal text-left" disabled={!dirty} onClick={() => void refresh(true)}>Discard grant edits and reload the saved version</Button>
+        <Button type="button" disabled={!edit || !dirty || isPending("save")} onClick={save}>Save grants</Button>
+        <Button type="button" variant="outline" className="h-auto whitespace-normal text-left" disabled={!dirty} onClick={() => void refresh("reset")}>Discard grant edits and reload the saved version</Button>
       </div>
-      <Banner state={saves.save ?? { kind: "idle" }} onRetry={save} />
+      <Banner state={saves.save ?? { kind: "idle" }} onRetry={() => retry("save")} />
     </section>
   );
 }
