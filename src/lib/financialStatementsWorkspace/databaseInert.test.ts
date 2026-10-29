@@ -150,6 +150,10 @@ describe("database inertness — schema and functions", () => {
       // validator, context/draft/commit functions for the /2 workpaper; new objects only, no existing table, row or privilege
       // changed (proof: scripts/db-proof/equipmentMulticlass.mjs).
       "supabase/migrations/20261206100000_fs_equipment_multiclass.sql",
+      // IPSAS accrual preparation, first chain (20261207100000): append-only revisions and confirmations, a pure assessment, TB
+      // facts from certified rows and three RPCs for companies reporting under ipsas_accrual; new objects only, no existing table,
+      // row or privilege changed (proof: scripts/db-proof/ipsasPreparation.mjs).
+      "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -838,6 +842,8 @@ describe("database inertness — schema and functions", () => {
     // of serveReporting.mjs (already reviewed above). Neither reaches a hosted project, applies SQL hosted or deploys anything.
     allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
     allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
+    // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
+    allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.
