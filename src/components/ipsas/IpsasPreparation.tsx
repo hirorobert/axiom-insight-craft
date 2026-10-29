@@ -57,7 +57,8 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const scope = useRef(`${companyId}:${periodYear}`);
   scope.current = `${companyId}:${periodYear}`;
 
-  const refresh = useCallback(async (resetDrafts: boolean) => {
+  /** Refetches the server's version. Each draft is replaced only when asked: saving one thing never discards unsaved edits to another. */
+  const refresh = useCallback(async (resetWp: boolean, resetPrior: boolean) => {
     const mine = `${companyId}:${periodYear}`;
     try {
       const r = await client.context(companyId, periodYear);
@@ -65,13 +66,11 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
       if (r.outcome !== "available") { setLoad({ kind: "refused", outcome: r.outcome }); return; }
       const ctx = r as IpsasContext;
       setLoad({ kind: "ready", ctx });
-      if (resetDrafts) {
-        setWp((ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear));
-        setPrior((ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear));
-      }
+      if (resetWp) setWp((ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear));
+      if (resetPrior) setPrior((ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear));
     } catch { if (scope.current === mine) setLoad({ kind: "unknown" }); }
   }, [client, companyId, periodYear]);
-  useEffect(() => { setLoad({ kind: "loading" }); setSaves({}); identities.current = {}; void refresh(true); }, [refresh]);
+  useEffect(() => { setLoad({ kind: "loading" }); setSaves({}); identities.current = {}; void refresh(true, true); }, [refresh]);
 
   const ctx = load.kind === "ready" ? load.ctx : null;
   const savedWp = (ctx?.workpaper?.payload as unknown as WorkpaperDraft | undefined) ?? null;
@@ -89,7 +88,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
       const next = afterReceipt(id, r);
       setSaves((s) => ({ ...s, [key]: next }));
       if (next.kind !== "unknown") delete identities.current[key];
-      if (next.kind === "saved") { await refresh(key === "prior" || key === "workpaper"); after?.(); }
+      if (next.kind === "saved") { await refresh(key === "workpaper", key === "prior"); after?.(); }
     } catch { setSaves((s) => ({ ...s, [key]: afterFailure(id) })); }
   };
   const save = (kind: PreparationKind) => {
@@ -124,7 +123,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   }, [ctx, savedWp, savedPrior, legalName]);
 
   if (load.kind === "loading") return <p role="status" className="py-8 text-sm text-muted-foreground">Loading the saved preparation…</p>;
-  if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh(true)}>Try again</Button></div>;
+  if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh(true, true)}>Try again</Button></div>;
   if (load.kind === "refused") return <p role="alert" className="py-8 text-sm">{refusalWords(load.outcome)}</p>;
   const a = ctx!.assessment;
   const next = review?.preview.nextAction ?? null;
@@ -286,7 +285,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" disabled={!edit || !wpDirty} onClick={() => save("ppe_workpaper")}>Save preparation</Button>
-            <Button type="button" variant="outline" disabled={!wpDirty} onClick={() => void refresh(true)}>Discard edits and reload the saved version</Button>
+            <Button type="button" variant="outline" disabled={!wpDirty} onClick={() => void refresh(true, true)}>Discard edits and reload the saved version</Button>
           </div>
           <SaveBanner state={saves.workpaper ?? { kind: "idle" }} onRetry={() => save("ppe_workpaper")} />
         </section>
@@ -305,6 +304,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
             <div className="rounded-md border p-3 text-sm space-y-2">
               <h3 className="font-medium">Accounting policy (draft) — {review.note.label}</h3>
               {review.note.policy.map((p) => <p key={p.id} className={p.unresolved ? "text-amber-700" : ""}>{p.segments.map((s) => (s.t === "text" ? s.text : s.display)).join("")}</p>)}
+              <div data-testid="note-tables" role="region" aria-label="Note tables (scroll sideways on a narrow screen)" tabIndex={0} className="space-y-3 overflow-x-auto">
               {review.note.tables.map((t) => (
                 <table key={t.id} className="w-full text-xs" aria-label={t.title}>
                   <caption className="text-left font-medium">{t.title} (note.ppe)</caption>
@@ -312,6 +312,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
                   <tbody>{t.rows.map((r) => <tr key={r.label + (r.classId ?? "")}><th scope="row" className="text-left font-normal">{r.label}</th>{r.cells.map((c, k) => <td key={k} className="text-right tabular-nums">{c ? c.display : "—"}</td>)}</tr>)}</tbody>
                 </table>
               ))}
+              </div>
             </div>
             <div className="rounded-md border p-3 text-sm">
               <h3 className="font-medium">What remains ({review.preview.tasks.length})</h3>

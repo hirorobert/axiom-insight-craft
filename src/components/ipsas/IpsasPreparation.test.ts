@@ -96,6 +96,24 @@ describe("IpsasPreparation", () => {
     expect(payload.classes[0].opening.grossMinor).toBe("");
   });
 
+  it("saving the prior figure keeps the person's unsaved preparation edits (found by the browser journey)", async () => {
+    const { db } = fakeDb({ save: () => ({ data: { outcome: "recorded", revisionId: REV, assessment }, error: null }) });
+    m = mount(h(IpsasPreparation, props(db) as never)); await flush();
+    act(() => typeInto(m!.container.querySelector("#tb-ppe") as HTMLInputElement, "1500, 1510"));
+    act(() => typeInto(m!.container.querySelector("#prior-amt") as HTMLInputElement, "16,000.00"));
+    await act(async () => { click(button("Save prior figure")); }); await flush();
+    expect(m.container.textContent).toContain("This is the server's recorded version");
+    expect((m.container.querySelector("#tb-ppe") as HTMLInputElement).value).toBe("1500, 1510");
+  });
+
+  it("scrolls wide note tables inside their own region instead of widening the page", async () => {
+    const wp = { contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: CO, periodYear: 2026, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] } };
+    const { db } = fakeDb({ context: { ...available, workpaper: { id: REV, payload: wp, sha256: "a".repeat(64), createdAt: "2026-10-29T00:00:00Z" } } });
+    m = mount(h(IpsasPreparation, props(db) as never)); await flush();
+    act(() => click(tab("Review report")));
+    expect(m.container.querySelector("[data-testid='note-tables']")).not.toBeNull();
+  });
+
   it("has no accessibility violations on the preparation area", async () => {
     const { db } = fakeDb({});
     m = mount(h(IpsasPreparation, props(db) as never)); await flush();

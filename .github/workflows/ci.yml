@@ -1384,6 +1384,22 @@ jobs:
           path: equipment-journey-evidence
           if-no-files-found: ignore
 
+      - name: IPSAS accrual preparation browser journey (headless Chrome drives the real component over the loopback bridge to a disposable database with certified trial balances - chain from bring to confirmed, reload from the server alone, a reviewer's confirmation, keyboard operation, a concurrent writer, a dropped response retried with the original request identity, refusals, two widths; identity is simulated)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_journey
+        run: |
+          createdb ipsas_journey
+          node scripts/browser-acceptance/ipsasJourney.mjs ipsas-journey-evidence
+
+      - name: Upload the IPSAS journey evidence (screenshots, journey log, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipsas-journey-evidence
+          path: ipsas-journey-evidence
+          if-no-files-found: ignore
+
       - name: CFO Close entitlements proof (legacy upgrade, catalogue, paid-action authority, walls, entity capacity, concurrency, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

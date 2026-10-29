@@ -846,6 +846,8 @@ describe("database inertness — schema and functions", () => {
     // of serveReporting.mjs (already reviewed above). Neither reaches a hosted project, applies SQL hosted or deploys anything.
     allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
     allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
+    // IPSAS preparation browser journey: loopback bridge to a disposable database, headless Chrome, simulated identity; no hosted access.
+    allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs");
     // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
     allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.

@@ -38,7 +38,7 @@ const why = (code: string): { why: string; affects: string[] } => {
   const hit = WHY.find(([re]) => re.test(code));
   return hit ? { why: hit[1], affects: hit[2] } : { why: "This is needed before the preparation can be reviewed.", affects: ["PPE note"] };
 };
-const title = (code: string): string => code.replace(/:.*/, "").toLowerCase().replace(/_/g, " ").replace(/^./, (s) => s.toUpperCase());
+const title = (code: string): string => code.replace(/:.*/, "").toLowerCase().replace(/_/g, " ").replace(/^tb /, "trial balance ").replace(/ unknown$/, " not available").replace(/^./, (s) => s.toUpperCase());
 
 export function tasksFromPreparation(ppe: PpeResult, bridge: BridgeResult): PrepTask[] {
   const out: PrepTask[] = [];
