@@ -90,6 +90,29 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_refusal(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 
+-- Authority for a MUTATION, judged at the protected mutation boundary. Every mutation first calls _ipsas_refusal (a cheap early refusal that also takes
+-- the shared plan lock), then acquires its request and company-period advisory locks - which may WAIT behind other work - and only then calls this.
+-- It (1) takes the SHARED member-capability lock for (workspace, person): revoke_member_capability and the other member-capability writers take the
+-- same lock EXCLUSIVELY, so an explicit revocation and an in-flight mutation of that person are serialised and exactly one of them is first (the
+-- revoker waits for the mutation's transaction to end; a mutation that starts after the revocation committed is refused below); and (2) judges
+-- authority again on a FRESH statement snapshot (membership, capability, plan, rollout, framework), so anything committed while the mutation waited
+-- is honoured. It must run before any replay lookup: a revoked actor is not handed the stored receipt of an earlier request.
+-- Lock order (no cycle): request -> company-period -> member-capability (shared) -> plan (shared, re-entrant: already held from the early check).
+-- It relies on READ COMMITTED (the default for PostgREST and the migrator): under a transaction-long snapshot a re-check could not see what committed
+-- while waiting, so it fails closed instead of judging on a stale view.
+CREATE FUNCTION public._ipsas_authorize_mutation(p_company_id uuid, p_uid uuid, p_capability text) RETURNS text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF p_company_id IS NULL OR p_uid IS NULL THEN RETURN 'forbidden'; END IF;
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'IPSAS_AUTHORITY_ISOLATION: authority is re-checked after the mutation boundary and needs READ COMMITTED' USING ERRCODE = '25000';
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('workspace_member_capabilities:' || p_company_id::text || ':' || p_uid::text, 0));
+  RETURN public._ipsas_refusal(p_company_id, p_uid, p_capability);
+END;
+$$;
+REVOKE ALL ON FUNCTION public._ipsas_authorize_mutation(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- ── facts from the certified trial balance ────────────────────────────────────────────────────────────────────────────
 -- p_selection = {"ppeAccountKeys": [...], "depreciationExpenseKeys": [...]}. A figure is NULL (unknown, never zero) when no
 -- certification exists, a selected key is absent, or a selected row is not an exact tb-row/1 amount.
@@ -477,6 +500,8 @@ BEGIN
   v_fp := encode(sha256(convert_to(jsonb_build_object('kind', p_kind, 'payload', p_payload, 'expectedId', p_expected_id)::text, 'UTF8')), 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_request:' || auth.uid()::text || ':' || p_request_id::text, 0));
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas:' || p_company_id::text || ':' || p_period_year::text, 0));
+  v_refusal := public._ipsas_authorize_mutation(p_company_id, auth.uid(), 'prepare_close'); -- authority at the mutation boundary, before any replay or write
+  IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_refusal); END IF;
   SELECT * INTO v_prior FROM public.ipsas_prep_revisions WHERE actor_user_id = auth.uid() AND request_id = p_request_id;
   IF FOUND THEN
     IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND v_prior.request_fingerprint = v_fp THEN RETURN v_prior.receipt || jsonb_build_object('replay', true); END IF;
@@ -512,6 +537,8 @@ BEGIN
   v_fp := encode(sha256(convert_to(jsonb_build_object('kind', p_subject_kind, 'key', p_subject_key, 'revision', p_expected_revision_id)::text, 'UTF8')), 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_request:' || auth.uid()::text || ':' || p_request_id::text, 0));
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas:' || p_company_id::text || ':' || p_period_year::text, 0));
+  v_refusal := public._ipsas_authorize_mutation(p_company_id, auth.uid(), 'review_close'); -- authority at the mutation boundary, before any replay or write
+  IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_refusal); END IF;
   SELECT * INTO v_prior FROM public.ipsas_confirmations WHERE actor_user_id = auth.uid() AND request_id = p_request_id;
   IF FOUND THEN
     IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND v_prior.request_fingerprint = v_fp THEN

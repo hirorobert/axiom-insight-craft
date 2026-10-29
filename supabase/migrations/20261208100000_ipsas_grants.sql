@@ -1,5 +1,5 @@
 -- Authored forward migration; NOT applied hosted. Follows 20261207100000 (IPSAS accrual preparation: it reuses _ipsas_immutable,
--- _ipsas_minor, _ipsas_nat, _ipsas_enough, _ipsas_arr and _ipsas_refusal) and 20261014100000 (_cr_certified_accounts, _cr_member).
+-- _ipsas_minor, _ipsas_nat, _ipsas_enough, _ipsas_arr, _ipsas_refusal and _ipsas_authorize_mutation) and 20261014100000 (_cr_certified_accounts, _cr_member).
 -- New objects only; no existing table, row or privilege is changed. No outer transaction: the native migrator owns it (see PR #210).
 --
 -- IPSAS accrual grants and revenue by period (charter R1, R2, R6, G5; docs/release/ipsas-accrual-chain-r1/GRANTS.md):
@@ -270,6 +270,8 @@ BEGIN
   v_fp := encode(sha256(convert_to(jsonb_build_object('payload', p_payload, 'expectedId', p_expected_id)::text, 'UTF8')), 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_request:' || auth.uid()::text || ':' || p_request_id::text, 0));
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_grants:' || p_company_id::text || ':' || p_period_year::text, 0));
+  v_refusal := public._ipsas_authorize_mutation(p_company_id, auth.uid(), 'prepare_close'); -- authority at the mutation boundary (see 20261207100000), before any replay or write
+  IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_refusal); END IF;
   SELECT * INTO v_prior FROM public.ipsas_grant_revisions WHERE actor_user_id = auth.uid() AND request_id = p_request_id;
   IF FOUND THEN
     IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND v_prior.request_fingerprint = v_fp THEN RETURN v_prior.receipt || jsonb_build_object('replay', true); END IF;
@@ -300,6 +302,8 @@ BEGIN
   v_fp := encode(sha256(convert_to(jsonb_build_object('grant', p_grant_id, 'revision', p_expected_revision_id)::text, 'UTF8')), 'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_request:' || auth.uid()::text || ':' || p_request_id::text, 0));
   PERFORM pg_advisory_xact_lock(hashtextextended('ipsas_grants:' || p_company_id::text || ':' || p_period_year::text, 0));
+  v_refusal := public._ipsas_authorize_mutation(p_company_id, auth.uid(), 'review_close'); -- authority at the mutation boundary (see 20261207100000), before any replay or write
+  IF v_refusal IS NOT NULL THEN RETURN jsonb_build_object('outcome', v_refusal); END IF;
   SELECT * INTO v_prior FROM public.ipsas_grant_confirmations WHERE actor_user_id = auth.uid() AND request_id = p_request_id;
   IF FOUND THEN
     IF v_prior.company_id = p_company_id AND v_prior.period_year = p_period_year AND v_prior.request_fingerprint = v_fp THEN
