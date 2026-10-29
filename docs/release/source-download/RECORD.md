@@ -29,3 +29,6 @@ Open product questions, deliberately not decided here: (1) whether reviewers (`r
 
 ## Deployment (not performed)
 `supabase functions deploy trial-balance-source-download` is an explicit owner action. No migration is involved. Until the function is deployed the button reports a retryable failure; nothing else changes.
+
+## Found by the first CI run
+`createSignedUrl` signs against the function's own view of the project URL. Inside the local stack's containers that is `http://kong:8000`, which neither a browser nor the journey can reach (the API journey failed with `fetch failed`, and the browser journey's loopback check named the host). Hosted, it is the public project URL. The client now fetches the same signed path and token from the API origin the app is configured with (`rebaseSignedUrl`), and refuses any URL that is not a signed object URL for the trial-balance bucket instead of fetching it. The signed path and token are never altered.

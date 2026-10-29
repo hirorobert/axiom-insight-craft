@@ -132,24 +132,24 @@ const served = (b: Uint8Array) => vi.fn(async () => new Response(b, { status: 20
 
 describe("fetchOriginalSource", () => {
   it("asks for exactly the upload and company, fetches the signed URL and returns bytes that match the recorded fingerprint", async () => {
-    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/s", file_name: "tb.csv", sha256: await sha(BYTES) }, error: null });
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=t", file_name: "tb.csv", sha256: await sha(BYTES) }, error: null });
     const { fetchOriginalSource } = await import("./sourceDownload");
     const f = served(BYTES);
-    const file = await fetchOriginalSource(CO, UP, f as never);
+    const file = await fetchOriginalSource(CO, UP, f as never, "https://storage.invalid");
     expect(supa.invoke).toHaveBeenCalledWith("trial-balance-source-download", { body: { upload_id: UP, company_id: CO } });
-    expect(f).toHaveBeenCalledWith("https://storage.invalid/s");
+    expect(f).toHaveBeenCalledWith("https://storage.invalid/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=t");
     expect(file).toMatchObject({ fileName: "tb.csv", integrity: "matched", size: BYTES.byteLength });
     expect(new Uint8Array(await file.blob.arrayBuffer())).toEqual(BYTES);
   });
   it("bytes that do NOT match the recorded fingerprint are refused and never returned", async () => {
-    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/s", file_name: "tb.csv", sha256: "0".repeat(64) }, error: null });
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=t", file_name: "tb.csv", sha256: "0".repeat(64) }, error: null });
     const { fetchOriginalSource } = await import("./sourceDownload");
-    await expect(fetchOriginalSource(CO, UP, served(BYTES) as never)).rejects.toMatchObject({ code: "integrity", retryable: true });
+    await expect(fetchOriginalSource(CO, UP, served(BYTES) as never, "https://storage.invalid")).rejects.toMatchObject({ code: "integrity", retryable: true });
   });
   it("no recorded fingerprint: the bytes are returned and said to be unverified", async () => {
-    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/s", file_name: "tb.csv", sha256: null }, error: null });
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=t", file_name: "tb.csv", sha256: null }, error: null });
     const { fetchOriginalSource } = await import("./sourceDownload");
-    await expect(fetchOriginalSource(CO, UP, served(BYTES) as never)).resolves.toMatchObject({ integrity: "not_recorded" });
+    await expect(fetchOriginalSource(CO, UP, served(BYTES) as never, "https://storage.invalid")).resolves.toMatchObject({ integrity: "not_recorded" });
   });
   it("a refused request fetches nothing: forbidden / unauthenticated / unavailable are distinct and not retryable", async () => {
     const { fetchOriginalSource } = await import("./sourceDownload");
@@ -164,7 +164,34 @@ describe("fetchOriginalSource", () => {
     const { fetchOriginalSource } = await import("./sourceDownload");
     supa.invoke.mockResolvedValueOnce({ data: { outcome: "signing_failed" }, error: null });
     await expect(fetchOriginalSource(CO, UP, vi.fn() as never)).rejects.toMatchObject({ code: "failed", retryable: true });
-    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/s", sha256: null }, error: null });
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://storage.invalid/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=t", sha256: null }, error: null });
     await expect(fetchOriginalSource(CO, UP, vi.fn(async () => new Response("no", { status: 400 })) as never)).rejects.toMatchObject({ code: "failed" });
+  });
+});
+
+describe("rebaseSignedUrl", () => {
+  const SIGNED = "http://kong:8000/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=abc&download=tb.csv";
+  it("keeps the signed path and token and moves the request to the API origin this app is configured with", async () => {
+    const { rebaseSignedUrl } = await import("./sourceDownload");
+    expect(rebaseSignedUrl(SIGNED, "http://127.0.0.1:54321")).toBe("http://127.0.0.1:54321/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=abc&download=tb.csv");
+    expect(rebaseSignedUrl(SIGNED, "https://ref.supabase.co/")).toBe("https://ref.supabase.co/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=abc&download=tb.csv");
+    expect(rebaseSignedUrl(SIGNED, undefined)).toBe(SIGNED);
+  });
+  it("refuses anything that is not a signed object URL for the trial-balance bucket (never fetched)", async () => {
+    const { rebaseSignedUrl } = await import("./sourceDownload");
+    for (const bad of ["not a url", "http://kong:8000/storage/v1/object/sign/avatars/x.png?token=t", "http://kong:8000/storage/v1/object/public/trial-balance-files/x", "http://kong:8000/storage/v1/object/sign/trial-balance-files/x", "https://evil.example/anything", "javascript:alert(1)"]) {
+      expect(rebaseSignedUrl(bad, "http://127.0.0.1:54321"), bad).toBeNull();
+    }
+  });
+  it("fetchOriginalSource fetches the REBASED url, and a URL that is not a signed object URL is never fetched", async () => {
+    const { fetchOriginalSource } = await import("./sourceDownload");
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: SIGNED, file_name: "tb.csv", sha256: null }, error: null });
+    const f = served(BYTES);
+    await fetchOriginalSource(CO, UP, f as never, "http://127.0.0.1:54321");
+    expect(f).toHaveBeenCalledWith("http://127.0.0.1:54321/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv?token=abc&download=tb.csv");
+    supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url: "https://evil.example/x?token=t", file_name: "tb.csv", sha256: null }, error: null });
+    const g = vi.fn();
+    await expect(fetchOriginalSource(CO, UP, g as never, "http://127.0.0.1:54321")).rejects.toMatchObject({ code: "failed" });
+    expect(g).not.toHaveBeenCalled();
   });
 });

@@ -109,7 +109,11 @@ async function uploadAs(who, companyId, bytes, year, fileName) {
 }
 const dbRow = async (id) => (await admin.from("trial_balance_uploads").select("id,company_id,file_path,file_name,source_file_hash,file_size").eq("id", id).single()).data;
 const download = (who, uploadId, companyId, extra = {}) => callFn(who, "trial-balance-source-download", { upload_id: uploadId, company_id: companyId, ...extra });
-const fetchUrl = async (url) => { const res = await fetch(url); return { status: res.status, bytes: res.status === 200 ? Buffer.from(await res.arrayBuffer()) : null, disposition: res.headers.get("content-disposition") }; };
+// The function signs against its OWN view of the project URL (inside the local stack's containers: http://kong:8000), which the browser and this
+// script cannot reach. The client (src/lib/workspace/sourceDownload.ts rebaseSignedUrl) therefore fetches the same signed path and token
+// from the API origin it is configured with; this does exactly that. The signed path and token are untouched.
+const rebase = (u) => { const x = new URL(u); return `${new URL(apiUrl).origin}${x.pathname}${x.search}`; };
+const fetchUrl = async (url) => { const res = await fetch(rebase(url)); return { status: res.status, bytes: res.status === 200 ? Buffer.from(await res.arrayBuffer()) : null, disposition: res.headers.get("content-disposition") }; };
 const jwtExp = (url) => { try { const t = new URL(url).searchParams.get("token"); const p = JSON.parse(Buffer.from(t.split(".")[1], "base64url").toString()); return { exp: p.exp, iat: p.iat }; } catch { return null; } };
 
 const BYTES_A = csv("A"), BYTES_B = csv("B"), BYTES_GONE = csv("gone");

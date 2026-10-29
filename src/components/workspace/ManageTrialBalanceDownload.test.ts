@@ -48,7 +48,8 @@ describe("the page reaches the file only through the server", () => {
     expect(page).toMatch(/downloadOriginalSource\(companyId, upload\.id\)/);
     const client = src("src/lib/workspace/sourceDownload.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(client).toMatch(/functions\.invoke\("trial-balance-source-download"/);
-    expect(client).not.toMatch(/\.storage\b|createSignedUrl|trial-balance-files/);
+    // (the bucket name appears once, only as the prefix a signed URL must have; the client never opens the bucket itself)
+    expect(client).not.toMatch(/\.storage\b|createSignedUrl|from\("trial-balance-files"\)/);
     // the page never reads the bucket either
     expect(page).not.toMatch(/storage\.from\("trial-balance-files"\)\.(download|createSignedUrl)/);
   });

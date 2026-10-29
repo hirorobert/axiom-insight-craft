@@ -52,13 +52,29 @@ async function readFunctionOutcome(error: unknown): Promise<FunctionAnswer | nul
   }
 }
 
+/** Where signed object URLs live. The function signs for the private trial-balance bucket only. */
+export const SIGNED_OBJECT_PREFIX = "/storage/v1/object/sign/trial-balance-files/";
+
+/**
+ * The server signs against ITS OWN view of the project URL (inside a container or behind a proxy that can differ from the one the
+ * browser reaches). The signed path and token are what matter, so the request is made against the API origin this app is configured
+ * with. Anything that is not a signed object URL for the trial-balance bucket is refused rather than fetched.
+ */
+export function rebaseSignedUrl(raw: string, apiBase: string | undefined): string | null {
+  let url: URL;
+  try { url = new URL(raw); } catch { return null; }
+  if (!url.pathname.startsWith(SIGNED_OBJECT_PREFIX) || !url.searchParams.get("token")) return null;
+  if (!apiBase) return url.toString();
+  try { return `${new URL(apiBase).origin}${url.pathname}${url.search}`; } catch { return null; }
+}
+
 export async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** Asks the server for a download of this upload's original file, fetches it and checks it against the recorded SHA-256. */
-export async function fetchOriginalSource(companyId: string, uploadId: string, fetchImpl: typeof fetch = fetch): Promise<DownloadedSource> {
+export async function fetchOriginalSource(companyId: string, uploadId: string, fetchImpl: typeof fetch = fetch, apiBase: string | undefined = import.meta.env.VITE_SUPABASE_URL): Promise<DownloadedSource> {
   const answered = await supabase.functions.invoke("trial-balance-source-download", { body: { upload_id: uploadId, company_id: companyId } });
   const body = (answered.error ? await readFunctionOutcome(answered.error) : answered.data) as FunctionAnswer | null;
   const outcome = body?.outcome;
@@ -67,9 +83,11 @@ export async function fetchOriginalSource(companyId: string, uploadId: string, f
   if (outcome === "unavailable") throw new SourceDownloadError(DOWNLOAD_UNAVAILABLE, "unavailable", false);
   if (outcome !== "ready" || !body?.url) throw new SourceDownloadError("Could not prepare the download. Please try again.", "failed", true);
 
+  const target = rebaseSignedUrl(body.url, apiBase);
+  if (!target) throw new SourceDownloadError("Could not prepare the download. Please try again.", "failed", true);
   let response: Response;
   try {
-    response = await fetchImpl(body.url);
+    response = await fetchImpl(target);
   } catch {
     throw new SourceDownloadError("The file could not be downloaded. Please try again.", "failed", true);
   }
