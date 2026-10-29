@@ -5,7 +5,7 @@ DECLARE
   c_batch CONSTANT text := 'ipsas-2-grants';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['9571610f3cbb5f840506a19a17cc07dbfd94a2617ecf002ddd1c04012f1cf792', '6a15bb84f38856deda766dc426a2dc5f9b79a1a1784187fdfaa44eb05ab5143f']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['2318522d6168c1fa1d8633fd040359680e69058c68d659f2240ed96b0c932b49', 'b7b8ab8015dbd355562764e10023d8609530dd15b2143d219ff6a24bd0ab1fad']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_grants_release_transport', 0));

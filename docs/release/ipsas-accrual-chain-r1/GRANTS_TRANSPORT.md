@@ -1,6 +1,6 @@
 # IPSAS grants and revenue — exact-byte staged installation transport (candidate)
 
-Status: **authored and proven on a disposable database; NOT installed, NOT registered as hosted history.** Like the preparation transport (`TRANSPORT.md`) it adds no Drizzle mirror, journal entry or `RELEASE_JOURNAL` registration — those come only after canonical hosted execution. `src/lib/__tests__/ipsasGrantsStagedTransport.test.ts` fails if any appears early. It is a **separate dependent slice**: the preparation transport's bytes are untouched (the test pins its registered hashes).
+Status: **authored and proven on a disposable database; NOT installed, NOT registered as hosted history.** Like the preparation transport (`TRANSPORT.md`) it adds no Drizzle mirror, journal entry or `RELEASE_JOURNAL` registration — those come only after canonical hosted execution. `src/lib/__tests__/ipsasGrantsStagedTransport.test.ts` fails if any appears early. It is a **separate dependent slice**; this PR does not edit the preparation transport (its revision that pins `search_path` lives in #218 and is carried here by merge; the test pins its registered hashes).
 
 Why a transport: `20261208100000_ipsas_grants.sql` is 30,002 bytes — large enough that the hosted migrator may not load it directly (`AGENTS.md`: SQL too large for the hosted migrator is staged byte-verified as inert data in a private schema and executed by a small registered migration). Why a second schema rather than extending the first: the preparation bootstrap's guard approves exactly its own artifact list; changing it would re-render a reviewed, pinned candidate.
 
@@ -9,13 +9,18 @@ Why a transport: `20261208100000_ipsas_grants.sql` is 30,002 bytes — large eno
 | Item | Value |
 |---|---|
 | Source | `supabase/migrations/20261208100000_ipsas_grants.sql`, 30,002 bytes, SHA-256 `d1ddcb3bbe26f0953806f7fff369c0ffc3e8350b47fcecbf0efb37e150fbd5fd`, introduced by commit `a37cb74e85bb715fc1bad5ef9c09445aaa17d727` |
-| Required journal head | hosted id **93**, `0092_ipsas_1_preparation_staged_apply`, SHA-256 `a740359da5386b3773cdb6894786b91df1032fd0672aa6b725f29abff65c3bd5` (or its final-LF form) — i.e. the **IPSAS preparation transport must already be installed** (which itself requires the equipment-r1 transport, id 91) |
-| Bootstrap (becomes hosted id 94, tag `0093_ipsas_grants_staged_transport`) | `release/staged-transport-ipsas-grants/00_ipsas_grants_staged_transport.sql`, 7,669 bytes, `9571610f3cbb5f840506a19a17cc07dbfd94a2617ecf002ddd1c04012f1cf792` |
-| Apply (becomes hosted id 95, tag `0094_ipsas_2_grants_staged_apply`) | `release/staged-transport-ipsas-grants/10_ipsas_2_grants_staged_apply.sql`, 14,186 bytes, `8fcb20583a64190bb95f47d30f1c456721216e254d68232c8cf00c32db7fd522` |
+| Required journal head | hosted id **93**, `0092_ipsas_1_preparation_staged_apply`, SHA-256 `cd9969ed8767cd6ea39b8a5c2fcab4637d0efcf2fe903f2f64288bea6c9c1a44` (or its final-LF form) — i.e. the **IPSAS preparation transport must already be installed** (which itself requires the equipment-r1 transport, id 91) |
+| Bootstrap (becomes hosted id 94, tag `0093_ipsas_grants_staged_transport`) | `release/staged-transport-ipsas-grants/00_ipsas_grants_staged_transport.sql`, 7,669 bytes, `2318522d6168c1fa1d8633fd040359680e69058c68d659f2240ed96b0c932b49` |
+| Apply (becomes hosted id 95, tag `0094_ipsas_2_grants_staged_apply`) | `release/staged-transport-ipsas-grants/10_ipsas_2_grants_staged_apply.sql`, 14,186 bytes, `11b72ead70913a7a94224554c6268aa184dd03120098b4ea9197042613a97e52` |
 | Stage (inert data) | `release/staged-transport-ipsas-grants/stage/1_ipsas-2-grants.source.sql` |
 | Private schema | `cfoclose_ipsas_grants_release` (own lock key `cfoclose_ipsas_grants_release_transport`, own error codes `IPSAS_GRANTS_TRANSPORT_*`; the preparation and equipment schemas are untouched) |
 
 If the hosted journal head is anything else when the owner is ready, the bootstrap refuses (`IPSAS_GRANTS_TRANSPORT_WRONG_PREDECESSOR`) and **nothing changes**. The remedy is to re-run the generator against the new head, review and re-prove — never to edit applied history. The journal tags `0093`/`0094` are the next numbers *if* hosted history is exactly as assumed; they are registered only after execution.
+
+## Recorded predecessor state - reconciled, not assumed
+- **Equipment-r1: recorded as installed** (2026-10-28, owner-authorized, merged PR #213; hosted journal ids 89, 90, 91 = tags `0088`-`0090`, registered in `drizzle/migrations/meta/_journal.json` and `RELEASE_JOURNAL`; `docs/release/equipment-transport-r1/RECORD.md`). It must not be repeated.
+- **IPSAS preparation transport (#218): NOT installed.** This transport therefore needs it first: bootstrap id 92, apply id 93, then this transport's ids 94 and 95. The grants bootstrap refuses unless the hosted head is exactly id 93 with the preparation apply's registered hash.
+- **A recorded installation is not a fresh verification.** No hosted access exists here; before any step, re-read the hosted journal. If it has moved, regenerate against the new head and re-prove; never edit applied history.
 
 ## What the apply checks inside one statement (any failure rolls back everything, consumption included)
 1. Transport lock; journal locked; head is exactly the approved predecessor (id 93), and no uncommitted foreign journal row.
@@ -59,7 +64,7 @@ So the ambiguity is **real but narrow**: it appears only when a session lists `p
 
 **Resolution here.** The apply now sets `search_path` to `pg_catalog, public` for the execution of the source only and restores it immediately after (transaction-local, so it also reverts on any failure). The source bytes are untouched. New proof case `apply.binding-independent-of-session-search-path`: a **control** shows an unpinned direct run under `public, pg_catalog` binds the public function and yields a different catalogue digest; the transport's apply, run under five different session paths, binds the core function and yields the digest of the default-session reference every time.
 
-**Still open, and bounded:** the *preparation* transport (#218) has the same unpinned source execution and the same property. Not changed here because it would alter that reviewed candidate's pinned bytes and everything built on it. If the owner wants it closed before installation, apply the same three-line change to `ipsasStagedTransport.mjs`, re-pin, re-prove. The 188 historical unqualified defaults are already in whatever state the hosted database has.
+**The same fix is now in the preparation transport (#218, commit `6040c8c`)**, with its own proof cases; that apply's registered form changed accordingly (13,006 -> 13,461 B, `cd9969ed…c1a44`), which is why this transport's predecessor hashes, bootstrap and apply were regenerated (the identities above are the current ones). Both are uninstalled candidates, so no applied history is touched. The 188 historical unqualified defaults in older migrations are already in whatever state the hosted database has, and whether hosted has a `public.gen_random_uuid()` is unknown from this repository.
 
 ## Not done
 Hosted verification; installation; deployed-source attestation; the authenticated page has not been driven against an installed database.

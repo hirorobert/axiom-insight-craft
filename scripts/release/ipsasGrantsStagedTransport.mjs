@@ -292,8 +292,8 @@ export function transportForms() {
 
 /** Reviewed transport forms (pinned renderings). Hosted journal entries are registered only after canonical execution. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  ipsas_grants_staged_transport: "9571610f3cbb5f840506a19a17cc07dbfd94a2617ecf002ddd1c04012f1cf792",
-  ipsas_2_grants_staged_apply: "8fcb20583a64190bb95f47d30f1c456721216e254d68232c8cf00c32db7fd522",
+  ipsas_grants_staged_transport: "2318522d6168c1fa1d8633fd040359680e69058c68d659f2240ed96b0c932b49",
+  ipsas_2_grants_staged_apply: "11b72ead70913a7a94224554c6268aa184dd03120098b4ea9197042613a97e52",
 });
 
 export function checkTransportMirror(tag, text) {

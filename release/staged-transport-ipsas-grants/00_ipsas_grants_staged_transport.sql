@@ -2,7 +2,7 @@
 -- The IPSAS grants source is inert until a registered apply executes it.
 DO $cfoclose_ipsas_grants_transport_bootstrap$
 DECLARE
-  c_predecessor CONSTANT text[] := ARRAY['a740359da5386b3773cdb6894786b91df1032fd0672aa6b725f29abff65c3bd5', '80bea85135e702a22b0b9f30da5aaf1acd0f8520cf40f38098766d54c9f5a1f2']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['cd9969ed8767cd6ea39b8a5c2fcab4637d0efcf2fe903f2f64288bea6c9c1a44', 'cd55c0853ace4a2e68604a1d9244c28dd01e48fbf6b86c0c2597f7505f2c3c3b']::text[];
   v_n bigint;
   v_pred_id bigint;
   v_role name;

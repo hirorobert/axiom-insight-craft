@@ -84,7 +84,7 @@ describe("IPSAS grants exact-byte staged transport", () => {
       expect(checkTransportMirror("9999_unregistered", f.text).problems.length).toBeGreaterThan(0);
     }
   });
-  it("leaves the preparation transport untouched: its committed files still hash to its registered forms", () => {
+  it("does not edit the preparation transport: its committed files hash to its registered forms", () => {
     const dir = path.join(ROOT, "release/staged-transport-ipsas");
     const hash = (f: string) => createHash("sha256").update(fs.readFileSync(path.join(dir, f))).digest("hex");
     expect(hash("00_ipsas_staged_transport.sql")).toBe(PREPARATION_FORMS.ipsas_staged_transport);
