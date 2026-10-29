@@ -1,6 +1,8 @@
 export const PROOF = "ipsasStatementReview";
 export const CASES = Object.freeze([
   ["setup.chain","setup"], ["setup.certified-periods","setup"],
+  ["transport.wrong-predecessor","control"], ["transport.missing-stage","control"],
+  ["transport.exact-install-and-catalogue","control"], ["transport.replay-refused","control"],
   ["auth.privileges","control"], ["auth.roles-and-tenants","control"], ["auth.framework-rollout","control"],
   ["auth.reviewer-read-without-prepare","control"],
   ["read.incomplete-is-not-zero","control"], ["save.presentation-and-hand-totals","control"],

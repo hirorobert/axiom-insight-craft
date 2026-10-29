@@ -873,6 +873,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.
     allowed.add("scripts/db-proof/ipsasStatementReview.mjs"); allowed.add("scripts/db-proof/ipsasStatementReview.manifest.mjs");
     allowed.add("scripts/browser-acceptance/ipsasStatementSteps.mjs");
+    allowed.add("scripts/release/ipsasStatementReviewStagedTransport.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

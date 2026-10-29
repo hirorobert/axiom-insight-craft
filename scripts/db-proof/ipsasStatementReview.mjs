@@ -2,13 +2,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { openDatabase, applyChain, makeWorld, certifier, csv, FY2025, FY2026, uuid, reporter, REPO } from "./lib/reportingKit.mjs";
+import { openDatabase, applyChainBefore, makeWorld, certifier, csv, FY2025, FY2026, uuid, reporter, REPO } from "./lib/reportingKit.mjs";
 import { PROOF, CASES } from "./ipsasStatementReview.manifest.mjs";
+import { BATCHES, BOOTSTRAP_PREDECESSOR, artifactBytes, renderBootstrap, renderApply, renderStage, transportForms, PRESERVED_TABLES } from "../release/ipsasStatementReviewStagedTransport.mjs";
 const resultFile=process.env.PROOF_RESULT_FILE ?? path.join(REPO,"proof-results",`${PROOF}.present.json`);
 const manifestSha256=crypto.createHash("sha256").update(fs.readFileSync(new URL("./ipsasStatementReview.manifest.mjs",import.meta.url))).digest("hex");
 const {check,finish}=reporter(), recorded=[], startedAt=new Date().toISOString();
 let db, crashed=false, crashMessage=null;
 const expectRefusal=async f=>{try{await f();return false;}catch(e){return e.code==="42501";}};
+async function transportRefusal(sql,fragment){try{await db.admin.query(sql);return false;}catch(e){return String(e.message).includes(fragment);}}
+const catalogue=async()=>JSON.stringify((await db.admin.query(`SELECT v FROM (
+ SELECT 'relation:'||c.relname||':'||c.relkind::text||':'||c.relrowsecurity||':'||coalesce(c.relacl::text,'') v FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relname LIKE 'ipsas_presentation_%'
+ UNION ALL SELECT 'column:'||c.relname||':'||a.attname||':'||format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull||':'||a.attidentity::text||':'||coalesce(pg_get_expr(d.adbin,d.adrelid),'') FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE c.relnamespace='public'::regnamespace AND c.relname LIKE 'ipsas_presentation_%' AND a.attnum>0 AND NOT a.attisdropped
+ UNION ALL SELECT 'constraint:'||c.relname||':'||k.conname||':'||pg_get_constraintdef(k.oid) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid WHERE c.relnamespace='public'::regnamespace AND c.relname LIKE 'ipsas_presentation_%'
+ UNION ALL SELECT 'index:'||indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='ipsas_presentation_revisions'
+ UNION ALL SELECT 'trigger:'||pg_get_triggerdef(t.oid) FROM pg_trigger t WHERE t.tgrelid='public.ipsas_presentation_revisions'::regclass AND NOT t.tgisinternal
+ UNION ALL SELECT 'function:'||p.proname||':'||pg_get_function_identity_arguments(p.oid)||':'||p.prosecdef||':'||p.provolatile::text||':'||coalesce(p.proacl::text,'')||':'||coalesce(p.proconfig::text,'')||':'||md5(pg_get_functiondef(p.oid)) FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.proname IN ('_ipsas_statement_captions','_ipsas_statement_review_compute','ipsas_statement_review','ipsas_save_presentation')
+ ) q ORDER BY v`)).rows);
+const preservedTables=async()=>{const o={};for(const table of PRESERVED_TABLES)o[table]=(await db.one(`SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) v FROM public.${table} t`)).v;return JSON.stringify(o);};
 async function kase(id,fn){if(!CASES.some(c=>c.id===id)||recorded.some(c=>c.id===id))throw Error(`Invalid proof identity ${id}`);let ok=false,detail="";await check(id,async()=>{try{const r=await fn();ok=r===true;detail=ok?"":JSON.stringify(r);return r;}catch(e){detail=`${e.code??""}: ${e.message}`;throw e;}});recorded.push({id,outcome:ok?"pass":"fail",...(detail?{detail}: {})});}
 const captions={1000:"cash",1100:"receivables_current",1200:"inventories",1500:"ppe",1510:"ppe",2000:"payables",2100:"other_liabilities_current",2500:"borrowings_non_current",3000:"contributed_capital",3100:"accumulated",4000:"fees",4100:"investment_income",5000:"supplies",6000:"employees",6100:"supplies",6200:"depreciation",6300:"finance",7000:"other_expenses"};
 // Bounded polling observes the actual wait in pg_stat_activity; timeout is a failing proof, never a guessed sleep.
@@ -16,7 +27,7 @@ async function waitForLock(pid){for(let i=0;i<100;i++){const row=await db.one("S
 async function session(uid){const c=await db.pool.connect();await c.query("BEGIN");await c.query("SET LOCAL statement_timeout='15s'");await c.query("SET LOCAL ROLE authenticated");await c.query("SELECT set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claim.role','authenticated',true)",[uid]);return c;}
 try{
  db=await openDatabase("ipsas_statement_review");
- await kase("setup.chain",async()=>{const f=await applyChain(db);return f?{chainFailure:f}:true;});
+ await kase("setup.chain",async()=>{const f=await applyChainBefore(db,BATCHES[0].source);return f?{chainFailure:f}:true;});
  const W=await makeWorld(db),{U}=W,A=await W.company(U.owner,"Synthetic IPSAS review","ipsas_accrual");
  for(const k of ["preparer","partner","viewer"])await db.admin.query("INSERT INTO public.firm_members(company_id,user_id,role,accepted_at) VALUES($1,$2,$3,now())",[A,U[k],k]);
  await W.rollout(A,true);
@@ -28,6 +39,21 @@ try{
  const count=()=>db.count("SELECT count(*)::int n FROM public.ipsas_presentation_revisions");
  const preserved=async()=>JSON.stringify((await db.admin.query(`SELECT 'companies' kind,to_jsonb(t) row FROM public.companies t WHERE id=$1 UNION ALL SELECT 'publication',to_jsonb(t) FROM public.financial_statement_publications t UNION ALL SELECT 'reports',to_jsonb(t) FROM public.financial_statement_reports t WHERE company_id=$1 ORDER BY 1,2`,[W.A])).rows);
  const before=await preserved(); let firstIntent,firstReceipt;
+ await db.admin.query("CREATE SCHEMA IF NOT EXISTS drizzle; CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations(id integer PRIMARY KEY,hash text NOT NULL)");
+ await kase("transport.wrong-predecessor",async()=>await transportRefusal(renderBootstrap(),"WRONG_PREDECESSOR"));
+ await db.admin.query("INSERT INTO drizzle.__drizzle_migrations VALUES($1,$2)",[BOOTSTRAP_PREDECESSOR.id,BOOTSTRAP_PREDECESSOR.hashes[0]]);
+ const forms=transportForms();
+ await db.admin.query(renderBootstrap());await db.admin.query("INSERT INTO drizzle.__drizzle_migrations VALUES($1,$2)",[BOOTSTRAP_PREDECESSOR.id+1,forms[0].hashes[0]]);
+ await kase("transport.missing-stage",async()=>await transportRefusal(renderApply(0),"STAGE_MISSING_OR_MODIFIED"));
+ await kase("transport.exact-install-and-catalogue",async()=>{
+   let direct;await db.admin.query("BEGIN");try{await db.admin.query("SET LOCAL search_path=pg_catalog,public");await db.admin.query(artifactBytes(0,"source").toString("utf8"));direct=await catalogue();}finally{await db.admin.query("ROLLBACK");}
+   const preservedBefore=await preservedTables();await db.admin.query(renderStage(0,"source"));
+   await db.admin.query("BEGIN");try{await db.admin.query(renderApply(0));await db.admin.query("INSERT INTO drizzle.__drizzle_migrations VALUES($1,$2)",[BOOTSTRAP_PREDECESSOR.id+2,forms[1].hashes[0]]);await db.admin.query("COMMIT");}catch(e){await db.admin.query("ROLLBACK");throw e;}
+   // Deparse under the same path as the direct reference; stored function bodies and ACLs must match.
+   await db.admin.query("BEGIN");let installed;try{await db.admin.query("SET LOCAL search_path=pg_catalog,public");installed=await catalogue();}finally{await db.admin.query("ROLLBACK");}
+   return direct===installed&&preservedBefore===await preservedTables();
+ });
+ await kase("transport.replay-refused",async()=>await transportRefusal(renderApply(0),"WRONG_PREDECESSOR"));
  await kase("setup.certified-periods",async()=>{for(const [y,col]of [[2025,FY2025],[2026,FY2026]]){const u=await k.upload(A,y,csv(col));await k.review(A,u);await k.certify(A,u);}return(await read()).accounts.length===36;});
  await kase("auth.privileges",async()=>{
   const r=await db.one("SELECT has_function_privilege('authenticated','public.ipsas_statement_review(uuid,integer)','EXECUTE') a,has_function_privilege('anon','public.ipsas_statement_review(uuid,integer)','EXECUTE') b,has_function_privilege('service_role','public.ipsas_statement_review(uuid,integer)','EXECUTE') c,has_function_privilege('authenticated','public._ipsas_statement_review_compute(uuid,integer)','EXECUTE') d");
