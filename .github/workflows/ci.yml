@@ -546,6 +546,21 @@ jobs:
           cat proof-results/ipsasTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/ipsasTransport.present.json --manifest scripts/db-proof/ipsasTransport.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS grants exact-byte transport (the approved grants migration through its own private schema on the real predecessor chain including the IPSAS preparation migration - exact journal head, prerequisites and the preparation dependency, tamper, order, rollback, privilege postcondition, preserved IPSAS preparation history, concurrent install, and the installed catalogue equal to the migration executed directly; disposable database only, no hosted SQL registered or installed)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_grants_transport_proof
+          PROOF_RESULT_FILE: proof-results/ipsasGrantsTransport.present.json
+        run: |
+          createdb ipsas_grants_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasGrantsTransport.mjs > proof-results/ipsasGrantsTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasGrantsTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasGrantsTransport.present.json --manifest scripts/db-proof/ipsasGrantsTransport.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
