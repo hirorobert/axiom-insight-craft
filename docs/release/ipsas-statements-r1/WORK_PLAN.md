@@ -1,6 +1,6 @@
 # IPSAS statement composition: implementation boundary
 
-Baseline: foundation #216, `29a4e396b5417356b35a7733b33e754fa233e98d`. The work was initially inspected against combined candidate #224 at `a992cadc84c94fa195b5b6b316daa5be19fa911e`, then isolated onto #216 because it needs none of Claude's PPE/grants changes. PR base: `feat/ipsas-accrual-ngo`. This avoids inheriting the integration rehearsal's entire stack.
+Baseline: foundation #216, `29a4e396b5417356b35a7733b33e754fa233e98d`. The work was initially inspected against combined candidate #224 at `a992cadc84c94fa195b5b6b316daa5be19fa911e`, then isolated onto #216 because it needs none of Claude's PPE/grants changes. PR targets `main` so the existing automatic CI runs; until #216 lands its inherited changes appear in the PR. Review this work's own diff against `29a4e396`. Accept #216 first; do not merge this PR's ancestor as a shortcut. This avoids inheriting the integration rehearsal's entire stack.
 Owner authorized parallel statement development in this conversation on 2026-10-29. No authorization to merge, spend, deploy, install, publish or activate. Charter v4 remains proposed, with adoption and accounting appointments unrecorded. This work does not amend that status.
 
 ## Applicable requirements
