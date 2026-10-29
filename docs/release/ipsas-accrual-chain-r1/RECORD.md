@@ -55,7 +55,8 @@ current/prior information → opening bridge → evidence-tied PPE workpaper →
 |---|---|---|
 | Domain (pure, exact integers) | opening bridge (no plug), cost-model PPE workpaper, generated policy/note with typed fact bindings, task contract, incomplete preview | `src/lib/ipsasAccrual/` — 31 tests with hand-derived expectations |
 | Server authority | append-only revisions + confirmations; live assessment recomputed from persisted inputs; TB facts from certified rows; CAS save with request replay; subject-hash confirmation | `supabase/migrations/20261207100000_ipsas_accrual_preparation.sql` |
-| Real-database proof | 30 cases on the full chain, TS ≡ SQL equivalence, hand-derived fixture, concurrency, revocation, SME byte-identity | `scripts/db-proof/ipsasPreparation.mjs` + manifest |
+| Real-database proof | 29 cases on the full chain, TS ≡ SQL equivalence on 14 mutated workpapers and 6 bridge inputs, hand-derived fixture, concurrency, revocation, SME byte-identity | `scripts/db-proof/ipsasPreparation.mjs` + manifest |
+| Browser client + page | typed client (unknown outcome ≠ refusal ≠ success), five-area page, entry link on Prepare, 6 jsdom tests | `src/lib/ipsasAccrual/ipsasClient.ts`, `src/components/ipsas/`, `src/pages/workspace/IpsasPreparationPage.tsx` |
 
 ### Why equipment, not grants (brief §5)
 Repository evidence: equipment already has proven neutral arithmetic in both TS and SQL, a recorded tie to certified balances, and a prior-figure/bridge shape; grants have only the inert candidate's bounded fixed-grant calculator and no server counterpart. Equipment is the smaller independently useful first chain. Grants remain the first remaining blocker for a typical NGO (§7).
@@ -86,7 +87,7 @@ Request lock `ipsas_request:<uid>:<request>` → period lock `ipsas:<company>:<y
 
 ## 7. Gaps, in dependency order (no overstatement)
 
-- **G1 UI.** No signed-in page yet in this PR (see PR description for the current boundary).
+- **G1 Browser proof.** The page exists (`/workspace/:companyId/:periodYear/ipsas`, entry link on Prepare for `ipsas_accrual` companies) with 6 jsdom tests (refusal wording, lost-response retry with the original request identity, stale keeps edits, no zero coercion, axe). It has **not** been driven in a real browser against a local Supabase stack (none exists on this machine and the CI real-app job does not cover it). The page is also unreachable on the hosted site until the migration is installed and a company's framework is set to `ipsas_accrual`. Keyboard/narrow-screen and timed no-coaching runs are not done.
 - **G2 Remaining statements and notes** (cash flows, net assets by component, revenue/grants, receivables, payables, leases, employee benefits, related parties, going concern, events after the period, authorisation). Official issuance blocker list is data: `OFFICIAL_ISSUANCE_BLOCKERS`.
 - **G3 Prior-report extraction.** Existing local PDF/OCR proposals and the retained-original function exist; wiring them into the prior-figures capture (page-linked proposal → confirmed figure) is not done. Figures are entered by the preparer and confirmed by a partner; the original document id is validated if supplied.
 - **G4 Comparative transitions.** Not implemented. Continuing application, first-time adoption and early adoption remain unresolved, not approved by a dropdown.
