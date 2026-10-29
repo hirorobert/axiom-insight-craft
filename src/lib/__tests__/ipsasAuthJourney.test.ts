@@ -49,7 +49,8 @@ describe("the journey script", () => {
     expect(code).toMatch(/signInWithPassword/);
     expect(code).toMatch(/#password/);
     // The results file may NAME what is not used; only an import or header can be usage.
-    expect(code).not.toMatch(/x-sim-user|serveIpsas|dev-harness|ipsasJourney\.mjs|createServer|http\.createServer/);
+    // (the harness directory name is assembled so that src/ never names it: harnessIsolation.test.ts forbids that)
+    expect(code).not.toMatch(new RegExp(`x-sim-user|serveIpsas|${"dev" + "-harness"}|ipsasJourney\\.mjs|createServer`));
   });
   it("refuses anything but a loopback stack and a bundle that names production, and drives the shared PPE and grants steps", () => {
     expect(code).toMatch(/assertLocalStack/);

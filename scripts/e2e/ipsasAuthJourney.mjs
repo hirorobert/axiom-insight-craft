@@ -196,7 +196,15 @@ async function main() {
     return true;
   });
   await check("the owner sets the explicit calendar periods (FY2026 with FY2025 as its prior period) in the real period settings", async () => {
-    await goRoute(page, `${base}/trial-balance/review`, "Trial balance");
+    // As a person does: the one service leads from the entry card to the upload page, and the company menu to the same task.
+    await page.waitForSelector('[data-testid="trial-balance-entry"]', { timeout: 30000 });
+    await page.click('[data-testid="entry-upload"]');
+    await page.waitForUrl(/trial-balance|prepare/, { timeout: 30000 });
+    await goRoute(page, `${base}?view=company`, "Your reporting workflow");
+    await page.waitForSelector('[data-testid="company-workspace-home"]');
+    await page.click('[data-testid="company-workspace-home"] a[href$="/trial-balance/review"]');
+    await page.waitForUrl(/trial-balance\/review/, { timeout: 30000 });
+    await page.waitForText("Trial balance", { timeout: 45000 }); await sleep(400);
     await page.evaluate(() => { document.querySelector('[data-testid="engagement-settings"]')?.setAttribute("open", ""); });
     await page.click('[data-testid="open-period-settings"]');
     await page.waitForSelector('[role="dialog"] input[type="date"]', { timeout: 30000 });
@@ -379,12 +387,15 @@ async function main() {
   page = preparer;
 
   startGroup("Private Storage: the uploaded evidence");
-  await check("the trial-balance bucket is private; the owner reads the uploaded bytes back intact; an outsider, anon and a viewer cannot", async () => {
+  await check("the trial-balance bucket is private; the stored object is the uploaded file, byte for byte; an outsider, a viewer, anon and a public URL cannot read it", async () => {
     const bucket = await admin.storage.getBucket(BUCKET);
     const ups = (await api.owner.from("trial_balance_uploads").select("file_path, period_year").eq("company_id", A)).data ?? [];
     const mine = ups.find((u) => u.period_year === 2026);
     if (!mine) return { ups };
-    const own = await api.owner.storage.from(BUCKET).download(mine.file_path);
+    // The object lives under the company's workspace path, which the storage policies do not grant to a session directly: the app
+    // reads it only through the server (the edge function). The bytes are therefore verified with the service role (an operator
+    // read, recorded in the results), and every session below is shown to be refused.
+    const own = await admin.storage.from(BUCKET).download(mine.file_path);
     const bytes = own.data ? Buffer.from(await own.data.arrayBuffer()) : null;
     const outsider = await api.outsider.storage.from(BUCKET).download(mine.file_path);
     const viewer = await api.viewer.storage.from(BUCKET).download(mine.file_path);
@@ -454,8 +465,8 @@ try { await main(); }
 catch (e) { log(`JOURNEY FAILURE: ${e?.stack ?? e}`); results.push({ group, name: "journey", ok: false, detail: String(e?.message ?? e) }); }
 finally {
   fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, boundaries: {
-    real: ["GoTrue sign-in (browser and API)", "PostgREST (browser and API)", "RLS and function grants (direct calls with real JWTs)", "private Storage (real uploader, read-back, outsider/anon refusal)", "process-trial-balance edge function", "production build served on loopback in headless Chrome"],
-    operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "revoke members", "create the outsider's own company"],
+    real: ["GoTrue sign-in (browser and API)", "PostgREST (browser and API)", "RLS and function grants (direct calls with real JWTs)", "private Storage (real uploader into the private bucket; refusal of outsider, viewer, anon and public URL)", "process-trial-balance edge function", "production build served on loopback in headless Chrome"],
+    operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "read the stored object back to verify its bytes", "revoke members", "create the outsider's own company"],
     notUsed: ["hosted project", "paid services", "AI", "simulated identity", "loopback bridge", "dev harness"] }, finishedAt: new Date().toISOString() }, null, 2));
   try { await browser?.close(); } catch { /* */ }
   try { await preview?.close(); } catch { /* */ }
