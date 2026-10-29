@@ -577,7 +577,7 @@ jobs:
           cat proof-results/ipsasGrantsTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/ipsasGrantsTransport.present.json --manifest scripts/db-proof/ipsasGrantsTransport.manifest.mjs --mode present --exit-code "$code"
 
-      - name: IPSAS mutation authority ordering (deterministic multi-session proof on the full chain - with the protected lock held a request waits, its authority is revoked / membership withdrawn / rollout closed / framework changed and committed, then the lock is released: the mutation is refused and no row is written for all four save and confirm functions and an idempotent replay; revocation and an in-flight mutation are serialised by one lock; plan changes wait for in-flight mutations; contention terminates without deadlock; stricter isolation fails closed; disposable database only)
+      - name: IPSAS mutation authority ordering (deterministic multi-session proof on the full chain - with the protected lock held a request waits, its authority is revoked / membership withdrawn / rollout closed / framework changed and committed, then the lock is released and the mutation is refused with no row written for all four save and confirm functions and an idempotent replay; revocation and an in-flight mutation are serialised by one lock; plan changes wait for in-flight mutations; contention terminates without deadlock; stricter isolation fails closed; disposable database only)
         env:
           DB_PROOF_MODE: external
           DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_authority_ordering
