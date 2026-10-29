@@ -51,7 +51,7 @@ export async function grantsChain(j) {
       && opts.includes("binding-arrangement") && !opts.includes("restriction-only") ? true : { opts };
   });
   await check("grants: two agreements with obligations, satisfaction evidence, complexity answers and the trial-balance accounts are typed in and saved; the server calculates revenue, liability and receivable", async () => {
-    await type(preparer, "gtb-rev", "4300"); await type(preparer, "gtb-liab", "2300"); await type(preparer, "gtb-recv", "1300");
+    await type(preparer, "gtb-rev", j.accounts.rev.join(", ")); await type(preparer, "gtb-liab", j.accounts.liab.join(", ")); await type(preparer, "gtb-recv", j.accounts.recv.join(", "));
     let r = await fillGrant(preparer, 0, { ...A, classification: "binding-arrangement", obligations: [
       { label: "Clinic equipment delivered", alloc: "5,000,000.00", sat: "5,000,000.00", basis: "milestone-delivered", evidence: "Grantor acceptance letter" },
       { label: "Outreach sessions", alloc: "4,000,000.00", sat: "1,500,000.00", basis: "output-measure", evidence: "Delivery report Q3" },

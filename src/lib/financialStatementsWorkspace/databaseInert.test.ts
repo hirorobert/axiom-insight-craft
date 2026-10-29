@@ -858,6 +858,8 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs"); allowed.add("scripts/browser-acceptance/ipsasGrantsSteps.mjs");
     // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
     allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
+    // IPSAS authenticated journey (CI job real-app-e2e): real Auth, PostgREST, RLS and private Storage on a LOCAL stack; loopback only, no secret, no hosted access.
+    allowed.add("scripts/e2e/ipsasAuthJourney.mjs"); allowed.add("scripts/e2e/ipsasAuthFixtures.mjs"); allowed.add("scripts/browser-acceptance/ipsasPpeSteps.mjs");
     allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
