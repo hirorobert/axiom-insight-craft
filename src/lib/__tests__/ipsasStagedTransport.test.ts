@@ -50,6 +50,10 @@ describe("IPSAS exact-byte staged transport", () => {
     expect(at("IPSAS_TRANSPORT_POSTCONDITION")).toBeLessThan(at("IPSAS_TRANSPORT_PRIVILEGE_POSTCONDITION"));
     expect(at("IPSAS_TRANSPORT_PRIVILEGE_POSTCONDITION")).toBeLessThan(at("IPSAS_TRANSPORT_BASELINE_CHANGED"));
     expect(at("IPSAS_TRANSPORT_BASELINE_CHANGED")).toBeLessThan(at("SET consumed_at"));
+    // the source executes under a pinned search_path, restored straight after (unqualified names bind through it)
+    expect(at("set_config('search_path', 'pg_catalog, public', true)")).toBeLessThan(at("EXECUTE v_source"));
+    expect(at("EXECUTE v_source")).toBeLessThan(at("set_config('search_path', v_search_path, true)"));
+    expect(at("set_config('search_path', v_search_path, true)")).toBeLessThan(at("IPSAS_TRANSPORT_POSTCONDITION"));
     expect(s).not.toMatch(/^(BEGIN|COMMIT|ROLLBACK);$/m);
     expect(s).toContain("IN SHARE MODE;");
   });
