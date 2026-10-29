@@ -61,6 +61,14 @@ describe("the journey script", () => {
   it("covers the access matrix: viewer member, outsider, cross-company, anon, service role, tables, helpers, revoked access, private Storage", () => {
     for (const needle of ["viewer", "outsider", "cross-company", "anon", "service role", "ipsas_prep_revisions", "_ipsas_live", "accepted_at: null", "BUCKET", "public === false"]) expect(src, needle).toContain(needle);
   });
+  it("keeps the service-role integrity read apart from authenticated checks, and records owner retrieval as a gap instead of passing it", () => {
+    expect(src).toMatch(/OPERATOR INTEGRITY READ \(service role, NOT owner retrieval\)/);
+    expect(src).toMatch(/RECORDED GAP \(not an acceptance pass\)/);
+    expect(src).toMatch(/gaps\.push\(\{ id: "TB-SOURCE-OWNER-RETRIEVAL"/);
+    // the authenticated storage check must not use the service role to read the object
+    const authenticated = src.slice(src.indexOf("AUTHENTICATED: the trial-balance bucket"), src.indexOf("RECORDED GAP"));
+    expect(authenticated).not.toMatch(/admin\.storage\.from/);
+  });
   it("states which boundaries are real and which are operator actions in its results", () => {
     expect(src).toMatch(/real: \[/); expect(src).toMatch(/operatorActionsByServiceRole/); expect(src).toMatch(/notUsed: \[/);
   });

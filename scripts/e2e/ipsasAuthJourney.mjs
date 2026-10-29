@@ -46,6 +46,7 @@ const uuid = () => crypto.randomUUID();
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const BUCKET = "trial-balance-files";
 const results = [];
+const gaps = [];
 let group = "", page = null;
 const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "journey.log"), s + "\n"); };
 const startGroup = (g) => { group = g; log(`\n== ${g}`); };
@@ -387,23 +388,36 @@ async function main() {
   page = preparer;
 
   startGroup("Private Storage: the uploaded evidence");
-  await check("the trial-balance bucket is private; the stored object is the uploaded file, byte for byte; an outsider, a viewer, anon and a public URL cannot read it", async () => {
+  const uploadRow = async () => ((await api.owner.from("trial_balance_uploads").select("file_path, period_year").eq("company_id", A)).data ?? []).find((u) => u.period_year === 2026);
+  await check("AUTHENTICATED: the trial-balance bucket is private; an outsider, a viewer, anon and a public URL cannot read the uploaded object", async () => {
     const bucket = await admin.storage.getBucket(BUCKET);
-    const ups = (await api.owner.from("trial_balance_uploads").select("file_path, period_year").eq("company_id", A)).data ?? [];
-    const mine = ups.find((u) => u.period_year === 2026);
-    if (!mine) return { ups };
-    // The object lives under the company's workspace path, which the storage policies do not grant to a session directly: the app
-    // reads it only through the server (the edge function). The bytes are therefore verified with the service role (an operator
-    // read, recorded in the results), and every session below is shown to be refused.
-    const own = await admin.storage.from(BUCKET).download(mine.file_path);
-    const bytes = own.data ? Buffer.from(await own.data.arrayBuffer()) : null;
+    const mine = await uploadRow();
+    if (!mine) return "no upload row";
     const outsider = await api.outsider.storage.from(BUCKET).download(mine.file_path);
     const viewer = await api.viewer.storage.from(BUCKET).download(mine.file_path);
     const publicFetch = await fetch(`${apiUrl}/storage/v1/object/public/${BUCKET}/${mine.file_path}`);
     const anonFetch = await fetch(`${apiUrl}/storage/v1/object/${BUCKET}/${mine.file_path}`, { headers: { apikey: anonKey } });
-    const intact = bytes && sha(bytes) === sha(fs.readFileSync(tbCurrent));
-    return bucket.data?.public === false && intact && !!outsider.error && !!viewer.error && publicFetch.status !== 200 && anonFetch.status !== 200 ? true
-      : { public: bucket.data?.public, intact, outsider: outsider.error?.message, viewer: viewer.error?.message, publicStatus: publicFetch.status, anonStatus: anonFetch.status };
+    return bucket.data?.public === false && !!outsider.error && !!viewer.error && publicFetch.status !== 200 && anonFetch.status !== 200 ? true
+      : { public: bucket.data?.public, outsider: outsider.error?.message, viewer: viewer.error?.message, publicStatus: publicFetch.status, anonStatus: anonFetch.status };
+  });
+  // The intended owner-retrieval path (investigated, not assumed): the bucket's session policies grant only the legacy personal folder
+  // (<auth uid>/...); source files now live under workspaces/<company>/..., which "no client Storage policy is widened" leaves
+  // to the server (the signer issues UPLOAD urls only; process-trial-balance reads with the service role); and no download
+  // service or page exists. So the owner's direct read is RECORDED as it stands — not asserted as a pass or a feature.
+  await check("RECORDED GAP (not an acceptance pass): whether a signed-in owner can retrieve their own uploaded source file", async () => {
+    const mine = await uploadRow();
+    const own = await api.owner.storage.from(BUCKET).download(mine.file_path);
+    const retrievable = !own.error && !!own.data;
+    gaps.push({ id: "TB-SOURCE-OWNER-RETRIEVAL", observed: retrievable ? "owner session can read the workspace object" : "owner session cannot read the workspace object and no download service exists", ownerCanRetrieve: retrievable,
+      note: "If owners are meant to retrieve their uploaded evidence this is a product gap (needs an authorized download path, e.g. a capability-checked signed-download service); no storage policy was widened here." });
+    log(`        owner direct read of the uploaded object: ${retrievable ? "allowed" : "refused"} (recorded as a gap, see results.json)`);
+    return true;
+  });
+  await check("OPERATOR INTEGRITY READ (service role, NOT owner retrieval): the stored object is the uploaded file, byte for byte", async () => {
+    const mine = await uploadRow();
+    const own = await admin.storage.from(BUCKET).download(mine.file_path);
+    const bytes = own.data ? Buffer.from(await own.data.arrayBuffer()) : null;
+    return bytes && sha(bytes) === sha(fs.readFileSync(tbCurrent)) ? true : { read: !!bytes };
   });
 
   startGroup("Revoked access");
@@ -464,9 +478,9 @@ async function main() {
 try { await main(); }
 catch (e) { log(`JOURNEY FAILURE: ${e?.stack ?? e}`); results.push({ group, name: "journey", ok: false, detail: String(e?.message ?? e) }); }
 finally {
-  fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, boundaries: {
+  fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, gaps, boundaries: {
     real: ["GoTrue sign-in (browser and API)", "PostgREST (browser and API)", "RLS and function grants (direct calls with real JWTs)", "private Storage (real uploader into the private bucket; refusal of outsider, viewer, anon and public URL)", "process-trial-balance edge function", "production build served on loopback in headless Chrome"],
-    operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "read the stored object back to verify its bytes", "revoke members", "create the outsider's own company"],
+    operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "read the stored object back to verify its bytes (integrity only, not an owner-retrieval check)", "revoke members", "create the outsider's own company"],
     notUsed: ["hosted project", "paid services", "AI", "simulated identity", "loopback bridge", "dev harness"] }, finishedAt: new Date().toISOString() }, null, 2));
   try { await browser?.close(); } catch { /* */ }
   try { await preview?.close(); } catch { /* */ }
