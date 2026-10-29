@@ -61,13 +61,19 @@ describe("the journey script", () => {
   it("covers the access matrix: viewer member, outsider, cross-company, anon, service role, tables, helpers, revoked access, private Storage", () => {
     for (const needle of ["viewer", "outsider", "cross-company", "anon", "service role", "ipsas_prep_revisions", "_ipsas_live", "accepted_at: null", "BUCKET", "public === false"]) expect(src, needle).toContain(needle);
   });
-  it("keeps the service-role integrity read apart from authenticated checks, and records owner retrieval as a gap instead of passing it", () => {
-    expect(src).toMatch(/OPERATOR INTEGRITY READ \(service role, NOT owner retrieval\)/);
-    expect(src).toMatch(/RECORDED GAP \(not an acceptance pass\)/);
-    expect(src).toMatch(/gaps\.push\(\{ id: "TB-SOURCE-OWNER-RETRIEVAL"/);
+  it("separates acceptance checks from gap records and the service-role integrity read, and proves owner retrieval through the real server path", () => {
+    expect(src).toMatch(/OPERATOR INTEGRITY READ \(service role, NOT owner retrieval\)[\s\S]*?"operator-integrity"\)/);
+    expect(src).toMatch(/GAP RECORD \(observed; cannot fail\)[\s\S]*?"gap-record"\)/);
+    expect(src).toContain('kind = "acceptance"');
+    expect(src).toContain("summary");
+    // owner retrieval is an ACCEPTANCE check, driven through the function and through the real page, never through the service role
+    for (const needle of ["owner retrieval through the server path", "the owner presses 'Download original' on the real page", "download-original-trial-balance", "revoked access", "grant_workspace_capability", "revoke_workspace_capability"]) expect(src, needle).toContain(needle);
+    const retrieval = src.slice(src.indexOf("owner retrieval through the server path"), src.indexOf("GAP RECORD (observed"));
+    expect(retrieval).not.toMatch(/admin\.storage\.from/);
     // the authenticated storage check must not use the service role to read the object
-    const authenticated = src.slice(src.indexOf("AUTHENTICATED: the trial-balance bucket"), src.indexOf("RECORDED GAP"));
+    const authenticated = src.slice(src.indexOf("AUTHENTICATED: the trial-balance bucket"), src.indexOf("Owner retrieval now exists"));
     expect(authenticated).not.toMatch(/admin\.storage\.from/);
+    expect(src).not.toContain("TB-SOURCE-OWNER-RETRIEVAL");
   });
   it("states which boundaries are real and which are operator actions in its results", () => {
     expect(src).toMatch(/real: \[/); expect(src).toMatch(/operatorActionsByServiceRole/); expect(src).toMatch(/notUsed: \[/);
