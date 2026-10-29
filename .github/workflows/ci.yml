@@ -531,6 +531,21 @@ jobs:
           cat proof-results/equipmentTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/equipmentTransport.present.json --manifest scripts/db-proof/equipmentTransport.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS exact-byte transport (approved migration through its private schema on the real predecessor chain - exact journal head, prerequisites, tamper, order, rollback, privilege postcondition, baseline preservation and concurrent install; disposable database only, no hosted SQL registered or installed)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_transport_proof
+          PROOF_RESULT_FILE: proof-results/ipsasTransport.present.json
+        run: |
+          createdb ipsas_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasTransport.mjs > proof-results/ipsasTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasTransport.present.json --manifest scripts/db-proof/ipsasTransport.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

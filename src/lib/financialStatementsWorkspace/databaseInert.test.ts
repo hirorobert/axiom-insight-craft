@@ -832,6 +832,10 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/equipmentStagedTransport.mjs");
     allowed.add("scripts/db-proof/equipmentTransport.mjs");
     allowed.add("scripts/db-proof/equipmentTransport.manifest.mjs");
+    // IPSAS transport: the one approved migration, private schema, canonical journal, loopback proof; no hosted registration.
+    allowed.add("scripts/release/ipsasStagedTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasTransport.manifest.mjs");
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
