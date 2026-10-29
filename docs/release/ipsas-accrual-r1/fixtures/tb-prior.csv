@@ -1,0 +1,11 @@
+id,code,label,debitMinor,creditMinor,lineId,section,zeroDisposition,evidenceId
+bank,1000,Bank,500000,0,cash,current,,tb-prior
+cost,1500,Equipment cost,1200000,0,ppe,non-current,,tb-prior
+accdep,1510,Accumulated depreciation,0,200000,ppe,non-current,,tb-prior
+ar,1200,Receivables,200000,0,receivables,current,,tb-prior
+grant-liab,2300,Grant obligations,0,300000,grant_obligations,current,,tb-prior
+ap,2100,Payables,0,100000,payables,current,,tb-prior
+na,3000,Accumulated surplus before current result,0,900000,accumulated,net-assets,,tb-prior
+rev,4000,Grant revenue,0,1000000,grants,performance,,tb-prior
+staff,6000,Salaries,400000,0,employees,performance,,tb-prior
+dep,6200,Depreciation,200000,0,depreciation,performance,,tb-prior
