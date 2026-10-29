@@ -6,7 +6,7 @@ DECLARE
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
   c_predecessor CONSTANT text[] := ARRAY['0e7c3807b7c06b2906154bcffb816b03d67fa145cc755eacc3a70358c9cba6c8', '5baecce2310781535833b84f822f37dda27538ead7940b4b7d3785f72dd133c3']::text[];
-  v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_source text;
+  v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_release_transport', 0));
   IF to_regclass('drizzle.__drizzle_migrations') IS NULL THEN
@@ -67,7 +67,12 @@ BEGIN
     coalesce((SELECT jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text) FROM public.fs_equipment_answers t), '[]'::jsonb)
   )::text, 'UTF8')), 'hex'));
   PERFORM set_config('cfoclose_ipsas_release.applying', c_batch, true);
+  -- The source has unqualified names (DEFAULT gen_random_uuid()) that bind through the executing session's search_path: with
+  -- public ahead of pg_catalog they can bind to a public/pgcrypto function instead of the core one. Pin the path for the source only.
+  v_search_path := current_setting('search_path');
+  PERFORM set_config('search_path', 'pg_catalog, public', true);
   EXECUTE v_source;
+  PERFORM set_config('search_path', v_search_path, true);
   IF NOT (to_regclass('public.ipsas_prep_revisions') IS NOT NULL AND to_regclass('public.ipsas_confirmations') IS NOT NULL AND to_regprocedure('public.ipsas_prep_context(uuid,integer)') IS NOT NULL AND to_regprocedure('public.ipsas_save_preparation(uuid,integer,text,jsonb,uuid,uuid)') IS NOT NULL AND to_regprocedure('public.ipsas_confirm(uuid,integer,text,text,uuid,uuid)') IS NOT NULL) THEN
     RAISE EXCEPTION 'IPSAS_TRANSPORT_POSTCONDITION: % did not install its target', '20261207100000_ipsas_accrual_preparation.sql' USING ERRCODE = '55000';
   END IF;
