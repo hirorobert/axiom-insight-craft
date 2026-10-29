@@ -718,6 +718,11 @@ export default function PrepareWorkspace() {
         </div>
       </header>
 
+      {company?.reporting_framework === "ipsas_accrual" && (
+        <Link to={`/workspace/${companyId}/${periodYear}/ipsas`} data-testid="ipsas-preparation-entry" className="block rounded-md border border-border bg-muted/40 px-4 py-3 text-sm">
+          <span className="font-medium">IPSAS accrual preparation</span> — record property, plant and equipment, bridge last year's figure and see what remains. Draft only; official issuance is not available.
+        </Link>
+      )}
       {correctionLink && (
         <AccountCorrection
           companyId={companyId} periodYear={periodYear} link={correctionLink} reportVersion={parseReportVersion(`?${searchParams.toString()}`)}
