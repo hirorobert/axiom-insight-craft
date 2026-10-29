@@ -36,6 +36,20 @@ describe("the journey script", () => {
   });
 });
 
+describe("signed URLs are never printed", () => {
+  it("both journeys redact tokens in everything they print or record", () => {
+    const api = read("scripts/e2e/sourceDownloadJourney.mjs"), main = read("scripts/e2e/localStackJourney.mjs");
+    expect(api).toMatch(/const redact = /); expect(api).toMatch(/const log = (s) => { const t = redact(s)/);
+    expect(api).toMatch(/detail: r === true ? undefined : JSON.parse(redact(/);
+    expect(main).toMatch(/$1…/);
+  });
+  it("the retrieval policy proposals exist and say they are not implemented", () => {
+    const p = read("docs/release/source-download/POLICY_PROPOSALS.md");
+    expect(p).toMatch(/PROPOSED; NOT IMPLEMENTED/);
+    for (const h of ["accounting / evidence capabilities", "after plan expiry", "without claiming a download completed"]) expect(p, h).toContain(h);
+  });
+});
+
 describe("the Edge Function", () => {
   const fn = read("supabase/functions/trial-balance-source-download/index.ts");
   it("authenticates, binds the upload to the company, re-authorizes with the shared capability predicate on every request and signs a short-lived URL", () => {

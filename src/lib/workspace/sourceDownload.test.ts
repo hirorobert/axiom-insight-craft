@@ -195,3 +195,62 @@ describe("rebaseSignedUrl", () => {
     expect(g).not.toHaveBeenCalled();
   });
 });
+
+describe("signed-URL handling against unexpected origins and paths", () => {
+  const BASE = "http://127.0.0.1:54321";
+  const OK_PATH = "/storage/v1/object/sign/trial-balance-files/workspaces/c/s/tb.csv";
+  it("refuses traversal out of the signed prefix, in any spelling, and anything under another bucket, route or scheme", async () => {
+    const { rebaseSignedUrl } = await import("./sourceDownload");
+    const hostile = [
+      "http://kong:8000/storage/v1/object/sign/trial-balance-files/../../public/trial-balance-files/x?token=t",
+      "http://kong:8000/storage/v1/object/sign/trial-balance-files/%2e%2e/%2e%2e/authenticated/x?token=t",
+      "http://kong:8000/storage/v1/object/sign/trial-balance-files/..%2f..%2fx?token=t",
+      "http://kong:8000/storage/v1/object/sign/trial-balance-filesX/x?token=t",
+      "http://kong:8000/storage/v1/object/sign/avatars/x?token=t",
+      "http://kong:8000/rest/v1/rpc/anything?token=t",
+      "http://kong:8000/storage/v1/object/upload/sign/trial-balance-files/x?token=t",
+      "ftp://kong:8000/storage/v1/object/sign/trial-balance-files/x?token=t",
+      "data:text/plain,x", "", "//evil.example/storage/v1/object/sign/trial-balance-files/x?token=t",
+    ];
+    for (const u of hostile) {
+      const r = rebaseSignedUrl(u, BASE);
+      // either refused outright, or (a normalised path that still lies inside the prefix) kept inside it on OUR origin
+      if (r !== null) { expect(r.startsWith(`${BASE}/storage/v1/object/sign/trial-balance-files/`), u).toBe(true); expect(r).not.toMatch(/\.\.|%2e/i); }
+    }
+    for (const u of hostile.slice(0, 8)) expect(rebaseSignedUrl(u, BASE), u).toBeNull();
+    // and a trailing / empty segment or an empty object name
+    for (const u of [`http://kong:8000${OK_PATH.replace(/tb.csv$/, "")}?token=t`, "http://kong:8000/storage/v1/object/sign/trial-balance-files/?token=t"]) expect(rebaseSignedUrl(u, BASE), u).toBeNull();
+  });
+  it("an unexpected ORIGIN is never contacted: only the path and token are used, against the configured origin", async () => {
+    const { rebaseSignedUrl } = await import("./sourceDownload");
+    for (const origin of ["https://evil.example", "http://user:pw@evil.example:81", "http://[::1]:9", "http://kong:8000"]) {
+      const r = rebaseSignedUrl(`${origin}${OK_PATH}?token=abc`, BASE) as string;
+      expect(r, origin).toBe(`${BASE}${OK_PATH}?token=abc`);
+      expect(new URL(r).username).toBe("");
+    }
+  });
+  it("a signed URL without a token is refused", async () => {
+    const { rebaseSignedUrl } = await import("./sourceDownload");
+    expect(rebaseSignedUrl(`http://kong:8000${OK_PATH}`, BASE)).toBeNull();
+    expect(rebaseSignedUrl(`http://kong:8000${OK_PATH}?token=`, BASE)).toBeNull();
+  });
+  it("no failure message, and nothing written to the console by the service, contains the signed URL or its token", async () => {
+    const { fetchOriginalSource } = await import("./sourceDownload");
+    const secret = "SECRET-TOKEN-123";
+    const url = `http://kong:8000${OK_PATH}?token=${secret}&download=tb.csv`;
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const messages: string[] = [];
+    try {
+      for (const attempt of [
+        async () => { supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url, file_name: "tb.csv", sha256: "0".repeat(64) }, error: null }); await fetchOriginalSource(CO, UP, served(BYTES) as never, BASE); },
+        async () => { supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url, file_name: "tb.csv", sha256: null }, error: null }); await fetchOriginalSource(CO, UP, vi.fn(async () => { throw new TypeError(`fetch failed ${url}`); }) as never, BASE); },
+        async () => { supa.invoke.mockResolvedValueOnce({ data: { outcome: "ready", url, file_name: "tb.csv", sha256: null }, error: null }); await fetchOriginalSource(CO, UP, vi.fn(async () => new Response("no", { status: 403 })) as never, BASE); },
+      ]) {
+        try { await attempt(); } catch (e) { messages.push(String((e as Error).message), String((e as Error).stack ?? "")); }
+      }
+      for (const m of messages) { expect(m).not.toContain(secret); expect(m).not.toContain("kong:8000"); }
+      expect(messages.length).toBeGreaterThan(0);
+      for (const s of spies) expect(s).not.toHaveBeenCalled();
+    } finally { spies.forEach((s) => s.mockRestore()); }
+  });
+});

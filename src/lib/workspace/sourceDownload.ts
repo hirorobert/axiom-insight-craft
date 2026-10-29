@@ -63,7 +63,11 @@ export const SIGNED_OBJECT_PREFIX = "/storage/v1/object/sign/trial-balance-files
 export function rebaseSignedUrl(raw: string, apiBase: string | undefined): string | null {
   let url: URL;
   try { url = new URL(raw); } catch { return null; }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.pathname.startsWith(SIGNED_OBJECT_PREFIX) || !url.searchParams.get("token")) return null;
+  // Inside the prefix: no dot segment, no encoded dot / slash / backslash. The object name is a plain path the server chose.
+  const rest = url.pathname.slice(SIGNED_OBJECT_PREFIX.length);
+  if (rest.length === 0 || /%2e|%2f|%5c|\\/i.test(rest) || rest.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return null;
   if (!apiBase) return url.toString();
   try { return `${new URL(apiBase).origin}${url.pathname}${url.search}`; } catch { return null; }
 }

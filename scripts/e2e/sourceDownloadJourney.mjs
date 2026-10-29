@@ -34,15 +34,17 @@ const uuid = () => crypto.randomUUID();
 const results = [];
 const gaps = [];
 let group = "";
-const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "journey.log"), s + "\n"); };
+// A signed URL is a bearer credential: nothing this journey prints or records may contain one or its token.
+const redact = (text) => String(text).replace(/([?&](?:token|apikey|access_token)=)[^&"\s]*/gi, "$1…").replace(/("(?:url|signedUrl|token)"\s*:\s*)"[^"]*"/gi, '$1"…"');
+const log = (s) => { const t = redact(s); console.log(t); fs.appendFileSync(path.join(OUT, "journey.log"), t + "\n"); };
 const startGroup = (g) => { group = g; log(`\n== ${g}`); };
 async function check(name, fn) {
   try {
     const r = await fn();
-    results.push({ group, name, ok: r === true, detail: r === true ? undefined : r });
+    results.push({ group, name, ok: r === true, detail: r === true ? undefined : JSON.parse(redact(JSON.stringify(r) ?? "null")) });
     log(`  ${r === true ? "PASS" : "FAIL"}  ${name}${r === true ? "" : `\n        ${JSON.stringify(r)?.slice(0, 1500)}`}`);
   } catch (e) {
-    results.push({ group, name, ok: false, detail: String(e?.message ?? e) });
+    results.push({ group, name, ok: false, detail: redact(String(e?.message ?? e)) });
     log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split("\n").slice(0, 3).join(" | ")}`);
   }
 }

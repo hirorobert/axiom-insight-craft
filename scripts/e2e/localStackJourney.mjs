@@ -467,7 +467,7 @@ async function main() {
     await go(`${base}/trial-balance/review?manage=source`, "");
     await page.waitForSelector('[data-testid="download-original-trial-balance"]', { timeout: 45000 });
     await shot("05c-download-original");
-    const before = page.requests.length;
+    const before = page.requests.length, beforeResponses = page.responses.length;
     await page.click('[data-testid="download-original-trial-balance"]');
     // The notice is a toast: read it first, before it goes away; then wait for the file the browser saved.
     const told = await page.waitFor(() => /matches the fingerprint|could not be compared/.test(document.body.innerText), [], { label: "download notice", timeout: 30000 }).catch(() => false);
@@ -478,10 +478,14 @@ async function main() {
     }
     if (!saved) return { saved, requests: page.requests.slice(before).filter((u) => /trial-balance-source-download|storage/.test(u)).map((u) => u.replace(/token=[^&]+/, "token=…")) };
     const bytes = fs.readFileSync(path.join(dir, saved));
-    const sent = page.requests.slice(before).filter((u) => /\/functions\/v1\/trial-balance-source-download/.test(u)).length;
+    // One POST to the function (the browser also sends a CORS preflight OPTIONS to the same URL, which is not a second request), and
+    // one fetch of the signed object from the API origin.
+    const answered = page.responses.slice(beforeResponses);
+    const sent = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url)).length;
+    const objectFetches = answered.filter((r) => r.method === "GET" && r.status === 200 && r.url.includes("/storage/v1/object/sign/trial-balance-files/")).length;
     const row = (await admin.from("trial_balance_uploads").select("source_file_hash, file_name").eq("id", currentUpload).single()).data;
     const same = bytes.equals(fs.readFileSync(tbCurrent)) && (!row.source_file_hash || row.source_file_hash === crypto.createHash("sha256").update(bytes).digest("hex"));
-    return same && sent === 1 && told ? true : { saved, same, sent, told, recorded: !!row.source_file_hash };
+    return same && sent === 1 && objectFetches === 1 && told ? true : { saved, same, sent, objectFetches, told, recorded: !!row.source_file_hash };
   });
   await check("a preparer and a partner (members without source-file authority) are refused by the SERVER; the page offers the preparer no download", async () => {
     const refusals = [await downloadFnStatus(preparer), await downloadFnStatus(partner)];
@@ -1460,7 +1464,8 @@ async function main() {
   startGroup("Every request stayed on loopback");
   await check("no request left 127.0.0.1 / localhost except the app stylesheet's web font", async () => {
     const off = [...new Set(page.requests)].filter((u) => /^https?:/.test(u) && !/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(u) && !/fonts\.(googleapis|gstatic)\.com/.test(u));
-    return off.length === 0 ? true : off.slice(0, 10);
+    // Never print a bearer token: a signed object URL names the object it grants, so only its origin and path are shown.
+    return off.length === 0 ? true : off.slice(0, 10).map((u) => u.replace(/([?&](token|apikey|access_token)=)[^&]*/gi, "$1…"));
   });
 }
 

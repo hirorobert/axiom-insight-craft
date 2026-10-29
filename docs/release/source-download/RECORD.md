@@ -19,7 +19,7 @@ Open product questions, deliberately not decided here: (1) whether reviewers (`r
 (2) whether a workspace whose plan has lapsed ("read-only archive") should still allow retrieval - today it does **not** (`workspace_authority_basis` returns no basis without a current plan).
 
 ## Known limits
-- A URL already issued cannot be recalled: after a revocation, access outlives the revocation by at most the 60 s expiry. The journey records this as `DOWNLOAD-URL-OUTLIVES-REVOCATION-UNTIL-EXPIRY`.
+- **The link is a bearer credential, valid for 60 seconds.** Anyone who holds an issued URL can fetch that one object until it expires, whoever they are and whatever has happened to the issuing person's access since: a revocation stops the NEXT request, not a link already issued. The residual window is therefore at most 60 s after issue, for one object, and the practical risk is the link leaking (logs, proxies, screenshots) - which is why no journey, log line or test message prints a URL or token (redaction is applied and tested). The journey observes this (`DOWNLOAD-URL-OUTLIVES-REVOCATION-UNTIL-EXPIRY`); it is a recorded limitation, not a defect, and cannot be removed without proxying the bytes through the function.
 - No durable audit row per download (that would need a table and a migration); the function logs one structured line (actor, upload, company, outcome).
 - A file with no recorded fingerprint cannot be integrity-checked against the server's record (the bytes are still the object the server holds).
 
@@ -32,3 +32,6 @@ Open product questions, deliberately not decided here: (1) whether reviewers (`r
 
 ## Found by the first CI run
 `createSignedUrl` signs against the function's own view of the project URL. Inside the local stack's containers that is `http://kong:8000`, which neither a browser nor the journey can reach (the API journey failed with `fetch failed`, and the browser journey's loopback check named the host). Hosted, it is the public project URL. The client now fetches the same signed path and token from the API origin the app is configured with (`rebaseSignedUrl`), and refuses any URL that is not a signed object URL for the trial-balance bucket instead of fetching it. The signed path and token are never altered.
+
+## Policy changes are proposals only
+The current capability policy is kept. Rights based on accounting/evidence capabilities, retrieval of historical evidence after plan expiry (distinct from revoked access) and audited download-authorization events are written up in `POLICY_PROPOSALS.md`; none is implemented and no bucket access is widened.
