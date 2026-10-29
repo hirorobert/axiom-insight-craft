@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Browser } from "./cdp.mjs";
 import { layoutProblems } from "./checks.mjs";
+import { grantsChain, grantsHostile } from "./ipsasGrantsSteps.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, "ipsas-journey-evidence"));
@@ -161,7 +162,7 @@ try {
     await tab(partner, "Review report");
     const t = await text(partner);
     await shot(partner, "04-review-after");
-    return next.includes("no open matters") && t.includes("straight-line over 10 years") && t.includes("No open matters in this slice") && t.includes("Server state: ready-for-review")
+    return next.includes("Record the grants") && t.includes("straight-line over 10 years") && t.includes("No open matters in this slice") && t.includes("Server state: ready-for-review")
       && t.includes("Prepared from confirmed facts") && /Total[\s\S]{0,40}16,000\.00[\s\S]{0,20}14,000\.00/.test(t.replace(/\n/g, " ")) ? true : { next, hasPolicy: t.includes("straight-line over 10 years") };
   });
   await check("issue & history: official issuance is stated unavailable, with reasons, even though this slice has no open matter", async () => {
@@ -170,10 +171,14 @@ try {
     return t.includes("Official issuance is unavailable") && t.includes("No IPSAS report has been issued") && t.includes("no accounting author or reviewer") ? true : t.slice(0, 800);
   });
   page = preparer;
-  await check("the preparer, reloading, sees the confirmed state with no coaching: the same next step as the server holds", async () => {
+  await check("the preparer, reloading, sees the confirmed property, plant and equipment and is pointed to the grants still to record", async () => {
     await go(preparer, "preparer", "IPSAS accrual, 2026");
-    return (await nextStep(preparer)).includes("no open matters") ? true : await nextStep(preparer);
+    return (await nextStep(preparer)).includes("Record the grants") ? true : await nextStep(preparer);
   });
+
+  const J = { check, open, go, set, type, val, tab, text, nextStep, shot, rpc, seed, log, setPage: (p) => { page = p; }, preparer };
+  await grantsChain(J);
+  page = preparer;
 
   log("\n== Keyboard");
   await check("the area tabs are operable by keyboard alone, with a visible focus indicator", async () => {
@@ -233,6 +238,9 @@ try {
     await shot(preparer, "06-lost-retry");
     return midText.includes("Nothing is assumed either way") && sent.length === 2 && sent[0] === sent[1] && recorded !== before && after === recorded ? true : { sent, before, recorded, after };
   });
+
+  await grantsHostile(J);
+  page = preparer;
 
   log("\n== Access");
   await check("a viewer and an outsider see a plain refusal and no editor", async () => {

@@ -850,7 +850,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
     allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
     // IPSAS preparation browser journey: loopback bridge to a disposable database, headless Chrome, simulated identity; no hosted access.
-    allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs");
+    allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs"); allowed.add("scripts/browser-acceptance/ipsasGrantsSteps.mjs");
     // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
     allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.

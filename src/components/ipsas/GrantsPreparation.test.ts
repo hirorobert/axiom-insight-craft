@@ -39,6 +39,13 @@ describe("GrantsPreparation", () => {
       m.unmount(); m = null;
     }
   });
+  it("offers the period's vocabulary from the server-supplied period even before any grant has been saved (found by the browser journey)", async () => {
+    const { db } = fakeDb({ context: { outcome: "available", register: null, confirmations: [], live: live("ipsas47") } });
+    m = mount(h(GrantsPreparation, props(db) as never)); await flush();
+    act(() => click(button("Add a grant")));
+    expect(options("gr0-class")).toContain("binding-arrangement");
+    expect(m.container.querySelector("#ga-transition_47")).not.toBeNull();
+  });
   it("offers no classification until the trial balance is certified (no period, no vocabulary)", async () => {
     const { db } = fakeDb({ context: ctxOf(null) });
     m = mount(h(GrantsPreparation, props(db) as never)); await flush();

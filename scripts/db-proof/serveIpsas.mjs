@@ -5,15 +5,23 @@
 //
 // The bridge simulates PostgREST for the `authenticated` role: the caller names a fixture user in `x-sim-user`, and each RPC runs in
 // its own transaction as that user's auth.uid() (clientDb, reportingKit.mjs). It is NOT GoTrue: no password, token or session is
-// involved. Only the three ipsas_* functions and the capability read are exposed; no table is readable or writable.
+// involved. Only the ipsas_* functions (preparation and grants) and the capability read are exposed; no table is readable or writable.
 //
 //   DB_PROOF_MODULES_DIR=<dir with pg + embedded-postgres> bun scripts/db-proof/serveIpsas.mjs
 //   env: IPSAS_BRIDGE_PORT (default 54995). Prints one line `READY {json}` when serving.
 import http from "node:http";
-import { applyChain, certifier, clientDb, csv, FY2025, FY2026, makeWorld, openDatabase } from "./lib/reportingKit.mjs";
+import { applyChain, certifier, clientDb, csv, FY2025, FY2026, makeWorld, openDatabase, TB } from "./lib/reportingKit.mjs";
 
 const PORT = Number(process.env.IPSAS_BRIDGE_PORT ?? 54995);
-const RPC = /^(ipsas_prep_context|ipsas_save_preparation|ipsas_confirm|get_my_workspace_capabilities)$/;
+const RPC = /^(ipsas_prep_context|ipsas_save_preparation|ipsas_confirm|ipsas_grants_context|ipsas_save_grants|ipsas_confirm_grant|get_my_workspace_capabilities)$/;
+// The standard synthetic trial balance plus grant accounts, balanced by a grants bank account (major units; columns: code, name, class, statement,
+// normal, d26, c26, d25, c25). 2026: receivable 4,500,000 · unfulfilled grant obligations 5,500,000 · grant revenue 6,500,000 · grants bank 7,500,000.
+// 2025: receivable 600,000 · obligations 3,600,000 · revenue 3,400,000 · grants bank 6,400,000.
+const TB_ALL = [...TB,
+  ["1010", "Bank - grants account", "current_assets", "balance_sheet", "debit", "7500000.00", "", "6400000.00", ""],
+  ["1300", "Grant receivable", "current_assets", "balance_sheet", "debit", "4500000.00", "", "600000.00", ""],
+  ["2300", "Unfulfilled grant obligations", "current_liabilities", "balance_sheet", "credit", "", "5500000.00", "", "3600000.00"],
+  ["4300", "Grant revenue", "revenue", "income_statement", "credit", "", "6500000.00", "", "3400000.00"]];
 
 const db = await openDatabase("ipsas_harness");
 const failed = await applyChain(db);
@@ -23,7 +31,7 @@ const AI = await W.company(W.U.owner, "Synthetic Community Trust", "ipsas_accrua
 for (const k of ["preparer", "partner", "viewer"]) await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [AI, W.U[k], k]);
 await W.rollout(AI, true);
 const k = await certifier(db, W.U);
-for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) { const u = await k.upload(AI, y, csv(col)); await k.review(AI, u); await k.certify(AI, u); }
+for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) { const u = await k.upload(AI, y, csv(col, TB_ALL)); await k.review(AI, u, TB_ALL); await k.certify(AI, u); }
 
 const users = { owner: W.U.owner, preparer: W.U.preparer, partner: W.U.partner, viewer: W.U.viewer, outsider: W.U.ownerB };
 const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,x-sim-user", "access-control-allow-methods": "POST,OPTIONS", "content-type": "application/json" };

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { ReportingDb } from "@/lib/reporting/signoff";
 import { afterFailure, afterReceipt, grantsClient, refusalWords, type GrantsContext, type SaveState } from "@/lib/ipsasAccrual/ipsasClient";
 import { emptyGrant, emptyGrantsDraft, emptyObligation, fromMinor, newId, PRESENTATION, stableJson, type GrantsDraft } from "@/lib/ipsasAccrual/draft";
-import { CLASSIFICATIONS_23, CLASSIFICATIONS_47, COMPLEXITIES, COMPLEXITY_LABELS, GRANT_ENTITY_QUESTIONS, SATISFACTION_BASES, computeGrants, generateGrantsNote, grantTasks, type Grant, type GrantsInput } from "@/lib/ipsasAccrual/grants";
+import { CLASSIFICATIONS_23, CLASSIFICATIONS_47, COMPLEXITIES, COMPLEXITY_LABELS, GRANT_ENTITY_QUESTIONS, SATISFACTION_BASES, computeGrants, generateGrantsNote, grantModel, grantTasks, type Grant, type GrantsInput } from "@/lib/ipsasAccrual/grants";
 import type { PrepTask } from "@/lib/ipsasAccrual/preview";
 import { Amount, Select, Text } from "./fields";
 
@@ -67,7 +67,7 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
   const saved = (ctx?.register?.payload as unknown as GrantsDraft | undefined) ?? null;
   const dirty = stableJson(draft) !== stableJson(saved ?? emptyGrantsDraft(companyId, periodYear));
   const live = ctx?.live ?? null;
-  const model = live?.assessment?.model ?? null;
+  const model = live?.assessment?.model ?? grantModel(live?.period.start ?? null).model;
 
   // The review is built from what the SERVER holds, never from unsaved edits.
   const review = useMemo(() => {
@@ -229,7 +229,7 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" disabled={!edit || !dirty} onClick={save}>Save grants</Button>
-        <Button type="button" variant="outline" disabled={!dirty} onClick={() => void refresh(true)}>Discard grant edits and reload the saved version</Button>
+        <Button type="button" variant="outline" className="h-auto whitespace-normal text-left" disabled={!dirty} onClick={() => void refresh(true)}>Discard grant edits and reload the saved version</Button>
       </div>
       <Banner state={saves.save ?? { kind: "idle" }} onRetry={save} />
     </section>
