@@ -1,0 +1,10 @@
+# Research and accounting limitations
+
+Checked 2026-10-29. No proprietary illustrative template, standard text or content library is embedded. Links and paraphrased implementation boundaries are not a commercial-content licence.
+
+- [IPSASB 2026 Handbook](https://www.ipsasb.org/publications/2026-handbook-international-public-sector-accounting-standards-board-pronouncements): official publication page, dated 17 August 2026, says it contains pronouncements published as of 31 January 2026. This work checked the publication page, **not every paragraph in the Handbook**. No claim of a complete 2026 requirement register is made.
+- [UN IPSAS Finance Manual, Chapter 16](https://www.un.org/ipsas/Chapter16.html): reference for the joined statement presentation and budget reconciliation layout. UN presentation, materiality thresholds, funding structures and accounting choices are not universal requirements and are not adopted by this candidate.
+- [UN budget information guidance](https://www.un.org/ipsas/Corporate%20Guidance/Corporate_Guidance_Reporting_of_Budget_Information_in_Financial_Statements.pdf): illustrates comparison on the budget basis followed by reconciliation to financial statements. This candidate reuses #216's evidenced budget calculator, including revenue/expense anchors for an accrual budget; it does not assume that a cash-flow-only bridge always suffices.
+- Existing version/effective-date source pins remain in `docs/release/ipsas-accrual-r1/SOURCES.md`. They are inherited boundaries, not a new review of all recognition, measurement or transition provisions.
+
+Paragraph-level review of IPSAS 1, 2, 3, 24, 33 and applicable transitions is outstanding. No accountant has approved this composition, the synthetic note, entity eligibility, statement caption completeness, non-offsetting policy or requirement universe. No real Enduimet/MUSE files or other client records were used. Existing first-time adoption/group/FX refusals remain. A balanced restatement journal is not proof that its recognition or transition treatment is permitted.
