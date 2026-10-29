@@ -260,6 +260,14 @@ async function main() {
     console.log("\n== Preflight on the old schema (after the baseline left real duplicates): read-only, counts exact");
     await check("safishaIngestionPreflight.sql changes nothing and its counts equal an independent recount", async () => {
       const db = S.old.pool;
+      // The duplicates this check needs normally come from a race (8 simultaneous old-handler ingests). When the race is not lost the baseline
+      // holds none and the premise below (duplicate_groups > 0) fails for a timing reason (seen in CI: 3 rows instead of 12). So the premise is
+      // made deterministic: if the baseline left no exact duplicate group, one existing legacy row is inserted again unchanged - exactly what the
+      // old schema permits and what the preflight exists to find. Everything below (the recount, the unchanged digest) is unaffected.
+      if (Number((await db.query(`SELECT count(*) n FROM (SELECT 1 FROM public.safisha_transactions GROUP BY reconciliation_id, source_id, raw_row_hash HAVING count(*) > 1) g`)).rows[0].n) === 0) {
+        const cols = (await db.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='safisha_transactions' AND column_name <> 'id' AND is_generated='NEVER' AND is_identity='NO' ORDER BY ordinal_position`)).rows.map((r) => `"${r.column_name}"`).join(", ");
+        await db.query(`INSERT INTO public.safisha_transactions (${cols}) SELECT ${cols} FROM public.safisha_transactions ORDER BY id LIMIT 1`);
+      }
       const digest = async () => (await db.query(`SELECT (SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) FROM public.safisha_transactions t)
         || (SELECT md5(coalesce(string_agg(r::text, ',' ORDER BY r::text), '')) FROM public.safisha_reconciliations r)
         || (SELECT md5(coalesce(string_agg(u::text, ',' ORDER BY u::text), '')) FROM public.trial_balance_uploads u) AS d`)).rows[0].d;
