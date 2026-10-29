@@ -5,7 +5,7 @@ DECLARE
   c_batch CONSTANT text := 'ipsas-1-preparation';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['0e7c3807b7c06b2906154bcffb816b03d67fa145cc755eacc3a70358c9cba6c8', '5baecce2310781535833b84f822f37dda27538ead7940b4b7d3785f72dd133c3']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['b774ac26cd7476babd885985af825eb247e1b0004a29afef871b7e05900a1bbd', '5e5b446ae69f505c2c9e6820f51b7a7326f65f50526ec033f1b0ce5d6752bc9f']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_release_transport', 0));
@@ -41,9 +41,9 @@ BEGIN
   END IF;
   SELECT s.body INTO v_source FROM cfoclose_ipsas_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'source' AND s.consumed_at IS NULL
-     AND s.body_bytes = 48766 AND s.body_sha256 = '1bc89935c89fd44f6b2e8e8a03b802cbc03ec1afa4b0dbcfff2b5a9f538562d4'
-     AND octet_length(convert_to(s.body, 'UTF8')) = 48766
-     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = '1bc89935c89fd44f6b2e8e8a03b802cbc03ec1afa4b0dbcfff2b5a9f538562d4';
+     AND s.body_bytes = 51496 AND s.body_sha256 = '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7'
+     AND octet_length(convert_to(s.body, 'UTF8')) = 51496
+     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7';
   IF v_source IS NULL THEN RAISE EXCEPTION 'IPSAS_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   PERFORM set_config('lock_timeout', '5s', true);
   LOCK TABLE public.ai_assistant_settings, public.commercial_platform_state, public.companies, public.financial_statements_rollout_audit, public.financial_statements_rollout_companies, public.financial_statements_rollout_state, public.fs_disclosure_texts, public.fs_equipment_answers, public.fs_equipment_policy_insertions, public.fs_equipment_workpapers, public.fs_publication_bindings, public.fs_report_authority, public.fs_report_authority_events, public.fs_schedule_definitions, public.fs_schedule_submissions, public.internal_beta_policy, public.reporting_pack_issuances IN SHARE MODE;
@@ -115,7 +115,7 @@ BEGIN
   UPDATE cfoclose_ipsas_release.staged_artifacts SET consumed_at = clock_timestamp() WHERE batch = c_batch;
   INSERT INTO cfoclose_ipsas_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261207100000_ipsas_accrual_preparation.sql', 'baseline_sha256', v_baseline,
-      'source_sha256', '1bc89935c89fd44f6b2e8e8a03b802cbc03ec1afa4b0dbcfff2b5a9f538562d4'));
+      'source_sha256', '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7'));
   PERFORM set_config('cfoclose_ipsas_release.applying', '', true);
 END
 $cfoclose_ipsas_transport_ipsas_1_preparation$;

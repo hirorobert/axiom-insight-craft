@@ -5,7 +5,7 @@ DECLARE
   c_batch CONSTANT text := 'ipsas-2-grants';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['2318522d6168c1fa1d8633fd040359680e69058c68d659f2240ed96b0c932b49', 'b7b8ab8015dbd355562764e10023d8609530dd15b2143d219ff6a24bd0ab1fad']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['4b68241a0d3064d16047de8c3f623c35e815e7e2852aff63f7d61d755c00e16b', '645e12eeda2ad8413bcc904ffe5494c9271100bcbb7eee1ce16f461457cd48f5']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_grants_release_transport', 0));
@@ -23,7 +23,7 @@ BEGIN
     RAISE EXCEPTION 'IPSAS_GRANTS_TRANSPORT_NOT_INSTALLED: the transport bootstrap is absent; nothing was changed' USING ERRCODE = '55000';
   END IF;
   IF EXISTS (SELECT 1 FROM unnest(ARRAY['public.companies', 'public.tb_certifications', 'public.fiscal_periods', 'public.trial_balance_uploads', 'public.ipsas_prep_revisions', 'public.ipsas_confirmations']::text[]) t WHERE to_regclass(t) IS NULL)
-     OR EXISTS (SELECT 1 FROM unnest(ARRAY['public._ipsas_immutable()', 'public._ipsas_minor(text)', 'public._ipsas_nat(text)', 'public._ipsas_enough(text,integer)', 'public._ipsas_arr(jsonb)', 'public._ipsas_refusal(uuid,uuid,text)', 'public._cr_certified_accounts(uuid)', 'public._cr_member(uuid,uuid)', 'public.ipsas_prep_context(uuid,integer)']::text[]) f WHERE to_regprocedure(f) IS NULL) THEN
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['public._ipsas_immutable()', 'public._ipsas_minor(text)', 'public._ipsas_nat(text)', 'public._ipsas_enough(text,integer)', 'public._ipsas_arr(jsonb)', 'public._ipsas_refusal(uuid,uuid,text)', 'public._ipsas_authorize_mutation(uuid,uuid,text)', 'public._cr_certified_accounts(uuid)', 'public._cr_member(uuid,uuid)', 'public.ipsas_prep_context(uuid,integer)']::text[]) f WHERE to_regprocedure(f) IS NULL) THEN
     RAISE EXCEPTION 'IPSAS_GRANTS_TRANSPORT_PREREQUISITE_MISSING: the IPSAS preparation, certification or capability objects this source depends on are absent; nothing was changed' USING ERRCODE = '55000';
   END IF;
   IF c_prior IS NOT NULL AND (SELECT count(*) FROM cfoclose_ipsas_grants_release.staged_artifacts WHERE batch = c_prior AND consumed_at IS NOT NULL) <> c_prior_kinds THEN
@@ -41,9 +41,9 @@ BEGIN
   END IF;
   SELECT s.body INTO v_source FROM cfoclose_ipsas_grants_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'source' AND s.consumed_at IS NULL
-     AND s.body_bytes = 30002 AND s.body_sha256 = 'd1ddcb3bbe26f0953806f7fff369c0ffc3e8350b47fcecbf0efb37e150fbd5fd'
-     AND octet_length(convert_to(s.body, 'UTF8')) = 30002
-     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = 'd1ddcb3bbe26f0953806f7fff369c0ffc3e8350b47fcecbf0efb37e150fbd5fd';
+     AND s.body_bytes = 30564 AND s.body_sha256 = '012ac1bba2bdc1a2b2a41d81ed4d4a24716680486c3b8709d1297b678c8db3bf'
+     AND octet_length(convert_to(s.body, 'UTF8')) = 30564
+     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = '012ac1bba2bdc1a2b2a41d81ed4d4a24716680486c3b8709d1297b678c8db3bf';
   IF v_source IS NULL THEN RAISE EXCEPTION 'IPSAS_GRANTS_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   PERFORM set_config('lock_timeout', '5s', true);
   LOCK TABLE public.ai_assistant_settings, public.commercial_platform_state, public.companies, public.financial_statements_rollout_audit, public.financial_statements_rollout_companies, public.financial_statements_rollout_state, public.fs_disclosure_texts, public.fs_equipment_answers, public.fs_equipment_policy_insertions, public.fs_equipment_workpapers, public.fs_publication_bindings, public.fs_report_authority, public.fs_report_authority_events, public.fs_schedule_definitions, public.fs_schedule_submissions, public.internal_beta_policy, public.ipsas_confirmations, public.ipsas_prep_revisions, public.reporting_pack_issuances IN SHARE MODE;
@@ -119,7 +119,7 @@ BEGIN
   UPDATE cfoclose_ipsas_grants_release.staged_artifacts SET consumed_at = clock_timestamp() WHERE batch = c_batch;
   INSERT INTO cfoclose_ipsas_grants_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261208100000_ipsas_grants.sql', 'baseline_sha256', v_baseline,
-      'source_sha256', 'd1ddcb3bbe26f0953806f7fff369c0ffc3e8350b47fcecbf0efb37e150fbd5fd'));
+      'source_sha256', '012ac1bba2bdc1a2b2a41d81ed4d4a24716680486c3b8709d1297b678c8db3bf'));
   PERFORM set_config('cfoclose_ipsas_grants_release.applying', '', true);
 END
 $cfoclose_ipsas_grants_transport_ipsas_2_grants$;
