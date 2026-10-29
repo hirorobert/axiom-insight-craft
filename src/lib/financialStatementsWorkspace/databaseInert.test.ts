@@ -183,6 +183,10 @@ describe("database inertness — schema and functions", () => {
       // authorized collaborator can upload without any client Storage policy being widened.
       "supabase/functions/_shared/sourceUpload.ts",
       "supabase/functions/trial-balance-source-signer/index.ts",
+      // ...and the counterpart that lets an AUTHORIZED person retrieve the original file: per-request capability check, exact
+      // upload/company binding, a 60-second signed URL; no migration, no Storage policy, no schema change.
+      "supabase/functions/_shared/sourceDownload.ts",
+      "supabase/functions/trial-balance-source-download/index.ts",
       // ...user-based validation (20260923120000): the pure processing-actor resolver, and the scheduled, ticketed,
       // server-only sweeper that purges terminal discards and reclaims abandoned reservations. No financial-statements schema.
       "supabase/migrations/20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
@@ -784,6 +788,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/ci/validateProofResult.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
+      // Original-file retrieval on the same local stack (real Auth, private Storage, the download function; loopback only, no secret).
+      "scripts/e2e/sourceDownloadJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).

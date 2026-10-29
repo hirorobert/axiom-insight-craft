@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, RefreshCw, Trash2, Undo2 } from "lucide-react";
+import { Download, Loader2, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -46,6 +46,8 @@ export function ManageTrialBalance({
   onRemove,
   variant = "panel",
   hideReplace = false,
+  onDownload,
+  downloading = false,
 }: {
   mode: SourceManagementMode;
   removeAction: RemoveAction | null;
@@ -59,6 +61,13 @@ export function ManageTrialBalance({
   variant?: "panel" | "inline";
   /** The card's primary action already is the replacement: do not offer it twice. */
   hideReplace?: boolean;
+  /**
+   * Retrieve the original uploaded file through the server (trial-balance-source-download). Offered only to people the
+   * page already treats as managing source files; the SERVER re-checks the right on every request, so this button is a
+   * convenience, never the control.
+   */
+  onDownload?: () => Promise<void> | void;
+  downloading?: boolean;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -100,6 +109,13 @@ export function ManageTrialBalance({
             <Button variant="outline" size="sm" disabled={busy} onClick={onReplace} data-testid="replace-trial-balance" className={variant === "inline" ? "h-11 rounded-none px-4" : undefined}>
               {replacing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
               {replacing ? "Replacing…" : "Replace Trial Balance"}
+            </Button>
+          )}
+          {onDownload && (
+            <Button variant="outline" size="sm" disabled={busy || downloading} onClick={() => void onDownload()} data-testid="download-original-trial-balance"
+              className={variant === "inline" ? "h-11 rounded-none px-4" : undefined}>
+              {downloading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+              {downloading ? "Preparing download…" : "Download original"}
             </Button>
           )}
           {removeAction?.kind === "restore_previous" && (
