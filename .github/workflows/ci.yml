@@ -413,6 +413,14 @@ jobs:
         if: always()
         run: node scripts/e2e/findingCorrectionJourney.mjs real-app-evidence/finding-correction
 
+      - name: IPSAS accrual preparation journey, AUTHENTICATED (the same stack; real Auth sign-in for owner, preparer, partner, a viewer member and an outsider, real PostgREST, RLS and private Storage, no simulated identity or bridge; PPE and grants driven through their normal page - save and reopen, stale revision, concurrent writer, dropped response retried with the original request identity, reviewer confirmation; direct calls with real JWTs prove server enforcement, cross-company refusal and revoked access; 1280 and 375 px)
+        if: always()
+        run: node scripts/e2e/ipsasAuthJourney.mjs real-app-evidence/ipsas
+
+      - name: Keep the local Edge Functions log with the IPSAS evidence when that journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/ipsas/edge-runtime.log 2>&1
+
       - name: Processing resource evidence (always; the runtime version and its own CPU-limit and worker-retirement lines with each admitted check's worker, number in that worker, status, wall and CPU time; read-only)
         if: always()
         run: |
