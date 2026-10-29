@@ -204,7 +204,7 @@ DECLARE
   c_prior CONSTANT text := ${prior ? q(prior.batch) : "NULL"};
   c_prior_kinds CONSTANT integer := ${prior ? Object.keys(prior.artifacts).length : 0};
   c_predecessor CONSTANT text[] := ${arr(entryHashes(index))};
-  v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_${kinds.join(" text; v_")} text;
+  v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_${kinds.join(" text; v_")} text;
 BEGIN
   ${LOCK}
 ${predecessorCheck(index)}
@@ -232,8 +232,13 @@ ${kinds.map((k) => pick(b, k)).join("\n")}
 ${preserveLocks(index)}
   v_baseline := (${baseline(index)});
   PERFORM set_config('cfoclose_ipsas_release.applying', c_batch, true);
+  -- The source has unqualified names (DEFAULT gen_random_uuid()) that bind through the executing session's search_path: with
+  -- public ahead of pg_catalog they can bind to a public/pgcrypto function instead of the core one. Pin the path for the source only.
+  v_search_path := current_setting('search_path');
+  PERFORM set_config('search_path', 'pg_catalog, public', true);
 ${kinds.includes("preflight") ? "  EXECUTE v_preflight;\n" : ""}  EXECUTE v_source;
-${kinds.includes("postcondition") ? "  EXECUTE v_postcondition;\n" : ""}  IF NOT (${b.installed}) THEN
+${kinds.includes("postcondition") ? "  EXECUTE v_postcondition;\n" : ""}  PERFORM set_config('search_path', v_search_path, true);
+  IF NOT (${b.installed}) THEN
     RAISE EXCEPTION 'IPSAS_TRANSPORT_POSTCONDITION: % did not install its target', ${q(b.source)} USING ERRCODE = '55000';
   END IF;
   FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
@@ -288,7 +293,7 @@ export function transportForms() {
 /** Reviewed transport forms (pinned renderings). Hosted journal entries are registered only after canonical execution. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
   ipsas_staged_transport: "0e7c3807b7c06b2906154bcffb816b03d67fa145cc755eacc3a70358c9cba6c8",
-  ipsas_1_preparation_staged_apply: "a740359da5386b3773cdb6894786b91df1032fd0672aa6b725f29abff65c3bd5",
+  ipsas_1_preparation_staged_apply: "cd9969ed8767cd6ea39b8a5c2fcab4637d0efcf2fe903f2f64288bea6c9c1a44",
 });
 
 export function checkTransportMirror(tag, text) {
