@@ -7,6 +7,7 @@ import { emptyAnswer } from "../preparation/equipmentModel";
 import type { DepreciationItem } from "../preparation/depreciation";
 import type { ClassMovement, DisposalItem } from "../preparation/equipmentSchedule";
 import type { PpeClassInput } from "./ppeWorkpaper";
+import { COMPLEXITIES, type Grant, type GrantObligation } from "./grants";
 
 export const PRESENTATION = { currency: "TZS", exponent: 2 } as const;
 
@@ -83,3 +84,19 @@ export function stableJson(v: unknown): string {
   const norm = (x: unknown): unknown => Array.isArray(x) ? x.map(norm) : x && typeof x === "object" ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, norm((x as Record<string, unknown>)[k])])) : x;
   return JSON.stringify(norm(v));
 }
+
+export type GrantsDraft = {
+  contract: "cfoclose-ipsas-grants/1"; companyId: string; periodYear: number;
+  entityAnswers: Record<string, ReturnType<typeof emptyAnswer> & { flags: Record<string, boolean> }>;
+  tbSelection: { revenueKeys: string[]; liabilityKeys: string[]; receivableKeys: string[] };
+  grants: Grant[];
+};
+export const emptyGrantsDraft = (companyId: string, periodYear: number): GrantsDraft => ({
+  contract: "cfoclose-ipsas-grants/1", companyId, periodYear, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [],
+});
+export const emptyObligation = (n: number): GrantObligation => ({ id: `OBL-${n}`, label: "", allocatedMinor: "", satisfiedMinor: "0", satisfactionBasis: "", satisfactionEvidence: "" });
+export const emptyGrant = (): Grant => ({
+  grantId: newId(), reference: "", grantor: "", agreementEvidence: "", classification: "", classificationBasis: "", classificationEvidence: "",
+  considerationMinor: "", recognisedResourcesMinor: "", cashReceivedMinor: "0", priorCumulativeRevenueMinor: "0", priorEvidence: "",
+  complexities: Object.fromEntries(COMPLEXITIES.map((k) => [k, null])) as Grant["complexities"], complexityBasis: "", obligations: [],
+});

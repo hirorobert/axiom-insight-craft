@@ -154,6 +154,9 @@ describe("database inertness — schema and functions", () => {
       // facts from certified rows and three RPCs for companies reporting under ipsas_accrual; new objects only, no existing table,
       // row or privilege changed (proof: scripts/db-proof/ipsasPreparation.mjs).
       "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql",
+      // IPSAS grants and revenue by period (20261208100000): append-only grant revisions and confirmations, a pure period-specific
+      // assessment, certified-trial-balance sums and three RPCs; new objects only (proof: scripts/db-proof/ipsasGrants.mjs).
+      "supabase/migrations/20261208100000_ipsas_grants.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -850,6 +853,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs");
     // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
     allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
+    allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

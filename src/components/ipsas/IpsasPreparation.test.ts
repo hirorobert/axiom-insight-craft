@@ -20,6 +20,7 @@ function fakeDb(handlers: { save?: (n: number, args: Record<string, unknown>) =>
     db: { rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
       if (name === "ipsas_prep_context") return { data: handlers.context ?? available, error: null };
+      if (name === "ipsas_grants_context") return { data: { outcome: "available", register: null, confirmations: [], live: { period: { certificationId: null, start: null, end: null }, revisionId: null, tb: null, confirmedGrants: {}, assessment: null } }, error: null };
       if (name === "ipsas_save_preparation") return handlers.save!(++saves, args);
       return { data: null, error: { message: "unexpected" } };
     } },

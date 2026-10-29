@@ -114,8 +114,51 @@ export type SaveState =
   | { kind: "saved"; requestId: string; revisionId: string; replay: boolean }
   | { kind: "refused"; outcome: string }
   | { kind: "unknown"; requestId: string };
-export function afterReceipt(requestId: string, r: Receipt): SaveState {
+export function afterReceipt(requestId: string, r: { outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }): SaveState {
   if ((r.outcome === "recorded" || r.outcome === "confirmed") && (r.revisionId ?? r.confirmationId)) return { kind: "saved", requestId, revisionId: (r.revisionId ?? r.confirmationId)!, replay: r.replay === true };
-  return { kind: "refused", outcome: r.outcome };
+  return { kind: "refused", outcome: r.outcome ?? "unknown" };
 }
 export const afterFailure = (requestId: string): SaveState => ({ kind: "unknown", requestId });
+
+/* ── grants and revenue (20261208100000) ─────────────────────────────────────────────────────────────────────────────── */
+const grantFigure = z.object({ grantId: z.string(), cumulativeRevenueMinor: minor, periodRevenueMinor: minor, liabilityMinor: minor, receivableMinor: minor, cashReceivedMinor: minor, considerationMinor: minor });
+const grantsLive = z.object({
+  period: z.object({ certificationId: uuid.nullable(), start: z.string().nullable(), end: z.string().nullable() }),
+  revisionId: uuid.nullable(),
+  tb: z.object({ revenueMinor: minor, liabilityMinor: minor, receivableMinor: minor }).nullable(),
+  confirmedGrants: z.record(z.boolean()),
+  assessment: z.object({
+    model: z.enum(["ipsas23", "ipsas47"]).nullable(), state: z.enum(["incomplete", "ready-for-review"]), codes: z.array(z.string()), grants: z.array(grantFigure),
+    totals: z.object({ periodRevenueMinor: minor, liabilityMinor: minor, receivableMinor: minor }),
+  }).nullable(),
+});
+export type GrantsLive = z.infer<typeof grantsLive>;
+const grantsContext = z.object({ outcome: z.literal("available"), register: revision.nullable(), confirmations: z.array(z.object({ grantId: z.string(), subjectSha256: z.string(), createdAt: z.string() }).passthrough()), live: grantsLive });
+export type GrantsContext = z.infer<typeof grantsContext>;
+const grantsReceipt = z.object({ outcome: z.string(), revisionId: uuid.optional(), confirmationId: uuid.optional(), replay: z.boolean().optional(), currentId: uuid.nullable().optional(), live: grantsLive.optional() });
+export type GrantsReceipt = z.infer<typeof grantsReceipt>;
+
+export function grantsClient(db: Pick<ReportingDb, "rpc">) {
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const { data, error } = await db.rpc(name, args);
+    if (error) throw new UnknownOutcome();
+    return data;
+  };
+  const receiptOf = (data: unknown): GrantsReceipt => { const r = grantsReceipt.safeParse(data); if (!r.success) throw new UnknownOutcome(); return r.data; };
+  return {
+    async context(companyId: string, periodYear: number): Promise<GrantsContext | { outcome: string }> {
+      const data = await call("ipsas_grants_context", { p_company_id: companyId, p_period_year: periodYear });
+      const ok = grantsContext.safeParse(data);
+      if (ok.success) return ok.data;
+      const refusal = z.object({ outcome: z.string() }).safeParse(data);
+      if (refusal.success && refusal.data.outcome !== "available") return { outcome: refusal.data.outcome };
+      throw new UnknownOutcome();
+    },
+    async save(companyId: string, periodYear: number, payload: Record<string, unknown>, expectedId: string | null, requestId: string): Promise<GrantsReceipt> {
+      return receiptOf(await call("ipsas_save_grants", { p_company_id: companyId, p_period_year: periodYear, p_payload: payload, p_expected_id: expectedId, p_request_id: requestId }));
+    },
+    async confirm(companyId: string, periodYear: number, grantId: string, expectedRevisionId: string, requestId: string): Promise<GrantsReceipt> {
+      return receiptOf(await call("ipsas_confirm_grant", { p_company_id: companyId, p_period_year: periodYear, p_grant_id: grantId, p_expected_revision_id: expectedRevisionId, p_request_id: requestId }));
+    },
+  };
+}

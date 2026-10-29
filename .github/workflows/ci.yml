@@ -603,6 +603,23 @@ jobs:
           grep -v '^\[PTB' proof-results/ipsasPreparation.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/ipsasPreparation.present.json --manifest scripts/db-proof/ipsasPreparation.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS grants and revenue proof (20261208100000 on the full chain - period read from the certified upload not typed, restriction and condition and binding-arrangement vocabularies by period, revenue only from evidenced satisfaction with cash and expenditure never deciding it, SQL equal to two hand-derived fixtures and to the TypeScript rules, confirmation bound to one grant and the period, tampering and role matrix, twenty-way replay and twenty writers, revoked access incl replay; structured result validated against the manifest; disposable database only)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_grants_proof
+          PROOF_RESULT_FILE: proof-results/ipsasGrants.present.json
+        run: |
+          createdb ipsas_grants_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasGrants.mjs > proof-results/ipsasGrants.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/ipsasGrants.present.exit
+          grep -v '^\[PTB' proof-results/ipsasGrants.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasGrants.present.json --manifest scripts/db-proof/ipsasGrants.manifest.mjs --mode present --exit-code "$code"
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

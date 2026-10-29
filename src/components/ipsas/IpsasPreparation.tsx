@@ -14,6 +14,8 @@ import { computeOpeningBridge } from "@/lib/ipsasAccrual/openingBridge";
 import { generatePpePolicyNote } from "@/lib/ipsasAccrual/policyNote";
 import { buildIncompletePreview, OFFICIAL_ISSUANCE_BLOCKERS, type TaskArea } from "@/lib/ipsasAccrual/preview";
 import { Amount, Select, Text } from "./fields";
+import { GrantsPreparation } from "./GrantsPreparation";
+import type { PrepTask } from "@/lib/ipsasAccrual/preview";
 
 type Area = "bring" | "prepare" | "review" | "approve" | "issue";
 const AREAS: [Area, string][] = [["bring", "Bring information"], ["prepare", "Complete preparation"], ["review", "Review report"], ["approve", "Approve"], ["issue", "Issue & history"]];
@@ -54,6 +56,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const [prior, setPrior] = useState<PriorDraft>(() => emptyPrior(companyId, periodYear));
   const [saves, setSaves] = useState<Record<string, SaveState>>({});
   const identities = useRef<Record<string, { id: string; fp: string }>>({});
+  const [grantsNext, setGrantsNext] = useState<PrepTask | null>(null);
   const scope = useRef(`${companyId}:${periodYear}`);
   scope.current = `${companyId}:${periodYear}`;
 
@@ -126,7 +129,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh(true, true)}>Try again</Button></div>;
   if (load.kind === "refused") return <p role="alert" className="py-8 text-sm">{refusalWords(load.outcome)}</p>;
   const a = ctx!.assessment;
-  const next = review?.preview.nextAction ?? null;
+  const next = review?.preview.nextAction ?? (savedWp ? grantsNext : null);
   const edit = canPrepare;
 
   const setClass = (i: number, fn: (c: PpeClassInput) => PpeClassInput) => setWp((w) => ({ ...w, classes: w.classes.map((c, j) => (j === i ? normalise(fn(structuredClone(c))) : c)) }));
@@ -138,7 +141,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
         <p className="text-sm text-muted-foreground">Amounts in {PRESENTATION.currency} ({PRESENTATION.exponent} decimal places). Draft preparation only — not an IPSAS compliant report. {wpDirty || priorDirty ? "You have unsaved edits." : "Everything shown is the server's saved version."}</p>
         <div role="region" aria-label="Next step" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
           {next ? <><strong>Next:</strong> {next.title}. {next.missing} <Button type="button" size="sm" className="ml-2" onClick={() => setArea(next.area as TaskArea as Area)}>Go to {AREAS.find(([k]) => k === next.area)?.[1]}</Button></>
-            : savedWp ? <><strong>The property, plant and equipment preparation has no open matters.</strong> Official issuance is still unavailable — see Issue &amp; history.</> : <><strong>Next:</strong> bring in the trial balance and the prior report figure, then record the asset classes.</>}
+            : savedWp ? <><strong>The property, plant and equipment and grants preparation have no open matters.</strong> Official issuance is still unavailable — see Issue &amp; history.</> : <><strong>Next:</strong> bring in the trial balance and the prior report figure, then record the asset classes.</>}
         </div>
       </header>
 
@@ -341,6 +344,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
           <ul className="list-disc pl-5 text-sm">{OFFICIAL_ISSUANCE_BLOCKERS.map((b) => <li key={b}>{b}</li>)}</ul>
         </section>
       )}
+      <GrantsPreparation companyId={companyId} periodYear={periodYear} legalName={legalName} db={db} canPrepare={canPrepare} canConfirm={canConfirm} area={area} onNextTask={setGrantsNext} />
     </div>
   );
 }
