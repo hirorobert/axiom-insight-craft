@@ -32,7 +32,9 @@ const tab = (name: string) => [...m!.container.querySelectorAll('[role="tab"]')]
 async function startSave(hd: ReturnType<typeof heldDb>) {
   state.ws = { companyId: CO, periodYear: 2026, company: { name: "Mwamba Community Trust" } };
   state.user = { id: "user-a" };
-  state.makeDb = () => hd.db;
+  // Keep this page-boundary proof focused on the preparation operation; statement review is tested independently.
+  state.makeDb = () => ({ rpc: (name: string, args: Record<string, unknown>) => name === "ipsas_statement_review"
+    ? Promise.resolve({ data: { outcome: "no_authority" }, error: null }) : hd.db.rpc(name, args) });
   m = mount(h(Page)); await flush();
   act(() => click(tab("Complete preparation")));
   act(() => click(button("Add an asset class")));

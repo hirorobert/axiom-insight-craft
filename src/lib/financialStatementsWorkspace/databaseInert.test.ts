@@ -157,6 +157,8 @@ describe("database inertness — schema and functions", () => {
       // IPSAS grants and revenue by period (20261208100000): append-only grant revisions and confirmations, a pure period-specific
       // assessment, certified-trial-balance sums and three RPCs; new objects only (proof: scripts/db-proof/ipsasGrants.mjs).
       "supabase/migrations/20261208100000_ipsas_grants.sql",
+      // IPSAS statement review: new presentation revisions/RPCs only, no old financial data or privileges changed.
+      "supabase/migrations/20261210100000_ipsas_statement_review.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -869,6 +871,8 @@ describe("database inertness — schema and functions", () => {
     // IPSAS authenticated journey (CI job real-app-e2e): real Auth, PostgREST, RLS and private Storage on a LOCAL stack; loopback only, no secret, no hosted access.
     allowed.add("scripts/e2e/ipsasAuthJourney.mjs"); allowed.add("scripts/e2e/ipsasAuthFixtures.mjs"); allowed.add("scripts/browser-acceptance/ipsasPpeSteps.mjs");
     allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.
+    allowed.add("scripts/db-proof/ipsasStatementReview.mjs"); allowed.add("scripts/db-proof/ipsasStatementReview.manifest.mjs");
+    allowed.add("scripts/browser-acceptance/ipsasStatementSteps.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

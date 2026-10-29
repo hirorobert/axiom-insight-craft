@@ -666,6 +666,22 @@ jobs:
           grep -v '^\[PTB' proof-results/ipsasGrants.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/ipsasGrants.present.json --manifest scripts/db-proof/ipsasGrants.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS statement review authority (full chain, exact figures, retries, concurrency and revocation ordering)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_statement_review_proof
+          PROOF_RESULT_FILE: proof-results/ipsasStatementReview.present.json
+        run: |
+          createdb ipsas_statement_review_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasStatementReview.mjs > proof-results/ipsasStatementReview.present.log 2>&1
+          code=$?
+          set -e
+          grep -v '^\[PTB' proof-results/ipsasStatementReview.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasStatementReview.present.json --manifest scripts/db-proof/ipsasStatementReview.manifest.mjs --mode present --exit-code "$code"
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

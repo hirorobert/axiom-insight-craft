@@ -9,6 +9,7 @@ import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
 import { supabase } from "@/integrations/supabase/client";
 import { supabaseReportingDb } from "@/lib/reporting/supabaseDb";
 import { IpsasPreparation } from "@/components/ipsas/IpsasPreparation";
+import { StatementReview } from "@/components/ipsasStatements/StatementReview";
 
 export default function IpsasPreparationPage() {
   const { companyId, periodYear, company } = useWorkspace();
@@ -20,7 +21,13 @@ export default function IpsasPreparationPage() {
   const db = useMemo(() => supabaseReportingDb(supabase), [actor]); // eslint-disable-line react-hooks/exhaustive-deps
   const allowed = caps?.allowed ?? [];
   return (
+    <div>
+    <a className="mb-4 inline-block underline" href="#ipsas-statements">Review statements and presentation choices</a>
+    <div id="ipsas-preparation">
     <IpsasPreparation key={`${companyId}:${periodYear}:${actor}`} companyId={companyId} periodYear={periodYear} legalName={company?.name ?? "The entity"} db={db}
       canPrepare={allowed.includes("prepare_close")} canConfirm={allowed.includes("review_close")} prepareHref={`/workspace/${companyId}/${periodYear}/prepare`} />
+    </div>
+    <StatementReview key={`${user?.id ?? "signed-out"}:${companyId}:${periodYear}`} companyId={companyId} periodYear={periodYear} actorId={user?.id ?? null} canPrepare={allowed.includes("prepare_close")} db={db}/>
+    </div>
   );
 }

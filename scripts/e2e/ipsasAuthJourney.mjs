@@ -34,6 +34,7 @@ import { Browser } from "../browser-acceptance/cdp.mjs";
 import { layoutProblems } from "../browser-acceptance/checks.mjs";
 import { ppeChain, ppeHostile } from "../browser-acceptance/ipsasPpeSteps.mjs";
 import { grantsChain, grantsHostile } from "../browser-acceptance/ipsasGrantsSteps.mjs";
+import { statementReviewChain } from "../browser-acceptance/ipsasStatementSteps.mjs";
 import { assertLocalStack, verifyLocalBundle } from "./localStackFixtures.mjs";
 import { ACCOUNTS, CURRENT, PERIODS, PRIOR, reviewDecisions, tbCsv } from "./ipsasAuthFixtures.mjs";
 import { PRODUCTION_PROJECT_REF } from "../ci/stagingGuard.mjs";
@@ -386,6 +387,7 @@ async function main() {
 
   startGroup("Grants and revenue through their page");
   await grantsChain(J);
+  await statementReviewChain(J);
   page = preparer;
 
   startGroup("Concurrent edits, stale revisions and lost responses (real PostgREST)");
