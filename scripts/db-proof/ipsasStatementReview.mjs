@@ -44,7 +44,7 @@ try{
  await db.admin.query("INSERT INTO drizzle.__drizzle_migrations VALUES($1,$2)",[BOOTSTRAP_PREDECESSOR.id,BOOTSTRAP_PREDECESSOR.hashes[0]]);
  const forms=transportForms();
  await db.admin.query(renderBootstrap());await db.admin.query("INSERT INTO drizzle.__drizzle_migrations VALUES($1,$2)",[BOOTSTRAP_PREDECESSOR.id+1,forms[0].hashes[0]]);
- await kase("transport.missing-stage",async()=>await transportRefusal(renderApply(0),"STAGE_MISSING_OR_MODIFIED"));
+ await kase("transport.missing-stage",async()=>await transportRefusal(renderApply(0),"IPSAS_STATEMENT_TRANSPORT_UNCERTAIN_STAGE"));
  await kase("transport.exact-install-and-catalogue",async()=>{
    let direct;await db.admin.query("BEGIN");try{await db.admin.query("SET LOCAL search_path=pg_catalog,public");await db.admin.query(artifactBytes(0,"source").toString("utf8"));direct=await catalogue();}finally{await db.admin.query("ROLLBACK");}
    const preservedBefore=await preservedTables();await db.admin.query(renderStage(0,"source"));
@@ -54,7 +54,7 @@ try{
    return direct===installed&&preservedBefore===await preservedTables();
  });
  await kase("transport.replay-refused",async()=>await transportRefusal(renderApply(0),"WRONG_PREDECESSOR"));
- await kase("setup.certified-periods",async()=>{for(const [y,col]of [[2025,FY2025],[2026,FY2026]]){const u=await k.upload(A,y,csv(col));await k.review(A,u);await k.certify(A,u);}return(await read()).accounts.length===36;});
+ await kase("setup.certified-periods",async()=>{for(const [y,col]of [[2025,FY2025],[2026,FY2026]]){const u=await k.upload(A,y,csv(col));if(y===2025)await k.review(A,u);await k.certify(A,u);}return(await read()).accounts.length===36;});
  await kase("auth.privileges",async()=>{
   const r=await db.one("SELECT has_function_privilege('authenticated','public.ipsas_statement_review(uuid,integer)','EXECUTE') a,has_function_privilege('anon','public.ipsas_statement_review(uuid,integer)','EXECUTE') b,has_function_privilege('service_role','public.ipsas_statement_review(uuid,integer)','EXECUTE') c,has_function_privilege('authenticated','public._ipsas_statement_review_compute(uuid,integer)','EXECUTE') d");
   return r.a&&!r.b&&!r.c&&!r.d&&await expectRefusal(()=>db.asUser(U.owner,"SELECT * FROM public.ipsas_presentation_revisions"));
@@ -100,7 +100,7 @@ try{
    await blocker.query("COMMIT");const r=(await write).rows[0].r;await writer.query("COMMIT");await revoke;await revoker.query("COMMIT");return r.outcome==="recorded"&&(await save(i)).outcome==="forbidden";
   }finally{await blocker.query("ROLLBACK");await writer.query("ROLLBACK");await revoker.query("ROLLBACK");blocker.release();writer.release();revoker.release();await db.admin.query("DROP TRIGGER IF EXISTS ipsas_review_test_barrier ON public.ipsas_presentation_revisions; DROP FUNCTION IF EXISTS public.__ipsas_review_test_barrier()");await db.asUser(U.owner,"SELECT public.grant_member_capability($1,$2,'prepare_close','Proof restore')",[A,U.preparer]);}
  });
- await kase("auth.strict-isolation-refused",async()=>{const i=intent(await read()),c=await db.pool.connect();try{await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ");await c.query("SET LOCAL ROLE authenticated");await c.query("SELECT set_config('request.jwt.claim.sub',$1,true)",[U.preparer]);try{await c.query("SELECT public.ipsas_save_presentation($1,2026,$2::jsonb,$3,$4,$5)",[A,JSON.stringify(i.choices),i.scope.revisionId,i.scope.inputSha256,i.request]);return false;}catch(e){return e.code==="25000";}}finally{await c.query("ROLLBACK");c.release();}});
+ await kase("auth.strict-isolation-refused",async()=>{const i=intent(await read()),c=await db.pool.connect();try{await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ");await c.query("SET LOCAL ROLE authenticated");await c.query("SELECT set_config('request.jwt.claim.sub',$1,true)",[U.preparer]);try{await c.query("SELECT public.ipsas_save_presentation($1,2026,$2::jsonb,$3,$4,$5)",[A,JSON.stringify(i.choices),i.scope.revisionId,i.scope.inputSha256,i.request]);return false;}catch(e){return e.code==="PT412"&&e.message==="READ_COMMITTED_REQUIRED";}}finally{await c.query("ROLLBACK");c.release();}});
  await kase("history.append-only",async()=>{const before=await count();try{await db.admin.query("DELETE FROM public.ipsas_presentation_revisions WHERE company_id=$1",[A]);return false;}catch(e){return e.code==="42501"&&String(e.message).includes("IPSAS_PREPARATION_IMMUTABLE")&&await count()===before;}});
  await kase("preserve.sme-and-publications",async()=>before===await preserved());
  await kase("read.never-issuable",async()=>{const r=await read();return r.officialIssuance.available===false&&r.officialIssuance.reasons.length>=3;});

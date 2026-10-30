@@ -8,12 +8,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ACCOUNTS, CURRENT, G, PRIOR, TB, imbalance, reviewDecisions, sumOf, tbCsv } from "../../../scripts/e2e/ipsasAuthFixtures.mjs";
+import { FIXTURE_CAPTIONS } from "../../../scripts/browser-acceptance/ipsasStatementSteps.mjs";
 import { CODES } from "../../../scripts/e2e/localStackFixtures.mjs";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
 
 describe("the journey's company", () => {
+  it("the statement-review browser fixture assigns every real fixture code, including grant accounts", () => {
+    expect(Object.keys(FIXTURE_CAPTIONS).sort()).toEqual(TB.map((r: string[]) => r[0]).sort());
+    expect(FIXTURE_CAPTIONS[CODES.equipment]).toBe("ppe");
+    expect(FIXTURE_CAPTIONS[CODES.depreciationAcc]).toBe("ppe");
+    expect(FIXTURE_CAPTIONS[G.liability]).toBe("grant_liabilities_current");
+  });
+
   it("both trial balances balance and every account code is distinct", () => {
     expect(imbalance(CURRENT)).toBe(0n);
     expect(imbalance(PRIOR)).toBe(0n);

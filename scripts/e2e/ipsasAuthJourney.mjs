@@ -441,7 +441,7 @@ async function main() {
     const told = await p.waitFor(() => /matches the fingerprint|could not be compared/.test(document.body.innerText), [], { label: "download notice", timeout: 30000 }).catch(() => false);
     let saved = null;
     for (let i = 0; i < 60 && !saved; i++) { await sleep(500); saved = fs.readdirSync(dir).find((f) => !/\.crdownload$|\.tmp$/i.test(f)) ?? null; }
-    if (!saved) return { saved, told };
+    if (!saved) return { saved, told, responses: p.responses.slice(before).filter(r => /trial-balance-source-download|storage\/v1\/object\/sign/.test(r.url)).map(r => ({ method:r.method, status:r.status })), page: await p.evaluate(() => ({ notice:[...document.querySelectorAll('[role="status"],[role="alert"],[data-sonner-toast]')].map(e=>e.textContent), button:document.querySelector('[data-testid="download-original-trial-balance"]')?.textContent })) };
     const bytes = fs.readFileSync(path.join(dir, saved));
     const answered = p.responses.slice(before);
     const posts = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url)).length;
