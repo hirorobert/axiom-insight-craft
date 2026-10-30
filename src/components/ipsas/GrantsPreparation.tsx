@@ -38,7 +38,8 @@ export interface GrantsPreparationProps {
   companyId: string; periodYear: number; legalName: string; db: Pick<ReportingDb, "rpc">; canPrepare: boolean; canConfirm: boolean;
   /** Which area of the page is showing; the component always loads so it can report the next task, but draws only in prepare/review. */
   area: "bring" | "prepare" | "review" | "approve" | "issue";
-  onNextTask?: (t: PrepTask | null) => void;
+  /** undefined means the saved context is still unknown; null means assessed with no open task. */
+  onNextTask?: (t: PrepTask | null | undefined) => void;
 }
 
 export function GrantsPreparation({ companyId, periodYear, legalName, db, canPrepare, canConfirm, area, onNextTask }: GrantsPreparationProps) {
@@ -95,8 +96,8 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
   }, [ctx, saved, live, legalName]);
   const nextTask = review?.tasks[0] ?? null;
   const unsavedNothing = ctx !== null && !saved ? ({ id: "grants:none", title: "Record the grants", missing: "No grant register is saved yet. Record each grant or donor agreement, or state that there are none.", why: "Grant revenue and any unfulfilled obligation depend on it.", acceptedEvidence: "Signed agreements.", responsible: "preparer", area: "prepare", target: "grants", status: "open", affects: ["Grant revenue"] } as PrepTask) : null;
-  const reported = nextTask ?? unsavedNothing;
-  useEffect(() => { onNextTask?.(reported); }, [reported?.id, onNextTask]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reported = !ctx || problem || (saved && (!review || !review.agrees)) ? undefined : nextTask ?? unsavedNothing;
+  useEffect(() => { onNextTask?.(reported); }, [reported?.id, reported === undefined, onNextTask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * One request per key is in flight; its answer confirms the SUBMITTED snapshot only. An answer that belongs to another company, period or
@@ -148,7 +149,7 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
 
   if (area === "review") {
     return (
-      <section aria-labelledby="grv-h" className="space-y-3">
+      <section aria-labelledby="grv-h" data-grants-revision={ctx.register?.id ?? ""} className="space-y-3">
         <h2 id="grv-h" className="text-lg font-medium">Grants and revenue</h2>
         {!review || !a ? <p className="text-sm">No grant register is saved yet.</p> : <>
           <p className="text-sm">Reporting period read from the certified trial balance: <strong>{live!.period.start ?? "unknown"}</strong> to {live!.period.end ?? "unknown"} — {model === "ipsas23" ? "the vocabulary for periods beginning before 1 January 2026" : model === "ipsas47" ? "the vocabulary for periods beginning on or after 1 January 2026" : "no vocabulary can be selected"}. Server state: <strong>{a.state}</strong>.</p>
@@ -179,7 +180,7 @@ export function GrantsPreparation({ companyId, periodYear, legalName, db, canPre
 
   const questions = GRANT_ENTITY_QUESTIONS.filter((q) => q.when === model);
   return (
-    <section aria-labelledby="gr-h" className="space-y-4 border-t pt-4">
+    <section aria-labelledby="gr-h" data-grants-revision={ctx.register?.id ?? ""} className="space-y-4 border-t pt-4">
       <h2 id="gr-h" className="text-lg font-medium">Grants and revenue</h2>
       <p className="text-sm text-muted-foreground">Revenue is recognised only as the entity evidences that an obligation is satisfied (or, for a pure restriction or an arrangement with no present obligation, when the resources are recognised). Cash received and money spent never decide it. Arrangements with variable amounts, financing, agency, non-cash resources, modifications, collection doubt or another currency cannot be completed here and stay open.</p>
       <p className="text-sm" role="status">Reporting period (read from the certified trial balance, not typed): <strong>{live?.period.start ?? "unknown"}</strong> to {live?.period.end ?? "unknown"}. {model === "ipsas23" ? "Classifications for periods beginning before 1 January 2026 apply." : model === "ipsas47" ? "Classifications for periods beginning on or after 1 January 2026 apply." : "Upload and certify the trial balance first."}</p>

@@ -91,6 +91,7 @@ export async function ppeChain(j) {
   j.setPage(preparer);
   await check("the preparer, reloading, sees the confirmed property, plant and equipment and is pointed to the grants still to record", async () => {
     await go(preparer, "preparer", "IPSAS accrual, 2026");
+    await preparer.waitFor(() => document.querySelector('[aria-label="Next step"]')?.innerText.includes("Record the grants"), [], { timeout: 20000, label: "authoritative grants task after reload" });
     return (await nextStep(preparer)).includes("Record the grants") ? true : await nextStep(preparer);
   });
 

@@ -13,6 +13,59 @@ const COMPLEXITIES = ["variableConsideration", "financing", "agent", "nonCash", 
 const BASIS = "Clause 4 sets the deliverables and a refund on non-delivery";
 const CX_BASIS = "No variable amounts, financing, agency, in-kind resources, modification, collection doubt or foreign currency";
 
+/** Observe this operation, without changing requests/responses or invoking a component handler.
+ * Both the receipt and the component's subsequent authoritative context must name the
+ * same new revision. Old saved banners and an already-disabled button prove nothing.
+ */
+export async function saveGrantsAndReadBack(p) {
+  await p.evaluate(() => {
+    const real = window.fetch;
+    const state = { saves: [], contexts: [], failure: null };
+    window.__grantsSaveProbe = state;
+    window.__restoreGrantsSaveProbe = () => { window.fetch = real; };
+    window.fetch = async (...args) => {
+      const [input, options] = args;
+      const url = typeof input === "string" ? input : input?.url ?? String(input);
+      const saving = /\/rpc\/ipsas_save_grants(?:\?|$)/.test(url);
+      const reading = /\/rpc\/ipsas_grants_context(?:\?|$)/.test(url);
+      let sent = null;
+      if (saving) {
+        sent = JSON.parse(options?.body ?? "{}");
+        state.saves.push({ requestId: sent.p_request_id, expectedId: sent.p_expected_id, response: null });
+      }
+      const response = await real(...args);
+      if (saving || reading) {
+        // Awaiting a clone does not consume the application's response body.
+        const body = await response.clone().json();
+        if (saving) state.saves[state.saves.length - 1].response = body;
+        else state.contexts.push(body);
+      }
+      return response;
+    };
+  });
+  try {
+    await p.click({ text: "Save grants" });
+    return await p.waitFor(() => {
+      const probe = window.__grantsSaveProbe;
+      if (probe?.saves.length !== 1) return false;
+      const save = probe.saves[0], receipt = save.response;
+      if (receipt && receipt.outcome !== "recorded") throw new Error(`save refused: ${receipt.outcome}`);
+      if (!receipt?.revisionId || receipt.revisionId === save.expectedId) return false;
+      const readback = probe.contexts.find(c => c.outcome === "available" && c.register?.id === receipt.revisionId);
+      if (!readback) return false;
+      if (document.querySelector('[data-grants-revision]')?.getAttribute('data-grants-revision') !== receipt.revisionId) return false;
+      const button = [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "Save grants");
+      // The scripted save has no intervening edits. Disabled + saved banner after the
+      // matching rendered revision means React adopted the read-back, not merely its receipt.
+      return button?.disabled && document.body.innerText.includes("This is the server's recorded version")
+        && !document.body.innerText.includes("Saving…") && document.querySelector('[data-testid="gr0-figures"]')
+        ? { requestId: save.requestId, revisionId: receipt.revisionId } : false;
+    }, [], { timeout: 30000, label: "this grant save receipt and matching authoritative read-back" });
+  } finally {
+    await p.evaluate(() => { window.__restoreGrantsSaveProbe?.(); delete window.__restoreGrantsSaveProbe; });
+  }
+}
+
 export async function grantsChain(j) {
   const { check, open, go, set, type, val, tab, text, nextStep, shot, rpc, seed, log } = j;
   const fillGrant = async (p, i, spec) => {
@@ -32,7 +85,7 @@ export async function grantsChain(j) {
     return true;
   };
   const figures = (p, i) => p.evaluate((x) => document.querySelector(`[data-testid="gr${x}-figures"]`)?.innerText ?? "", i);
-  const saveGrants = async (p) => { await p.click({ text: "Save grants" }); await p.waitForText("This is the server's recorded version", { timeout: 20000 }); await sleep(300); };
+  const saveGrants = saveGrantsAndReadBack;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ctx = (as = "owner") => rpc(as, "ipsas_grants_context", { p_company_id: seed.companyId, p_period_year: seed.periodYear });
 

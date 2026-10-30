@@ -28,6 +28,37 @@ const button = (text: string) => [...m!.container.querySelectorAll("button")].fi
 const options = (id: string) => [...(m!.container.querySelector(`#${id}`) as HTMLSelectElement).options].map((o) => o.value).filter(Boolean);
 
 describe("GrantsPreparation", () => {
+  it("does not report no open matters while the authoritative context is pending or unreadable", async () => {
+    let rejectRead!: (e: Error) => void;
+    const pending = new Promise((_resolve, reject) => { rejectRead = reject; });
+    const reported: unknown[] = [];
+    const db = { rpc: () => pending };
+    m = mount(h(GrantsPreparation, props(db, { onNextTask: (t: unknown) => reported.push(t) }) as never));
+    await flush();
+    expect(reported).not.toContain(null);
+    await act(async () => { rejectRead(new Error("offline")); });
+    await flush();
+    expect(reported).not.toContain(null);
+  });
+
+  it("reports the missing grant register after a pending context resolves", async () => {
+    let resolveRead!: (v: unknown) => void;
+    const pending = new Promise(resolve => { resolveRead = resolve; });
+    const reported: unknown[] = [];
+    m = mount(h(GrantsPreparation, props({ rpc: () => pending }, { onNextTask: (t: unknown) => reported.push(t) }) as never));
+    await flush();
+    await act(async () => { resolveRead({ data: ctxOf("ipsas47"), error: null }); });
+    await flush();
+    expect(reported.at(-1)).toMatchObject({ id: "grants:none", title: "Record the grants" });
+  });
+
+  it("a saved register without a current assessment is unknown rather than no open matters", async () => {
+    const reported: unknown[] = [];
+    const { db } = fakeDb({ context: ctxOf("ipsas47", { id: REV, payload: { grants: [], tbSelection: {} } }, { assessment: null }) });
+    m = mount(h(GrantsPreparation, props(db, { onNextTask: (t: unknown) => reported.push(t) }) as never));
+    await flush();
+    expect(reported).not.toContain(null);
+  });
   it("offers only the classification vocabulary of the SERVER-derived period, and says the period is read, not typed", async () => {
     for (const [model, expected, absent] of [["ipsas47", "binding-arrangement", "restriction-only"], ["ipsas23", "restriction-only", "binding-arrangement"]] as const) {
       const { db } = fakeDb({ context: ctxOf(model) });

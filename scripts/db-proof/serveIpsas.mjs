@@ -31,7 +31,19 @@ const AI = await W.company(W.U.owner, "Synthetic Community Trust", "ipsas_accrua
 for (const k of ["preparer", "partner", "viewer"]) await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [AI, W.U[k], k]);
 await W.rollout(AI, true);
 const k = await certifier(db, W.U);
-for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) { const u = await k.upload(AI, y, csv(col, TB_ALL)); await k.review(AI, u, TB_ALL); await k.certify(AI, u); }
+// Mapping is shared by the company. Reviewing it again invalidates the first year's
+// certificate, even if the choices are identical. Review once, then certify both sources.
+let mappingReviewed = false;
+for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) {
+  const u = await k.upload(AI, y, csv(col, TB_ALL));
+  if (!mappingReviewed) { await k.review(AI, u, TB_ALL); mappingReviewed = true; }
+  await k.certify(AI, u);
+}
+for (const y of [2025, 2026]) {
+  if (!(await db.one("SELECT id FROM public.get_authoritative_certification($1,$2)", [AI, y]))) {
+    throw new Error(`IPSAS fixture has no current authoritative certification for ${y}`);
+  }
+}
 
 const users = { owner: W.U.owner, preparer: W.U.preparer, partner: W.U.partner, viewer: W.U.viewer, outsider: W.U.ownerB };
 const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,x-sim-user", "access-control-allow-methods": "POST,OPTIONS", "content-type": "application/json" };

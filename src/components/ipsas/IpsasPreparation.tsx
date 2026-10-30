@@ -57,7 +57,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const [saves, setSaves] = useState<Record<string, SaveState>>({});
   /** The request last sent per save key, kept whole (payload, expected revision, identity) so an unknown outcome is retried as THE SAME request. */
   const identities = useRef<Record<string, { id: string; fp: string; call: (requestId: string) => ReturnType<typeof client.save>; snapshot?: { wp?: string; prior?: string } }>>({});
-  const [grantsNext, setGrantsNext] = useState<PrepTask | null>(null);
+  const [grantsNext, setGrantsNext] = useState<PrepTask | null | undefined>(undefined);
   const scope = useRef(`${companyId}:${periodYear}`);
   scope.current = `${companyId}:${periodYear}`;
   /** The signed-in actor's client: an answer that belongs to another client is never applied. */
@@ -184,6 +184,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
         <p className="text-sm text-muted-foreground">Amounts in {PRESENTATION.currency} ({PRESENTATION.exponent} decimal places). Draft preparation only — not an IPSAS compliant report. {wpDirty || priorDirty ? "You have unsaved edits." : "Everything shown is the server's saved version."}</p>
         <div role="region" aria-label="Next step" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
           {next ? <><strong>Next:</strong> {next.title}. {next.missing} <Button type="button" size="sm" className="ml-2" onClick={() => setArea(next.area as TaskArea as Area)}>Go to {AREAS.find(([k]) => k === next.area)?.[1]}</Button></>
+            : savedWp && grantsNext === undefined ? <span role="status">Checking the saved grants. Their remaining work is not confirmed yet.</span>
             : savedWp ? <><strong>The property, plant and equipment and grants preparation have no open matters.</strong> Official issuance is still unavailable — see Issue &amp; history.</> : <><strong>Next:</strong> bring in the trial balance and the prior report figure, then record the asset classes.</>}
         </div>
       </header>

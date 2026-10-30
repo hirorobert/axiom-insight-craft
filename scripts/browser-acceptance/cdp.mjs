@@ -194,7 +194,8 @@ export class Page {
         el = cands.find((c) => visible(c) && c.innerText.trim().toLowerCase() === t) ?? cands.find((c) => visible(c) && c.innerText.toLowerCase().includes(t)) ?? null;
       }
       if (!el) return null;
-      el.scrollIntoView({ block: "center", inline: "center" });
+      // A coordinate returned before a CSS smooth scroll finishes is not a click target.
+      el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       // What a person would actually press: the element must be on screen and the topmost thing at its centre.
@@ -206,6 +207,7 @@ export class Page {
 
   async click(target, { timeout = 20000, allowDisabled = false } = {}) {
     const t = typeof target === "string" ? { selector: target } : target;
+    await this.send("Page.bringToFront");
     const deadline = Date.now() + timeout;
     let pos = null;
     let seen = null;
@@ -218,17 +220,23 @@ export class Page {
     }
     if (!pos && seen && !seen.hit) throw new Error(`click: ${JSON.stringify(t)} is covered or off-screen (not pressable at ${Math.round(seen.x)},${Math.round(seen.y)})`);
     if (!pos) throw new Error(`click: nothing clickable for ${JSON.stringify(t)}`);
-    // Hover first, then re-locate once layout settles: hover can move the target (a toast stack expands under the
-    // pointer), and a press at the stale position would land on whatever moved there instead.
-    await this.mouse("mouseMoved", pos);
-    await sleep(350);
-    const settled = await this.locate(t).catch(() => null);
-    if (settled && !settled.hit) throw new Error(`click: ${JSON.stringify(t)} became covered or moved off-screen on hover`);
-    if (settled && (Math.abs(settled.x - pos.x) > 1 || Math.abs(settled.y - pos.y) > 1)) {
-      pos = settled;
+    // Hover can move a target. Require consecutive stable hit-tested positions after
+    // hovering, and recheck enabled/present state. Never press at a disappeared target.
+    // Waiting may repeat; the native press/release pair is sent exactly once.
+    let stable = false;
+    while (Date.now() < deadline) {
       await this.mouse("mouseMoved", pos);
-      await sleep(350);
+      await sleep(100);
+      const next = await this.locate(t).catch(() => null);
+      if (!next || !next.hit || (!allowDisabled && next.disabled)) {
+        throw new Error(`click: ${JSON.stringify(t)} disappeared, became covered or disabled before input`);
+      }
+      if (Math.abs(next.x - pos.x) <= 0.5 && Math.abs(next.y - pos.y) <= 0.5) {
+        pos = next; stable = true; break;
+      }
+      pos = next;
     }
+    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input`);
     await this.mouse("mousePressed", pos);
     await this.mouse("mouseReleased", pos);
   }
