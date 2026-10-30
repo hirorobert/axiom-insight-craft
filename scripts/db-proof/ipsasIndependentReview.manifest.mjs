@@ -5,4 +5,4 @@ export const CASES = Object.freeze([
  'canonical authority refuses invalidated source', 'PPE refuses invalidated source',
  'opening refuses invalidated source', 'grants refuse invalidated source',
  'grants period refuses invalidated source',
-].map(id=>({id,kind:'control',modes:['present']})));
+].map(label=>({id:label.toLowerCase().replaceAll(' ','-'),kind:'control',modes:['present']})));

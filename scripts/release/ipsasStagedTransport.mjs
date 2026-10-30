@@ -27,7 +27,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 export const TRANSPORT_DIR = "release/staged-transport-ipsas";
 /** The commit that introduced the migration bytes (feat/ipsas-accrual-first-chain). Identity is the byte count + SHA-256; if the
  *  commit is unreachable (squash merge) the same bytes are read from the working tree and held to the same identity. */
-export const SOURCE_COMMIT = "e0a3d4856a871e94f1ddddcc2576ed2d61f1fc90";
+export const SOURCE_COMMIT = "1cc08c0500ab4422366d9a364f878ec6b28fca3b";
 const EQUIPMENT_LAST = EQUIPMENT_BATCHES.length; // entryHashes(n) = the journal forms of the n-th equipment entry after its bootstrap
 /** The equipment-r1 transport's last entry (0090_eqp_2_multiclass_staged_apply, hosted id 91): the exact journal head required. */
 export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 91, tag: "0090_eqp_2_multiclass_staged_apply", hashes: Object.freeze(equipmentEntryHashes(EQUIPMENT_LAST + 0)) });
@@ -35,14 +35,14 @@ export const BOOTSTRAP_NAME = "ipsas_staged_transport";
 export const PREREQUISITES = Object.freeze({
   tables: ["companies", "firm_members", "tb_certifications", "financial_statement_documents", "fs_equipment_answers"],
   functions: ["_fs_equipment_depreciation_charge(jsonb,date,date,text)", "_fs_equipment_rational(text)", "_cr_certified_accounts(uuid)", "_cr_member(uuid,uuid)",
-    "fs_rollout_allows(uuid)", "workspace_capability_allowed(uuid,uuid,text)"],
+    "fs_rollout_allows(uuid)", "workspace_capability_allowed(uuid,uuid,text)", "_fs_reporting_input_compute(uuid,integer)", "_fs_section(text)"],
 });
 export const RPCS = Object.freeze(["ipsas_prep_context(uuid,integer)", "ipsas_save_preparation(uuid,integer,text,jsonb,uuid,uuid)", "ipsas_confirm(uuid,integer,text,text,uuid,uuid)"]);
 export const INSTALLED = "to_regclass('public.ipsas_prep_revisions') IS NOT NULL AND to_regclass('public.ipsas_confirmations') IS NOT NULL AND " +
   RPCS.map((f) => "to_regprocedure('public." + f + "') IS NOT NULL").join(" AND ");
 export const BATCHES = Object.freeze([
   Object.freeze({ batch: "ipsas-1-preparation", name: "ipsas_1_preparation_staged_apply", source: "20261207100000_ipsas_accrual_preparation.sql", installed: INSTALLED,
-    artifacts: { source: Object.freeze({ path: "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql", bytes: 51496, sha256: "3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7", commit: SOURCE_COMMIT }) } }),
+    artifacts: { source: Object.freeze({ path: "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql", bytes: 52207, sha256: "c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d", commit: SOURCE_COMMIT }) } }),
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -292,8 +292,8 @@ export function transportForms() {
 
 /** Reviewed transport forms (pinned renderings). Hosted journal entries are registered only after canonical execution. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  ipsas_staged_transport: "b774ac26cd7476babd885985af825eb247e1b0004a29afef871b7e05900a1bbd",
-  ipsas_1_preparation_staged_apply: "e578516cc0a7068ed0efdfe815500b60a238d778454d816449e3bd009498afb8",
+  ipsas_staged_transport: "390b04a3841c0e5706fb41ea2089db26b29313e65a7098251105b83485814666",
+  ipsas_1_preparation_staged_apply: "6b8fa74cfd0e720980bfc31830df5e3ba668c1e677b3ed1bda229b6aae59d5b2",
 });
 
 export function checkTransportMirror(tag, text) {

@@ -1,0 +1,128 @@
+{
+  "proof": "ipsasGrants",
+  "mode": "present",
+  "manifestSha256": "4dbff8f5f3c9d1f4f0f82b09f6318cfc9030a56212211b5f90351821d0ca0b1c",
+  "startedAt": "2026-10-30T05:12:37.548Z",
+  "finishedAt": "2026-10-30T05:13:26.167Z",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.chain-applies",
+      "outcome": "pass"
+    },
+    {
+      "id": "setup.world-and-certified-years",
+      "outcome": "pass"
+    },
+    {
+      "id": "static.no-outer-transaction-no-bare-write",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.privileges-and-internals",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.viewer-outsider-anon-service-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.framework-gate",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.preparer-cannot-confirm",
+      "outcome": "pass"
+    },
+    {
+      "id": "tamper.cross-company-and-direct-helper-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.invalid-and-cross-company-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.draft-recorded-and-stale",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.forged-authority-fields-ignored",
+      "outcome": "pass"
+    },
+    {
+      "id": "period.read-from-certified-upload-not-typed",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.twenty-way-same-request",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.twenty-writers-one-revision",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.changed-intent-same-request",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-hand-derived-ipsas47",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-hand-derived-ipsas23",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.cash-and-expenditure-never-decide-revenue",
+      "outcome": "pass"
+    },
+    {
+      "id": "tb.facts-from-certified-rows",
+      "outcome": "pass"
+    },
+    {
+      "id": "tb.unknown-is-not-zero",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.bound-to-exact-grant-and-period",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.stale-unknown-not-confirmable",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.replay-and-changed-intent",
+      "outcome": "pass"
+    },
+    {
+      "id": "ready.complete-register-reaches-review",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-typescript-rules-ipsas47",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-typescript-rules-ipsas23",
+      "outcome": "pass"
+    },
+    {
+      "id": "history.append-only",
+      "outcome": "pass"
+    },
+    {
+      "id": "preserve.sme-and-ppe-authority-byte-identical",
+      "outcome": "pass"
+    },
+    {
+      "id": "access.revoked-preparer-refused-incl-replay",
+      "outcome": "pass"
+    }
+  ]
+}

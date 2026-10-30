@@ -1,0 +1,124 @@
+{
+  "proof": "ipsasStatementReview",
+  "mode": "present",
+  "manifestSha256": "1dcb2eae1272e52288955cd96f86e6f1c5fed00234f8ed34aa6893e813f2dedc",
+  "startedAt": "2026-10-30T05:14:10.798Z",
+  "finishedAt": "2026-10-30T05:14:56.696Z",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.chain",
+      "outcome": "pass"
+    },
+    {
+      "id": "transport.wrong-predecessor",
+      "outcome": "pass"
+    },
+    {
+      "id": "transport.missing-stage",
+      "outcome": "pass"
+    },
+    {
+      "id": "transport.exact-install-and-catalogue",
+      "outcome": "pass"
+    },
+    {
+      "id": "transport.replay-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "setup.certified-periods",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.privileges",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.roles-and-tenants",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.framework-rollout",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.reviewer-read-without-prepare",
+      "outcome": "pass"
+    },
+    {
+      "id": "read.incomplete-is-not-zero",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.presentation-and-hand-totals",
+      "outcome": "pass"
+    },
+    {
+      "id": "read.contra-and-provenance",
+      "outcome": "pass"
+    },
+    {
+      "id": "read.prior-reference-only",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.invalid-fields-and-caption",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.duplicate-unknown-and-stale",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.same-request-replay",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.changed-intent-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.concurrent-request",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.concurrent-revision",
+      "outcome": "pass"
+    },
+    {
+      "id": "source.approved-adjustment-invalidates",
+      "outcome": "pass"
+    },
+    {
+      "id": "source.adjusted-versus-certified",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.revocation-before-admission",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.admitted-write-before-revocation",
+      "outcome": "pass"
+    },
+    {
+      "id": "auth.strict-isolation-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "history.append-only",
+      "outcome": "pass"
+    },
+    {
+      "id": "preserve.sme-and-publications",
+      "outcome": "pass"
+    },
+    {
+      "id": "read.never-issuable",
+      "outcome": "pass"
+    }
+  ]
+}

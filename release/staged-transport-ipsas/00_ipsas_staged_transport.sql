@@ -37,7 +37,7 @@ BEGIN
   CREATE FUNCTION cfoclose_ipsas_release.approved_artifact(p_batch text, p_kind text, OUT bytes integer, OUT sha256 text)
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
-        ('ipsas-1-preparation', 'source', 51496, '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7')
+        ('ipsas-1-preparation', 'source', 52207, 'c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_ipsas_release.staged_artifacts_guard() RETURNS trigger

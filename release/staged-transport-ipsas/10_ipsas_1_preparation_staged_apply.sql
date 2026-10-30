@@ -5,7 +5,7 @@ DECLARE
   c_batch CONSTANT text := 'ipsas-1-preparation';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['b774ac26cd7476babd885985af825eb247e1b0004a29afef871b7e05900a1bbd', '5e5b446ae69f505c2c9e6820f51b7a7326f65f50526ec033f1b0ce5d6752bc9f']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['390b04a3841c0e5706fb41ea2089db26b29313e65a7098251105b83485814666', '8049cd256702f3c5fdcad0bc997e8130e5e7c8676f01750c2421661940f0084c']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_release_transport', 0));
@@ -23,7 +23,7 @@ BEGIN
     RAISE EXCEPTION 'IPSAS_TRANSPORT_NOT_INSTALLED: the transport bootstrap is absent; nothing was changed' USING ERRCODE = '55000';
   END IF;
   IF EXISTS (SELECT 1 FROM unnest(ARRAY['public.companies', 'public.firm_members', 'public.tb_certifications', 'public.financial_statement_documents', 'public.fs_equipment_answers']::text[]) t WHERE to_regclass(t) IS NULL)
-     OR EXISTS (SELECT 1 FROM unnest(ARRAY['public._fs_equipment_depreciation_charge(jsonb,date,date,text)', 'public._fs_equipment_rational(text)', 'public._cr_certified_accounts(uuid)', 'public._cr_member(uuid,uuid)', 'public.fs_rollout_allows(uuid)', 'public.workspace_capability_allowed(uuid,uuid,text)']::text[]) f WHERE to_regprocedure(f) IS NULL) THEN
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['public._fs_equipment_depreciation_charge(jsonb,date,date,text)', 'public._fs_equipment_rational(text)', 'public._cr_certified_accounts(uuid)', 'public._cr_member(uuid,uuid)', 'public.fs_rollout_allows(uuid)', 'public.workspace_capability_allowed(uuid,uuid,text)', 'public._fs_reporting_input_compute(uuid,integer)', 'public._fs_section(text)']::text[]) f WHERE to_regprocedure(f) IS NULL) THEN
     RAISE EXCEPTION 'IPSAS_TRANSPORT_PREREQUISITE_MISSING: the equipment, certification or capability objects this source depends on are absent; nothing was changed' USING ERRCODE = '55000';
   END IF;
   IF c_prior IS NOT NULL AND (SELECT count(*) FROM cfoclose_ipsas_release.staged_artifacts WHERE batch = c_prior AND consumed_at IS NOT NULL) <> c_prior_kinds THEN
@@ -41,9 +41,9 @@ BEGIN
   END IF;
   SELECT s.body INTO v_source FROM cfoclose_ipsas_release.staged_artifacts s
    WHERE s.batch = c_batch AND s.kind = 'source' AND s.consumed_at IS NULL
-     AND s.body_bytes = 51496 AND s.body_sha256 = '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7'
-     AND octet_length(convert_to(s.body, 'UTF8')) = 51496
-     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7';
+     AND s.body_bytes = 52207 AND s.body_sha256 = 'c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d'
+     AND octet_length(convert_to(s.body, 'UTF8')) = 52207
+     AND encode(sha256(convert_to(s.body, 'UTF8')), 'hex') = 'c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d';
   IF v_source IS NULL THEN RAISE EXCEPTION 'IPSAS_TRANSPORT_STAGE_MISSING_OR_MODIFIED: % source is absent or modified; nothing was changed', c_batch USING ERRCODE = '55000'; END IF;
   PERFORM set_config('lock_timeout', '5s', true);
   LOCK TABLE public.ai_assistant_settings, public.commercial_platform_state, public.companies, public.financial_statements_rollout_audit, public.financial_statements_rollout_companies, public.financial_statements_rollout_state, public.fs_disclosure_texts, public.fs_equipment_answers, public.fs_equipment_policy_insertions, public.fs_equipment_workpapers, public.fs_publication_bindings, public.fs_report_authority, public.fs_report_authority_events, public.fs_schedule_definitions, public.fs_schedule_submissions, public.internal_beta_policy, public.reporting_pack_issuances IN SHARE MODE;
@@ -115,7 +115,7 @@ BEGIN
   UPDATE cfoclose_ipsas_release.staged_artifacts SET consumed_at = clock_timestamp() WHERE batch = c_batch;
   INSERT INTO cfoclose_ipsas_release.transport_events(batch, event, detail)
     VALUES (c_batch, 'applied', jsonb_build_object('predecessor_journal_id', v_pred_id, 'source', '20261207100000_ipsas_accrual_preparation.sql', 'baseline_sha256', v_baseline,
-      'source_sha256', '3fb7460f4b5ff45623e8876a522394ce4eef67da32705b80dbe46caaf44d21b7'));
+      'source_sha256', 'c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d'));
   PERFORM set_config('cfoclose_ipsas_release.applying', '', true);
 END
 $cfoclose_ipsas_transport_ipsas_1_preparation$;

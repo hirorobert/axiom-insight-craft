@@ -1,0 +1,1215 @@
+[
+  {
+    "path": "C:/Users/user/axiom-insight-craft",
+    "dirty": true,
+    "changedPaths": 19,
+    "deletedPaths": 0,
+    "sample": [
+      "M CLAUDE.md",
+      " M src/hooks/useWorkspaceData.ts",
+      " M src/lib/workspace/deriveWorkspaceState.test.ts",
+      " M src/lib/workspace/deriveWorkspaceState.ts",
+      " M src/lib/workspace/types.ts",
+      " M src/pages/workspace/WorkspaceOverview.tsx",
+      "?? .claude/",
+      "?? 0001-feat-landing-recover-focused-CFOClose-landing-redesi.patch"
+    ]
+  },
+  {
+    "path": "/tmp/omega2-work",
+    "missing": true
+  },
+  {
+    "path": "C:/Users/user/.codex/worktrees/ipsas-independent-review",
+    "dirty": true,
+    "changedPaths": 20,
+    "deletedPaths": 0,
+    "sample": [
+      "M docs/release/ipsas-accrual-chain-r1/GRANTS.md",
+      " M docs/release/ipsas-accrual-chain-r1/GRANTS_TRANSPORT.md",
+      " M docs/release/ipsas-accrual-chain-r1/RECORD.md",
+      " M docs/release/ipsas-accrual-chain-r1/REVIEW_PACKAGE.md",
+      " M docs/release/ipsas-accrual-chain-r1/TRANSPORT.md",
+      " M docs/release/ipsas-statement-review-r1/RECORD.md",
+      " M release/staged-transport-ipsas-grants/00_ipsas_grants_staged_transport.sql",
+      " M release/staged-transport-ipsas-grants/10_ipsas_2_grants_staged_apply.sql"
+    ]
+  },
+  {
+    "path": "C:/Users/user/.codex/worktrees/tb-fs-release-tools/axiom-insight-craft",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/adoring-hamilton-a45fb7",
+    "dirty": true,
+    "changedPaths": 2,
+    "deletedPaths": 1,
+    "sample": [
+      "M src/App.tsx",
+      " D src/pages/workspace/IssuesWorkspace.tsx"
+    ]
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/fin-integrity-gate-20261023",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/inspiring-hamilton-e426fd",
+    "dirty": true,
+    "changedPaths": 8,
+    "deletedPaths": 8,
+    "sample": [
+      "D src/components/DashboardAnalytics.tsx",
+      " D src/components/PolicyCompass.tsx",
+      " D src/components/certification/RecentUploadsList.tsx",
+      " D src/components/maono/AlertCenter.tsx",
+      " D src/components/maono/BoardPackGenerator.tsx",
+      " D src/components/maono/BudgetApprovalFlow.tsx",
+      " D src/components/maono/BudgetEntryPanel.tsx",
+      " D src/components/maono/MaterialitySettings.tsx"
+    ]
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/landing-review-20261016",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/landing-sample-first",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/tb-journey-six",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/tb-journey-ux",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-insight-craft/.claude/worktrees/tbj6-evidence",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-integration",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-omega3-staging-validation",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "C:/Users/user/axiom-redesign-audit",
+    "dirty": true,
+    "changedPaths": 1,
+    "deletedPaths": 0,
+    "sample": [
+      "?? docs/redesign/"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/acceptance-worktree/axiom-acceptance",
+    "dirty": true,
+    "changedPaths": 898,
+    "deletedPaths": 898,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/audit-worktree/axiom-origin-main",
+    "dirty": true,
+    "changedPaths": 618,
+    "deletedPaths": 618,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D \".lovable/plan/\\317\\2112-auth-contract-repair-controlled-redeploy-2026-09-06.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/C--Users-user-axiom-insight-craft/3351efd8-e61e-4150-8fd5-185c201057b1/scratchpad/eq-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/C--Users-user-axiom-insight-craft/3351efd8-e61e-4150-8fd5-185c201057b1/scratchpad/sme-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/C--Users-user-axiom-insight-craft/795020ce-b69c-42af-9e89-0c27e158f30a/scratchpad/docs-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/canonical-worktree/axiom-canonical",
+    "dirty": true,
+    "changedPaths": 676,
+    "deletedPaths": 676,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D \".lovable/plan/\\317\\2112-auth-contract-repair-controlled-redeploy-2026-09-06.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/canonicalflow-worktree/axiom-canonicalflow",
+    "dirty": true,
+    "changedPaths": 1088,
+    "deletedPaths": 1088,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/card-launch",
+    "dirty": true,
+    "changedPaths": 1712,
+    "deletedPaths": 1711,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-access-20261015",
+    "dirty": true,
+    "changedPaths": 1701,
+    "deletedPaths": 1701,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-fin-integrity-20261014",
+    "dirty": true,
+    "changedPaths": 1655,
+    "deletedPaths": 1655,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-launch-qa-20261016",
+    "dirty": true,
+    "changedPaths": 1726,
+    "deletedPaths": 1726,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-launch-qa-f57b944",
+    "dirty": true,
+    "changedPaths": 1783,
+    "deletedPaths": 1783,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-migpkg-20261015",
+    "dirty": true,
+    "changedPaths": 1704,
+    "deletedPaths": 1704,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-phase5-20261016",
+    "dirty": true,
+    "changedPaths": 1735,
+    "deletedPaths": 1735,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-rc-20261014",
+    "dirty": true,
+    "changedPaths": 1684,
+    "deletedPaths": 1684,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/cfoclose-visual-20261014",
+    "dirty": true,
+    "changedPaths": 1664,
+    "deletedPaths": 1664,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/docreview-worktree/axiom-docreview",
+    "dirty": true,
+    "changedPaths": 618,
+    "deletedPaths": 618,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D \".lovable/plan/\\317\\2112-auth-contract-repair-controlled-redeploy-2026-09-06.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/download-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/enquiry-worktree/axiom-enquiry",
+    "dirty": true,
+    "changedPaths": 888,
+    "deletedPaths": 888,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/f1a",
+    "dirty": true,
+    "changedPaths": 1198,
+    "deletedPaths": 1198,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/fs-release-runner-8396723",
+    "dirty": true,
+    "changedPaths": 1885,
+    "deletedPaths": 1884,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/fs-release-source-daa23e4",
+    "dirty": true,
+    "changedPaths": 1882,
+    "deletedPaths": 1882,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/fs-runner-20261020",
+    "dirty": true,
+    "changedPaths": 1885,
+    "deletedPaths": 1884,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/fs-slice-20261018",
+    "dirty": true,
+    "changedPaths": 1883,
+    "deletedPaths": 1882,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/gate-ha",
+    "dirty": true,
+    "changedPaths": 1126,
+    "deletedPaths": 1126,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/gate43",
+    "dirty": true,
+    "changedPaths": 1121,
+    "deletedPaths": 1121,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/grants-transport-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/hide-tax",
+    "dirty": true,
+    "changedPaths": 1115,
+    "deletedPaths": 1115,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/hosted-apply",
+    "dirty": true,
+    "changedPaths": 1126,
+    "deletedPaths": 1126,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/hub-followup",
+    "dirty": true,
+    "changedPaths": 1134,
+    "deletedPaths": 1134,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/inert-base",
+    "dirty": true,
+    "changedPaths": 1112,
+    "deletedPaths": 1112,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/ingest-authority",
+    "dirty": true,
+    "changedPaths": 1196,
+    "deletedPaths": 1196,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/integration-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/ipsas-chain",
+    "dirty": true,
+    "changedPaths": 2,
+    "deletedPaths": 0,
+    "sample": [
+      "?? ipsas-journey-evidence/",
+      "?? proof-results/"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/landing-ns",
+    "dirty": true,
+    "changedPaths": 1112,
+    "deletedPaths": 1112,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/main-baseline",
+    "dirty": true,
+    "changedPaths": 1128,
+    "deletedPaths": 1128,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/omega5-worktree/axiom-fix-omega5",
+    "dirty": true,
+    "changedPaths": 595,
+    "deletedPaths": 595,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D \".lovable/plan/\\317\\2112-auth-contract-repair-controlled-redeploy-2026-09-06.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/outcome-first-worktree/axiom-outcome-first",
+    "dirty": true,
+    "changedPaths": 893,
+    "deletedPaths": 893,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/phaseA-worktree/axiom-redesign-northstar",
+    "dirty": true,
+    "changedPaths": 597,
+    "deletedPaths": 597,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D \".lovable/plan/\\317\\2112-auth-contract-repair-controlled-redeploy-2026-09-06.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/prep-transport-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/purchase-journey",
+    "dirty": true,
+    "changedPaths": 1940,
+    "deletedPaths": 1939,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/recon-authority",
+    "dirty": true,
+    "changedPaths": 1172,
+    "deletedPaths": 1172,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/refuse-grants",
+    "dirty": true,
+    "changedPaths": 1121,
+    "deletedPaths": 1121,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/release-candidate",
+    "dirty": true,
+    "changedPaths": 1172,
+    "deletedPaths": 1172,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/remed-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/reporting-ai-review",
+    "dirty": true,
+    "changedPaths": 849,
+    "deletedPaths": 849,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/s1",
+    "dirty": true,
+    "changedPaths": 1303,
+    "deletedPaths": 1303,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/s2",
+    "dirty": true,
+    "changedPaths": 1654,
+    "deletedPaths": 1654,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/safisha-fix-wt",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/sessionguard-worktree/axiom-sessionguard",
+    "dirty": true,
+    "changedPaths": 925,
+    "deletedPaths": 925,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/tb-ingest",
+    "dirty": true,
+    "changedPaths": 1163,
+    "deletedPaths": 1163,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/unlimited-members",
+    "dirty": true,
+    "changedPaths": 1796,
+    "deletedPaths": 1796,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/verify-main",
+    "dirty": true,
+    "changedPaths": 1103,
+    "deletedPaths": 1103,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/w219",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/w220",
+    "dirty": false,
+    "changedPaths": 0,
+    "deletedPaths": 0,
+    "sample": []
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-cand",
+    "dirty": true,
+    "changedPaths": 1761,
+    "deletedPaths": 1761,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-comb",
+    "dirty": true,
+    "changedPaths": 1765,
+    "deletedPaths": 1765,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-compat",
+    "dirty": true,
+    "changedPaths": 1767,
+    "deletedPaths": 1767,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-e2e",
+    "dirty": true,
+    "changedPaths": 1654,
+    "deletedPaths": 1654,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-evid",
+    "dirty": true,
+    "changedPaths": 1793,
+    "deletedPaths": 1793,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-evr",
+    "dirty": true,
+    "changedPaths": 1796,
+    "deletedPaths": 1796,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-f9a",
+    "dirty": true,
+    "changedPaths": 1652,
+    "deletedPaths": 1652,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\""
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-ingest",
+    "dirty": true,
+    "changedPaths": 1714,
+    "deletedPaths": 1714,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-launchqa",
+    "dirty": true,
+    "changedPaths": 1786,
+    "deletedPaths": 1786,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-ops",
+    "dirty": true,
+    "changedPaths": 1768,
+    "deletedPaths": 1768,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-p5proof",
+    "dirty": true,
+    "changedPaths": 1775,
+    "deletedPaths": 1775,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-phase1",
+    "dirty": true,
+    "changedPaths": 1723,
+    "deletedPaths": 1723,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-phase2",
+    "dirty": true,
+    "changedPaths": 1756,
+    "deletedPaths": 1756,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-reg",
+    "dirty": true,
+    "changedPaths": 1827,
+    "deletedPaths": 1827,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-rep",
+    "dirty": true,
+    "changedPaths": 1825,
+    "deletedPaths": 1824,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/restore-the-enquiry-security-check-2026-09-22.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/claude/wt-tbw",
+    "dirty": true,
+    "changedPaths": 1955,
+    "deletedPaths": 1955,
+    "sample": [
+      "D .env",
+      " D .gitattributes",
+      " D .github/workflows/ci.yml",
+      " D .github/workflows/owner-access-proof.yml",
+      " D .github/workflows/signoff-proof.yml",
+      " D .gitignore",
+      " D .lovable/plan.md",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/saff-omega2gr1-8435620-ec74d1d52b5241f58dbf4f0892eb7bbd",
+    "dirty": true,
+    "changedPaths": 546,
+    "deletedPaths": 546,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D ARCHITECTURE-V3-SAFF-OPERATING-MODEL.md",
+      " D ARCHITECTURE-V3.1-FINAL-AMENDMENT.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/saff-ppg1-e001d72-0a433789890640e9b35314f1043fbff5",
+    "dirty": true,
+    "changedPaths": 552,
+    "deletedPaths": 552,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D ARCHITECTURE-V3-SAFF-OPERATING-MODEL.md",
+      " D ARCHITECTURE-V3.1-FINAL-AMENDMENT.md"
+    ]
+  },
+  {
+    "path": "D:/DevStorage/Temp/saff-ppg1r-c319855-39798ec4d9c641f4adf37c9d9318c8a6",
+    "dirty": true,
+    "changedPaths": 558,
+    "deletedPaths": 558,
+    "sample": [
+      "D .env",
+      " D .github/workflows/ci.yml",
+      " D .gitignore",
+      " D .lovable/plan/engagement-mandate-architecture-final-authorised-pending-sch-2026-08-09.md",
+      " D .lovable/plan/ui-north-star-implementation-s1-s4-s7-s8a-authorised-scope-2026-08-08.md",
+      " D \".lovable/plan/\\317\\2111-commercial-foundation-source-control-preflight-blocked-2026-09-05.md\"",
+      " D ARCHITECTURE-V3-SAFF-OPERATING-MODEL.md",
+      " D ARCHITECTURE-V3.1-FINAL-AMENDMENT.md"
+    ]
+  }
+]

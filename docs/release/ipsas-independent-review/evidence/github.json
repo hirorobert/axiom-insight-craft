@@ -1,0 +1,235 @@
+{
+  "reviewDate": "2026-10-30",
+  "repository": "hirorobert/axiom-insight-craft",
+  "pullRequests": [
+    {
+      "number": 155,
+      "head": "e15a25f39c8f679534bdf4dc16f5d5e75867697c",
+      "base": "365b3704b484527dde0bad52b5748bd7df3b739f",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "test(attestation): make the proof-of-work refusal tests deterministic"
+    },
+    {
+      "number": 225,
+      "head": "c5246012ef268bbeacec32a3c83c5088057d9ec6",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "test(safisha): check the preflight on as-left, zero-duplicate and seeded-duplicate inputs (removes dependence on a lost race)"
+    },
+    {
+      "number": 216,
+      "head": "29a4e396b5417356b35a7733b33e754fa233e98d",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "IPSAS NGO preparation foundation: period profiles, statements and bounded workpapers"
+    },
+    {
+      "number": 217,
+      "head": "370c767ab6f45474079147c65a9531f8c40e0c75",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "IPSAS accrual first chain: PPE + opening bridge — server authority, proof, page [stacked on #216]"
+    },
+    {
+      "number": 218,
+      "head": "6040c8cd0a6512f6835d8dbf4fb10c6f8d21b9a0",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "IPSAS accrual: exact-byte installation transport for 20261207100000 [stacked on #217]"
+    },
+    {
+      "number": 219,
+      "head": "828dd3cb0d4e8e13dac36a995429a129f2fd0781",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "IPSAS accrual: real-browser journey; fixes two defects it found [stacked on #218]"
+    },
+    {
+      "number": 220,
+      "head": "a0482a302eb8f843e36e234bd2c42a965b204279",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "IPSAS accrual: grants and revenue by period — server authority, proof, page, browser journey [stacked on #219]"
+    },
+    {
+      "number": 221,
+      "head": "b434e76f48a066c2978fb938576a457f02fb7e88",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "test(ipsas): authenticated local-stack journey (real Auth, PostgREST, RLS, private Storage) — stacked on #220"
+    },
+    {
+      "number": 222,
+      "head": "f2224e2d0178da66ecc4b010e55d263dbeb16f92",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "feat(trial-balance): authorized \"Download original\" for an upload's source file"
+    },
+    {
+      "number": 223,
+      "head": "abdd9f9218de09aa7072bb77f58a14126f50058d",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "feat(ipsas): exact-byte staged installation transport for the grants migration — candidate, nothing installed (stacked on #220)"
+    },
+    {
+      "number": 224,
+      "head": "a992cadc84c94fa195b5b6b316daa5be19fa911e",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "integration candidate: IPSAS chain + transports + authenticated journey + Download original (draft; tests the combination)"
+    },
+    {
+      "number": 227,
+      "head": "d235708620c37467a38863b2cf1092f835988d82",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "fix(ipsas): remediation of the independent review - edit loss on save, authority at the mutation boundary, accurate release records (combined candidate, draft)"
+    },
+    {
+      "number": 228,
+      "head": "748be05bddb6508fd30bdbfb4d52d364c61cffc6",
+      "base": "db6cef701b0856b98cd485d30431ac7b1137f2e4",
+      "baseRef": "main",
+      "state": "open",
+      "merged": false,
+      "title": "Add authenticated IPSAS statement review and exact-byte release transport"
+    }
+  ],
+  "ci": [
+    {
+      "id": 40919852236,
+      "jobs": [
+        {
+          "id": 123625707910,
+          "name": "Real application end to end (local Supabase stack)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625710152,
+          "name": "Disposable-DB Contract Tests (Ω∞ A+ closure)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625710344,
+          "name": "Staging RLS Regression (manual, write-capable)",
+          "conclusion": "skipped"
+        },
+        {
+          "id": 123625711055,
+          "name": "Supabase Migration Audit",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625764316,
+          "name": "Merge Conflict Marker Check",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625775947,
+          "name": "Edge function checks (Deno, reconciliation result and resolution)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625778386,
+          "name": "Lint, Build and Type Check",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625785461,
+          "name": "Edge function checks (Deno, process-trial-balance)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625790155,
+          "name": "Release Gate (clean Linux, frozen lockfile, full suite)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123625794123,
+          "name": "Golden Fixture Tests (vitest)",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 41000657309,
+      "jobs": [
+        {
+          "id": 123884028002,
+          "name": "Release Gate (clean Linux, frozen lockfile, full suite)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028171,
+          "name": "Disposable-DB Contract Tests (Ω∞ A+ closure)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028247,
+          "name": "Lint, Build and Type Check",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028263,
+          "name": "Supabase Migration Audit",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028267,
+          "name": "Merge Conflict Marker Check",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028292,
+          "name": "Edge function checks (Deno, reconciliation result and resolution)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028330,
+          "name": "Golden Fixture Tests (vitest)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028419,
+          "name": "Real application end to end (local Supabase stack)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884028513,
+          "name": "Edge function checks (Deno, process-trial-balance)",
+          "conclusion": "success"
+        },
+        {
+          "id": 123884029585,
+          "name": "Staging RLS Regression (manual, write-capable)",
+          "conclusion": "skipped"
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { openDatabase, applyChain, makeWorld, certifier, csv, FY2025, FY2026, uuid, REPO } from './lib/reportingKit.mjs';
 import { PROOF, CASES } from './ipsasIndependentReview.manifest.mjs';
 let db,failures=0,crashed=false;const cases=[],startedAt=new Date().toISOString();
-const check=(id,actual,expected)=>{if(!CASES.some(c=>c.id===id)||cases.some(c=>c.id===id))throw Error(`Invalid case ${id}`);const ok=JSON.stringify(actual)===JSON.stringify(expected);console.log(`${ok?'PASS':'FAIL'} ${id}: ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);cases.push({id,outcome:ok?'pass':'fail'});if(!ok)failures++;};
+const check=(label,actual,expected)=>{const id=label.toLowerCase().replaceAll(' ','-');if(!CASES.some(c=>c.id===id)||cases.some(c=>c.id===id))throw Error(`Invalid case ${id}`);const ok=JSON.stringify(actual)===JSON.stringify(expected);console.log(`${ok?'PASS':'FAIL'} ${id}: ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);cases.push({id,outcome:ok?'pass':'fail'});if(!ok)failures++;};
 try {
  db=await openDatabase('ipsas_independent_review');
  const failed=await applyChain(db);if(failed)throw Error(failed);

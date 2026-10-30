@@ -5,7 +5,7 @@ DECLARE
   c_batch CONSTANT text := 'ipsas-3-statement-review';
   c_prior CONSTANT text := NULL;
   c_prior_kinds CONSTANT integer := 0;
-  c_predecessor CONSTANT text[] := ARRAY['e61152d988e178d9f52ed3d36ec1d71a3cd22722e391651a07f1cb188a71652a', 'b85f84a2facb51e6adc83e8296607c546e236e403f8ca94dc2b9169f8112cd64']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['a1b8319658d088a5ae28b6a369c134807487cb9fa736dbfd847fddf165f6e532', '59ced22c08788e37c045199b74eb8c9d47304be24b47855ffcbf0efc33dfa317']::text[];
   v_n bigint; v_pred_id bigint; v_baseline text; v_role text; v_search_path text; v_source text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('cfoclose_ipsas_statement_release_transport', 0));

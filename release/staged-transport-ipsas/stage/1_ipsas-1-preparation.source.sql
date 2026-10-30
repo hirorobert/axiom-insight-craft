@@ -1,4 +1,4 @@
-INSERT INTO cfoclose_ipsas_release.staged_artifacts(batch, kind, body) VALUES ('ipsas-1-preparation', 'source', $cfoclose_ipsas_stage_3fb7460f4b5ff456$-- Authored forward migration; NOT applied hosted. Follows 20261206100000 (multi-class equipment preparation: it reuses
+INSERT INTO cfoclose_ipsas_release.staged_artifacts(batch, kind, body) VALUES ('ipsas-1-preparation', 'source', $cfoclose_ipsas_stage_c5de982c6ee69499$-- Authored forward migration; NOT applied hosted. Follows 20261206100000 (multi-class equipment preparation: it reuses
 -- _fs_equipment_depreciation_charge / _fs_equipment_rational) and 20261014100000 (_cr_certified_accounts, _cr_member).
 -- No outer transaction: the native migrator owns it (see PR #210).
 --
@@ -119,30 +119,40 @@ REVOKE ALL ON FUNCTION public._ipsas_authorize_mutation(uuid, uuid, text) FROM P
 CREATE FUNCTION public._ipsas_tb_facts(p_company_id uuid, p_period_year integer, p_selection jsonb) RETURNS jsonb
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
-  v_cur public.tb_certifications; v_prior public.tb_certifications;
+  v_input jsonb; v_cur jsonb; v_prior jsonb;
   v_ppe text[] := ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(p_selection->'ppeAccountKeys') = 'array' THEN p_selection->'ppeAccountKeys' ELSE '[]'::jsonb END));
   v_dep text[] := ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(p_selection->'depreciationExpenseKeys') = 'array' THEN p_selection->'depreciationExpenseKeys' ELSE '[]'::jsonb END));
   v_closing numeric; v_opening numeric; v_expense numeric; v_n integer; v_exact boolean;
 BEGIN
-  SELECT * INTO v_cur FROM public.tb_certifications WHERE company_id = p_company_id AND period_year = p_period_year ORDER BY sequence_no DESC LIMIT 1;
-  SELECT * INTO v_prior FROM public.tb_certifications WHERE company_id = p_company_id AND period_year = p_period_year - 1 ORDER BY sequence_no DESC LIMIT 1;
-  IF v_cur.id IS NOT NULL AND cardinality(v_ppe) > 0 THEN
-    SELECT count(*), coalesce(bool_and(a.exact), true), sum(a.debit_minor - a.credit_minor) INTO v_n, v_exact, v_closing
-      FROM public._cr_certified_accounts(v_cur.id) a WHERE a.account_key = ANY (v_ppe);
+  -- Use the existing authority decision and adjusted accounts, never a latest-row substitute.
+  -- This refuses invalidated/retired/blocked/stale processing and includes only approved, currently bound adjustments.
+  v_input := public._fs_reporting_input_compute(p_company_id, p_period_year);
+  IF v_input->>'state' = 'current' THEN
+    v_cur := v_input->'current';
+    IF v_input#>>'{comparative,state}' = 'available'
+       AND v_input#>>'{comparative,currency}' = v_cur->>'currency'
+       AND v_input#>>'{comparative,exponent}' = v_cur->>'exponent'
+       AND (v_input#>>'{comparative,reportingEnd}')::date + 1 = (v_cur->>'reportingStart')::date THEN
+      v_prior := v_input->'comparative';
+    END IF;
+  END IF;
+  IF v_cur IS NOT NULL AND cardinality(v_ppe) > 0 THEN
+    SELECT count(*), coalesce(bool_and(public._fs_section(a->>'classification') = 'non_current_assets'), false), sum((a->>'debitMinor')::numeric - (a->>'creditMinor')::numeric) INTO v_n, v_exact, v_closing
+      FROM jsonb_array_elements(v_cur->'accounts') a WHERE a->>'accountKey' = ANY (v_ppe);
     IF v_n <> cardinality(v_ppe) OR NOT v_exact THEN v_closing := NULL; END IF;
   END IF;
-  IF v_cur.id IS NOT NULL AND cardinality(v_dep) > 0 THEN
-    SELECT count(*), coalesce(bool_and(a.exact), true), sum(a.debit_minor - a.credit_minor) INTO v_n, v_exact, v_expense
-      FROM public._cr_certified_accounts(v_cur.id) a WHERE a.account_key = ANY (v_dep);
+  IF v_cur IS NOT NULL AND cardinality(v_dep) > 0 THEN
+    SELECT count(*), coalesce(bool_and(public._fs_section(a->>'classification') = 'expense'), false), sum((a->>'debitMinor')::numeric - (a->>'creditMinor')::numeric) INTO v_n, v_exact, v_expense
+      FROM jsonb_array_elements(v_cur->'accounts') a WHERE a->>'accountKey' = ANY (v_dep);
     IF v_n <> cardinality(v_dep) OR NOT v_exact THEN v_expense := NULL; END IF;
   END IF;
-  IF v_prior.id IS NOT NULL AND cardinality(v_ppe) > 0 THEN
-    SELECT count(*), coalesce(bool_and(a.exact), true), sum(a.debit_minor - a.credit_minor) INTO v_n, v_exact, v_opening
-      FROM public._cr_certified_accounts(v_prior.id) a WHERE a.account_key = ANY (v_ppe);
+  IF v_prior IS NOT NULL AND cardinality(v_ppe) > 0 THEN
+    SELECT count(*), coalesce(bool_and(public._fs_section(a->>'classification') = 'non_current_assets'), false), sum((a->>'debitMinor')::numeric - (a->>'creditMinor')::numeric) INTO v_n, v_exact, v_opening
+      FROM jsonb_array_elements(v_prior->'accounts') a WHERE a->>'accountKey' = ANY (v_ppe);
     IF v_n <> cardinality(v_ppe) OR NOT v_exact THEN v_opening := NULL; END IF;
   END IF;
-  RETURN jsonb_build_object('certificationId', v_cur.id, 'isBlocking', v_cur.is_blocking, 'requiresReview', v_cur.requires_review,
-    'priorCertificationId', v_prior.id, 'ppeCarryingClosingMinor', v_closing::text, 'ppeCarryingOpeningMinor', v_opening::text,
+  RETURN jsonb_build_object('certificationId', v_cur->>'certificationId', 'isBlocking', CASE WHEN v_cur IS NOT NULL THEN false END, 'requiresReview', CASE WHEN v_cur IS NOT NULL THEN false END,
+    'priorCertificationId', v_prior->>'certificationId', 'ppeCarryingClosingMinor', v_closing::text, 'ppeCarryingOpeningMinor', v_opening::text,
     'depreciationExpenseMinor', v_expense::text);
 END;
 $$;
@@ -567,4 +577,4 @@ $$;
 
 REVOKE ALL ON FUNCTION public.ipsas_prep_context(uuid, integer), public.ipsas_save_preparation(uuid, integer, text, jsonb, uuid, uuid), public.ipsas_confirm(uuid, integer, text, text, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.ipsas_prep_context(uuid, integer), public.ipsas_save_preparation(uuid, integer, text, jsonb, uuid, uuid), public.ipsas_confirm(uuid, integer, text, text, uuid, uuid) TO authenticated;
-$cfoclose_ipsas_stage_3fb7460f4b5ff456$);
+$cfoclose_ipsas_stage_c5de982c6ee69499$);

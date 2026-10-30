@@ -1,3 +1,5 @@
+> Historical candidate evidence. The independent review confirmed further defects in the #227/#228 chain. Unapplied PPE/grants source and all three transport fingerprints below are superseded by [the independent review](../ipsas-independent-review/REPORT.md). Existing CI evidence applies to its named commits; it does not validate the repairs. Nothing has been installed or published by this review.
+
 # Authenticated statement review r1 — release candidate
 
 Implementation branch: `feat/ipsas-authenticated-statement-review`. Dependency: remediation #227 at `d235708620c37467a38863b2cf1092f835988d82`; source introduced at `4e664b377a1536033d4a2cfa21a2af5b3375568a`. No merge, hosted installation, deploy, publication, activation or paid service is authorized or performed.

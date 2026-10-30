@@ -1,3 +1,5 @@
+> Historical candidate evidence. The independent review confirmed further defects in the #227/#228 chain. Unapplied PPE/grants source and all three transport fingerprints below are superseded by [the independent review](../ipsas-independent-review/REPORT.md). Existing CI evidence applies to its named commits; it does not validate the repairs. Nothing has been installed or published by this review.
+
 # IPSAS accrual — first accounting chain, implementation record
 
 Stacked on draft PR #216 (`feat/ipsas-accrual-ngo`, head `29a4e39`, base main `db6cef7`; CI run 40813292787 green, manual staging job skipped).

@@ -1,0 +1,128 @@
+{
+  "proof": "ipsasPreparation",
+  "mode": "present",
+  "manifestSha256": "be2a3adabc13356d6e8d332c2d4095ae937e733294548f5db31ebc81a251c140",
+  "startedAt": "2026-10-30T05:12:27.360Z",
+  "finishedAt": "2026-10-30T05:13:02.111Z",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.chain-applies",
+      "outcome": "pass"
+    },
+    {
+      "id": "setup.world-and-certified-years",
+      "outcome": "pass"
+    },
+    {
+      "id": "static.no-outer-transaction-no-bare-write",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.privileges-and-internals",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.viewer-outsider-anon-service-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.framework-gate",
+      "outcome": "pass"
+    },
+    {
+      "id": "authz.preparer-cannot-confirm",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.invalid-and-cross-company-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.draft-recorded-and-stale",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.forged-authority-fields-ignored",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.twenty-way-same-request",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.twenty-writers-one-revision",
+      "outcome": "pass"
+    },
+    {
+      "id": "save.changed-intent-same-request",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-hand-derived-fixture",
+      "outcome": "pass"
+    },
+    {
+      "id": "tb.facts-from-certified-rows",
+      "outcome": "pass"
+    },
+    {
+      "id": "tb.unknown-is-not-zero",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.estimate-bound-to-exact-subject",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.stale-unknown-not-confirmable",
+      "outcome": "pass"
+    },
+    {
+      "id": "confirm.replay-and-changed-intent",
+      "outcome": "pass"
+    },
+    {
+      "id": "ready.complete-slice-reaches-review",
+      "outcome": "pass"
+    },
+    {
+      "id": "bridge.unconfirmed-then-agrees",
+      "outcome": "pass"
+    },
+    {
+      "id": "bridge.residual-never-plugged",
+      "outcome": "pass"
+    },
+    {
+      "id": "bridge.evidenced-item-bridges-exactly",
+      "outcome": "pass"
+    },
+    {
+      "id": "bridge.invalid-items-and-foreign-source",
+      "outcome": "pass"
+    },
+    {
+      "id": "bridge.sql-equals-typescript-rules",
+      "outcome": "pass"
+    },
+    {
+      "id": "calc.sql-equals-typescript-rules",
+      "outcome": "pass"
+    },
+    {
+      "id": "history.append-only",
+      "outcome": "pass"
+    },
+    {
+      "id": "preserve.sme-authority-byte-identical",
+      "outcome": "pass"
+    },
+    {
+      "id": "access.revoked-preparer-refused-incl-replay",
+      "outcome": "pass"
+    }
+  ]
+}

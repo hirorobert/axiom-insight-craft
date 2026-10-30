@@ -1,3 +1,5 @@
+> Historical candidate evidence. The independent review confirmed further defects in the #227/#228 chain. Unapplied PPE/grants source and all three transport fingerprints below are superseded by [the independent review](../ipsas-independent-review/REPORT.md). Existing CI evidence applies to its named commits; it does not validate the repairs. Nothing has been installed or published by this review.
+
 # IPSAS accrual — grants and revenue by period (candidate)
 
 Status: **authored and proven on a disposable database, in a loopback browser journey (simulated identity) and in a separate authenticated local-stack journey; NOT installed; an installation transport exists as a separate uninstalled candidate (`GRANTS_TRANSPORT.md`); NOT accountant-reviewed; no independent human review has accepted it.** Stacked on #216–#219. Its save and confirm functions judge authority again at the mutation boundary (`AUTHORITY_ORDERING.md`). Migration `20261208100000_ipsas_grants.sql` (new objects only; the unapplied #217 migration and #218's pinned bytes are untouched).

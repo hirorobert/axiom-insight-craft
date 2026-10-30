@@ -1,3 +1,5 @@
+> Historical candidate evidence. The independent review confirmed further defects in the #227/#228 chain. Unapplied PPE/grants source and all three transport fingerprints below are superseded by [the independent review](../ipsas-independent-review/REPORT.md). Existing CI evidence applies to its named commits; it does not validate the repairs. Nothing has been installed or published by this review.
+
 # IPSAS grants and revenue — exact-byte staged installation transport (candidate)
 
 Status: **authored and proven on a disposable database; NOT installed, NOT registered as hosted history.** Like the preparation transport (`TRANSPORT.md`) it adds no Drizzle mirror, journal entry or `RELEASE_JOURNAL` registration — those come only after canonical hosted execution. `src/lib/__tests__/ipsasGrantsStagedTransport.test.ts` fails if any appears early. It is a **separate dependent slice**; this PR does not edit the preparation transport (its revision that pins `search_path` lives in #218 and is carried here by merge; the test pins its registered hashes).
