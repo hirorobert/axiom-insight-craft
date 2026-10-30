@@ -852,6 +852,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/ipsasGrantsTransport.mjs");
     allowed.add("scripts/db-proof/ipsasGrantsTransport.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasAuthorityOrdering.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityOrdering.manifest.mjs"); // deterministic multi-session authority-ordering proof; disposable loopback database only
+    allowed.add("scripts/db-proof/ipsasIndependentReview.mjs"); allowed.add("scripts/db-proof/ipsasIndependentReview.manifest.mjs"); // adjusted-authority and stale-source regression (both added); disposable loopback database only (reportingKit refuses non-loopback), no network or hosted access
     allowed.add("scripts/release/verifyCarry.mjs"); // applies the committed carry patch to a scratch checkout of #221's head and compares bytes; local git only, no network or hosted access
     allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
