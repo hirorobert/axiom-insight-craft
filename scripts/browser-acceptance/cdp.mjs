@@ -221,26 +221,26 @@ export class Page {
     }
     if (!pos && seen && !seen.hit) throw new Error(`click: ${JSON.stringify(t)} is covered or off-screen (not pressable at ${Math.round(seen.x)},${Math.round(seen.y)})`);
     if (!pos) throw new Error(`click: nothing clickable for ${JSON.stringify(t)}`);
-    // Hover can move a target. Require consecutive stable hit-tested positions after
-    // hovering, and recheck enabled/present state. Never press at a disappeared target.
-    // Waiting may repeat; the native press/release pair is sent exactly once.
+    // Hover first, then re-locate once layout settles: hover can move the target (a toast stack expands under the
+    // pointer), and a press at the stale position would land on whatever moved there instead. This is the settle
+    // interval and tolerance the suite ran with for weeks (350 ms, 1 px); a faster, stricter sampler (100 ms, 0.5 px,
+    // an unbounded budget) failed an unrelated journey in CI. A target that is gone, covered, disabled or still moving
+    // after a bounded number of samples is refused WITHOUT any click; the press/release pair is sent exactly once.
+    // The last samples are in the message so a refusal says what the page was doing.
+    const samples = [];
     let stable = false;
-    while (Date.now() < deadline) {
-      if (pos) await this.mouse("mouseMoved", pos);
-      await sleep(100);
+    for (let attempt = 0; attempt < 6 && Date.now() < deadline; attempt++) {
+      await this.mouse("mouseMoved", pos);
+      await sleep(350);
       const next = await this.locate(t).catch(() => null);
-      if (!next || !next.hit || (!allowDisabled && next.disabled)) {
-        // A hover transition or async update may temporarily cover/disable the target.
-        // Reacquire within the original budget, without issuing or retrying a click.
-        pos = null;
-        continue;
-      }
-      if (pos && Math.abs(next.x - pos.x) <= 0.5 && Math.abs(next.y - pos.y) <= 0.5) {
-        pos = next; stable = true; break;
-      }
-      pos = next;
+      samples.push(next ? { x: Math.round(next.x * 10) / 10, y: Math.round(next.y * 10) / 10, hit: next.hit, disabled: next.disabled } : null);
+      if (next && next.hit && (allowDisabled || !next.disabled)) {
+        const moved = Math.abs(next.x - pos.x) > 1 || Math.abs(next.y - pos.y) > 1;
+        pos = next;
+        if (!moved) { stable = true; break; }
+      } // else a transient cover/disable/absence: hover again at the last good position and re-locate
     }
-    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input (disappeared, covered or disabled)`);
+    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input (disappeared, covered, disabled or still moving); last samples ${JSON.stringify(samples.slice(-4))}`);
     await this.mouse("mousePressed", pos);
     await this.mouse("mouseReleased", pos);
   }
