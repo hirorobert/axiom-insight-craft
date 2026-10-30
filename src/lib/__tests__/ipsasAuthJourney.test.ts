@@ -104,6 +104,14 @@ describe("the CI job", () => {
   const start = wf.indexOf("\n  real-app-e2e:");
   const next = wf.slice(start + 1).search(/\n {2}[a-z-]+:\n/);
   const job = next < 0 ? wf.slice(start) : wf.slice(start, start + 1 + next);
+  it("publishes IPSAS evidence before long unrelated stages, while the complete application and workload checks still run after a failure", () => {
+    const stack=job.indexOf("run: supabase start"), ipsas=job.indexOf("run: node scripts/e2e/ipsasAuthJourney.mjs"), main=job.indexOf("run: node scripts/e2e/localStackJourney.mjs"), workload=job.indexOf("run: bun scripts/e2e/workloadJourney.mjs");
+    expect(stack).toBeGreaterThan(-1);expect(ipsas).toBeGreaterThan(stack);expect(main).toBeGreaterThan(ipsas);expect(workload).toBeGreaterThan(main);
+    const evidence=job.indexOf("name: ipsas-auth-evidence-");expect(evidence).toBeGreaterThan(ipsas);expect(evidence).toBeLessThan(main);
+    expect(job).toMatch(/if: always\(\)\n\s+run: node scripts\/e2e\/localStackJourney\.mjs/);
+    expect(job).toMatch(/if: always\(\)\n\s+run: bun scripts\/e2e\/workloadJourney\.mjs/);
+    expect(job.match(/run: node scripts\/e2e\/ipsasAuthJourney\.mjs/g)).toHaveLength(1);
+  });
   it("runs the authenticated journey on the local stack, always, and uploads its evidence; no link, push, deploy, login or secret", () => {
     expect(start).toBeGreaterThan(-1);
     expect(job).toMatch(/if: always\(\)\n\s+run: node scripts\/e2e\/ipsasAuthJourney\.mjs real-app-evidence\/ipsas/);

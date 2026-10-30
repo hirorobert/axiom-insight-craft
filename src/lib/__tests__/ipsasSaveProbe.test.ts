@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { saveGrantsAndReadBack } from "../../../scripts/browser-acceptance/ipsasGrantsSteps.mjs";
+import { confirmGrantAndReadBack, discardGrantsAndReadBack, saveGrantsAndReadBack } from "../../../scripts/browser-acceptance/ipsasGrantsSteps.mjs";
 
 const savedText = "This is the server's recorded version";
 const reply = (body: unknown) => ({ clone: () => ({ json: async () => body }) });
@@ -9,6 +9,33 @@ const originalFetch = window.fetch;
 afterEach(() => { window.fetch = originalFetch; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
 describe("grant-save browser completion", () => {
+  it("does not mistake the first grant's old confirmation for the second grant's completed read-back", async () => {
+    document.body.innerHTML = '<fieldset><input id="gr0-ref"><button disabled>Assessment confirmed</button></fieldset><fieldset id="second"><input id="gr1-ref"><button>Confirm this assessment</button></fieldset>';
+    const second = document.getElementById("second")!;
+    Object.defineProperty(second, "innerText", { configurable: true, get: () => second.textContent });
+    let predicate!: () => unknown;
+    const click = vi.fn(async () => {});
+    const pending = confirmGrantAndReadBack({ click, waitFor: async (fn: (i: number) => unknown, [index]: [number]) => {
+      predicate = () => fn(index);
+      for (let n=0;n<200;n++) { if (predicate()) return; await tick(); } throw new Error("timed out");
+    } }, 1);
+    await tick();expect(predicate()).toBeFalsy();
+    const button=second.querySelector("button")!;button.textContent="Assessment confirmed";button.disabled=true;
+    await pending;
+    expect(click).toHaveBeenCalledExactlyOnceWith({ text: "Confirm this assessment", within: "fieldset:has(#gr1-ref)" });
+  });
+
+  it("discard waits for both the competing revision and its payload, not a sleep or the old field", async () => {
+    document.body.innerHTML = '<section data-grants-revision="old"><input id="gr0-ref" value="mine"></section>';
+    const click=vi.fn(async()=>{});let predicate!:()=>unknown;
+    const pending=discardGrantsAndReadBack({click,waitFor:async(fn:(id:string,ref:string)=>unknown,args:[string,string])=>{
+      predicate=()=>fn(...args);for(let n=0;n<200;n++){if(predicate())return;await tick();}throw new Error("timed out");
+    }},"new","theirs");
+    await tick();expect(predicate()).toBeFalsy();
+    document.querySelector("section")!.setAttribute("data-grants-revision","new");expect(predicate()).toBeFalsy();
+    (document.getElementById("gr0-ref") as HTMLInputElement).value="theirs";
+    await pending;expect(click).toHaveBeenCalledTimes(1);
+  });
   it("ignores an old saved banner, old read-back and pending receipt; waits for the exact new revision", async () => {
     document.body.innerHTML = `<section data-grants-revision="old-revision"><button disabled>Save grants</button><p>${savedText}</p><p data-testid="gr0-figures">Old figures</p></section>`;
     // JSDOM does not implement layout innerText. This test models its browser text view.

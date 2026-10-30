@@ -1390,8 +1390,27 @@ async function main() {
     const failure = await startFirstCheck();
     if (failure) return { failure };
     await page.waitForSelector('[data-testid="investigation-run"]', { timeout: 120000 });
+    await page.evaluate(() => {
+      window.__investigationActivation = { count: 0, trusted: false };
+      document.addEventListener("click", event => {
+        if (event.target.closest?.('[data-testid="investigation-run"]')) {
+          window.__investigationActivation.count++;
+          window.__investigationActivation.trusted = event.isTrusted;
+        }
+      }, { capture: true });
+    });
+    const investigationResponses = page.responses.length;
     await page.click('[data-testid="investigation-run"]');
-    await page.waitForSelector('[data-testid="investigation-leads"], [data-testid="investigation-no-leads"]', { timeout: 120000 });
+    const activation = await page.evaluate(() => window.__investigationActivation);
+    if (activation?.count !== 1 || !activation.trusted) return { activation, reason: "Investigation did not receive exactly one trusted native click; no retry was sent" };
+    try {
+      await page.waitForSelector('[data-testid="investigation-leads"], [data-testid="investigation-no-leads"]', { timeout: 120000 });
+    } catch {
+      return { activation, reason: "Investigation did not render a result", responses: page.responses.slice(investigationResponses)
+        .filter(r => /trial-balance-layout/.test(r.url)).map(r => ({ method: r.method, status: r.status })),
+        investigations: (await admin.from("tb_investigations").select("status").eq("company_id", K)).data,
+        notice: await page.evaluate(() => document.querySelector('[data-testid="imbalance-investigation"]')?.innerText ?? "missing investigation UI") };
+    }
     const leads = await tText("investigation-leads");
     const statement = await tText("investigation-statement");
     const cause = await page.evaluate(() => document.querySelector('[data-testid="investigation-cause"]')?.dataset.cause ?? null);

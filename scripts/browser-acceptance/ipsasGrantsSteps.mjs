@@ -66,6 +66,21 @@ export async function saveGrantsAndReadBack(p) {
   }
 }
 
+export async function confirmGrantAndReadBack(p, index) {
+  await p.click({ text: "Confirm this assessment", within: `fieldset:has(#gr${index}-ref)` });
+  await p.waitFor(i => {
+    const fieldset = document.getElementById(`gr${i}-ref`)?.closest("fieldset");
+    return !!fieldset && [...fieldset.querySelectorAll("button")].some(b => b.textContent.trim() === "Assessment confirmed" && b.disabled)
+      && !fieldset.innerText.includes("Saving…");
+  }, [index], { timeout: 30000, label: `grant ${index + 1} confirmation rendered from its refreshed server context` });
+}
+
+export async function discardGrantsAndReadBack(p, revision, reference) {
+  await p.click({ text: "Discard grant edits and reload the saved version" });
+  await p.waitFor((id, ref) => document.querySelector('[data-grants-revision]')?.getAttribute("data-grants-revision") === id
+    && document.getElementById("gr0-ref")?.value === ref, [revision, reference], { timeout: 30000, label: "discard adopts the competing writer's exact saved revision" });
+}
+
 export async function grantsChain(j) {
   const { check, open, go, set, type, val, tab, text, nextStep, shot, rpc, seed, log } = j;
   const fillGrant = async (p, i, spec) => {
@@ -138,9 +153,9 @@ export async function grantsChain(j) {
   await check("grants: a reviewer confirms each assessment; the draft note then states the classification in words and totals match the trial balance; the page reports no open matter anywhere", async () => {
     await go(partner, "partner", "IPSAS accrual, 2026");
     await tab(partner, "Complete preparation");
-    await partner.click({ text: "Confirm this assessment" }); await partner.waitForText("Assessment confirmed", { timeout: 20000 }); await sleep(300);
-    await partner.click({ text: "Confirm this assessment" }); await sleep(800);
-    await tab(partner, "Review report"); await sleep(400);
+    for (const i of [0, 1]) await confirmGrantAndReadBack(partner, i);
+    await partner.waitFor(() => document.querySelector('[aria-label="Next step"]')?.innerText.includes("no open matters"), [], { timeout: 20000, label: "next task reflects both confirmed grants" });
+    await tab(partner, "Review report");
     const t = (await text(partner)).replace(/\n/g, " ");
     const next = await nextStep(partner);
     await shot(partner, "g2-grants-review");
@@ -173,7 +188,7 @@ export async function grantsHostile(j) {
     await preparer.waitForText("Someone saved a newer version", { timeout: 20000 });
     const kept = await val(preparer, "gr0-ref");
     await shot(preparer, "g3-stale");
-    await preparer.click({ text: "Discard grant edits and reload the saved version" }); await sleep(600);
+    await discardGrantsAndReadBack(preparer, saved.revisionId, "DONOR-X-HEALTH (theirs)");
     const adopted = await val(preparer, "gr0-ref");
     return kept === "DONOR-X-HEALTH (mine)" && adopted === "DONOR-X-HEALTH (theirs)" ? true : { kept, adopted };
   });

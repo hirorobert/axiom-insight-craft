@@ -207,8 +207,9 @@ export class Page {
 
   async click(target, { timeout = 20000, allowDisabled = false } = {}) {
     const t = typeof target === "string" ? { selector: target } : target;
-    await this.send("Page.bringToFront");
     const deadline = Date.now() + timeout;
+    await this.send("Page.bringToFront");
+    await this.waitFor(() => document.visibilityState === "visible" && document.hasFocus(), [], { timeout: Math.max(1, deadline - Date.now()), label: "foreground page focus before native mouse input" });
     let pos = null;
     let seen = null;
     while (Date.now() < deadline) {
@@ -225,18 +226,21 @@ export class Page {
     // Waiting may repeat; the native press/release pair is sent exactly once.
     let stable = false;
     while (Date.now() < deadline) {
-      await this.mouse("mouseMoved", pos);
+      if (pos) await this.mouse("mouseMoved", pos);
       await sleep(100);
       const next = await this.locate(t).catch(() => null);
       if (!next || !next.hit || (!allowDisabled && next.disabled)) {
-        throw new Error(`click: ${JSON.stringify(t)} disappeared, became covered or disabled before input`);
+        // A hover transition or async update may temporarily cover/disable the target.
+        // Reacquire within the original budget, without issuing or retrying a click.
+        pos = null;
+        continue;
       }
-      if (Math.abs(next.x - pos.x) <= 0.5 && Math.abs(next.y - pos.y) <= 0.5) {
+      if (pos && Math.abs(next.x - pos.x) <= 0.5 && Math.abs(next.y - pos.y) <= 0.5) {
         pos = next; stable = true; break;
       }
       pos = next;
     }
-    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input`);
+    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input (disappeared, covered or disabled)`);
     await this.mouse("mousePressed", pos);
     await this.mouse("mouseReleased", pos);
   }
