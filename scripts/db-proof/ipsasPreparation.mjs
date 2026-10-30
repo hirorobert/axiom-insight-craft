@@ -111,7 +111,7 @@ async function main() {
     const k = await certifier(db, U);
     for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) {
       const u = await k.upload(AI, y, csv(col));
-      await k.review(AI, u);
+      if (y === 2025) await k.review(AI, u); // Shared mapping is reviewed once; reviewing it again invalidates the first certification.
       await k.certify(AI, u);
     }
     const n = await db.one("SELECT count(*)::int n FROM public.tb_certifications WHERE company_id=$1", [AI]);

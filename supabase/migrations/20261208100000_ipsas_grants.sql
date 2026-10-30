@@ -68,12 +68,8 @@ REVOKE ALL ON FUNCTION public._ipsas_natj(jsonb) FROM PUBLIC, anon, authenticate
 -- The reporting period of the CURRENT certification's upload (fiscal_periods), the certification id, and nothing typed by a user.
 CREATE FUNCTION public._ipsas_grants_period(p_company_id uuid, p_period_year integer) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-  SELECT jsonb_build_object('certificationId', c.id, 'start', fp.reporting_start::text, 'end', fp.reporting_end::text)
-    FROM public.tb_certifications c
-    JOIN public.trial_balance_uploads u ON u.id = c.upload_id
-    LEFT JOIN public.fiscal_periods fp ON fp.id = u.period_id
-   WHERE c.company_id = p_company_id AND c.period_year = p_period_year
-   ORDER BY c.sequence_no DESC LIMIT 1;
+  SELECT jsonb_build_object('certificationId', i#>>'{current,certificationId}', 'start', i#>>'{current,reportingStart}', 'end', i#>>'{current,reportingEnd}')
+    FROM (SELECT public._fs_reporting_input_compute(p_company_id, p_period_year) i) x WHERE i->>'state' = 'current';
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_grants_period(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
 
@@ -81,15 +77,16 @@ REVOKE ALL ON FUNCTION public._ipsas_grants_period(uuid, integer) FROM PUBLIC, a
 -- there is no certification, no key, a missing key, or any selected row is not an exact tb-row/1 amount.
 CREATE FUNCTION public._ipsas_tb_sum(p_company_id uuid, p_period_year integer, p_keys jsonb, p_side text) RETURNS numeric
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE v_cert uuid; v_keys text[]; v_n integer; v_exact boolean; v_sum numeric;
+DECLARE v_input jsonb; v_keys text[]; v_n integer; v_exact boolean; v_sum numeric;
 BEGIN
   IF jsonb_typeof(p_keys) IS DISTINCT FROM 'array' OR jsonb_array_length(p_keys) = 0 THEN RETURN NULL; END IF;
   v_keys := ARRAY(SELECT jsonb_array_elements_text(p_keys));
-  SELECT c.id INTO v_cert FROM public.tb_certifications c WHERE c.company_id = p_company_id AND c.period_year = p_period_year ORDER BY c.sequence_no DESC LIMIT 1;
-  IF v_cert IS NULL THEN RETURN NULL; END IF;
-  SELECT count(*), coalesce(bool_and(a.exact), true),
-         sum(CASE WHEN p_side = 'credit' THEN a.credit_minor - a.debit_minor ELSE a.debit_minor - a.credit_minor END)
-    INTO v_n, v_exact, v_sum FROM public._cr_certified_accounts(v_cert) a WHERE a.account_key = ANY (v_keys);
+  v_input := public._fs_reporting_input_compute(p_company_id, p_period_year);
+  IF v_input->>'state' IS DISTINCT FROM 'current' THEN RETURN NULL; END IF;
+  SELECT count(*), coalesce(bool_and(CASE WHEN p_side = 'credit' THEN public._fs_section(a->>'classification') IN ('income','current_liabilities','non_current_liabilities')
+    ELSE public._fs_section(a->>'classification') IN ('current_assets','non_current_assets') END), false),
+         sum(CASE WHEN p_side = 'credit' THEN (a->>'creditMinor')::numeric - (a->>'debitMinor')::numeric ELSE (a->>'debitMinor')::numeric - (a->>'creditMinor')::numeric END)
+    INTO v_n, v_exact, v_sum FROM jsonb_array_elements(v_input#>'{current,accounts}') a WHERE a->>'accountKey' = ANY (v_keys);
   IF v_n <> cardinality(v_keys) OR NOT v_exact THEN RETURN NULL; END IF;
   RETURN v_sum;
 END;

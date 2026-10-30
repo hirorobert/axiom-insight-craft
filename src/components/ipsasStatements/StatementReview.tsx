@@ -18,6 +18,8 @@ export function StatementReview(props: Props) {
   const view = viewScope.current === scope ? serverView : null;
   const draftRef = useRef(draft); draftRef.current = draft;
   const baseline = useRef("[]"), base = useRef<Review | null>(null), pending = useRef<SaveIntent | null>(null);
+  const confirmed = useRef<{ intent: SaveIntent; revisionId: string } | null>(null);
+  const [needsRead,setNeedsRead] = useState(false);
   const [busy,setBusy] = useState(false), busyRef = useRef(false), [uncertain,setUncertain] = useState(false);
   const [message,setMessage] = useState("Loading server-computed statements…"), [refreshQuestion,setRefreshQuestion] = useState(false);
   const [trace,setTrace] = useState<string | null>(null);
@@ -31,19 +33,24 @@ export function StatementReview(props: Props) {
     if (reset) { const next = choicesFrom(r); baseline.current=encoded(next); draftRef.current=next; setDraft(next); base.current=r; }
   };
   const refresh = useCallback(async () => {
-    const mine=epoch.current, s=scope, request=++readSequence.current;
+    const mine=epoch.current, s=scope, request=++readSequence.current, startedWith=encoded(draftRef.current);
     if (!actorId) { setView(null); setMessage("Sign in to review statements."); return; }
     setMessage("Refreshing figures from the server…");
     try {
       const r=await client.read(companyId,periodYear);
       if (!live(mine,s) || request!==readSequence.current) return;
       if (r.outcome!=="available") { setView(null); setMessage(refusalMessage(r.outcome)); return; }
-      install(r as Review,true); setMessage("Showing the server's saved figures. This is an incomplete draft.");
+      const next=r as Review, receipt=confirmed.current;
+      const unchanged=encoded(draftRef.current)===(receipt ? encoded(receipt.intent.assignments) : startedWith);
+      install(next,unchanged);
+      if(receipt && !unchanged && next.revisionId===receipt.revisionId && next.assignmentsCurrent) { base.current=next; baseline.current=encoded(receipt.intent.assignments); }
+      confirmed.current=null; setNeedsRead(false);
+      setMessage(unchanged ? "Showing the server's saved figures. This is an incomplete draft." : "Figures refreshed. Newer edits are still unsaved and have been kept.");
     } catch(e) { if(live(mine,s) && request===readSequence.current) { setView(null); setMessage(e instanceof Error ? e.message : "Statements could not be read."); } }
   },[actorId,companyId,periodYear,scope,client,live]);
   useEffect(() => {
     mounted.current=true; invalidate();
-    setView(null); setDraft([]); baseline.current="[]"; base.current=null; pending.current=null; busyRef.current=false; setBusy(false); setUncertain(false); setTrace(null); setRefreshQuestion(false);
+    setView(null); setDraft([]); baseline.current="[]"; base.current=null; pending.current=null; confirmed.current=null; setNeedsRead(false); busyRef.current=false; setBusy(false); setUncertain(false); setTrace(null); setRefreshQuestion(false);
     if(actorId) { try { const recovered=recoverIntent(sessionStorage,actorId,companyId,periodYear); if(recovered) { pending.current=recovered; setUncertain(true); } } catch { /* blocked browser storage is not a page failure */ } }
     void refresh();
     return () => { mounted.current=false; invalidate(); };
@@ -73,29 +80,32 @@ export function StatementReview(props: Props) {
       }
       try { sessionStorage.removeItem(recoveryKey(actorId,companyId,periodYear)); } catch { /* receipt remains authoritative */ }
       pending.current=null; setUncertain(false); setMessage("Presentation choices saved. Refreshing the server's statement figures…");
+      confirmed.current={intent,revisionId:receipt.revisionId!};
       const sequence=++readSequence.current;
       const r=await client.read(companyId,periodYear);
       if(!live(mine,s) || sequence!==readSequence.current) return;
       if(r.outcome!=="available") { setView(null); setMessage(`Your choices were saved. ${refusalMessage(r.outcome)}`); return; }
       const next=r as Review, unchanged=encoded(draftRef.current)===submitted;
       install(next,unchanged);
-      if(!unchanged && next.revisionId===receipt.revisionId) { base.current=next; baseline.current=submitted; }
+      if(!unchanged && next.revisionId===receipt.revisionId && next.assignmentsCurrent) { base.current=next; baseline.current=submitted; }
+      confirmed.current=null; setNeedsRead(false);
       setMessage(!unchanged ? "Your submitted choices were saved. Newer edits are still unsaved and have been kept." : "Saved. The figures below were recomputed by the server.");
     } catch(e) {
-      if(live(mine,s)) { setUncertain(pending.current!==null); setMessage(pending.current ? "We could not confirm whether the choices were saved. Send the same request again; newer edits will be kept." : "Your choices were saved, but the refreshed figures could not be read. Refresh to see the server's latest version."); }
+      if(live(mine,s)) { setUncertain(pending.current!==null); setNeedsRead(confirmed.current!==null); setMessage(pending.current ? "We could not confirm whether the choices were saved. Send the same request again; newer edits will be kept." : "Your choices were saved, but the refreshed figures could not be read. Refresh statements before saving again; newer edits will be kept."); }
     } finally { if(live(mine,s)) { busyRef.current=false; setBusy(false); } }
   };
   const save = () => {
     const b=base.current;
-    if(!b || busyRef.current || uncertain) return;
+    if(!b || busyRef.current || uncertain || needsRead) return;
     void send({companyId,periodYear,assignments:structuredClone(draftRef.current),expectedRevision:b.revisionId,expectedInput:b.inputSha256,requestId:crypto.randomUUID()});
   };
-  const update = (i: number, selection: string) => setDraft(a => { const next=a.map((v,j)=>i===j?{...v,captionId:selection.startsWith("zero:")?null:selection || null,zeroDisposition:selection.startsWith("zero:")?selection.slice(5) as Assignment["zeroDisposition"]:null,reason:null}:v);draftRef.current=next;return next; });
+  const choiceFor = (a: Assignment) => draft.find(v=>v.period===a.period && v.accountKey===a.accountKey);
+  const update = (account: Assignment, selection: string) => setDraft(a => { const source=a.some(v=>account.period===v.period && account.accountKey===v.accountKey)?a:[...a,{period:account.period,accountKey:account.accountKey,captionId:null,zeroDisposition:null,reason:null}];const next=source.map(v=>account.period===v.period && account.accountKey===v.accountKey?{...v,captionId:selection.startsWith("zero:")?null:selection || null,zeroDisposition:selection.startsWith("zero:")?selection.slice(5) as Assignment["zeroDisposition"]:null,reason:null}:v);draftRef.current=next;return next; });
   const amount = (v: string | null) => v===null ? "Not composed" : formatMinorAmount(BigInt(v),view!.current.exponent);
   const unresolved=view?.accounts.filter(a=>!["presented","reviewed_zero"].includes(a.status)).length ?? 0;
   return <section id="ipsas-statements" aria-labelledby="ipsas-statements-title" className="mt-8 space-y-4 border-t pt-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="ipsas-statements-title" className="text-xl font-semibold">Statements and presentation</h2>
-      <Button variant="outline" disabled={busy} onClick={()=>{if(dirty || uncertain)setRefreshQuestion(true);else void refresh();}}>Refresh statements</Button></div>
+      <Button variant="outline" disabled={busy} onClick={()=>{if(!needsRead && (dirty || uncertain))setRefreshQuestion(true);else void refresh();}}>Refresh statements</Button></div>
     <p role="status" aria-live="polite">{message}</p>
     {refreshQuestion && <div role="alert" className="rounded-md border p-3"><p>Refreshing will replace unsaved choices with the server's version. An unconfirmed save is not cancelled.</p>
       <Button variant="outline" onClick={()=>setRefreshQuestion(false)}>Keep editing</Button><Button variant="outline" disabled={busy} onClick={()=>{setRefreshQuestion(false);void refresh();}}>Discard edits and refresh</Button></div>}
@@ -109,13 +119,13 @@ export function StatementReview(props: Props) {
       <details open={unresolved>0}><summary>Presentation choices — {unresolved} accounts need confirmation</summary>
         <p>Choose the caption for each reviewed account. No caption is guessed from its name. Change an incorrect classification in Account review first. Zero-balance accounts can also carry movements or disclosures.</p>
         <div className="overflow-x-auto"><table className="w-full text-sm"><caption className="text-left">Current and prior certified accounts</caption><thead><tr><th>Period / account</th><th>Debit</th><th>Credit</th><th>Statement caption</th></tr></thead><tbody>
-          {view.accounts.map((a,i)=><tr key={`${a.period}:${a.accountKey}`}><th scope="row" className="p-2 text-left">{a.period}: {a.accountKey} — {a.accountName}<span className="block font-normal">{a.classification}</span></th><td>{amount(a.debitMinor)}</td><td>{amount(a.creditMinor)}</td>
-            <td><select aria-label={`Caption for ${a.period} ${a.accountKey}`} className="max-w-xs rounded border bg-background p-2" disabled={!canPrepare} value={draft[i]?.zeroDisposition?`zero:${draft[i].zeroDisposition}`:draft[i]?.captionId ?? ""} onChange={e=>update(i,e.target.value)}><option value="">Choose a caption</option>
+          {view.accounts.map(a=><tr key={`${a.period}:${a.accountKey}`}><th scope="row" className="p-2 text-left">{a.period}: {a.accountKey} — {a.accountName}<span className="block font-normal">{a.classification}</span></th><td>{amount(a.debitMinor)}</td><td>{amount(a.creditMinor)}</td>
+            <td><select aria-label={`Caption for ${a.period} ${a.accountKey}`} className="max-w-xs rounded border bg-background p-2" disabled={!canPrepare} value={choiceFor(a)?.zeroDisposition?`zero:${choiceFor(a)!.zeroDisposition}`:choiceFor(a)?.captionId ?? ""} onChange={e=>update(a,e.target.value)}><option value="">Choose a caption</option>
               {view.lines.filter(l=>l.section===a.section).map(l=><option key={l.id} value={l.id}>{l.label}</option>)}
               {a.debitMinor===a.creditMinor && <><option value="zero:movement-source-reviewed">Zero balance — movement source reviewed</option><option value="zero:non-reporting-reviewed">Zero balance — no reporting use, reviewed</option></>}
-            </select>{draft[i]?.zeroDisposition && <label className="block">Reason and evidence for {a.period} {a.accountKey}<input className="block rounded border bg-background p-2" disabled={!canPrepare} value={draft[i].reason ?? ""} maxLength={2000} onChange={e=>setDraft(v=>{const next=v.map((r,j)=>i===j?{...r,reason:e.target.value}:r);draftRef.current=next;return next;})}/></label>}</td></tr>)}
+            </select>{choiceFor(a)?.zeroDisposition && <label className="block">Reason and evidence for {a.period} {a.accountKey}<input className="block rounded border bg-background p-2" disabled={!canPrepare} value={choiceFor(a)!.reason ?? ""} maxLength={2000} onChange={e=>setDraft(v=>{const next=v.map(r=>r.period===a.period && r.accountKey===a.accountKey?{...r,reason:e.target.value}:r);draftRef.current=next;return next;})}/></label>}</td></tr>)}
         </tbody></table></div>
-        {canPrepare && <Button disabled={!dirty || busy || uncertain} onClick={save}>{busy?"Saving…":"Save presentation choices"}</Button>}
+        {canPrepare && <Button disabled={!dirty || busy || uncertain || needsRead} onClick={save}>{busy?"Saving…":"Save presentation choices"}</Button>}
         <a className="ml-3 underline" href={`/workspace/${companyId}/${periodYear}/prepare`}>Open Account review</a>
       </details>
       {["SFP","SFPERF"].map(statement=><div key={statement} className="overflow-x-auto"><h3 className="font-semibold">{statement==="SFP"?"Statement of financial position":"Statement of financial performance"}</h3>

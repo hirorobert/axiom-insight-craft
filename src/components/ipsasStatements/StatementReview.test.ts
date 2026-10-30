@@ -52,3 +52,32 @@ it("Refresh responds to dirty work with explicit keep/discard actions",async()=>
 it("signed-out screens neither read nor persist a recovery intent",async()=>{const{db,calls}=server();m=mount(h(StatementReview,props(db,{actorId:null}) as never));await flush();expect(calls).toHaveLength(0);expect(sessionStorage.length).toBe(0);expect(m.container.textContent).toContain("Sign in");});
 it("read-only users get no save action",async()=>{const{db}=server();m=mount(h(StatementReview,props(db,{canPrepare:false}) as never));await flush();expect(m.container.textContent).not.toContain("Save presentation choices");expect((m.container.querySelector('select') as HTMLSelectElement).disabled).toBe(true);});
 it("the review screen has no detected structural accessibility violations",async()=>{const{db}=server();m=mount(h(StatementReview,props(db) as never));await flush();expect(await axeViolations(m.container)).toEqual([]);});
+it("keeps choices typed after an explicit refresh started",async()=>{
+ let finish!:(r:unknown)=>void,reads=0;
+ const db={rpc:async()=>({data:++reads===1?reviewFixture():await new Promise(r=>finish=r),error:null})};
+ m=mount(h(StatementReview,props(db) as never));await flush();click(button("Refresh statements"));await flush();select("cash");
+ await act(async()=>finish(reviewFixture()));await flush();
+ expect((m.container.querySelector('[aria-label="Caption for current 1000"]') as HTMLSelectElement).value).toBe("cash");
+ expect(button("Save presentation choices").disabled).toBe(false);
+});
+it("recovers a confirmed save's failed read without discarding newer edits or saving an old revision",async()=>{
+ let reads=0,saved:Record<string,unknown>;
+ const db={rpc:async(name:string,args:Record<string,unknown>)=>{
+  if(name==="ipsas_statement_review") {if(++reads===2)throw Error("lost read");return{data:reviewFixture(COMPANY,saved?.p_assignments as never??null),error:null};}
+  saved=args;return{data:{outcome:"recorded",revisionId:REVISION,requestId:args.p_request,sourceSha256:"a".repeat(64)},error:null};
+ }};
+ m=mount(h(StatementReview,props(db) as never));await flush();select("cash");click(button("Save presentation choices"));await flush();select("receivables_current");
+ expect(button("Save presentation choices").disabled).toBe(true);
+ click(button("Refresh statements"));await flush();expect((m.container.querySelector('[aria-label="Caption for current 1000"]') as HTMLSelectElement).value).toBe("receivables_current");
+ expect(button("Save presentation choices").disabled).toBe(false);click(button("Save presentation choices"));await flush();expect(saved.p_expected_revision).toBe(REVISION);
+});
+it("keeps newer choices attached to account identity when the source row order changes",async()=>{
+ let finish!:(r:unknown)=>void,sent:Record<string,unknown>,reads=0;
+ const db={rpc:async(name:string,args:Record<string,unknown>)=>{
+  if(name==="ipsas_statement_review") {const r=reviewFixture(COMPANY,reads++?sent.p_assignments as never:null);if(reads>1)r.accounts.reverse();return{data:r,error:null};}
+  sent=args;return{data:await new Promise(r=>finish=r),error:null};
+ }};
+ m=mount(h(StatementReview,props(db) as never));await flush();select("cash");click(button("Save presentation choices"));await flush();select("receivables_current");
+ await act(async()=>finish({outcome:"recorded",revisionId:REVISION,requestId:sent.p_request,sourceSha256:"a".repeat(64)}));await flush();
+ expect((m.container.querySelector('[aria-label="Caption for current 1000"]') as HTMLSelectElement).value).toBe("receivables_current");
+});

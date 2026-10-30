@@ -90,7 +90,7 @@ async function main() {
 
   await kase("setup.world-and-certified-years", "an IPSAS company with a preparer, a partner and a viewer, and 2025 and 2026 trial balances (with grant accounts) certified by the real engine", async () => {
     const k = await certifier(db, U);
-    for (const [y, col] of [[2025, 7], [2026, 5]]) { const u = await k.upload(AI, y, csv(col, TBG)); await k.review(AI, u, TBG); await k.certify(AI, u); }
+    for (const [y, col] of [[2025, 7], [2026, 5]]) { const u = await k.upload(AI, y, csv(col, TBG)); if (y === 2025) await k.review(AI, u, TBG); await k.certify(AI, u); }
     const n = await db.one("SELECT count(*)::int n FROM public.tb_certifications WHERE company_id=$1", [AI]);
     return n.n >= 2 ? true : n;
   });
@@ -223,12 +223,12 @@ async function main() {
     const l = (await ctx(U.owner, AI, 2026)).live;
     return l.tb.revenueMinor === "650000000" && l.tb.liabilityMinor === "550000000" && l.tb.receivableMinor === "450000000" && !l.assessment.codes.some((c) => c.startsWith("TB_GRANT")) ? true : l.tb;
   });
-  await kase("tb.unknown-is-not-zero", "an absent account key makes the figure unknown with a named blocker; a wrong selection is a stated difference", async () => {
+  await kase("tb.unknown-is-not-zero", "an absent account key or incompatible classification makes the figure unknown with a named blocker", async () => {
     const ghost = await save(2026, payload(AI, 2026, G47(), { tbSelection: { revenueKeys: ["4300", "9999"], liabilityKeys: ["2300"], receivableKeys: [] } }), { expected: rev[2026] }); rev[2026] = ghost.revisionId;
     const wrong = await save(2026, payload(AI, 2026, G47(), { tbSelection: { revenueKeys: ["3000"], liabilityKeys: ["2300"], receivableKeys: ["1300"] } }), { expected: rev[2026] }); rev[2026] = wrong.revisionId;
     const restore = await save(2026, payload(AI, 2026, G47()), { expected: rev[2026] }); rev[2026] = restore.revisionId;
     const g = ghost.live.assessment.codes, w = wrong.live.assessment.codes;
-    return ghost.live.tb.revenueMinor === null && g.includes("TB_GRANT_REVENUE_UNKNOWN|") && g.includes("TB_GRANT_RECEIVABLE_UNKNOWN|") && !g.includes("TB_GRANT_LIABILITY_UNKNOWN|") && w.includes("TB_GRANT_REVENUE_DIFFERENCE|") ? true : { g, w };
+    return ghost.live.tb.revenueMinor === null && g.includes("TB_GRANT_REVENUE_UNKNOWN|") && g.includes("TB_GRANT_RECEIVABLE_UNKNOWN|") && !g.includes("TB_GRANT_LIABILITY_UNKNOWN|") && wrong.live.tb.revenueMinor === null && w.includes("TB_GRANT_REVENUE_UNKNOWN|") ? true : { g, w };
   });
 
   group("Confirmation");
