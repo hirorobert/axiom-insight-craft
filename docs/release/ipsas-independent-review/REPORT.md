@@ -1,5 +1,7 @@
 # Independent IPSAS review — 2026-10-30
 
+> **Status note (added after publication; the review text below is unchanged).** The repairs described here were later pushed as pull request #229 and extended by the CI-recovery commits recorded in [`../ipsas-ci-recovery/RECORD.md`](../ipsas-ci-recovery/RECORD.md). Statements below such as "committed locally" and "no push occurred" describe the state when this report was written. The current candidate, its CI evidence, the stability record, the click-driver review, the integration plan and the gate table are in [`HANDOFF.md`](HANDOFF.md). That handoff is written by the author side and is not independent acceptance.
+
 **Verdict: CHANGES REQUIRED for the supplied PR heads.** Both contain confirmed accounting-source defects; #228 also contains three confirmed presentation/save defects. Repairs are committed locally on `codex/ipsas-independent-review`. They must be incorporated and receive final-head CI/review before these PRs can be considered technically ready. This review does not authorize the next feature stage or any release action.
 
 ## Exact scope and preservation

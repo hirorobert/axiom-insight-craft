@@ -20,7 +20,7 @@ Baseline: #229 at `8deb7edfca9445f0009d067b2a62a03401c03ad8`. All preceding F1-F
 
 ## Release boundary
 
-No merge, installation, deployment, publication, activation, hosted read/write or paid service. Stage C is not started. The 160-scenario acceptance package has not been executed. Final-head CI and independent technical re-review are necessary before integration; accounting, hosted verification and official IPSAS issuance remain separate unfinished work.
+No merge, installation, deployment, publication, activation, hosted read/write or paid service. Stage C is not started. The 160-scenario acceptance package has not been executed. Independent technical re-review is necessary before integration; accounting, hosted verification and official IPSAS issuance remain separate unfinished work. Final-head CI for the code head `8a2467b`, the bounded stability sample and the integration plan are recorded in [`../ipsas-independent-review/HANDOFF.md`](../ipsas-independent-review/HANDOFF.md).
 
 ## Executed CI and follow-up
 
