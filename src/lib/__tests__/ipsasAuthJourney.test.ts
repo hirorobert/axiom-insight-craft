@@ -83,6 +83,15 @@ describe("the journey script", () => {
     expect(authenticated).not.toMatch(/admin\.storage\.from/);
     expect(src).not.toContain("TB-SOURCE-OWNER-RETRIEVAL");
   });
+  it("activates the foreground download target and requires a trusted click without retrying or bypassing its handler", () => {
+    const download = src.slice(src.indexOf("the owner presses 'Download original'"), src.indexOf("refused by the server with no URL"));
+    expect(download).toContain('p.send("Page.bringToFront")');
+    expect(download).toContain('label: "file-options focus handoff"');
+    expect(download).toContain('e.isTrusted');
+    expect(download).toContain('activation?.count !== 1 || !activation.trusted');
+    expect(download.match(/await p\.click\(/g)).toHaveLength(1);
+    expect(download).not.toContain('button.click()');
+  });
   it("states which boundaries are real and which are operator actions in its results", () => {
     expect(src).toMatch(/real: \[/); expect(src).toMatch(/operatorActionsByServiceRole/); expect(src).toMatch(/notUsed: \[/);
     // operator-created fixtures must never be presented as tested onboarding

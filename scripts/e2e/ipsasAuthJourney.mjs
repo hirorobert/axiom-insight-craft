@@ -436,8 +436,24 @@ async function main() {
     catch { await p.browser.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dir }); }
     await goRoute(p, `${base}/trial-balance/review?manage=source`, "");
     await p.waitForSelector('[data-testid="download-original-trial-balance"]', { timeout: 45000 });
+    // A coordinate click needs the foreground target, just as Page.press() does. Wait for the
+    // manage deep-link's focus handoff before stopping its smooth scroll; never retry an unobserved click.
+    await p.send("Page.bringToFront");
+    await p.waitFor(() => document.activeElement?.id === "manage-trial-balance-title", [], { label: "file-options focus handoff", timeout: 15000 });
+    await p.evaluate(() => {
+      const button = document.querySelector('[data-testid="download-original-trial-balance"]');
+      button.scrollIntoView({ behavior:"instant", block:"center" });
+      window.__sourceDownloadClick = { count:0, trusted:false };
+      document.addEventListener("click", e => {
+        if (e.target.closest?.('[data-testid="download-original-trial-balance"]')) {
+          window.__sourceDownloadClick.count++; window.__sourceDownloadClick.trusted = e.isTrusted;
+        }
+      }, { capture:true });
+    });
     const before = p.responses.length;
     await p.click('[data-testid="download-original-trial-balance"]');
+    const activation = await p.evaluate(() => window.__sourceDownloadClick);
+    if (activation?.count !== 1 || !activation.trusted) return { activation, reason:"Chrome did not deliver exactly one trusted click to the download button" };
     const told = await p.waitFor(() => /matches the fingerprint|could not be compared/.test(document.body.innerText), [], { label: "download notice", timeout: 30000 }).catch(() => false);
     let saved = null;
     for (let i = 0; i < 60 && !saved; i++) { await sleep(500); saved = fs.readdirSync(dir).find((f) => !/\.crdownload$|\.tmp$/i.test(f)) ?? null; }
