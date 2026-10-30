@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import { GrantsPreparation } from "./GrantsPreparation";
 import { grantA, grantB, TB47, entity47 } from "@/lib/ipsasAccrual/grants.fixture";
+import { emptyGrantsDraft } from "@/lib/ipsasAccrual/draft";
 
 const CO = "99999999-9999-4999-8999-999999999999", REV = "88888888-8888-4888-8888-888888888888";
 const live = (model: "ipsas23" | "ipsas47" | null, over: Record<string, unknown> = {}) => ({
@@ -54,9 +55,10 @@ describe("GrantsPreparation", () => {
 
   it("a saved register without a current assessment is unknown rather than no open matters", async () => {
     const reported: unknown[] = [];
-    const { db } = fakeDb({ context: ctxOf("ipsas47", { id: REV, payload: { grants: [], tbSelection: {} } }, { assessment: null }) });
+    const { db } = fakeDb({ context: ctxOf("ipsas47", { id: REV, payload: emptyGrantsDraft(CO, 2026), sha256: "a".repeat(64), createdAt: "2026-10-30T00:00:00Z" }, { assessment: null }) });
     m = mount(h(GrantsPreparation, props(db, { onNextTask: (t: unknown) => reported.push(t) }) as never));
     await flush();
+    expect(m!.container.querySelector("[data-grants-revision]")?.getAttribute("data-grants-revision")).toBe(REV);
     expect(reported).not.toContain(null);
   });
   it("offers only the classification vocabulary of the SERVER-derived period, and says the period is read, not typed", async () => {
