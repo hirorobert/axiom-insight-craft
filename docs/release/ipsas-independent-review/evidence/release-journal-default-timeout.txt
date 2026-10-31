@@ -1,0 +1,107 @@
+
+ RUN  v3.2.7 C:/Users/user/.codex/worktrees/ipsas-independent-review
+
+ ❯ src/lib/__tests__/releaseJournal.test.ts (65 tests | 1 failed) 87042ms
+   ✓ the reviewed release journal > every entry 0013–0022 and 0024 validates: exact content, exact template, digest = the source file in this repository  420ms
+   ✓ the reviewed release journal > pins the prerequisite and 140000 digests exactly as authorised 55ms
+   ✓ the reviewed release journal > the guard accepts the repository: the wrappers apply 100000–150000, the processing correction 20260926160000 , the removal migration 20260927100000 (0024) and (out of order on purpose) the prerequisite; 0028 applies S1 byte for byte; only H1 (20261007100000) is pending (the parked 20261004100000 / 20261005100000 are quarantined)  1825ms
+   ✓ the reviewed release journal > 0024 is recognised by its exact reviewed tag only, pinned by SHA-256 and re-rendered from its template; any change fails closed 14ms
+   ✓ mutations fail — structurally, not only by the content pin > a wrapper referencing another / unknown migration fails 4ms
+   ✓ mutations fail — structurally, not only by the content pin > a different digest fails; a different byte count fails 9ms
+   ✓ mutations fail — structurally, not only by the content pin > additional SQL fails (appended statement, extra DDL / grant inside the block) 3ms
+   ✓ mutations fail — structurally, not only by the content pin > dynamic or unconstrained selection fails 2ms
+   ✓ mutations fail — structurally, not only by the content pin > recording applied_at before the execution succeeded fails 2ms
+   ✓ mutations fail — structurally, not only by the content pin > the probe or staging entry changing customer or accounting data, creating other objects, or granting a client role fails 13ms
+   ✓ mutations fail — structurally, not only by the content pin > any content change to a reviewed entry fails by its pin as well  348ms
+   ✓ the guard fails closed on the journal > a new, unreviewed release wrapper fails even when it is a perfect wrapper for a real migration  2499ms
+   ✓ the guard fails closed on the journal > editing a reviewed wrapper, or removing it from the journal, fails  2112ms
+   ✓ the guard fails closed on the journal > a changed source migration breaks its wrapper's digest  2237ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > is pinned exactly and equals its source byte for byte 8ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects a whitespace change 6ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects an added comment 4ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects a changed digest 8ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects a changed byte count 4ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects a changed path  2270ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects removal from the journal  2122ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects duplication  2163ms
+   ✓ 0025 release_verbatim: exact tag, path, bytes, SHA-256 and byte-for-byte equality > rejects an unknown entry (no wildcard, no prefix rule) 5ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > pins the canonical source and the submitted text separately 8ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > the hosted mirror is exactly the source without its final byte, and nothing else (the source ends with two LFs) 13ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > rejects the source byte for byte (not the registered form for 0029)  2163ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > rejects removing BOTH trailing LFs  2146ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > rejects every other change: an added LF or space, CRLF, a BOM, one changed byte, an added leading LF, collapsed whitespace  19608ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > rejects a changed canonical source (its pinned digest and registered form no longer match)  2548ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > rejects a changed registration: another kind, another submitted hash, another byte count 20ms
+   ✓ 0029: H1 applied as its source minus its single final LF (release_verbatim_final_lf_removed) > without its reviewed entry, normalised parity cannot accept it (rule 9)  1741ms
+   ✓ S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form > registers exactly the source and the source minus its single final LF 6ms
+   ✓ S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form > accepts only those two forms 7ms
+   ✓ S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form > 0030 pins the canonical source and the submitted text separately; the mirror is the source minus its final byte 13ms
+   ✓ S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form > rejects the source byte for byte, both trailing bytes removed, CRLF or one changed byte in 0030 26ms
+   ✓ S2: both submission forms registered ahead of application; applied as 0030 in the final-LF-removed form > without its reviewed entry, normalised parity cannot accept 0030 (rule 9)  1711ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261009100000_currency_registry_and_reporting_periods.sql: registers exactly the unchanged source and the source minus its single final LF 6ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261009100000_currency_registry_and_reporting_periods.sql: accepts only those two forms; every other transformation is rejected 9ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261009100000_currency_registry_and_reporting_periods.sql: a changed source no longer matches its registration (no form is accepted) 1ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261010100000_layout_templates_and_confirmations.sql: registers exactly the unchanged source and the source minus its single final LF 6ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261010100000_layout_templates_and_confirmations.sql: accepts only those two forms; every other transformation is rejected 9ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > 20261010100000_layout_templates_and_confirmations.sql: a changed source no longer matches its registration (no form is accepted) 1ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > rule 9: without a reviewed RELEASE_JOURNAL entry, no Drizzle mirror is accepted — not even the registered forms, and never a normalised one  18903ms
+   ✓ I1-A A1/A2: both submission forms registered ahead of application (nothing applied) > applied as 0031/0032 in the IDENTICAL form, each through exactly one reviewed release entry; nothing of I1-A pending  1466ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0031_currency_registry_and_reporting_periods: the mirror is the source byte for byte, the registered identical form, and its entry pins both 9ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0031_currency_registry_and_reporting_periods: the Drizzle journal and snapshot chain record it in order, after 0030 4ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0031_currency_registry_and_reporting_periods: any other content is refused — a changed byte, the final-LF-removed form under this identical entry, or a changed source 11ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0032_layout_templates_and_confirmations: the mirror is the source byte for byte, the registered identical form, and its entry pins both 7ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0032_layout_templates_and_confirmations: the Drizzle journal and snapshot chain record it in order, after 0030 6ms
+   ✓ I1-A hosted application: 0031/0032 pinned to the canonical (identical) forms > 0032_layout_templates_and_confirmations: any other content is refused — a changed byte, the final-LF-removed form under this identical entry, or a changed source 12ms
+   ✓ the milestone's seven migrations: both submission forms registered ahead of application (nothing applied) > registers exactly these seven, in release order, each as the final reviewed source and that source minus its single final LF 31ms
+   ✓ the milestone's seven migrations: both submission forms registered ahead of application (nothing applied) > accepts only those two forms of each; every other transformation is rejected 171ms
+   ✓ the milestone's seven migrations: both submission forms registered ahead of application (nothing applied) > rule 9: without reviewed RELEASE_JOURNAL entries, no Drizzle mirror of any of the seven is accepted — not even a registered form  4758ms
+   ✓ the milestone's seven migrations: both submission forms registered ahead of application (nothing applied) > applied as 0033–0039 through their registered self-checking wrappers, in order; nothing pending  1753ms
+   ✓ the reporting release: all four forms of each source registered ahead of application (nothing applied) > registers exactly the five, then the readiness correction last, in release order; each form recomputed here from the repository bytes 62ms
+   ✓ 0070 checkout recovery applied before the pending Trial Balance workflow > pins the exact source and mirror while retaining both pending TB batches  1714ms
+   ✓ 0070 checkout recovery applied before the pending Trial Balance workflow > still refuses either skipped TB source without the reviewed out-of-order declaration  1648ms
+   ✓ 0070 checkout recovery applied before the pending Trial Balance workflow > refuses altered mirror or source bytes even with the out-of-order declaration 8ms
+   ✓ fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > each mirror is exactly the recorded submission form, registered as fsi_staged_transport with the recorded digest 50ms
+   ✓ fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > the journal holds the five entries contiguously, in order, after 0074 10ms
+   ✓ fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > refuses an altered byte, a batch submitted under another batch's tag, and the raw source in place of its transport form 18ms
+   ✓ fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > refuses a covered reporting source whose bytes differ from the approved identity 7ms
+   × fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > the repository-level guard fails when an entry is missing, duplicated or the batches are reordered 10183ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ track-a-r1 (20261127100000, 20261128100000): applied through its staged transport (hosted 81–83) > pins both submission forms of each source; exactly the three transport entries claim them 7ms
+   ✓ track-a-r1 (20261127100000, 20261128100000): applied through its staged transport (hosted 81–83) > a tra_staged_transport mirror is accepted only byte for byte (checked against the module's pinned forms) 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/__tests__/releaseJournal.test.ts > fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > the repository-level guard fails when an entry is missing, duplicated or the batches are reordered
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/lib/__tests__/releaseJournal.test.ts:743:3
+    741|     expect(checkReleaseEntry(b1.tag, read(b1.tag), changed).problems.l…
+    742|   });
+    743|   it("the repository-level guard fails when an entry is missing, dupli…
+       |   ^
+    744|     expect(errs(() => {})).toEqual([]);
+    745|     // Missing: drop 0077 from the journal and its mirror.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:605:17
+ ❯ processTimers node:internal/timers:541:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 64 passed (65)
+     Errors  1 error
+   Start at  08:17:30
+   Duration  90.47s (transform 569ms, setup 0ms, collect 810ms, tests 87.04s, environment 1ms, prepare 366ms)

@@ -79,7 +79,8 @@ describe("migration authority parity", () => {
     // 20261106100000–20261109100000 (tb-release-r1) are applied as hosted 59–62 through their self-checking wrappers.
     // 20261123100000–20261126100000 (fs-integrity-r1) are applied as 0076–0079 (hosted 77–80) through the staged transport.
     // track-a-r1 (20261127100000, 20261128100000) applied through its staged transport (hosted 81–83).
-    expect(r.pending).toEqual([]); // the team bootstrap applied as 0087 (hosted 88). the admin activation controls applied as 0086 (hosted 87). internal-beta-r1 applied as 0084/0085 (hosted 85/86). // track-a-r1 applied as 0081/0082 (hosted 82/83); Ask CFOClose (20261201100000) is authored and pending hosted application.
+    // 20261207100000 (IPSAS accrual preparation, first chain) is authored and PENDING hosted application: listed, never an error.
+    expect(r.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"]); // the team bootstrap applied as 0087 (hosted 88). the admin activation controls applied as 0086 (hosted 87). internal-beta-r1 applied as 0084/0085 (hosted 85/86). // track-a-r1 applied as 0081/0082 (hosted 82/83); Ask CFOClose (20261201100000) is authored and pending hosted application.
     for (const t of ["0065_fs_controls_r1_staged_apply", "0066_fs_journey_r1_staged_apply", "0067_fs_bounds_r1_staged_apply", "0068_fs_capacity_r1_staged_apply", "0069_fs_memo_r1_staged_apply"]) expect(r.mirrored.find((m) => m.tag === t)?.how).toBe("staged_transport");
     // before this migration: the commercial launch, p3, p4 and p5 are applied (0046–0055, hosted 47–56)
     expect(r.mirrored.find((m) => m.tag === "0025_apply_20261001120000_annual_commercial_term")?.how).toBe("release_verbatim");

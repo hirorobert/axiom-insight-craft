@@ -1,0 +1,106 @@
+{
+  "proof": "ipsasGrantsTransport",
+  "mode": "present",
+  "manifestSha256": "d0eae3672cc7660e3d26d5b1febdbcbe1b5fa1b52cfea2ac8d0079cd2e27832f",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.real-predecessor-chain",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.wrong-predecessor-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.exact-id-required",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.private-install",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.existing-schema-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.client-roles-denied",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.missing-stage-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.one-byte-tamper-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.unknown-artifact-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.exact-source-inert",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.immutable-evidence",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.rehash-does-not-trust-metadata",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.prerequisite-missing-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.preparation-not-installed-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.unexpected-journal-head-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.late-failure-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.baseline-change-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.privilege-postcondition-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.binding-independent-of-session-search-path",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.concurrent-installed-exactly-once",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.duplicate-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "installed.equals-direct-application",
+      "outcome": "pass"
+    },
+    {
+      "id": "installed.authority-matrix-and-framework-gate",
+      "outcome": "pass"
+    },
+    {
+      "id": "preservation.actual-records-and-settings",
+      "outcome": "pass"
+    }
+  ]
+}

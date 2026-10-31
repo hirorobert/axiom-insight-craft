@@ -194,7 +194,8 @@ export class Page {
         el = cands.find((c) => visible(c) && c.innerText.trim().toLowerCase() === t) ?? cands.find((c) => visible(c) && c.innerText.toLowerCase().includes(t)) ?? null;
       }
       if (!el) return null;
-      el.scrollIntoView({ block: "center", inline: "center" });
+      // A coordinate returned before a CSS smooth scroll finishes is not a click target.
+      el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       // What a person would actually press: the element must be on screen and the topmost thing at its centre.
@@ -207,6 +208,8 @@ export class Page {
   async click(target, { timeout = 20000, allowDisabled = false } = {}) {
     const t = typeof target === "string" ? { selector: target } : target;
     const deadline = Date.now() + timeout;
+    await this.send("Page.bringToFront");
+    await this.waitFor(() => document.visibilityState === "visible" && document.hasFocus(), [], { timeout: Math.max(1, deadline - Date.now()), label: "foreground page focus before native mouse input" });
     let pos = null;
     let seen = null;
     while (Date.now() < deadline) {
@@ -219,16 +222,25 @@ export class Page {
     if (!pos && seen && !seen.hit) throw new Error(`click: ${JSON.stringify(t)} is covered or off-screen (not pressable at ${Math.round(seen.x)},${Math.round(seen.y)})`);
     if (!pos) throw new Error(`click: nothing clickable for ${JSON.stringify(t)}`);
     // Hover first, then re-locate once layout settles: hover can move the target (a toast stack expands under the
-    // pointer), and a press at the stale position would land on whatever moved there instead.
-    await this.mouse("mouseMoved", pos);
-    await sleep(350);
-    const settled = await this.locate(t).catch(() => null);
-    if (settled && !settled.hit) throw new Error(`click: ${JSON.stringify(t)} became covered or moved off-screen on hover`);
-    if (settled && (Math.abs(settled.x - pos.x) > 1 || Math.abs(settled.y - pos.y) > 1)) {
-      pos = settled;
+    // pointer), and a press at the stale position would land on whatever moved there instead. This is the settle
+    // interval and tolerance the suite ran with for weeks (350 ms, 1 px); a faster, stricter sampler (100 ms, 0.5 px,
+    // an unbounded budget) failed an unrelated journey in CI. A target that is gone, covered, disabled or still moving
+    // after a bounded number of samples is refused WITHOUT any click; the press/release pair is sent exactly once.
+    // The last samples are in the message so a refusal says what the page was doing.
+    const samples = [];
+    let stable = false;
+    for (let attempt = 0; attempt < 6 && Date.now() < deadline; attempt++) {
       await this.mouse("mouseMoved", pos);
       await sleep(350);
+      const next = await this.locate(t).catch(() => null);
+      samples.push(next ? { x: Math.round(next.x * 10) / 10, y: Math.round(next.y * 10) / 10, hit: next.hit, disabled: next.disabled } : null);
+      if (next && next.hit && (allowDisabled || !next.disabled)) {
+        const moved = Math.abs(next.x - pos.x) > 1 || Math.abs(next.y - pos.y) > 1;
+        pos = next;
+        if (!moved) { stable = true; break; }
+      } // else a transient cover/disable/absence: hover again at the last good position and re-locate
     }
+    if (!stable) throw new Error(`click: ${JSON.stringify(t)} did not settle before input (disappeared, covered, disabled or still moving); last samples ${JSON.stringify(samples.slice(-4))}`);
     await this.mouse("mousePressed", pos);
     await this.mouse("mouseReleased", pos);
   }

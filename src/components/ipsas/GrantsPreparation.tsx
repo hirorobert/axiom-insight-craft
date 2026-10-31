@@ -1,0 +1,291 @@
+/**
+ * IPSAS accrual grants and revenue — agreement/evidence → period-specific assessment → obligations and satisfaction evidence →
+ * server-calculated revenue, receivable and liability → reconciliation → generated note and remaining tasks. Everything shown as
+ * calculated, confirmed or tied is what the SERVER returned; this component edits a payload, saves it with an expected revision and a
+ * request identity, and displays the answer. Revenue is never derived from cash received or money spent; the form says so.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import type { ReportingDb } from "@/lib/reporting/signoff";
+import { afterFailure, afterReceipt, grantsClient, refusalWords, type GrantsContext, type SaveState } from "@/lib/ipsasAccrual/ipsasClient";
+import { denominationWords, emptyGrant, emptyGrantsDraft, emptyObligation, fromMinor, knownPresentation, newId, sameDenomination, stableJson, type GrantsDraft } from "@/lib/ipsasAccrual/draft";
+import { CLASSIFICATIONS_23, CLASSIFICATIONS_47, COMPLEXITIES, COMPLEXITY_LABELS, GRANT_ENTITY_QUESTIONS, SATISFACTION_BASES, computeGrants, generateGrantsNote, grantModel, grantTasks, type Grant, type GrantsInput } from "@/lib/ipsasAccrual/grants";
+import type { PrepTask } from "@/lib/ipsasAccrual/preview";
+import { Amount, Select, Text } from "./fields";
+import { ExponentContext } from "./exponentContext";
+
+const WORDS: Record<string, string> = {
+  "restriction-only": "Restriction only — use is restricted, nothing must be returned", "enforceable-condition": "Condition — resources must be returned if the condition is not met",
+  "binding-arrangement": "Binding arrangement with performance obligations", "without-binding-with-present-obligation": "No binding arrangement, but a present obligation",
+  "without-binding-no-present-obligation": "No binding arrangement and no present obligation",
+};
+const BASIS_WORDS: Record<string, string> = { "milestone-delivered": "Milestone delivered and accepted", "output-measure": "Output measure achieved", "time-elapsed": "Time elapsed (agreement says so)", "agreement-stated-expenditure": "Expenditure the agreement itself names" };
+
+function Banner({ state, onRetry }: { state: SaveState; onRetry: () => void }) {
+  if (state.kind === "idle") return null;
+  const base = "rounded-md border px-3 py-2 text-sm";
+  if (state.kind === "pending") return <p role="status" className={`${base} border-border`}>Saving…</p>;
+  if (state.kind === "saved") return <p role="status" className={`${base} border-green-600/40`}>Saved{state.replay ? " (this request had already been recorded)" : ""}. This is the server's recorded version.</p>;
+  if (state.kind === "refused") return <p role="alert" className={`${base} border-destructive/50`}>{refusalWords(state.outcome)}</p>;
+  return (
+    <div role="alert" className={`${base} border-amber-500/60`}>
+      <p>We could not confirm whether this was saved. Nothing is assumed either way.</p>
+      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={onRetry}>Send the same request again</Button>
+    </div>
+  );
+}
+
+export interface GrantsPreparationProps {
+  companyId: string; periodYear: number; legalName: string; db: Pick<ReportingDb, "rpc">; canPrepare: boolean; canConfirm: boolean;
+  /** Which area of the page is showing; the component always loads so it can report the next task, but draws only in prepare/review. */
+  area: "bring" | "prepare" | "review" | "approve" | "issue";
+  /** undefined means the saved context is still unknown; null means assessed with no open task. */
+  onNextTask?: (t: PrepTask | null | undefined) => void;
+}
+
+export function GrantsPreparation({ companyId, periodYear, legalName, db, canPrepare, canConfirm, area, onNextTask }: GrantsPreparationProps) {
+  const client = useMemo(() => grantsClient(db), [db]);
+  const [ctx, setCtx] = useState<GrantsContext | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [draft, setDraft] = useState<GrantsDraft>(() => emptyGrantsDraft(companyId, periodYear, null));
+  const [saves, setSaves] = useState<Record<string, SaveState>>({});
+  /** The request last sent per save key, kept whole so an unknown outcome is retried as THE SAME request (payload and identity). */
+  const identities = useRef<Record<string, { id: string; fp: string; call: (requestId: string) => Promise<{ outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }>; snapshot?: string }>>({});
+  const scope = useRef(`${companyId}:${periodYear}`);
+  scope.current = `${companyId}:${periodYear}`;
+  /** The signed-in actor's client: an answer that belongs to another client is never applied. */
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  /** Only the newest operation per key may change that key's state; one request per key is in flight; only the newest started read may set the server's version. */
+  const ops = useRef<Record<string, symbol>>({});
+  const inflight = useRef<Set<string>>(new Set());
+  const readSeq = useRef(0);
+
+  /** "reset" replaces the draft with the server's version (initial load, explicit discard); { ifSnapshot } adopts it only if the draft is still exactly what was submitted, so an edit typed after submission stays and stays unsaved. */
+  type Adopt = "reset" | { ifSnapshot: string } | undefined;
+  const refresh = useCallback(async (adopt: Adopt) => {
+    const mine = `${companyId}:${periodYear}`, myClient = client, seq = ++readSeq.current;
+    const stale = () => scope.current !== mine || clientRef.current !== myClient || readSeq.current !== seq;
+    try {
+      const r = await client.context(companyId, periodYear);
+      if (stale()) return; // a late answer for another company, year, actor or an older read is discarded
+      if (r.outcome !== "available") { setProblem(refusalWords(r.outcome)); setCtx(null); return; }
+      const c = r as GrantsContext;
+      setProblem(null); setCtx(c);
+      const server = (c.register?.payload as unknown as GrantsDraft) ?? emptyGrantsDraft(companyId, periodYear, knownPresentation(c.live.presentation)); // a new draft is entered in the SERVER-confirmed denomination
+      if (adopt) setDraft((cur) => (adopt === "reset" ? server : stableJson(cur) === adopt.ifSnapshot ? server : cur));
+    } catch { if (!stale()) setProblem("We could not read the saved grants. Nothing has changed."); }
+  }, [client, companyId, periodYear]);
+  useEffect(() => { setCtx(null); setSaves({}); identities.current = {}; ops.current = {}; inflight.current = new Set(); void refresh("reset"); }, [refresh]);
+
+  const saved = (ctx?.register?.payload as unknown as GrantsDraft | undefined) ?? null;
+  /** The denomination the server confirmed (null while unknown or unsupported), and whether the saved register was entered in it. */
+  const pres = knownPresentation(ctx?.live.presentation);
+  const denominationOk = !!pres && (!saved || sameDenomination(saved.presentation, pres));
+  const dirty = stableJson(draft) !== stableJson(saved ?? emptyGrantsDraft(companyId, periodYear, pres));
+  const live = ctx?.live ?? null;
+  const model = live?.assessment?.model ?? grantModel(live?.period.start ?? null).model;
+
+  // The review is built from what the SERVER holds, never from unsaved edits.
+  const review = useMemo(() => {
+    if (!ctx || !saved || !live?.assessment || !pres || !denominationOk) return null;
+    const input: GrantsInput = {
+      period: live.period.start ? { start: live.period.start, end: live.period.end ?? live.period.start } : null, entityAnswers: saved.entityAnswers as GrantsInput["entityAnswers"],
+      tb: { revenueMinor: live.tb?.revenueMinor ?? null, liabilityMinor: live.tb?.liabilityMinor ?? null, receivableMinor: live.tb?.receivableMinor ?? null },
+      grants: saved.grants.map((g) => ({ ...g, assessmentConfirmed: live.confirmedGrants[g.grantId] === true })),
+    };
+    const result = computeGrants(input);
+    const here = [...new Set(result.issues.map((i) => `${i.code}|${i.grantId ?? ""}`))].sort().join();
+    return { input, result, note: generateGrantsNote(input, result, pres, legalName), tasks: grantTasks(result), agrees: here === [...live.assessment.codes].sort().join() };
+  }, [ctx, saved, live, legalName, pres, denominationOk]);
+  const nextTask = review?.tasks[0] ?? null;
+  const unsavedNothing = ctx !== null && !saved ? ({ id: "grants:none", title: "Record the grants", missing: "No grant register is saved yet. Record each grant or donor agreement, or state that there are none.", why: "Grant revenue and any unfulfilled obligation depend on it.", acceptedEvidence: "Signed agreements.", responsible: "preparer", area: "prepare", target: "grants", status: "open", affects: ["Grant revenue"] } as PrepTask) : null;
+  const reported = !ctx || problem || !denominationOk || (saved && (!review || !review.agrees)) ? undefined : nextTask ?? unsavedNothing;
+  useEffect(() => { onNextTask?.(reported); }, [reported?.id, reported === undefined, onNextTask]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * One request per key is in flight; its answer confirms the SUBMITTED snapshot only. An answer that belongs to another company, period or
+   * actor, or to an operation that has since been superseded, is dropped without touching any state. An unknown outcome keeps the original
+   * request, so "send the same request again" resends exactly that request with its original identity.
+   */
+  const run = async (key: string, fp: string, call: (requestId: string) => Promise<{ outcome?: string; revisionId?: string; confirmationId?: string; replay?: boolean }>, snapshot?: string) => {
+    if (inflight.current.has(key)) return; // never two uncontrolled submissions for the same thing
+    const mine = scope.current, myClient = clientRef.current;
+    const cur = identities.current[key];
+    const id = cur && cur.fp === fp ? cur.id : newId(); // an unknown outcome retries with the ORIGINAL identity
+    identities.current[key] = { id, fp, call, snapshot };
+    const op = Symbol(key);
+    ops.current[key] = op;
+    inflight.current.add(key);
+    const live = () => scope.current === mine && clientRef.current === myClient && ops.current[key] === op;
+    setSaves((s) => ({ ...s, [key]: { kind: "pending", requestId: id } }));
+    try {
+      const r = await call(id);
+      if (!live()) return;
+      const next = afterReceipt(id, r);
+      setSaves((s) => ({ ...s, [key]: next }));
+      if (next.kind !== "unknown") delete identities.current[key];
+      inflight.current.delete(key);
+      if (next.kind === "saved") await refresh(snapshot ? { ifSnapshot: snapshot } : undefined);
+    } catch {
+      if (!live()) return;
+      inflight.current.delete(key);
+      setSaves((s) => ({ ...s, [key]: afterFailure(id) }));
+    }
+  };
+  const save = () => {
+    const payload = structuredClone(draft) as unknown as Record<string, unknown>;
+    const expected = ctx?.register?.id ?? null;
+    void run("save", stableJson({ draft: payload, expected }), (rid) => client.save(companyId, periodYear, payload, expected, rid), stableJson(payload));
+  };
+  const confirm = (grantId: string) => { const rev = ctx?.register?.id; if (rev) void run(`confirm:${grantId}`, stableJson({ grantId, rev }), (rid) => client.confirm(companyId, periodYear, grantId, rev, rid)); };
+  /** "Send the same request again": the stored original request (never the current draft) with its original identity. */
+  const retry = (key: string) => { const orig = identities.current[key]; if (orig) void run(key, orig.fp, orig.call, orig.snapshot); };
+  const isPending = (key: string) => saves[key]?.kind === "pending";
+
+  if (area !== "prepare" && area !== "review") return null;
+  if (problem) return <p role="alert" className="py-4 text-sm">{problem}</p>;
+  if (!ctx) return <p role="status" className="py-4 text-sm text-muted-foreground">Loading the saved grants…</p>;
+  if (!pres || !denominationOk) {
+    const st = live?.presentation;
+    const why = st?.state === "unsupported" ? "This company's reporting currency or units are not supported in this release, so no amount can be entered, read or confirmed."
+      : !st || st.state === "unknown" ? "The reporting currency and units of this period are not confirmed yet - they come from the certified trial balance. Check the trial balance first; no amount can be entered or read until they are."
+      : `The saved grants were entered in a different currency or unit than this company now reports in (${denominationWords(pres!)}). They are not shown, and cannot be changed or confirmed, because showing them would misstate every amount.`;
+    return <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" data-testid="denomination-blocked"><strong>Amounts are not available.</strong> {why}</div>;
+  }
+  const ex = pres.exponent;
+  const a = live?.assessment ?? null;
+  const edit = canPrepare;
+  const setGrant = (i: number, fn: (g: Grant) => Grant) => setDraft((d) => ({ ...d, grants: d.grants.map((g, j) => (j === i ? fn(structuredClone(g)) : g)) }));
+  const vocab = model === "ipsas23" ? CLASSIFICATIONS_23 : model === "ipsas47" ? CLASSIFICATIONS_47 : [];
+
+  if (area === "review") {
+    return (
+      <ExponentContext.Provider value={ex}>
+      <section aria-labelledby="grv-h" data-grants-revision={ctx.register?.id ?? ""} className="space-y-3">
+        <h2 id="grv-h" className="text-lg font-medium">Grants and revenue</h2>
+        {!review || !a ? <p className="text-sm">No grant register is saved yet.</p> : <>
+          <p className="text-sm">Reporting period read from the certified trial balance: <strong>{live!.period.start ?? "unknown"}</strong> to {live!.period.end ?? "unknown"} — {model === "ipsas23" ? "the vocabulary for periods beginning before 1 January 2026" : model === "ipsas47" ? "the vocabulary for periods beginning on or after 1 January 2026" : "no vocabulary can be selected"}. Server state: <strong>{a.state}</strong>.</p>
+          {!review.agrees && <p role="alert" className="rounded-md border border-destructive/50 px-3 py-2 text-sm">This page and the server disagree about which grant matters are open. The server's list stands: {a.codes.join(", ") || "none"}.</p>}
+          <div className="rounded-md border p-3 text-sm space-y-2">
+            <h3 className="font-medium">Grant revenue note (draft) — {review.note.label}</h3>
+            {review.note.policy.map((p) => <p key={p.id} className={p.unresolved ? "text-amber-700" : ""}>{p.text}</p>)}
+            {review.note.table && (
+              <div data-testid="grants-note-table" role="region" aria-label="Grants table (scroll sideways on a narrow screen)" tabIndex={0} className="overflow-x-auto">
+                <table className="w-full text-xs" aria-label="Grants">
+                  <caption className="text-left font-medium">Grants and revenue by agreement</caption>
+                  <thead><tr><th scope="col" className="text-left">Agreement</th>{review.note.table.columns.map((c) => <th key={c} scope="col" className="text-right">{c}</th>)}</tr></thead>
+                  <tbody>{review.note.table.rows.map((r) => <tr key={r.label + (r.grantId ?? "")}><th scope="row" className="text-left font-normal">{r.label}</th>{r.cells.map((c, k) => <td key={k} className="text-right tabular-nums">{c ?? "—"}</td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <div className="rounded-md border p-3 text-sm">
+            <h3 className="font-medium">What remains for grants ({review.tasks.length})</h3>
+            {review.tasks.length === 0 ? <p>No open grant matters in this slice.</p> : (
+              <ul className="space-y-2">{review.tasks.map((t) => (
+                <li key={t.id} className="rounded border p-2"><p><strong>{t.title}.</strong> {t.missing}</p><p className="text-xs text-muted-foreground">Why: {t.why} Evidence: {t.acceptedEvidence} Who: {t.responsible}. Affects: {t.affects.join(", ")}.</p></li>))}</ul>)}
+          </div>
+        </>}
+      </section>
+      </ExponentContext.Provider>
+    );
+  }
+
+  const questions = GRANT_ENTITY_QUESTIONS.filter((q) => q.when === model);
+  return (
+    <ExponentContext.Provider value={ex}>
+    <section aria-labelledby="gr-h" data-grants-revision={ctx.register?.id ?? ""} className="space-y-4 border-t pt-4">
+      <h2 id="gr-h" className="text-lg font-medium">Grants and revenue</h2>
+      <p className="text-sm text-muted-foreground">Revenue is recognised only as the entity evidences that an obligation is satisfied (or, for a pure restriction or an arrangement with no present obligation, when the resources are recognised). Cash received and money spent never decide it. Arrangements with variable amounts, financing, agency, non-cash resources, modifications, collection doubt or another currency cannot be completed here and stay open.</p>
+      <p className="text-sm" role="status">Reporting period (read from the certified trial balance, not typed): <strong>{live?.period.start ?? "unknown"}</strong> to {live?.period.end ?? "unknown"}. {model === "ipsas23" ? "Classifications for periods beginning before 1 January 2026 apply." : model === "ipsas47" ? "Classifications for periods beginning on or after 1 January 2026 apply." : "Upload and certify the trial balance first."}</p>
+      <div className="rounded-md border p-3 space-y-3">
+        <h3 className="font-medium">Which trial balance accounts hold grant revenue, unfulfilled obligations and grant receivables?</h3>
+        <p className="text-xs text-muted-foreground">Account codes, comma separated. The server reads their certified balances; an absent account leaves the figure unknown.</p>
+        {([["revenueKeys", "gtb-rev", "Grant revenue accounts"], ["liabilityKeys", "gtb-liab", "Unfulfilled grant obligation accounts"], ["receivableKeys", "gtb-recv", "Grant receivable accounts"]] as const).map(([k, id, name]) => (
+          <Text key={id} id={id} name={name} value={draft.tbSelection[k].join(", ")} disabled={!edit} onChange={(v) => setDraft((d) => ({ ...d, tbSelection: { ...d.tbSelection, [k]: v.split(",").map((x) => x.trim()).filter(Boolean) } }))} />
+        ))}
+      </div>
+      {draft.grants.map((g, i) => {
+        const fig = a?.grants.find((f) => f.grantId === g.grantId);
+        return (
+          <fieldset key={g.grantId} className="space-y-3 rounded-md border p-3">
+            <legend className="px-1 font-medium">{g.reference || `Grant ${i + 1}`}</legend>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Text id={`gr${i}-ref`} name="Agreement reference" value={g.reference} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, reference: v }))} />
+              <Text id={`gr${i}-grantor`} name="Grantor" value={g.grantor} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, grantor: v }))} />
+              <Text id={`gr${i}-agr`} name="Signed agreement or award letter" value={g.agreementEvidence} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, agreementEvidence: v }))} />
+            </div>
+            <Select id={`gr${i}-class`} name="Classification for this period (the agreement's terms decide it, not the cash)" value={g.classification} disabled={!edit || vocab.length === 0}
+              onChange={(v) => setGrant(i, (x) => ({ ...x, classification: v as Grant["classification"] }))} options={vocab.map((c) => [c, WORDS[c]] as [string, string])} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Text id={`gr${i}-basis`} name="Why it is classified this way (rights, obligations, any return clause)" value={g.classificationBasis} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, classificationBasis: v }))} />
+              <Text id={`gr${i}-cev`} name="Agreement clauses relied on" value={g.classificationEvidence} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, classificationEvidence: v }))} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <Amount id={`gr${i}-cons`} name="Agreed amount" value={g.considerationMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, considerationMinor: v }))} />
+              <Amount id={`gr${i}-rec`} name="Resources recognised" value={g.recognisedResourcesMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, recognisedResourcesMinor: v }))} />
+              <Amount id={`gr${i}-cash`} name="Cash received (does not decide revenue)" value={g.cashReceivedMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, cashReceivedMinor: v }))} />
+              <Amount id={`gr${i}-prior`} name="Revenue recognised in earlier periods" value={g.priorCumulativeRevenueMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, priorCumulativeRevenueMinor: v }))} />
+            </div>
+            <Text id={`gr${i}-priorev`} name="Earlier-period schedule supporting that figure" value={g.priorEvidence} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, priorEvidence: v }))} />
+            <h4 className="text-sm font-medium">Obligations and the evidence that each is satisfied</h4>
+            {g.obligations.map((o, n) => (
+              <div key={n} className="grid gap-2 rounded-md border p-2 sm:grid-cols-3">
+                <Text id={`gr${i}-o${n}-id`} name="Obligation identity" value={o.id} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].id = v; return x; })} />
+                <Text id={`gr${i}-o${n}-label`} name="Deliverable or condition" value={o.label} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].label = v; return x; })} />
+                <Amount id={`gr${i}-o${n}-alloc`} name="Allocated amount" value={o.allocatedMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].allocatedMinor = v; return x; })} />
+                <Amount id={`gr${i}-o${n}-sat`} name="Satisfied so far" value={o.satisfiedMinor} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].satisfiedMinor = v; return x; })} />
+                <Select id={`gr${i}-o${n}-basis`} name="How it was satisfied" value={o.satisfactionBasis} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].satisfactionBasis = v as never; return x; })} options={SATISFACTION_BASES.map((b) => [b, BASIS_WORDS[b]] as [string, string])} />
+                <Text id={`gr${i}-o${n}-ev`} name="Evidence (acceptance letter, delivery report)" value={o.satisfactionEvidence} disabled={!edit} onChange={(v) => setGrant(i, (x) => { x.obligations[n].satisfactionEvidence = v; return x; })} />
+                <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setGrant(i, (x) => ({ ...x, obligations: x.obligations.filter((_, j) => j !== n) }))}>Remove obligation</Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setGrant(i, (x) => ({ ...x, obligations: [...x.obligations, emptyObligation(x.obligations.length + 1)] }))}>Add an obligation</Button>
+            <h4 className="text-sm font-medium">Arrangements this slice cannot calculate</h4>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {COMPLEXITIES.map((k) => (
+                <Select key={k} id={`gr${i}-cx-${k}`} name={`Involves ${COMPLEXITY_LABELS[k]}?`} value={g.complexities[k] === true ? "yes" : g.complexities[k] === false ? "no" : ""} disabled={!edit}
+                  onChange={(v) => setGrant(i, (x) => ({ ...x, complexities: { ...x.complexities, [k]: v === "yes" ? true : v === "no" ? false : null } }))} options={[["no", "No"], ["yes", "Yes (needs a governed workpaper)"]]} />
+              ))}
+            </div>
+            <Text id={`gr${i}-cxb`} name="Basis for the answers above" value={g.complexityBasis} disabled={!edit} onChange={(v) => setGrant(i, (x) => ({ ...x, complexityBasis: v }))} />
+            {fig && <p className="text-sm" role="status" data-testid={`gr${i}-figures`}>Server figures: revenue this period <strong>{fromMinor(fig.periodRevenueMinor, ex) || "not computed"}</strong>; cumulative {fromMinor(fig.cumulativeRevenueMinor, ex) || "not computed"}; unfulfilled obligation {fromMinor(fig.liabilityMinor, ex) || "not computed"}; receivable {fromMinor(fig.receivableMinor, ex) || "not computed"}.</p>}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={!canConfirm || dirty || !ctx.register || live?.confirmedGrants[g.grantId] === true || isPending(`confirm:${g.grantId}`)} onClick={() => confirm(g.grantId)}>{live?.confirmedGrants[g.grantId] ? "Assessment confirmed" : "Confirm this assessment"}</Button>
+              <span className="text-xs text-muted-foreground">{live?.confirmedGrants[g.grantId] ? "Applies to this exact grant and period; any change voids it." : dirty ? "Save first; a confirmation applies to the saved grant." : "Until confirmed, the classification and figures are proposals."}</span>
+              <Button type="button" variant="outline" size="sm" disabled={!edit} onClick={() => setDraft((d) => ({ ...d, grants: d.grants.filter((_, j) => j !== i) }))}>Remove grant</Button>
+            </div>
+            <Banner state={saves[`confirm:${g.grantId}`] ?? { kind: "idle" }} onRetry={() => retry(`confirm:${g.grantId}`)} />
+          </fieldset>
+        );
+      })}
+      <Button type="button" variant="outline" disabled={!edit} onClick={() => setDraft((d) => ({ ...d, grants: [...d.grants, emptyGrant()] }))}>Add a grant</Button>
+      <div className="space-y-3 rounded-md border p-3">
+        <h3 className="font-medium">Questions that decide what else applies</h3>
+        {[...questions, ...(draft.grants.length === 0 ? [{ id: "no_grants", label: "Does the entity have any grant or donor agreement this period?", when: model, routesTo: "recording each agreement" }] : [])].map((q) => {
+          const ans = draft.entityAnswers[q.id];
+          const set = (patch: { text?: string; evidence?: string; applies?: boolean | null }) => setDraft((d) => {
+            const cur = d.entityAnswers[q.id] ?? { status: "unresolved" as const, text: "", evidence: "", checkedBy: "", flags: {} as Record<string, boolean> };
+            const applies = patch.applies === undefined ? cur.flags.applies : patch.applies;
+            return { ...d, entityAnswers: { ...d.entityAnswers, [q.id]: { ...cur, text: patch.text ?? cur.text, evidence: patch.evidence ?? cur.evidence, status: applies === true ? "answered" : "none_with_basis", flags: applies === null || applies === undefined ? {} : { applies } } as never } };
+          });
+          return (
+            <fieldset key={q.id} className="grid gap-2 sm:grid-cols-3">
+              <legend className="mb-1 text-sm">{q.label}</legend>
+              <Select id={`ga-${q.id}`} name="Answer" value={ans?.flags.applies === true ? "yes" : ans?.flags.applies === false ? "no" : ""} disabled={!edit} onChange={(v) => set({ applies: v === "yes" ? true : v === "no" ? false : null })} options={[["no", "No"], ["yes", "Yes"]]} />
+              <Text id={`ga-${q.id}-t`} name="Basis for the answer" value={ans?.text ?? ""} disabled={!edit} onChange={(v) => set({ text: v })} />
+              <Text id={`ga-${q.id}-e`} name="Records checked" value={ans?.evidence ?? ""} disabled={!edit} onChange={(v) => set({ evidence: v })} />
+            </fieldset>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" disabled={!edit || !dirty || isPending("save")} onClick={save}>Save grants</Button>
+        <Button type="button" variant="outline" className="h-auto whitespace-normal text-left" disabled={!dirty} onClick={() => void refresh("reset")}>Discard grant edits and reload the saved version</Button>
+      </div>
+      <Banner state={saves.save ?? { kind: "idle" }} onRetry={() => retry("save")} />
+    </section>
+    </ExponentContext.Provider>
+  );
+}

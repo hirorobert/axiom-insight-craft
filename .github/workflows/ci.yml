@@ -122,6 +122,7 @@ jobs:
         run: |
           bunx tsc --noEmit -p release/candidates/framework-kernel-r1/tsconfig.json
           node release/candidates/framework-kernel-r1/inventory.mjs --check
+          bunx tsc --noEmit -p release/candidates/ipsas-accrual-r1/tsconfig.json
 
       - name: Package-manager authority (one lockfile, pinned Bun, no competing installer)
         run: |
@@ -388,9 +389,37 @@ jobs:
           version: latest
 
       - name: Start the local Supabase stack (Docker on loopback; the CLI applies supabase/migrations to a throwaway database)
+        id: stack_start
         run: supabase start -x studio,imgproxy,logflare,vector
 
+      - name: Record who holds the local Supabase ports and which containers exist when the stack did not start (read-only; kills nothing)
+        if: failure() && steps.stack_start.outcome == 'failure'
+        run: |
+          echo "--- sockets on the Supabase local ports (54320-54339), with their owning process"
+          sudo ss -tanp 2>/dev/null | grep -E ':543[2-3][0-9]\b' || echo "none"
+          echo "--- ephemeral port range"
+          cat /proc/sys/net/ipv4/ip_local_port_range
+          echo "--- containers (name, status, ports)"
+          docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' || true
+
+      - name: IPSAS accrual preparation journey, AUTHENTICATED (the same stack; real Auth sign-in for owner, preparer, partner, a viewer member and an outsider, real PostgREST, RLS and private Storage, no simulated identity or bridge; PPE and grants driven through their normal page - save and reopen, stale revision, concurrent writer, dropped response retried with the original request identity, reviewer confirmation; direct calls with real JWTs prove server enforcement, cross-company refusal and revoked access; 1280 and 375 px)
+        if: always()
+        run: node scripts/e2e/ipsasAuthJourney.mjs real-app-evidence/ipsas
+
+      - name: Keep the local Edge Functions log with the IPSAS evidence when that journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/ipsas/edge-runtime.log 2>&1
+
+      - name: Upload authenticated IPSAS evidence immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipsas-auth-evidence-${{ github.sha }}
+          path: real-app-evidence/ipsas
+          if-no-files-found: ignore
+
       - name: Real application journey (the production build on loopback in headless Chrome; real Auth, PostgREST, RLS, Storage and Edge Functions; sign-in, first run, non-calendar periods, upload and review, next actions, Close Review, comparatives, adjustments, evidence, sign-off, sealed export, stale result, two-account isolation, 1280 and 375 px)
+        if: always()
         run: node scripts/e2e/localStackJourney.mjs real-app-evidence
 
       - name: Keep the local Edge Functions log with the evidence when the journey fails
@@ -398,6 +427,7 @@ jobs:
         run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/edge-runtime.log 2>&1
 
       - name: Workload measurement through the real stack (representative 18-account journey to FINAL with the official pack issued, verified and retrieved; a 30-version history; 8 simultaneous saves; a demanding 2,000-account trial balance with a 20,000-row ledger - client-observed API round trips recorded in real-app-evidence/workload/measurements.json, never CPU)
+        if: always()
         run: bun scripts/e2e/workloadJourney.mjs real-app-evidence/workload
 
       - name: Trial balance drafts journey (the same stack; real Auth, PostgREST, RLS, Storage and the trial-balance-draft function served from this repository; reserve, signed upload, commit with server copy and SHA-256 verification, lost responses, interruptions resumed, revoked authority, integrity refusal, retention sweeps deleting real objects, committed evidence intact)
@@ -421,6 +451,14 @@ jobs:
           mkdir -p real-app-evidence/drafts
           docker logs "$EDGE" > real-app-evidence/drafts/edge-runtime-always.log 2>&1 || true
           grep -E "Using supabase-edge-runtime|\[PTB\] worker=|\[PTB\] Ingested|CPU time (soft|hard) limit|early termination|WorkerRequestCancelled|Detected file" real-app-evidence/drafts/edge-runtime-always.log | grep -v "Detected file: mto-" || true
+
+      - name: Original file retrieval journey (the same stack; real Auth and the application's own upload sequence into the private bucket; the owner and a collaborator the owner granted are served a signed URL for exactly their upload, byte for byte against the recorded SHA-256; a person with no right, another company's owner, injected fields, anon and direct bucket reads are all refused; a revoked collaborator is refused on the next request; a missing object is reported as unavailable; an issued URL is allowed to expire)
+        if: always()
+        run: node scripts/e2e/sourceDownloadJourney.mjs real-app-evidence/source-download
+
+      - name: Keep the local Edge Functions log with the retrieval evidence when that journey fails
+        if: failure()
+        run: docker ps --format '{{.Names}}' | grep edge_runtime | head -1 | xargs -r docker logs > real-app-evidence/source-download/edge-runtime.log 2>&1
 
       - name: Online payment journey (the same stack; the payment functions served from this repository with generated test configuration; Polar and Snippe replaced by a loopback MOCK; admin opens sandbox payments and approves prices, card and mobile-money purchases, signed webhooks with replay, bad signature, stale timestamp, unknown checkout and 5 concurrent deliveries, expiry and a new attempt, refund review, manual activation and the paid-term guard, cross-account denial, 1280 and 375 px)
         if: always()
@@ -530,6 +568,111 @@ jobs:
           cat proof-results/equipmentTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/equipmentTransport.present.json --manifest scripts/db-proof/equipmentTransport.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS exact-byte transport (approved migration through its private schema on the real predecessor chain - exact journal head, prerequisites, tamper, order, rollback, privilege postcondition, baseline preservation and concurrent install; disposable database only, no hosted SQL registered or installed)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_transport_proof
+          PROOF_RESULT_FILE: proof-results/ipsasTransport.present.json
+        run: |
+          createdb ipsas_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasTransport.mjs > proof-results/ipsasTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasTransport.present.json --manifest scripts/db-proof/ipsasTransport.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS grants exact-byte transport (the approved grants migration through its own private schema on the real predecessor chain including the IPSAS preparation migration - exact journal head, prerequisites and the preparation dependency, tamper, order, rollback, privilege postcondition, preserved IPSAS preparation history, concurrent install, and the installed catalogue equal to the migration executed directly; disposable database only, no hosted SQL registered or installed)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_grants_transport_proof
+          PROOF_RESULT_FILE: proof-results/ipsasGrantsTransport.present.json
+        run: |
+          createdb ipsas_grants_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasGrantsTransport.mjs > proof-results/ipsasGrantsTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasGrantsTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasGrantsTransport.present.json --manifest scripts/db-proof/ipsasGrantsTransport.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS mutation authority ordering (deterministic multi-session proof on the full chain - with the protected lock held a request waits, its authority is revoked / membership withdrawn / rollout closed / framework changed and committed, then the lock is released and the mutation is refused with no row written for all four save and confirm functions and an idempotent replay; revocation and an in-flight mutation are serialised by one lock; plan changes wait for in-flight mutations; contention terminates without deadlock; stricter isolation fails closed; disposable database only)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_authority_ordering
+          PROOF_RESULT_FILE: proof-results/ipsasAuthorityOrdering.present.json
+        run: |
+          createdb ipsas_authority_ordering
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasAuthorityOrdering.mjs > proof-results/ipsasAuthorityOrdering.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasAuthorityOrdering.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasAuthorityOrdering.present.json --manifest scripts/db-proof/ipsasAuthorityOrdering.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS independent authority and approved adjustment regressions
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_independent_review
+          PROOF_RESULT_FILE: proof-results/ipsasIndependentReview.present.json
+        run: |
+          createdb ipsas_independent_review
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasIndependentReview.mjs > proof-results/ipsasIndependentReview.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasIndependentReview.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasIndependentReview.present.json --manifest scripts/db-proof/ipsasIndependentReview.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS mutation ordering contract races (a withdrawal waits for an admitted mutation or the mutation refuses; five RPCs, every writer, barrier after admission, no sleeps)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_authority_races
+          PROOF_RESULT_FILE: proof-results/ipsasAuthorityRaces.present.json
+        run: |
+          createdb ipsas_authority_races
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasAuthorityRaces.mjs > proof-results/ipsasAuthorityRaces.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasAuthorityRaces.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasAuthorityRaces.present.json --manifest scripts/db-proof/ipsasAuthorityRaces.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS denomination rules (real JPY, KWD, USD and TZS sources certified by the real engine; refusals by name; saved drafts never re-read in another unit)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_currency
+          PROOF_RESULT_FILE: proof-results/ipsasCurrency.present.json
+        run: |
+          createdb ipsas_currency
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasCurrency.mjs > proof-results/ipsasCurrency.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasCurrency.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasCurrency.present.json --manifest scripts/db-proof/ipsasCurrency.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Workspace source access (member removal revokes explicit grants, signing order with a deferred signer, durable issuance record)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/source_access_authority
+          PROOF_RESULT_FILE: proof-results/sourceAccessAuthority.present.json
+        run: |
+          createdb source_access_authority
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/sourceAccessAuthority.mjs > proof-results/sourceAccessAuthority.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/sourceAccessAuthority.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/sourceAccessAuthority.present.json --manifest scripts/db-proof/sourceAccessAuthority.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -570,6 +713,56 @@ jobs:
           grep -v '^\[PTB' proof-results/equipmentMulticlass.present.log || true
           node scripts/ci/validateProofResult.mjs proof-results/equipmentMulticlass.present.json --manifest scripts/db-proof/equipmentMulticlass.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS accrual preparation proof (20261207100000 on the full chain - role and privilege matrix, framework gate, server-derived assessment with forged fields ignored, certified trial-balance facts and unknown-is-not-zero, SQL equal to the hand-derived fixture and to the TypeScript rules, confirmation bound to an exact subject hash, twenty-way replay and twenty writers on one revision, opening bridge that never plugs, append-only history, SME authority rows byte-identical, revoked access incl replay; structured result validated against the manifest; disposable database only, no hosted SQL registered or installed)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_preparation_proof
+          PROOF_RESULT_FILE: proof-results/ipsasPreparation.present.json
+        run: |
+          createdb ipsas_preparation_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasPreparation.mjs > proof-results/ipsasPreparation.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/ipsasPreparation.present.exit
+          grep -v '^\[PTB' proof-results/ipsasPreparation.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasPreparation.present.json --manifest scripts/db-proof/ipsasPreparation.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS grants and revenue proof (20261208100000 on the full chain - period read from the certified upload not typed, restriction and condition and binding-arrangement vocabularies by period, revenue only from evidenced satisfaction with cash and expenditure never deciding it, SQL equal to two hand-derived fixtures and to the TypeScript rules, confirmation bound to one grant and the period, tampering and role matrix, twenty-way replay and twenty writers, revoked access incl replay; structured result validated against the manifest; disposable database only)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_grants_proof
+          PROOF_RESULT_FILE: proof-results/ipsasGrants.present.json
+        run: |
+          createdb ipsas_grants_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasGrants.mjs > proof-results/ipsasGrants.present.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > proof-results/ipsasGrants.present.exit
+          grep -v '^\[PTB' proof-results/ipsasGrants.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasGrants.present.json --manifest scripts/db-proof/ipsasGrants.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS statement review authority (full chain, exact figures, retries, concurrency and revocation ordering)
+        shell: bash
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_statement_review_proof
+          PROOF_RESULT_FILE: proof-results/ipsasStatementReview.present.json
+        run: |
+          createdb ipsas_statement_review_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasStatementReview.mjs > proof-results/ipsasStatementReview.present.log 2>&1
+          code=$?
+          set -e
+          grep -v '^\[PTB' proof-results/ipsasStatementReview.present.log || true
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasStatementReview.present.json --manifest scripts/db-proof/ipsasStatementReview.manifest.mjs --mode present --exit-code "$code"
+
       - name: Workspace setup authority proof (25-way concurrency, role/RLS matrix, on the same throwaway container)
         env:
           DB_PROOF_MODE: external
@@ -593,6 +786,22 @@ jobs:
         run: |
           createdb lifecycle_proof
           node scripts/db-proof/uploadLifecycle.mjs
+
+      - name: IPSAS accrual preparation browser journey (headless Chrome drives the real component over the loopback bridge to a disposable database with certified trial balances - chain from bring to confirmed, reload from the server alone, a reviewer's confirmation, keyboard operation, a concurrent writer, a dropped response retried with the original request identity, refusals, two widths; identity is simulated)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_journey
+        run: |
+          createdb ipsas_journey
+          node scripts/browser-acceptance/ipsasJourney.mjs ipsas-journey-evidence
+
+      - name: Upload the IPSAS journey evidence (screenshots, journey log, results)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipsas-journey-evidence
+          path: ipsas-journey-evidence
+          if-no-files-found: ignore
 
       - name: Mapping and processing authority proof (S1 — mapping writes and provenance, review combinations, server-owned processing fields, reprocess requests, certification invalidation, on the same throwaway container)
         env:

@@ -1,0 +1,47 @@
+{
+  "proof": "ipsasIndependentReview",
+  "mode": "present",
+  "manifestSha256": "2ad0957df9c0c563dc63345271d6071bc3c2eefff7cc6981fd36c2e6973e9343",
+  "startedAt": "2026-10-30T05:17:57.093Z",
+  "finishedAt": "2026-10-30T05:18:27.798Z",
+  "completed": true,
+  "crashed": false,
+  "cases": [
+    {
+      "id": "initial-authoritative-ppe",
+      "outcome": "pass"
+    },
+    {
+      "id": "incompatible-ppe-classification-is-unknown",
+      "outcome": "pass"
+    },
+    {
+      "id": "ppe-includes-approved-adjustment",
+      "outcome": "pass"
+    },
+    {
+      "id": "grants-tie-includes-approved-adjustment",
+      "outcome": "pass"
+    },
+    {
+      "id": "canonical-authority-refuses-invalidated-source",
+      "outcome": "pass"
+    },
+    {
+      "id": "ppe-refuses-invalidated-source",
+      "outcome": "pass"
+    },
+    {
+      "id": "opening-refuses-invalidated-source",
+      "outcome": "pass"
+    },
+    {
+      "id": "grants-refuse-invalidated-source",
+      "outcome": "pass"
+    },
+    {
+      "id": "grants-period-refuses-invalidated-source",
+      "outcome": "pass"
+    }
+  ]
+}

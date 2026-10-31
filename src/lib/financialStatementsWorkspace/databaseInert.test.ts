@@ -150,6 +150,17 @@ describe("database inertness — schema and functions", () => {
       // validator, context/draft/commit functions for the /2 workpaper; new objects only, no existing table, row or privilege
       // changed (proof: scripts/db-proof/equipmentMulticlass.mjs).
       "supabase/migrations/20261206100000_fs_equipment_multiclass.sql",
+      // IPSAS accrual preparation, first chain (20261207100000): append-only revisions and confirmations, a pure assessment, TB
+      // facts from certified rows and three RPCs for companies reporting under ipsas_accrual; new objects only, no existing table,
+      // row or privilege changed (proof: scripts/db-proof/ipsasPreparation.mjs).
+      "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql",
+      // IPSAS grants and revenue by period (20261208100000): append-only grant revisions and confirmations, a pure period-specific
+      // assessment, certified-trial-balance sums and three RPCs; new objects only (proof: scripts/db-proof/ipsasGrants.mjs).
+      "supabase/migrations/20261208100000_ipsas_grants.sql",
+      // IPSAS statement review: new presentation revisions/RPCs only, no old financial data or privileges changed.
+      "supabase/migrations/20261210100000_ipsas_statement_review.sql",
+      // Independent review of #229: member removal revokes that person's explicit workspace grants (trigger), and an append-only record of file-link issuance decisions (new table).
+      "supabase/migrations/20261211100000_source_access_authority_repairs.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -176,6 +187,10 @@ describe("database inertness — schema and functions", () => {
       // authorized collaborator can upload without any client Storage policy being widened.
       "supabase/functions/_shared/sourceUpload.ts",
       "supabase/functions/trial-balance-source-signer/index.ts",
+      // ...and the counterpart that lets an AUTHORIZED person retrieve the original file: per-request capability check, exact
+      // upload/company binding, a 60-second signed URL; no migration, no Storage policy, no schema change.
+      "supabase/functions/_shared/sourceDownload.ts",
+      "supabase/functions/trial-balance-source-download/index.ts",
       // ...user-based validation (20260923120000): the pure processing-actor resolver, and the scheduled, ticketed,
       // server-only sweeper that purges terminal discards and reclaims abandoned reservations. No financial-statements schema.
       "supabase/migrations/20260923120000_workspace_user_engine_actor_and_source_sweeper.sql",
@@ -777,6 +792,8 @@ describe("database inertness — schema and functions", () => {
       "scripts/ci/validateProofResult.mjs",
       // The real-application journey on a local Supabase stack (CI job real-app-e2e; loopback only, no secret).
       "scripts/e2e/localStackFixtures.mjs", "scripts/e2e/localStackJourney.mjs",
+      // Original-file retrieval on the same local stack (real Auth, private Storage, the download function; loopback only, no secret).
+      "scripts/e2e/sourceDownloadJourney.mjs",
       // The online payment journey on the same local stack, with loopback MOCK providers (no provider, no secret).
       "scripts/e2e/mockPaymentProviders.mjs", "scripts/e2e/paymentJourney.mjs",
       // Trial balance drafts: the loopback-only PostgreSQL proof and the local-stack journey (real Storage; no secret).
@@ -828,6 +845,23 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/release/equipmentStagedTransport.mjs");
     allowed.add("scripts/db-proof/equipmentTransport.mjs");
     allowed.add("scripts/db-proof/equipmentTransport.manifest.mjs");
+    // IPSAS transport: the one approved migration, private schema, canonical journal, loopback proof; no hosted registration.
+    allowed.add("scripts/release/ipsasStagedTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasTransport.manifest.mjs");
+    // IPSAS grants transport: the one approved migration, its own private schema, canonical journal, loopback proof; no hosted registration.
+    allowed.add("scripts/release/ipsasGrantsStagedTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasGrantsTransport.mjs");
+    allowed.add("scripts/db-proof/ipsasGrantsTransport.manifest.mjs");
+    allowed.add("scripts/db-proof/ipsasAuthorityOrdering.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityOrdering.manifest.mjs"); // deterministic multi-session authority-ordering proof; disposable loopback database only
+    allowed.add("scripts/db-proof/ipsasIndependentReview.mjs"); allowed.add("scripts/db-proof/ipsasIndependentReview.manifest.mjs"); // adjusted-authority and stale-source regression (both added); disposable loopback database only (reportingKit refuses non-loopback), no network or hosted access
+    // Independent review of #229: deterministic multi-session race proof of the mutation ordering contract, the currency/denomination proof and the
+    // source-access (member removal, signing order, decision record) proof; each with its manifest, all disposable loopback databases only, no network or hosted access.
+    allowed.add("scripts/db-proof/ipsasAuthorityRaces.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityRaces.manifest.mjs");
+    allowed.add("scripts/db-proof/ipsasCurrency.mjs"); allowed.add("scripts/db-proof/ipsasCurrency.manifest.mjs");
+    allowed.add("scripts/db-proof/sourceAccessAuthority.mjs"); allowed.add("scripts/db-proof/sourceAccessAuthority.manifest.mjs"); allowed.add("scripts/db-proof/lib/checkpoints.mjs"); allowed.add("src/lib/__tests__/proofCheckpoints.test.ts");
+    allowed.add("scripts/release/verifyCarry.mjs"); // applies the committed carry patch to a scratch checkout of #221's head and compares bytes; local git only, no network or hosted access
+    allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
     allowed.add("scripts/db-proof/internalBetaActivation.mjs");
     // classification-r1: the loopback-only real-handler proof of the classification suggestions. No deploy behaviour.
@@ -838,6 +872,16 @@ describe("database inertness — schema and functions", () => {
     // of serveReporting.mjs (already reviewed above). Neither reaches a hosted project, applies SQL hosted or deploys anything.
     allowed.add("scripts/db-proof/equipmentMulticlass.mjs"); allowed.add("scripts/db-proof/equipmentMulticlass.manifest.mjs");
     allowed.add("scripts/browser-acceptance/equipmentJourney.mjs");
+    // IPSAS preparation browser journey: loopback bridge to a disposable database, headless Chrome, simulated identity; no hosted access.
+    allowed.add("scripts/browser-acceptance/ipsasJourney.mjs"); allowed.add("scripts/db-proof/serveIpsas.mjs"); allowed.add("scripts/browser-acceptance/ipsasGrantsSteps.mjs");
+    // IPSAS accrual preparation (20261207100000): loopback-only disposable-database proof with its reviewed case manifest.
+    allowed.add("scripts/db-proof/ipsasPreparation.mjs"); allowed.add("scripts/db-proof/ipsasPreparation.manifest.mjs");
+    // IPSAS authenticated journey (CI job real-app-e2e): real Auth, PostgREST, RLS and private Storage on a LOCAL stack; loopback only, no secret, no hosted access.
+    allowed.add("scripts/e2e/ipsasAuthJourney.mjs"); allowed.add("scripts/e2e/ipsasAuthFixtures.mjs"); allowed.add("scripts/browser-acceptance/ipsasPpeSteps.mjs");
+    allowed.add("scripts/db-proof/ipsasGrants.mjs"); allowed.add("scripts/db-proof/ipsasGrants.manifest.mjs"); // IPSAS grants (20261208100000): loopback-only disposable-database proof.
+    allowed.add("scripts/db-proof/ipsasStatementReview.mjs"); allowed.add("scripts/db-proof/ipsasStatementReview.manifest.mjs");
+    allowed.add("scripts/browser-acceptance/ipsasStatementSteps.mjs");
+    allowed.add("scripts/release/ipsasStatementReviewStagedTransport.mjs");
     allowed.add("scripts/db-proof/internalBetaTeamBootstrap.mjs"); // Loopback-only first-owner reproduction/concurrency proof.
     // Guided-equipment candidate: local build assets and a synthetic, no-network OCR proof only.
     // These exact additions require PR review; no glob/prefix exception and no deploy capability.

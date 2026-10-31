@@ -83,6 +83,7 @@ const Orders = lazy(() => import("@/pages/billing/Orders"));
 const AssistantTester = lazy(() => import("@/pages/internal/AssistantTester"));
 const CloseFindings = lazy(() => import("@/pages/workspace/CloseFindings"));
 const CloseAdjustments = lazy(() => import("@/pages/workspace/CloseAdjustments"));
+const IpsasPreparationPage = lazy(() => import("@/pages/workspace/IpsasPreparationPage"));
 const UploadTrialBalance = lazy(() => import("@/pages/UploadTrialBalance"));
 const AddCompany = lazy(() => import("@/pages/AddCompany"));
 // Financial Statements and Sign-off & Exports (workbench): a separate chunk, reached only through the released routes below.
@@ -144,6 +145,8 @@ function AppRoutes() {
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("fs-comparatives") && <Route path="statements/comparatives" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="fs-comparatives" /></Suspense></ReportingAccessGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("signoff") && <Route path="signoff" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="signoff" /></Suspense></ReportingAccessGate>} />}
                   {WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES.has("exports") && <Route path="signoff/exports" element={<ReportingAccessGate><Suspense fallback={<PagePending />}><ReportingWorkbenchPage page="exports" /></Suspense></ReportingAccessGate>} />}
+                  {/* IPSAS accrual preparation (first chain). Not behind the SME reporting gate: the ipsas_* functions decide access, rollout and framework on the server. */}
+                  <Route path="ipsas" element={<StageScopeGate stage="prepare"><Suspense fallback={<PagePending />}><IpsasPreparationPage /></Suspense></StageScopeGate>} />
                   <Route path="reconcile"  element={<StageScopeGate stage="reconcile"><ReconcileWorkspace /></StageScopeGate>} />
 
                   {/* Compatibility redirects — engine-named sub-routes → accounting slugs */}

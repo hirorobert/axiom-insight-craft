@@ -1,0 +1,213 @@
+diff --git a/scripts/e2e/ipsasAuthJourney.mjs b/scripts/e2e/ipsasAuthJourney.mjs
+index 6d2518b..1814c5e 100644
+--- a/scripts/e2e/ipsasAuthJourney.mjs
++++ b/scripts/e2e/ipsasAuthJourney.mjs
+@@ -48,7 +48,9 @@ const BUCKET = "trial-balance-files";
+ const results = [];
+ const gaps = [];
+ let group = "", page = null;
+-const log = (s) => { console.log(s); fs.appendFileSync(path.join(OUT, "journey.log"), s + "\n"); };
++// A signed URL is a bearer credential: nothing this journey prints or records may contain one or its token.
++const redact = (text) => String(text).replace(/([?&](?:token|apikey|access_token)=)[^&"\s]*/gi, "$1…").replace(/("(?:url|signedUrl|token)"\s*:\s*)"[^"]*"/gi, '$1"…"');
++const log = (s) => { const t = redact(s); console.log(t); fs.appendFileSync(path.join(OUT, "journey.log"), t + "\n"); };
+ const startGroup = (g) => { group = g; log(`\n== ${g}`); };
+ async function failureEvidence(name) {
+   if (!page) return;
+@@ -56,15 +58,19 @@ async function failureEvidence(name) {
+   try { await page.screenshot(path.join(OUT, `FAIL-${slug}.png`)); } catch { /* */ }
+   try { fs.writeFileSync(path.join(OUT, `FAIL-${slug}.txt`), `${await page.url()}\n\n${await page.bodyText()}`); } catch { /* */ }
+ }
+-async function check(name, fn) {
++/**
++ * kind: "acceptance" (a requirement the journey proves or fails), "gap-record" (records an observed limitation; it can never fail and
++ * is NOT an acceptance pass), "operator-integrity" (a service-role read that proves storage content only).
++ */
++async function check(name, fn, kind = "acceptance") {
+   try {
+     const r = await fn();
+-    results.push({ group, name, ok: r === true, detail: r === true ? undefined : r });
++    results.push({ group, kind, name, ok: r === true, detail: r === true ? undefined : JSON.parse(redact(JSON.stringify(r) ?? "null")) });
+     log(`  ${r === true ? "PASS" : "FAIL"}  ${name}${r === true ? "" : `\n        ${JSON.stringify(r)?.slice(0, 1500)}`}`);
+     if (r !== true) await failureEvidence(name);
+     return r === true;
+   } catch (e) {
+-    results.push({ group, name, ok: false, detail: String(e?.message ?? e) });
++    results.push({ group, kind, name, ok: false, detail: redact(String(e?.message ?? e)) });
+     log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split("\n").slice(0, 3).join(" | ")}`);
+     await failureEvidence(name);
+     return false;
+@@ -388,7 +394,7 @@ async function main() {
+   page = preparer;
+ 
+   startGroup("Private Storage: the uploaded evidence");
+-  const uploadRow = async () => ((await api.owner.from("trial_balance_uploads").select("file_path, period_year").eq("company_id", A)).data ?? []).find((u) => u.period_year === 2026);
++  const uploadRow = async () => ((await api.owner.from("trial_balance_uploads").select("id, file_path, period_year").eq("company_id", A)).data ?? []).find((u) => u.period_year === 2026);
+   await check("AUTHENTICATED: the trial-balance bucket is private; an outsider, a viewer, anon and a public URL cannot read the uploaded object", async () => {
+     const bucket = await admin.storage.getBucket(BUCKET);
+     const mine = await uploadRow();
+@@ -400,25 +406,98 @@ async function main() {
+     return bucket.data?.public === false && !!outsider.error && !!viewer.error && publicFetch.status !== 200 && anonFetch.status !== 200 ? true
+       : { public: bucket.data?.public, outsider: outsider.error?.message, viewer: viewer.error?.message, publicStatus: publicFetch.status, anonStatus: anonFetch.status };
+   });
+-  // The intended owner-retrieval path (investigated, not assumed): the bucket's session policies grant only the legacy personal folder
+-  // (<auth uid>/...); source files now live under workspaces/<company>/..., which "no client Storage policy is widened" leaves
+-  // to the server (the signer issues UPLOAD urls only; process-trial-balance reads with the service role); and no download
+-  // service or page exists. So the owner's direct read is RECORDED as it stands — not asserted as a pass or a feature.
+-  await check("RECORDED GAP (not an acceptance pass): whether a signed-in owner can retrieve their own uploaded source file", async () => {
+-    const mine = await uploadRow();
+-    const own = await api.owner.storage.from(BUCKET).download(mine.file_path);
+-    const retrievable = !own.error && !!own.data;
+-    gaps.push({ id: "TB-SOURCE-OWNER-RETRIEVAL", observed: retrievable ? "owner session can read the workspace object" : "owner session cannot read the workspace object and no download service exists", ownerCanRetrieve: retrievable,
+-      note: "If owners are meant to retrieve their uploaded evidence this is a product gap (needs an authorized download path, e.g. a capability-checked signed-download service); no storage policy was widened here." });
+-    log(`        owner direct read of the uploaded object: ${retrievable ? "allowed" : "refused"} (recorded as a gap, see results.json)`);
+-    return true;
++  // Owner retrieval now exists (#222): a capability-checked server path that signs a 60-second link for exactly one upload. Direct bucket
++  // reads stay refused (checked above); nothing here widens a Storage policy.
++  const DL = await uploadRow();
++  const callDownload = async (as, uploadId = DL.id, companyId = A, extra = {}) => {
++    const headers = { apikey: anonKey, "Content-Type": "application/json" };
++    if (as) headers.Authorization = `Bearer ${as === "anon" ? anonKey : (await api[as].auth.getSession()).data.session.access_token}`;
++    const res = await fetch(`${apiUrl}/functions/v1/trial-balance-source-download`, { method: "POST", headers, body: JSON.stringify({ upload_id: uploadId, company_id: companyId, ...extra }) });
++    return { status: res.status, body: await res.json().catch(() => null) };
++  };
++  // The function signs against its own view of the project URL (inside the local stack: http://kong:8000); the client fetches the same signed
++  // path and token from the API origin it is configured with (src/lib/workspace/sourceDownload.ts rebaseSignedUrl). This does exactly that.
++  const fetchSigned = async (u) => { const x = new URL(u); const r = await fetch(`${new URL(apiUrl).origin}${x.pathname}${x.search}`); return { status: r.status, bytes: r.status === 200 ? Buffer.from(await r.arrayBuffer()) : null }; };
++  const sourceBytes = () => fs.readFileSync(tbCurrent);
++  await check("owner retrieval through the server path: a 60-second link for exactly this upload; the fetched bytes equal the uploaded file and the server's recorded SHA-256", async () => {
++    const r = await callDownload("owner");
++    const row = (await admin.from("trial_balance_uploads").select("source_file_hash").eq("id", DL.id).single()).data;
++    const got = r.body?.url ? await fetchSigned(r.body.url) : null;
++    return r.status === 200 && r.body.outcome === "ready" && r.body.expires_in <= 120 && got?.status === 200 && got.bytes.equals(sourceBytes()) && !!row.source_file_hash && r.body.sha256 === row.source_file_hash && sha(got.bytes) === row.source_file_hash ? true
++      : { status: r.status, outcome: r.body?.outcome, fetched: got?.status, recorded: !!row.source_file_hash };
++  });
++  await check("the owner presses 'Download original' on the real page; Chrome saves the exact uploaded file and the page says it matches the recorded fingerprint", async () => {
++    const p = await open(); page = p;
++    await signInUi(p, U.owner); signedInAs.set(p, "owner");
++    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cfoclose-ipsas-download-"));
++    try { await p.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: dir }); }
++    catch { await p.browser.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dir }); }
++    await goRoute(p, `${base}/trial-balance/review?manage=source`, "");
++    await p.waitForSelector('[data-testid="download-original-trial-balance"]', { timeout: 45000 });
++    const before = p.responses.length;
++    await p.click('[data-testid="download-original-trial-balance"]');
++    const told = await p.waitFor(() => /matches the fingerprint|could not be compared/.test(document.body.innerText), [], { label: "download notice", timeout: 30000 }).catch(() => false);
++    let saved = null;
++    for (let i = 0; i < 60 && !saved; i++) { await sleep(500); saved = fs.readdirSync(dir).find((f) => !/\.crdownload$|\.tmp$/i.test(f)) ?? null; }
++    if (!saved) return { saved, told };
++    const bytes = fs.readFileSync(path.join(dir, saved));
++    const answered = p.responses.slice(before);
++    const posts = answered.filter((r) => r.method === "POST" && /\/functions\/v1\/trial-balance-source-download/.test(r.url)).length;
++    const fetches = answered.filter((r) => r.method === "GET" && r.status === 200 && r.url.includes("/storage/v1/object/sign/trial-balance-files/")).length;
++    const matched = await p.evaluate(() => /matches the fingerprint/.test(document.body.innerText));
++    return bytes.equals(sourceBytes()) && posts === 1 && fetches === 1 && told && matched ? true : { saved, equal: bytes.equals(sourceBytes()), posts, fetches, told, matched };
++  });
++  await check("refused by the server with no URL: a viewer member, an outsider (naming this company or their own), anon, no session; injected path/bucket/user fields are 400", async () => {
++    const out = {};
++    out.viewer = (await callDownload("viewer")).status; out.outsiderNamingA = (await callDownload("outsider")).status; out.outsiderNamingB = (await callDownload("outsider", DL.id, B)).status;
++    out.outsiderUnknownUpload = (await callDownload("outsider", uuid(), B)).status;
++    out.anon = (await callDownload("anon")).status; out.noSession = (await callDownload(null)).status;
++    out.injected = [(await callDownload("owner", DL.id, A, { path: DL.file_path })).status, (await callDownload("owner", DL.id, A, { bucket: "avatars" })).status, (await callDownload("owner", DL.id, A, { user_id: U.owner.id })).status];
++    const refusedWithUrl = (await Promise.all(["viewer", "outsider"].map((w) => callDownload(w)))).filter((r) => r.body?.url).length;
++    const ok = out.viewer === 403 && out.outsiderNamingA === 403 && out.outsiderNamingB === 403 && out.outsiderUnknownUpload === 403 && [401, 403].includes(out.anon) && out.noSession >= 400 && out.noSession < 500 && out.injected.every((s) => s === 400) && refusedWithUrl === 0;
++    return ok ? true : out;
++  });
++  await check("cross-company: the owner is refused another company's upload however they name it, with the same answer as an unknown upload", async () => {
++    const other = await admin.from("trial_balance_uploads").insert({ company_id: B, user_id: U.outsider.id, file_name: "pwani.csv", file_path: `workspaces/${B}/x/pwani.csv`, file_size: 1, period_year: 2026 }).select("id").single();
++    if (other.error) return { seed: other.error.message };
++    const a = await callDownload("owner", other.data.id, A), b = await callDownload("owner", other.data.id, B), unknown = await callDownload("owner", uuid(), A);
++    return a.status === 403 && b.status === 403 && JSON.stringify(a.body) === JSON.stringify(unknown.body) && !a.body?.url && !b.body?.url ? true : { a: a.status, b: b.status, same: JSON.stringify(a.body) === JSON.stringify(unknown.body) };
++  });
++  let issuedBeforeRevocation = null;
++  await check("permissions and revoked access: a member without source-file authority is refused; the OWNER grants manage_source_files (the application's own RPC) and the member is served the same bytes; the owner revokes and the very next request is refused", async () => {
++    const before = await callDownload("preparer");
++    const g = (await api.owner.rpc("grant_workspace_capability", { p_company_id: A, p_grantee_user_id: U.preparer.id, p_capability: "manage_source_files" })).data?.[0];
++    const granted = await callDownload("preparer");
++    const got = granted.body?.url ? await fetchSigned(granted.body.url) : null;
++    issuedBeforeRevocation = granted.body?.url ?? null;
++    const rv = await api.owner.rpc("revoke_workspace_capability", { p_company_id: A, p_grantee_user_id: U.preparer.id, p_capability: "manage_source_files" });
++    const after = await callDownload("preparer");
++    const ownerStill = await callDownload("owner");
++    const row = await uploadRow();
++    return before.status === 403 && ["granted", "already_granted"].includes(g?.outcome) && granted.status === 200 && got?.bytes?.equals(sourceBytes()) && !rv.error
++      && after.status === 403 && !after.body?.url && ownerStill.status === 200 && row.file_path === DL.file_path ? true
++      : { before: before.status, g: g?.outcome, granted: granted.status, rv: rv.error?.message, after: after.status, ownerStill: ownerStill.status };
+   });
++  await check("the page offers a view-only member no 'Download original'", async () => {
++    const v = await open(); page = v;
++    await signInUi(v, U.viewer); signedInAs.set(v, "viewer");
++    await goRoute(v, `${base}/trial-balance/review?manage=source`, ""); await sleep(6000);
++    const seen = await v.evaluate(() => ({ mode: document.querySelector('[data-testid="manage-trial-balance"]')?.getAttribute("data-mode") ?? null, button: !!document.querySelector('[data-testid="download-original-trial-balance"]') }));
++    log(`        viewer's page: manage area mode=${seen.mode ?? "(not shown)"}; download offered=${seen.button}`);
++    return seen.button ? seen : true;
++  });
++  await check("GAP RECORD (observed; cannot fail): a link issued before a revocation still works until it expires (60 s), because it is a bearer credential", async () => {
++    const got = issuedBeforeRevocation ? await fetchSigned(issuedBeforeRevocation) : null;
++    gaps.push({ id: "DOWNLOAD-URL-OUTLIVES-REVOCATION-UNTIL-EXPIRY", observed: got?.status === 200 ? "a link issued before the revocation was still served inside its 60 s window" : `the earlier link was already refused (${got?.status ?? "none issued"})`,
++      note: "Authorization is re-checked on every request; an already-issued bearer link cannot be recalled, so residual access is bounded by the 60 s expiry." });
++    return true;
++  }, "gap-record");
+   await check("OPERATOR INTEGRITY READ (service role, NOT owner retrieval): the stored object is the uploaded file, byte for byte", async () => {
+     const mine = await uploadRow();
+     const own = await admin.storage.from(BUCKET).download(mine.file_path);
+     const bytes = own.data ? Buffer.from(await own.data.arrayBuffer()) : null;
+     return bytes && sha(bytes) === sha(fs.readFileSync(tbCurrent)) ? true : { read: !!bytes };
+-  });
++  }, "operator-integrity");
+ 
+   startGroup("Revoked access");
+   await check("a revoked preparer reads and writes nothing, cannot replay an earlier request, and the recorded history is intact", async () => {
+@@ -476,18 +555,21 @@ async function main() {
+ }
+ 
+ try { await main(); }
+-catch (e) { log(`JOURNEY FAILURE: ${e?.stack ?? e}`); results.push({ group, name: "journey", ok: false, detail: String(e?.message ?? e) }); }
++catch (e) { log(`JOURNEY FAILURE: ${e?.stack ?? e}`); results.push({ group, kind: "acceptance", name: "journey", ok: false, detail: redact(String(e?.message ?? e)) }); }
+ finally {
+-  fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ results, gaps, boundaries: {
++  const byKind = (k) => results.filter((r) => (r.kind ?? "acceptance") === k);
++  const summary = Object.fromEntries(["acceptance", "gap-record", "operator-integrity"].map((k) => [k, { executed: byKind(k).length, passed: byKind(k).filter((r) => r.ok).length, failed: byKind(k).filter((r) => !r.ok).length }]));
++  fs.writeFileSync(path.join(OUT, "results.json"), JSON.stringify({ summary, results, gaps, boundaries: {
+     real: ["GoTrue sign-in (browser and API)", "PostgREST (browser and API)", "RLS and function grants (direct calls with real JWTs)", "private Storage (real uploader into the private bucket; refusal of outsider, viewer, anon and public URL)", "process-trial-balance edge function", "production build served on loopback in headless Chrome"],
+     operatorActionsByServiceRole: ["create Auth users", "grant plans", "record firm members", "enable the reporting rollout", "read the stored object back to verify its bytes (integrity only, not an owner-retrieval check)", "revoke members", "create the outsider's own company"],
+     // Operator-created fixtures are legitimate set-up for this test, but they are NOT tested user onboarding.
+-    notProvenByThisJourney: ["invitation of a member through the UI", "membership acceptance through the UI", "rollout configuration through the UI", "capability grants to a collaborator", "owner retrieval of the uploaded source file (see gaps)"],
++    notProvenByThisJourney: ["invitation of a member through the UI", "membership acceptance through the UI", "rollout configuration through the UI", "capability grants to a collaborator through the UI (the grant and revoke here call the owner's own RPCs directly)"],
+     notUsed: ["hosted project", "paid services", "AI", "simulated identity", "loopback bridge", "dev harness"] }, finishedAt: new Date().toISOString() }, null, 2));
+   try { await browser?.close(); } catch { /* */ }
+   try { await preview?.close(); } catch { /* */ }
+   const failed = results.filter((r) => !r.ok);
+   log(`\nchecks: ${results.length}  passed: ${results.length - failed.length}  failed: ${failed.length}`);
++  for (const [k, v] of Object.entries(summary)) log(`  ${k.padEnd(18)} executed: ${v.executed}  passed: ${v.passed}  failed: ${v.failed}`);
+   log(failed.length || !results.length ? "IPSAS_AUTH_JOURNEY: FAILED" : "IPSAS_AUTH_JOURNEY: ALL PASSED");
+   setTimeout(() => process.exit(results.length && failed.length === 0 ? 0 : 1), 1500);
+ }
+diff --git a/src/lib/__tests__/ipsasAuthJourney.test.ts b/src/lib/__tests__/ipsasAuthJourney.test.ts
+index 62ce8ac..3fed5d6 100644
+--- a/src/lib/__tests__/ipsasAuthJourney.test.ts
++++ b/src/lib/__tests__/ipsasAuthJourney.test.ts
+@@ -61,13 +61,19 @@ describe("the journey script", () => {
+   it("covers the access matrix: viewer member, outsider, cross-company, anon, service role, tables, helpers, revoked access, private Storage", () => {
+     for (const needle of ["viewer", "outsider", "cross-company", "anon", "service role", "ipsas_prep_revisions", "_ipsas_live", "accepted_at: null", "BUCKET", "public === false"]) expect(src, needle).toContain(needle);
+   });
+-  it("keeps the service-role integrity read apart from authenticated checks, and records owner retrieval as a gap instead of passing it", () => {
+-    expect(src).toMatch(/OPERATOR INTEGRITY READ \(service role, NOT owner retrieval\)/);
+-    expect(src).toMatch(/RECORDED GAP \(not an acceptance pass\)/);
+-    expect(src).toMatch(/gaps\.push\(\{ id: "TB-SOURCE-OWNER-RETRIEVAL"/);
++  it("separates acceptance checks from gap records and the service-role integrity read, and proves owner retrieval through the real server path", () => {
++    expect(src).toMatch(/OPERATOR INTEGRITY READ \(service role, NOT owner retrieval\)[\s\S]*?"operator-integrity"\)/);
++    expect(src).toMatch(/GAP RECORD \(observed; cannot fail\)[\s\S]*?"gap-record"\)/);
++    expect(src).toContain('kind = "acceptance"');
++    expect(src).toContain("summary");
++    // owner retrieval is an ACCEPTANCE check, driven through the function and through the real page, never through the service role
++    for (const needle of ["owner retrieval through the server path", "the owner presses 'Download original' on the real page", "download-original-trial-balance", "revoked access", "grant_workspace_capability", "revoke_workspace_capability"]) expect(src, needle).toContain(needle);
++    const retrieval = src.slice(src.indexOf("owner retrieval through the server path"), src.indexOf("GAP RECORD (observed"));
++    expect(retrieval).not.toMatch(/admin\.storage\.from/);
+     // the authenticated storage check must not use the service role to read the object
+-    const authenticated = src.slice(src.indexOf("AUTHENTICATED: the trial-balance bucket"), src.indexOf("RECORDED GAP"));
++    const authenticated = src.slice(src.indexOf("AUTHENTICATED: the trial-balance bucket"), src.indexOf("Owner retrieval now exists"));
+     expect(authenticated).not.toMatch(/admin\.storage\.from/);
++    expect(src).not.toContain("TB-SOURCE-OWNER-RETRIEVAL");
+   });
+   it("states which boundaries are real and which are operator actions in its results", () => {
+     expect(src).toMatch(/real: \[/); expect(src).toMatch(/operatorActionsByServiceRole/); expect(src).toMatch(/notUsed: \[/);

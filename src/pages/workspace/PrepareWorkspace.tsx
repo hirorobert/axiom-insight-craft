@@ -61,6 +61,7 @@ import {
 } from "@/components/workspace/DiscardUploadDialog";
 import { ManageTrialBalance } from "@/components/workspace/ManageTrialBalance";
 import { useWorkspaceCapabilities } from "@/hooks/useWorkspaceCapabilities";
+import { SourceDownloadError, downloadOriginalSource } from "@/lib/workspace/sourceDownload";
 import {
   MANAGE_TRIAL_BALANCE_PARAM,
   RemoveTrialBalanceError,
@@ -280,6 +281,28 @@ export default function PrepareWorkspace() {
     navigate(buildPrepareUploadRoute(companyId, periodYear), { replace: true });
     setShowUploader(true);
     refreshUpload();
+  };
+
+  /**
+   * Download original: the server authorizes this request (and every later one), issues a signed URL that expires within a
+   * minute, and the received bytes are checked against the SHA-256 it recorded before the browser is handed the file.
+   */
+  const [downloadingOriginal, setDownloadingOriginal] = useState(false);
+  const handleDownloadOriginal = async () => {
+    if (!upload || !companyId || downloadingOriginal) return;
+    setDownloadingOriginal(true);
+    try {
+      await ensureFreshSession();
+      const file = await downloadOriginalSource(companyId, upload.id);
+      toast.success(file.integrity === "matched"
+        ? `${file.fileName} downloaded. It matches the fingerprint recorded when it was checked.`
+        : `${file.fileName} downloaded. No fingerprint was recorded for it yet, so it could not be compared.`);
+    } catch (err) {
+      console.error("[downloadOriginal]", err);
+      toast.error(err instanceof SourceDownloadError ? err.message : "The file could not be downloaded. Please try again.");
+    } finally {
+      setDownloadingOriginal(false);
+    }
   };
 
   /**
@@ -718,6 +741,11 @@ export default function PrepareWorkspace() {
         </div>
       </header>
 
+      {company?.reporting_framework === "ipsas_accrual" && (
+        <Link to={`/workspace/${companyId}/${periodYear}/ipsas`} data-testid="ipsas-preparation-entry" className="block rounded-md border border-border bg-muted/40 px-4 py-3 text-sm">
+          <span className="font-medium">IPSAS accrual preparation</span> — record property, plant and equipment, bridge last year's figure and see what remains. Draft only; official issuance is not available.
+        </Link>
+      )}
       {correctionLink && (
         <AccountCorrection
           companyId={companyId} periodYear={periodYear} link={correctionLink} reportVersion={parseReportVersion(`?${searchParams.toString()}`)}
@@ -792,6 +820,8 @@ export default function PrepareWorkspace() {
                     focusRequested={focusManage}
                     onReplace={() => replaceInputRef.current?.click()}
                     onRemove={handleRemove}
+                    onDownload={handleDownloadOriginal}
+                    downloading={downloadingOriginal}
                   />
                 }
                 fileOptionsOpen={focusManage}

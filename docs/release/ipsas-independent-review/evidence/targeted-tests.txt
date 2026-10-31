@@ -1,0 +1,28 @@
+
+ RUN  v3.2.7 C:/Users/user/.codex/worktrees/ipsas-independent-review
+
+ ✓ src/lib/__tests__/ipsasStagedTransport.test.ts (9 tests) 813ms
+ ✓ src/lib/__tests__/ipsasGrantsStagedTransport.test.ts (10 tests) 820ms
+ ✓ src/lib/ipsasStatements/client.test.ts (16 tests) 59ms
+ ✓ src/lib/__tests__/ipsasStatementReviewTransport.test.ts (8 tests) 1097ms
+   ✓ statement-review exact-byte transport > stage generation contains the exact approved source bytes  446ms
+ ✓ src/lib/__tests__/ipsasAuthJourney.test.ts (14 tests) 24ms
+ ✓ src/lib/__tests__/ipsasReviewRecords.test.ts (4 tests) 26ms
+ ✓ src/components/ipsas/IpsasPreparation.test.ts (8 tests) 2446ms
+   ✓ IpsasPreparation > has no accessibility violations on the preparation area  1514ms
+ ✓ src/components/ipsas/IpsasPreparation.saveHandling.test.ts (13 tests) 2602ms
+   ✓ PPE save handling > REPRODUCTION: an edit typed while the save is in flight survives the receipt and the context refresh, and stays dirty  512ms
+ ✓ src/components/ipsas/GrantsPreparation.test.ts (9 tests) 1885ms
+   ✓ GrantsPreparation > offers only the classification vocabulary of the SERVER-derived period, and says the period is read, not typed  305ms
+   ✓ GrantsPreparation > has no accessibility violations on the editor  1119ms
+ ✓ src/components/ipsasStatements/StatementReview.test.ts (13 tests) 1717ms
+   ✓ the review screen has no detected structural accessibility violations  718ms
+ ✓ src/components/ipsas/GrantsPreparation.saveHandling.test.ts (10 tests) 1233ms
+   ✓ grants save handling > REPRODUCTION (grants, independently): an edit typed while the save is in flight survives the receipt and the refresh, and stays dirty  310ms
+ ✓ src/pages/workspace/IpsasPreparationPage.boundary.test.ts (3 tests) 943ms
+   ✓ the IPSAS page remounts on any change of company, period or actor > another signed-in actor: a new client, a fresh instance, and the first actor's late answer reaches nothing  495ms
+
+ Test Files  12 passed (12)
+      Tests  117 passed (117)
+   Start at  08:20:00
+   Duration  23.53s (transform 1.83s, setup 0ms, collect 7.65s, tests 13.67s, environment 12.81s, prepare 4.04s)

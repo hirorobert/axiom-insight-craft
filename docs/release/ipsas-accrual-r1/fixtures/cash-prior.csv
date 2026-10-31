@@ -1,0 +1,4 @@
+id,accountId,activity,label,amountMinor,transferId,evidenceId
+receipt,bank,operating,Grant receipts,1000000,,cash-prior
+salary,bank,operating,Payments to employees,-400000,,cash-prior
+purchase,bank,investing,Equipment purchases,-400000,,cash-prior

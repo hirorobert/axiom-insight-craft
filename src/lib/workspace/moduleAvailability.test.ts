@@ -221,7 +221,9 @@ describe("2. only Prepare and Reconcile are customer-reachable", () => {
     const releaseGated = [...app.matchAll(/\{WORKBENCH_NAVIGATION_ENABLED && RELEASED_WORKBENCH_PAGES\.has\("([a-z-]+)"\) && <Route path="([a-z/-]+)" element=\{<StageScopeGate stage="([a-z]+)">/g)].map((m) => [m[1], m[2], m[3]]).filter((r) => r[2] !== "statements");
     expect(releaseGated).toEqual([["close-findings", "close/findings", "prepare"], ["close-adjustments", "close/adjustments", "prepare"]]);
     expect(staged.filter((x) => x === "reconcile")).toHaveLength(1);
-    expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length + releaseGated.length);
+    // +1: the IPSAS accrual preparation page (path "ipsas"), under the same Prepare stage and scope gate; the ipsas_* server
+    // functions decide capability, rollout and framework, and the page is only linked for ipsas_accrual companies.
+    expect(staged.filter((x) => x === "prepare")).toHaveLength(1 + gated.length + releaseGated.length + 1);
     const layout = code("src/pages/workspace/WorkspaceLayout.tsx");
     expect(layout.match(/<nav\b/g)?.length).toBe(1);
     expect(layout).toMatch(/const navItems = withheld \? \[\] : deriveWorkspaceNavigation\(/);

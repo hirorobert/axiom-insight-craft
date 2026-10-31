@@ -1,0 +1,13 @@
+dist/assets/index.es-BfNSAOLR.js                              150.81 kB │ gzip:  51.53 kB
+dist/assets/html2canvas.esm-CBrSDip1.js                       201.42 kB │ gzip:  48.03 kB
+dist/assets/ReportingWorkbenchPage-CknpC-Pq.js                372.72 kB │ gzip: 104.30 kB
+dist/assets/xlsx-B6sNpj_1.js                                  429.35 kB │ gzip: 143.18 kB
+dist/assets/pdf-DpFjpU13.js                                   483.83 kB │ gzip: 144.83 kB
+dist/assets/tzPack-28d1MqOg.js                                693.25 kB │ gzip: 206.54 kB
+dist/assets/index-C6Rjv9b5.js                               1,659.74 kB │ gzip: 482.06 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1m 18s

@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 C:/Users/user/.codex/worktrees/ipsas-independent-review
+
+ ✓ src/lib/__tests__/releaseJournal.test.ts (65 tests | 64 skipped) 8657ms
+   ✓ fs-integrity-r1 staged transport applied as 0075–0079 (hosted 76–80) > the repository-level guard fails when an entry is missing, duplicated or the batches are reordered  8651ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 64 skipped (65)
+   Start at  08:20:26
+   Duration  11.91s (transform 563ms, setup 0ms, collect 811ms, tests 8.66s, environment 1ms, prepare 355ms)

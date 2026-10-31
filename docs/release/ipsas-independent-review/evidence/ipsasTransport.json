@@ -1,0 +1,102 @@
+{
+  "proof": "ipsasTransport",
+  "mode": "present",
+  "manifestSha256": "ef7104e4bb2edfaa4236eb728858e6c72e563f7378d26693cd3955faf1d5a1ad",
+  "completed": true,
+  "crashed": false,
+  "crashMessage": null,
+  "cases": [
+    {
+      "id": "setup.real-predecessor-chain",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.wrong-predecessor-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.exact-id-required",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.private-install",
+      "outcome": "pass"
+    },
+    {
+      "id": "bootstrap.existing-schema-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.client-roles-denied",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.missing-stage-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.one-byte-tamper-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.unknown-artifact-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.exact-source-inert",
+      "outcome": "pass"
+    },
+    {
+      "id": "stage.immutable-evidence",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.rehash-does-not-trust-metadata",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.prerequisite-missing-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.unexpected-journal-head-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.late-failure-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.baseline-change-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.privilege-postcondition-rolls-back",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.binding-independent-of-session-search-path",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.concurrent-installed-exactly-once",
+      "outcome": "pass"
+    },
+    {
+      "id": "apply.duplicate-refused",
+      "outcome": "pass"
+    },
+    {
+      "id": "installed.equals-direct-application",
+      "outcome": "pass"
+    },
+    {
+      "id": "installed.authority-matrix-and-framework-gate",
+      "outcome": "pass"
+    },
+    {
+      "id": "preservation.actual-records-and-settings",
+      "outcome": "pass"
+    }
+  ]
+}

@@ -31,6 +31,19 @@ async function solved(secret: string, bits = TEST_BITS, nowMs = Date.now()): Pro
   return token as string;
 }
 
+/**
+ * A counter that does NOT solve `challenge`. Any fixed counter (say 1) solves a TEST_BITS challenge with probability
+ * 2^-TEST_BITS, and the nonce is random — so a hard-coded "wrong" counter made the test fail about 1 run in 256. The digest
+ * is recomputed here, independently of the verifier, so the refusal asserted below is of work genuinely not done.
+ */
+async function unsolvedCounter(challenge: string, bits: number): Promise<number> {
+  const payload = challenge.slice(0, challenge.lastIndexOf("."));
+  for (let counter = 0; ; counter += 1) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${payload}:${counter}`)));
+    if (!hasLeadingZeroBits(digest, bits)) return counter;
+  }
+}
+
 describe("first-party attestation", () => {
   it("accepts a challenge this server signed and this browser solved", async () => {
     const now = Date.now();
@@ -49,7 +62,8 @@ describe("first-party attestation", () => {
     const issued = await issueAttestation(SECRET, { bits: TEST_BITS, nowMs: now });
     const opts = { nowMs: now + 1_000, requiredBits: TEST_BITS };
     expect(await verifyAttestation(SECRET, issued.challenge, opts)).toEqual({ kind: "rejected", reason: "invalid" }); // no counter at all
-    expect(await verifyAttestation(SECRET, `${issued.challenge}.1`, opts)).toEqual({ kind: "rejected", reason: "invalid" }); // work not done
+    const wrong = await unsolvedCounter(issued.challenge, TEST_BITS);
+    expect(await verifyAttestation(SECRET, `${issued.challenge}.${wrong}`, opts)).toEqual({ kind: "rejected", reason: "invalid" }); // work not done
     const easier = await solved(SECRET, 1, now);
     expect(await verifyAttestation(SECRET, easier, opts)).toEqual({ kind: "rejected", reason: "invalid" }); // difficulty is ours, not theirs
   });
@@ -122,7 +136,9 @@ describe("first-party attestation", () => {
   });
 
   it("gives up rather than inventing a solution when the work budget is exhausted", async () => {
-    const issued = await issueAttestation(SECRET, { bits: 24 });
+    // A fixed nonce and clock make the challenge identical every run, so the outcome is too (counters 0–4 do not solve it;
+    // with a random nonce that held only with probability 1 - 5·2^-24).
+    const issued = await issueAttestation(SECRET, { bits: 24, nowMs: 1_700_000_000_000, randomBytes: (n) => new Uint8Array(n) });
     expect(await solveChallenge({ challenge: issued.challenge, bits: 24 }, 5)).toBeNull();
   });
 });
