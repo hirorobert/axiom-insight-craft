@@ -88,6 +88,18 @@ The same company's trial balance, once through the connector and once as a manua
 | 9 | Whether report rows carry stable account ids, and how sub-accounts appear | Stable source account ids (charter L1) |
 | 10 | Home-currency and multi-currency behaviour in the report | Our currency and denomination checks |
 
+### 9.1 What was checked on 2026-10-31, and how (and what could not be)
+
+Intuit's documentation pages are rendered by script and **could not be read directly** by the assistant's fetch tool (they returned only the page heading), so nothing below is a reading of Intuit's own text. It is what web-search summaries of those pages said.
+
+| Item | Result | Strength |
+|---|---|---|
+| Sign-up and first steps | Create a developer account (this also gives a sandbox company), create an app and choose the **Accounting** scope, find the client id and secret under "Keys and credentials" (Development toggle), set the redirect URI in the app's Settings, test with the API Explorer or Postman; the sandbox base address is `sandbox-quickbooks.api.intuit.com/v3`. Menu paths differ between documentation versions. | Search summary of Intuit pages; **re-check in the live portal** |
+| Sandboxes | Up to 10; for development and testing, **not commercial use**; **region-specific, the country is chosen when one is created**. | Search summary; matters for item 6 |
+| Item 6, regions | Sources disagree on which editions exist and which are covered (some call the US and European products different, with different API links). **Unresolved.** The sandbox's country choice gives a practical test once the clients' edition is known. | Weak; needs Intuit or a real sandbox in the right country |
+| Item 8, AI terms | The developer terms page shows an effective date of 14 October 2025, but its text could not be read. Third-party summaries conflict; one says AI use is not categorically banned but carries conditions (consent, responsible-AI, written data-protection duties). **Not verified. A lawyer must read the actual terms.** | None usable |
+| Items 1 to 5, 7, 9, 10 | **Still unverified.** | None |
+
 ## 10. Not claimed
 
 This plan does not establish that QuickBooks Online is the right first connector (that rests on your statement that most firms use it), that API access exists for those firms, that any term permits our use, or that the effort is small. Items 6 and 8 in section 9 could change or end the plan.
