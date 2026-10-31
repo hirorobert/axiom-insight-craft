@@ -174,11 +174,13 @@ A plan missing any field in this section is not a plan.
 | B3 | | | | |
 | B4 | | | | |
 | B5 | | | | |
-| B6 | | | | |
+| B6 | | Humphrey ¹ | Sawe ¹ | |
 | B7 | | | | |
 | B8a | | | | |
 | B8b | | | | |
 | B9 | | | | |
+
+¹ B6 accounting author and independent reviewer **named by the team on 2026-10-31** (the team's instruction, recorded here; no agent appointed them). Full names, professional qualification and registration, and the declaration that the reviewer is independent of the author are **not yet recorded** and are collected in `docs/release/ipsas-register-r1/DRAFT_REGISTER.md`. The B6 technical owner and the committed dates are still open, so B6 is **not yet a complete plan** under this section.
 
 ---
 
