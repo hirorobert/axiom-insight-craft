@@ -464,6 +464,55 @@ jobs:
         if: always()
         run: node scripts/e2e/paymentJourney.mjs real-app-evidence/payments
 
+      - name: Launch-acceptance identity (evidence branch only; proves the tree actually checked out and built equals the candidate under test apart from the QA files, and records the harness commit separately)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: ebafa68d06a13d5936a48e2020b8594fd5546daa
+        run: |
+          set -u
+          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
+          git fetch --no-tags --depth=1 origin "$LAUNCH_QA_CANDIDATE_SHA" >/dev/null 2>&1 || true
+          BUILT=$(git rev-parse HEAD)
+          CHANGED=$(git diff --name-only "$LAUNCH_QA_CANDIDATE_SHA" HEAD 2>/dev/null || echo "__candidate_unavailable__")
+          OUTSIDE=$(printf '%s\n' "$CHANGED" | grep -v -E '^(research/launch-qa/|\.github/workflows/ci\.yml$)' | grep -v '^$' || true)
+          DIRTY=$(git diff --name-only HEAD)
+          VERIFIED=false; [ -z "$OUTSIDE" ] && [ -z "$DIRTY" ] && VERIFIED=true
+          APPTREE=$(git rev-parse "$LAUNCH_QA_CANDIDATE_SHA^{tree}" 2>/dev/null || echo unknown)
+          node -e 'const [o,c,b,t,v,ch,out,d]=process.argv.slice(1); require("fs").writeFileSync(o+"/identity.json", JSON.stringify({applicationSha:c, applicationTree:t, builtCommit:b, verified:v==="true", filesDifferingFromCandidate:ch.split("\n").filter(Boolean), outsideAllowedQaFiles:out.split("\n").filter(Boolean), trackedModificationsBeforeBuild:d.split("\n").filter(Boolean)}, null, 2))' "$OUT" "$LAUNCH_QA_CANDIDATE_SHA" "$BUILT" "$APPTREE" "$VERIFIED" "$CHANGED" "$OUTSIDE" "$DIRTY"
+          cat "$OUT/identity.json"
+          [ "$VERIFIED" = true ]
+
+      - name: Launch-acceptance browser smoke (BLACK, evidence; synthetic driver and primitive check only, establishes no journey)
+        if: always()
+        run: node research/launch-qa/harness/driverSmokeTest.mjs
+
+      - name: Launch-acceptance QA (BLACK, evidence; the nine journeys A to I on the isolated local stack, repair B presence verified in the database under test)
+        if: always()
+        env:
+          LAUNCH_QA_CANDIDATE_SHA: ebafa68d06a13d5936a48e2020b8594fd5546daa
+          LAUNCH_QA_HOOKS: research/launch-qa/ci/launchQaHooks.mjs
+          LAUNCH_QA_PAYMENTS: "1"
+        run: |
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          NEW=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_codeless_name'" 2>/dev/null || echo 0)
+          OLD=$(docker exec "$DB" psql -U postgres -tAc "select count(*) from pg_indexes where schemaname='public' and indexname='uq_acct_map_company_norm_name'" 2>/dev/null || echo 1)
+          echo "repair B in the database under test: codeless-name index=$NEW, all-names index=$OLD"
+          if [ "$NEW" = "1" ] && [ "$OLD" = "0" ]; then export LAUNCH_QA_SAME_NAME_REPAIR=verified; fi
+          node research/launch-qa/qa/realAppJourney.mjs real-app-evidence/launch-qa
+
+      - name: Launch-acceptance persisted state (always; read-only - every upload of the QA accounts with its lifecycle, and the processing lines the functions logged during the QA)
+        if: always()
+        run: |
+          OUT=real-app-evidence/launch-qa; mkdir -p "$OUT"
+          DB=$(docker ps --format '{{.Names}}' | grep supabase_db | head -1)
+          docker exec "$DB" psql -U postgres -tAc "select coalesce(json_agg(t), '[]') from (select u.id, c.name as company, u.period_year, u.file_name, u.status, u.lifecycle_state, u.version, u.superseded_by_upload_id, u.uploaded_at from public.trial_balance_uploads u join public.companies c on c.id = u.company_id join auth.users au on au.id = c.user_id where au.email like '%@laq-local.test' order by u.uploaded_at) t" > "$OUT/persisted-uploads.json" 2>&1 || true
+          cat "$OUT/persisted-uploads.json"
+          grep -hE "Detected file|Ingested|TOO_MANY|worker=" "$OUT"/payments-functions-serve.log 2>/dev/null || true
+
+      - name: Launch-acceptance gate (passes only when all nine mandatory scenarios executed and passed and the application identity was verified)
+        if: always()
+        run: node research/launch-qa/ci/launchQaGate.mjs real-app-evidence/launch-qa
+
       - name: Upload the real application evidence (screenshots, journey log, results)
         if: always()
         uses: actions/upload-artifact@v4
