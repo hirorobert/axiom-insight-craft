@@ -131,11 +131,22 @@ describe("source-access exact-byte staged transport", () => {
     expect(hash("10_ipsas_3_statement_review_staged_apply.sql")).toBe(STATEMENT_FORMS.ipsas_3_statement_review_staged_apply);
   });
 
-  it("claims nothing as hosted-applied: no Drizzle mirror, no journal entry and no release-journal registration exist for it", () => {
+  it("is recorded as hosted-applied (2026-10-31, hosted ids 98/99): both Drizzle mirrors and both reviewed registrations exist, nothing past 0098", () => {
     const journal = JSON.parse(fs.readFileSync(path.join(ROOT, "drizzle/migrations/meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
-    expect(journal.entries.some((e) => /source_access/i.test(e.tag))).toBe(false);
-    expect(Math.max(...journal.entries.map((e) => Number(e.tag.slice(0, 4))))).toBe(96);
-    expect(fs.readdirSync(path.join(ROOT, "drizzle/migrations")).some((f) => /source_access/i.test(f))).toBe(false);
-    expect(Object.keys(RELEASE_JOURNAL).some((k) => /source_access/i.test(k))).toBe(false);
+    const tags = ["0097_source_access_staged_transport", "0098_source_access_1_staged_apply"];
+    expect(journal.entries.filter((e) => /source_access/i.test(e.tag)).map((e) => e.tag)).toEqual(tags);
+    expect(Math.max(...journal.entries.map((e) => Number(e.tag.slice(0, 4))))).toBe(98);
+    expect(Object.keys(RELEASE_JOURNAL).filter((k) => /source_access/i.test(k))).toEqual(tags);
+    for (const tag of tags) {
+      expect(RELEASE_JOURNAL[tag]).toMatchObject({ kind: "source_access_staged_transport" });
+      expect(RELEASE_JOURNAL[tag]).not.toHaveProperty("variant");
+    }
+    // hosted 98 is the reviewed bootstrap plus the migrator's final LF (journal hash f5c3ad23...), hosted 99 is the reviewed apply exactly (d31be75c...)
+    const forms = Object.fromEntries(transportForms().map((f) => [f.name, f.text]));
+    const file = (tag: string) => fs.readFileSync(path.join(ROOT, "drizzle/migrations", `${tag}.sql`));
+    expect(sha(file(tags[0]))).toBe("f5c3ad23b687834910c65276e6631544a21c2ed19cd57c3965ff003cadd9e1f6");
+    expect(file(tags[0]).toString("utf8")).toBe(`${forms.source_access_staged_transport}\n`);
+    expect(sha(file(tags[1]))).toBe("d31be75cbcd95962dda56aaea235521668780a8b7cd5a24643bf640c21f4f287");
+    expect(file(tags[1]).toString("utf8")).toBe(forms.source_access_1_staged_apply);
   });
 });
