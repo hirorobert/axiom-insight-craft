@@ -380,6 +380,25 @@ function yearsIn(text: string): number[] {
   return [...out];
 }
 
+/**
+ * QuickBooks Desktop (and some other exports) leave the account-name column's heading BLANK. That is read as the account name
+ * only when it is unambiguous, never guessed: exactly one heading-less column (other than the amount columns) holds text — at
+ * least two different non-numeric values and at least 90 % of its non-empty cells non-numeric. Zero or several such columns,
+ * or a column that is mostly numbers, return null and the file stays refused as before.
+ */
+function inferUnlabelledNameColumn(rows: SourceRow[], headerIndex: number, headers: string[], amountColumns: number[]): number | null {
+  const numericLike = (c: Cell): boolean => typeof c === "number" || (typeof c === "string" && /^[\s(+\-−]*[\d][\d.,\s]*\)?\s*$/.test(c));
+  const body = rows.slice(headerIndex + 1, headerIndex + 2001);
+  const qualifying: number[] = [];
+  headers.forEach((h, col) => {
+    if (h !== "" || amountColumns.includes(col)) return;
+    const filled = body.map((r) => r.cells[col]).filter((c) => c !== null && c !== undefined && String(c).trim() !== "");
+    const text = filled.filter((c) => !numericLike(c)).map((c) => String(c).trim().toLowerCase());
+    if (filled.length >= 2 && new Set(text).size >= 2 && text.length / filled.length >= 0.9) qualifying.push(col);
+  });
+  return qualifying.length === 1 ? qualifying[0] : null;
+}
+
 /** Scans the first 15 rows for the header with the most recognised columns, then resolves each role to one column. */
 export function detectColumns(rows: SourceRow[], periodYear: number | null): ColumnDetection {
   const scan = Math.min(rows.length, 15);
@@ -462,6 +481,12 @@ export function detectColumns(rows: SourceRow[], periodYear: number | null): Col
     headers,
   };
 
+  // A heading-less account-name column (QuickBooks Desktop export): accepted only when unambiguous, and recorded in `detected` so the
+  // read says plainly that the name column had no heading.
+  if (map.account_name === null && map.account_code === null && map.debit !== null && map.credit !== null) {
+    const inferred = inferUnlabelledNameColumn(rows, bestIndex, headers, [map.debit, map.credit, ...(map.balance !== null ? [map.balance] : [])]);
+    if (inferred !== null) { map.account_name = inferred; detected.account_name = `(unlabelled column ${columnLetter(inferred)})`; }
+  }
   if (map.account_name === null && map.account_code === null) {
     issues.push({ code: "MISSING_COLUMN", severity: "blocking", field: "account_name", rows: [header.rowNumber], message: "No account name column was found. Name a column “Account Name” (or Description / Particulars)." });
   }
@@ -848,10 +873,13 @@ export function ingestTrialBalance(input: IngestInput): IngestResult {
       // No label at all: either an empty row with stray formatting, or amounts with nothing to attach them to.
       const anyAmount = [d, c, b].some((v) => v !== null);
       const onlyAmounts = row.cells.every((v, col) => !cellString(v) || amountColumns.includes(col));
+      // QuickBooks Desktop writes the word TOTAL in a column other than the account-name column (the last row, with the two sums).
+      // Accepted only when every non-amount cell on the row is exactly a grand-total label; a note or any other text still fails.
+      const onlyAmountsOrGrandTotalLabel = row.cells.every((v, col) => !cellString(v) || amountColumns.includes(col) || GRAND_TOTAL_PATTERN.test(cellString(v)));
       if (useDebitCredit && typeof d === "bigint" && typeof c === "bigint" && b !== "bad"
-        && accounts.length > 0 && onlyAmounts && i === lastSubstantive) {
+        && accounts.length > 0 && onlyAmountsOrGrandTotalLabel && i === lastSubstantive) {
         totalRowsChecked.push({ row: row.rowNumber, debit: d, credit: c, accountsDebit: runningDebit, accountsCredit: runningCredit });
-        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: "Terminal unlabelled control total; checked against account rows", debitMinor: d, creditMinor: c });
+        lineage.push({ rowNumber: row.rowNumber, disposition: "total", reason: onlyAmounts ? "Terminal unlabelled control total; checked against account rows" : "Terminal control total labelled outside the name column; checked against account rows", debitMinor: d, creditMinor: c });
         continue;
       }
       lineage.push(anyAmount
