@@ -22,12 +22,17 @@ export const CASES = Object.freeze([
   ...HOLDER_FIRST_WRITERS.map((w) => control(`ordering.withdrawal-holding-its-locks-first.${w}-is-ordered-first`)),
   control("ordering.a-collaborator-who-was-never-a-member-is-issued-and-unaffected-by-others"),
   control("ordering.concurrent-downloads-and-a-revocation-terminate-in-one-order"),
-  // expiry: EXACT versus ESTIMATED, and validity judged on the conservative floor only (an upper bound never proves a link is still valid)
-  control("expiry.signing-delay-stores-an-estimate-with-a-floor-and-a-ceiling-never-an-exact-expiry"),
-  control("expiry.the-signers-own-expiry-is-stored-as-exact"),
-  control("expiry.an-upper-bound-never-proves-a-link-is-still-valid"),
-  control("expiry.an-exact-expiry-already-passed-is-refused-and-recorded"),
-  control("expiry.the-bounds-are-computed-by-the-database-and-pinned-by-constraints"),
+  // expiry: the signer's own exp or nothing; a margin judged as late as practical and again before the response; no estimate
+  control("expiry.the-signers-own-exp-is-recorded-with-its-freshness-evaluation"),
+  control("expiry.a-link-without-a-readable-exp-is-never-issued-or-recorded"),
+  control("expiry.whole-second-signer-counterexample-nothing-is-claimed-beyond-the-true-exp"),
+  control("expiry.freshness-is-evaluated-after-the-locks-a-delayed-decision-is-refused"),
+  control("expiry.the-link-ran-out-after-the-decision-the-response-is-withheld-and-the-decision-stands"),
+  control("expiry.the-database-refuses-bad-inputs-and-the-constraints-pin-outcome-to-margin"),
+  // owner identity: every authority input is judged under the locks of the account it is judged for
+  control("ownership.transfer-committed-first-the-new-owner-is-the-account-judged-and-protected"),
+  control("ownership.transfer-between-the-owner-read-and-the-company-lock-is-refused"),
+  control("ownership.transfer-waits-for-an-admitted-decision-then-the-new-owner-governs"),
   // finding 5: what a record means, and the only ways to write one
   control("record.issuance-means-decision-not-delivery"),
   control("record.no-decision-no-link"),

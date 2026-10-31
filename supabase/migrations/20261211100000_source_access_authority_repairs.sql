@@ -17,7 +17,7 @@
 --    The trial-balance-source-download function reads authority (a plain, advisory read), asks Storage to sign (an external step that cannot share a database
 --    transaction and is therefore never held inside one), and then calls decide_trial_balance_source_download_issuance. THAT call is the decision: in ONE
 --    transaction it (a) takes the locks below, (b) re-evaluates workspace_authority_basis(user, workspace, 'manage_source_files'), (c) refuses if the right was
---    withdrawn or if the signed link is not provably still valid (its conservative validity deadline has passed), and (d) inserts the decision record. Its COMMIT is the ordering point: a withdrawal that commits
+--    withdrawn or if the signed link has less than the required margin left at the freshness evaluation (judged last, immediately before the insert), and (d) inserts the decision record. Its COMMIT is the ordering point: a withdrawal that commits
 --    before it is seen by (b) and wins (no 'issued' record, no link is returned); a withdrawal that has not committed must wait for these locks until the
 --    decision commits, so it is ordered after the issuance, and the function may deliver the already-minted link afterwards. An ordinary permission read is
 --    NOT an ordering point and nothing here calls one.
@@ -37,21 +37,32 @@
 --    NOT covered: a link ALREADY RETURNED stays a bearer credential until its own expiry (Storage cannot revoke one signed URL) - a separate, documented limit; a
 --    clock-based expiry of a plan is not a writer; a new writer that touches none of the keys above is not covered.
 --
---    WHAT A RECORD MEANS. trial_balance_source_download_events records DECISIONS of the function: 'issued' = an authorised issuance decision was committed (the
---    right held at the commit and the signed link was not past its conservative validity deadline); it is NOT evidence that the response reached the caller or
---    that the file was downloaded. 'denied' = the pre-check refused an authenticated caller who named a real upload of a real company; 'withdrawn_before_issue' =
---    the right was gone at the decision; 'expired_before_issue' = the link was not provably valid at the decision.
---    EXPIRY IS STORED AS EXACT OR ESTIMATED, NEVER BLURRED. link_expiry_kind 'signer_exact': Storage's own exp for the link was read, so the expiry is exactly
---    known (floor = exact = ceiling). 'estimated_bounds': the exact expiry is unknown; link_expiry_exact_at is null and the expiry lies between
---    link_valid_until_floor_at (signing START + the requested lifetime: the earliest the link can expire, since Storage fixes exp at some instant between signing
---    start and completion) and link_expiry_ceiling_at (signing COMPLETION + lifetime: the latest). VALIDITY IS JUDGED ON THE FLOOR ONLY: an upper bound can never
---    prove that a link is still valid, so a link whose floor has passed is refused even when its ceiling has not. The ceiling states residual access (how long a
---    returned link might still work); it is not used as a validity test. The bounds are computed inside the decision from the signing interval; the caller cannot
---    supply them, and table constraints pin the estimate to that derivation. Signing start and completion are the function host's clock readings; the freshness
---    comparison uses the database clock (clock skew is a recorded policy decision). Never a URL, token or object path. Only the two functions below write the
---    table (the service role has SELECT only), so no unconditional insert exists. Append-only; the workspace owner may read the workspace's rows (RLS), nobody
---    else. NOT decided: who else may read (administrators, auditors, the actor), RETENTION, and whether other-company or unknown-upload attempts should be
---    recorded - recorded open decisions, not defaults invented here.
+--    OWNER IDENTITY. The plan and seat locks are taken for the owner read before the company row is locked. After the company row is locked (an ownership
+--    change is an UPDATE of that row, so it now waits for this transaction) the owner is read again; if it differs from the owner whose locks are held, the
+--    decision refuses ('unavailable', nothing recorded, retry-safe). It never takes the new owner's locks: doing so after other locks are held is how lock
+--    inversions begin. The writer found for an ownership change is a plain UPDATE of companies.user_id guarded by trg_companies_entity_capacity, which takes
+--    only the target account's cfoclose.entity_capacity lock - a key the decision never takes, so the two cannot deadlock.
+--
+--    WHAT A RECORD MEANS. trial_balance_source_download_events records DECISIONS of the function. 'issued': under the locks, authority held and, at
+--    freshness_evaluated_at, the link had at least link_min_remaining_seconds left. These facts are kept distinct and none is promoted to another:
+--      * the AUTHORIZATION / ISSUANCE DECISION   - outcome, with authority_evaluated_at;
+--      * the FRESHNESS EVALUATION                - freshness_evaluated_at and freshness_remaining_ms: the database clock immediately before the insert. It proves the
+--                                                  link had that much life THEN. It does not prove validity at commit: a transaction can pause after its last check;
+--      * the TRANSACTION COMPLETION              - NOT recorded: it cannot be known inside the transaction and may be later than the freshness evaluation;
+--      * the RESPONSE DELIVERY                   - NOT recorded and not observable by this function (the bytes travel from Storage to the browser).
+--    A decision may therefore exist without a delivered response. After the commit the function checks freshness once more on its own clock and withholds the
+--    link when it has run out (answer link_expired, never "ready" with no time left); the row stays exactly as committed - nothing is updated, because
+--    history is immutable. 'denied' = the pre-check refused an authenticated caller who named a real upload of a real company; 'withdrawn_before_issue' = the
+--    right was gone at the decision; 'expired_before_issue' = the link had less than the margin left at the freshness evaluation.
+--    EXPIRY IS THE SIGNER'S OWN, OR NOTHING IS ISSUED. link_expiry_exact_at is the link's exp (whole seconds, as the token carries it). There is no estimated
+--    expiry: Storage may truncate the signing instant to a whole second, which can make the real exp up to a second earlier than "signing start + lifetime", so
+--    any estimate built from the signing interval is not reliably conservative once timestamp resolution and clock differences are counted. A link whose exp
+--    cannot be read is refused (signing_failed) and no decision is recorded. link_min_remaining_seconds (5 s, chosen by the function) is a POLICY margin for
+--    response transit and modest clock differences between Storage and the database; it is not derived from a measured skew, and no skew bound is claimed.
+--    The function host's clock readings around signing are recorded for audit; the freshness comparison uses the database clock against the signer's exp.
+--    Never a URL, token or object path. Only the two functions below write the table (the service role has SELECT only), so no unconditional insert exists.
+--    Append-only; the workspace owner may read the workspace's rows (RLS), nobody else. NOT decided: who else may read (administrators, auditors, the actor),
+--    RETENTION, whether other-company or unknown-upload attempts should be recorded, and the clock-skew policy - recorded open decisions, not defaults invented here.
 
 DO $refuse$
 BEGIN
@@ -97,7 +108,7 @@ CREATE TRIGGER trg_firm_members_revoke_workspace_grants AFTER DELETE OR UPDATE O
 -- ── 2. the durable record of file-link issuance decisions ────────────────────────────────────────────────────────────
 CREATE TABLE public.trial_balance_source_download_events (
   id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
-  occurred_at timestamptz NOT NULL DEFAULT clock_timestamp(),   -- the database clock at the decision
+  occurred_at timestamptz NOT NULL DEFAULT clock_timestamp(),   -- the database clock when the row was inserted (inside the decision transaction)
   company_id uuid NOT NULL,        -- not FKs: the record must outlive a deleted upload or workspace
   upload_id uuid NOT NULL,
   actor_user_id uuid NOT NULL,
@@ -106,33 +117,31 @@ CREATE TABLE public.trial_balance_source_download_events (
   signing_started_at timestamptz,          -- function-host clock readings around the Storage signing call
   signing_completed_at timestamptz,
   link_lifetime_seconds integer,           -- the lifetime that was REQUESTED from Storage
-  -- EXACT vs ESTIMATED expiry. 'signer_exact': Storage's own exp for the link was read, so the exact expiry is known and floor = exact = ceiling. 'estimated_bounds':
-  -- the exact expiry is NOT known; it lies between the floor and the ceiling, and nothing here claims more.
-  link_expiry_kind text CHECK (link_expiry_kind IN ('signer_exact', 'estimated_bounds')),
-  link_expiry_exact_at timestamptz,        -- the signer's own exp; null unless link_expiry_kind = 'signer_exact'
-  link_valid_until_floor_at timestamptz,   -- CONSERVATIVE validity deadline: the link is believed valid until at least here (exact exp, else signing START + lifetime). The ONLY value that may be used to say a link is still valid.
-  link_expiry_ceiling_at timestamptz,      -- the latest the link could still work (exact exp, else signing COMPLETION + lifetime): an UPPER BOUND, used to state residual access, never to prove validity
+  link_expiry_exact_at timestamptz,        -- the signer's OWN exp for the link (whole seconds, as the token carries it). There is no estimated expiry: a link whose exp cannot be read is never issued.
+  link_min_remaining_seconds integer,      -- the margin the decision required at its freshness evaluation (a policy parameter, see the header)
+  authority_evaluated_at timestamptz,      -- database clock, right after authority was judged under the locks
+  freshness_evaluated_at timestamptz,      -- database clock, right before the row was inserted: when freshness was judged. NULL when authority was already withdrawn (freshness was not evaluated)
+  freshness_remaining_ms bigint,           -- link_expiry_exact_at - freshness_evaluated_at, in ms (negative once passed)
   object_sha256 text CHECK (object_sha256 IS NULL OR object_sha256 ~ '^[0-9a-f]{64}$'),
   CONSTRAINT chk_tbsde_denial_has_no_signing CHECK ((outcome = 'denied') = (signing_started_at IS NULL AND signing_completed_at IS NULL AND link_lifetime_seconds IS NULL
-    AND link_expiry_kind IS NULL AND link_expiry_exact_at IS NULL AND link_valid_until_floor_at IS NULL AND link_expiry_ceiling_at IS NULL)),
+    AND link_expiry_exact_at IS NULL AND link_min_remaining_seconds IS NULL AND authority_evaluated_at IS NULL AND freshness_evaluated_at IS NULL AND freshness_remaining_ms IS NULL)),
   CONSTRAINT chk_tbsde_signed_is_complete CHECK (outcome = 'denied' OR (signing_started_at IS NOT NULL AND signing_completed_at IS NOT NULL AND signing_started_at <= signing_completed_at
-    AND link_lifetime_seconds BETWEEN 1 AND 3600 AND link_expiry_kind IS NOT NULL AND link_valid_until_floor_at IS NOT NULL AND link_expiry_ceiling_at IS NOT NULL
-    AND link_valid_until_floor_at <= link_expiry_ceiling_at)),
-  CONSTRAINT chk_tbsde_exact_means_exact CHECK (link_expiry_kind IS DISTINCT FROM 'signer_exact'
-    OR (link_expiry_exact_at IS NOT NULL AND link_valid_until_floor_at = link_expiry_exact_at AND link_expiry_ceiling_at = link_expiry_exact_at)),
-  CONSTRAINT chk_tbsde_estimate_is_derived CHECK (link_expiry_kind IS DISTINCT FROM 'estimated_bounds'
-    OR (link_expiry_exact_at IS NULL
-        AND link_valid_until_floor_at = signing_started_at + make_interval(secs => link_lifetime_seconds)
-        AND link_expiry_ceiling_at = signing_completed_at + make_interval(secs => link_lifetime_seconds)))
+    AND link_lifetime_seconds BETWEEN 1 AND 3600 AND link_expiry_exact_at IS NOT NULL AND link_min_remaining_seconds BETWEEN 0 AND 30 AND authority_evaluated_at IS NOT NULL)),
+  -- Freshness is evaluated exactly when authority held: a withdrawn decision never evaluated it; issued and expired decisions always did, after authority.
+  CONSTRAINT chk_tbsde_freshness_shape CHECK ((outcome IN ('issued', 'expired_before_issue')) = (freshness_evaluated_at IS NOT NULL AND freshness_remaining_ms IS NOT NULL)
+    AND (freshness_evaluated_at IS NULL OR freshness_evaluated_at >= authority_evaluated_at)),
+  CONSTRAINT chk_tbsde_remaining_is_derived CHECK (freshness_evaluated_at IS NULL
+    OR freshness_remaining_ms = round(extract(epoch FROM (link_expiry_exact_at - freshness_evaluated_at)) * 1000)),
+  -- The outcome follows the margin: issued only with at least the required remaining life at the evaluation; expired otherwise.
+  CONSTRAINT chk_tbsde_outcome_follows_margin CHECK (outcome <> 'issued' OR freshness_remaining_ms >= link_min_remaining_seconds * 1000),
+  CONSTRAINT chk_tbsde_expired_follows_margin CHECK (outcome <> 'expired_before_issue' OR freshness_remaining_ms < link_min_remaining_seconds * 1000)
 );
 COMMENT ON TABLE public.trial_balance_source_download_events IS
-  'Decisions of trial-balance-source-download. issued = an authorised issuance decision was committed (right held at the commit, link not past its conservative validity deadline); it is NOT evidence that a response was delivered or a file downloaded. Never a URL, token or path. Append-only.';
+  'Decisions of trial-balance-source-download, taken inside one database transaction. issued = authority held under the locks and, at freshness_evaluated_at, the link had at least link_min_remaining_seconds left. It is NOT evidence that the transaction completed at that instant (a transaction can pause between its last check and its commit), that a response was delivered, or that a file was downloaded. Never a URL, token or path. Append-only: no later fact (a response withheld because the link had expired, a failed delivery) rewrites a row.';
 COMMENT ON COLUMN public.trial_balance_source_download_events.link_expiry_exact_at IS
-  'The signer''s own exp for the link; null when it could not be read (then link_expiry_kind = estimated_bounds and the exact expiry is unknown).';
-COMMENT ON COLUMN public.trial_balance_source_download_events.link_valid_until_floor_at IS
-  'Conservative validity deadline: the link is believed valid until at least this instant. The only column that may be used to say a link is still valid.';
-COMMENT ON COLUMN public.trial_balance_source_download_events.link_expiry_ceiling_at IS
-  'Upper bound on the link''s life (the exact expiry when link_expiry_kind = signer_exact, else signing completion + lifetime). States residual access; never proves validity.';
+  'The signer''s own exp for the link. There is no estimated expiry: if exp cannot be read the link is not issued.';
+COMMENT ON COLUMN public.trial_balance_source_download_events.freshness_evaluated_at IS
+  'Database clock when freshness was judged, immediately before the insert. Not the commit time (unknowable inside the transaction) and not delivery.';
 CREATE INDEX idx_tbsde_company_time ON public.trial_balance_source_download_events (company_id, occurred_at DESC);
 ALTER TABLE public.trial_balance_source_download_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.trial_balance_source_download_events FROM PUBLIC, anon, authenticated, service_role;
@@ -151,39 +160,38 @@ REVOKE ALL ON FUNCTION public.trial_balance_source_download_events_no_truncate()
 CREATE TRIGGER trg_tbsde_no_truncate BEFORE TRUNCATE ON public.trial_balance_source_download_events
   FOR EACH STATEMENT EXECUTE FUNCTION public.trial_balance_source_download_events_no_truncate();
 
--- ── 3. the issuance DECISION: locks, authority, validity and the record in one transaction ───────────────────────────
--- Outcomes: issued | withdrawn_before_issue | expired_before_issue (each recorded) | unavailable (a lock could not be had in time; nothing recorded) |
--- invalid (the inputs name nothing real; nothing recorded). The caller returns the link ONLY for 'issued'.
--- The bounds are computed HERE from the signing interval, never accepted from the caller: exact when Storage's own exp was read, else
--- floor = signing start + lifetime and ceiling = signing completion + lifetime. Validity is judged on the FLOOR only (a conservative deadline); an upper bound
--- never proves that a link is still valid. A link whose floor has passed is refused even if its ceiling has not.
+-- ── 3. the issuance DECISION: locks, authority, freshness and the record in one transaction ───────────────────────────
+-- Outcomes: issued | withdrawn_before_issue | expired_before_issue (each recorded) | unavailable (a lock could not be had in time, or the workspace changed
+-- owner while the decision was being taken; nothing recorded, safe to retry) | invalid (the inputs name nothing real; nothing recorded). The caller
+-- returns the link ONLY for 'issued'.
+-- OWNER IDENTITY. The plan and seat locks are taken for the owner read BEFORE the company row is locked. Once the company row is locked (FOR SHARE: an
+-- ownership change is an UPDATE of that row and now waits for this transaction) the owner is read AGAIN; if it differs from the owner whose plan and seat
+-- locks are held, the decision refuses ('unavailable'). It never takes the new owner's locks: doing so after other locks are held is how lock inversions
+-- begin. A retry starts from the new owner. So every authority input is judged under the locks of the account it is judged for.
+-- FRESHNESS is evaluated as late as is practical: after the locks (a decision delayed by a lock wait is judged at its true time), after authority, immediately
+-- before the insert. Both instants are recorded. It proves the link had link_min_remaining_seconds left THEN; it does not prove validity at commit.
 CREATE FUNCTION public.decide_trial_balance_source_download_issuance(
   p_user_id uuid, p_company_id uuid, p_upload_id uuid,
   p_signing_started_at timestamptz, p_signing_completed_at timestamptz,
-  p_link_lifetime_seconds integer, p_link_expiry_exact_at timestamptz, p_object_sha256 text)
+  p_link_lifetime_seconds integer, p_link_expiry_exact_at timestamptz, p_min_remaining_seconds integer, p_object_sha256 text)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public SET lock_timeout = '5s' AS $$
 DECLARE
-  v_account uuid; v_upload_company uuid; v_outcome text; v_id uuid; v_kind text; v_floor timestamptz; v_ceiling timestamptz;
+  v_account uuid; v_locked_owner uuid; v_upload_company uuid; v_outcome text; v_id uuid;
+  v_auth_at timestamptz; v_fresh_at timestamptz; v_remaining_ms bigint;
 BEGIN
   IF current_setting('transaction_isolation') <> 'read committed' THEN
     RAISE EXCEPTION 'SOURCE_DOWNLOAD_ISOLATION: authority is re-judged after its locks are taken and needs READ COMMITTED' USING ERRCODE = '25000';
   END IF;
   IF p_user_id IS NULL OR p_company_id IS NULL OR p_upload_id IS NULL OR p_signing_started_at IS NULL OR p_signing_completed_at IS NULL
      OR p_signing_started_at > p_signing_completed_at OR p_link_lifetime_seconds IS NULL OR p_link_lifetime_seconds NOT BETWEEN 1 AND 3600
+     OR p_link_expiry_exact_at IS NULL OR p_min_remaining_seconds IS NULL OR p_min_remaining_seconds NOT BETWEEN 0 AND 30
      OR (p_object_sha256 IS NOT NULL AND p_object_sha256 !~ '^[0-9a-f]{64}$')
      -- a signer-reported expiry that outlives the request by more than 30 s is not a link this function issues
-     OR (p_link_expiry_exact_at IS NOT NULL AND p_link_expiry_exact_at > p_signing_completed_at + make_interval(secs => p_link_lifetime_seconds + 30)) THEN
+     OR p_link_expiry_exact_at > p_signing_completed_at + make_interval(secs => p_link_lifetime_seconds + 30) THEN
     RETURN jsonb_build_object('outcome', 'invalid');
   END IF;
   SELECT u.company_id INTO v_upload_company FROM public.trial_balance_uploads u WHERE u.id = p_upload_id;
   IF v_upload_company IS DISTINCT FROM p_company_id THEN RETURN jsonb_build_object('outcome', 'invalid'); END IF;
-  IF p_link_expiry_exact_at IS NOT NULL THEN
-    v_kind := 'signer_exact'; v_floor := p_link_expiry_exact_at; v_ceiling := p_link_expiry_exact_at;
-  ELSE
-    v_kind := 'estimated_bounds';
-    v_floor := p_signing_started_at + make_interval(secs => p_link_lifetime_seconds);
-    v_ceiling := p_signing_completed_at + make_interval(secs => p_link_lifetime_seconds);
-  END IF;
   BEGIN
     SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = p_company_id;
     IF v_account IS NOT NULL THEN
@@ -192,27 +200,36 @@ BEGIN
     END IF;
     PERFORM 1 FROM public.workspace_capability_grants g
      WHERE g.company_id = p_company_id AND g.grantee_user_id = p_user_id AND g.capability = 'manage_source_files' AND g.revoked_at IS NULL FOR SHARE;
-    PERFORM 1 FROM public.companies c WHERE c.id = p_company_id FOR SHARE;
+    SELECT c.user_id INTO v_locked_owner FROM public.companies c WHERE c.id = p_company_id FOR SHARE;
   EXCEPTION WHEN lock_not_available THEN
     RETURN jsonb_build_object('outcome', 'unavailable');
   END;
+  IF v_locked_owner IS DISTINCT FROM v_account THEN
+    -- the workspace changed owner after the owner was read: the plan and seat locks held are for the previous account. Refuse; do not take more locks.
+    RETURN jsonb_build_object('outcome', 'unavailable');
+  END IF;
   -- Authority is judged AFTER the locks, on a fresh statement snapshot, so everything committed before the locks were granted is seen and nothing that
   -- changes the answer can commit before this transaction does.
-  IF public.workspace_authority_basis(p_user_id, p_company_id, 'manage_source_files') IS NULL THEN v_outcome := 'withdrawn_before_issue';
-  ELSIF v_floor <= clock_timestamp() THEN v_outcome := 'expired_before_issue';      -- validity is judged on the conservative floor, never on the ceiling
-  ELSE v_outcome := 'issued';
+  IF public.workspace_authority_basis(p_user_id, p_company_id, 'manage_source_files') IS NULL THEN
+    v_auth_at := clock_timestamp(); v_outcome := 'withdrawn_before_issue';
+  ELSE
+    v_auth_at := clock_timestamp();
+    -- FRESHNESS, as late as practical: judged now, immediately before the insert, on the signer's own exp.
+    v_fresh_at := clock_timestamp();
+    v_remaining_ms := round(extract(epoch FROM (p_link_expiry_exact_at - v_fresh_at)) * 1000)::bigint;
+    v_outcome := CASE WHEN v_remaining_ms >= p_min_remaining_seconds * 1000 THEN 'issued' ELSE 'expired_before_issue' END;
   END IF;
   INSERT INTO public.trial_balance_source_download_events
-    (company_id, upload_id, actor_user_id, outcome, signing_started_at, signing_completed_at, link_lifetime_seconds, link_expiry_kind, link_expiry_exact_at,
-     link_valid_until_floor_at, link_expiry_ceiling_at, object_sha256)
-  VALUES (p_company_id, p_upload_id, p_user_id, v_outcome, p_signing_started_at, p_signing_completed_at, p_link_lifetime_seconds, v_kind, p_link_expiry_exact_at,
-     v_floor, v_ceiling, p_object_sha256)
+    (company_id, upload_id, actor_user_id, outcome, signing_started_at, signing_completed_at, link_lifetime_seconds, link_expiry_exact_at,
+     link_min_remaining_seconds, authority_evaluated_at, freshness_evaluated_at, freshness_remaining_ms, object_sha256)
+  VALUES (p_company_id, p_upload_id, p_user_id, v_outcome, p_signing_started_at, p_signing_completed_at, p_link_lifetime_seconds, p_link_expiry_exact_at,
+     p_min_remaining_seconds, v_auth_at, v_fresh_at, v_remaining_ms, p_object_sha256)
   RETURNING id INTO v_id;
   RETURN jsonb_build_object('outcome', v_outcome, 'eventId', v_id);
 END;
 $$;
-REVOKE ALL ON FUNCTION public.decide_trial_balance_source_download_issuance(uuid, uuid, uuid, timestamptz, timestamptz, integer, timestamptz, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.decide_trial_balance_source_download_issuance(uuid, uuid, uuid, timestamptz, timestamptz, integer, timestamptz, text) TO service_role;
+REVOKE ALL ON FUNCTION public.decide_trial_balance_source_download_issuance(uuid, uuid, uuid, timestamptz, timestamptz, integer, timestamptz, integer, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.decide_trial_balance_source_download_issuance(uuid, uuid, uuid, timestamptz, timestamptz, integer, timestamptz, integer, text) TO service_role;
 
 -- A refusal of a caller who failed the pre-check. Nothing was signed, so nothing is ordered with anything; it is a record of the refusal only.
 CREATE FUNCTION public.record_trial_balance_source_download_denial(p_user_id uuid, p_company_id uuid, p_upload_id uuid, p_object_sha256 text)

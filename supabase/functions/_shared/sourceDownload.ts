@@ -15,36 +15,34 @@
 //   * The response carries the upload's server-recorded SHA-256 (null until processing recorded it) so the client can prove the bytes it received are the bytes
 //     the server fingerprinted.
 //
-// ORDERING CONTRACT (re-review of #229, finding 3). Signing is an external call to Storage and cannot share a database transaction, so it is never held inside
-// one. The sequence is:
+// ORDERING CONTRACT. Signing is an external call to Storage and cannot share a database transaction, so it is never held inside one. The sequence is:
 //     precheck (an ordinary read: it only avoids signing for a caller who plainly lacks the right; it orders nothing)
 //       -> sign (outside any transaction)
-//       -> DECIDE: one database transaction that takes the locks of every writer of the authority inputs, re-judges authority, checks the signed link has not
-//          already expired, and inserts the decision record -> its COMMIT is the ordering point
-//       -> return the link, only if the decision committed as 'issued'.
+//       -> DECIDE: one database transaction that takes the locks of every writer of the authority inputs, re-judges authority, judges freshness as late as
+//          practical (immediately before the insert) and inserts the decision record -> its COMMIT is the ordering point
+//       -> FRESHNESS AGAIN on this function's clock, after the commit and before the response is built
+//       -> return the link, only if the decision committed as 'issued' AND the link still has the required margin.
 //   * Withdrawal commits before the decision: the decision sees it, records 'withdrawn_before_issue', and no link is returned (the minted link is discarded
 //     unseen and never logged).
 //   * The decision commits first: a withdrawal must wait for its locks, so it is ordered AFTER the issuance; the link may still be delivered afterwards, and
 //     it remains a bearer credential until its own expiry. Storage cannot revoke one signed URL: that remaining lifetime is a separate, documented limit.
 //   * An unauthorised signed URL is never returned: there is no code path to the link except the 'issued' decision. If the decision cannot be taken or
-//     stored (database error, or a lock not obtained in time), no link is returned.
-//   * Writers and the lock protocol are documented in supabase/migrations/20261211100000_source_access_authority_repairs.sql, where the decision lives.
+//     stored (database error, a lock not obtained in time, or the workspace changed owner while it was being taken), no link is returned.
+//   * Writers, the lock protocol and the owner-identity rule are documented in supabase/migrations/20261211100000_source_access_authority_repairs.sql, where
+//     the decision lives.
 //
-// WHAT THE RECORD MEANS (audit semantics). An 'issued' record is an authorised ISSUANCE DECISION: at its commit the right was held and the signed link was
-// not past its conservative validity deadline (see EXPIRY). It does NOT establish that the response reached the caller or that the file was downloaded - the bytes travel from Storage to the browser, which
-// this function cannot observe, and a browser report would be a claim, not evidence. A response that fails or is dropped after the decision leaves the record
-// as it is; nothing is updated later. Other decisions are 'denied' (the precheck refused a caller who named a real upload of a real company),
-// 'withdrawn_before_issue' and 'expired_before_issue'. Unauthenticated calls and requests naming an unknown upload or another company's are not recorded.
-// No URL, token or path is ever stored.
+// FOUR DIFFERENT FACTS, never promoted to one another: (1) the authorization/issuance DECISION (recorded, immutable); (2) the FRESHNESS EVALUATION (when the
+// database judged the link, recorded with the remaining life it found; it proves the link had that much life THEN, not at commit, because a transaction can
+// pause after its last check); (3) TRANSACTION COMPLETION (not recorded: unknowable inside the transaction); (4) RESPONSE DELIVERY (not recorded and not
+// observable here: the bytes travel from Storage to the browser, and a browser report would be a claim, not evidence). A decision may exist without a
+// delivered response - the second freshness check below can withhold a link whose decision was already committed - and nothing rewrites the row.
+// Unauthenticated calls and requests naming an unknown upload or another company's are not recorded. No URL, token or path is ever stored.
 //
-// EXPIRY - EXACT versus ESTIMATED, never blurred. If the signed link carries Storage's own `exp`, that is the EXACT expiry (kind 'signer_exact'; floor = exact =
-// ceiling). If it cannot be read, the exact expiry is UNKNOWN (kind 'estimated_bounds'): Storage fixes `exp` at some instant between signing start and signing
-// completion, so the link expires no earlier than FLOOR = signing start + lifetime and no later than CEILING = signing completion + lifetime.
-//   * VALIDITY is judged on the FLOOR only (a conservative validity deadline). An upper bound never proves that a link is still valid: a link whose floor has
-//     passed is refused (expired_before_issue) even if its ceiling has not, and the "expires_in" reported to the caller is the time left to the FLOOR.
-//   * The CEILING states residual access (how long a returned link might still work); it is not a validity test.
-//   * Neither is ever "decision time + lifetime" after a delayed signature. The database recomputes both bounds from the signing interval; the caller cannot
-//     supply them.
+// EXPIRY IS THE SIGNER'S OWN, OR NOTHING IS ISSUED. The link's `exp` is read from the token Storage signed. If it cannot be read the link is refused
+// (signing_failed) and nothing is recorded: there is no estimated-expiry fallback. Storage may truncate the signing instant to a whole second, so the real exp
+// can be up to a second earlier than "signing start + lifetime"; an estimate built from the signing interval is therefore not reliably conservative once
+// timestamp resolution and clock differences are counted, and no tolerance is added to make it so. DOWNLOAD_MIN_REMAINING_SECONDS is a POLICY margin
+// (response transit, modest clock differences between Storage and the database); it is not derived from a measured skew and no skew bound is claimed.
 
 import { isWellFormedSourcePath } from "./sourcePath.ts";
 
@@ -53,26 +51,14 @@ export const DOWNLOAD_CAPABILITY = "manage_source_files";
 export const DOWNLOAD_EXPIRY_SECONDS = 60;
 /** How far a signer-reported expiry may exceed signing completion + lifetime before the link is refused as having an unexpected lifetime. */
 export const SIGNER_EXPIRY_TOLERANCE_SECONDS = 30;
+/** The remaining life a link must have, at the database's freshness evaluation and again before the response is built. A policy margin, not a measured bound. */
+export const DOWNLOAD_MIN_REMAINING_SECONDS = 5;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type SourceDownloadOutcome =
   | "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable" | "link_expired" | "decision_unavailable";
 
-/** Whether the link's expiry is exactly known (the signer's own exp) or only bounded. */
-export type ExpiryKind = "signer_exact" | "estimated_bounds";
-
-/**
- * The bounds of a link's life. 'signer_exact': floor = exact = ceiling. 'estimated_bounds': the exact expiry is unknown; floor = signing start + lifetime
- * (the earliest possible expiry) and ceiling = signing completion + lifetime (the latest). Only the floor may be used to say a link is still valid.
- */
-export interface LinkBounds { kind: ExpiryKind; exactMs: number | null; floorMs: number; ceilingMs: number }
-
-export function computeLinkBounds(input: { startedMs: number; completedMs: number; lifetimeSeconds: number; exactMs: number | null }): LinkBounds {
-  if (input.exactMs !== null) return { kind: "signer_exact", exactMs: input.exactMs, floorMs: input.exactMs, ceilingMs: input.exactMs };
-  return { kind: "estimated_bounds", exactMs: null, floorMs: input.startedMs + input.lifetimeSeconds * 1000, ceilingMs: input.completedMs + input.lifetimeSeconds * 1000 };
-}
-
-/** What the database decided; 'unavailable' means a lock was not obtained in time (nothing recorded, safe to retry). */
+/** What the database decided; 'unavailable' means a lock was not obtained in time or the owner changed (nothing recorded, safe to retry). */
 export type IssuanceDecision = "issued" | "withdrawn_before_issue" | "expired_before_issue" | "unavailable";
 
 /** The input of the atomic decision. Never contains the URL or token. */
@@ -80,13 +66,15 @@ export interface IssuanceRequest {
   userId: string;
   companyId: string;
   uploadId: string;
-  /** Function-host clock readings (ISO-8601) around the signing call. */
+  /** Function-host clock readings (ISO-8601) around the signing call (recorded for audit; not used to estimate an expiry). */
   signingStartedAt: string;
   signingCompletedAt: string;
   /** The lifetime that was requested from Storage. */
   linkLifetimeSeconds: number;
-  /** The signer's own expiry (ISO-8601) when it was read from the link; null when it was not, and the database then derives the bounds. */
-  linkExpiryExactAt: string | null;
+  /** The signer's own expiry (ISO-8601): always present, because a link without a readable exp is never submitted for a decision. */
+  linkExpiryExactAt: string;
+  /** The remaining life the database must find at its freshness evaluation. */
+  minRemainingSeconds: number;
   /** The upload's server-recorded SHA-256 at the time of the decision. */
   sha256: string | null;
 }
@@ -104,7 +92,7 @@ export interface UploadTarget {
   source_file_hash: string | null;
 }
 
-/** `expiresAtMs` is the signer's own expiry (epoch milliseconds) when it could be read from the signed link; the link itself is never stored. */
+/** `expiresAtMs` is the signer's own expiry (epoch milliseconds) read from the signed link; the link itself is never stored. */
 export type SignResult = { url: string; expiresAtMs?: number | null } | { missing: true } | null;
 
 export interface SourceDownloadDeps {
@@ -158,6 +146,7 @@ function canonicalPath(target: UploadTarget, companyId: string): string | null {
 
 export async function runSourceDownload(deps: SourceDownloadDeps, request: { uploadId: string; companyId: string }): Promise<SourceDownloadResult> {
   const clock = () => deps.now?.() ?? Date.now();
+  const marginMs = DOWNLOAD_MIN_REMAINING_SECONDS * 1000;
   const userId = await deps.authenticate();
   if (!userId) return { status: 401, outcome: "unauthenticated" };
 
@@ -183,23 +172,22 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
   if (signed && "missing" in signed) return { status: 404, outcome: "unavailable" };
   if (!signed || !signed.url) return { status: 502, outcome: "signing_failed" };
 
-  // The signer's own expiry when readable. A link that would outlive the requested lifetime by more than the tolerance has an unexpected lifetime: it is
-  // discarded, never issued. Otherwise the exact expiry is unknown and the database derives the floor and the ceiling from the signing interval.
-  const lifetimeMs = DOWNLOAD_EXPIRY_SECONDS * 1000;
-  let exactMs: number | null = null;
-  if (typeof signed.expiresAtMs === "number" && Number.isFinite(signed.expiresAtMs)) {
-    if (signed.expiresAtMs > signingCompletedMs + lifetimeMs + SIGNER_EXPIRY_TOLERANCE_SECONDS * 1000) return { status: 502, outcome: "signing_failed" };
-    exactMs = signed.expiresAtMs;
-  }
-  const bounds = computeLinkBounds({ startedMs: signingStartedMs, completedMs: signingCompletedMs, lifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, exactMs });
+  // The signer's own expiry, or nothing: a link whose exp cannot be read is discarded unissued and unrecorded (no estimate is made). A link that would outlive
+  // the requested lifetime by more than the tolerance has an unexpected lifetime and is discarded too.
+  const exactMs = signed.expiresAtMs;
+  if (typeof exactMs !== "number" || !Number.isFinite(exactMs)) return { status: 502, outcome: "signing_failed" };
+  if (exactMs > signingCompletedMs + DOWNLOAD_EXPIRY_SECONDS * 1000 + SIGNER_EXPIRY_TOLERANCE_SECONDS * 1000) return { status: 502, outcome: "signing_failed" };
+  // A link that has already run out (a slow signature) is not worth a decision: no lock is taken for it.
+  if (exactMs - clock() < marginMs) return { status: 503, outcome: "link_expired" };
 
-  // THE DECISION: locks + authority + freshness + record in one transaction. Only an 'issued' commit leads to the link.
+  // THE DECISION: locks + authority + freshness (as late as practical) + record in one transaction. Only an 'issued' commit leads to the link.
   let decision: IssuanceDecision;
   try {
     decision = await deps.decide({
       userId, companyId, uploadId: target.id,
       signingStartedAt: new Date(signingStartedMs).toISOString(), signingCompletedAt: new Date(signingCompletedMs).toISOString(),
-      linkLifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, linkExpiryExactAt: exactMs === null ? null : new Date(exactMs).toISOString(), sha256: target.source_file_hash ?? null,
+      linkLifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, linkExpiryExactAt: new Date(exactMs).toISOString(), minRemainingSeconds: DOWNLOAD_MIN_REMAINING_SECONDS,
+      sha256: target.source_file_hash ?? null,
     });
   } catch { return { status: 503, outcome: "audit_unavailable" }; }   // no decision, no link
   if (decision === "withdrawn_before_issue") return { status: 403, outcome: "forbidden" };
@@ -207,8 +195,13 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
   if (decision === "unavailable") return { status: 503, outcome: "decision_unavailable" };
   if (decision !== "issued") return { status: 503, outcome: "audit_unavailable" };
 
+  // FRESHNESS AGAIN, after the commit and before the response is built. The decision stays recorded as it was committed; the link is withheld, never returned
+  // with no time left. This does not prove the link will still be valid when the caller uses it; the margin is a policy allowance.
+  const remainingMs = exactMs - clock();
+  if (remainingMs < marginMs) return { status: 503, outcome: "link_expired" };
+
   return {
-    status: 200, outcome: "ready", url: signed.url, expires_in: Math.max(0, Math.min(DOWNLOAD_EXPIRY_SECONDS, Math.floor((bounds.floorMs - clock()) / 1000)))   /* time left to the CONSERVATIVE deadline */, file_name: name,
+    status: 200, outcome: "ready", url: signed.url, expires_in: Math.min(DOWNLOAD_EXPIRY_SECONDS, Math.floor(remainingMs / 1000)), file_name: name,
     sha256: target.source_file_hash ?? null, size: typeof target.file_size === "number" ? target.file_size : null,
   };
 }
