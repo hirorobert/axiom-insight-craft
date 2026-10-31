@@ -10156,6 +10156,60 @@ export type Database = {
         }
         Relationships: []
       }
+      trial_balance_source_download_events: {
+        Row: {
+          actor_user_id: string
+          authority_evaluated_at: string | null
+          company_id: string
+          freshness_evaluated_at: string | null
+          freshness_remaining_ms: number | null
+          id: string
+          link_expiry_exact_at: string | null
+          link_lifetime_seconds: number | null
+          link_min_remaining_seconds: number | null
+          object_sha256: string | null
+          occurred_at: string
+          outcome: string
+          signing_completed_at: string | null
+          signing_started_at: string | null
+          upload_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          authority_evaluated_at?: string | null
+          company_id: string
+          freshness_evaluated_at?: string | null
+          freshness_remaining_ms?: number | null
+          id?: string
+          link_expiry_exact_at?: string | null
+          link_lifetime_seconds?: number | null
+          link_min_remaining_seconds?: number | null
+          object_sha256?: string | null
+          occurred_at?: string
+          outcome: string
+          signing_completed_at?: string | null
+          signing_started_at?: string | null
+          upload_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          authority_evaluated_at?: string | null
+          company_id?: string
+          freshness_evaluated_at?: string | null
+          freshness_remaining_ms?: number | null
+          id?: string
+          link_expiry_exact_at?: string | null
+          link_lifetime_seconds?: number | null
+          link_min_remaining_seconds?: number | null
+          object_sha256?: string | null
+          occurred_at?: string
+          outcome?: string
+          signing_completed_at?: string | null
+          signing_started_at?: string | null
+          upload_id?: string
+        }
+        Relationships: []
+      }
       trial_balance_source_reservations: {
         Row: {
           actor_user_id: string
@@ -12757,6 +12811,20 @@ export type Database = {
         Returns: Json
       }
       current_platform_staff_role: { Args: never; Returns: string }
+      decide_trial_balance_source_download_issuance: {
+        Args: {
+          p_company_id: string
+          p_link_expiry_exact_at: string
+          p_link_lifetime_seconds: number
+          p_min_remaining_seconds: number
+          p_object_sha256: string
+          p_signing_completed_at: string
+          p_signing_started_at: string
+          p_upload_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       delete_trial_balance_draft: {
         Args: { p_draft_id: string }
         Returns: string
@@ -14229,6 +14297,15 @@ export type Database = {
           p_request_id: string
           p_subject: string
           p_upload_id: string
+        }
+        Returns: Json
+      }
+      record_trial_balance_source_download_denial: {
+        Args: {
+          p_company_id: string
+          p_object_sha256: string
+          p_upload_id: string
+          p_user_id: string
         }
         Returns: Json
       }
