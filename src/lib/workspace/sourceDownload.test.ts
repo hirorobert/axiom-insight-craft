@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DOWNLOAD_EXPIRY_SECONDS, SIGNER_EXPIRY_TOLERANCE_SECONDS, computeLinkBounds, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, signedUrlExpiryMs,
+  DOWNLOAD_EXPIRY_SECONDS, SIGNER_EXPIRY_TOLERANCE_SECONDS, computeLinkBounds, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, signedUrlExpiryMs, storageErrorIsMissingObject,
   type IssuanceDecision, type IssuanceRequest, type SourceDownloadDeps, type UploadTarget,
 } from "../../../supabase/functions/_shared/sourceDownload";
 
@@ -217,6 +217,13 @@ describe("runSourceDownload: atomic issuance decision (re-review of #229, findin
     const unknown = deps({ resolveUpload: vi.fn(async () => null) });
     const mismatched = deps({ resolveUpload: vi.fn(async () => upload({ company_id: OTHER_CO, file_path: `workspaces/${OTHER_CO}/s/tb.csv` })) });
     for (const d of [unauthenticated, unknown, mismatched]) { await runSourceDownload(d, REQ); expect(d.recordDenial).not.toHaveBeenCalled(); expect(d.decide).not.toHaveBeenCalled(); }
+  });
+});
+
+describe("storageErrorIsMissingObject: a removed object is 'unavailable', every other signing error is a signing failure", () => {
+  it("recognises Storage's not-found messages in any spelling and nothing else", () => {
+    for (const m of ["Object not found", "The resource was not found", "Not Found", "not  found", "notfound"]) expect(storageErrorIsMissingObject(m), m).toBe(true);
+    for (const m of ["Rate limit exceeded", "Invalid JWT", "bucket unreachable", "", null, undefined, 404]) expect(storageErrorIsMissingObject(m), String(m)).toBe(false);
   });
 });
 

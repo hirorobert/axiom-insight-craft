@@ -69,6 +69,9 @@ describe("the Edge Function", () => {
     expect(fn).toMatch(/select\("id, company_id, user_id, file_path, file_name, file_size, source_file_hash"\)/);
     // The function writes no table itself: its only writes are the two database functions that take the issuance decision and record a refusal (no direct insert exists).
     expect(fn).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    // The missing-object mapping lives in a tested helper; an inline pattern here once lost its backslash and turned every missing object into a 502.
+    expect(fn).toMatch(/storageErrorIsMissingObject\(\(error as/);
+    expect(fn).not.toMatch(/test\(String\(\(error as/);
     expect([...fn.matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort()).toEqual(["can_user_act_on_workspace", "decide_trial_balance_source_download_issuance", "record_trial_balance_source_download_denial"]);
     const logLine = fn.split("\n").find((l) => l.includes("console.log")) ?? "";
     expect(logLine).not.toMatch(/\burl\b|token|signedUrl/);

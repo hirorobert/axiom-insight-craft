@@ -213,6 +213,11 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
   };
 }
 
+/** Whether a Storage error message says the object is not there (an object removed after upload is "unavailable", not a signing failure). */
+export function storageErrorIsMissingObject(message: unknown): boolean {
+  return /not\s*found/i.test(String(message ?? ""));
+}
+
 /**
  * The signer's own expiry (epoch milliseconds) read from the `exp` claim of the signed link's token, or null when the link carries no readable one. This only
  * READS the claim, to learn when the link stops working; the token is not verified here (Storage verifies it on use), is never stored and never logged.

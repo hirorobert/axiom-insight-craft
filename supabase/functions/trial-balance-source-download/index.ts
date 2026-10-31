@@ -10,7 +10,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { DOWNLOAD_CAPABILITY, parseSourceDownloadRequest, runSourceDownload, signedUrlExpiryMs, type UploadTarget } from "../_shared/sourceDownload.ts";
+import { DOWNLOAD_CAPABILITY, parseSourceDownloadRequest, runSourceDownload, signedUrlExpiryMs, storageErrorIsMissingObject, type UploadTarget } from "../_shared/sourceDownload.ts";
 
 const BUCKET = "trial-balance-files";
 const json = (status: number, body: unknown) =>
@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     },
     sign: async (path, seconds, downloadName) => {
       const { data, error } = await service.storage.from(BUCKET).createSignedUrl(path, seconds, { download: downloadName });
-      if (error) return /nots*found/i.test(String((error as { message?: string }).message ?? "")) ? { missing: true as const } : null;
+      if (error) return storageErrorIsMissingObject((error as { message?: string }).message) ? { missing: true as const } : null;
       return data?.signedUrl ? { url: data.signedUrl, expiresAtMs: signedUrlExpiryMs(data.signedUrl) } : null;
     },
     // THE ISSUANCE DECISION: one database transaction (locks, authority, freshness, record). Throws when it cannot be taken or stored; no link is returned then.
