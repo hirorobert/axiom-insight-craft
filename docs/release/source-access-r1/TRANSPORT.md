@@ -1,8 +1,8 @@
 # Source-access exact-byte transport (20261211100000)
 
-This is a prepared, UNINSTALLED transport. Nothing here has been applied to a hosted database, nothing is registered in the release
-journal, and the `trial-balance-source-download` function is not deployed by it. Installation, deployment and any customer visibility
-are separate decisions that need independent review first.
+**Status: INSTALLED on 2026-10-31 as hosted ids 98 (bootstrap) and 99 (apply); see `HOSTED_RECORD.md` for what was observed.** This file
+describes the transport as prepared; it was written before the install and is kept for the rules it states. The download function was
+deployed separately afterwards, and customer visibility is a separate decision.
 
 ## What it installs
 

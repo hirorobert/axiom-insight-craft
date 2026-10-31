@@ -37,8 +37,9 @@ whether this recorded entry is acceptable or needs another remedy. Raised on the
 
 ## Not installed, not deployed, not activated
 
-- `20261211100000_source_access_authority_repairs.sql` is still PENDING hosted apply, and the `trial-balance-source-download`
-  function is not deployed (no install transport exists for either yet).
+- **Superseded later the same day:** `20261211100000_source_access_authority_repairs.sql` was installed as hosted ids 98/99 through its own
+  transport and the `trial-balance-source-download` function was then deployed; see `docs/release/source-access-r1/HOSTED_RECORD.md`. At the time
+  of this record (hosted ids 92-97) neither existed.
 - The frontend was not published by this install; customer visibility of unproven modules is governed by the application flag,
   not by this record.
 - Payments, reporting rollout, AI settings, publication bindings and original-file downloads were not touched.
