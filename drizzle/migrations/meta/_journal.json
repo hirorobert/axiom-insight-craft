@@ -673,6 +673,13 @@
       "when": 1793446179724,
       "tag": "0095_ipsas_statement_review_staged_transport",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1793446575945,
+      "tag": "0096_ipsas_3_statement_review_staged_apply",
+      "breakpoints": true
     }
   ]
 }

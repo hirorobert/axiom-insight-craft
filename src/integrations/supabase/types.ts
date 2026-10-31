@@ -6897,6 +6897,56 @@ export type Database = {
           },
         ]
       }
+      ipsas_presentation_revisions: {
+        Row: {
+          actor_user_id: string
+          assignments: Json
+          company_id: string
+          created_at: string
+          id: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq: number
+          source_sha256: string
+        }
+        Insert: {
+          actor_user_id: string
+          assignments: Json
+          company_id: string
+          created_at?: string
+          id?: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq?: never
+          source_sha256: string
+        }
+        Update: {
+          actor_user_id?: string
+          assignments?: Json
+          company_id?: string
+          created_at?: string
+          id?: string
+          period_year?: number
+          receipt?: Json
+          request_fingerprint?: string
+          request_id?: string
+          seq?: never
+          source_sha256?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ipsas_presentation_revisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       keyword_dictionary: {
         Row: {
           classification: Database["public"]["Enums"]["account_classification"]
@@ -11835,6 +11885,19 @@ export type Database = {
         Args: { p_capability: string; p_company_id: string; p_uid: string }
         Returns: string
       }
+      _ipsas_statement_captions: {
+        Args: never
+        Returns: {
+          id: string
+          label: string
+          section: string
+          statement: string
+        }[]
+      }
+      _ipsas_statement_review_compute: {
+        Args: { p_company: string; p_year: number }
+        Returns: Json
+      }
       _ipsas_tb_facts: {
         Args: { p_company_id: string; p_period_year: number; p_selection: Json }
         Returns: Json
@@ -13865,6 +13928,21 @@ export type Database = {
           p_period_year: number
           p_request_id: string
         }
+        Returns: Json
+      }
+      ipsas_save_presentation: {
+        Args: {
+          p_assignments: Json
+          p_company: string
+          p_expected_input: string
+          p_expected_revision: string
+          p_request: string
+          p_year: number
+        }
+        Returns: Json
+      }
+      ipsas_statement_review: {
+        Args: { p_company: string; p_year: number }
         Returns: Json
       }
       is_commercial_admin: { Args: never; Returns: boolean }
