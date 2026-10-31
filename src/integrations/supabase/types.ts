@@ -6708,6 +6708,129 @@ export type Database = {
           },
         ]
       }
+      ipsas_grant_confirmations: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          grant_id: string
+          id: string
+          period_year: number
+          request_fingerprint: string
+          request_id: string
+          revision_id: string
+          seq: number
+          subject_sha256: string
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          grant_id: string
+          id?: string
+          period_year: number
+          request_fingerprint: string
+          request_id: string
+          revision_id: string
+          seq?: never
+          subject_sha256: string
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          grant_id?: string
+          id?: string
+          period_year?: number
+          request_fingerprint?: string
+          request_id?: string
+          revision_id?: string
+          seq?: never
+          subject_sha256?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ipsas_grant_confirmations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ipsas_grant_confirmations_revision_id_fkey"
+            columns: ["revision_id"]
+            isOneToOne: false
+            referencedRelation: "ipsas_grant_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ipsas_grant_revisions: {
+        Row: {
+          actor_user_id: string
+          certification_id: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          certification_id?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          certification_id?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          payload?: Json
+          payload_sha256?: string
+          period_year?: number
+          receipt?: Json
+          request_fingerprint?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ipsas_grant_revisions_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ipsas_grant_revisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ipsas_prep_revisions: {
         Row: {
           actor_user_id: string
@@ -11680,12 +11803,29 @@ export type Database = {
         Args: { p_class: Json; p_payload: Json }
         Returns: string
       }
+      _ipsas_grant_subject_sha: {
+        Args: { p_grant: Json; p_start: string }
+        Returns: string
+      }
+      _ipsas_grants_assess: {
+        Args: { p_confirmed: Json; p_payload: Json; p_period: Json; p_tb: Json }
+        Returns: Json
+      }
+      _ipsas_grants_live: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      _ipsas_grants_period: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       _ipsas_live: {
         Args: { p_company_id: string; p_period_year: number }
         Returns: Json
       }
       _ipsas_minor: { Args: { p: string }; Returns: number }
       _ipsas_nat: { Args: { p: string }; Returns: number }
+      _ipsas_natj: { Args: { p: Json }; Returns: number }
       _ipsas_ppe_assess: {
         Args: { p_confirmed: Json; p_payload: Json; p_tb: Json }
         Returns: Json
@@ -11698,6 +11838,15 @@ export type Database = {
       _ipsas_tb_facts: {
         Args: { p_company_id: string; p_period_year: number; p_selection: Json }
         Returns: Json
+      }
+      _ipsas_tb_sum: {
+        Args: {
+          p_company_id: string
+          p_keys: Json
+          p_period_year: number
+          p_side: string
+        }
+        Returns: number
       }
       _issue_reporting_pack: {
         Args: {
@@ -13679,8 +13828,32 @@ export type Database = {
         }
         Returns: Json
       }
+      ipsas_confirm_grant: {
+        Args: {
+          p_company_id: string
+          p_expected_revision_id: string
+          p_grant_id: string
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      ipsas_grants_context: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
       ipsas_prep_context: {
         Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      ipsas_save_grants: {
+        Args: {
+          p_company_id: string
+          p_expected_id: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+        }
         Returns: Json
       }
       ipsas_save_preparation: {
