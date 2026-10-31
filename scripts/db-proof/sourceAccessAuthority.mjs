@@ -134,7 +134,7 @@ async function startWriter(scope, name, w) {
 
 // ── the orchestration with REAL database dependencies ───────────────────────────────────────────────────────────────
 const DECIDE = "SELECT public.decide_trial_balance_source_download_issuance($1,$2,$3,$4,$5,$6,$7,$8) r";
-const decideParams = (r) => [r.userId, r.companyId, r.uploadId, r.signingStartedAt, r.signingCompletedAt, r.linkExpiresAt, r.linkExpirySource, r.sha256];
+const decideParams = (r) => [r.userId, r.companyId, r.uploadId, r.signingStartedAt, r.signingCompletedAt, r.linkLifetimeSeconds, r.linkExpiryExactAt, r.sha256];
 const resolveUpload = async (id) => (await one("SELECT id, company_id, user_id, file_path, file_name, file_size, source_file_hash FROM public.trial_balance_uploads WHERE id=$1", [id])) ?? null;
 const canDownload = async (userId, companyId) => (await db.asService("SELECT public.can_user_act_on_workspace($1,$2,$3) r", [userId, companyId, CAP])).r === true;
 const recordDenial = async (e) => { await db.asService("SELECT public.record_trial_balance_source_download_denial($1,$2,$3,$4) r", [e.userId, e.companyId, e.uploadId, e.sha256]); };
@@ -332,32 +332,67 @@ try {
     assert.equal(await allowed(w, U.preparer), false);
   });
 
-  // ── expiry ───────────────────────────────────────────────────────────────────────────────
-  await kase("expiry.signing-delay-records-the-bound-from-signing-completion", async () => {
+  // ── expiry: exact versus estimated, and validity judged on the conservative floor only ───────────────────────────────────
+  const ptoMs = (v) => (v === null || v === undefined ? null : v.getTime());
+  await kase("expiry.signing-delay-stores-an-estimate-with-a-floor-and-a-ceiling-never-an-exact-expiry", async () => {
     const w = await workspace(); await grant(w, U.preparer);
     let offset = 0;
     const d = makeDeps({ defer() {} }, U.preparer, { now: () => Date.now() + offset, sign: async () => { offset += 25_000; return { url: "https://signer.invalid/proof-only-not-a-storage-token" }; } });
     const r = await runSourceDownload(d, request(w));
     assert.equal(r.outcome, "ready");
     const e = (await events(w))[0];
-    assert.equal(e.link_expiry_source, "bound_signing_completed_plus_ttl");
-    assert.equal(e.link_expires_at - e.signing_completed_at, 60_000, "expiry = signing completion + the requested lifetime");
+    assert.equal(e.link_expiry_kind, "estimated_bounds", "no signer expiry was read, so the expiry is ESTIMATED");
+    assert.equal(e.link_expiry_exact_at, null, "an estimate never fills the exact-expiry column");
+    assert.equal(e.link_valid_until_floor_at - e.signing_started_at, 60_000, "floor = signing START + the requested lifetime (the earliest the link can expire)");
+    assert.equal(e.link_expiry_ceiling_at - e.signing_completed_at, 60_000, "ceiling = signing COMPLETION + the requested lifetime (the latest)");
     assert.equal(e.signing_completed_at - e.signing_started_at, 25_000, "the signing interval is recorded");
-    assert(e.link_expires_at - e.occurred_at >= 80_000, "it is NOT 'decision time + 60 s': the delayed signature is accounted for");
+    assert(e.link_expiry_ceiling_at - e.occurred_at >= 80_000, "the ceiling is NOT 'decision time + 60 s': the delayed signature is accounted for");
+    assert(r.expires_in <= 35 && r.expires_in >= 33, `the time left reported to the caller is to the FLOOR (${r.expires_in} s), not to the ceiling (60 s)`);
   });
-  await kase("expiry.signer-exp-is-recorded-as-such", async () => {
+  await kase("expiry.the-signers-own-expiry-is-stored-as-exact", async () => {
     const w = await workspace(); await grant(w, U.preparer);
     const exp = Math.floor((Date.now() + 45_000) / 1000) * 1000;
     const r = await runSourceDownload(plain(U.preparer, { sign: async () => ({ url: "https://signer.invalid/proof-only-not-a-storage-token", expiresAtMs: exp }) }), request(w));
     assert.equal(r.outcome, "ready");
     const e = (await events(w))[0];
-    assert.equal(e.link_expiry_source, "signer_token_exp"); assert.equal(e.link_expires_at.getTime(), exp);
+    assert.equal(e.link_expiry_kind, "signer_exact");
+    assert.deepEqual([ptoMs(e.link_expiry_exact_at), ptoMs(e.link_valid_until_floor_at), ptoMs(e.link_expiry_ceiling_at)], [exp, exp, exp], "exact: floor = exact = ceiling");
   });
-  await kase("expiry.expired-before-issuance-is-refused-and-recorded", async () => {
+  await kase("expiry.an-upper-bound-never-proves-a-link-is-still-valid", async () => {
+    const w = await workspace(); await grant(w, U.preparer);
+    // signing started 70 s ago and completed 50 s ago on the function host's clock: floor = start + 60 s = 10 s AGO, ceiling = completion + 60 s = 10 s AHEAD.
+    // The exact expiry is unknown, so the link is not provably valid; an implementation that tested the ceiling would issue it.
+    let offset = -70_000;
+    const d = makeDeps({ defer() {} }, U.preparer, { now: () => Date.now() + offset, sign: async () => { offset += 20_000; return { url: "https://signer.invalid/SECRET-proof-token" }; } });
+    const r = await runSourceDownload(d, request(w));
+    assert.deepEqual(r, { status: 503, outcome: "link_expired" }, "not provably valid -> refused");
+    assert(!JSON.stringify(r).includes("SECRET"));
+    const e = (await events(w))[0];
+    assert.equal(e.outcome, "expired_before_issue");
+    assert(e.link_valid_until_floor_at < e.occurred_at && e.occurred_at < e.link_expiry_ceiling_at, "the floor had passed although the ceiling had not: the decision used the floor");
+    assert.deepEqual(await outcomes(w), ["expired_before_issue"], "and nothing was issued");
+  });
+  await kase("expiry.an-exact-expiry-already-passed-is-refused-and-recorded", async () => {
     const w = await workspace(); await grant(w, U.preparer);
     const r = await runSourceDownload(plain(U.preparer, { sign: async () => ({ url: "https://signer.invalid/SECRET-proof-token", expiresAtMs: Date.now() - 5_000 }) }), request(w));
     assert.deepEqual(r, { status: 503, outcome: "link_expired" }); assert(!JSON.stringify(r).includes("SECRET"));
     assert.deepEqual(await outcomes(w), ["expired_before_issue"], "the refusal is a recorded decision; no 'issued' record");
+    assert.equal((await events(w))[0].link_expiry_kind, "signer_exact");
+  });
+  await kase("expiry.the-bounds-are-computed-by-the-database-and-pinned-by-constraints", async () => {
+    const w = await workspace(); await grant(w, U.preparer);
+    const now = Date.now(), iso = (ms) => new Date(ms).toISOString();
+    const call = async (p) => (await db.asService(DECIDE, [U.preparer, w.A, w.uploadId, ...p])).r.outcome;
+    assert.equal(await call([iso(now), iso(now), 0, null, null]), "invalid", "a zero lifetime is refused");
+    assert.equal(await call([iso(now + 10), iso(now), 60, null, null]), "invalid", "signing cannot complete before it starts");
+    assert.equal(await call([iso(now), iso(now), 60, iso(now + 200_000), null]), "invalid", "a signer expiry that outlives the request by more than 30 s is not issued");
+    assert.equal((await events(w)).length, 0, "refused inputs record nothing");
+    const base = "INSERT INTO " + TABLE + " (company_id, upload_id, actor_user_id, outcome, signing_started_at, signing_completed_at, link_lifetime_seconds, link_expiry_kind, link_expiry_exact_at, link_valid_until_floor_at, link_expiry_ceiling_at) VALUES ($1,$2,$3,'issued',$4,$5,60,$6,$7,$8,$9)";
+    const t0 = iso(now), t1 = iso(now + 5_000);
+    await assert.rejects(() => db.admin.query(base, [w.A, w.uploadId, U.preparer, t0, t1, "estimated_bounds", null, iso(now + 70_000), iso(now + 65_000)]), /chk_tbsde/, "a floor above the ceiling cannot be stored");
+    await assert.rejects(() => db.admin.query(base, [w.A, w.uploadId, U.preparer, t0, t1, "estimated_bounds", iso(now + 60_000), iso(now + 60_000), iso(now + 65_000)]), /chk_tbsde/, "an estimate cannot carry an exact expiry");
+    await assert.rejects(() => db.admin.query(base, [w.A, w.uploadId, U.preparer, t0, t1, "estimated_bounds", null, iso(now + 90_000), iso(now + 95_000)]), /chk_tbsde/, "an estimate must be the derivation from the signing interval");
+    await assert.rejects(() => db.admin.query(base, [w.A, w.uploadId, U.preparer, t0, t1, "signer_exact", iso(now + 40_000), iso(now + 30_000), iso(now + 40_000)]), /chk_tbsde/, "an exact expiry cannot hide behind a different floor");
   });
 
   // ── audit semantics ───────────────────────────────────────────────────────────────────────
@@ -382,26 +417,26 @@ try {
     const r = await runSourceDownload(plain(U.preparer), request(w));
     assert.deepEqual(r, { status: 403, outcome: "forbidden" });
     const e = (await events(w))[0];
-    assert.deepEqual([e.outcome, e.signing_started_at, e.link_expires_at, e.link_expiry_source, e.actor_user_id], ["denied", null, null, null, U.preparer], "a denial signed nothing, so it carries no signing or expiry data");
+    assert.deepEqual([e.outcome, e.signing_started_at, e.link_expiry_kind, e.link_valid_until_floor_at, e.link_expiry_ceiling_at, e.actor_user_id], ["denied", null, null, null, null, U.preparer], "a denial signed nothing, so it carries no signing or expiry data");
   });
   await kase("record.holds-no-url-and-has-the-signing-shape", async () => {
     const w = await workspace(); await grant(w, U.preparer);
     assert.equal((await runSourceDownload(plain(U.preparer), request(w))).outcome, "ready");
     const rows = await events(w); assert.equal(rows.length, 1);
-    assert.equal(rows[0].outcome, "issued"); assert(rows[0].link_expires_at && rows[0].signing_started_at && rows[0].signing_completed_at, "an issued record carries the signing interval and the expiry"); assert.equal(rows[0].actor_user_id, U.preparer);
+    assert.equal(rows[0].outcome, "issued"); assert(rows[0].link_valid_until_floor_at && rows[0].link_expiry_ceiling_at && rows[0].link_expiry_kind && rows[0].signing_started_at && rows[0].signing_completed_at, "an issued record carries the signing interval and the expiry bounds"); assert.equal(rows[0].actor_user_id, U.preparer);
     const cols = (await db.admin.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='trial_balance_source_download_events'")).rows.map((x) => x.column_name);
     assert(!cols.some((c) => /url|token|path|signed/.test(c)), `no column can hold a URL, token or path: ${cols.join(",")}`);
     const dump = JSON.stringify((await db.admin.query(`SELECT * FROM ${TABLE} WHERE company_id=$1`, [w.A])).rows);
     assert(!/signer\.invalid|token|workspaces\//.test(dump), "no stored value contains a URL, a token or a path");
-    await assert.rejects(() => db.admin.query(`INSERT INTO ${TABLE} (company_id, upload_id, actor_user_id, outcome) VALUES ($1,$2,$3,'issued')`, [w.A, w.uploadId, U.preparer]), /chk_tbsde_signing_complete/, "an 'issued' row without its signing data cannot exist");
+    await assert.rejects(() => db.admin.query(`INSERT INTO ${TABLE} (company_id, upload_id, actor_user_id, outcome) VALUES ($1,$2,$3,'issued')`, [w.A, w.uploadId, U.preparer]), /chk_tbsde_/, "an issued row without its signing data cannot exist");
   });
   await kase("record.only-the-decision-functions-write", async () => {
     const w = await workspace(); await grant(w, U.preparer);
     await assert.rejects(() => db.asService(`INSERT INTO ${TABLE} (company_id, upload_id, actor_user_id, outcome) VALUES ($1,$2,$3,'denied')`, [w.A, w.uploadId, U.preparer]), /permission denied/, "the service role has no direct insert: no unconditional audit insert exists");
-    for (const sql of ["SELECT public.decide_trial_balance_source_download_issuance($1,$2,$3,now(),now(),now() + interval '1 minute','signer_token_exp',NULL)", "SELECT public.record_trial_balance_source_download_denial($1,$2,$3,NULL)"]) {
+    for (const sql of ["SELECT public.decide_trial_balance_source_download_issuance($1,$2,$3,now(),now(),60,NULL,NULL)", "SELECT public.record_trial_balance_source_download_denial($1,$2,$3,NULL)"]) {
       await assert.rejects(() => db.asRole("authenticated", w.owner, sql, [U.preparer, w.A, w.uploadId]), /permission denied/, "no signed-in user can call the decision functions");
     }
-    const bad = (await db.asService(DECIDE, [U.preparer, w.A, uuid(), new Date().toISOString(), new Date().toISOString(), new Date(Date.now() + 60_000).toISOString(), "signer_token_exp", null])).r;
+    const bad = (await db.asService(DECIDE, [U.preparer, w.A, uuid(), new Date().toISOString(), new Date().toISOString(), 60, null, null])).r;
     assert.equal(bad.outcome, "invalid", "an upload that does not exist records nothing");
     assert.equal((await events(w)).length, 0);
   });

@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     decide: async (r) => {
       const { data, error } = await service.rpc("decide_trial_balance_source_download_issuance", {
         p_user_id: r.userId, p_company_id: r.companyId, p_upload_id: r.uploadId, p_signing_started_at: r.signingStartedAt, p_signing_completed_at: r.signingCompletedAt,
-        p_link_expires_at: r.linkExpiresAt, p_link_expiry_source: r.linkExpirySource, p_object_sha256: r.sha256,
+        p_link_lifetime_seconds: r.linkLifetimeSeconds, p_link_expiry_exact_at: r.linkExpiryExactAt, p_object_sha256: r.sha256,
       });
       const outcome = (data as { outcome?: string } | null)?.outcome;
       if (error || !outcome) throw new Error("issuance decision unavailable");

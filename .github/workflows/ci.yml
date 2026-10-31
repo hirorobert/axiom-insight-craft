@@ -389,7 +389,18 @@ jobs:
           version: latest
 
       - name: Start the local Supabase stack (Docker on loopback; the CLI applies supabase/migrations to a throwaway database)
+        id: stack_start
         run: supabase start -x studio,imgproxy,logflare,vector
+
+      - name: Record who holds the local Supabase ports and which containers exist when the stack did not start (read-only; kills nothing)
+        if: failure() && steps.stack_start.outcome == 'failure'
+        run: |
+          echo "--- sockets on the Supabase local ports (54320-54339), with their owning process"
+          sudo ss -tanp 2>/dev/null | grep -E ':543[2-3][0-9]\b' || echo "none"
+          echo "--- ephemeral port range"
+          cat /proc/sys/net/ipv4/ip_local_port_range
+          echo "--- containers (name, status, ports)"
+          docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' || true
 
       - name: IPSAS accrual preparation journey, AUTHENTICATED (the same stack; real Auth sign-in for owner, preparer, partner, a viewer member and an outsider, real PostgREST, RLS and private Storage, no simulated identity or bridge; PPE and grants driven through their normal page - save and reopen, stale revision, concurrent writer, dropped response retried with the original request identity, reviewer confirmation; direct calls with real JWTs prove server enforcement, cross-company refusal and revoked access; 1280 and 375 px)
         if: always()

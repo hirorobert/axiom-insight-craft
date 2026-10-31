@@ -30,16 +30,21 @@
 //     stored (database error, or a lock not obtained in time), no link is returned.
 //   * Writers and the lock protocol are documented in supabase/migrations/20261211100000_source_access_authority_repairs.sql, where the decision lives.
 //
-// WHAT THE RECORD MEANS (audit semantics). An 'issued' record is an authorised ISSUANCE DECISION: at its commit the right was held and the signed link had not
-// expired. It does NOT establish that the response reached the caller or that the file was downloaded - the bytes travel from Storage to the browser, which
+// WHAT THE RECORD MEANS (audit semantics). An 'issued' record is an authorised ISSUANCE DECISION: at its commit the right was held and the signed link was
+// not past its conservative validity deadline (see EXPIRY). It does NOT establish that the response reached the caller or that the file was downloaded - the bytes travel from Storage to the browser, which
 // this function cannot observe, and a browser report would be a claim, not evidence. A response that fails or is dropped after the decision leaves the record
 // as it is; nothing is updated later. Other decisions are 'denied' (the precheck refused a caller who named a real upload of a real company),
 // 'withdrawn_before_issue' and 'expired_before_issue'. Unauthenticated calls and requests naming an unknown upload or another company's are not recorded.
 // No URL, token or path is ever stored.
 //
-// EXPIRY. The signer's own expiry (the signed link's `exp`) is used whenever it can be read. Otherwise the recorded expiry is an UPPER bound: the time signing
-// COMPLETED plus the requested lifetime - Storage fixes `exp` at some instant between signing start and completion, so start + lifetime would be the earliest
-// possible expiry, not a bound on the window the link is usable. The recorded expiry is never "decision time + lifetime" after a delayed signature.
+// EXPIRY - EXACT versus ESTIMATED, never blurred. If the signed link carries Storage's own `exp`, that is the EXACT expiry (kind 'signer_exact'; floor = exact =
+// ceiling). If it cannot be read, the exact expiry is UNKNOWN (kind 'estimated_bounds'): Storage fixes `exp` at some instant between signing start and signing
+// completion, so the link expires no earlier than FLOOR = signing start + lifetime and no later than CEILING = signing completion + lifetime.
+//   * VALIDITY is judged on the FLOOR only (a conservative validity deadline). An upper bound never proves that a link is still valid: a link whose floor has
+//     passed is refused (expired_before_issue) even if its ceiling has not, and the "expires_in" reported to the caller is the time left to the FLOOR.
+//   * The CEILING states residual access (how long a returned link might still work); it is not a validity test.
+//   * Neither is ever "decision time + lifetime" after a delayed signature. The database recomputes both bounds from the signing interval; the caller cannot
+//     supply them.
 
 import { isWellFormedSourcePath } from "./sourcePath.ts";
 
@@ -53,8 +58,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export type SourceDownloadOutcome =
   | "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable" | "link_expired" | "decision_unavailable";
 
-/** Where a recorded expiry came from. */
-export type ExpirySource = "signer_token_exp" | "bound_signing_completed_plus_ttl";
+/** Whether the link's expiry is exactly known (the signer's own exp) or only bounded. */
+export type ExpiryKind = "signer_exact" | "estimated_bounds";
+
+/**
+ * The bounds of a link's life. 'signer_exact': floor = exact = ceiling. 'estimated_bounds': the exact expiry is unknown; floor = signing start + lifetime
+ * (the earliest possible expiry) and ceiling = signing completion + lifetime (the latest). Only the floor may be used to say a link is still valid.
+ */
+export interface LinkBounds { kind: ExpiryKind; exactMs: number | null; floorMs: number; ceilingMs: number }
+
+export function computeLinkBounds(input: { startedMs: number; completedMs: number; lifetimeSeconds: number; exactMs: number | null }): LinkBounds {
+  if (input.exactMs !== null) return { kind: "signer_exact", exactMs: input.exactMs, floorMs: input.exactMs, ceilingMs: input.exactMs };
+  return { kind: "estimated_bounds", exactMs: null, floorMs: input.startedMs + input.lifetimeSeconds * 1000, ceilingMs: input.completedMs + input.lifetimeSeconds * 1000 };
+}
 
 /** What the database decided; 'unavailable' means a lock was not obtained in time (nothing recorded, safe to retry). */
 export type IssuanceDecision = "issued" | "withdrawn_before_issue" | "expired_before_issue" | "unavailable";
@@ -67,8 +83,10 @@ export interface IssuanceRequest {
   /** Function-host clock readings (ISO-8601) around the signing call. */
   signingStartedAt: string;
   signingCompletedAt: string;
-  linkExpiresAt: string;
-  linkExpirySource: ExpirySource;
+  /** The lifetime that was requested from Storage. */
+  linkLifetimeSeconds: number;
+  /** The signer's own expiry (ISO-8601) when it was read from the link; null when it was not, and the database then derives the bounds. */
+  linkExpiryExactAt: string | null;
   /** The upload's server-recorded SHA-256 at the time of the decision. */
   sha256: string | null;
 }
@@ -165,14 +183,15 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
   if (signed && "missing" in signed) return { status: 404, outcome: "unavailable" };
   if (!signed || !signed.url) return { status: 502, outcome: "signing_failed" };
 
-  // The recorded expiry: the signer's own when readable, else an upper bound from the END of signing (never "now + lifetime" after a delay).
+  // The signer's own expiry when readable. A link that would outlive the requested lifetime by more than the tolerance has an unexpected lifetime: it is
+  // discarded, never issued. Otherwise the exact expiry is unknown and the database derives the floor and the ceiling from the signing interval.
   const lifetimeMs = DOWNLOAD_EXPIRY_SECONDS * 1000;
-  let expiresMs: number, source: ExpirySource;
+  let exactMs: number | null = null;
   if (typeof signed.expiresAtMs === "number" && Number.isFinite(signed.expiresAtMs)) {
-    // A link that would outlive the requested lifetime by more than the tolerance has an unexpected lifetime: it is discarded, never issued.
     if (signed.expiresAtMs > signingCompletedMs + lifetimeMs + SIGNER_EXPIRY_TOLERANCE_SECONDS * 1000) return { status: 502, outcome: "signing_failed" };
-    expiresMs = signed.expiresAtMs; source = "signer_token_exp";
-  } else { expiresMs = signingCompletedMs + lifetimeMs; source = "bound_signing_completed_plus_ttl"; }
+    exactMs = signed.expiresAtMs;
+  }
+  const bounds = computeLinkBounds({ startedMs: signingStartedMs, completedMs: signingCompletedMs, lifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, exactMs });
 
   // THE DECISION: locks + authority + freshness + record in one transaction. Only an 'issued' commit leads to the link.
   let decision: IssuanceDecision;
@@ -180,7 +199,7 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
     decision = await deps.decide({
       userId, companyId, uploadId: target.id,
       signingStartedAt: new Date(signingStartedMs).toISOString(), signingCompletedAt: new Date(signingCompletedMs).toISOString(),
-      linkExpiresAt: new Date(expiresMs).toISOString(), linkExpirySource: source, sha256: target.source_file_hash ?? null,
+      linkLifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, linkExpiryExactAt: exactMs === null ? null : new Date(exactMs).toISOString(), sha256: target.source_file_hash ?? null,
     });
   } catch { return { status: 503, outcome: "audit_unavailable" }; }   // no decision, no link
   if (decision === "withdrawn_before_issue") return { status: 403, outcome: "forbidden" };
@@ -189,7 +208,7 @@ export async function runSourceDownload(deps: SourceDownloadDeps, request: { upl
   if (decision !== "issued") return { status: 503, outcome: "audit_unavailable" };
 
   return {
-    status: 200, outcome: "ready", url: signed.url, expires_in: Math.max(0, Math.min(DOWNLOAD_EXPIRY_SECONDS, Math.floor((expiresMs - clock()) / 1000))), file_name: name,
+    status: 200, outcome: "ready", url: signed.url, expires_in: Math.max(0, Math.min(DOWNLOAD_EXPIRY_SECONDS, Math.floor((bounds.floorMs - clock()) / 1000)))   /* time left to the CONSERVATIVE deadline */, file_name: name,
     sha256: target.source_file_hash ?? null, size: typeof target.file_size === "number" ? target.file_size : null,
   };
 }

@@ -22,10 +22,12 @@ export const CASES = Object.freeze([
   ...HOLDER_FIRST_WRITERS.map((w) => control(`ordering.withdrawal-holding-its-locks-first.${w}-is-ordered-first`)),
   control("ordering.a-collaborator-who-was-never-a-member-is-issued-and-unaffected-by-others"),
   control("ordering.concurrent-downloads-and-a-revocation-terminate-in-one-order"),
-  // expiry: the signer's own, or an upper bound from the end of signing; never 'now + 60 s' after a delay
-  control("expiry.signing-delay-records-the-bound-from-signing-completion"),
-  control("expiry.signer-exp-is-recorded-as-such"),
-  control("expiry.expired-before-issuance-is-refused-and-recorded"),
+  // expiry: EXACT versus ESTIMATED, and validity judged on the conservative floor only (an upper bound never proves a link is still valid)
+  control("expiry.signing-delay-stores-an-estimate-with-a-floor-and-a-ceiling-never-an-exact-expiry"),
+  control("expiry.the-signers-own-expiry-is-stored-as-exact"),
+  control("expiry.an-upper-bound-never-proves-a-link-is-still-valid"),
+  control("expiry.an-exact-expiry-already-passed-is-refused-and-recorded"),
+  control("expiry.the-bounds-are-computed-by-the-database-and-pinned-by-constraints"),
   // finding 5: what a record means, and the only ways to write one
   control("record.issuance-means-decision-not-delivery"),
   control("record.no-decision-no-link"),

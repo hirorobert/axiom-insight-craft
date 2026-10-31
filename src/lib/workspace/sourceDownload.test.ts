@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DOWNLOAD_EXPIRY_SECONDS, SIGNER_EXPIRY_TOLERANCE_SECONDS, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, signedUrlExpiryMs,
+  DOWNLOAD_EXPIRY_SECONDS, SIGNER_EXPIRY_TOLERANCE_SECONDS, computeLinkBounds, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, signedUrlExpiryMs,
   type IssuanceDecision, type IssuanceRequest, type SourceDownloadDeps, type UploadTarget,
 } from "../../../supabase/functions/_shared/sourceDownload";
 
@@ -127,7 +127,7 @@ describe("runSourceDownload: atomic issuance decision (re-review of #229, findin
     expect(d.decide).toHaveBeenCalledTimes(1);
     expect(issued(d)).toEqual({
       userId: "user-1", companyId: CO, uploadId: UP, signingStartedAt: "2026-10-30T12:00:00.000Z", signingCompletedAt: "2026-10-30T12:00:00.000Z",
-      linkExpiresAt: "2026-10-30T12:01:00.000Z", linkExpirySource: "bound_signing_completed_plus_ttl", sha256: HASH,
+      linkLifetimeSeconds: DOWNLOAD_EXPIRY_SECONDS, linkExpiryExactAt: null, sha256: HASH,
     });
     expect(JSON.stringify(d.decide.mock.calls)).not.toMatch(/token=|http|workspaces\//);
   });
@@ -151,25 +151,35 @@ describe("runSourceDownload: atomic issuance decision (re-review of #229, findin
     expect(d.decide).toHaveBeenCalledTimes(1);
     expect(d.recordDenial).not.toHaveBeenCalled();
   });
-  it("signing delay: the recorded expiry derives from the END of signing (or the signer's exp), never from now + 60 s after the delay", async () => {
+  it("signing delay: with no readable signer expiry the request carries the signing interval and NO expiry; the reported time left is to the conservative floor", async () => {
     const d = deps({ sign: vi.fn(async () => { clockMs += 25_000; return { url: "https://storage.invalid/sign/x?token=t" }; }) });
     const r = await runSourceDownload(d, REQ);
-    expect(issued(d)).toMatchObject({ signingStartedAt: "2026-10-30T12:00:00.000Z", signingCompletedAt: "2026-10-30T12:00:25.000Z", linkExpiresAt: "2026-10-30T12:01:25.000Z", linkExpirySource: "bound_signing_completed_plus_ttl" });
-    expect(r.expires_in).toBe(DOWNLOAD_EXPIRY_SECONDS);
-    // a further delay between signing and the decision shortens the REMAINING lifetime that is reported, not the recorded expiry
+    expect(issued(d)).toMatchObject({ signingStartedAt: "2026-10-30T12:00:00.000Z", signingCompletedAt: "2026-10-30T12:00:25.000Z", linkLifetimeSeconds: 60, linkExpiryExactAt: null });
+    expect(r.expires_in).toBe(35);                                  // floor = signing START + 60 s = 12:01:00; now = 12:00:25 -> 35 s, NOT 60 s and NOT time to the ceiling (60)
     clockMs = T0;
     const slow = deps({ sign: vi.fn(async () => { clockMs += 10_000; return { url: "https://storage.invalid/sign/x?token=t" }; }), decide: vi.fn(async () => { clockMs += 20_000; return "issued" as const; }) });
-    const r2 = await runSourceDownload(slow, REQ);
-    expect(r2.expires_in).toBe(40);
+    expect((await runSourceDownload(slow, REQ)).expires_in).toBe(30);   // 12:01:00 - 12:00:30
   });
-  it("the signer's own expiry is used when it is readable, and a link with an unexpected lifetime is discarded unissued", async () => {
+  it("the signer's own expiry is passed as the EXACT expiry, and a link with an unexpected lifetime is discarded unissued", async () => {
     const exp = Math.floor((T0 + 45_000) / 1000);
     const d = deps({ sign: vi.fn(async () => ({ url: "https://storage.invalid/sign/x?token=t", expiresAtMs: exp * 1000 })) });
-    await runSourceDownload(d, REQ);
-    expect(issued(d)).toMatchObject({ linkExpiresAt: new Date(exp * 1000).toISOString(), linkExpirySource: "signer_token_exp" });
+    const r = await runSourceDownload(d, REQ);
+    expect(issued(d)).toMatchObject({ linkExpiryExactAt: new Date(exp * 1000).toISOString() });
+    expect(r.expires_in).toBe(45);
     const long = deps({ sign: vi.fn(async () => ({ url: "https://storage.invalid/sign/x?token=t", expiresAtMs: T0 + (DOWNLOAD_EXPIRY_SECONDS + SIGNER_EXPIRY_TOLERANCE_SECONDS + 5) * 1000 })) });
     expect(await runSourceDownload(long, REQ)).toEqual({ status: 502, outcome: "signing_failed" });
     expect(long.decide).not.toHaveBeenCalled();
+  });
+  it("computeLinkBounds: exact when the signer's exp is known; otherwise a floor from signing START and a ceiling from signing COMPLETION, and validity uses the floor", () => {
+    const exact = computeLinkBounds({ startedMs: 1_000, completedMs: 5_000, lifetimeSeconds: 60, exactMs: 40_000 });
+    expect(exact).toEqual({ kind: "signer_exact", exactMs: 40_000, floorMs: 40_000, ceilingMs: 40_000 });
+    const est = computeLinkBounds({ startedMs: 1_000, completedMs: 5_000, lifetimeSeconds: 60, exactMs: null });
+    expect(est).toEqual({ kind: "estimated_bounds", exactMs: null, floorMs: 61_000, ceilingMs: 65_000 });
+    expect(est.floorMs).toBeLessThanOrEqual(est.ceilingMs);
+    // at t = 63 s the link is NOT provably valid (floor passed) although the ceiling has not: an upper bound proves nothing
+    const now = 63_000;
+    expect(est.floorMs > now).toBe(false);
+    expect(est.ceilingMs > now).toBe(true);
   });
   it("expiry before issuance: a link that expired by the decision is not returned, with its own answer", async () => {
     const d = deps({ decide: vi.fn(async () => "expired_before_issue" as const) });

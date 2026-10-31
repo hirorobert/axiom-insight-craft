@@ -160,15 +160,26 @@ await check("the owner is served: a signed URL for exactly this object, the orig
   return ownerAnswer.status === 200 && b.outcome === "ready" && b.file_name === FILE_A && b.expires_in <= 120 && b.size === BYTES_A.length
     && (b.sha256 ?? null) === (row.source_file_hash ?? null) && exp && exp.exp - exp.iat <= 120 && exp.exp * 1000 > Date.now() ? true : { ownerAnswer: { ...ownerAnswer, body: { ...b, url: "…" } }, exp, recorded: row.source_file_hash };
 });
-await check("the decision record is an authorised ISSUANCE decision with the signer's own expiry (the real Storage token's exp), the signing interval, and no URL, token or path", async () => {
-  // Real Storage signed this link: its token's exp is what the function recorded (source signer_token_exp), not decision time + 60 s. The record says the
-  // function authorised and issued; it cannot say the bytes were transferred (that is the next check, made by this journey, not by the function).
+await check("REAL Storage signer: the record stores the signer's own exp as EXACT, and the estimate bounds that a missing exp would have produced bracket it (so floor and ceiling are sound against the real signer)", async () => {
+  // This is where the signer contract is verified against real Storage: the token's exp is iat + the requested lifetime, iat lies inside the interval the function
+  // measured around the signing call, and therefore start + lifetime <= exp <= completion + lifetime. The function stored the exact exp (no estimate was needed);
+  // the same bounds it would have stored as an ESTIMATE are checked here against that exact value. The record says the function authorised and issued; it cannot
+  // say the bytes were transferred (the next check, made by this journey, does that).
   const { data, error } = await admin.from("trial_balance_source_download_events").select("*").eq("upload_id", UA.uploadId).eq("actor_user_id", U.owner.id).eq("outcome", "issued").order("occurred_at", { ascending: false }).limit(1);
-  const e = data?.[0], exp = jwtExp(ownerAnswer.body?.url ?? "");
+  const e = data?.[0], t = jwtExp(ownerAnswer.body?.url ?? "");
+  const ms = (v) => Date.parse(v), SKEW = 5_000, LIFE = e?.link_lifetime_seconds * 1000;
+  const start = ms(e?.signing_started_at), done = ms(e?.signing_completed_at), exp = t?.exp * 1000, iat = t?.iat * 1000;
   const text = JSON.stringify(e ?? {});
-  return !error && e && exp?.exp && e.link_expiry_source === "signer_token_exp" && Date.parse(e.link_expires_at) === exp.exp * 1000
-    && Date.parse(e.signing_started_at) <= Date.parse(e.signing_completed_at) && Date.parse(e.link_expires_at) <= Date.parse(e.signing_completed_at) + 90_000
-    && !/token|https?:|workspaces\//i.test(text) ? true : { error: error?.message, source: e?.link_expiry_source, expires: e?.link_expires_at, signed: [e?.signing_started_at, e?.signing_completed_at], tokenExp: exp ? new Date(exp.exp * 1000).toISOString() : null };
+  const checks = {
+    exactKind: e?.link_expiry_kind === "signer_exact",
+    exactIsTokenExp: ms(e?.link_expiry_exact_at) === exp && ms(e?.link_valid_until_floor_at) === exp && ms(e?.link_expiry_ceiling_at) === exp,
+    lifetimeRequested: LIFE === 60_000 && exp - iat === LIFE,
+    iatInsideSigningInterval: iat >= start - SKEW && iat <= done + SKEW,
+    estimateFloorSound: start + LIFE - SKEW <= exp,
+    estimateCeilingSound: exp <= done + LIFE + SKEW,
+    noSecrets: !/token|https?:|workspaces\//i.test(text),
+  };
+  return !error && e && t && Object.values(checks).every(Boolean) ? true : { error: error?.message, checks, signing: [e?.signing_started_at, e?.signing_completed_at], tokenIatExp: t ? [new Date(iat).toISOString(), new Date(exp).toISOString()] : null };
 });
 await check("the bytes fetched through the URL are the bytes that were uploaded, byte for byte (and match the server's recorded fingerprint when there is one)", async () => {
   const got = await fetchUrl(ownerAnswer.body.url);
