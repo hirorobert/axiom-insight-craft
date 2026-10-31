@@ -598,6 +598,21 @@ jobs:
           cat proof-results/ipsasGrantsTransport.present.log
           node scripts/ci/validateProofResult.mjs proof-results/ipsasGrantsTransport.present.json --manifest scripts/db-proof/ipsasGrantsTransport.manifest.mjs --mode present --exit-code "$code"
 
+      - name: Source-access exact-byte transport (the approved source-access migration through its own private schema on the real predecessor chain - exact journal head accepted in every recorded form of hosted id 97, prerequisites, any pre-existing new object refused, tamper, order, rollback, privilege postcondition, session search_path not outliving the transaction, concurrent install, the installed catalogue equal to the migration executed directly, preserved grants and memberships, and the removal trigger working after the transport; disposable database only, no hosted SQL registered or installed)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/source_access_transport_proof
+          PROOF_RESULT_FILE: proof-results/sourceAccessTransport.present.json
+        run: |
+          createdb source_access_transport_proof
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/sourceAccessTransport.mjs > proof-results/sourceAccessTransport.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/sourceAccessTransport.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/sourceAccessTransport.present.json --manifest scripts/db-proof/sourceAccessTransport.manifest.mjs --mode present --exit-code "$code"
+
       - name: IPSAS mutation authority ordering (deterministic multi-session proof on the full chain - with the protected lock held a request waits, its authority is revoked / membership withdrawn / rollout closed / framework changed and committed, then the lock is released and the mutation is refused with no row written for all four save and confirm functions and an idempotent replay; revocation and an in-flight mutation are serialised by one lock; plan changes wait for in-flight mutations; contention terminates without deadlock; stricter isolation fails closed; disposable database only)
         env:
           DB_PROOF_MODE: external
