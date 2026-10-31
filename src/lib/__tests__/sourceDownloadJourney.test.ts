@@ -67,7 +67,9 @@ describe("the Edge Function", () => {
   });
   it("reads only the columns it needs, never writes, and never echoes the URL or token into its log", () => {
     expect(fn).toMatch(/select\("id, company_id, user_id, file_path, file_name, file_size, source_file_hash"\)/);
-    expect(fn).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    // The one write this function makes is the durable record of its link-issuance decision (finding 3 of the #229 review); nothing else is written.
+    expect(fn.match(/\.(insert|update|upsert|delete)\(/g) ?? []).toEqual([".insert("]);
+    expect(fn).toMatch(/\.from\("trial_balance_source_download_events"\)\s*\.insert\(/);
     const logLine = fn.split("\n").find((l) => l.includes("console.log")) ?? "";
     expect(logLine).not.toMatch(/\burl\b|token|signedUrl/);
   });
@@ -80,10 +82,15 @@ describe("the Edge Function", () => {
 });
 
 describe("direct bucket restrictions are preserved", () => {
-  it("this change adds no migration and no Storage policy", () => {
+  it("no migration widens a Storage policy; the only migration naming the function is the decision-record table", () => {
     const sqlFiles = fs.readdirSync(path.join(ROOT, "supabase/migrations")).filter((f) => f.endsWith(".sql"));
     // The newest policy on this bucket is still the personal-folder one; a migration naming the retrieval function would be a sign of drift.
-    for (const f of sqlFiles) expect(read(`supabase/migrations/${f}`), f).not.toMatch(/trial-balance-source-download/);
+    for (const f of sqlFiles) {
+      const sql = read(`supabase/migrations/${f}`);
+      // 20261211100000 is the decision-record table and the membership trigger: it may name the function, but it adds no Storage policy.
+      if (f.startsWith("20261211100000_")) expect(sql, f).not.toMatch(/storage\.objects|CREATE\s+POLICY[^;]*storage/i);
+      else expect(sql, f).not.toMatch(/trial-balance-source-download/);
+    }
   });
 });
 

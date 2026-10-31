@@ -1,5 +1,7 @@
 # IPSAS journey recovery record
 
+> **Status note (2026-10-31).** The independent review of `c0d195b` returned CHANGES REQUIRED; its four findings (authority ordering after admission, member-removal file access, download signing order, currency denomination) and the audit-acceptance gap are repaired in `2165066` / `efcba3c` and recorded in [`../ipsas-independent-review/HANDOFF.md`](../ipsas-independent-review/HANDOFF.md). Statements in this file that the candidate was ready, that a post-admission authority window was an accepted bounded behaviour, or that independent acceptance was the only open matter describe the rejected head and are superseded.
+
 Baseline: #229 at `8deb7edfca9445f0009d067b2a62a03401c03ad8`. All preceding F1-F5 repairs and #227 authority ordering remain inherited. Independent accounting/release acceptance remains outstanding.
 
 ## Findings and changes

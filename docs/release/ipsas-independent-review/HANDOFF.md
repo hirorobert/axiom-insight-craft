@@ -1,85 +1,77 @@
-# IPSAS repair candidate (#229) - verified state and independent-review handoff
+# IPSAS repair candidate (#229) - repair after the independent review, and re-review handoff
 
-Written 2026-10-30 by the author side (not an independent reviewer). Nothing here records independent acceptance; at the time of writing the pull request has **no review and no review request** on GitHub. Merge, hosted installation, function deployment, publication, activation and accounting acceptance are separate decisions (`docs/release/ipsas-accrual-chain-r1/REVIEW_PACKAGE.md`).
+Written 2026-10-31 by the author side (not an independent reviewer). **Nothing here records independent acceptance.** The first independent review of `c0d195bad36ae99029a984fdc03fb4fc59c7ac89` returned **CHANGES REQUIRED**; this file records the repair of each finding. The earlier handoff (which called that head "ready" and described an "accepted bounded behaviour" and microsecond window) is superseded: those statements were wrong and are retracted. The rejected candidate is kept distinct below. Merge, hosted installation, function deployment, publication, activation and accounting acceptance remain separate decisions (`docs/release/ipsas-accrual-chain-r1/REVIEW_PACKAGE.md`). Post-merge CI verifies the integrated result; it is not a prerequisite for merging.
 
 ## 1. Candidate
 | Item | Value |
 |---|---|
-| Pull request | #229, draft, base `main` (`db6cef701b0856b98cd485d30431ac7b1137f2e4`, unchanged throughout) |
-| Code head carrying all CI evidence below | `8a2467bd460c55ad3689180265f4e5e2e90c8c4f` |
-| The commit that adds this file | differs from the code head by documentation only (`git diff 8a2467b..<head> --stat` lists only `docs/`) |
-| Stack | `a992cad` (#224) -> #227 `d235708` -> #228 `748be05` -> #229 (own diff `748be05..8a2467b`, 7 commits) |
-| Merge into `main` would bring | 50 commits, 153 files, +17,905/-59; three new migrations (`20261207100000`, `20261208100000`, `20261210100000`), one new Edge Function (`trial-balance-source-download`) and its shared helper, the `/ipsas` route, no modified existing function |
+| Pull request | #229, draft, base `main` (`db6cef701b0856b98cd485d30431ac7b1137f2e4`) |
+| Rejected candidate (reviewed) | `c0d195bad36ae99029a984fdc03fb4fc59c7ac89` (code evidence head `8a2467b`). Its CI results remain valid evidence about *that* head only. |
+| Repair, code | `2165066cd6d2dda2d3faca19d4b41a1fbd524817` (migrations, Edge Function, client, proofs, ordering document) |
+| Repair, transports | `efcba3c` (regenerated exact-byte transports and re-pinned fingerprints; `SOURCE_COMMIT` of the generators is `2165066`) |
+| Exact head to re-review | the head of the `codex/ipsas-independent-review` branch when this file was written; the PR description names it and the CI run on it. Later commits are documentation only unless the description says otherwise. |
 
-## 2. CI evidence (read from GitHub, not from summaries)
-Run 41045676796 on `8a2467b`. Attempt 1: 9 jobs passed, 1 skipped by design (manual write-capable staging RLS). The real-stack job (`Real application end to end`) was then re-run twice on the same head to sample its stability; Release Gate and Disposable-DB results are from attempt 1 only.
+The reviewer's local `D:/` paths in the review are on their machine; nothing here claims to have read them. Every result below was reproduced independently from the repository.
 
-| Job | Attempt | Job id | Outcome |
+## 2. Finding-by-finding resolution
+| # | Finding (reviewed head) | Resolution | Evidence |
 |---|---|---|---|
-| Release Gate (full suite, build, guards) | 1 | 124029043535 | success |
-| Disposable-DB Contract Tests | 1 | 124029043791 | success |
-| Real application end to end | 1 | 124029043879 | success |
-| Real application end to end | 2 | 124067112553 | success |
-| Real application end to end | 3 | 124076190834 | success |
+| 1 | [P1] Membership withdrawal, demotion, rollout closure or framework change can complete after a mutation was admitted and before it commits (all five mutation RPCs) | One ordering contract: from admission to commit, no withdrawal of an authority input completes; every writer waits, or the mutation refuses `authority_changing` (nothing persisted). Implemented in `_ipsas_authorize_mutation` (`20261207100000`); applies to preparation save, confirmation, grants save, grant confirmation and presentation save. Contract and writer inventory: `docs/release/ipsas-accrual-chain-r1/AUTHORITY_ORDERING.md` | `ipsasAuthorityRaces.mjs` 41/41; reviewed code **23/41** (18 violations across all five RPCs); earlier ordering proof still 15/15 |
+| 2 | [P1] Removing a member left independently granted original-file access (`manage_source_files`) active; the download helper still answered ready | Independent grants of a person are tied to their membership: a new trigger revokes the person's workspace grants (and records the revocation events) in the removing transaction. A collaborator who was never a member keeps the owner's grants (the supported grant-only path). Migration `20261211100000` | `sourceAccessAuthority.mjs` 14/14; reviewed code: 5 failures then stopped (section 5) |
+| 3 | [P2] Download authorization could be stale while signing waited | Ordering contract: authorize -> sign -> **authorize again (linearization point)** -> durable record -> return. A link is never returned if the second check fails or the record cannot be written. The second check narrows the window; it is not atomic (see 4) | `sourceDownload.test.ts` 31 tests (deferred signer, real DB authorization changes in `sourceAccessAuthority.mjs`) |
+| 4 | [P1] PPE and grants applied TZS / two decimals to every currency (JPY 14,000 displayed as 140.00) | The unit of every typed amount is the **server-confirmed** denomination (currency + exponent) of the certified period; figures are exact minor units of it; any payload built in another denomination, unknown or unsupported (exponent above 3) is refused by name and nothing is written. Supported set: exponents 0-3 | `ipsasCurrency.mjs` 28/28; 14 component tests fail on the reviewed components; fixtures in 3 |
+| - | Audit acceptance: a console event is not a durable authorization record | Durable append-only table `trial_balance_source_download_events` for link-issuance **decisions** (see 6) | `sourceAccessAuthority.mjs` |
 
-Counts (from the job logs): independent regression 9/9; preparation proof 29/29; grants 29/29; statement review 28/28; authority ordering 15/15; preparation transport 23/23; grants transport 24/24; browser journey over a loopback bridge 24/24; authenticated journey (real Auth, PostgREST, RLS, private Storage) 48 = 46 acceptance-labelled + 1 gap-record + 1 operator-integrity, all passed; main local-stack journey 71/71; drafts 4/4; finding correction 18/18; source download 14/14 (identical in all three real-stack attempts). The 48 are recorded checks, not 48 independent accounting workflows; the 46 include setup steps.
+## 3. Authorization ordering contract (finding 1)
+- **Admission:** acquisition of the locks below by `_ipsas_authorize_mutation`, then a fresh re-judgement of authority on a READ COMMITTED snapshot, after the mutation's request and company-period locks and **before** any replay lookup or write, in all five RPCs.
+- **Guarantee:** from admission until the mutation's transaction commits, no withdrawal of an authority input completes. A withdrawal that committed before admission is seen by the re-judgement (`forbidden`, `feature_disabled`, `framework_not_ipsas_accrual`). A mutation therefore never records a write under authority withdrawn before its commit.
+- **How:** member-capability advisory lock (shared); plan, named-user seats and framework locks (shared); rollout keys **try-locked and never waited for** (open and close take them in opposite orders; unavailable means `authority_changing`); `FOR SHARE` row locks on the person's membership row, open capability rows and the company row (writers' UPDATE/DELETE wait); `lock_timeout` 5 s as an operational protection (not what orders anything).
+- **Framework change:** `set_company_reporting_framework` refuses `FRAMEWORK_LOCKED` once a certified trial balance or report exists, so at the mutation level it cannot race a certified company; it is proven at the helper level on an uncertified company.
+- **Not claimed:** a clock-based expiry is not a writer; a future writer that takes none of these keys and updates none of these rows is not covered; the readers (`ipsas_*_context`) refuse as soon as a withdrawal commits.
 
-## 3. Stability investigation (kept separate from the review verdict)
-**Observed.** The real-stack job's *main* local-stack journey (`scripts/e2e/localStackJourney.mjs`, which the IPSAS work does not touch) failed in 3 of 5 runs on heads carrying a click sampler of 100 ms / 0.5 px / 20 s budget. Exact failing steps: `d920ad9` attempt 1 - "the focused upload page ... 'Look for likely causes'" timed out waiting for `investigation-leads`; `d920ad9` attempt 2 - the same step and "a file recorded as another entity's is BLOCKED"; `fdafe87` attempt 2 - the latter step, where the driver itself refused `[data-testid="decision-choice-different_entity"]` with "did not settle before input (disappeared, covered or disabled)" after the whole budget.
+## 4. Download signing ordering contract (finding 3) - what is and is not claimed
+`authorise (read 1) -> sign -> authorise again (read 2) -> record -> return`. A withdrawal committed before read 2 prevents any link being returned (a token minted by Storage is discarded unseen, never logged). A withdrawal after read 2 is ordered after the issuance: the link stays usable for `DOWNLOAD_EXPIRY_SECONDS` (60 s) because a signed URL is a bearer credential and cannot be revoked. **This is not atomic revocation.** Evidence is separated: the orchestration ordering is proven locally with a deferred signer against the real database predicate (`sourceDownload.test.ts`, `sourceAccessAuthority.mjs`); the behaviour of Supabase Storage's signing endpoint and token is *not* exercised by those and is covered only by the real-stack CI job, which signs for real.
 
-| Head | Click sampler | Main-journey outcomes |
+## 5. Deterministic before/after
+Method: a test-only barrier trigger on the INSERT parks a mutation *after admission and before persistence*; ordering is decided by observed `pg_locks` / `pg_stat_activity`, never a sleep; both orderings are tested (withdrawal first, admission first), plus replay, fresh-read refusal after the race, no partial or cross-company writes, and contention. Negative controls ran in a detached worktree at `c0d195b` with only the new proof files overlaid.
+
+| Proof | Reviewed head `c0d195b` | Repair |
 |---|---|---|
-| `a22e982`, `8deb7ed`, #228 `748be05` | 350 ms / 1 px, one re-locate | 71/71 each |
-| `6e10577`, `d920ad9`, `fdafe87` | 100 ms / 0.5 px / 20 s | pass; fail, fail; pass, fail (3 of 5 failed) |
-| `8a2467b` | 350 ms / 1 px, at most six bounded re-locations | 71/71 in 3 of 3 attempts |
+| `ipsasAuthorityRaces` (41 cases) | **23/41**: member removal, demotion and rollout closure complete while an admitted prep-save, confirm, grants-save, grant-confirm and statement-save is pending and the mutation then persists; member removal vs admitted replay; both framework helper cases | 41/41 |
+| `ipsasCurrency` (28 cases) | **1/28** (only setup passes) | 28/28 |
+| `sourceAccessAuthority` (14 cases) | **not completed, by construction:** 5 failures before the run could not continue - the removal does not revoke the grant, a new link request after removal is not refused, reinstatement resurrects the old grant, a withdrawal while signing still returns a link; the next case then waits forever because the reviewed code has no durable-record step to pause at, so the run was stopped (passes before: grant-only collaborator, owner/other workspaces, pending invitation, demotion, atomic rollback) | 14/14 |
+| `ipsasAuthorityOrdering` (15) | 15/15 | 15/15 |
 
-**Hypothesis behind the change.** The newer sampler is stricter and unbounded; the only component that differs between passing and failing heads is the click algorithm. **What the change does** (`scripts/browser-acceptance/cdp.mjs`, `click` only): hover, wait 350 ms, re-locate, accept a position within 1 px; a covered, disabled, vanished or still-moving target is re-sampled at most six times and then refused with the last samples in the message; one native press/release. **Not established.** The mechanism was not reproduced: the refusal text says the target never stabilised, not why. Five runs on one side and three on the other cannot prove cause (three passes at the earlier ~60% failure rate has probability about 6%), and the instant-scroll and focus-wait changes were kept, so they are not excluded. The bounded sampling exercise is closed; a future failure must be investigated from the new refusal message, not rerun.
+Preserved: independent regression 9/9, preparation 29/29, grants 29/29, statement review 28/28, preparation transport 23/23, grants transport 24/24, F1-F5 and #227's controls unchanged in behaviour (the authorize helper body changed deliberately; call sites are the same).
 
-## 4. Click-driver review (`fdafe87..8a2467b`, tests and records included)
-Reviewed against the code and the harness:
-- **Native input only:** `Input.dispatchMouseEvent`. `click` never calls an element's handler or forces an obstructed target. Pre-existing, outside the driver and not touched here: generic field setters in the journeys toggle checkboxes with `el.click()` (`set` helpers), the double-submit test deliberately triple-clicks via `evaluate`, and the mock-payment journey uses `evaluate` clicks. The IPSAS controls that matter (save, confirm, discard, download) use the native driver; the download step asserts exactly one *trusted* activation.
-- **Before input:** presence, size/visibility/display, hit test (topmost element at the centre) and enabled state are checked before the hover and again after it; foreground focus and document focus are awaited within the deadline; scrolling is instant.
-- **Bounded, no duplicate click:** at most six samples; the press/release pair is sent once or not at all; no harness caller retries a click (searched); `ipsasSaveProbe.test.ts` proves a failed native click restores the original transport without retrying.
-- **Diagnostics kept:** the last four samples are in the refusal message.
-- **Assertions:** none removed, relaxed or converted to skips; the four driver tests pass unchanged (26 driver/probe tests).
-- **Delay vs persistence:** 350 ms is only pointer settling. Grants save completion is tied to the save request's own receipt (`revisionId` differs from the expected id), a matching authoritative context read, and the rendered `data-grants-revision`, with `fetch` observed passively and restored in `finally` (`saveGrantsAndReadBack`). Confirmations and discards wait for specific rendered server state. **Residual coupling for the reviewer:** the PPE steps still wait for the per-key "recorded version" banner on first saves (sound because each key is saved once per page load), a fixed 600 ms follows the PPE stale-discard before the adopted value is read, and 300 ms follows tab switches; none is a save-completion wait for a repeated save, but they are timing assumptions.
+## 6. Audit semantics and limits
+`trial_balance_source_download_events` records link-issuance **decisions** by the function: `issued`, `denied` (authenticated caller naming a real upload of a real company without the right), `withdrawn_before_issue`. Stores who, company, upload, outcome, expiry and the recorded fingerprint - **never a URL, token or path**. It is append-only (update/delete/truncate refused), owner-readable under RLS, written by the service role. It does **not** establish that the file was transferred: the bytes go from Storage to the browser, which the function cannot observe; no browser report is treated as evidence. Unauthenticated calls and requests naming an unknown upload or a mismatched company are not recorded (they name nothing real; recording would let anyone write). A link is never returned if its record could not be written (`audit_unavailable`, 503). **Undecided:** retention and who may read the table beyond the workspace owner.
 
-## 5. F1-F5 on this candidate
-The review lists five findings. Negative controls ran in isolated swaps restored byte-identically.
-| ID | Behaviour | Evidence |
+## 7. Currency fixtures and expected amounts (finding 4)
+Each fixture processes and certifies a real trial balance in that currency. Whole-unit fixture: PPE closing carrying 14,000, opening 16,000, depreciation 2,000.
+| Denomination | Exponent | Closing (minor) | Opening (minor) | Depreciation (minor) | Displayed |
+|---|---|---|---|---|---|
+| TZS | 2 | 1,400,000 | 1,600,000 | 200,000 | 14,000.00 |
+| USD | 2 | 1,400,000 | 1,600,000 | 200,000 | 14,000.00 |
+| JPY | 0 | 14,000 | 16,000 | 2,000 | 14,000 (not 140.00) |
+| KWD | 3 | 14,000,000 | 16,000,000 | 2,000,000 | 14,000.000 |
+Also covered: exponent 4 refused by name (`denomination_unsupported`); no certified source refused (`denomination_unavailable`, never a default); prior period in another currency or scale makes the opening *unknown* (not zero); a saved draft entered in another denomination is refused, never re-read in the new one (it is **not converted**, and there is no "start over" action yet); negative and zero amounts, parse/format/round-trip, missing and conflicting metadata and notes (`currency.test.ts`, `draft.test.ts`); grants use the same rules; both confirmations refuse a mismatched denomination.
+
+## 8. Migration and transport evidence
+- Changed, **unapplied**: `20261207100000`, `20261208100000`; new: `20261211100000`. No installed history was rewritten *as far as this repository can show*. **Hosted state was not read and is not verified**; repository notes do not prove it, and the earlier statements about the hosted journal head are unverified. If any of the changed migrations has already been installed, a new forward migration is required instead of this edit - to be confirmed from authorised evidence before installation.
+- The unapplied-candidate convention was followed (edit in place, regenerate the exact-byte transports, re-pin fingerprints): `ipsasStagedTransport.mjs` (preparation, 60,510 B), `ipsasGrantsStagedTransport.mjs` (32,017 B), `ipsasStatementReviewStagedTransport.mjs`; the generators' `--check` passes; transports proven on a disposable database (prerequisites, tamper, order refusal, rollback, concurrency, postconditions): 23/23, 24/24, statement review passes.
+- **Installation gates (unchanged by this work, now stated):** the stage table body cap was raised to 65,536 bytes because the preparation source is 60,510 B; whether the owner's stage channel carries a statement that large is **unverified** (equipment carried 54,129 B); fallback is splitting the source into two batches. The hosted journal head must be read at install time and `20261116100000` confirmed present.
+
+## 9. Gates and unresolved items
+| Gate | State | Blocks |
 |---|---|---|
-| F1 | PPE and grants refuse stale or invalidated authority; no authority is unknown, not zero | regression on #228's SQL: 2 pass / 7 fail; on this head 9/9 (also in CI) |
-| F2 | Approved adjustments included through the authoritative adjusted accounts, with classification and period scope | pre-repair PPE 1,400,000 vs 1,430,000 and liability 310,000 vs 340,000; wrong-class account yields unknown. **Period scope executed here in a throwaway script, not committed:** a prior-year adjustment moved only the opening figure (1,600,000 -> 1,630,000); a current-year one moved only the closing figure (1,400,000 -> 1,450,000) |
-| F3 | refresh cannot overwrite edits made while pending | the three new component tests fail on #228's component, pass here; the ten earlier tests pass on both |
-| F4 | choices bound to period + account key | same |
-| F5 | confirmed save then failed refresh keeps receipt and edits, blocks the obsolete revision until a successful refresh | same |
+| Independent re-review of the repair, and of the full accumulated scope (#227/#228/#222 incl. the download function and signed-link permissions) | not done | merge |
+| Required CI on the exact final head | see the PR | merge |
+| Hosted migration state, journal head, stage-channel capacity | not verified here | hosted installation |
+| Deployed function/frontend identity | not done | deployment |
+| Download event retention / read rights | undecided | activation |
+| Bearer-link residual (60 s) | accepted design limit, documented | - |
+| Converting an existing draft into another denomination | not built; refused instead | product decision |
+| Accounting acceptance, adopted responsibilities, commercial matters | as in the earlier package | activation / launch |
 
-Not executed and stated as such: the PPE confirm path with an invalidated source end to end. By reading, confirming estimates or prior figures does not depend on the trial-balance source (its subject is the payload); with the source invalid, the assessment reports named unknown-trial-balance matters (the CI journey showed this fail-closed text when the prior year was unavailable), and the grants confirmation refuses `not_confirmable` when the period is unknown.
-
-## 6. #227's controls
-The authorize helper body is identical to #227's (hash `c75b3e299e3a`) with the same 4 + 2 call sites; every SQL hunk since #227 lies inside the three rewritten helpers (`_ipsas_tb_facts`, `_ipsas_grants_period`, `_ipsas_tb_sum`); the ordering proof and its document, both save-handling test files and the harness are byte-identical; component changes are only the "not yet read" signal and a data attribute; the actor/company/period page key is unchanged. Changed dependency: callers now take the certification id from the shared authority decision; a missing authority records a null certification id on a draft save (as before) and blocks grants confirmation. Proofs on this candidate cover role/tenant refusal, append-only history, rollback, revocation including idempotent replay, request identity and conflicts, and, for the transports, catalogue equality with the direct migration, tamper refusal and concurrency.
-
-**Documented limitation, classified.** A mutation takes the shared member-capability lock, then re-judges authority on a fresh READ COMMITTED snapshot before any replay or write. Serialised with it (total order): explicit grants and revocations of that person, new-membership template provisioning (all take the exclusive lock), and plan changes (shared plan lock). Not serialised, because their writers do not take a lock the mutation holds: membership removal or role change (the trigger revokes capability rows without the advisory lock), rollout closure, and framework change (takes `cfoclose.fr_company:`, which the mutation does not). The proof covers these changes committed *while the mutation waits for its locks* (honoured); it does not cover one committing between the boundary check and the mutation's commit. Consequence: one append-only revision, and the response to the actor's own write, can be committed microseconds after the withdrawal committed; the next request is refused. **Classification: accepted bounded behaviour for the merge (not a blocker); the hardening option - share-locking the actor's membership row and the company row inside the helper, which would order those writers after the mutation - is an unresolved decision to be made before activation.** It needs a migration change, regenerated transports and new proofs, so it is out of scope for this repair.
-
-## 7. Integration plan
-Verified ancestry: heads of #155, #216-#225, #227, #228 are all ancestors of `8a2467b`; #226 (statement composition) is not and is out of scope. Repository facts: `main` has no branch protection and no required checks or reviews, so the acceptance gate is process, not enforcement; merge commits, squash and rebase are all enabled; auto-merge is off; branches are not deleted on merge. Precedent: equipment PR #213 was merged and installed later by a separate owner step; CI also runs on pushes to `main`.
-
-**Recommendation.** After independent acceptance, merge #229 once as a **merge commit** (history and ancestry preserved; squash or rebase would make the other open PRs conflict). Do **not** merge #227, #228 or #216-#224 first: their intermediate states contain the F1/F2 defects in unapplied migrations meant to be installed later and, for #228, the F3-F5 editing defects in a frontend that previews automatically, and merging them separately yields the same final tree with more defective states on `main`. #155 and #225 are small independent test fixes and may be accepted separately and earlier; if so, re-run CI on the updated merge result. After merging, expect GitHub to mark ancestor PRs merged; if not, close them with a link, not before. Acceptance units for the reviewer: #229's own diff; #228's and #227's own diffs (the reviewer already inspected their controls); #222 separately, because it adds an Edge Function and a short-lived signed download link. Final-result checks: CI on the merge ref (identical tree while `main` is unchanged), the push-to-`main` run, and if `main` moves first a merge of `main` into the branch (never a rebase) with a full re-run including the real-stack and Disposable-DB jobs and the three generators' `--check`. Merging does not install a transport, deploy a function or publish the frontend; the frontend preview may update on merge, and the `/ipsas` route is refused on the server unless rollout and framework allow it.
-
-## 8. Gates
-| Gate | Evidence still required | Blocks |
-|---|---|---|
-| Independent technical acceptance of #229 (and of #227/#228 units, #222) | a reviewer other than the author side records acceptance on the pull request; none exists | **merge** |
-| Required CI on the integrated result | merge-ref and push-to-`main` runs green | merge |
-| Real-stack stability | any recurrence investigated from the new refusal message | merge (only if it recurs) |
-| Hosted prerequisite state | the journal head read again at install time (equipment head id 91 is only *recorded*), `20261116100000` (`fs-memo-r1`, recorded in the repository's release journal) confirmed present; neither is verified here | hosted installation |
-| Transport verification and recovery readiness | generator `--check` on the final bytes, bootstrap/apply postconditions, owner-authorised execution | hosted installation |
-| Deployed code identity | deployed function and frontend identities matched to the merged commit, including `trial-balance-source-download` | deployment |
-| Revocation hardening decision | accept the bounded window or add the row-share locks | activation |
-| Accounting acceptance and adopted responsibilities | appointed author and reviewer, adopted charter, real NGO case, the acceptance scenarios not yet executed, framework coverage beyond this PPE/grants/statement-review increment | activation and any official IPSAS issuance |
-| Commercial matters | UI onboarding, download rights by capability, retrieval after plan expiry, audited download events, real provider acceptance (mock payment journeys are not provider acceptance) | commercial launch |
-
-Open product decisions are not merge blockers unless they change merged behaviour; the download link remains a bearer credential for up to 60 seconds. This is a bounded PPE and grants preparation increment with statement review: no full statements, comparatives, transition handling or official issuance.
-
-## 9. Verdict and next action
-**READY FOR INDEPENDENT REVIEW.** The candidate has current green CI on the exact head with a bounded stability sample, the five findings and #227's controls are verified by executed evidence including negative controls, and no known defect in the behaviour being merged is open. The only remaining *merge* gate is independent acceptance. **Next action:** the owner assigns an independent reviewer to #229 (with this file, `REPORT.md` and the CI links); nothing is merged or installed until that acceptance is recorded.
+Nothing was merged, installed, deployed, published or activated; no paid service was called; Stage C was not begun.

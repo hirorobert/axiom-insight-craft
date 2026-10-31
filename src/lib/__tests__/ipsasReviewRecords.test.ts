@@ -32,7 +32,7 @@ describe("IPSAS release records", () => {
     expect(patch).toContain("src/lib/__tests__/ipsasAuthJourney.test.ts");
     expect(read("scripts/release/verifyCarry.mjs")).toContain("CARRY_VERIFIED");
     const c = read(`${dir}/AUTHORITY_ORDERING.md`);
-    for (const needle of ["CONFIRMED", "request -> company-period -> member-capability (shared) -> plan (shared)", "Replays are covered", "Fail closed"]) expect(c, needle).toContain(needle);
+    for (const needle of ["CONFIRMED", "request -> company-period -> member-capability (S) -> plan (S, re-entrant) -> named-user seats (S) -> framework (S) -> rollout (try, never waits)", "Ordering guarantee", "Replays are covered", "Fail closed"]) expect(c, needle).toContain(needle);
   });
   it("the migrations contain the boundary check in all four mutation functions, before any replay lookup", () => {
     for (const [file, fns] of [["supabase/migrations/20261207100000_ipsas_accrual_preparation.sql", ["ipsas_save_preparation", "ipsas_confirm"]], ["supabase/migrations/20261208100000_ipsas_grants.sql", ["ipsas_save_grants", "ipsas_confirm_grant"]]] as const) {
