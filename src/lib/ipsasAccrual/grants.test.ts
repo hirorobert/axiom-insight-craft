@@ -196,3 +196,14 @@ describe("generated policy, note and tasks", () => {
     expect(tasks.find((t) => t.id.includes("GRANT_ASSESSMENT_UNCONFIRMED"))?.responsible).toBe("reviewer");
   });
 });
+
+describe("generated grants note: every displayed amount uses the server-confirmed denomination (independent review of #229, finding 4)", () => {
+  const input = input47();
+  const decimalsOf = (s: string) => { const m = /\.(\d+)$/.exec(s.trim()); return m ? m[1].length : 0; };
+  it.each([["TZS", 2], ["USD", 2], ["JPY", 0], ["KWD", 3]])("%s: each amount carries the code and exactly %i decimals", (currency, exponent) => {
+    const note = JSON.stringify(generateGrantsNote(input, computeGrants(input), { currency, exponent }, "Synthetic Community Trust"));
+    const amounts = [...note.matchAll(/(?:TZS|USD|JPY|KWD) [0-9][0-9,]*(?:\.[0-9]+)?/g)].map((x) => x[0]);
+    expect(amounts.length).toBeGreaterThan(0);
+    for (const d of amounts) { expect(d.startsWith(currency), d).toBe(true); expect(decimalsOf(d), d).toBe(exponent); }
+  });
+});

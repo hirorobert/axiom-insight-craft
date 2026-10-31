@@ -90,28 +90,92 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_refusal(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 
--- Authority for a MUTATION, judged at the protected mutation boundary. Every mutation first calls _ipsas_refusal (a cheap early refusal that also takes
--- the shared plan lock), then acquires its request and company-period advisory locks - which may WAIT behind other work - and only then calls this.
--- It (1) takes the SHARED member-capability lock for (workspace, person): revoke_member_capability and the other member-capability writers take the
--- same lock EXCLUSIVELY, so an explicit revocation and an in-flight mutation of that person are serialised and exactly one of them is first (the
--- revoker waits for the mutation's transaction to end; a mutation that starts after the revocation committed is refused below); and (2) judges
--- authority again on a FRESH statement snapshot (membership, capability, plan, rollout, framework), so anything committed while the mutation waited
--- is honoured. It must run before any replay lookup: a revoked actor is not handed the stored receipt of an earlier request.
--- Lock order (no cycle): request -> company-period -> member-capability (shared) -> plan (shared, re-entrant: already held from the early check).
+-- Authority for a MUTATION: one ordering contract (independent review of #229, finding 1).
+--   ADMISSION is the acquisition of the locks below followed by a fresh re-judgement of authority. From admission until the mutation's transaction
+--   COMMITS, no withdrawal of an authority input may COMPLETE: every writer of those inputs either waits for this transaction, or - when it is
+--   already in flight - makes this mutation wait and then refuse, or refuse at once ('authority_changing', nothing persisted). A withdrawal that
+--   committed before admission is seen by the re-judgement and refused as before. It runs before any replay lookup: a withdrawn actor is not handed
+--   the stored receipt of an earlier request, and a response is never produced under authority that was withdrawn before the commit.
+-- Every mutation first calls _ipsas_refusal (a cheap early refusal that also takes the shared plan lock), then acquires its request and company-period
+-- advisory locks - which may WAIT behind other work - and only then calls this. What it orders against, per authority input, and WHY that lock works:
+--   * explicit capability grant / revocation, new-membership provisioning of this person: the member-capability advisory key, taken EXCLUSIVELY by
+--     those writers, SHARED here.
+--   * plan changes: the plan advisory key (shared here, already held from the early refusal; plan writers take it exclusively), then
+--   * billing suspension / named-user seat reconciliation: 'cfoclose.named_user_seats:<account>', exclusive in those writers, shared here.
+--   * framework change: 'cfoclose.fr_company:<company>', exclusive in set_company_reporting_framework, shared here.
+--   * rollout opening/closing, the kill switch and internal-beta reporting switches: 'financial_statements_rollout:<company>' and
+--     'financial_statements_rollout:kill_switch', exclusive in every one of those writers. Taken here with TRY-locks and never waited for, because
+--     the open and close writers take those two keys in opposite orders: a mutation that waited on them could deadlock with one of them. If either
+--     is unavailable (a rollout change is in progress, or queued) the mutation refuses with 'authority_changing' and nothing is written; row-level
+--     share locks (NOWAIT) on the rollout, beta-policy and enrolment rows additionally order any writer that bypasses the advisory keys.
+--   * membership removal, a demotion, an invitation cancelled, an account owner change: these writers use plain UPDATE / DELETE and take no advisory
+--     lock, so the rows themselves are share-locked until commit (the writer's UPDATE / DELETE then waits): the person's membership row, its open
+--     capability rows, then the company row - the order in which the writers' own triggers touch them.
+-- Lock order (no cycle with any writer found in the inventory): [plan shared - early] -> request -> company-period -> member-capability (S) ->
+-- plan (S, re-entrant) -> named-user seats (S) -> framework (S) -> rollout (try, never waits) -> membership row -> capability rows -> company row.
+-- A wait here is bounded by lock_timeout (an operational protection, not the ordering mechanism): on expiry the mutation refuses 'authority_changing'.
 -- It relies on READ COMMITTED (the default for PostgREST and the migrator): under a transaction-long snapshot a re-check could not see what committed
 -- while waiting, so it fails closed instead of judging on a stale view.
+-- Not covered, by design: time itself (a licence's effective_end passing, a clock) is not a writer; authority is judged at admission.
 CREATE FUNCTION public._ipsas_authorize_mutation(p_company_id uuid, p_uid uuid, p_capability text) RETURNS text
-LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public SET lock_timeout = '5s' AS $$
+DECLARE v_account uuid; v_caps text[];
 BEGIN
   IF p_company_id IS NULL OR p_uid IS NULL THEN RETURN 'forbidden'; END IF;
   IF current_setting('transaction_isolation') <> 'read committed' THEN
     RAISE EXCEPTION 'IPSAS_AUTHORITY_ISOLATION: authority is re-checked after the mutation boundary and needs READ COMMITTED' USING ERRCODE = '25000';
   END IF;
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended('workspace_member_capabilities:' || p_company_id::text || ':' || p_uid::text, 0));
+  v_caps := CASE WHEN p_capability = 'read' THEN ARRAY['prepare_close', 'review_close'] ELSE ARRAY[p_capability] END;
+  BEGIN
+    PERFORM pg_advisory_xact_lock_shared(hashtextextended('workspace_member_capabilities:' || p_company_id::text || ':' || p_uid::text, 0));
+    SELECT c.user_id INTO v_account FROM public.companies c WHERE c.id = p_company_id;
+    IF v_account IS NOT NULL THEN
+      PERFORM public._plan_write_lock(v_account);
+      PERFORM pg_advisory_xact_lock_shared(hashtextextended('cfoclose.named_user_seats:' || v_account::text, 0));
+    END IF;
+    PERFORM pg_advisory_xact_lock_shared(hashtextextended('cfoclose.fr_company:' || p_company_id::text, 0));
+    IF NOT (pg_try_advisory_xact_lock_shared(hashtext('financial_statements_rollout:' || p_company_id::text))
+        AND pg_try_advisory_xact_lock_shared(hashtext('financial_statements_rollout:kill_switch'))) THEN
+      RETURN 'authority_changing';
+    END IF;
+    PERFORM 1 FROM public.financial_statements_rollout_state WHERE singleton FOR SHARE NOWAIT;
+    PERFORM 1 FROM public.financial_statements_rollout_companies WHERE company_id = p_company_id FOR SHARE NOWAIT;
+    PERFORM 1 FROM public.internal_beta_policy WHERE singleton FOR SHARE NOWAIT;
+    PERFORM 1 FROM public.internal_beta_enrollments WHERE company_id = p_company_id AND revoked_at IS NULL FOR SHARE NOWAIT;
+    PERFORM 1 FROM public.firm_members WHERE company_id = p_company_id AND user_id = p_uid FOR SHARE;
+    PERFORM 1 FROM public.workspace_member_capabilities WHERE company_id = p_company_id AND user_id = p_uid AND capability = ANY (v_caps) AND revoked_at IS NULL FOR SHARE;
+    PERFORM 1 FROM public.companies WHERE id = p_company_id FOR SHARE;
+  EXCEPTION WHEN lock_not_available THEN
+    RETURN 'authority_changing';
+  END;
   RETURN public._ipsas_refusal(p_company_id, p_uid, p_capability);
 END;
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_authorize_mutation(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── the denomination every typed amount is read in (independent review of #229, finding 4) ─────────────────────────────
+-- Server-confirmed from the certified CURRENT period (_fs_reporting_input_compute: its reporting currency and exponent); never assumed, never taken
+-- from the browser's locale, never converted. A minor unit is the currency's own smallest unit, so exact arithmetic does not depend on the exponent;
+-- what the exponent decides is how a typed or displayed amount is read. Supported: an ISO-shaped currency code with exponent 0, 1, 2 or 3 (for example
+-- JPY, TZS or USD, and KWD). Anything else is 'unsupported' and refused by name; no authority at all is 'unknown' (there is no default).
+CREATE FUNCTION public._ipsas_presentation(p_input jsonb) RETURNS jsonb
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT CASE
+    WHEN p_input IS NULL OR p_input->>'state' IS DISTINCT FROM 'current' THEN jsonb_build_object('state', 'unknown')
+    WHEN coalesce(p_input#>>'{current,currency}', '') !~ '^[A-Z]{3}$' OR coalesce(p_input#>>'{current,exponent}', '') !~ '^[0-3]$'
+      THEN jsonb_build_object('state', 'unsupported', 'currency', p_input#>'{current,currency}', 'exponent', p_input#>'{current,exponent}')
+    ELSE jsonb_build_object('state', 'known', 'currency', p_input#>>'{current,currency}', 'exponent', (p_input#>>'{current,exponent}')::integer)
+  END;
+$$;
+-- Does a saved or submitted payload carry exactly this denomination? Prior figures carry currency + scale; every other IPSAS payload carries
+-- presentation {currency, exponent}. A missing or different one never matches.
+CREATE FUNCTION public._ipsas_denomination_matches(p_kind text, p_payload jsonb, p_pres jsonb) RETURNS boolean
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, public AS $$
+  SELECT coalesce(CASE WHEN p_kind = 'prior_figures'
+      THEN p_payload->>'currency' = p_pres->>'currency' AND p_payload->>'scale' = p_pres->>'exponent'
+      ELSE p_payload#>>'{presentation,currency}' = p_pres->>'currency' AND p_payload#>>'{presentation,exponent}' = p_pres->>'exponent' END, false);
+$$;
+REVOKE ALL ON FUNCTION public._ipsas_presentation(jsonb), public._ipsas_denomination_matches(text, jsonb, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── facts from the certified trial balance ────────────────────────────────────────────────────────────────────────────
 -- p_selection = {"ppeAccountKeys": [...], "depreciationExpenseKeys": [...]}. A figure is NULL (unknown, never zero) when no
@@ -153,7 +217,9 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('certificationId', v_cur->>'certificationId', 'isBlocking', CASE WHEN v_cur IS NOT NULL THEN false END, 'requiresReview', CASE WHEN v_cur IS NOT NULL THEN false END,
     'priorCertificationId', v_prior->>'certificationId', 'ppeCarryingClosingMinor', v_closing::text, 'ppeCarryingOpeningMinor', v_opening::text,
-    'depreciationExpenseMinor', v_expense::text);
+    'depreciationExpenseMinor', v_expense::text, 'presentation', public._ipsas_presentation(v_input),
+    -- the prior period is used only when it is in the same currency and units and adjoins the current one; otherwise the opening figure is unknown, by name
+    'comparative', CASE WHEN v_prior IS NOT NULL THEN 'compatible' WHEN v_input#>>'{comparative,state}' = 'available' THEN 'incompatible' ELSE 'unavailable' END);
 END;
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_tb_facts(uuid, integer, jsonb) FROM PUBLIC, anon, authenticated, service_role;
@@ -445,7 +511,7 @@ BEGIN
     v_bridge := public._ipsas_bridge_assess(v_prior.payload, v_openings, v_prior_confirmed);
   END IF;
   RETURN jsonb_build_object('tb', v_tb, 'confirmedClasses', v_confirmed, 'priorConfirmed', v_prior_confirmed, 'ppe', v_ppe, 'bridge', v_bridge,
-    'workpaperId', v_work.id, 'priorFiguresId', v_prior.id);
+    'workpaperId', v_work.id, 'priorFiguresId', v_prior.id, 'presentation', v_tb->'presentation');
 END;
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_live(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
@@ -473,7 +539,7 @@ $$;
 CREATE FUNCTION public.ipsas_save_preparation(p_company_id uuid, p_period_year integer, p_kind text, p_payload jsonb, p_expected_id uuid, p_request_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
-  v_refusal text; v_fp text; v_prior public.ipsas_prep_revisions; v_current uuid; v_id uuid := gen_random_uuid(); v_at timestamptz; v_cert uuid;
+  v_refusal text; v_fp text; v_prior public.ipsas_prep_revisions; v_current uuid; v_id uuid := gen_random_uuid(); v_at timestamptz; v_cert uuid; v_facts jsonb; v_pres jsonb;
   v_receipt jsonb; v_line jsonb; v_doc uuid; v_sha text; v_live jsonb; v_c jsonb; v_contract text;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
@@ -519,9 +585,17 @@ BEGIN
   END IF;
   SELECT id INTO v_current FROM public.ipsas_prep_revisions WHERE company_id = p_company_id AND period_year = p_period_year AND kind = p_kind ORDER BY seq DESC LIMIT 1;
   IF v_current IS DISTINCT FROM p_expected_id THEN RETURN jsonb_build_object('outcome', 'stale', 'currentId', v_current); END IF;
-  IF p_kind = 'ppe_workpaper' THEN
-    v_cert := (public._ipsas_tb_facts(p_company_id, p_period_year, p_payload->'tbSelection'))->>'certificationId';
+  -- Every typed amount is a number of minor units of the SERVER-confirmed denomination. Refuse when it is unknown or unsupported, when the payload was
+  -- entered in another one, and when the saved version this one replaces was (no amount is silently re-read under a different unit).
+  v_facts := public._ipsas_tb_facts(p_company_id, p_period_year, CASE WHEN p_kind = 'ppe_workpaper' THEN p_payload->'tbSelection' ELSE '{}'::jsonb END);
+  v_pres := v_facts->'presentation';
+  IF v_pres->>'state' = 'unknown' THEN RETURN jsonb_build_object('outcome', 'denomination_unavailable'); END IF;
+  IF v_pres->>'state' = 'unsupported' THEN RETURN jsonb_build_object('outcome', 'denomination_unsupported'); END IF;
+  IF NOT public._ipsas_denomination_matches(p_kind, p_payload, v_pres)
+     OR (v_current IS NOT NULL AND NOT public._ipsas_denomination_matches(p_kind, (SELECT r.payload FROM public.ipsas_prep_revisions r WHERE r.id = v_current), v_pres)) THEN
+    RETURN jsonb_build_object('outcome', 'denomination_mismatch');
   END IF;
+  IF p_kind = 'ppe_workpaper' THEN v_cert := (v_facts->>'certificationId')::uuid; END IF;
   v_sha := encode(sha256(convert_to(p_payload::text, 'UTF8')), 'hex');
   v_at := clock_timestamp();
   v_receipt := jsonb_build_object('outcome', 'recorded', 'revisionId', v_id, 'kind', p_kind, 'createdAt', v_at, 'payloadSha256', v_sha);
@@ -535,7 +609,7 @@ $$;
 CREATE FUNCTION public.ipsas_confirm(p_company_id uuid, p_period_year integer, p_subject_kind text, p_subject_key text, p_expected_revision_id uuid, p_request_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
-  v_refusal text; v_fp text; v_prior public.ipsas_confirmations; v_rev public.ipsas_prep_revisions; v_class jsonb; v_sha text; v_id uuid := gen_random_uuid();
+  v_refusal text; v_fp text; v_prior public.ipsas_confirmations; v_rev public.ipsas_prep_revisions; v_class jsonb; v_sha text; v_id uuid := gen_random_uuid(); v_pres jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
   v_refusal := public._ipsas_refusal(p_company_id, auth.uid(), 'review_close');
@@ -559,6 +633,11 @@ BEGIN
   SELECT * INTO v_rev FROM public.ipsas_prep_revisions WHERE company_id = p_company_id AND period_year = p_period_year
     AND kind = CASE p_subject_kind WHEN 'ppe_class_estimate' THEN 'ppe_workpaper' ELSE 'prior_figures' END ORDER BY seq DESC LIMIT 1;
   IF NOT FOUND OR v_rev.id <> p_expected_revision_id THEN RETURN jsonb_build_object('outcome', 'stale', 'currentId', v_rev.id); END IF;
+  -- What is confirmed is read in the denomination it was entered in; confirm nothing that the server's current denomination would re-read differently.
+  v_pres := (public._ipsas_tb_facts(p_company_id, p_period_year, '{}'::jsonb))->'presentation';
+  IF v_pres->>'state' = 'unknown' THEN RETURN jsonb_build_object('outcome', 'denomination_unavailable'); END IF;
+  IF v_pres->>'state' = 'unsupported' THEN RETURN jsonb_build_object('outcome', 'denomination_unsupported'); END IF;
+  IF NOT public._ipsas_denomination_matches(v_rev.kind, v_rev.payload, v_pres) THEN RETURN jsonb_build_object('outcome', 'denomination_mismatch'); END IF;
   IF p_subject_kind = 'ppe_class_estimate' THEN
     SELECT c.value INTO v_class FROM jsonb_array_elements(public._ipsas_arr(v_rev.payload->'classes')) c(value) WHERE c.value->>'classId' = p_subject_key LIMIT 1;
     IF v_class IS NULL THEN RETURN jsonb_build_object('outcome', 'unknown_subject'); END IF;

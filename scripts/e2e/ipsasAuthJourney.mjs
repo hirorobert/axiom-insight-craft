@@ -308,10 +308,10 @@ async function main() {
   startGroup("Server enforcement: real JWTs, direct calls (no reliance on hidden or disabled buttons)");
   const ctxArgs = (company = A, year = 2026) => ({ p_company_id: company, p_period_year: year });
   const call = async (client, fn, args) => { const r = await client.rpc(fn, args); return r.error ? { error: { code: r.error.code, message: r.error.message } } : r.data; };
-  const payloadFor = (company, over = {}) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: company, periodYear: 2026, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] }, ...over });
+  const payloadFor = (company, over = {}) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: company, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] }, ...over });
   const save = (client, company, p, expected = null) => call(client, "ipsas_save_preparation", { p_company_id: company, p_period_year: 2026, p_kind: "ppe_workpaper", p_payload: p, p_expected_id: expected, p_request_id: uuid() });
   const saveGrants = (client, company, p, expected = null) => call(client, "ipsas_save_grants", { p_company_id: company, p_period_year: 2026, p_payload: p, p_expected_id: expected, p_request_id: uuid() });
-  const gpayload = (company) => ({ contract: "cfoclose-ipsas-grants/1", companyId: company, periodYear: 2026, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [] });
+  const gpayload = (company) => ({ contract: "cfoclose-ipsas-grants/1", companyId: company, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [] });
   await check("owner, preparer and partner (reviewer) are served by the server; a viewer member and an outsider are refused, for both the preparation and the grants", async () => {
     const out = {};
     for (const who of ["owner", "preparer", "partner", "viewer", "outsider"]) {

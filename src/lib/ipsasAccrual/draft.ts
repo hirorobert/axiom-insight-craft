@@ -9,13 +9,25 @@ import type { ClassMovement, DisposalItem } from "../preparation/equipmentSchedu
 import type { PpeClassInput } from "./ppeWorkpaper";
 import { COMPLEXITIES, type Grant, type GrantObligation } from "./grants";
 
-export const PRESENTATION = { currency: "TZS", exponent: 2 } as const;
+/**
+ * The denomination every amount on these pages is read in, as CONFIRMED BY THE SERVER from the certified current period (independent review of
+ * #229, finding 4). There is no default: the page used to assume TZS with two decimals, so a JPY balance of 14,000 was shown as 140.00. Exponents
+ * 0 to 3 are supported (JPY, TZS and USD, KWD); anything else the server reports is "unsupported" and "unknown" means no certified source.
+ */
+export type Presentation = { currency: string; exponent: 0 | 1 | 2 | 3 };
+export type PresentationState = ({ state: "known" } & Presentation) | { state: "unknown" } | { state: "unsupported"; currency?: unknown; exponent?: unknown };
+/** The server's confirmed denomination, or null. Checked at runtime: only an ISO-shaped code with exponent 0 to 3 in state "known" counts. */
+export const knownPresentation = (p: { state?: string; currency?: unknown; exponent?: unknown } | null | undefined): Presentation | null =>
+  p && p.state === "known" && typeof p.currency === "string" && /^[A-Z]{3}$/.test(p.currency) && (p.exponent === 0 || p.exponent === 1 || p.exponent === 2 || p.exponent === 3)
+    ? { currency: p.currency, exponent: p.exponent } : null;
+export const sameDenomination = (a: Presentation | null | undefined, b: Presentation | null | undefined): boolean => !!a && !!b && a.currency === b.currency && a.exponent === b.exponent;
+export const denominationWords = (p: Presentation): string => `${p.currency} (${p.exponent === 0 ? "whole units, no decimals" : `${p.exponent} decimal place${p.exponent === 1 ? "" : "s"}`})`;
 
 /**
- * "1,234.50" → "123450". Thousands separators are accepted; more decimals than the unit has, a sign in the wrong
- * place, text, or an empty value is NOT coerced: it returns null (a blank is unknown, never zero).
+ * "1,234.50" → "123450" (for exponent 2). Thousands separators are accepted; more decimals than the unit has, a sign in the wrong
+ * place, text, or an empty value is NOT coerced: it returns null (a blank is unknown, never zero). The exponent is the server's, never assumed.
  */
-export function toMinor(text: string, exponent: number = PRESENTATION.exponent): string | null {
+export function toMinor(text: string, exponent: number): string | null {
   const t = text.trim().replace(/,/g, "");
   const m = /^(-)?(\d{1,24})(?:\.(\d*))?$/.exec(t);
   if (!m) return null;
@@ -26,7 +38,7 @@ export function toMinor(text: string, exponent: number = PRESENTATION.exponent):
   return (m[1] ? "-" : "") + digits;
 }
 /** "123450" → "1,234.50" (plain, no currency). null → "". */
-export function fromMinor(minor: string | null | undefined, exponent: number = PRESENTATION.exponent): string {
+export function fromMinor(minor: string | null | undefined, exponent: number): string {
   if (minor === null || minor === undefined || !/^(0|-?[1-9][0-9]{0,30})$/.test(minor)) return "";
   const neg = minor.startsWith("-"), d = (neg ? minor.slice(1) : minor).padStart(exponent + 1, "0");
   const whole = d.slice(0, d.length - exponent).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -55,13 +67,15 @@ export const emptyClass = (): PpeClassInput => ({
 
 export type WorkpaperDraft = {
   contract: "cfoclose-ipsas-ppe-workpaper/1"; companyId: string; periodYear: number;
+  /** The denomination these amounts were entered in (the server's, at the time); the server refuses a payload that does not carry the current one. */
+  presentation: Presentation | null;
   period: { start: string; end: string }; convention: "daily" | "full-period" | "";
   classes: PpeClassInput[]; entityAnswers: Record<string, ReturnType<typeof emptyAnswer> & { flags: Record<string, boolean> }>;
   depreciationDifference: { amountMinor: string; explanation: string; evidence: string } | null;
   tbSelection: { ppeAccountKeys: string[]; depreciationExpenseKeys: string[] };
 };
-export const emptyWorkpaper = (companyId: string, periodYear: number): WorkpaperDraft => ({
-  contract: "cfoclose-ipsas-ppe-workpaper/1", companyId, periodYear,
+export const emptyWorkpaper = (companyId: string, periodYear: number, presentation: Presentation | null): WorkpaperDraft => ({
+  contract: "cfoclose-ipsas-ppe-workpaper/1", companyId, periodYear, presentation,
   period: { start: `${periodYear}-01-01`, end: `${periodYear}-12-31` }, convention: "",
   classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] },
 });
@@ -70,8 +84,8 @@ export type PriorDraft = {
   lines: { lineId: "ppe"; label: string; amountMinor: string | null; locator: string; sourceDocumentId?: string }[];
   items: { id: string; groupId: string; lineId: "ppe"; kind: string; amountMinor: string; evidenceRef: string; authorityReference: string }[];
 };
-export const emptyPrior = (companyId: string, periodYear: number): PriorDraft => ({
-  contract: "cfoclose-ipsas-prior-figures/1", companyId, periodYear, currency: PRESENTATION.currency, scale: PRESENTATION.exponent,
+export const emptyPrior = (companyId: string, periodYear: number, presentation: Presentation | null): PriorDraft => ({
+  contract: "cfoclose-ipsas-prior-figures/1", companyId, periodYear, currency: presentation?.currency ?? "", scale: presentation?.exponent ?? 0,
   lines: [{ lineId: "ppe", label: "Property, plant and equipment (carrying amount)", amountMinor: null, locator: "" }], items: [],
 });
 
@@ -87,12 +101,13 @@ export function stableJson(v: unknown): string {
 
 export type GrantsDraft = {
   contract: "cfoclose-ipsas-grants/1"; companyId: string; periodYear: number;
+  presentation: Presentation | null;
   entityAnswers: Record<string, ReturnType<typeof emptyAnswer> & { flags: Record<string, boolean> }>;
   tbSelection: { revenueKeys: string[]; liabilityKeys: string[]; receivableKeys: string[] };
   grants: Grant[];
 };
-export const emptyGrantsDraft = (companyId: string, periodYear: number): GrantsDraft => ({
-  contract: "cfoclose-ipsas-grants/1", companyId, periodYear, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [],
+export const emptyGrantsDraft = (companyId: string, periodYear: number, presentation: Presentation | null): GrantsDraft => ({
+  contract: "cfoclose-ipsas-grants/1", companyId, periodYear, presentation, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [],
 });
 export const emptyObligation = (n: number): GrantObligation => ({ id: `OBL-${n}`, label: "", allocatedMinor: "", satisfiedMinor: "0", satisfactionBasis: "", satisfactionEvidence: "" });
 export const emptyGrant = (): Grant => ({

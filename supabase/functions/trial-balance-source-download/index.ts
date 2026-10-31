@@ -52,9 +52,16 @@ Deno.serve(async (req) => {
       if (error) return /not\s*found/i.test(String((error as { message?: string }).message ?? "")) ? { missing: true as const } : null;
       return data?.signedUrl ? { url: data.signedUrl } : null;
     },
+    // The durable decision record (never the URL or token). A link is not returned if an ISSUED record cannot be stored.
+    record: async (e) => {
+      const { error } = await service.from("trial_balance_source_download_events").insert({
+        company_id: e.companyId, upload_id: e.uploadId, actor_user_id: e.userId, outcome: e.outcome, link_expires_at: e.expiresAt, object_sha256: e.sha256,
+      });
+      return !error;
+    },
   }, parsed).catch(() => ({ status: 500, outcome: "signing_failed" as const }));
 
-  // One structured line per request (never the URL or token): who asked, for which upload, what the server answered.
+  // OPERATIONAL LOG, not the audit record (that is the table above): one structured line per request, never the URL or token.
   console.log(JSON.stringify({ event: "trial_balance.source_download", upload_id: parsed.uploadId, company_id: parsed.companyId, actor, status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);

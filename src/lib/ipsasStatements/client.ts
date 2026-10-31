@@ -60,6 +60,7 @@ export const choicesFrom = (r: StatementReview): Assignment[] => r.accounts.map(
 export const refusalMessage = (outcome: string): string => ({
   forbidden: "You do not currently have permission to review these statements.", feature_disabled: "Statement preparation is not enabled for this company.",
   framework_not_ipsas_accrual: "This company is not set up for IPSAS accrual reporting.", no_authority: "Check the trial balance before reviewing statements.",
+  authority_changing: "Access or availability for this company is changing at this moment; nothing was saved. Wait a moment and try again.",
   period_unknown: "Confirm the reporting dates in company settings, then check the trial balance again.", currency_unknown: "Confirm the reporting currency and units before reviewing statements.",
   over_capacity: "This release supports 1,000 accounts across both periods. Ask your administrator about this reporting scope.",
   stale: "The source figures or saved presentation changed. Refresh and review the latest version before saving again.",

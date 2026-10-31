@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DOWNLOAD_EXPIRY_SECONDS, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, type SourceDownloadDeps, type UploadTarget,
+  DOWNLOAD_EXPIRY_SECONDS, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, type DownloadDecisionEvent, type SourceDownloadDeps, type UploadTarget,
 } from "../../../supabase/functions/_shared/sourceDownload";
 
 const UP = "7a1e4d92-2f8b-4c3e-b056-f9a2d7e14b83";
@@ -24,6 +24,8 @@ function deps(over: Partial<SourceDownloadDeps> = {}) {
     resolveUpload: vi.fn(async () => upload()),
     canDownload: vi.fn(async () => true),
     sign: vi.fn(async (path: string) => ({ url: `https://storage.invalid/sign/${path}?token=t` })),
+    record: vi.fn(async (_e: DownloadDecisionEvent) => true),
+    now: () => Date.parse("2026-10-30T12:00:00.000Z"),
     ...over,
   };
   return d as typeof d & SourceDownloadDeps;
@@ -68,7 +70,7 @@ describe("runSourceDownload", () => {
     expect((await runSourceDownload(d, REQ)).outcome).toBe("ready");
     allowed = false;
     expect((await runSourceDownload(d, REQ)).outcome).toBe("forbidden");
-    expect(d.canDownload).toHaveBeenCalledTimes(2);
+    expect(d.canDownload).toHaveBeenCalledTimes(3);   // two reads around signing for the first request, one for the refused second
     expect(d.sign).toHaveBeenCalledTimes(1);
   });
   it("company binding: an upload of ANOTHER company, even for a caller who may act on the named company, is the same 403 as an unknown upload", async () => {
@@ -107,6 +109,64 @@ describe("runSourceDownload", () => {
   it("a file the server has not fingerprinted yet is served with a null fingerprint (never an invented one)", async () => {
     const r = await runSourceDownload(deps({ resolveUpload: vi.fn(async () => upload({ source_file_hash: null })) }), REQ);
     expect(r).toMatchObject({ outcome: "ready", sha256: null });
+  });
+});
+
+describe("runSourceDownload: ordering around signing and the durable decision record (independent review of #229, findings 3 and 5)", () => {
+  it("authority withdrawn WHILE signing waits: no link is returned, the minted link is discarded unseen and the decision is recorded", async () => {
+    let allowed = true;
+    let release!: (v: { url: string }) => void;
+    const d = deps({ canDownload: vi.fn(async () => allowed), sign: vi.fn(() => new Promise<{ url: string }>((resolve) => { release = resolve; })) });
+    const pending = runSourceDownload(d, REQ);
+    await vi.waitFor(() => expect(d.sign).toHaveBeenCalled());
+    allowed = false;                                                    // the withdrawal commits while Storage is still signing
+    release({ url: "https://storage.invalid/sign/x?token=SECRET-TOKEN" });
+    const r = await pending;
+    expect(r).toEqual({ status: 403, outcome: "forbidden" });
+    expect(JSON.stringify(r)).not.toContain("SECRET-TOKEN");
+    expect(d.canDownload).toHaveBeenCalledTimes(2);                    // one read before signing, one after: the second is the linearization point
+    expect(d.record).toHaveBeenCalledTimes(1);
+    expect(d.record.mock.calls[0][0]).toEqual({ outcome: "withdrawn_before_issue", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: null, sha256: HASH });
+  });
+  it("authority still held at the second read: the link is returned and recorded as issued with its expiry; a later withdrawal is ordered after the issuance", async () => {
+    const d = deps();
+    const r = await runSourceDownload(d, REQ);
+    expect(r).toMatchObject({ status: 200, outcome: "ready", expires_in: DOWNLOAD_EXPIRY_SECONDS });
+    expect(d.record).toHaveBeenCalledWith({ outcome: "issued", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: "2026-10-30T12:01:00.000Z", sha256: HASH });
+  });
+  it("the record is stored BEFORE the link is returned and never contains the URL, a token or the path", async () => {
+    const order: string[] = [];
+    const d = deps({ record: vi.fn(async (e: DownloadDecisionEvent) => { order.push(`record:${e.outcome}`); return true; }) });
+    const r = await runSourceDownload(d, REQ);
+    order.push("returned");
+    expect(order).toEqual(["record:issued", "returned"]);
+    const stored = JSON.stringify(d.record.mock.calls);
+    expect(stored).not.toContain("token=");
+    expect(stored).not.toContain("http");
+    expect(stored).not.toContain("workspaces/");
+    expect(r.outcome).toBe("ready");
+  });
+  it("no record, no link: an ISSUED decision that cannot be stored (false or thrown) returns 503 audit_unavailable without the URL", async () => {
+    for (const record of [vi.fn(async () => false), vi.fn(async () => { throw new Error("db down"); })]) {
+      const r = await runSourceDownload(deps({ record }), REQ);
+      expect(r).toEqual({ status: 503, outcome: "audit_unavailable" });
+      expect((r as { url?: string }).url).toBeUndefined();
+    }
+  });
+  it("a refusal stands even when its own record cannot be stored", async () => {
+    const d = deps({ canDownload: vi.fn(async () => false), record: vi.fn(async () => { throw new Error("db down"); }) });
+    await expect(runSourceDownload(d, REQ)).resolves.toEqual({ status: 403, outcome: "forbidden" });
+    expect(d.sign).not.toHaveBeenCalled();
+  });
+  it("denied is recorded for an authenticated caller who named a real upload of a real company; unauthenticated, unknown and mismatched requests record nothing", async () => {
+    const denied = deps({ canDownload: vi.fn(async () => false) });
+    await runSourceDownload(denied, REQ);
+    expect(denied.record).toHaveBeenCalledTimes(1);
+    expect(denied.record.mock.calls[0][0]).toMatchObject({ outcome: "denied", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: null });
+    const unauthenticated = deps({ authenticate: vi.fn(async () => null) });
+    const unknown = deps({ resolveUpload: vi.fn(async () => null) });
+    const mismatched = deps({ resolveUpload: vi.fn(async () => upload({ company_id: OTHER_CO, file_path: `workspaces/${OTHER_CO}/s/tb.csv` })) });
+    for (const d of [unauthenticated, unknown, mismatched]) { await runSourceDownload(d, REQ); expect(d.record).not.toHaveBeenCalled(); }
   });
 });
 

@@ -8,6 +8,12 @@ import type { ReportingDb } from "@/lib/reporting/signoff";
 
 const uuid = z.string().uuid();
 const minor = z.string().nullable();
+/** The denomination the SERVER confirmed from the certified current period; absent means the server said nothing, which is never read as a default. */
+const presentationState = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("known"), currency: z.string().regex(/^[A-Z]{3}$/), exponent: z.number().int().min(0).max(3) }),
+  z.object({ state: z.literal("unknown") }),
+  z.object({ state: z.literal("unsupported"), currency: z.unknown().optional(), exponent: z.unknown().optional() }),
+]);
 const assessment = z.object({
   tb: z.object({ certificationId: uuid.nullable(), isBlocking: z.boolean().nullable(), requiresReview: z.boolean().nullable(), ppeCarryingClosingMinor: minor, ppeCarryingOpeningMinor: minor, depreciationExpenseMinor: minor }).passthrough(),
   confirmedClasses: z.record(z.boolean()),
@@ -25,6 +31,7 @@ const assessment = z.object({
   }).nullable(),
   workpaperId: uuid.nullable(),
   priorFiguresId: uuid.nullable(),
+  presentation: presentationState.optional(),
 });
 export type Assessment = z.infer<typeof assessment>;
 
@@ -95,6 +102,10 @@ export function refusalWords(outcome: string): string {
     forbidden: "Your role cannot do this for this company; nothing was saved.",
     feature_disabled: "Financial statements are not enabled for this company.",
     framework_not_ipsas_accrual: "This company does not report under IPSAS accrual.",
+    authority_changing: "Access or availability for this company is changing at this moment; nothing was saved. Wait a moment and try again.",
+    denomination_unavailable: "The company's reporting currency and units are not confirmed yet; nothing was saved. Check the trial balance first.",
+    denomination_unsupported: "This company's reporting currency or units are not supported in this release; nothing was saved.",
+    denomination_mismatch: "These figures were entered in a different currency or unit than the company now reports in; nothing was saved.",
     invalid_request: "The request was not valid; nothing was saved.",
     source_mismatch: "The retained original document was not found for this company; nothing was saved.",
     not_confirmable: "This is not ready to confirm yet: it needs a stated source and basis first.",
@@ -126,6 +137,7 @@ const grantsLive = z.object({
   period: z.object({ certificationId: uuid.nullable(), start: z.string().nullable(), end: z.string().nullable() }),
   revisionId: uuid.nullable(),
   tb: z.object({ revenueMinor: minor, liabilityMinor: minor, receivableMinor: minor }).nullable(),
+  presentation: presentationState.optional(),
   confirmedGrants: z.record(z.boolean()),
   assessment: z.object({
     model: z.enum(["ipsas23", "ipsas47"]).nullable(), state: z.enum(["incomplete", "ready-for-review"]), codes: z.array(z.string()), grants: z.array(grantFigure),

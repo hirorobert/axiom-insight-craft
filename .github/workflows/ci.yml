@@ -617,6 +617,51 @@ jobs:
           cat proof-results/ipsasIndependentReview.present.log
           node scripts/ci/validateProofResult.mjs proof-results/ipsasIndependentReview.present.json --manifest scripts/db-proof/ipsasIndependentReview.manifest.mjs --mode present --exit-code "$code"
 
+      - name: IPSAS mutation ordering contract races (a withdrawal waits for an admitted mutation or the mutation refuses; five RPCs, every writer, barrier after admission, no sleeps)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_authority_races
+          PROOF_RESULT_FILE: proof-results/ipsasAuthorityRaces.present.json
+        run: |
+          createdb ipsas_authority_races
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasAuthorityRaces.mjs > proof-results/ipsasAuthorityRaces.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasAuthorityRaces.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasAuthorityRaces.present.json --manifest scripts/db-proof/ipsasAuthorityRaces.manifest.mjs --mode present --exit-code "$code"
+
+      - name: IPSAS denomination rules (real JPY, KWD, USD and TZS sources certified by the real engine; refusals by name; saved drafts never re-read in another unit)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/ipsas_currency
+          PROOF_RESULT_FILE: proof-results/ipsasCurrency.present.json
+        run: |
+          createdb ipsas_currency
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/ipsasCurrency.mjs > proof-results/ipsasCurrency.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/ipsasCurrency.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/ipsasCurrency.present.json --manifest scripts/db-proof/ipsasCurrency.manifest.mjs --mode present --exit-code "$code"
+
+      - name: Workspace source access (member removal revokes explicit grants, signing order with a deferred signer, durable issuance record)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/source_access_authority
+          PROOF_RESULT_FILE: proof-results/sourceAccessAuthority.present.json
+        run: |
+          createdb source_access_authority
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/sourceAccessAuthority.mjs > proof-results/sourceAccessAuthority.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/sourceAccessAuthority.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/sourceAccessAuthority.present.json --manifest scripts/db-proof/sourceAccessAuthority.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

@@ -53,7 +53,7 @@ const TBG = [
   ["4300", "Grant revenue", "revenue", "income_statement", "credit", "", "6500000.00", "", "3400000.00"],
 ];
 const SEL = { revenueKeys: ["4300"], liabilityKeys: ["2300"], receivableKeys: ["1300"] };
-const payload = (company, year, grants, over = {}) => ({ contract: "cfoclose-ipsas-grants/1", companyId: company, periodYear: year, entityAnswers: year === 2026 ? entity47() : entity23(), tbSelection: SEL, grants, ...over });
+const payload = (company, year, grants, over = {}) => ({ contract: "cfoclose-ipsas-grants/1", companyId: company, periodYear: year, presentation: { currency: "TZS", exponent: 2 }, entityAnswers: year === 2026 ? entity47() : entity23(), tbSelection: SEL, grants, ...over });
 const tsCodes = (p, live) => {
   const a = live.assessment;
   const start = live.period.start;

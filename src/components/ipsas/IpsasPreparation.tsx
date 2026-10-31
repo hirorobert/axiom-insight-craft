@@ -8,12 +8,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ReportingDb } from "@/lib/reporting/signoff";
 import { ipsasClient, afterFailure, afterReceipt, refusalWords, type IpsasContext, type SaveState, type PreparationKind } from "@/lib/ipsasAccrual/ipsasClient";
-import { carrying, emptyClass, emptyDisposal, emptyItem, emptyPrior, emptyWorkpaper, fromMinor, newId, PRESENTATION, stableJson, type PriorDraft, type WorkpaperDraft } from "@/lib/ipsasAccrual/draft";
+import { carrying, emptyClass, emptyDisposal, emptyItem, emptyPrior, emptyWorkpaper, denominationWords, fromMinor, knownPresentation, newId, sameDenomination, stableJson, type PriorDraft, type WorkpaperDraft } from "@/lib/ipsasAccrual/draft";
 import { computePpeWorkpaper, PPE_ENTITY_QUESTIONS, type PpeClassInput, type PpeInput } from "@/lib/ipsasAccrual/ppeWorkpaper";
 import { computeOpeningBridge } from "@/lib/ipsasAccrual/openingBridge";
 import { generatePpePolicyNote } from "@/lib/ipsasAccrual/policyNote";
 import { buildIncompletePreview, OFFICIAL_ISSUANCE_BLOCKERS, type TaskArea } from "@/lib/ipsasAccrual/preview";
 import { Amount, Select, Text } from "./fields";
+import { ExponentContext } from "./exponentContext";
 import { GrantsPreparation } from "./GrantsPreparation";
 import type { PrepTask } from "@/lib/ipsasAccrual/preview";
 
@@ -52,8 +53,8 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const client = useMemo(() => ipsasClient(db), [db]);
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [area, setArea] = useState<Area>("bring");
-  const [wp, setWp] = useState<WorkpaperDraft>(() => emptyWorkpaper(companyId, periodYear));
-  const [prior, setPrior] = useState<PriorDraft>(() => emptyPrior(companyId, periodYear));
+  const [wp, setWp] = useState<WorkpaperDraft>(() => emptyWorkpaper(companyId, periodYear, null));
+  const [prior, setPrior] = useState<PriorDraft>(() => emptyPrior(companyId, periodYear, null));
   const [saves, setSaves] = useState<Record<string, SaveState>>({});
   /** The request last sent per save key, kept whole (payload, expected revision, identity) so an unknown outcome is retried as THE SAME request. */
   const identities = useRef<Record<string, { id: string; fp: string; call: (requestId: string) => ReturnType<typeof client.save>; snapshot?: { wp?: string; prior?: string } }>>({});
@@ -87,8 +88,10 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
       if (r.outcome !== "available") { setLoad({ kind: "refused", outcome: r.outcome }); return; }
       const ctx = r as IpsasContext;
       setLoad({ kind: "ready", ctx });
-      if (adoptWp) setWp(take(adoptWp, (ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear)));
-      if (adoptPrior) setPrior(take(adoptPrior, (ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear)));
+      // A new draft is entered in the denomination the SERVER confirmed; a saved one keeps the denomination it was entered in (compared below).
+      const confirmed = knownPresentation(ctx.assessment.presentation);
+      if (adoptWp) setWp(take(adoptWp, (ctx.workpaper?.payload as unknown as WorkpaperDraft) ?? emptyWorkpaper(companyId, periodYear, confirmed)));
+      if (adoptPrior) setPrior(take(adoptPrior, (ctx.priorFigures?.payload as unknown as PriorDraft) ?? emptyPrior(companyId, periodYear, confirmed)));
     } catch { if (!stale()) setLoad({ kind: "unknown" }); }
   }, [client, companyId, periodYear]);
   useEffect(() => { setLoad({ kind: "loading" }); setSaves({}); identities.current = {}; ops.current = {}; inflight.current = new Set(); void refresh("reset", "reset"); }, [refresh]);
@@ -96,8 +99,11 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
   const ctx = load.kind === "ready" ? load.ctx : null;
   const savedWp = (ctx?.workpaper?.payload as unknown as WorkpaperDraft | undefined) ?? null;
   const savedPrior = (ctx?.priorFigures?.payload as unknown as PriorDraft | undefined) ?? null;
-  const wpDirty = stableJson(wp) !== stableJson(savedWp ?? emptyWorkpaper(companyId, periodYear));
-  const priorDirty = stableJson(prior) !== stableJson(savedPrior ?? emptyPrior(companyId, periodYear));
+  /** The denomination the server confirmed (null while unknown or unsupported) and whether every saved draft was entered in it. */
+  const pres = knownPresentation(ctx?.assessment.presentation);
+  const denominationOk = !!pres && (!savedWp || sameDenomination(savedWp.presentation, pres)) && (!savedPrior || (savedPrior.currency === pres.currency && savedPrior.scale === pres.exponent));
+  const wpDirty = stableJson(wp) !== stableJson(savedWp ?? emptyWorkpaper(companyId, periodYear, pres));
+  const priorDirty = stableJson(prior) !== stableJson(savedPrior ?? emptyPrior(companyId, periodYear, pres));
 
   /**
    * One request per key is in flight; its answer confirms the SUBMITTED snapshot only (`snapshot` = what was sent). An answer that belongs to
@@ -151,7 +157,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
 
   // The review is computed from what the SERVER holds, never from unsaved edits.
   const review = useMemo(() => {
-    if (!ctx || !savedWp) return null;
+    if (!ctx || !savedWp || !pres || !denominationOk) return null;
     const a = ctx.assessment;
     const input: PpeInput = {
       period: savedWp.period, convention: savedWp.convention, entityAnswers: savedWp.entityAnswers as PpeInput["entityAnswers"], depreciationDifference: savedWp.depreciationDifference,
@@ -162,26 +168,40 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
     const published = (savedPrior?.lines ?? []).map((l) => ({ lineId: l.lineId, label: l.label, amountMinor: l.amountMinor, locator: l.locator, confirmed: a.priorConfirmed }));
     const bridge = computeOpeningBridge(published, [{ lineId: "ppe", label: "Property, plant and equipment", amountMinor: a.ppe?.totals.openingCarryingMinor ?? null, source: "register", reference: "PPE workpaper opening" }],
       (savedPrior?.items ?? []).map((i) => ({ ...i, kind: i.kind as never })));
-    const note = generatePpePolicyNote(input, result, PRESENTATION, legalName);
+    const note = generatePpePolicyNote(input, result, pres, legalName);
     const here = [...new Set(result.issues.map((i) => `${i.code}|${i.classId ?? ""}`))].sort().join();
     const server = [...(a.ppe?.codes ?? [])].sort().join();
     return { result, bridge, note, preview: buildIncompletePreview(result, bridge, note), agrees: here === server };
-  }, [ctx, savedWp, savedPrior, legalName]);
+  }, [ctx, savedWp, savedPrior, legalName, pres, denominationOk]);
 
   if (load.kind === "loading") return <p role="status" className="py-8 text-sm text-muted-foreground">Loading the saved preparation…</p>;
   if (load.kind === "unknown") return <div role="alert" className="py-8 text-sm"><p>We could not read the saved preparation. Nothing has changed.</p><Button className="mt-2" variant="outline" size="sm" onClick={() => void refresh("reset", "reset")}>Try again</Button></div>;
   if (load.kind === "refused") return <p role="alert" className="py-8 text-sm">{refusalWords(load.outcome)}</p>;
   const a = ctx!.assessment;
+  if (!pres || !denominationOk) {
+    const st = a.presentation;
+    const why = st?.state === "unsupported" ? "This company's reporting currency or units are not supported in this release, so no amount can be entered, read or confirmed."
+      : !st || st.state === "unknown" ? "The reporting currency and units of this period are not confirmed yet - they come from the certified trial balance. Check the trial balance first; no amount can be entered or read until they are."
+      : `The saved figures were entered in a different currency or unit than this company now reports in (${denominationWords(pres!)}). They are not shown, and cannot be changed or confirmed, because showing them would misstate every amount.`;
+    return (
+      <div className="space-y-4">
+        <header className="space-y-1"><h1 className="text-xl font-semibold">{legalName} — IPSAS accrual, {periodYear}</h1></header>
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" data-testid="denomination-blocked"><strong>Amounts are not available.</strong> {why}</div>
+      </div>
+    );
+  }
+  const ex = pres.exponent;
   const next = review?.preview.nextAction ?? (savedWp ? grantsNext : null);
   const edit = canPrepare;
 
   const setClass = (i: number, fn: (c: PpeClassInput) => PpeClassInput) => setWp((w) => ({ ...w, classes: w.classes.map((c, j) => (j === i ? normalise(fn(structuredClone(c))) : c)) }));
 
   return (
+    <ExponentContext.Provider value={ex}>
     <div className="space-y-4">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">{legalName} — IPSAS accrual, {periodYear}</h1>
-        <p className="text-sm text-muted-foreground">Amounts in {PRESENTATION.currency} ({PRESENTATION.exponent} decimal places). Draft preparation only — not an IPSAS compliant report. {wpDirty || priorDirty ? "You have unsaved edits." : "Everything shown is the server's saved version."}</p>
+        <p className="text-sm text-muted-foreground">Amounts in {denominationWords(pres)}, as confirmed from the certified trial balance. Draft preparation only — not an IPSAS compliant report. {wpDirty || priorDirty ? "You have unsaved edits." : "Everything shown is the server's saved version."}</p>
         <div role="region" aria-label="Next step" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
           {next ? <><strong>Next:</strong> {next.title}. {next.missing} <Button type="button" size="sm" className="ml-2" onClick={() => setArea(next.area as TaskArea as Area)}>Go to {AREAS.find(([k]) => k === next.area)?.[1]}</Button></>
             : savedWp && grantsNext === undefined ? <span role="status">Checking the saved grants. Their remaining work is not confirmed yet.</span>
@@ -199,7 +219,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
           <div className="rounded-md border p-3 text-sm space-y-1">
             <h3 className="font-medium">Trial balance</h3>
             {a.tb.certificationId ? <p>Current year certified by the platform{a.tb.isBlocking ? " — with a blocking exception; resolve it before relying on any figure" : a.tb.requiresReview ? " — review still outstanding" : ""}.</p> : <p>No certified trial balance for {periodYear} yet.</p>}
-            <p>Property, plant and equipment per the certified rows: closing {fromMinor(a.tb.ppeCarryingClosingMinor) || "unknown"}, opening {fromMinor(a.tb.ppeCarryingOpeningMinor) || "unknown"}; depreciation expense {fromMinor(a.tb.depreciationExpenseMinor) || "unknown"}.</p>
+            <p>Property, plant and equipment per the certified rows: closing {fromMinor(a.tb.ppeCarryingClosingMinor, ex) || "unknown"}, opening {fromMinor(a.tb.ppeCarryingOpeningMinor, ex) || "unknown"}; depreciation expense {fromMinor(a.tb.depreciationExpenseMinor, ex) || "unknown"}.</p>
             <a className="underline" href={prepareHref}>Upload or review the trial balance</a>
           </div>
           <div className="rounded-md border p-3 space-y-3">
@@ -221,7 +241,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
             <Amount id="prior-amt" name="Property, plant and equipment — carrying amount as printed in the prior report" value={prior.lines[0].amountMinor ?? ""} disabled={!edit}
               onChange={(v) => setPrior((p) => ({ ...p, lines: [{ ...p.lines[0], amountMinor: v === "" ? null : v }] }))} />
             <Text id="prior-loc" name="Where it is printed (statement and page)" value={prior.lines[0].locator} disabled={!edit} onChange={(v) => setPrior((p) => ({ ...p, lines: [{ ...p.lines[0], locator: v }] }))} />
-            {a.bridge && <p className="text-sm" role="status">Opening bridge: <strong>{a.bridge.state}</strong>{a.bridge.lines[0] ? ` — printed ${fromMinor(a.bridge.lines[0].publishedMinor) || "?"}, opening ${fromMinor(a.bridge.lines[0].openingMinor) || "?"}${a.bridge.lines[0].residualMinor && a.bridge.lines[0].residualMinor !== "0" ? `, unexplained ${fromMinor(a.bridge.lines[0].residualMinor)}` : ""}` : ""}. No balancing entry is ever created.</p>}
+            {a.bridge && <p className="text-sm" role="status">Opening bridge: <strong>{a.bridge.state}</strong>{a.bridge.lines[0] ? ` — printed ${fromMinor(a.bridge.lines[0].publishedMinor, ex) || "?"}, opening ${fromMinor(a.bridge.lines[0].openingMinor, ex) || "?"}${a.bridge.lines[0].residualMinor && a.bridge.lines[0].residualMinor !== "0" ? `, unexplained ${fromMinor(a.bridge.lines[0].residualMinor, ex)}` : ""}` : ""}. No balancing entry is ever created.</p>}
             {prior.items.map((it, n) => (
               <fieldset key={it.id} className="grid gap-2 rounded-md border p-2 sm:grid-cols-2">
                 <legend className="px-1 text-xs">Explained difference {n + 1}</legend>
@@ -265,7 +285,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
                 <Amount id={`c${i}-dep`} name="Depreciation charged (per ledger or register)" value={c.movements[2].accumulatedDepreciationMinor} disabled={!edit} onChange={(v) => setClass(i, (x) => ({ ...x, movements: x.movements.map((m, j) => (j === 2 ? { ...m, accumulatedDepreciationMinor: v } : m)) }))} />
                 <Text id={`c${i}-src`} name="Register or ledger supporting the movements" value={c.movements[0].source.reference} disabled={!edit} onChange={(v) => setClass(i, (x) => ({ ...x, movements: x.movements.map((m) => ({ ...m, source: { type: "register", reference: v } })) }))} />
               </div>
-              <p className="text-xs text-muted-foreground">Carrying amounts are worked out from the three columns: opening {fromMinor(c.opening.carryingMinor) || "—"}, closing {fromMinor(c.closing.carryingMinor) || "—"}. The server checks both identities.</p>
+              <p className="text-xs text-muted-foreground">Carrying amounts are worked out from the three columns: opening {fromMinor(c.opening.carryingMinor, ex) || "—"}, closing {fromMinor(c.closing.carryingMinor, ex) || "—"}. The server checks both identities.</p>
               <h4 className="text-sm font-medium">Items disposed of</h4>
               {c.disposals.map((d, n) => (
                 <div key={n} className="grid gap-2 rounded-md border p-2 sm:grid-cols-3">
@@ -346,7 +366,7 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
             {!review.agrees && <p role="alert" className="rounded-md border border-destructive/50 px-3 py-2 text-sm">This page and the server disagree about which matters are open. The server's list stands: {(a.ppe?.codes ?? []).join(", ") || "none"}.</p>}
             <div className="rounded-md border p-3 text-sm">
               <h3 className="font-medium">Property, plant and equipment</h3>
-              <p>Carrying amount: opening {fromMinor(a.ppe?.totals.openingCarryingMinor) || "unknown"}, closing {fromMinor(a.ppe?.totals.closingCarryingMinor) || "unknown"}; depreciation {fromMinor(a.ppe?.totals.depreciationMinor) || "unknown"}. Server state: <strong>{a.ppe?.state}</strong>.</p>
+              <p>Carrying amount: opening {fromMinor(a.ppe?.totals.openingCarryingMinor, ex) || "unknown"}, closing {fromMinor(a.ppe?.totals.closingCarryingMinor, ex) || "unknown"}; depreciation {fromMinor(a.ppe?.totals.depreciationMinor, ex) || "unknown"}. Server state: <strong>{a.ppe?.state}</strong>.</p>
             </div>
             <div className="rounded-md border p-3 text-sm space-y-2">
               <h3 className="font-medium">Accounting policy (draft) — {review.note.label}</h3>
@@ -390,5 +410,6 @@ export function IpsasPreparation({ companyId, periodYear, legalName, db, canPrep
       )}
       <GrantsPreparation companyId={companyId} periodYear={periodYear} legalName={legalName} db={db} canPrepare={canPrepare} canConfirm={canConfirm} area={area} onNextTask={setGrantsNext} />
     </div>
+    </ExponentContext.Provider>
   );
 }

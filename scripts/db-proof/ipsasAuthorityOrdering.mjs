@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { applyChain, makeWorld, openDatabase, REPO, uuid } from "./lib/reportingKit.mjs";
+import { applyChain, certifier, csv, FY2025, FY2026, makeWorld, openDatabase, REPO, uuid } from "./lib/reportingKit.mjs";
 import { CASES, PROOF } from "./ipsasAuthorityOrdering.manifest.mjs";
 
 const results = [];
@@ -53,10 +53,10 @@ const cls = () => ({ classId: CLASS_ID, label: "Equipment", accounts: "1500, 151
   closing: { grossMinor: "2000000", accumulatedDepreciationMinor: "600000", accumulatedImpairmentMinor: "0", carryingMinor: "1400000" },
   movements: [{ kind: "depreciation", grossMinor: "0", accumulatedDepreciationMinor: "200000", accumulatedImpairmentMinor: "0", source: REG, note: "" }], disposals: [], estimate: estimate() });
 const none = () => ({ status: "none_with_basis", text: "Checked the asset register and board minutes", evidence: "Register FY2026 and minutes", checkedBy: "", flags: { applies: false } });
-const wp = (A) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: A, periodYear: 2026, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [cls()],
+const wp = (A) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: A, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [cls()],
   entityAnswers: { heritage_assets: none(), infrastructure_assets: none(), impairment_indicators: none(), held_for_sale: none(), commitments_restrictions: none() }, depreciationDifference: null,
   tbSelection: { ppeAccountKeys: ["1500", "1510"], depreciationExpenseKeys: ["6200"] } });
-const grants = (A) => ({ contract: "cfoclose-ipsas-grants/1", companyId: A, periodYear: 2026, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [{ grantId: GRANT_ID, obligations: [] }] });
+const grants = (A) => ({ contract: "cfoclose-ipsas-grants/1", companyId: A, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, entityAnswers: {}, tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [{ grantId: GRANT_ID, obligations: [] }] });
 
 const SAVE = "SELECT public.ipsas_save_preparation($1,2026,'ppe_workpaper',$2::jsonb,$3,$4) r";
 const CONFIRM = "SELECT public.ipsas_confirm($1,2026,'ppe_class_estimate',$2,$3,$4) r";
@@ -99,10 +99,17 @@ async function newAccount() {
   await db.admin.query("INSERT INTO public.commercial_licences (billing_customer_id, plan_id, status, source, effective_start, additional_seats) SELECT $1, id, 'ACTIVE', 'ADMIN_GRANT', now() - interval '1 day', 4 FROM public.commercial_plans WHERE product_id=$2 AND code='PRACTICE'", [bc, prod]);
   return uid;
 }
-async function freshCompany({ owner, framework = "ipsas_accrual" } = {}) {
+async function freshCompany({ owner, framework = "ipsas_accrual", certified = true } = {}) {
   const A = await W.company(owner ?? U.ownerB, `Ordering case ${++seq}`, framework);
   for (const k of ["preparer", "partner", "viewer"]) await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,$3,now())", [A, U[k], k]);
   await W.rollout(A, true);
+  // A mutation needs the server-confirmed denomination of a certified current period (independent review of #229, finding 4). A framework change is
+  // refused once a certified trial balance exists (FRAMEWORK_LOCKED), so that one case uses an uncertified company: the framework refusal comes from the
+  // authority helper, before any denomination check.
+  if (certified) {
+    const k = await certifier(db, { ...U, owner: owner ?? U.ownerB });
+    for (const [y, col] of [[2025, FY2025], [2026, FY2026]]) { const u = await k.upload(A, y, csv(col)); if (y === 2025) await k.review(A, u); await k.certify(A, u); }
+  }
   return A;
 }
 const revoke = (company, uid, capability, by = U.ownerB) => db.asUser(by, "SELECT public.revoke_member_capability($1,$2,$3,'proof revocation') r", [company, uid, capability]).then((x) => x.r);
@@ -210,7 +217,7 @@ try {
     assert.equal(await count("ipsas_prep_revisions", A), 0);
   });
   await each("other-authority.framework-changed-during-wait", async () => {
-    const A = await freshCompany();
+    const A = await freshCompany({ certified: false });
     const r = await duringWait({ lockKey: ppeKey(A), uid: U.preparer, sql: SAVE, params: [A, JSON.stringify(wp(A)), null, uuid()],
       during: async () => { // the audited path (a direct UPDATE is refused by the framework guard)
         const c = await asU(U.ownerB, "SELECT public.set_company_reporting_framework($1,'ifrs_for_smes','ipsas_accrual','proof framework change',$2) r", [A, uuid()]);

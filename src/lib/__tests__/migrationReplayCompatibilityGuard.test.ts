@@ -284,7 +284,9 @@ describe("migration directory integrity", () => {
     // 199 -> 200: 20261203100000_internal_beta_admin_activation.sql (admin-only activation controls), pending hosted application.
     // 202 -> 203: 20261206100000_fs_equipment_multiclass.sql (multi-class, evidence-linked equipment preparation: answers
     // as facts, the /2 workpaper validator, context, draft and atomic commit), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(206); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000) and IPSAS grants (20261208100000), all pending hosted apply
+    // 206 -> 207: 20261211100000_source_access_authority_repairs.sql (independent review of #229: member removal revokes the person's explicit workspace grants
+    // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(207); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000), IPSAS grants (20261208100000) and the source-access repairs (20261211100000), all pending hosted apply
   });
 });
 

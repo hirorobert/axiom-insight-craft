@@ -79,7 +79,7 @@ async function main() {
 
   group("Installation on a database that already holds authority, sign-off and a sealed pack");
   // Reviewed later additions that follow track-a-r1 in the chain (each its own reviewed migration; none is applied here).
-  const REVIEWED_LATER = ["20261201100000_assistant_controls.sql", "20261202100000_internal_beta_policy.sql", "20261203100000_internal_beta_admin_activation.sql", "20261204100000_internal_beta_team_bootstrap.sql", "20261205100000_fs_equipment_preparation.sql", "20261206100000_fs_equipment_multiclass.sql", "20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql"];
+  const REVIEWED_LATER = ["20261201100000_assistant_controls.sql", "20261202100000_internal_beta_policy.sql", "20261203100000_internal_beta_admin_activation.sql", "20261204100000_internal_beta_team_bootstrap.sql", "20261205100000_fs_equipment_preparation.sql", "20261206100000_fs_equipment_multiclass.sql", "20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"];
   await kase("setup.chain-before", `the chain before ${M1} applies; both batch migrations are in the chain, ${M1} before ${M2}, and nothing after them but the reviewed later additions`, async () => {
     const chain = chainFiles(); const i1 = chain.indexOf(M1), i2 = chain.indexOf(M2);
     if (i1 < 0 || i2 !== i1 + 1 || JSON.stringify(chain.slice(i2 + 1)) !== JSON.stringify(REVIEWED_LATER)) return { i1, i2, after: chain.slice(i2 + 1) };

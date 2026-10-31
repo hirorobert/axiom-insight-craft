@@ -159,6 +159,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261208100000_ipsas_grants.sql",
       // IPSAS statement review: new presentation revisions/RPCs only, no old financial data or privileges changed.
       "supabase/migrations/20261210100000_ipsas_statement_review.sql",
+      // Independent review of #229: member removal revokes that person's explicit workspace grants (trigger), and an append-only record of file-link issuance decisions (new table).
+      "supabase/migrations/20261211100000_source_access_authority_repairs.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -853,6 +855,11 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/ipsasGrantsTransport.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasAuthorityOrdering.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityOrdering.manifest.mjs"); // deterministic multi-session authority-ordering proof; disposable loopback database only
     allowed.add("scripts/db-proof/ipsasIndependentReview.mjs"); allowed.add("scripts/db-proof/ipsasIndependentReview.manifest.mjs"); // adjusted-authority and stale-source regression (both added); disposable loopback database only (reportingKit refuses non-loopback), no network or hosted access
+    // Independent review of #229: deterministic multi-session race proof of the mutation ordering contract, the currency/denomination proof and the
+    // source-access (member removal, signing order, decision record) proof; each with its manifest, all disposable loopback databases only, no network or hosted access.
+    allowed.add("scripts/db-proof/ipsasAuthorityRaces.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityRaces.manifest.mjs");
+    allowed.add("scripts/db-proof/ipsasCurrency.mjs"); allowed.add("scripts/db-proof/ipsasCurrency.manifest.mjs");
+    allowed.add("scripts/db-proof/sourceAccessAuthority.mjs"); allowed.add("scripts/db-proof/sourceAccessAuthority.manifest.mjs");
     allowed.add("scripts/release/verifyCarry.mjs"); // applies the committed carry patch to a scratch checkout of #221's head and compares bytes; local git only, no network or hosted access
     allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.

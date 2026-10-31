@@ -8,7 +8,7 @@ import { emptyGrantsDraft } from "@/lib/ipsasAccrual/draft";
 
 const CO = "99999999-9999-4999-8999-999999999999", REV = "88888888-8888-4888-8888-888888888888";
 const live = (model: "ipsas23" | "ipsas47" | null, over: Record<string, unknown> = {}) => ({
-  period: { certificationId: null, start: model === "ipsas23" ? "2025-01-01" : model === "ipsas47" ? "2026-01-01" : null, end: model ? "2026-12-31" : null }, revisionId: null, tb: null, confirmedGrants: {}, assessment: null, ...over });
+  period: { certificationId: null, start: model === "ipsas23" ? "2025-01-01" : model === "ipsas47" ? "2026-01-01" : null, end: model ? "2026-12-31" : null }, revisionId: null, tb: null, presentation: { state: "known", currency: "TZS", exponent: 2 }, confirmedGrants: {}, assessment: null, ...over });
 const ctxOf = (model: "ipsas23" | "ipsas47" | null, register: unknown = null, l: Record<string, unknown> = {}) => ({ outcome: "available", register, confirmations: [],
   live: live(model, { assessment: model ? { model, state: "incomplete", codes: [], grants: [], totals: { periodRevenueMinor: null, liabilityMinor: null, receivableMinor: null } } : null, ...l }) });
 type Call = { name: string; args: Record<string, unknown> };
@@ -55,7 +55,7 @@ describe("GrantsPreparation", () => {
 
   it("a saved register without a current assessment is unknown rather than no open matters", async () => {
     const reported: unknown[] = [];
-    const { db } = fakeDb({ context: ctxOf("ipsas47", { id: REV, payload: emptyGrantsDraft(CO, 2026), sha256: "a".repeat(64), createdAt: "2026-10-30T00:00:00Z" }, { assessment: null }) });
+    const { db } = fakeDb({ context: ctxOf("ipsas47", { id: REV, payload: emptyGrantsDraft(CO, 2026, { currency: "TZS", exponent: 2 }), sha256: "a".repeat(64), createdAt: "2026-10-30T00:00:00Z" }, { assessment: null }) });
     m = mount(h(GrantsPreparation, props(db, { onNextTask: (t: unknown) => reported.push(t) }) as never));
     await flush();
     expect(m!.container.querySelector("[data-grants-revision]")?.getAttribute("data-grants-revision")).toBe(REV);
@@ -125,7 +125,7 @@ describe("GrantsPreparation", () => {
   });
   it("the review reads the period and names what remains, from the saved register", async () => {
     const g = { ...grantA(), classification: "" };
-    const reg = { id: REV, payload: { contract: "cfoclose-ipsas-grants/1", companyId: CO, periodYear: 2026, entityAnswers: entity47(), tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [g, grantB()] }, sha256: "a".repeat(64), createdAt: "2026-10-29T00:00:00Z" };
+    const reg = { id: REV, payload: { contract: "cfoclose-ipsas-grants/1", companyId: CO, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, entityAnswers: entity47(), tbSelection: { revenueKeys: [], liabilityKeys: [], receivableKeys: [] }, grants: [g, grantB()] }, sha256: "a".repeat(64), createdAt: "2026-10-29T00:00:00Z" };
     const l = { tb: TB47, assessment: { model: "ipsas47", state: "incomplete", codes: [`GRANT_CLASSIFICATION_REQUIRED|${g.grantId}`, `GRANT_ASSESSMENT_UNCONFIRMED|${g.grantId}`, `GRANT_ASSESSMENT_UNCONFIRMED|${grantB().grantId}`, "TB_GRANT_REVENUE_DIFFERENCE|"], grants: [], totals: { periodRevenueMinor: null, liabilityMinor: null, receivableMinor: null } } };
     const { db } = fakeDb({ context: ctxOf("ipsas47", reg, l) });
     m = mount(h(GrantsPreparation, props(db, { area: "review" }) as never)); await flush();

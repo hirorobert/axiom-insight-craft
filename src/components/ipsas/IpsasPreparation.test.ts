@@ -8,7 +8,7 @@ import { IpsasPreparation } from "./IpsasPreparation";
 const CO = "99999999-9999-4999-8999-999999999999";
 const REV = "88888888-8888-4888-8888-888888888888";
 const assessment = { tb: { certificationId: null, isBlocking: null, requiresReview: null, ppeCarryingClosingMinor: null, ppeCarryingOpeningMinor: null, depreciationExpenseMinor: null },
-  confirmedClasses: {}, priorConfirmed: false, ppe: null, bridge: null, workpaperId: null, priorFiguresId: null };
+  confirmedClasses: {}, priorConfirmed: false, ppe: null, bridge: null, workpaperId: null, priorFiguresId: null, presentation: { state: "known", currency: "TZS", exponent: 2 } };
 const available = { outcome: "available", workpaper: null, priorFigures: null, confirmations: [], assessment };
 
 type Call = { name: string; args: Record<string, unknown> };
@@ -108,7 +108,7 @@ describe("IpsasPreparation", () => {
   });
 
   it("scrolls wide note tables inside their own region instead of widening the page", async () => {
-    const wp = { contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: CO, periodYear: 2026, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] } };
+    const wp = { contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: CO, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily", classes: [], entityAnswers: {}, depreciationDifference: null, tbSelection: { ppeAccountKeys: [], depreciationExpenseKeys: [] } };
     const { db } = fakeDb({ context: { ...available, workpaper: { id: REV, payload: wp, sha256: "a".repeat(64), createdAt: "2026-10-29T00:00:00Z" } } });
     m = mount(h(IpsasPreparation, props(db) as never)); await flush();
     act(() => click(tab("Review report")));

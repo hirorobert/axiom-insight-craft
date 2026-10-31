@@ -74,7 +74,7 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql"]);
+    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"]);
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
@@ -100,7 +100,7 @@ describe("equipment exact-byte staged transport", () => {
         registry[tag]={kind:"equipment_staged_transport",sha256:f.hashes[0]};added.push(tag);
       }
       fs.writeFileSync(jf,JSON.stringify(j));
-      const result=checkMigrationAuthority(dir);expect(result.errors).toEqual([]);expect(result.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql"]);
+      const result=checkMigrationAuthority(dir);expect(result.errors).toEqual([]);expect(result.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"]);
       delete registry[added[0]];
       expect(checkMigrationAuthority(dir).errors.length).toBeGreaterThan(0);
     } finally {for(const tag of added) delete registry[tag];fs.rmSync(dir,{recursive:true,force:true});}

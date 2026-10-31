@@ -234,3 +234,20 @@ describe("tasks and the incomplete preview", () => {
     expect(t[0].area).toBe("bring");
   });
 });
+
+describe("generated PPE note: every displayed amount uses the server-confirmed denomination (independent review of #229, finding 4)", () => {
+  const input = baseInput();
+  const result = computePpeWorkpaper(input);
+  const decimalsOf = (s: string) => { const m = /\.(\d+)$/.exec(s.trim()); return m ? m[1].length : 0; };
+  it.each([["TZS", 2], ["USD", 2], ["JPY", 0], ["KWD", 3]])("%s: each amount carries the code and exactly %i decimals", (currency, exponent) => {
+    const shown = [...JSON.stringify(generatePpePolicyNote(input, result, { currency, exponent }, "Mwamba Community Trust")).matchAll(/"display":"([^"]+)"/g)].map((x) => x[1]);
+    expect(shown.length).toBeGreaterThan(0);
+    const amounts = shown.filter((d) => /\d/.test(d));
+    expect(amounts.length).toBeGreaterThan(0);
+    for (const d of amounts) { expect(d).toContain(currency); expect(decimalsOf(d), d).toBe(exponent); }
+  });
+  it("the same figures read differently under different units, so a note is only right in the server's own", () => {
+    const flat = (display: { currency: string; exponent: number }) => JSON.stringify(generatePpePolicyNote(input, result, display, "Mwamba Community Trust"));
+    expect(flat({ currency: "JPY", exponent: 0 })).not.toBe(flat({ currency: "TZS", exponent: 2 }));
+  });
+});

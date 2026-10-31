@@ -68,7 +68,7 @@ const cls = (over = {}) => ({ classId: CLASS_ID, label: "Equipment", accounts: "
   disposals: [], estimate: estimate(), ...over });
 const none = () => ({ status: "none_with_basis", text: "Checked the asset register and board minutes", evidence: "Register FY2026 and minutes", checkedBy: "", flags: { applies: false } });
 const answers = () => ({ heritage_assets: none(), infrastructure_assets: none(), impairment_indicators: none(), held_for_sale: none(), commitments_restrictions: none() });
-const wp = (A, over = {}) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: A, periodYear: 2026, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily",
+const wp = (A, over = {}) => ({ contract: "cfoclose-ipsas-ppe-workpaper/1", companyId: A, periodYear: 2026, presentation: { currency: "TZS", exponent: 2 }, period: { start: "2026-01-01", end: "2026-12-31" }, convention: "daily",
   classes: [cls()], entityAnswers: answers(), depreciationDifference: null, tbSelection: { ppeAccountKeys: ["1500", "1510"], depreciationExpenseKeys: ["6200"] }, ...over });
 const prior = (A, over = {}) => ({ contract: "cfoclose-ipsas-prior-figures/1", companyId: A, periodYear: 2026, currency: "TZS", scale: 2,
   lines: [{ lineId: "ppe", label: "Property, plant and equipment", amountMinor: "1600000", locator: "Statement of financial position, p. 12" }], items: [], ...over });
