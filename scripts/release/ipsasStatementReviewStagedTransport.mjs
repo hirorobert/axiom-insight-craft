@@ -286,6 +286,44 @@ export function checkTransportMirror(tag, text) {
   return f.role === "apply" ? { covers: f.source, problems } : { problems };
 }
 
+/**
+ * Hosted journal entry 97 (2026-10-31, drizzle 0096). The installing agent re-typed the apply wrapper instead of submitting
+ * the reviewed file unchanged: ONE extra leading space on exactly one line (the second has_function_privilege line of the
+ * privilege postcondition), so the installed wrapper is the reviewed text plus that space (14,296 B; the migrator then adds its
+ * usual final LF). The staged SOURCE was exact (trigger-pinned) and every postcondition passed.
+ *
+ * This is registered ONLY as an observed, byte-pinned fact so the migration-authority guard can describe what is installed.
+ * It is NOT an acceptance: the strict check above still rejects it, and the reviewer/owner decision is open
+ * (docs/release/ipsas-accrual-chain-r1/HOSTED_RECORD.md). Removing the registry entry turns the guard red again.
+ */
+export const HOSTED_ENTRY_97_VARIANT = Object.freeze({
+  tag: "0096_ipsas_3_statement_review_staged_apply",
+  sha256: "a7606257683633b6af60563d80a03d9f6f2e89879ec4739fca618b1598cbe59c",
+  bytes: 14296,
+  journalSha256: "023484a1f9ad9ce298b03ec3f15d76c8df2dec2a9b8675749ef334ab3f8e7c17",
+  insertedSpaceBeforeLine: "             AND has_function_privilege(v_role,'public.ipsas_save_presentation(uuid,integer,jsonb,uuid,text,uuid)','EXECUTE'))",
+  decision: "PENDING_REVIEWER",
+});
+
+export function renderHostedEntry97Variant() {
+  const lines = renderApply(0).split("\n");
+  const hits = lines.map((l, i) => (l === HOSTED_ENTRY_97_VARIANT.insertedSpaceBeforeLine ? i : -1)).filter((i) => i >= 0);
+  if (hits.length !== 1) throw new Error(`expected exactly one anchor line for the entry 97 variant, found ${hits.length}`);
+  lines[hits[0]] = ` ${lines[hits[0]]}`;
+  return lines.join("\n");
+}
+
+export function checkHostedEntry97Variant(tag, text) {
+  if (tag !== HOSTED_ENTRY_97_VARIANT.tag) return { problems: [`${tag} is not the hosted entry 97 variant entry`] };
+  const problems = [];
+  const v = renderHostedEntry97Variant();
+  const bytes = Buffer.from(v, "utf8");
+  if (text !== v && text !== `${v}\n`) problems.push(`${tag} is not exactly the observed hosted entry 97 variant (reviewed wrapper plus one space on one line)`);
+  if (bytes.length !== HOSTED_ENTRY_97_VARIANT.bytes || crypto.createHash("sha256").update(bytes).digest("hex") !== HOSTED_ENTRY_97_VARIANT.sha256) problems.push(`${tag}: the variant drifted from its pinned bytes`);
+  if (crypto.createHash("sha256").update(Buffer.concat([bytes, Buffer.from("\n")])).digest("hex") !== HOSTED_ENTRY_97_VARIANT.journalSha256) problems.push(`${tag}: the variant no longer matches the recorded hosted journal hash`);
+  return { covers: BATCHES[0].source, problems };
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const files = renderAll();
   if (process.argv.includes("--write")) {

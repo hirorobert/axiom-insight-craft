@@ -74,11 +74,14 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"]);
+    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261211100000_source_access_authority_repairs.sql"]);
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
     const registry=RELEASE_JOURNAL as Record<string,unknown>;const added:string[]=[];
+    // This fixture rebuilds the journal as it was before equipment (and so before the IPSAS install, hosted 92–97); the IPSAS reviewed
+    // entries are hidden for its duration and restored below.
+    const hiddenIpsas=Object.entries(registry).filter(([k])=>/ipsas/i.test(k));for(const [k] of hiddenIpsas) delete registry[k];
     try {
       fs.cpSync(path.join(ROOT,"supabase/migrations"),path.join(dir,"supabase/migrations"),{recursive:true});
       fs.cpSync(path.join(ROOT,"drizzle"),path.join(dir,"drizzle"),{recursive:true});
@@ -103,6 +106,6 @@ describe("equipment exact-byte staged transport", () => {
       const result=checkMigrationAuthority(dir);expect(result.errors).toEqual([]);expect(result.pending).toEqual(["20261207100000_ipsas_accrual_preparation.sql", "20261208100000_ipsas_grants.sql", "20261210100000_ipsas_statement_review.sql", "20261211100000_source_access_authority_repairs.sql"]);
       delete registry[added[0]];
       expect(checkMigrationAuthority(dir).errors.length).toBeGreaterThan(0);
-    } finally {for(const tag of added) delete registry[tag];fs.rmSync(dir,{recursive:true,force:true});}
+    } finally {for(const tag of added) delete registry[tag];for(const [k,e] of hiddenIpsas) registry[k]=e;fs.rmSync(dir,{recursive:true,force:true});}
   },30000);
 });
