@@ -80,11 +80,12 @@ describe("IPSAS exact-byte staged transport", () => {
       expect(checkTransportMirror("9999_unregistered", f.text).problems.length).toBeGreaterThan(0);
     }
   });
-  it("claims nothing as hosted-applied: no Drizzle mirror, no journal entry and no release-journal registration exist for it", () => {
+  it("is recorded as hosted-applied (2026-10-31, hosted ids 92/93): its Drizzle mirrors and reviewed release-journal registrations exist", () => {
     const journal = JSON.parse(fs.readFileSync(path.join(ROOT, "drizzle/migrations/meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
-    expect(journal.entries.some((e) => /ipsas/i.test(e.tag))).toBe(false);
-    expect(Math.max(...journal.entries.map((e) => Number(e.tag.slice(0, 4))))).toBe(90);
-    expect(fs.readdirSync(path.join(ROOT, "drizzle/migrations")).some((f) => /ipsas/i.test(f))).toBe(false);
-    expect(Object.keys(RELEASE_JOURNAL).some((k) => /ipsas/i.test(k))).toBe(false);
+    for (const tag of ["0091_ipsas_staged_transport", "0092_ipsas_1_preparation_staged_apply"]) {
+      expect(journal.entries.some((e) => e.tag === tag)).toBe(true);
+      expect(fs.existsSync(path.join(ROOT, "drizzle/migrations", `${tag}.sql`))).toBe(true);
+      expect(RELEASE_JOURNAL[tag]).toMatchObject({ kind: "ipsas_staged_transport" });
+    }
   });
 });

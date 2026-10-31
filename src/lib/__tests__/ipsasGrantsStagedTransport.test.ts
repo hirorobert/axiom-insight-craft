@@ -90,11 +90,12 @@ describe("IPSAS grants exact-byte staged transport", () => {
     expect(hash("00_ipsas_staged_transport.sql")).toBe(PREPARATION_FORMS.ipsas_staged_transport);
     expect(hash("10_ipsas_1_preparation_staged_apply.sql")).toBe(PREPARATION_FORMS.ipsas_1_preparation_staged_apply);
   });
-  it("claims nothing as hosted-applied: no Drizzle mirror, no journal entry and no release-journal registration exist for it", () => {
+  it("is recorded as hosted-applied (2026-10-31, hosted ids 94/95): its Drizzle mirrors and reviewed release-journal registrations exist", () => {
     const journal = JSON.parse(fs.readFileSync(path.join(ROOT, "drizzle/migrations/meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
-    expect(journal.entries.some((e) => /ipsas/i.test(e.tag))).toBe(false);
-    expect(Math.max(...journal.entries.map((e) => Number(e.tag.slice(0, 4))))).toBe(90);
-    expect(fs.readdirSync(path.join(ROOT, "drizzle/migrations")).some((f) => /ipsas/i.test(f))).toBe(false);
-    expect(Object.keys(RELEASE_JOURNAL).some((k) => /ipsas/i.test(k))).toBe(false);
+    for (const tag of ["0093_ipsas_grants_staged_transport", "0094_ipsas_2_grants_staged_apply"]) {
+      expect(journal.entries.some((e) => e.tag === tag)).toBe(true);
+      expect(fs.existsSync(path.join(ROOT, "drizzle/migrations", `${tag}.sql`))).toBe(true);
+      expect(RELEASE_JOURNAL[tag]).toMatchObject({ kind: "ipsas_staged_transport" });
+    }
   });
 });
