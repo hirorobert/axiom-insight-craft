@@ -1,66 +1,79 @@
 // Authorized retrieval of a trial balance's ORIGINAL uploaded file.
 //
-// Pure orchestration with injected dependencies. It is unit-tested in Node (src/lib/workspace/sourceDownload.test.ts)
-// and runs unchanged in the trial-balance-source-download Edge Function. It is the counterpart of sourceUpload.ts: the
-// bucket stays private and no client Storage policy is widened; the server authorizes each request and then issues a
-// very short-lived signed URL for exactly one object. The rules:
-//   * The request carries exactly two things: an upload id and the company id the caller believes it belongs to. A bucket,
-//     path, user or any other key in the body is refused, never read.
-//   * The caller is authenticated from their JWT. The object path is resolved server-side from the upload row; the caller
-//     can neither name nor influence it.
-//   * Binding: the company named in the request must be the upload's own company. A mismatch is answered exactly like an
-//     unknown upload or a missing right ("forbidden"), so the response never reveals whether an upload id exists.
-//   * Authority is re-checked on EVERY request: can_user_act_on_workspace(user, company, 'manage_source_files') -
-//     the workspace owner (with a current plan) or an explicit, active grant; never a title or a firm membership. A
-//     revocation therefore takes effect on the next request. (A URL already issued stays valid until it expires; that
-//     window is DOWNLOAD_EXPIRY_SECONDS and is the only residual access after a revocation.) Removing a team member also
-//     revokes that person's explicit grants in the same transaction (migration 20261211100000), so "Remove member ...
-//     access ends immediately" is true for file access too; a collaborator who was never a member keeps the grants the
-//     owner gave them, which is the supported grant-only collaborator path.
-//   * The object path must have the canonical shape for this upload: workspaces/<company>/... or, for a legacy upload,
-//     <uploader>/... , and be well formed. Anything else is a server-side invariant failure, not a download.
-//   * The response carries the upload's server-recorded SHA-256 (null until processing recorded it) so the client can
-//     prove the bytes it received are the bytes the server fingerprinted.
+// Pure orchestration with injected dependencies. It is unit-tested in Node (src/lib/workspace/sourceDownload.test.ts) and runs unchanged in the
+// trial-balance-source-download Edge Function. It is the counterpart of sourceUpload.ts: the bucket stays private and no client Storage policy is widened; the
+// server authorizes each request and then issues a very short-lived signed URL for exactly one object. The rules:
+//   * The request carries exactly two things: an upload id and the company id the caller believes it belongs to. A bucket, path, user or any other key in the
+//     body is refused, never read.
+//   * The caller is authenticated from their JWT. The object path is resolved server-side from the upload row; the caller can neither name nor influence it.
+//   * Binding: the company named in the request must be the upload's own company. A mismatch is answered exactly like an unknown upload or a missing right
+//     ("forbidden"), so the response never reveals whether an upload id exists.
+//   * Authority is re-judged on EVERY request (workspace_authority_basis, capability manage_source_files): the workspace owner with a current plan, or an
+//     explicit active grant; never a title. Removing a team member also revokes that person's explicit grants in the same transaction (migration
+//     20261211100000); a collaborator who was never a member keeps the grants the owner gave them (the supported grant-only path).
+//   * The object path must have the canonical shape for this upload: workspaces/<company>/... or, for a legacy upload, <uploader>/... , and be well formed.
+//   * The response carries the upload's server-recorded SHA-256 (null until processing recorded it) so the client can prove the bytes it received are the bytes
+//     the server fingerprinted.
 //
-// ORDERING CONTRACT (independent review of #229, finding 3). Authority is read twice, around the one asynchronous step that
-// cannot be made transactional with the database (asking Storage to sign):
-//     authorise (read 1) -> sign -> authorise again (read 2, the LINEARIZATION POINT) -> durable record -> return the link.
-//   * A link is returned only if read 2 still grants the right. A withdrawal that committed before read 2 therefore prevents any
-//     link from being returned (the signed token may have been minted by Storage, but it is discarded unseen and never logged).
-//   * A withdrawal that commits after read 2 is ordered after the issuance: the returned link stays usable until it expires
-//     (DOWNLOAD_EXPIRY_SECONDS). A signed URL is a bearer credential and cannot be revoked individually; that window is the only
-//     residual access. This is NOT atomic revocation: a second check narrows the window, it does not close it.
-//   * The record is written BEFORE the link is returned, and a link is never returned if the record could not be written.
+// ORDERING CONTRACT (re-review of #229, finding 3). Signing is an external call to Storage and cannot share a database transaction, so it is never held inside
+// one. The sequence is:
+//     precheck (an ordinary read: it only avoids signing for a caller who plainly lacks the right; it orders nothing)
+//       -> sign (outside any transaction)
+//       -> DECIDE: one database transaction that takes the locks of every writer of the authority inputs, re-judges authority, checks the signed link has not
+//          already expired, and inserts the decision record -> its COMMIT is the ordering point
+//       -> return the link, only if the decision committed as 'issued'.
+//   * Withdrawal commits before the decision: the decision sees it, records 'withdrawn_before_issue', and no link is returned (the minted link is discarded
+//     unseen and never logged).
+//   * The decision commits first: a withdrawal must wait for its locks, so it is ordered AFTER the issuance; the link may still be delivered afterwards, and
+//     it remains a bearer credential until its own expiry. Storage cannot revoke one signed URL: that remaining lifetime is a separate, documented limit.
+//   * An unauthorised signed URL is never returned: there is no code path to the link except the 'issued' decision. If the decision cannot be taken or
+//     stored (database error, or a lock not obtained in time), no link is returned.
+//   * Writers and the lock protocol are documented in supabase/migrations/20261211100000_source_access_authority_repairs.sql, where the decision lives.
 //
-// AUDIT SEMANTICS. The durable record (trial_balance_source_download_events) is a record of link-issuance DECISIONS by this function:
-//   issued (a link was returned), denied (an authenticated caller naming a real upload of a real company lacked the right) and
-//   withdrawn_before_issue (the right was withdrawn while signing). It stores who, which company and upload, the outcome, the link's
-//   expiry and the recorded fingerprint - never a URL, token or path. It does NOT establish that the file was transferred: the bytes
-//   travel from Storage to the browser, which this function cannot observe, and a browser report would be a claim, not evidence.
-//   Unauthenticated calls and requests whose upload does not exist or does not belong to the named company are not recorded (they
-//   name nothing real, and recording them would let anyone write to the table).
+// WHAT THE RECORD MEANS (audit semantics). An 'issued' record is an authorised ISSUANCE DECISION: at its commit the right was held and the signed link had not
+// expired. It does NOT establish that the response reached the caller or that the file was downloaded - the bytes travel from Storage to the browser, which
+// this function cannot observe, and a browser report would be a claim, not evidence. A response that fails or is dropped after the decision leaves the record
+// as it is; nothing is updated later. Other decisions are 'denied' (the precheck refused a caller who named a real upload of a real company),
+// 'withdrawn_before_issue' and 'expired_before_issue'. Unauthenticated calls and requests naming an unknown upload or another company's are not recorded.
+// No URL, token or path is ever stored.
+//
+// EXPIRY. The signer's own expiry (the signed link's `exp`) is used whenever it can be read. Otherwise the recorded expiry is an UPPER bound: the time signing
+// COMPLETED plus the requested lifetime - Storage fixes `exp` at some instant between signing start and completion, so start + lifetime would be the earliest
+// possible expiry, not a bound on the window the link is usable. The recorded expiry is never "decision time + lifetime" after a delayed signature.
 
 import { isWellFormedSourcePath } from "./sourcePath.ts";
 
 export const DOWNLOAD_CAPABILITY = "manage_source_files";
-/** How long an issued URL works. Short on purpose: it is the only access that outlives a revocation. */
+/** The lifetime requested from Storage for a signed URL. Short on purpose: it is the only access that outlives a revocation. */
 export const DOWNLOAD_EXPIRY_SECONDS = 60;
+/** How far a signer-reported expiry may exceed signing completion + lifetime before the link is refused as having an unexpected lifetime. */
+export const SIGNER_EXPIRY_TOLERANCE_SECONDS = 30;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type SourceDownloadOutcome = "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable";
+export type SourceDownloadOutcome =
+  | "ready" | "forbidden" | "unauthenticated" | "invalid_request" | "unavailable" | "signing_failed" | "audit_unavailable" | "link_expired" | "decision_unavailable";
 
-/** What a decision record says; see AUDIT SEMANTICS above. */
-export type DownloadDecision = "issued" | "denied" | "withdrawn_before_issue";
-export interface DownloadDecisionEvent {
-  outcome: DownloadDecision;
+/** Where a recorded expiry came from. */
+export type ExpirySource = "signer_token_exp" | "bound_signing_completed_plus_ttl";
+
+/** What the database decided; 'unavailable' means a lock was not obtained in time (nothing recorded, safe to retry). */
+export type IssuanceDecision = "issued" | "withdrawn_before_issue" | "expired_before_issue" | "unavailable";
+
+/** The input of the atomic decision. Never contains the URL or token. */
+export interface IssuanceRequest {
   userId: string;
   companyId: string;
   uploadId: string;
-  /** When the issued link stops working (ISO-8601); null for a decision that issued nothing. */
-  expiresAt: string | null;
+  /** Function-host clock readings (ISO-8601) around the signing call. */
+  signingStartedAt: string;
+  signingCompletedAt: string;
+  linkExpiresAt: string;
+  linkExpirySource: ExpirySource;
   /** The upload's server-recorded SHA-256 at the time of the decision. */
   sha256: string | null;
 }
+
+export interface DenialRecord { userId: string; companyId: string; uploadId: string; sha256: string | null }
 
 /** The columns of trial_balance_uploads this function reads (service role); nothing else is selected. */
 export interface UploadTarget {
@@ -73,17 +86,21 @@ export interface UploadTarget {
   source_file_hash: string | null;
 }
 
-export type SignResult = { url: string } | { missing: true } | null;
+/** `expiresAtMs` is the signer's own expiry (epoch milliseconds) when it could be read from the signed link; the link itself is never stored. */
+export type SignResult = { url: string; expiresAtMs?: number | null } | { missing: true } | null;
 
 export interface SourceDownloadDeps {
   authenticate(): Promise<string | null>;
   resolveUpload(uploadId: string): Promise<UploadTarget | null>;
+  /** An ordinary authority read. A PRECHECK only: it is not the ordering point and nothing may rely on it for safety. */
   canDownload(userId: string, companyId: string): Promise<boolean>;
-  /** Service-role createSignedUrl for exactly this path, valid for `seconds`, saved under `downloadName`. */
+  /** Service-role createSignedUrl for exactly this path, valid for `seconds`, saved under `downloadName`. Outside any database transaction. */
   sign(path: string, seconds: number, downloadName: string): Promise<SignResult>;
-  /** Durable record of one decision; resolves true only when it was stored. Never receives the URL. */
-  record(event: DownloadDecisionEvent): Promise<boolean>;
-  /** Clock for the recorded expiry (injectable for tests). */
+  /** The atomic issuance decision (one database transaction: locks, authority, freshness, record). Throws when it could not be taken or stored. */
+  decide(request: IssuanceRequest): Promise<IssuanceDecision>;
+  /** Best-effort record of a precheck refusal. A refusal stands whether or not this succeeds. */
+  recordDenial(event: DenialRecord): Promise<void>;
+  /** Clock in epoch milliseconds (injectable for tests). */
   now?(): number;
 }
 
@@ -122,38 +139,72 @@ function canonicalPath(target: UploadTarget, companyId: string): string | null {
 }
 
 export async function runSourceDownload(deps: SourceDownloadDeps, request: { uploadId: string; companyId: string }): Promise<SourceDownloadResult> {
+  const clock = () => deps.now?.() ?? Date.now();
   const userId = await deps.authenticate();
   if (!userId) return { status: 401, outcome: "unauthenticated" };
 
   const target = await deps.resolveUpload(request.uploadId);
   // Unknown upload, another company's upload and a missing right are one answer.
   if (!target || !target.company_id || target.company_id !== request.companyId) return { status: 403, outcome: "forbidden" };
-  const decision = (outcome: DownloadDecision, expiresAt: string | null): DownloadDecisionEvent =>
-    ({ outcome, userId, companyId: target.company_id as string, uploadId: target.id, expiresAt, sha256: target.source_file_hash ?? null });
-  // A refusal is answered whether or not it could be recorded; only an ISSUED link depends on its record.
-  const recordBestEffort = async (e: DownloadDecisionEvent) => { try { await deps.record(e); } catch { /* the refusal stands */ } };
+  const companyId = target.company_id;
 
-  if (!(await deps.canDownload(userId, target.company_id))) { await recordBestEffort(decision("denied", null)); return { status: 403, outcome: "forbidden" }; }
+  // PRECHECK (not the ordering point): refuse early so nothing is signed for a caller who plainly lacks the right. A refusal stands whether or not it was recorded.
+  if (!(await deps.canDownload(userId, companyId))) {
+    try { await deps.recordDenial({ userId, companyId, uploadId: target.id, sha256: target.source_file_hash ?? null }); } catch { /* the refusal stands */ }
+    return { status: 403, outcome: "forbidden" };
+  }
 
   if (target.file_path === null) return { status: 404, outcome: "unavailable" };
-  const path = canonicalPath(target, target.company_id);
+  const path = canonicalPath(target, companyId);
   if (!path) return { status: 500, outcome: "signing_failed" };
 
   const name = safeDownloadName(target.file_name);
+  const signingStartedMs = clock();
   const signed = await deps.sign(path, DOWNLOAD_EXPIRY_SECONDS, name);
+  const signingCompletedMs = clock();
   if (signed && "missing" in signed) return { status: 404, outcome: "unavailable" };
   if (!signed || !signed.url) return { status: 502, outcome: "signing_failed" };
 
-  // LINEARIZATION POINT: authority is read again AFTER signing. If it was withdrawn meanwhile, the minted link is discarded unseen.
-  if (!(await deps.canDownload(userId, target.company_id))) { await recordBestEffort(decision("withdrawn_before_issue", null)); return { status: 403, outcome: "forbidden" }; }
+  // The recorded expiry: the signer's own when readable, else an upper bound from the END of signing (never "now + lifetime" after a delay).
+  const lifetimeMs = DOWNLOAD_EXPIRY_SECONDS * 1000;
+  let expiresMs: number, source: ExpirySource;
+  if (typeof signed.expiresAtMs === "number" && Number.isFinite(signed.expiresAtMs)) {
+    // A link that would outlive the requested lifetime by more than the tolerance has an unexpected lifetime: it is discarded, never issued.
+    if (signed.expiresAtMs > signingCompletedMs + lifetimeMs + SIGNER_EXPIRY_TOLERANCE_SECONDS * 1000) return { status: 502, outcome: "signing_failed" };
+    expiresMs = signed.expiresAtMs; source = "signer_token_exp";
+  } else { expiresMs = signingCompletedMs + lifetimeMs; source = "bound_signing_completed_plus_ttl"; }
 
-  const expiresAt = new Date((deps.now?.() ?? Date.now()) + DOWNLOAD_EXPIRY_SECONDS * 1000).toISOString();
-  let recorded = false;
-  try { recorded = await deps.record(decision("issued", expiresAt)); } catch { recorded = false; }
-  if (!recorded) return { status: 503, outcome: "audit_unavailable" };   // no record, no link
+  // THE DECISION: locks + authority + freshness + record in one transaction. Only an 'issued' commit leads to the link.
+  let decision: IssuanceDecision;
+  try {
+    decision = await deps.decide({
+      userId, companyId, uploadId: target.id,
+      signingStartedAt: new Date(signingStartedMs).toISOString(), signingCompletedAt: new Date(signingCompletedMs).toISOString(),
+      linkExpiresAt: new Date(expiresMs).toISOString(), linkExpirySource: source, sha256: target.source_file_hash ?? null,
+    });
+  } catch { return { status: 503, outcome: "audit_unavailable" }; }   // no decision, no link
+  if (decision === "withdrawn_before_issue") return { status: 403, outcome: "forbidden" };
+  if (decision === "expired_before_issue") return { status: 503, outcome: "link_expired" };
+  if (decision === "unavailable") return { status: 503, outcome: "decision_unavailable" };
+  if (decision !== "issued") return { status: 503, outcome: "audit_unavailable" };
 
   return {
-    status: 200, outcome: "ready", url: signed.url, expires_in: DOWNLOAD_EXPIRY_SECONDS, file_name: name,
+    status: 200, outcome: "ready", url: signed.url, expires_in: Math.max(0, Math.min(DOWNLOAD_EXPIRY_SECONDS, Math.floor((expiresMs - clock()) / 1000))), file_name: name,
     sha256: target.source_file_hash ?? null, size: typeof target.file_size === "number" ? target.file_size : null,
   };
+}
+
+/**
+ * The signer's own expiry (epoch milliseconds) read from the `exp` claim of the signed link's token, or null when the link carries no readable one. This only
+ * READS the claim, to learn when the link stops working; the token is not verified here (Storage verifies it on use), is never stored and never logged.
+ */
+export function signedUrlExpiryMs(signedUrl: string): number | null {
+  try {
+    const token = new URL(signedUrl, "http://placeholder.invalid").searchParams.get("token");
+    const payload = token?.split(".")[1];
+    if (!payload) return null;
+    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const exp = (JSON.parse(atob(b64)) as { exp?: unknown }).exp;
+    return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? exp * 1000 : null;
+  } catch { return null; }
 }

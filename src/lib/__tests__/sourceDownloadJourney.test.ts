@@ -67,9 +67,9 @@ describe("the Edge Function", () => {
   });
   it("reads only the columns it needs, never writes, and never echoes the URL or token into its log", () => {
     expect(fn).toMatch(/select\("id, company_id, user_id, file_path, file_name, file_size, source_file_hash"\)/);
-    // The one write this function makes is the durable record of its link-issuance decision (finding 3 of the #229 review); nothing else is written.
-    expect(fn.match(/\.(insert|update|upsert|delete)\(/g) ?? []).toEqual([".insert("]);
-    expect(fn).toMatch(/\.from\("trial_balance_source_download_events"\)\s*\.insert\(/);
+    // The function writes no table itself: its only writes are the two database functions that take the issuance decision and record a refusal (no direct insert exists).
+    expect(fn).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    expect([...fn.matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort()).toEqual(["can_user_act_on_workspace", "decide_trial_balance_source_download_issuance", "record_trial_balance_source_download_denial"]);
     const logLine = fn.split("\n").find((l) => l.includes("console.log")) ?? "";
     expect(logLine).not.toMatch(/\burl\b|token|signedUrl/);
   });

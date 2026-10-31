@@ -6,7 +6,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DOWNLOAD_EXPIRY_SECONDS, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, type DownloadDecisionEvent, type SourceDownloadDeps, type UploadTarget,
+  DOWNLOAD_EXPIRY_SECONDS, SIGNER_EXPIRY_TOLERANCE_SECONDS, parseSourceDownloadRequest, runSourceDownload, safeDownloadName, signedUrlExpiryMs,
+  type IssuanceDecision, type IssuanceRequest, type SourceDownloadDeps, type UploadTarget,
 } from "../../../supabase/functions/_shared/sourceDownload";
 
 const UP = "7a1e4d92-2f8b-4c3e-b056-f9a2d7e14b83";
@@ -24,13 +25,18 @@ function deps(over: Partial<SourceDownloadDeps> = {}) {
     resolveUpload: vi.fn(async () => upload()),
     canDownload: vi.fn(async () => true),
     sign: vi.fn(async (path: string) => ({ url: `https://storage.invalid/sign/${path}?token=t` })),
-    record: vi.fn(async (_e: DownloadDecisionEvent) => true),
-    now: () => Date.parse("2026-10-30T12:00:00.000Z"),
+    decide: vi.fn(async (_r: IssuanceRequest): Promise<IssuanceDecision> => "issued"),
+    recordDenial: vi.fn(async () => {}),
+    now: () => NOW(),
     ...over,
   };
   return d as typeof d & SourceDownloadDeps;
 }
 const REQ = { uploadId: UP, companyId: CO };
+const T0 = Date.parse("2026-10-30T12:00:00.000Z");
+let clockMs = T0;
+const NOW = () => clockMs;
+afterEach(() => { clockMs = T0; });
 
 describe("request parsing: exactly an upload id and a company id", () => {
   it("accepts exactly { upload_id, company_id } as UUIDs", () => expect(parseSourceDownloadRequest({ upload_id: UP, company_id: CO })).toEqual(REQ));
@@ -70,7 +76,7 @@ describe("runSourceDownload", () => {
     expect((await runSourceDownload(d, REQ)).outcome).toBe("ready");
     allowed = false;
     expect((await runSourceDownload(d, REQ)).outcome).toBe("forbidden");
-    expect(d.canDownload).toHaveBeenCalledTimes(3);   // two reads around signing for the first request, one for the refused second
+    expect(d.canDownload).toHaveBeenCalledTimes(2);   // one precheck per request; the ordering point is the database decision, not a read
     expect(d.sign).toHaveBeenCalledTimes(1);
   });
   it("company binding: an upload of ANOTHER company, even for a caller who may act on the named company, is the same 403 as an unknown upload", async () => {
@@ -112,61 +118,106 @@ describe("runSourceDownload", () => {
   });
 });
 
-describe("runSourceDownload: ordering around signing and the durable decision record (independent review of #229, findings 3 and 5)", () => {
-  it("authority withdrawn WHILE signing waits: no link is returned, the minted link is discarded unseen and the decision is recorded", async () => {
-    let allowed = true;
-    let release!: (v: { url: string }) => void;
-    const d = deps({ canDownload: vi.fn(async () => allowed), sign: vi.fn(() => new Promise<{ url: string }>((resolve) => { release = resolve; })) });
-    const pending = runSourceDownload(d, REQ);
-    await vi.waitFor(() => expect(d.sign).toHaveBeenCalled());
-    allowed = false;                                                    // the withdrawal commits while Storage is still signing
-    release({ url: "https://storage.invalid/sign/x?token=SECRET-TOKEN" });
-    const r = await pending;
-    expect(r).toEqual({ status: 403, outcome: "forbidden" });
-    expect(JSON.stringify(r)).not.toContain("SECRET-TOKEN");
-    expect(d.canDownload).toHaveBeenCalledTimes(2);                    // one read before signing, one after: the second is the linearization point
-    expect(d.record).toHaveBeenCalledTimes(1);
-    expect(d.record.mock.calls[0][0]).toEqual({ outcome: "withdrawn_before_issue", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: null, sha256: HASH });
-  });
-  it("authority still held at the second read: the link is returned and recorded as issued with its expiry; a later withdrawal is ordered after the issuance", async () => {
+describe("runSourceDownload: atomic issuance decision (re-review of #229, findings 3 and 5)", () => {
+  const issued = (d: ReturnType<typeof deps>) => d.decide.mock.calls[0][0] as IssuanceRequest;
+  it("the link is returned ONLY when the database decision committed as issued; the decision carries the signing interval and the expiry, never the URL", async () => {
     const d = deps();
     const r = await runSourceDownload(d, REQ);
     expect(r).toMatchObject({ status: 200, outcome: "ready", expires_in: DOWNLOAD_EXPIRY_SECONDS });
-    expect(d.record).toHaveBeenCalledWith({ outcome: "issued", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: "2026-10-30T12:01:00.000Z", sha256: HASH });
+    expect(d.decide).toHaveBeenCalledTimes(1);
+    expect(issued(d)).toEqual({
+      userId: "user-1", companyId: CO, uploadId: UP, signingStartedAt: "2026-10-30T12:00:00.000Z", signingCompletedAt: "2026-10-30T12:00:00.000Z",
+      linkExpiresAt: "2026-10-30T12:01:00.000Z", linkExpirySource: "bound_signing_completed_plus_ttl", sha256: HASH,
+    });
+    expect(JSON.stringify(d.decide.mock.calls)).not.toMatch(/token=|http|workspaces\//);
   });
-  it("the record is stored BEFORE the link is returned and never contains the URL, a token or the path", async () => {
-    const order: string[] = [];
-    const d = deps({ record: vi.fn(async (e: DownloadDecisionEvent) => { order.push(`record:${e.outcome}`); return true; }) });
-    const r = await runSourceDownload(d, REQ);
-    order.push("returned");
-    expect(order).toEqual(["record:issued", "returned"]);
-    const stored = JSON.stringify(d.record.mock.calls);
-    expect(stored).not.toContain("token=");
-    expect(stored).not.toContain("http");
-    expect(stored).not.toContain("workspaces/");
+  it("the ordinary read before signing is a precheck, not the ordering point: a withdrawal after it is decided by the database, and when it wins no link is returned", async () => {
+    let release!: (v: { url: string }) => void;
+    const d = deps({ sign: vi.fn(() => new Promise<{ url: string }>((resolve) => { release = resolve; })), decide: vi.fn(async () => "withdrawn_before_issue" as const) });
+    const pending = runSourceDownload(d, REQ);
+    await vi.waitFor(() => expect(d.sign).toHaveBeenCalled());
+    release({ url: "https://storage.invalid/sign/x?token=SECRET-TOKEN" });   // the withdrawal committed while Storage was signing; the decision sees it
+    const r = await pending;
+    expect(r).toEqual({ status: 403, outcome: "forbidden" });
+    expect(JSON.stringify(r)).not.toContain("SECRET-TOKEN");
+    expect(d.canDownload).toHaveBeenCalledTimes(1);                          // exactly one ordinary read: nothing treats a second read as the linearization point
+  });
+  it("the decision committed first: a later withdrawal does not un-issue; the link is delivered under the contract (a bearer credential until its own expiry)", async () => {
+    const d = deps();
+    const r = await runSourceDownload(d, REQ);               // the decision committed as issued ...
+    // ... and any withdrawal now happens after it. Nothing in the orchestration reads authority again or updates the record.
     expect(r.outcome).toBe("ready");
+    expect(d.canDownload).toHaveBeenCalledTimes(1);
+    expect(d.decide).toHaveBeenCalledTimes(1);
+    expect(d.recordDenial).not.toHaveBeenCalled();
   });
-  it("no record, no link: an ISSUED decision that cannot be stored (false or thrown) returns 503 audit_unavailable without the URL", async () => {
-    for (const record of [vi.fn(async () => false), vi.fn(async () => { throw new Error("db down"); })]) {
-      const r = await runSourceDownload(deps({ record }), REQ);
+  it("signing delay: the recorded expiry derives from the END of signing (or the signer's exp), never from now + 60 s after the delay", async () => {
+    const d = deps({ sign: vi.fn(async () => { clockMs += 25_000; return { url: "https://storage.invalid/sign/x?token=t" }; }) });
+    const r = await runSourceDownload(d, REQ);
+    expect(issued(d)).toMatchObject({ signingStartedAt: "2026-10-30T12:00:00.000Z", signingCompletedAt: "2026-10-30T12:00:25.000Z", linkExpiresAt: "2026-10-30T12:01:25.000Z", linkExpirySource: "bound_signing_completed_plus_ttl" });
+    expect(r.expires_in).toBe(DOWNLOAD_EXPIRY_SECONDS);
+    // a further delay between signing and the decision shortens the REMAINING lifetime that is reported, not the recorded expiry
+    clockMs = T0;
+    const slow = deps({ sign: vi.fn(async () => { clockMs += 10_000; return { url: "https://storage.invalid/sign/x?token=t" }; }), decide: vi.fn(async () => { clockMs += 20_000; return "issued" as const; }) });
+    const r2 = await runSourceDownload(slow, REQ);
+    expect(r2.expires_in).toBe(40);
+  });
+  it("the signer's own expiry is used when it is readable, and a link with an unexpected lifetime is discarded unissued", async () => {
+    const exp = Math.floor((T0 + 45_000) / 1000);
+    const d = deps({ sign: vi.fn(async () => ({ url: "https://storage.invalid/sign/x?token=t", expiresAtMs: exp * 1000 })) });
+    await runSourceDownload(d, REQ);
+    expect(issued(d)).toMatchObject({ linkExpiresAt: new Date(exp * 1000).toISOString(), linkExpirySource: "signer_token_exp" });
+    const long = deps({ sign: vi.fn(async () => ({ url: "https://storage.invalid/sign/x?token=t", expiresAtMs: T0 + (DOWNLOAD_EXPIRY_SECONDS + SIGNER_EXPIRY_TOLERANCE_SECONDS + 5) * 1000 })) });
+    expect(await runSourceDownload(long, REQ)).toEqual({ status: 502, outcome: "signing_failed" });
+    expect(long.decide).not.toHaveBeenCalled();
+  });
+  it("expiry before issuance: a link that expired by the decision is not returned, with its own answer", async () => {
+    const d = deps({ decide: vi.fn(async () => "expired_before_issue" as const) });
+    const r = await runSourceDownload(d, REQ);
+    expect(r).toEqual({ status: 503, outcome: "link_expired" });
+    expect((r as { url?: string }).url).toBeUndefined();
+  });
+  it("a decision that could not be taken (lock timeout) or stored (database failure, audit-insert failure) returns no link", async () => {
+    expect(await runSourceDownload(deps({ decide: vi.fn(async () => "unavailable" as const) }), REQ)).toEqual({ status: 503, outcome: "decision_unavailable" });
+    for (const decide of [vi.fn(async () => { throw new Error("audit insert failed"); }), vi.fn(async () => "bogus" as unknown as IssuanceDecision)]) {
+      const r = await runSourceDownload(deps({ decide }), REQ);
       expect(r).toEqual({ status: 503, outcome: "audit_unavailable" });
       expect((r as { url?: string }).url).toBeUndefined();
     }
   });
+  it("response failure and a disconnected caller: the decision stands exactly as committed and nothing is updated, retried or recorded again", async () => {
+    const d = deps();
+    const delivered = await runSourceDownload(d, REQ);
+    void delivered;                                                          // the caller never reads it (connection dropped, response failed)
+    expect(d.decide).toHaveBeenCalledTimes(1);
+    expect(d.recordDenial).not.toHaveBeenCalled();
+    expect(d.sign).toHaveBeenCalledTimes(1);
+  });
   it("a refusal stands even when its own record cannot be stored", async () => {
-    const d = deps({ canDownload: vi.fn(async () => false), record: vi.fn(async () => { throw new Error("db down"); }) });
+    const d = deps({ canDownload: vi.fn(async () => false), recordDenial: vi.fn(async () => { throw new Error("db down"); }) });
     await expect(runSourceDownload(d, REQ)).resolves.toEqual({ status: 403, outcome: "forbidden" });
     expect(d.sign).not.toHaveBeenCalled();
+    expect(d.decide).not.toHaveBeenCalled();
   });
   it("denied is recorded for an authenticated caller who named a real upload of a real company; unauthenticated, unknown and mismatched requests record nothing", async () => {
     const denied = deps({ canDownload: vi.fn(async () => false) });
     await runSourceDownload(denied, REQ);
-    expect(denied.record).toHaveBeenCalledTimes(1);
-    expect(denied.record.mock.calls[0][0]).toMatchObject({ outcome: "denied", userId: "user-1", companyId: CO, uploadId: UP, expiresAt: null });
+    expect(denied.recordDenial).toHaveBeenCalledWith({ userId: "user-1", companyId: CO, uploadId: UP, sha256: HASH });
     const unauthenticated = deps({ authenticate: vi.fn(async () => null) });
     const unknown = deps({ resolveUpload: vi.fn(async () => null) });
     const mismatched = deps({ resolveUpload: vi.fn(async () => upload({ company_id: OTHER_CO, file_path: `workspaces/${OTHER_CO}/s/tb.csv` })) });
-    for (const d of [unauthenticated, unknown, mismatched]) { await runSourceDownload(d, REQ); expect(d.record).not.toHaveBeenCalled(); }
+    for (const d of [unauthenticated, unknown, mismatched]) { await runSourceDownload(d, REQ); expect(d.recordDenial).not.toHaveBeenCalled(); expect(d.decide).not.toHaveBeenCalled(); }
+  });
+});
+
+describe("signedUrlExpiryMs: reads the signer's exp claim, stores nothing", () => {
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const tok = (claims: unknown) => `${b64({ alg: "HS256" })}.${b64(claims)}.sig`;
+  it("returns exp in milliseconds, and null for a link without a readable token or exp", () => {
+    expect(signedUrlExpiryMs(`http://kong:8000/storage/v1/object/sign/b/p.csv?token=${tok({ exp: 1_800_000_000 })}`)).toBe(1_800_000_000_000);
+    for (const u of ["http://kong:8000/x", "http://kong:8000/x?token=", "http://kong:8000/x?token=abc", `http://kong:8000/x?token=${tok({})}`, `http://kong:8000/x?token=${tok({ exp: "soon" })}`, `http://kong:8000/x?token=${tok({ exp: -5 })}`, ""]) {
+      expect(signedUrlExpiryMs(u), u).toBeNull();
+    }
   });
 });
 

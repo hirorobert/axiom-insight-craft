@@ -3,12 +3,14 @@
 // The bucket stays private and no client Storage policy is widened (the signer comment in
 // trial-balance-source-signer/index.ts explains why clients never touch workspaces/ directly). The caller sends an upload id
 // and the company id; the function authenticates the caller, resolves the object path from the upload row, re-authorizes
-// with can_user_act_on_workspace on every request, and answers with a signed URL for exactly that object that expires in
-// seconds. The service-role key never leaves the function. See _shared/sourceDownload.ts for the decision sequence.
+// with can_user_act_on_workspace on every request (a precheck), signs, and then takes the ISSUANCE DECISION in one database transaction
+// (decide_trial_balance_source_download_issuance: locks, authority, freshness and the record). It answers with the signed URL, for exactly that
+// object, only if that decision committed as issued. The service-role key never leaves the function. See _shared/sourceDownload.ts for the
+// ordering contract and what the record does and does not establish.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { DOWNLOAD_CAPABILITY, parseSourceDownloadRequest, runSourceDownload, type UploadTarget } from "../_shared/sourceDownload.ts";
+import { DOWNLOAD_CAPABILITY, parseSourceDownloadRequest, runSourceDownload, signedUrlExpiryMs, type UploadTarget } from "../_shared/sourceDownload.ts";
 
 const BUCKET = "trial-balance-files";
 const json = (status: number, body: unknown) =>
@@ -49,15 +51,23 @@ Deno.serve(async (req) => {
     },
     sign: async (path, seconds, downloadName) => {
       const { data, error } = await service.storage.from(BUCKET).createSignedUrl(path, seconds, { download: downloadName });
-      if (error) return /not\s*found/i.test(String((error as { message?: string }).message ?? "")) ? { missing: true as const } : null;
-      return data?.signedUrl ? { url: data.signedUrl } : null;
+      if (error) return /nots*found/i.test(String((error as { message?: string }).message ?? "")) ? { missing: true as const } : null;
+      return data?.signedUrl ? { url: data.signedUrl, expiresAtMs: signedUrlExpiryMs(data.signedUrl) } : null;
     },
-    // The durable decision record (never the URL or token). A link is not returned if an ISSUED record cannot be stored.
-    record: async (e) => {
-      const { error } = await service.from("trial_balance_source_download_events").insert({
-        company_id: e.companyId, upload_id: e.uploadId, actor_user_id: e.userId, outcome: e.outcome, link_expires_at: e.expiresAt, object_sha256: e.sha256,
+    // THE ISSUANCE DECISION: one database transaction (locks, authority, freshness, record). Throws when it cannot be taken or stored; no link is returned then.
+    decide: async (r) => {
+      const { data, error } = await service.rpc("decide_trial_balance_source_download_issuance", {
+        p_user_id: r.userId, p_company_id: r.companyId, p_upload_id: r.uploadId, p_signing_started_at: r.signingStartedAt, p_signing_completed_at: r.signingCompletedAt,
+        p_link_expires_at: r.linkExpiresAt, p_link_expiry_source: r.linkExpirySource, p_object_sha256: r.sha256,
       });
-      return !error;
+      const outcome = (data as { outcome?: string } | null)?.outcome;
+      if (error || !outcome) throw new Error("issuance decision unavailable");
+      if (outcome === "issued" || outcome === "withdrawn_before_issue" || outcome === "expired_before_issue" || outcome === "unavailable") return outcome;
+      throw new Error("issuance decision refused its inputs");
+    },
+    // A precheck refusal (best effort; the refusal stands without it). Never the URL or token.
+    recordDenial: async (e) => {
+      await service.rpc("record_trial_balance_source_download_denial", { p_user_id: e.userId, p_company_id: e.companyId, p_upload_id: e.uploadId, p_object_sha256: e.sha256 });
     },
   }, parsed).catch(() => ({ status: 500, outcome: "signing_failed" as const }));
 
