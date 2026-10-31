@@ -27,22 +27,25 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 export const TRANSPORT_DIR = "release/staged-transport-ipsas";
 /** The commit that introduced the migration bytes (feat/ipsas-accrual-first-chain). Identity is the byte count + SHA-256; if the
  *  commit is unreachable (squash merge) the same bytes are read from the working tree and held to the same identity. */
-export const SOURCE_COMMIT = "1cc08c0500ab4422366d9a364f878ec6b28fca3b";
+export const SOURCE_COMMIT = "2165066cd6d2dda2d3faca19d4b41a1fbd524817";
 const EQUIPMENT_LAST = EQUIPMENT_BATCHES.length; // entryHashes(n) = the journal forms of the n-th equipment entry after its bootstrap
 /** The equipment-r1 transport's last entry (0090_eqp_2_multiclass_staged_apply, hosted id 91): the exact journal head required. */
 export const BOOTSTRAP_PREDECESSOR = Object.freeze({ id: 91, tag: "0090_eqp_2_multiclass_staged_apply", hashes: Object.freeze(equipmentEntryHashes(EQUIPMENT_LAST + 0)) });
+// The stage table bounds a staged body (installed catalogue). It was 54,129 bytes, the equipment source; the preparation source is now 60,510 bytes (the authority
+// ordering and denomination repairs), so the bound is 65,536. Whether the OWNER'S stage channel carries a statement of that size is NOT verified here (the equipment
+// release carried 54,129); it is an installation gate in docs/release/ipsas-independent-review/HANDOFF.md, with splitting the source into two batches as the fallback.
 export const BOOTSTRAP_NAME = "ipsas_staged_transport";
 export const PREREQUISITES = Object.freeze({
-  tables: ["companies", "firm_members", "tb_certifications", "financial_statement_documents", "fs_equipment_answers"],
+  tables: ["companies", "firm_members", "tb_certifications", "financial_statement_documents", "fs_equipment_answers", "workspace_member_capabilities", "financial_statements_rollout_state", "financial_statements_rollout_companies", "internal_beta_policy", "internal_beta_enrollments"],
   functions: ["_fs_equipment_depreciation_charge(jsonb,date,date,text)", "_fs_equipment_rational(text)", "_cr_certified_accounts(uuid)", "_cr_member(uuid,uuid)",
-    "fs_rollout_allows(uuid)", "workspace_capability_allowed(uuid,uuid,text)", "_fs_reporting_input_compute(uuid,integer)", "_fs_section(text)"],
+    "fs_rollout_allows(uuid)", "workspace_capability_allowed(uuid,uuid,text)", "_plan_write_lock(uuid)", "_fs_reporting_input_compute(uuid,integer)", "_fs_section(text)"],
 });
 export const RPCS = Object.freeze(["ipsas_prep_context(uuid,integer)", "ipsas_save_preparation(uuid,integer,text,jsonb,uuid,uuid)", "ipsas_confirm(uuid,integer,text,text,uuid,uuid)"]);
 export const INSTALLED = "to_regclass('public.ipsas_prep_revisions') IS NOT NULL AND to_regclass('public.ipsas_confirmations') IS NOT NULL AND " +
   RPCS.map((f) => "to_regprocedure('public." + f + "') IS NOT NULL").join(" AND ");
 export const BATCHES = Object.freeze([
   Object.freeze({ batch: "ipsas-1-preparation", name: "ipsas_1_preparation_staged_apply", source: "20261207100000_ipsas_accrual_preparation.sql", installed: INSTALLED,
-    artifacts: { source: Object.freeze({ path: "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql", bytes: 52207, sha256: "c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d", commit: SOURCE_COMMIT }) } }),
+    artifacts: { source: Object.freeze({ path: "supabase/migrations/20261207100000_ipsas_accrual_preparation.sql", bytes: 60510, sha256: "f5708d9635f7e3a2b684da46fa9c9c2e839ff30c4788e1b3df38b8543b6a33db", commit: SOURCE_COMMIT }) } }),
 ]);
 
 export const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -108,7 +111,7 @@ ${predecessorCheck()}
   CREATE SCHEMA cfoclose_ipsas_release;
   COMMENT ON SCHEMA cfoclose_ipsas_release IS 'Release-only exact-byte transport for ipsas-chain-r1; never exposed to clients.';
   CREATE TABLE cfoclose_ipsas_release.staged_artifacts (
-    batch text NOT NULL, kind text NOT NULL CHECK (kind IN ('source','wrapper','preflight','postcondition')), body text NOT NULL CHECK (octet_length(convert_to(body, 'UTF8')) <= 54129),
+    batch text NOT NULL, kind text NOT NULL CHECK (kind IN ('source','wrapper','preflight','postcondition')), body text NOT NULL CHECK (octet_length(convert_to(body, 'UTF8')) <= 65536),
     body_bytes integer NOT NULL, body_sha256 text NOT NULL, staged_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     staged_by name NOT NULL DEFAULT session_user, consumed_at timestamptz,
     PRIMARY KEY (batch, kind)
@@ -292,8 +295,8 @@ export function transportForms() {
 
 /** Reviewed transport forms (pinned renderings). Hosted journal entries are registered only after canonical execution. */
 export const REGISTERED_TRANSPORT_FORMS = Object.freeze({
-  ipsas_staged_transport: "390b04a3841c0e5706fb41ea2089db26b29313e65a7098251105b83485814666",
-  ipsas_1_preparation_staged_apply: "6b8fa74cfd0e720980bfc31830df5e3ba668c1e677b3ed1bda229b6aae59d5b2",
+  ipsas_staged_transport: "f10f973e719092faf2b313902070a6031244d3c1d5b27b9672ace4ccd1c5dd82",
+  ipsas_1_preparation_staged_apply: "108c034845c17fa9915f1328d7840c2cd7cf6338d4bd169b0a1df1254369b1a0",
 });
 
 export function checkTransportMirror(tag, text) {

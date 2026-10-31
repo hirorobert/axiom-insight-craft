@@ -2,7 +2,7 @@
 -- The IPSAS grants source is inert until a registered apply executes it.
 DO $cfoclose_ipsas_grants_transport_bootstrap$
 DECLARE
-  c_predecessor CONSTANT text[] := ARRAY['6b8fa74cfd0e720980bfc31830df5e3ba668c1e677b3ed1bda229b6aae59d5b2', 'c021f956f032fbb13830b238a8561615b3b57c3c51850f0b36c4fd61a6c0a324']::text[];
+  c_predecessor CONSTANT text[] := ARRAY['108c034845c17fa9915f1328d7840c2cd7cf6338d4bd169b0a1df1254369b1a0', 'c7f11b059e77b5d79e9da99e81a5ebb005520906205b4c7f7577d3da0012c6d2']::text[];
   v_n bigint;
   v_pred_id bigint;
   v_role name;
@@ -37,7 +37,7 @@ BEGIN
   CREATE FUNCTION cfoclose_ipsas_grants_release.approved_artifact(p_batch text, p_kind text, OUT bytes integer, OUT sha256 text)
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
-        ('ipsas-2-grants', 'source', 30695, '2598fc7adfed4f04225a59efb1ba8f95e01db81ea09586b54d86569bb938dced')
+        ('ipsas-2-grants', 'source', 32017, 'a15d9a4ebe85bcb38f7e5d1088247172573eae781d67ba69301f9021b4836ee1')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_ipsas_grants_release.staged_artifacts_guard() RETURNS trigger

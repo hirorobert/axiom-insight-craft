@@ -24,7 +24,7 @@ BEGIN
   CREATE SCHEMA cfoclose_ipsas_release;
   COMMENT ON SCHEMA cfoclose_ipsas_release IS 'Release-only exact-byte transport for ipsas-chain-r1; never exposed to clients.';
   CREATE TABLE cfoclose_ipsas_release.staged_artifacts (
-    batch text NOT NULL, kind text NOT NULL CHECK (kind IN ('source','wrapper','preflight','postcondition')), body text NOT NULL CHECK (octet_length(convert_to(body, 'UTF8')) <= 54129),
+    batch text NOT NULL, kind text NOT NULL CHECK (kind IN ('source','wrapper','preflight','postcondition')), body text NOT NULL CHECK (octet_length(convert_to(body, 'UTF8')) <= 65536),
     body_bytes integer NOT NULL, body_sha256 text NOT NULL, staged_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     staged_by name NOT NULL DEFAULT session_user, consumed_at timestamptz,
     PRIMARY KEY (batch, kind)
@@ -37,7 +37,7 @@ BEGIN
   CREATE FUNCTION cfoclose_ipsas_release.approved_artifact(p_batch text, p_kind text, OUT bytes integer, OUT sha256 text)
     LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $fn$
       SELECT a.bytes, a.sha256 FROM (VALUES
-        ('ipsas-1-preparation', 'source', 52207, 'c5de982c6ee694999bcda2cb4b9b9dc80a49731cee7256da940179ced0c7e19d')
+        ('ipsas-1-preparation', 'source', 60510, 'f5708d9635f7e3a2b684da46fa9c9c2e839ff30c4788e1b3df38b8543b6a33db')
       ) AS a(batch, kind, bytes, sha256) WHERE a.batch = p_batch AND a.kind = p_kind
     $fn$;
   CREATE FUNCTION cfoclose_ipsas_release.staged_artifacts_guard() RETURNS trigger

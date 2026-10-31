@@ -1,4 +1,4 @@
-INSERT INTO cfoclose_ipsas_grants_release.staged_artifacts(batch, kind, body) VALUES ('ipsas-2-grants', 'source', $cfoclose_ipsas_grants_stage_2598fc7adfed4f04$-- Authored forward migration; NOT applied hosted. Follows 20261207100000 (IPSAS accrual preparation: it reuses _ipsas_immutable,
+INSERT INTO cfoclose_ipsas_grants_release.staged_artifacts(batch, kind, body) VALUES ('ipsas-2-grants', 'source', $cfoclose_ipsas_grants_stage_a15d9a4ebe85bcb3$-- Authored forward migration; NOT applied hosted. Follows 20261207100000 (IPSAS accrual preparation: it reuses _ipsas_immutable,
 -- _ipsas_minor, _ipsas_nat, _ipsas_enough, _ipsas_arr, _ipsas_refusal and _ipsas_authorize_mutation) and 20261014100000 (_cr_certified_accounts, _cr_member).
 -- New objects only; no existing table, row or privilege is changed. No outer transaction: the native migrator owns it (see PR #210).
 --
@@ -68,7 +68,7 @@ REVOKE ALL ON FUNCTION public._ipsas_natj(jsonb) FROM PUBLIC, anon, authenticate
 -- The reporting period of the CURRENT certification's upload (fiscal_periods), the certification id, and nothing typed by a user.
 CREATE FUNCTION public._ipsas_grants_period(p_company_id uuid, p_period_year integer) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-  SELECT jsonb_build_object('certificationId', i#>>'{current,certificationId}', 'start', i#>>'{current,reportingStart}', 'end', i#>>'{current,reportingEnd}')
+  SELECT jsonb_build_object('certificationId', i#>>'{current,certificationId}', 'start', i#>>'{current,reportingStart}', 'end', i#>>'{current,reportingEnd}', 'presentation', public._ipsas_presentation(i))
     FROM (SELECT public._fs_reporting_input_compute(p_company_id, p_period_year) i) x WHERE i->>'state' = 'current';
 $$;
 REVOKE ALL ON FUNCTION public._ipsas_grants_period(uuid, integer) FROM PUBLIC, anon, authenticated, service_role;
@@ -213,8 +213,8 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS
 DECLARE v_rev public.ipsas_grant_revisions; v_period jsonb; v_tb jsonb; v_confirmed jsonb := '{}'::jsonb; v_g jsonb; v_sel jsonb;
 BEGIN
   SELECT * INTO v_rev FROM public.ipsas_grant_revisions WHERE company_id = p_company_id AND period_year = p_period_year ORDER BY seq DESC LIMIT 1;
-  v_period := coalesce(public._ipsas_grants_period(p_company_id, p_period_year), jsonb_build_object('certificationId', NULL, 'start', NULL, 'end', NULL));
-  IF v_rev.id IS NULL THEN RETURN jsonb_build_object('period', v_period, 'revisionId', NULL, 'assessment', NULL, 'tb', NULL, 'confirmedGrants', v_confirmed); END IF;
+  v_period := coalesce(public._ipsas_grants_period(p_company_id, p_period_year), jsonb_build_object('certificationId', NULL, 'start', NULL, 'end', NULL, 'presentation', jsonb_build_object('state', 'unknown')));
+  IF v_rev.id IS NULL THEN RETURN jsonb_build_object('period', v_period, 'revisionId', NULL, 'assessment', NULL, 'tb', NULL, 'confirmedGrants', v_confirmed, 'presentation', v_period->'presentation'); END IF;
   v_sel := coalesce(v_rev.payload->'tbSelection', '{}'::jsonb);
   v_tb := jsonb_build_object('revenueMinor', public._ipsas_tb_sum(p_company_id, p_period_year, v_sel->'revenueKeys', 'credit')::text,
     'liabilityMinor', public._ipsas_tb_sum(p_company_id, p_period_year, v_sel->'liabilityKeys', 'credit')::text,
@@ -225,7 +225,7 @@ BEGIN
       v_confirmed := v_confirmed || jsonb_build_object(v_g->>'grantId', true);
     END IF;
   END LOOP;
-  RETURN jsonb_build_object('period', v_period, 'revisionId', v_rev.id, 'tb', v_tb, 'confirmedGrants', v_confirmed,
+  RETURN jsonb_build_object('period', v_period, 'revisionId', v_rev.id, 'tb', v_tb, 'confirmedGrants', v_confirmed, 'presentation', v_period->'presentation',
     'assessment', public._ipsas_grants_assess(v_rev.payload, v_period, v_tb, v_confirmed));
 END;
 $$;
@@ -249,7 +249,7 @@ $$;
 
 CREATE FUNCTION public.ipsas_save_grants(p_company_id uuid, p_period_year integer, p_payload jsonb, p_expected_id uuid, p_request_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE v_refusal text; v_fp text; v_prior public.ipsas_grant_revisions; v_current uuid; v_id uuid := gen_random_uuid(); v_at timestamptz; v_cert uuid; v_receipt jsonb; v_sha text; v_g jsonb;
+DECLARE v_refusal text; v_fp text; v_prior public.ipsas_grant_revisions; v_current uuid; v_id uuid := gen_random_uuid(); v_at timestamptz; v_cert uuid; v_receipt jsonb; v_sha text; v_g jsonb; v_period jsonb; v_pres jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'UNAUTHENTICATED' USING ERRCODE = '28000'; END IF;
   v_refusal := public._ipsas_refusal(p_company_id, auth.uid(), 'prepare_close');
@@ -276,7 +276,16 @@ BEGIN
   END IF;
   SELECT id INTO v_current FROM public.ipsas_grant_revisions WHERE company_id = p_company_id AND period_year = p_period_year ORDER BY seq DESC LIMIT 1;
   IF v_current IS DISTINCT FROM p_expected_id THEN RETURN jsonb_build_object('outcome', 'stale', 'currentId', v_current); END IF;
-  v_cert := (public._ipsas_grants_period(p_company_id, p_period_year))->>'certificationId';
+  -- Every typed amount is a number of minor units of the SERVER-confirmed denomination (see _ipsas_presentation in 20261207100000).
+  v_period := public._ipsas_grants_period(p_company_id, p_period_year);
+  v_pres := coalesce(v_period->'presentation', jsonb_build_object('state', 'unknown'));
+  IF v_pres->>'state' = 'unknown' THEN RETURN jsonb_build_object('outcome', 'denomination_unavailable'); END IF;
+  IF v_pres->>'state' = 'unsupported' THEN RETURN jsonb_build_object('outcome', 'denomination_unsupported'); END IF;
+  IF NOT public._ipsas_denomination_matches('grants', p_payload, v_pres)
+     OR (v_current IS NOT NULL AND NOT public._ipsas_denomination_matches('grants', (SELECT r.payload FROM public.ipsas_grant_revisions r WHERE r.id = v_current), v_pres)) THEN
+    RETURN jsonb_build_object('outcome', 'denomination_mismatch');
+  END IF;
+  v_cert := v_period->>'certificationId';
   v_sha := encode(sha256(convert_to(p_payload::text, 'UTF8')), 'hex');
   v_at := clock_timestamp();
   v_receipt := jsonb_build_object('outcome', 'recorded', 'revisionId', v_id, 'createdAt', v_at, 'payloadSha256', v_sha);
@@ -314,6 +323,8 @@ BEGIN
   IF v_grant IS NULL THEN RETURN jsonb_build_object('outcome', 'unknown_subject'); END IF;
   v_period := public._ipsas_grants_period(p_company_id, p_period_year);
   IF v_period IS NULL OR v_period->>'start' IS NULL OR coalesce(v_grant->>'classification', '') = '' OR NOT public._ipsas_enough(v_grant->>'classificationBasis', 8) THEN RETURN jsonb_build_object('outcome', 'not_confirmable'); END IF;
+  IF v_period#>>'{presentation,state}' = 'unsupported' THEN RETURN jsonb_build_object('outcome', 'denomination_unsupported'); END IF;
+  IF NOT public._ipsas_denomination_matches('grants', v_rev.payload, v_period->'presentation') THEN RETURN jsonb_build_object('outcome', 'denomination_mismatch'); END IF;
   v_sha := public._ipsas_grant_subject_sha(v_grant, v_period->>'start');
   INSERT INTO public.ipsas_grant_confirmations (id, company_id, period_year, grant_id, subject_sha256, revision_id, actor_user_id, firm_member_id, request_id, request_fingerprint)
   VALUES (v_id, p_company_id, p_period_year, p_grant_id, v_sha, v_rev.id, auth.uid(), public._cr_member(p_company_id, auth.uid()), p_request_id, v_fp);
@@ -323,4 +334,4 @@ $$;
 
 REVOKE ALL ON FUNCTION public.ipsas_grants_context(uuid, integer), public.ipsas_save_grants(uuid, integer, jsonb, uuid, uuid), public.ipsas_confirm_grant(uuid, integer, text, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.ipsas_grants_context(uuid, integer), public.ipsas_save_grants(uuid, integer, jsonb, uuid, uuid), public.ipsas_confirm_grant(uuid, integer, text, uuid, uuid) TO authenticated;
-$cfoclose_ipsas_grants_stage_2598fc7adfed4f04$);
+$cfoclose_ipsas_grants_stage_a15d9a4ebe85bcb3$);

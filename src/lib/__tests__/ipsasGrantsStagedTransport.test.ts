@@ -11,9 +11,9 @@ const migration = fs.readFileSync(path.join(ROOT, "supabase/migrations/202612081
 
 describe("IPSAS grants exact-byte staged transport", () => {
   it("pins the authored migration bytes and the IPSAS preparation transport's last entry as the only accepted journal head", () => {
-    expect(SOURCE_COMMIT).toBe("1cc08c0500ab4422366d9a364f878ec6b28fca3b");
+    expect(SOURCE_COMMIT).toBe("2165066cd6d2dda2d3faca19d4b41a1fbd524817");
     expect(BATCHES).toHaveLength(1);
-    expect(BATCHES[0].artifacts.source.bytes).toBe(30695);
+    expect(BATCHES[0].artifacts.source.bytes).toBe(32017);
     expect(artifactBytes(0, "source").equals(migration)).toBe(true);
     expect(BOOTSTRAP_PREDECESSOR.id).toBe(93);
     expect(BOOTSTRAP_PREDECESSOR.tag).toBe("0092_ipsas_1_preparation_staged_apply");
