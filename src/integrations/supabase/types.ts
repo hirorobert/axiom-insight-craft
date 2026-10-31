@@ -6645,6 +6645,135 @@ export type Database = {
           },
         ]
       }
+      ipsas_confirmations: {
+        Row: {
+          actor_user_id: string
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          period_year: number
+          request_fingerprint: string
+          request_id: string
+          revision_id: string
+          seq: number
+          subject_key: string
+          subject_kind: string
+          subject_sha256: string
+        }
+        Insert: {
+          actor_user_id: string
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year: number
+          request_fingerprint: string
+          request_id: string
+          revision_id: string
+          seq?: never
+          subject_key: string
+          subject_kind: string
+          subject_sha256: string
+        }
+        Update: {
+          actor_user_id?: string
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          period_year?: number
+          request_fingerprint?: string
+          request_id?: string
+          revision_id?: string
+          seq?: never
+          subject_key?: string
+          subject_kind?: string
+          subject_sha256?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ipsas_confirmations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ipsas_confirmations_revision_id_fkey"
+            columns: ["revision_id"]
+            isOneToOne: false
+            referencedRelation: "ipsas_prep_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ipsas_prep_revisions: {
+        Row: {
+          actor_user_id: string
+          certification_id: string | null
+          company_id: string
+          created_at: string
+          firm_member_id: string | null
+          id: string
+          kind: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          actor_user_id: string
+          certification_id?: string | null
+          company_id: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          kind: string
+          payload: Json
+          payload_sha256: string
+          period_year: number
+          receipt: Json
+          request_fingerprint: string
+          request_id: string
+          seq?: never
+        }
+        Update: {
+          actor_user_id?: string
+          certification_id?: string | null
+          company_id?: string
+          created_at?: string
+          firm_member_id?: string | null
+          id?: string
+          kind?: string
+          payload?: Json
+          payload_sha256?: string
+          period_year?: number
+          receipt?: Json
+          request_fingerprint?: string
+          request_id?: string
+          seq?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ipsas_prep_revisions_certification_id_fkey"
+            columns: ["certification_id"]
+            isOneToOne: false
+            referencedRelation: "tb_certifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ipsas_prep_revisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       keyword_dictionary: {
         Row: {
           classification: Database["public"]["Enums"]["account_classification"]
@@ -11522,6 +11651,54 @@ export type Database = {
         }
         Returns: boolean
       }
+      _ipsas_arr: { Args: { p: Json }; Returns: Json }
+      _ipsas_authorize_mutation: {
+        Args: { p_capability: string; p_company_id: string; p_uid: string }
+        Returns: string
+      }
+      _ipsas_bridge_assess: {
+        Args: { p_confirmed: boolean; p_openings: Json; p_prior: Json }
+        Returns: Json
+      }
+      _ipsas_class_charge: {
+        Args: {
+          p_class: Json
+          p_convention: string
+          p_end: string
+          p_start: string
+        }
+        Returns: Json
+      }
+      _ipsas_class_roll: { Args: { p_class: Json }; Returns: Json }
+      _ipsas_denomination_matches: {
+        Args: { p_kind: string; p_payload: Json; p_pres: Json }
+        Returns: boolean
+      }
+      _ipsas_disposal_summary: { Args: { p_class: Json }; Returns: Json }
+      _ipsas_enough: { Args: { n?: number; p: string }; Returns: boolean }
+      _ipsas_estimate_subject_sha: {
+        Args: { p_class: Json; p_payload: Json }
+        Returns: string
+      }
+      _ipsas_live: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      _ipsas_minor: { Args: { p: string }; Returns: number }
+      _ipsas_nat: { Args: { p: string }; Returns: number }
+      _ipsas_ppe_assess: {
+        Args: { p_confirmed: Json; p_payload: Json; p_tb: Json }
+        Returns: Json
+      }
+      _ipsas_presentation: { Args: { p_input: Json }; Returns: Json }
+      _ipsas_refusal: {
+        Args: { p_capability: string; p_company_id: string; p_uid: string }
+        Returns: string
+      }
+      _ipsas_tb_facts: {
+        Args: { p_company_id: string; p_period_year: number; p_selection: Json }
+        Returns: Json
+      }
       _issue_reporting_pack: {
         Args: {
           p_company_id: string
@@ -13491,6 +13668,32 @@ export type Database = {
         Returns: Json
       }
       invitation_reservation_ttl: { Args: never; Returns: string }
+      ipsas_confirm: {
+        Args: {
+          p_company_id: string
+          p_expected_revision_id: string
+          p_period_year: number
+          p_request_id: string
+          p_subject_key: string
+          p_subject_kind: string
+        }
+        Returns: Json
+      }
+      ipsas_prep_context: {
+        Args: { p_company_id: string; p_period_year: number }
+        Returns: Json
+      }
+      ipsas_save_preparation: {
+        Args: {
+          p_company_id: string
+          p_expected_id: string
+          p_kind: string
+          p_payload: Json
+          p_period_year: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       is_commercial_admin: { Args: never; Returns: boolean }
       is_iso_3166_alpha2: { Args: { p_code: string }; Returns: boolean }
       is_platform_owner: { Args: { p_user: string }; Returns: boolean }
