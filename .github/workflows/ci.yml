@@ -198,6 +198,9 @@ jobs:
       - name: Type-check the independent statement compiler against the real Supabase client types
         run: deno check supabase/functions/compile-financial-report/index.ts
 
+      - name: Type-check the QuickBooks connector functions (connect start, OAuth callback and trial balance pull) against the real Supabase client types
+        run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-pull-trial-balance/index.ts
+
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
         run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
 

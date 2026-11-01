@@ -41,6 +41,15 @@ export interface EnvelopeBinding {
 
 const KEY_ID = /^[a-z0-9-]{1,32}$/;
 
+/**
+ * The binding of a connection's refresh token. The connection row's id is assigned by the database AFTER the token is sealed, so the binding
+ * uses the identity that determines the one live connection (workspace + environment + QuickBooks company): a token sealed for one workspace,
+ * environment or realm cannot be opened as another's.
+ */
+export function connectionBinding(companyId: string, realmId: string, environment: "production" | "sandbox"): EnvelopeBinding {
+  return { workspaceId: companyId, connectionId: `${environment}:${realmId}`, purpose: "qbo-refresh-token" };
+}
+
 const b64u = {
   enc(bytes: Uint8Array): string {
     let s = "";

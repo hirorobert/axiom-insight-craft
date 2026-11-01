@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { classifyQboRequest, createGuardedQboFetch, QboGuardRefusal } from "../../../supabase/functions/_shared/qboReadOnlyGuard";
+import { classifyQboRequest, createGuardedQboFetch, QBO_TOKEN_URL, qboAuthorizeUrl, QboGuardRefusal, qboReportUrl } from "../../../supabase/functions/_shared/qboReadOnlyGuard";
 
 const REPORT = "https://quickbooks.api.intuit.com/v3/company/9341458604136919/reports/TrialBalance";
 const SANDBOX = "https://sandbox-quickbooks.api.intuit.com/v3/company/9341458604136919/reports/TrialBalance";
@@ -82,6 +82,39 @@ describe("guarded fetch", () => {
     const f = vi.fn(async () => new Response("{}"));
     await createGuardedQboFetch(f)({ method: "POST", url: TOKEN, headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "grant_type=refresh_token&refresh_token=x" });
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the addresses the connector builds", () => {
+  const CLIENT = "ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+  const STATE = "a".repeat(64);
+  it("builds the authorisation address with the Accounting scope only and the state", () => {
+    const u = new URL(qboAuthorizeUrl({ clientId: CLIENT, redirectUri: "https://app.example.test/functions/v1/qbo-oauth-callback", state: STATE }));
+    expect(u.origin + u.pathname).toBe("https://appcenter.intuit.com/connect/oauth2");
+    expect(Object.fromEntries(u.searchParams)).toEqual({ client_id: CLIENT, response_type: "code", scope: "com.intuit.quickbooks.accounting", redirect_uri: "https://app.example.test/functions/v1/qbo-oauth-callback", state: STATE });
+  });
+  it("refuses a malformed client id, state or redirect address", () => {
+    const ok = { clientId: CLIENT, redirectUri: "https://app.example.test/cb", state: STATE };
+    expect(() => qboAuthorizeUrl({ ...ok, clientId: "bad id" })).toThrow(QboGuardRefusal);
+    expect(() => qboAuthorizeUrl({ ...ok, state: "short" })).toThrow(QboGuardRefusal);
+    expect(() => qboAuthorizeUrl({ ...ok, redirectUri: "http://app.example.test/cb" })).toThrow(QboGuardRefusal);
+    expect(() => qboAuthorizeUrl({ ...ok, redirectUri: "https://app.example.test/cb?x=1" })).toThrow(QboGuardRefusal);
+  });
+  it("builds a report address that the guard itself allows, with both dates", () => {
+    const url = qboReportUrl({ environment: "sandbox", realmId: "9341458607761798", startDate: "2026-01-01", endDate: "2026-10-31", accountingMethod: "Accrual", minorVersion: 75 });
+    expect(url).toBe("https://sandbox-quickbooks.api.intuit.com/v3/company/9341458607761798/reports/TrialBalance?start_date=2026-01-01&end_date=2026-10-31&accounting_method=Accrual&minorversion=75");
+    expect(classifyQboRequest({ method: "GET", url })).toEqual({ ok: true, kind: "report", environment: "sandbox" });
+    expect(qboReportUrl({ environment: "production", realmId: "1", startDate: "2026-01-01", endDate: "2026-01-31" })).toMatch(/^https:\/\/quickbooks\.api\.intuit\.com\/v3\/company\/1\/reports\/TrialBalance\?start_date=/);
+  });
+  it("refuses to build a report address the guard would refuse", () => {
+    const base = { environment: "sandbox" as const, realmId: "123", startDate: "2026-01-01", endDate: "2026-10-31" };
+    expect(() => qboReportUrl({ ...base, realmId: "12ab" })).toThrow(QboGuardRefusal);
+    expect(() => qboReportUrl({ ...base, startDate: "2026-1-1" })).toThrow(QboGuardRefusal);
+    expect(() => qboReportUrl({ ...base, minorVersion: 1234 })).toThrow(QboGuardRefusal);
+  });
+  it("the token address is the one the guard allows for a POST and nothing else", () => {
+    expect(classifyQboRequest({ method: "POST", url: QBO_TOKEN_URL })).toEqual({ ok: true, kind: "token", environment: null });
+    expect(classifyQboRequest({ method: "GET", url: QBO_TOKEN_URL }).ok).toBe(false);
   });
 });
 

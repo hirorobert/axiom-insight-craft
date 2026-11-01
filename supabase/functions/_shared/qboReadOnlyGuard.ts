@@ -82,6 +82,33 @@ export class QboGuardRefusal extends Error {
   }
 }
 
+// ── the addresses the connector uses (they live here so that no other code names an Intuit host) ─────────────────────────────
+
+export const QBO_TOKEN_URL = `https://${QBO_TOKEN_HOST}${QBO_TOKEN_PATH}`;
+export const QBO_ACCOUNTING_SCOPE = "com.intuit.quickbooks.accounting";
+// The authorisation page is a BROWSER redirect target. The server never fetches it, so it is not on the request allow-list above.
+const QBO_AUTHORIZE_BASE = "https://appcenter.intuit.com/connect/oauth2";
+
+/** The browser address that starts authorisation: the Accounting scope only, the state we generated, the redirect address registered for the app. */
+export function qboAuthorizeUrl(a: { clientId: string; redirectUri: string; state: string }): string {
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(a.clientId)) throw new QboGuardRefusal("the client id is malformed");
+  if (!/^https:\/\/[^\s?#]+$/.test(a.redirectUri)) throw new QboGuardRefusal("the redirect address must be an https address without a query or fragment");
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(a.state)) throw new QboGuardRefusal("the state is malformed");
+  const q = new URLSearchParams({ client_id: a.clientId, response_type: "code", scope: QBO_ACCOUNTING_SCOPE, redirect_uri: a.redirectUri, state: a.state });
+  return `${QBO_AUTHORIZE_BASE}?${q.toString()}`;
+}
+
+/** The address of one Trial Balance report. Always both dates (a lone end date is ignored by QuickBooks). Refused unless the guard would allow it. */
+export function qboReportUrl(a: { environment: QboEnvironment; realmId: string; startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash"; minorVersion?: number }): string {
+  const q = new URLSearchParams({ start_date: a.startDate, end_date: a.endDate });
+  if (a.accountingMethod) q.set("accounting_method", a.accountingMethod);
+  if (a.minorVersion !== undefined) q.set("minorversion", String(a.minorVersion));
+  const url = `https://${QBO_API_HOSTS[a.environment]}/v3/company/${a.realmId}/reports/TrialBalance?${q.toString()}`;
+  const verdict = classifyQboRequest({ method: "GET", url });
+  if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
+  return url;
+}
+
 export interface GuardedRequest {
   method: string;
   url: string;

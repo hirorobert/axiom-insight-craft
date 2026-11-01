@@ -223,6 +223,9 @@ describe("database inertness — schema and functions", () => {
       // The connector's read-only request guard and its token envelope (AES-256-GCM): pure, imported by no Edge Function yet. No schema.
       "supabase/functions/_shared/qboReadOnlyGuard.ts",
       "supabase/functions/_shared/qboTokenEnvelope.ts",
+      // The connector's Edge Functions and their pure cores (connect start, OAuth callback, trial balance pull): every Intuit call goes through the read-only guard; no schema.
+      "supabase/functions/_shared/qboTokenClient.ts", "supabase/functions/_shared/qboConnect.ts", "supabase/functions/_shared/qboPull.ts", "supabase/functions/_shared/qboPullSummary.ts", "supabase/functions/_shared/qboEnv.ts",
+      "supabase/functions/qbo-connect-start/index.ts", "supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/qbo-pull-trial-balance/index.ts",
       "supabase/functions/_shared/comparativeAssurance.ts",
       "supabase/functions/comparative-assurance-engine/index.ts",
       // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack
