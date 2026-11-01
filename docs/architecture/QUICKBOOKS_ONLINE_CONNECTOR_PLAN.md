@@ -1,8 +1,8 @@
 # QuickBooks Online connector: design plan (read-only, user-initiated)
 
-> **STATUS: PROPOSAL. Nothing here is built, approved or installed.** It implements charter rule R14 ("Connectors. Read-only first") and build item B9,
-> whose exit criterion is the A2 parity test. **Every statement about Intuit's API, terms, limits or regional availability is from the author's
-> memory and is UNVERIFIED**; section 9 lists each one to check against Intuit's current documentation before any code is written.
+> **STATUS: PROPOSAL. Nothing here is approved or installed; only the offline pieces listed in 12.1 are built (PR #236), and nothing is connected to QuickBooks.** It implements charter rule R14 ("Connectors. Read-only first") and build item B9,
+> whose exit criterion is the A2 parity test. **Statements about Intuit's API, terms, limits or regional availability were first from the author's
+> memory; section 9.2 records which were then read from Intuit's own pages or observed in a real call (2026-10-31/11-01), and which remain OPEN.**
 > The charter's section 9 rule applies: B9 needs a technical owner, an accounting author and an independent reviewer, none of whom is named for B9 yet.
 
 ## 1. What the user sees
@@ -99,6 +99,58 @@ Intuit's documentation pages are rendered by script and **could not be read dire
 | Item 6, regions | Sources disagree on which editions exist and which are covered (some call the US and European products different, with different API links). **Unresolved.** The sandbox's country choice gives a practical test once the clients' edition is known. | Weak; needs Intuit or a real sandbox in the right country |
 | Item 8, AI terms | The developer terms page shows an effective date of 14 October 2025, but its text could not be read. Third-party summaries conflict; one says AI use is not categorically banned but carries conditions (consent, responsible-AI, written data-protection duties). **Not verified. A lawyer must read the actual terms.** | None usable |
 | Items 1 to 5, 7, 9, 10 | **Still unverified.** | None |
+
+### 9.2 Read from Intuit's own pages and run against the sandbox (2026-10-31 and 2026-11-01)
+
+**Method (this corrects 9.1's reading problem):** Intuit's documentation pages are script-rendered, so the assistant's fetch tool saw only a heading, but they **can be read as text in the built-in browser pane**; that is how everything below was read. One real call was also made: the Trial Balance report in Intuit's API Explorer against the owner's sandbox company (read-only, no consent prompt appeared). Strength words: **DOCS** = read on Intuit's page; **RUN** = observed in a real response; **OPEN** = not established.
+
+| # | Item | Result | Strength |
+|---|---|---|---|
+| 1 | Authorisation flow | Standard OAuth 2.0 authorisation-code flow. The user is sent to `https://appcenter.intuit.com/connect/oauth2` with `client_id`, `scope`, `redirect_uri`, `response_type=code` and a `state` (Intuit "strongly recommends" an anti-forgery token in it). Intuit redirects back with `code`, `state` and `realmId`. The code is exchanged at `https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer` with HTTP Basic client credentials. The authorisation request must be made in a browser modal. | DOCS |
+| 2 | Scopes | The Accounting scope is `com.intuit.quickbooks.accounting`. **No read-only variant appears on the pages read**, and Intuit advises requesting scopes incrementally. So the read-only guard (4.2) stays mandatory. | DOCS (absence of a read-only scope is not proof there is none) |
+| 3 | Report endpoint | `GET /v3/company/<realmID>/reports/TrialBalance` with optional `start_date`, `end_date` (YYYY-MM-DD), `accounting_method` (Cash or Accrual), `date_macro`, `sort_order`, `summarize_column_by`; `Accept: application/json`. **France uses `TrialBalanceFR`** instead. Bases: production `https://quickbooks.api.intuit.com`, sandbox `https://sandbox-quickbooks.api.intuit.com`. A real call returned the report. | DOCS + RUN |
+| 4 | Token lifetimes | Access token 3,600 s. Refresh token: **rolling 100-day expiry; always store the newest `refresh_token` from the latest response**; there is also a five-year hard lifetime (`x_refresh_token_hard_expires_in`, returned only when the request header `x-include-refresh-token-hard-expires-in: true` is sent). After expiry the user must reauthorise. Implications: rotate and store the new token **before** using it; a connection idle 100 days dies; the product needs a "reconnect needed" state. | DOCS |
+| 5 | Limits | 500 requests/minute per company (realm), 10/second per company and app, HTTP 429 means wait 60 s, 120 s request timeout, 1,000 entities per query. App Partner Program Builder tier (no monthly fee): Core API uncapped, **CorePlus capped at 500,000 calls per calendar month**. **OPEN:** whether the Reports API counts as Core or CorePlus is not stated on the pages read. | DOCS (one OPEN) |
+| 6 | Regions | See section 11. | see 11 |
+| 7 | Production | The partner tiers page says the Intuit App Partner Program is "available for partners based in the US, UK, Australia, and Canada (excluding Quebec)". **OPEN:** whether a Tanzania-based developer can obtain production keys and under what tier or terms; Intuit's app-assessment requirements were not read. Ask Intuit support in writing before any production work. | DOCS + OPEN |
+| 8 | AI and storage terms | Still unread. A lawyer must read the developer terms. | OPEN |
+| 9 | Account ids and sub-accounts | Each account row carries QuickBooks's own `id`; sub-accounts are flat names joined by `:`; **no account codes and no account types** in the report. | RUN |
+| 10 | Currency | The report header states the currency (`USD` in the sandbox); Intuit's page says values are not localised unless indicated; amounts arrive as decimal strings with two decimals. Multi-currency behaviour not tested. | DOCS + RUN (multi-currency OPEN) |
+
+### 9.3 Date range versus as-of balances (income and expense accounts)
+
+**Not yet tested** (the owner's Intuit session expired during the check; the assistant never enters credentials). The one observation so far: the API report for 2026-10-01 to 2026-10-31 and the screen's "as of 31 October 2026" report both totalled 41,421.60, which does not settle it, because the sandbox's transactions may all fall in one period. To test: run the same company for `start_date` 2026-01-01 and for 2026-10-01 with the same `end_date`, and compare the income and expense lines. Until it is settled the connector must not assume a range report equals an as-of report: it will request a start date and an end date that the user's period confirms, record both in provenance, and the parity test compares like with like.
+
+## 11. Countries: what "works for any QuickBooks user in any country" can and cannot mean
+
+**What can be promised:** the connector is **fail-closed per region**. It reads only a response whose shape matches a **recorded sample** (`qboTrialBalance.ts`), and its request guard (`qboReadOnlyGuard.ts`) allows only the `TrialBalance` report. Anything else (another edition's shape, the French `TrialBalanceFR`, another currency exponent, nested sections) is refused with a stated reason, never guessed or repaired. A region is "supported" only when a sample from a company of that region has passed the A2 parity test.
+
+**What cannot be promised today:**
+- Intuit's pages read do not list every country with a QuickBooks Online edition, and the sources found disagree. A developer-blog summary (date unknown) lists sandbox regions **US, UK, AU, IN, CA and FR**; **Tanzania is not among them**, so no Tanzania sandbox exists to test. The portal's country list was not read (session expired).
+- Which edition Tanzanian firms actually use is not established; it must come from the firms.
+- The partner programme's country restriction (item 7) may affect a Tanzania-based developer.
+
+| Region | Sandbox available | Sample recorded | Status |
+|---|---|---|---|
+| US | yes | **yes** (this repository's fixtures) | shape proven |
+| UK, AU, CA, IN | listed by a blog, to confirm in the portal | no | pending: create sandbox, record sample, run parity |
+| France | listed, **different endpoint (`TrialBalanceFR`)** | no | refused until a French sample exists |
+| Tanzania and any other country | none known | no | needs a real company's report from a firm (with consent), or Intuit's confirmation of the edition |
+
+Currency: the home currency comes from the report header; amounts with other than two decimals are refused until a sample for such a currency is recorded.
+
+## 12. Storage design (a sketch for the owner's approval; **not a migration**, because new tables need approval under CLAUDE.md section 8.2)
+
+- **`qbo_connections`** (one row per connected company per workspace): workspace, the connecting user's `firm_members.id`, `realm_id`, environment, **`refresh_token_envelope`** (AES-256-GCM, see below), key id, `refresh_expires_at`, `hard_expires_at`, status (`active`, `reconnect_needed`, `disconnected`), timestamps. **No client role can read or write it**; only Edge Functions with the service role. The access token is never stored (it lives one hour, in memory).
+- **`qbo_oauth_states`**: hash of the `state`, workspace, user, expiry, consumed-at; single use; expires in minutes.
+- **`qbo_pulls`** (append-only provenance, one row per import): the upload id as a **plain uuid, not a foreign key** (a foreign key to `trial_balance_uploads` makes uploads undeletable; found earlier in this repository), connection, realm, report, start and end date, accounting method, minor version, currency, pulled-at, **SHA-256 of the raw response, of the canonical file, and of the normalised accounting result**, the actor `firm_members.id`. Members of the workspace may read it; nobody may update or delete it.
+- **Envelope** (`qboTokenEnvelope.ts`, built and tested): AES-256-GCM, key from an Edge Function secret (never the database), key id for rotation, additional authenticated data binding workspace, connection and purpose, so a copied ciphertext cannot be opened elsewhere.
+- **Refresh rotation:** one refresh at a time per connection (a lock), the **new** envelope stored before the new token is used, failure to store aborts the pull; a refresh that Intuit rejects marks the connection `reconnect_needed`.
+- Every write goes through an Edge Function with `validateAuth`, `assertCompanyMembership`, the idempotency key and an `engine_runs` row, exactly as other writes; no token, `code` or `state` value is ever logged or returned.
+
+### 12.1 Built so far (PR #236, offline, nothing connected)
+
+`_shared/qboTrialBalance.ts` (converter, 25 refusals, A2 parity with the sandbox's Excel export), `_shared/qboReadOnlyGuard.ts` (exact allow-list; a scan test fails if any other function code names an Intuit address), `_shared/qboTokenEnvelope.ts` (token encryption). Not built: the migration, the connect and pull functions, the intake card, revocation on disconnect (its endpoint is not verified, so it is not on the allow-list).
 
 ## 10. Not claimed
 
