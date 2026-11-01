@@ -7,8 +7,12 @@
  * ORDER (each step refuses before the next begins):
  *   1 login  2 BOTH rights an import needs, before Intuit is touched: prepare_trial_balance (the connector's own) and manage_source_files (the upload
  *     steps', judged again for the person at reserve and register)  3 a live connection  4 open the stored refresh token
- *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit)  6 refresh (Intuit)
- *   7 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here
+ *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit; only this import's own lease id gives it back)
+ *   6 refresh (Intuit; abandoned after 30 s, well inside the 90-second lease)
+ *   7 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here. The swap is
+ *     safe to retry, so a lost answer or a passing database fault is retried rather than throwing the newest token away.
+ *     The one window no code can close: if the function dies after Intuit has issued the new token and before the swap is stored, the stored token
+ *     may be one Intuit no longer accepts. The next import then gets invalid_grant and the connection asks for a reconnect; nothing is imported wrongly.
  *   8 fetch the report through the read-only guard  9 convert (qboTrialBalance: 25 reasons to refuse, never repaired)  10 check the report's own period
  *   11 hash the raw response, the canonical file and the normalised result  12 reserve the upload
  *   13 EVIDENCE FIRST: record the intent (the facts and the three fingerprints, keyed by the reservation). If this cannot be written, NOTHING is stored.
@@ -25,6 +29,8 @@ import type { QboEnvironment } from "./qboReadOnlyGuard.ts";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_REPORT_CHARS = 5_000_000;
+/** Long enough for one refresh round trip (the token call is abandoned after QBO_TIMEOUTS_MS.token = 30 s), short enough that a crashed import never blocks the next for long. */
+export const REFRESH_LEASE_SECONDS = 90;
 
 export interface PullRequest {
   companyId: string; environment: QboEnvironment; realmId: string; startDate: string; endDate: string; periodYear: number;
@@ -69,9 +75,10 @@ export interface PullDeps {
   canPrepare(userId: string, companyId: string): Promise<boolean>;
   /** workspace_authority_basis(user, company, 'manage_source_files') is not null: the right the upload steps need. Both are required; neither implies the other. */
   canManageSources(userId: string, companyId: string): Promise<boolean>;
-  /** Compare-and-set lease on the connection: true for exactly one caller at a time, and only for the envelope presented. Lapses by itself. */
-  acquireRefreshLease(connectionId: string, envelope: string): Promise<boolean>;
-  releaseRefreshLease(connectionId: string): Promise<void>;
+  /** Compare-and-set lease on the connection: the lease's own id for exactly one caller at a time, and only for the envelope presented; otherwise null. Lapses by itself. */
+  acquireRefreshLease(connectionId: string, envelope: string): Promise<string | null>;
+  /** Gives the lease back. Only the holder's own lease id releases it, so this never clears a lease another import took after ours lapsed. */
+  releaseRefreshLease(connectionId: string, leaseId: string): Promise<void>;
   /** Best-effort recovery of earlier imports whose link was not written; never on the critical path. */
   completePending?(): Promise<void>;
   /** Waits between retries of an idempotent evidence write. Injected so tests need no clock. */
@@ -80,9 +87,10 @@ export interface PullDeps {
   openRefreshToken(envelope: string, binding: EnvelopeBinding): Promise<string | null>;
   refresh(environment: QboEnvironment, refreshToken: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
-  /** Compare-and-swap: true only if `expected` was still the stored envelope. */
+  /** Compare-and-swap: true only if `expected` was still the stored envelope, or if `next` already is (a retry whose first answer was lost). Safe to retry. */
   rotate(connectionId: string, expected: string, next: string, refreshExpiresAt: string, hardExpiresAt: string | null): Promise<boolean>;
-  markReconnectNeeded(connectionId: string): Promise<void>;
+  /** Deletes the token Intuit refused, and only that one: if another import has stored a newer token meanwhile, nothing changes. */
+  markReconnectNeeded(connectionId: string, refusedEnvelope: string): Promise<void>;
   fetchReport(environment: QboEnvironment, realmId: string, accessToken: string, p: { startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash" }): Promise<{ status: number; text: string }>;
   sha256Hex(data: string | Uint8Array): Promise<string>;
   summarise(csv: Uint8Array, currency: string, periodYear: number): Promise<{ accountCount: number; resultSha256: string }>;
@@ -126,28 +134,33 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const conn = await deps.findConnection(req.companyId, req.realmId, req.environment);
   if (!conn) return fail(404, "not_connected");
   if (conn.status !== "active" || !conn.envelope) return fail(409, "reconnect_needed");
+  const presented = conn.envelope;   // the envelope this import opens, leases, presents and swaps from
   const binding = connectionBinding(req.companyId, req.realmId, req.environment);
-  const stored = await deps.openRefreshToken(conn.envelope, binding);
+  const stored = await deps.openRefreshToken(presented, binding);
   if (!stored) return fail(500, "token_unreadable");
 
   // The lease comes BEFORE Intuit: two simultaneous imports can never present the same refresh token together. The second is told "busy" without any call.
-  if (!(await deps.acquireRefreshLease(conn.id, conn.envelope))) return fail(409, "busy");
-  let leased = true;
+  const leaseId = await deps.acquireRefreshLease(conn.id, presented);
+  if (!leaseId) return fail(409, "busy");
+  let rotatedAway = false;   // a stored rotation has already cleared the lease; in every other case it is given back, by its own id
   let accessToken: string;
   try {
     const refreshed = await deps.refresh(req.environment, stored);
     if (!refreshed.ok) {
-      if (refreshed.reason === "invalid_grant") { await deps.markReconnectNeeded(conn.id); leased = false; return fail(409, "reconnect_needed"); }
+      // Only the token we presented is deleted: if another import stored a newer one meanwhile, the refusal was of an out-of-date token.
+      if (refreshed.reason === "invalid_grant") { await deps.markReconnectNeeded(conn.id, presented); return fail(409, "reconnect_needed"); }
       return refreshed.reason === "unavailable" ? fail(503, "quickbooks_unavailable") : fail(502, "quickbooks_rejected");
     }
     // Intuit rolls the refresh token over: the newest one is stored BEFORE the new access token is used. A lost race (another pull rotated first) stops here.
+    // The swap is retried: it is safe to retry, and Intuit may already have retired the token we presented, so the new one must not be dropped lightly.
     const next = await deps.sealRefreshToken(refreshed.tokens.refreshToken, binding);
-    const rotated = await deps.rotate(conn.id, conn.envelope, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt);
-    leased = false;   // rotation clears the lease; after a lost race the lease is not ours to release
-    if (!rotated) return fail(409, "busy");
+    const rotated = await attempt(() => deps.rotate(conn.id, presented, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt), pause);
+    if (!rotated.ok) return fail(500, "pull_failed");
+    if (!rotated.value) return fail(409, "busy");
+    rotatedAway = true;
     accessToken = refreshed.tokens.accessToken;
   } finally {
-    if (leased) await deps.releaseRefreshLease(conn.id).catch(() => undefined);
+    if (!rotatedAway) await deps.releaseRefreshLease(conn.id, leaseId).catch(() => undefined);
   }
 
   const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod });

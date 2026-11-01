@@ -9,7 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/auth.ts";
-import { parsePullRequest, runQboPull, type CompletePullResult } from "../_shared/qboPull.ts";
+import { parsePullRequest, REFRESH_LEASE_SECONDS, runQboPull, type CompletePullResult } from "../_shared/qboPull.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { createGuardedQboFetch, qboReportUrl } from "../_shared/qboReadOnlyGuard.ts";
 import { sha256Hex, summariseCanonicalCsv } from "../_shared/qboPullSummary.ts";
@@ -17,8 +17,6 @@ import { createQboTokenClient } from "../_shared/qboTokenClient.ts";
 import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
 
 const BUCKET = "trial-balance-files";
-/** Long enough for one refresh round trip, short enough that a crashed import never blocks the next for long. */
-const REFRESH_LEASE_SECONDS = 90;
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
@@ -64,9 +62,9 @@ Deno.serve(async (req) => {
     acquireRefreshLease: async (connectionId, envelope) => {
       const { data, error } = await service.rpc("qbo_acquire_refresh_lease", { p_connection_id: connectionId, p_expected_envelope: envelope, p_seconds: REFRESH_LEASE_SECONDS });
       if (error) throw error;
-      return data === true;
+      return typeof data === "string" && data.length > 0 ? data : null;   // the lease's own id, or null when another import holds it
     },
-    releaseRefreshLease: async (connectionId) => { await service.rpc("qbo_release_refresh_lease", { p_connection_id: connectionId }); },
+    releaseRefreshLease: async (connectionId, leaseId) => { await service.rpc("qbo_release_refresh_lease", { p_connection_id: connectionId, p_lease_id: leaseId }); },
     completePending: async () => { await service.rpc("qbo_complete_pending_pulls"); },
     findConnection: async (companyId, realmId, environment) => {
       const { data, error } = await service.from("qbo_connections").select("id, status, refresh_token_envelope")
@@ -82,7 +80,7 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return data === true;
     },
-    markReconnectNeeded: async (connectionId) => { await service.rpc("qbo_mark_reconnect_needed", { p_connection_id: connectionId }); },
+    markReconnectNeeded: async (connectionId, refusedEnvelope) => { await service.rpc("qbo_mark_reconnect_needed", { p_connection_id: connectionId, p_refused_envelope: refusedEnvelope }); },
     fetchReport: async (environment, realmId, accessToken, p) => {
       const res = await guardedFetch({
         method: "GET",

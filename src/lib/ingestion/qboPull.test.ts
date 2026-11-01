@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
-import { parsePullRequest, runQboPull, type PullDeps, type PullRequest, type StoredConnection } from "../../../supabase/functions/_shared/qboPull";
+import { parsePullRequest, REFRESH_LEASE_SECONDS, runQboPull, type PullDeps, type PullRequest, type StoredConnection } from "../../../supabase/functions/_shared/qboPull";
+import { QBO_TIMEOUTS_MS } from "../../../supabase/functions/_shared/qboReadOnlyGuard";
 import { sha256Hex, summariseCanonicalCsv } from "../../../supabase/functions/_shared/qboPullSummary";
 import { connectionBinding, openSecret, sealSecret, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 import { normalisedAccountingResult } from "../../../supabase/functions/_shared/qboTrialBalance";
@@ -26,22 +27,24 @@ const GOOD_TOKENS: TokenResult = { ok: true, tokens: { accessToken: "access-not-
 const SECRETS = ["access-not-real", "refresh-new-not-real", "refresh-old-not-real", "v1.k1."];
 
 async function world(over: Partial<PullDeps> = {}, opts: { text?: string } = {}) {
-  const store = { envelope: await sealSecret("refresh-old-not-real", KEY, BINDING), status: "active" as StoredConnection["status"], leased: false };
+  const store = { envelope: await sealSecret("refresh-old-not-real", KEY, BINDING), status: "active" as StoredConnection["status"], leased: false, leaseId: null as string | null, leases: 0 };
   const calls: string[] = [];
-  const seen = { fetchToken: "", object: new Uint8Array(), recorded: null as null | Record<string, unknown>, removed: [] as string[], registered: [] as unknown[][] };
+  const seen = { fetchToken: "", object: new Uint8Array(), recorded: null as null | Record<string, unknown>, removed: [] as string[], registered: [] as unknown[][], released: [] as string[], refused: [] as string[] };
   const deps: PullDeps = {
     authenticate: async () => (calls.push("authenticate"), ACTOR),
     canPrepare: async () => (calls.push("canPrepare"), true),
     canManageSources: async () => (calls.push("canManageSources"), true),
-    acquireRefreshLease: async () => { calls.push("acquireLease"); if (store.leased) return false; store.leased = true; return true; },
-    releaseRefreshLease: async () => { calls.push("releaseLease"); store.leased = false; },
+    acquireRefreshLease: async () => { calls.push("acquireLease"); if (store.leased) return null; store.leased = true; store.leaseId = `lease-${++store.leases}`; return store.leaseId; },
+    // As the database does: only the holder's own id releases the lease.
+    releaseRefreshLease: async (_c, id) => { calls.push("releaseLease"); seen.released.push(id); if (store.leaseId === id) { store.leased = false; store.leaseId = null; } },
     pause: async () => undefined,
     findConnection: async () => (calls.push("findConnection"), { id: CONN, status: store.status, envelope: store.status === "active" ? store.envelope : null }),
     openRefreshToken: async (e, b) => { calls.push("open"); try { return await openSecret(e, [KEY], b); } catch { return null; } },
     refresh: async () => (calls.push("refresh"), GOOD_TOKENS),
     sealRefreshToken: async (t, b) => sealSecret(t, KEY, b),
-    rotate: async (_id, expected, next) => { calls.push("rotate"); if (store.envelope !== expected) return false; store.envelope = next; store.leased = false; return true; },
-    markReconnectNeeded: async () => { calls.push("markReconnectNeeded"); store.status = "reconnect_needed"; store.leased = false; },
+    rotate: async (_id, expected, next) => { calls.push("rotate"); if (store.envelope === next) return true; if (store.envelope !== expected) return false; store.envelope = next; store.leased = false; store.leaseId = null; return true; },
+    // As the database does: only the token that was refused is deleted.
+    markReconnectNeeded: async (_c, refused) => { calls.push("markReconnectNeeded"); seen.refused.push(refused); if (store.envelope !== refused) return; store.status = "reconnect_needed"; store.leased = false; store.leaseId = null; },
     fetchReport: async (_e, _r, token) => { calls.push("fetchReport"); seen.fetchToken = token; return { status: 200, text: opts.text ?? GB_TEXT }; },
     sha256Hex,
     summarise: async (csv, currency, year) => (calls.push("summarise"), summariseCanonicalCsv(csv, currency, year)),
@@ -152,10 +155,20 @@ describe("a pull that is refused stops at the right step and does nothing later"
   it("no connection", async () => { await stops({ findConnection: async () => null }, 404, "not_connected", ["refresh", "fetchReport"]); });
   it("a connection that needs reconnecting", async () => { await stops({ findConnection: async () => ({ id: CONN, status: "reconnect_needed", envelope: null }) }, 409, "reconnect_needed", ["refresh", "fetchReport"]); });
   it("a stored token that cannot be opened (a configuration problem, not a reconnect)", async () => { await stops({ openRefreshToken: async () => null }, 500, "token_unreadable", ["refresh", "markReconnectNeeded"]); });
-  it("Intuit refuses the refresh token: the connection is marked reconnect-needed (which clears the lease; it is not released a second time)", async () => {
-    const { w } = await stops({ refresh: async () => ({ ok: false, reason: "invalid_grant" }) }, 409, "reconnect_needed", ["rotate", "fetchReport", "releaseLease"]);
+  it("Intuit refuses the refresh token: the connection is marked reconnect-needed for exactly the token that was presented", async () => {
+    const { w } = await stops({ refresh: async () => ({ ok: false, reason: "invalid_grant" }) }, 409, "reconnect_needed", ["rotate", "fetchReport"]);
     expect(w.calls).toContain("markReconnectNeeded");
-    expect(w.store.leased).toBe(false);
+    expect(w.seen.refused).toEqual([w.store.envelope]);
+    expect(w.store.status).toBe("reconnect_needed"); expect(w.store.leased).toBe(false);
+    expect(w.seen.released).toEqual(["lease-1"]);   // given back by its own id: harmless here (the mark cleared it), needed when the mark changed nothing
+  });
+  it("a refusal of an out-of-date token never deletes a newer one another import stored meanwhile", async () => {
+    const w = await world();
+    const newer = await sealSecret("refresh-newer-not-real", KEY, BINDING);
+    w.deps.refresh = async () => { w.store.envelope = newer; return { ok: false, reason: "invalid_grant" }; };   // another import rotated while ours was at Intuit
+    const r = await runQboPull(w.deps, REQ);
+    expect([r.status, r.outcome]).toEqual([409, "reconnect_needed"]);
+    expect(w.store.status).toBe("active"); expect(w.store.envelope).toBe(newer);
   });
   it("Intuit is unavailable or rejects for another reason: nothing is marked, nothing is stored, and the lease is given back so the next attempt need not wait", async () => {
     for (const reason of ["unavailable", "rejected"] as const) {
@@ -163,9 +176,41 @@ describe("a pull that is refused stops at the right step and does nothing later"
       expect(w.calls).toContain("releaseLease"); expect(w.store.leased).toBe(false);
     }
   });
-  it("another pull rotated the token first: busy, the report is NOT fetched with the lost token, and the lease is not ours to release", async () => {
-    const { w } = await stops({ rotate: async () => false }, 409, "busy", ["fetchReport", "reserve", "releaseLease"]);
+  it("another pull rotated the token first: busy, the report is NOT fetched with the lost token, and the lease is given back only by its own id", async () => {
+    const { w } = await stops({ rotate: async () => false }, 409, "busy", ["fetchReport", "reserve"]);
     expect(w.calls).toContain("refresh");   // the lease was held, Intuit was called, and the swap was lost
+    expect(w.seen.released).toEqual(["lease-1"]);
+  });
+  it("the swap fails for a moment (a database fault, or its answer is lost): it is retried, and the newest token is stored, not dropped", async () => {
+    let tries = 0;
+    const w = await world();
+    const real = w.deps.rotate;
+    w.deps.rotate = async (...a) => { tries++; if (tries === 1) { await real(...a); throw new Error("answer lost"); } return real(...a); };
+    const r = await runQboPull(w.deps, REQ);
+    expect(r.status).toBe(200);
+    expect(tries).toBe(2);   // the retry finds its own earlier write and is told "stored"
+    expect(await openSecret(w.store.envelope, [KEY], BINDING)).toBe("refresh-new-not-real");
+    expect(w.seen.fetchToken).toBe("access-not-real");
+  });
+  it("the swap cannot be stored at all: nothing is fetched, the lease is given back by its own id, and the import fails without a secret in the outcome", async () => {
+    const { w } = await stops({ rotate: async () => { throw new Error("db down"); } }, 500, "pull_failed", ["fetchReport", "reserve", "recordIntent"]);
+    expect(w.seen.released).toEqual(["lease-1"]); expect(w.store.leased).toBe(false);
+    expect(await openSecret(w.store.envelope, [KEY], BINDING)).toBe("refresh-old-not-real");
+  });
+  it("an import whose lease lapsed gives back only its own lease, never the one another import has taken since", async () => {
+    const w = await world();
+    w.deps.refresh = async () => {
+      w.store.leaseId = "lease-of-the-next-import";   // ours lapsed while Intuit was slow, and the next import took it
+      return { ok: false, reason: "unavailable" };
+    };
+    const r = await runQboPull(w.deps, REQ);
+    expect(r.outcome).toBe("quickbooks_unavailable");
+    expect(w.seen.released).toEqual(["lease-1"]);
+    expect(w.store.leaseId).toBe("lease-of-the-next-import"); expect(w.store.leased).toBe(true);
+  });
+  it("no call to Intuit can outlast the refresh lease: the token call is abandoned well inside it", () => {
+    expect(QBO_TIMEOUTS_MS.token * 3).toBeLessThanOrEqual(REFRESH_LEASE_SECONDS * 1000);
+    expect(QBO_TIMEOUTS_MS.report).toBeGreaterThan(0);
   });
   it("something throws between the lease and the rotation: the lease is given back before the error leaves", async () => {
     const w = await world({ sealRefreshToken: async () => { throw new Error("key unavailable"); } });
@@ -174,7 +219,7 @@ describe("a pull that is refused stops at the right step and does nothing later"
     expect(await openSecret(w.store.envelope, [KEY], BINDING)).toBe("refresh-old-not-real");   // nothing was rotated
   });
   it("the lease is held by someone else: busy, and Intuit is never called", async () => {
-    const { w } = await stops({ acquireRefreshLease: async () => false }, 409, "busy", ["refresh", "rotate", "fetchReport", "reserve", "recordIntent", "releaseLease"]);
+    const { w } = await stops({ acquireRefreshLease: async () => null }, 409, "busy", ["refresh", "rotate", "fetchReport", "reserve", "recordIntent", "releaseLease"]);
     expect(w.calls).toContain("open");
   });
   it.each<[string, { status: number; text: string }, number, string]>([
@@ -273,7 +318,7 @@ describe("two pulls at once (review finding 6)", () => {
     const refreshes: string[] = [], fetches: string[] = [], rotated: string[] = [];
     const mk = (): PullDeps => ({ ...w.deps,
       refresh: async (...x) => { refreshes.push("r"); return w.deps.refresh(...x); },
-      rotate: async (_id, expected, next) => { if (w.store.envelope !== expected) return false; w.store.envelope = next; w.store.leased = false; rotated.push(next); return true; },
+      rotate: async (_id, expected, next) => { if (w.store.envelope !== expected) return false; w.store.envelope = next; w.store.leased = false; w.store.leaseId = null; rotated.push(next); return true; },
       fetchReport: async (...x) => { fetches.push("f"); return w.deps.fetchReport(...x); },
       findConnection: async () => ({ id: CONN, status: "active", envelope: w.store.envelope }) });
     return { a: mk(), b: mk(), refreshes, fetches, rotated };
@@ -294,7 +339,7 @@ describe("two pulls at once (review finding 6)", () => {
   it("if the lease had lapsed (a crashed import) and two refreshes did happen, the compare-and-swap still lets exactly one store its token and fetch; the other is told busy and never fetches", async () => {
     const w = await world();
     const c = counting(w);
-    c.a.acquireRefreshLease = async () => true; c.b.acquireRefreshLease = async () => true;
+    c.a.acquireRefreshLease = async () => "lease-a"; c.b.acquireRefreshLease = async () => "lease-b";
     const [r1, r2] = await Promise.all([runQboPull(c.a, REQ), runQboPull(c.b, REQ)]);
     expect([r1.outcome, r2.outcome].sort()).toEqual(["busy", "imported"]);
     expect(c.refreshes).toHaveLength(2); expect(c.rotated).toHaveLength(1); expect(c.fetches).toHaveLength(1);

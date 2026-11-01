@@ -66,7 +66,13 @@ describe("guarded fetch", () => {
     const g = createGuardedQboFetch(f);
     await g({ method: "GET", url: REPORT, headers: { Accept: "application/json" } });
     expect(f).toHaveBeenCalledTimes(1);
-    expect(f).toHaveBeenCalledWith(REPORT, { method: "GET", headers: { Accept: "application/json" }, body: undefined, redirect: "error" });
+    expect(f).toHaveBeenCalledWith(REPORT, { method: "GET", headers: { Accept: "application/json" }, body: undefined, redirect: "error", signal: expect.any(AbortSignal) });
+  });
+
+  it("abandons a call that takes longer than its timeout (the caller sees a network failure)", async () => {
+    const hang = vi.fn((_u: string, init: { signal: AbortSignal }) => new Promise<Response>((_r, reject) => { init.signal.addEventListener("abort", () => reject(init.signal.reason)); }));
+    const g = createGuardedQboFetch(hang as never, { token: 20, report: 20 });
+    await expect(g({ method: "GET", url: REPORT })).rejects.toMatchObject({ name: "TimeoutError" });
   });
 
   it("refuses before any network call, with the stated reason", async () => {
