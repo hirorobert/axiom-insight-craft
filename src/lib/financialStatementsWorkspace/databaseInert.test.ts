@@ -288,8 +288,6 @@ describe("database inertness — schema and functions", () => {
       // minor-unit money, explicit period and currency, one identity per account, safe totals, row lineage) and the
       // bytes → rows reader it uses. Pure modules; no schema, no new Edge Function.
       "supabase/functions/_shared/tbIngestion.ts",
-      // QuickBooks connector: the guard gains the address builders (authorisation, report, token) and the envelope gains the connection binding. Pure; no schema.
-      "supabase/functions/_shared/qboReadOnlyGuard.ts", "supabase/functions/_shared/qboTokenEnvelope.ts",
       "supabase/functions/_shared/tbSource.ts",
       // ...and the one configurable printed-report footer rule set it uses (tb-ingest-3.2.0). Pure; no schema.
       "supabase/functions/_shared/printedReportMetadata.ts",
@@ -479,6 +477,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
+      // QuickBooks connector: the guard gains the address builders (authorisation, report, token) and the envelope gains the connection binding. Pure; no schema.
+      "supabase/functions/_shared/qboReadOnlyGuard.ts", "supabase/functions/_shared/qboTokenEnvelope.ts",
       // #210: unapplied equipment source only; native migrator owns the transaction.
       // equipmentMigrationTransport.test.ts reconstructs the prior approved digest,
       // proving only the outer BEGIN/COMMIT lines changed. Applied history is untouched.
