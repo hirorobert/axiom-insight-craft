@@ -14,7 +14,7 @@ functionality was changed.** Every claim below names the file that backs it and 
 | 7 | The two permissions | Medium-High | **Corrected (one rule for every function) and proved** (r2: re-read, no defect) |
 | 8 | Deno type-check of #240 | Medium (unverified) | **Closed in r2:** `deno check` passes in CI (PR #242) and locally (see 8) |
 | 9 | Stack and merge order | Low | **Verified** (r2: re-verified) |
-| S1–S5 | Second pass (lease ownership, call timeouts, swap retry, OAuth callback binding, realm check) | High to Low | S1–S3 **corrected and proved**; S4–S5 **open, registered** |
+| S1–S5 | Second pass (lease ownership, call timeouts, swap retry, OAuth callback binding, realm check) | High to Low | S1–S4 **corrected and proved**; S5 **narrowed, still open** (no realm read) |
 
 Findings 1 and 3 stay open: there is no written review from Patrick Sawe and no written conclusion from the lawyer in this repository or this record. Nothing in r2 changes either.
 
@@ -171,15 +171,20 @@ is lost on the way back, which looks the same), the database still holds the tok
 and the person reconnects. Nothing is imported wrongly, no token is leaked and the failure is visible. S2 and S3 shrink the window to a process death or a lost network answer; nothing on our side can remove it, because Intuit offers no idempotent refresh. Which of the two Intuit behaviours applies is
 still the open question in support case 00231947.
 
-**S4. The OAuth callback is not bound to the browser or person who started it (Medium; open, registered, not corrected here).** The single-use state is the callback's only credential, and it is tied to the *starting* person and workspace, not to the browser that completes it. A person who
+**S4. The OAuth callback is not bound to the browser or person who started it (Medium; corrected and proved, see below).** The single-use state is the callback's only credential, and it is tied to the *starting* person and workspace, not to the browser that completes it. A person who
 holds both rights in workspace X can start a connection, keep the authorisation address, and persuade someone else to open it and approve; that person's QuickBooks company would then be connected into workspace X. It needs social engineering and the victim's approval on Intuit's own consent screen,
 and the browser then lands in a workspace the victim cannot open, but the books would be readable by X. *Standard correction (needs a design decision):* the callback stores the result as pending and hands the browser a one-time code; the app, as the signed-in person, finishes the connection only if
 that person is the one who started it; or bind the state to a cookie set on the start request. Not attempted in this pass: it changes the flow across all three PRs and the screens.
-*Design (not built):* `S4_CALLBACK_BINDING_DESIGN.md`. The callback parks the sealed authorisation code and hands the browser a one-time code in the address fragment; a new authenticated `qbo-finish-connection` exchanges the code only for the person who started the attempt, so a refused attempt never produces a token. The cookie and PKCE alternatives are rejected there with reasons.
+*Design:* `S4_CALLBACK_BINDING_DESIGN.md` (the cookie and PKCE alternatives are rejected there with reasons). *Built:* the callback exchanges nothing and never calls Intuit. It seals the code (bound to the handoff's hash), parks it with `qbo_record_oauth_return` (consuming the state once) and redirects with
+`#qbo_handoff=` in the fragment. The new `qbo-finish-connection` (JWT) calls `qbo_take_oauth_return`, which gives the code back once, only to the person who started the attempt, before expiry (5 minutes), while they hold both rights; any answer deletes the parked code. Only then is the code exchanged and the
+connection stored. The card reads the handoff, removes it from the address first, and calls the finish step; "connected" is no longer taken from the address. *Proof:* storage 42/42 (`return.*`, four cases, including "anyone else, even a person with both rights here, gets nothing" and two simultaneous
+takes giving exactly one code); `qboConnect.test.ts` 34 (including the attack: refused before Intuit, no token, attempt ended; single use); client and card 32. Negative controls: a take that ignores the starter, a repeatable take that keeps the code, and housekeeping that keeps expired codes were each
+caught by the proof; a finish that ignores `not_yours` fails four unit tests. *Remaining:* Intuit's authorisation-code lifetime is not verified at the primary source (the build does not depend on it: an expired code is answered `expired` and the person connects again); a person signed out during
+the minute at Intuit is sent to sign in without the handoff and connects again; the sealed code's binding names the handoff, not the workspace (it is sealed before the state is consumed, so the workspace is not yet known; the handoff's hash identifies the one row it may live in).
 
-**S5. The callback's `realmId` is taken from the query string as sent (Low; open, registered).** A person completing their own authorisation could edit `realmId` before the browser reaches the callback; the token would then be stored under a QuickBooks company it does not belong to. Imports for
-that connection would fail at Intuit (a token is scoped to its company), so no wrong figures can be imported, but the connection record would name the wrong company. *Correction to consider with S4:* confirm the realm with one read after the exchange (that endpoint is not on the guard's list yet and
-is not added unverified).
+**S5. The callback's `realmId` is taken from the query string as sent (Low; narrowed by S4, still open).** A person completing their own authorisation could edit `realmId` before the browser reaches the callback; the token would then be stored under a QuickBooks company it does not belong to. Imports for
+that connection would fail at Intuit (a token is scoped to its company), so no wrong figures can be imported, but the connection record would name the wrong company. Since S4, only the person who started the attempt can finish it, so an edited realm can only mislabel that person's own connection.
+*Still open:* confirm the realm with one read after the exchange (that endpoint is not on the guard's list yet and is not added unverified).
 
 **Re-read with no defect found.** Evidence first: no store or register without a recorded intent; `qbo_complete_pull` takes the upload id from the reservation, never the caller; recovery skips one bad row and finishes the rest; an expired reservation with an intent stays as "fetched, not imported".
 The two rights: the import checks both before any Intuit call, and `qbo_record_pull_intent` checks them again in the database with the reservation's owner. (Two code comments, in `qbo-connect-start/index.ts` and `_shared/qboConnect.ts`, still say the start judges only "prepare a trial balance";
