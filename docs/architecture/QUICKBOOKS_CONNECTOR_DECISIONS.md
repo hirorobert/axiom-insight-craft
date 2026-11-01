@@ -68,7 +68,7 @@ Send as one message from the account that owns the developer app. Do not include
 
 ### F1. The B9 team (charter section 9)
 
-The owner named three people for the connector: **Humphrey R Sawe, ACPA; Patrick R Sawe, CPA; Hendry R Sawe, CPA.** The owner did not say which role each takes, and the charter says only the team assigns roles, so the roles below are a **proposal** to confirm in one line each.
+The owner named three people for the connector: **Humphrey R Sawe, ACPA; Patrick R Sawe, CPA; Hendry R Sawe, CPA.** The owner did not say which role each takes, so the roles below were a **proposal**; **the owner confirmed them as proposed on 2026-11-01** (recorded in the charter, section 9, row B9). The independence declaration and the committed date are still outstanding.
 
 | Role | Proposed | Why |
 |---|---|---|
@@ -78,7 +78,7 @@ The owner named three people for the connector: **Humphrey R Sawe, ACPA; Patrick
 
 **Independence must be declared, not assumed.** The three share a surname. The charter needs a written declaration that the reviewer is independent of the author (no financial or reporting dependence, no role in building or accepting the same item). Whether any family or business relationship exists is for the team to state; if one does, the reviewer for B9 should be someone outside it. The declaration form is in `docs/release/ipsas-register-r1/BRIEFING.md`.
 
-Nothing in the connector's database or functions starts until these roles are confirmed (D5).
+The roles are confirmed, so D5 is met and the connector's database work may start; the reviewer signs nothing until the independence declaration is on file.
 
 ### F2. Lawyer review
 
