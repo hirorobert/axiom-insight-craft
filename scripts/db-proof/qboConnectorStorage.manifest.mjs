@@ -24,6 +24,8 @@ export const CASES = Object.freeze([
   control("disconnect.then-a-new-live-connection-may-be-stored"),
   control("status.members-see-status-never-an-envelope-key-or-token"),
   control("company-deletion.removes-connections-and-states"),
+  // one rule: both rights for every connector function
+  control("connector.every-function-needs-both-rights-and-neither-alone-is-enough"),
   // refresh lease: two simultaneous imports never present the same refresh token to Intuit together
   control("lease.only-one-caller-holds-it-and-it-names-the-envelope"),
   control("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation"),

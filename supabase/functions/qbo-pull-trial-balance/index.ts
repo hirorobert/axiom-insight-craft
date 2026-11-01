@@ -19,12 +19,7 @@ import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
 const BUCKET = "trial-balance-files";
 /** Long enough for one refresh round trip, short enough that a crashed import never blocks the next for long. */
 const REFRESH_LEASE_SECONDS = 90;
-/** workspace_authority_basis(user, company, capability) is not null. Both rights an import needs are judged here, on the server, from the verified login. */
-async function hasCapability(service: ReturnType<typeof createClient>, userId: string, companyId: string, capability: string): Promise<boolean> {
-  const { data, error } = await service.rpc("workspace_authority_basis", { p_user_id: userId, p_company_id: companyId, p_capability: capability });
-  return !error && typeof data === "string" && data.length > 0;
-}
-const json =(status: number, body: unknown) =>
+const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 Deno.serve(async (req) => {
@@ -51,6 +46,11 @@ Deno.serve(async (req) => {
   const guardedFetch = createGuardedQboFetch((u, init) => fetch(u, init));
   const tokens = createQboTokenClient(guardedFetch, creds);
   let actor: string | null = null;
+  // workspace_authority_basis(user, company, capability) is not null. Both rights an import needs are judged here, on the server, from the verified login.
+  const hasCapability = async (userId: string, companyId: string, capability: string): Promise<boolean> => {
+    const { data, error } = await service.rpc("workspace_authority_basis", { p_user_id: userId, p_company_id: companyId, p_capability: capability });
+    return !error && typeof data === "string" && data.length > 0;
+  };
 
   const result = await runQboPull({
     authenticate: async () => {
@@ -59,8 +59,8 @@ Deno.serve(async (req) => {
       actor = error ? null : data.user?.id ?? null;
       return actor;
     },
-    canPrepare: (userId, companyId) => hasCapability(service, userId, companyId, "prepare_trial_balance"),
-    canManageSources: (userId, companyId) => hasCapability(service, userId, companyId, "manage_source_files"),
+    canPrepare: (userId, companyId) => hasCapability(userId, companyId, "prepare_trial_balance"),
+    canManageSources: (userId, companyId) => hasCapability(userId, companyId, "manage_source_files"),
     acquireRefreshLease: async (connectionId, envelope) => {
       const { data, error } = await service.rpc("qbo_acquire_refresh_lease", { p_connection_id: connectionId, p_expected_envelope: envelope, p_seconds: REFRESH_LEASE_SECONDS });
       if (error) throw error;
