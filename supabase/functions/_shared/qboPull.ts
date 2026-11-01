@@ -5,11 +5,16 @@
  * existing processing and review gates then apply unchanged. Nothing here certifies, accepts or adjusts a figure.
  *
  * ORDER (each step refuses before the next begins):
- *   1 login  2 the right to prepare a trial balance here  3 a live connection  4 open the stored refresh token  5 refresh (Intuit)
- *   6 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here
- *   7 fetch the report through the read-only guard  8 convert (qboTrialBalance: 25 reasons to refuse, never repaired)  9 check the report's own period
- *   10 hash the raw response, the canonical file and the normalised result  11 reserve, store and register the upload as the person
- *   12 record the provenance (append-only).
+ *   1 login  2 BOTH rights an import needs, before Intuit is touched: prepare_trial_balance (the connector's own) and manage_source_files (the upload
+ *     steps', judged again for the person at reserve and register)  3 a live connection  4 open the stored refresh token
+ *   5 take the refresh LEASE (a second simultaneous import is told "busy" here and never reaches Intuit)  6 refresh (Intuit)
+ *   7 ROTATE: the new refresh token is sealed and stored by compare-and-swap BEFORE the new access token is used; a lost race stops here
+ *   8 fetch the report through the read-only guard  9 convert (qboTrialBalance: 25 reasons to refuse, never repaired)  10 check the report's own period
+ *   11 hash the raw response, the canonical file and the normalised result  12 reserve the upload
+ *   13 EVIDENCE FIRST: record the intent (the facts and the three fingerprints, keyed by the reservation). If this cannot be written, NOTHING is stored.
+ *   14 store the file and register the upload as the person  15 link the intent to the upload the reservation created (idempotent, retried).
+ *      If only this last step fails the evidence is already complete; the outcome says so ("imported_record_pending", HTTP 202) and the next import or
+ *      the recovery function finishes the link. No outcome ever says "imported" without the link, and none hides a missing one.
  * Never in an outcome, a log field or an error: a token, an envelope, a response body.
  */
 import { parseQboTrialBalanceReport, toCanonicalCsv, type QboTbRefusalCode } from "./qboTrialBalance.ts";
@@ -51,15 +56,26 @@ export function parsePullRequest(body: unknown): PullRequest | null {
 }
 
 export interface StoredConnection { id: string; status: "active" | "reconnect_needed"; envelope: string | null }
+/** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
-  companyId: string; uploadId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
+  reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
   accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
 }
+export type CompletePullResult = "completed" | "already" | "not_registered" | "no_intent" | "no_reservation";
 
 export interface PullDeps {
   authenticate(): Promise<string | null>;
   /** workspace_authority_basis(user, company, 'prepare_trial_balance') is not null. */
   canPrepare(userId: string, companyId: string): Promise<boolean>;
+  /** workspace_authority_basis(user, company, 'manage_source_files') is not null: the right the upload steps need. Both are required; neither implies the other. */
+  canManageSources(userId: string, companyId: string): Promise<boolean>;
+  /** Compare-and-set lease on the connection: true for exactly one caller at a time, and only for the envelope presented. Lapses by itself. */
+  acquireRefreshLease(connectionId: string, envelope: string): Promise<boolean>;
+  releaseRefreshLease(connectionId: string): Promise<void>;
+  /** Best-effort recovery of earlier imports whose link was not written; never on the critical path. */
+  completePending?(): Promise<void>;
+  /** Waits between retries of an idempotent evidence write. Injected so tests need no clock. */
+  pause?(ms: number): Promise<void>;
   findConnection(companyId: string, realmId: string, environment: QboEnvironment): Promise<StoredConnection | null>;
   openRefreshToken(envelope: string, binding: EnvelopeBinding): Promise<string | null>;
   refresh(environment: QboEnvironment, refreshToken: string): Promise<TokenResult>;
@@ -74,20 +90,38 @@ export interface PullDeps {
   putObject(path: string, bytes: Uint8Array): Promise<boolean>;
   removeObject(path: string): Promise<void>;
   register(reservationId: string, fileSize: number, periodYear: number, periodId: string | null, engagementId: string | null): Promise<{ outcome: string; uploadId: string | null }>;
-  recordPull(r: ProvenanceRecord): Promise<void>;
+  /** Idempotent for the same facts (so it is retried); throws if the evidence cannot be written. */
+  recordIntent(r: ProvenanceRecord): Promise<void>;
+  /** Idempotent: writes the provenance row from the intent and the reservation's own upload id. */
+  completePull(reservationId: string): Promise<CompletePullResult>;
   minorVersion: number | null;
 }
 
+type Status = 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503;
 export type PullResult =
   | { status: 200; outcome: "imported"; uploadId: string; currency: string; accountCount: number; startDate: string; endDate: string }
-  | { status: 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503; outcome: string; code?: QboTbRefusalCode; message?: string; uploadId?: string };
+  | { status: 202; outcome: "imported_record_pending"; uploadId: string; currency: string; accountCount: number; startDate: string; endDate: string }
+  | { status: Status; outcome: string; code?: QboTbRefusalCode; message?: string; uploadId?: string };
 
-const fail = (status: 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503, outcome: string, extra: { code?: QboTbRefusalCode; message?: string; uploadId?: string } = {}): PullResult => ({ status, outcome, ...extra });
+const fail = (status: Status, outcome: string, extra: { code?: QboTbRefusalCode; message?: string; uploadId?: string } = {}): PullResult => ({ status, outcome, ...extra });
+
+const EVIDENCE_ATTEMPTS = 3;
+/** Runs an idempotent write up to three times with a short wait between; never throws. */
+async function attempt<T>(fn: () => Promise<T>, pause: (ms: number) => Promise<void>): Promise<{ ok: true; value: T } | { ok: false }> {
+  for (let i = 0; i < EVIDENCE_ATTEMPTS; i++) {
+    try { return { ok: true, value: await fn() }; } catch { if (i < EVIDENCE_ATTEMPTS - 1) await pause(250 * (i + 1)).catch(() => undefined); }
+  }
+  return { ok: false };
+}
 
 export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<PullResult> {
+  const pause = deps.pause ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const userId = await deps.authenticate();
   if (!userId) return fail(401, "unauthenticated");
+  // Both rights, before Intuit is touched: a person who could prepare but not upload must not cause a token refresh that can only end in a refusal.
   if (!(await deps.canPrepare(userId, req.companyId))) return fail(403, "forbidden");
+  if (!(await deps.canManageSources(userId, req.companyId))) return fail(403, "forbidden");
+  await deps.completePending?.().catch(() => undefined);
 
   const conn = await deps.findConnection(req.companyId, req.realmId, req.environment);
   if (!conn) return fail(404, "not_connected");
@@ -96,16 +130,27 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const stored = await deps.openRefreshToken(conn.envelope, binding);
   if (!stored) return fail(500, "token_unreadable");
 
-  const refreshed = await deps.refresh(req.environment, stored);
-  if (!refreshed.ok) {
-    if (refreshed.reason === "invalid_grant") { await deps.markReconnectNeeded(conn.id); return fail(409, "reconnect_needed"); }
-    return refreshed.reason === "unavailable" ? fail(503, "quickbooks_unavailable") : fail(502, "quickbooks_rejected");
+  // The lease comes BEFORE Intuit: two simultaneous imports can never present the same refresh token together. The second is told "busy" without any call.
+  if (!(await deps.acquireRefreshLease(conn.id, conn.envelope))) return fail(409, "busy");
+  let leased = true;
+  let accessToken: string;
+  try {
+    const refreshed = await deps.refresh(req.environment, stored);
+    if (!refreshed.ok) {
+      if (refreshed.reason === "invalid_grant") { await deps.markReconnectNeeded(conn.id); leased = false; return fail(409, "reconnect_needed"); }
+      return refreshed.reason === "unavailable" ? fail(503, "quickbooks_unavailable") : fail(502, "quickbooks_rejected");
+    }
+    // Intuit rolls the refresh token over: the newest one is stored BEFORE the new access token is used. A lost race (another pull rotated first) stops here.
+    const next = await deps.sealRefreshToken(refreshed.tokens.refreshToken, binding);
+    const rotated = await deps.rotate(conn.id, conn.envelope, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt);
+    leased = false;   // rotation clears the lease; after a lost race the lease is not ours to release
+    if (!rotated) return fail(409, "busy");
+    accessToken = refreshed.tokens.accessToken;
+  } finally {
+    if (leased) await deps.releaseRefreshLease(conn.id).catch(() => undefined);
   }
-  // Intuit rolls the refresh token over: the newest one is stored BEFORE the new access token is used. A lost race (another pull rotated first) stops here.
-  const next = await deps.sealRefreshToken(refreshed.tokens.refreshToken, binding);
-  if (!(await deps.rotate(conn.id, conn.envelope, next, refreshed.tokens.refreshExpiresAt, refreshed.tokens.hardExpiresAt))) return fail(409, "busy");
 
-  const res = await deps.fetchReport(req.environment, req.realmId, refreshed.tokens.accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod });
+  const res = await deps.fetchReport(req.environment, req.realmId, accessToken, { startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod });
   if (res.status === 429) return fail(429, "rate_limited");
   if (res.status >= 500) return fail(503, "quickbooks_unavailable");
   if (res.status !== 200) return fail(502, "report_failed");
@@ -126,6 +171,16 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
   const fileName = `quickbooks-${req.environment === "sandbox" ? "sandbox-" : ""}${req.realmId}-${req.endDate}.csv`;
   const reserved = await deps.reserve(req.companyId, fileName);
   if (!reserved.ok) return reserved.reason === "forbidden" ? fail(403, "forbidden") : fail(500, "reserve_failed");
+
+  // EVIDENCE FIRST. Nothing is stored or registered unless the facts of this report are already on record. If they cannot be written, the import stops here
+  // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
+  const intent = await attempt(() => deps.recordIntent({
+    reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
+    startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod ?? null, minorVersion: deps.minorVersion, currency: report.currency,
+    accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
+  }), pause);
+  if (!intent.ok) return fail(500, "provenance_failed");
+
   if (!(await deps.putObject(reserved.objectPath, csv))) return fail(500, "store_failed");
   const registered = await deps.register(reserved.reservationId, csv.byteLength, req.periodYear, req.periodId, req.engagementId);
   if ((registered.outcome !== "registered" && registered.outcome !== "already_registered") || !registered.uploadId) {
@@ -135,15 +190,9 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     return fail(500, "register_failed");
   }
 
-  try {
-    await deps.recordPull({
-      companyId: req.companyId, uploadId: registered.uploadId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
-      startDate: req.startDate, endDate: req.endDate, accountingMethod: req.accountingMethod ?? null, minorVersion: deps.minorVersion, currency: report.currency,
-      accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
-    });
-  } catch {
-    // The upload exists but its provenance could not be written: say so plainly rather than pretend it is complete.
-    return fail(500, "provenance_failed", { uploadId: registered.uploadId });
-  }
-  return { status: 200, outcome: "imported", uploadId: registered.uploadId, currency: report.currency, accountCount: summary.accountCount, startDate: req.startDate, endDate: req.endDate };
+  // The upload exists and its evidence is already on record; link them. Idempotent, so a transient failure is simply retried.
+  const linked = await attempt(() => deps.completePull(reserved.reservationId), pause);
+  const done = { uploadId: registered.uploadId, currency: report.currency, accountCount: summary.accountCount, startDate: req.startDate, endDate: req.endDate };
+  if (linked.ok && (linked.value === "completed" || linked.value === "already")) return { status: 200, outcome: "imported", ...done };
+  return { status: 202, outcome: "imported_record_pending", ...done };
 }

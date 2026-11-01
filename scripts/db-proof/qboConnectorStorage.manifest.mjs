@@ -24,11 +24,23 @@ export const CASES = Object.freeze([
   control("disconnect.then-a-new-live-connection-may-be-stored"),
   control("status.members-see-status-never-an-envelope-key-or-token"),
   control("company-deletion.removes-connections-and-states"),
-  // provenance
-  control("pull.record-requires-the-right-validates-and-is-one-per-upload"),
-  control("pull.is-append-only-even-for-the-database-owner"),
-  control("pull.is-readable-only-by-the-workspace-owner"),
-  control("pull.holds-no-secret-url-or-payload-and-no-foreign-key"),
+  // refresh lease: two simultaneous imports never present the same refresh token to Intuit together
+  control("lease.only-one-caller-holds-it-and-it-names-the-envelope"),
+  control("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation"),
+  control("lease.never-outlives-an-active-token"),
+  // evidence: intent first, then the link to the upload; recoverable
+  control("intent.needs-both-rights-the-actors-own-open-reservation-and-valid-facts"),
+  control("intent.is-idempotent-for-the-same-facts-and-refuses-different-facts"),
+  control("completion.links-the-intent-to-the-upload-the-reservation-itself-created"),
+  control("completion.a-right-lost-after-registration-cannot-lose-the-evidence"),
+  control("recovery.completes-every-missing-link-and-nothing-else"),
+  control("recovery.one-unlinkable-row-never-stops-the-rest"),
+  control("evidence.is-append-only-even-for-the-database-owner"),
+  control("evidence.is-readable-only-by-the-workspace-owner"),
+  control("evidence.holds-no-secret-url-or-payload-and-no-foreign-key"),
+  // cleanup and retention
+  control("housekeeping.removes-old-states-and-dead-connections-and-never-evidence"),
+  control("retention.only-counts-evidence-past-an-interval-of-at-least-a-year"),
   // structure
   control("structure.row-level-security-on-and-no-client-grants-beyond-the-reviewed-ones"),
   control("structure.writers-are-security-definer-with-a-pinned-search-path-and-service-role-only"),
