@@ -43,5 +43,5 @@ fetch (the other is told it is busy); a failed step never triggers a later one; 
 - **Refresh of an existing import is not built.** If an active upload exists for the period, the pull answers `active_upload_exists` and removes the stored object; replacing is the existing replace flow and is a separate change.
 - **Provenance after registration.** If the upload registers but the provenance row cannot be written, the function answers `provenance_failed` with the upload id (it does not roll the upload back). The reviewer should decide whether that is acceptable or the order must change.
 - **The upload steps need `manage_source_files`** (reserve) as well as `prepare_trial_balance` (this connector's own check): both are required, which is stricter than either alone.
-- **No browser UI.** The Connect button, the status display and the Refresh action are not built; the callback returns the browser to `/dashboard?qbo=<status>&company=<id>`.
+- **No browser UI.** The Connect button, the status display and the Refresh action are not built; the callback returns the browser to `/workspace/<company>/<year>/trial-balance/review?qbo=<status>` (the year travels in the OAuth state).
 - No cleanup job for expired OAuth states; no retention job for provenance (see the storage record).

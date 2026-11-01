@@ -25,14 +25,15 @@ const REALM = /^[0-9]{1,20}$/;
 export interface OAuthConfig { clientId: string; redirectUri: string }
 
 // ── start ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-export function parseConnectStartRequest(body: unknown): { companyId: string; environment: QboEnvironment } | null {
+export function parseConnectStartRequest(body: unknown): { companyId: string; environment: QboEnvironment; periodYear: number } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const o = body as Record<string, unknown>;
   const keys = Object.keys(o).sort();
-  if (keys.length !== 2 || keys[0] !== "companyId" || keys[1] !== "environment") return null;
+  if (keys.length !== 3 || keys[0] !== "companyId" || keys[1] !== "environment" || keys[2] !== "periodYear") return null;
   if (typeof o.companyId !== "string" || !UUID.test(o.companyId)) return null;
   if (o.environment !== "production" && o.environment !== "sandbox") return null;
-  return { companyId: o.companyId, environment: o.environment };
+  if (typeof o.periodYear !== "number" || !Number.isInteger(o.periodYear) || o.periodYear < 2000 || o.periodYear > 2100) return null;
+  return { companyId: o.companyId, environment: o.environment, periodYear: o.periodYear };
 }
 
 export interface ConnectStartDeps {
@@ -41,20 +42,20 @@ export interface ConnectStartDeps {
   /** 32 random bytes as 64 hex characters. */
   randomState(): string;
   sha256Hex(text: string): Promise<string>;
-  startState(stateHash: string, companyId: string, actorUserId: string, environment: QboEnvironment, ttlSeconds: number): Promise<"created" | "forbidden" | "invalid">;
+  startState(stateHash: string, companyId: string, actorUserId: string, environment: QboEnvironment, ttlSeconds: number, returnPeriodYear: number): Promise<"created" | "forbidden" | "invalid">;
 }
 export type ConnectStartResult =
   | { status: 200; outcome: "authorize"; authorizeUrl: string }
   | { status: 401 | 403 | 500 | 503; outcome: "unauthenticated" | "forbidden" | "state_failed" | "not_configured" };
 
-export async function runQboConnectStart(deps: ConnectStartDeps, req: { companyId: string; environment: QboEnvironment }): Promise<ConnectStartResult> {
+export async function runQboConnectStart(deps: ConnectStartDeps, req: { companyId: string; environment: QboEnvironment; periodYear: number }): Promise<ConnectStartResult> {
   const userId = await deps.authenticate();
   if (!userId) return { status: 401, outcome: "unauthenticated" };
   const cfg = deps.oauthConfig(req.environment);
   if (!cfg) return { status: 503, outcome: "not_configured" };
   const state = deps.randomState();
   if (!STATE.test(state)) return { status: 500, outcome: "state_failed" };
-  const outcome = await deps.startState(await deps.sha256Hex(state), req.companyId, userId, req.environment, OAUTH_STATE_TTL_SECONDS);
+  const outcome = await deps.startState(await deps.sha256Hex(state), req.companyId, userId, req.environment, OAUTH_STATE_TTL_SECONDS, req.periodYear);
   if (outcome === "forbidden") return { status: 403, outcome: "forbidden" };
   if (outcome !== "created") return { status: 500, outcome: "state_failed" };
   return { status: 200, outcome: "authorize", authorizeUrl: qboAuthorizeUrl({ clientId: cfg.clientId, redirectUri: cfg.redirectUri, state }) };
@@ -78,13 +79,13 @@ export function parseCallbackQuery(params: URLSearchParams): CallbackQuery | nul
 export type ReturnStatus = "connected" | "denied" | "failed";
 export interface CallbackDeps {
   sha256Hex(text: string): Promise<string>;
-  consumeState(stateHash: string): Promise<{ companyId: string; actorUserId: string; environment: QboEnvironment } | null>;
+  consumeState(stateHash: string): Promise<{ companyId: string; actorUserId: string; environment: QboEnvironment; returnPeriodYear: number } | null>;
   oauthConfig(environment: QboEnvironment): OAuthConfig | null;
   exchangeCode(environment: QboEnvironment, code: string, redirectUri: string): Promise<TokenResult>;
   sealRefreshToken(refreshToken: string, binding: EnvelopeBinding): Promise<string>;
   storeConnection(companyId: string, actorUserId: string, realmId: string, environment: QboEnvironment, envelope: string, refreshExpiresAt: string, hardExpiresAt: string | null): Promise<string>;
-  /** Where to send the browser back to: an address in the app for that workspace and status word. It must contain nothing else. */
-  returnTo(companyId: string, status: ReturnStatus): string;
+  /** Where to send the browser back to: the app's trial-balance page for that workspace and period, with a status word. It must contain nothing else. */
+  returnTo(companyId: string, periodYear: number, status: ReturnStatus): string;
 }
 export type CallbackResult = { status: 302; outcome: ReturnStatus; location: string; connectionId?: string } | { status: 400; outcome: "invalid_request" | "unknown_state" };
 
@@ -92,7 +93,7 @@ export async function runQboCallback(deps: CallbackDeps, query: CallbackQuery | 
   if (!query) return { status: 400, outcome: "invalid_request" };
   const consumed = await deps.consumeState(await deps.sha256Hex(query.state));
   if (!consumed) return { status: 400, outcome: "unknown_state" };
-  const back = (outcome: ReturnStatus, connectionId?: string): CallbackResult => ({ status: 302, outcome, location: deps.returnTo(consumed.companyId, outcome), ...(connectionId ? { connectionId } : {}) });
+  const back = (outcome: ReturnStatus, connectionId?: string): CallbackResult => ({ status: 302, outcome, location: deps.returnTo(consumed.companyId, consumed.returnPeriodYear, outcome), ...(connectionId ? { connectionId } : {}) });
   if (query.denied) return back("denied");
   if (!query.code || !query.realmId) return back("failed");
   const cfg = deps.oauthConfig(consumed.environment);

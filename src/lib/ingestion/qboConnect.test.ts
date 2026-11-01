@@ -28,22 +28,23 @@ function startDeps(over: Partial<ConnectStartDeps> = {}) {
 
 describe("connect start", () => {
   it("parses exactly companyId and environment", () => {
-    expect(parseConnectStartRequest({ companyId: COMPANY, environment: "sandbox" })).toEqual({ companyId: COMPANY, environment: "sandbox" });
-    for (const bad of [null, [], {}, { companyId: COMPANY }, { companyId: COMPANY, environment: "staging" }, { companyId: "x", environment: "sandbox" },
-      { companyId: COMPANY, environment: "sandbox", actor: ACTOR }, { companyId: COMPANY, environment: "sandbox", realmId: "1" }]) {
+    expect(parseConnectStartRequest({ companyId: COMPANY, environment: "sandbox", periodYear: 2026 })).toEqual({ companyId: COMPANY, environment: "sandbox", periodYear: 2026 });
+    for (const bad of [null, [], {}, { companyId: COMPANY }, { companyId: COMPANY, environment: "sandbox" }, { companyId: COMPANY, environment: "staging", periodYear: 2026 }, { companyId: "x", environment: "sandbox", periodYear: 2026 },
+      { companyId: COMPANY, environment: "sandbox", periodYear: 1999 }, { companyId: COMPANY, environment: "sandbox", periodYear: 2026.5 }, { companyId: COMPANY, environment: "sandbox", periodYear: "2026" },
+      { companyId: COMPANY, environment: "sandbox", periodYear: 2026, actor: ACTOR }, { companyId: COMPANY, environment: "sandbox", periodYear: 2026, realmId: "1" }]) {
       expect(parseConnectStartRequest(bad)).toBeNull();
     }
   });
   it("stores only the hash of the state and returns the authorisation address that carries the state", async () => {
     const { deps, started } = startDeps();
-    const r = await runQboConnectStart(deps, { companyId: COMPANY, environment: "sandbox" });
+    const r = await runQboConnectStart(deps, { companyId: COMPANY, environment: "sandbox", periodYear: 2026 });
     expect(r.status).toBe(200);
     if (r.outcome !== "authorize") throw new Error("expected authorize");
     const u = new URL(r.authorizeUrl);
     expect(u.searchParams.get("state")).toBe(STATE);
     expect(u.searchParams.get("scope")).toBe("com.intuit.quickbooks.accounting");
     expect(u.searchParams.get("redirect_uri")).toBe(CFG.redirectUri);
-    expect(started).toEqual([[await sha(STATE), COMPANY, ACTOR, "sandbox", OAUTH_STATE_TTL_SECONDS]]);
+    expect(started).toEqual([[await sha(STATE), COMPANY, ACTOR, "sandbox", OAUTH_STATE_TTL_SECONDS, 2026]]);
     expect(JSON.stringify(started)).not.toContain(STATE);
   });
   it.each<[string, Partial<ConnectStartDeps>, number, string]>([
@@ -54,14 +55,14 @@ describe("connect start", () => {
     ["a weak random state", { randomState: () => "short" }, 500, "state_failed"],
   ])("%s", async (_l, over, status, outcome) => {
     const { deps, started } = startDeps(over);
-    const r = await runQboConnectStart(deps, { companyId: COMPANY, environment: "production" });
+    const r = await runQboConnectStart(deps, { companyId: COMPANY, environment: "production", periodYear: 2026 });
     expect([r.status, r.outcome]).toEqual([status, outcome]);
     // nothing reaches the database unless there is a login, a configured app and a strong state
     if (["unauthenticated", "not_configured"].includes(outcome) || over.randomState) expect(started).toHaveLength(0);
   });
   it("never calls the database without a login", async () => {
     const { deps, started } = startDeps({ authenticate: async () => null });
-    await runQboConnectStart(deps, { companyId: COMPANY, environment: "sandbox" });
+    await runQboConnectStart(deps, { companyId: COMPANY, environment: "sandbox", periodYear: 2026 });
     expect(started).toHaveLength(0);
   });
 });
@@ -85,12 +86,12 @@ function callbackDeps(over: Partial<CallbackDeps> = {}) {
   const log = { consumed: [] as string[], exchanged: [] as unknown[][], stored: [] as unknown[][], sealed: [] as unknown[][] };
   const deps: CallbackDeps = {
     sha256Hex: sha,
-    consumeState: async (h) => { log.consumed.push(h); return { companyId: COMPANY, actorUserId: ACTOR, environment: "sandbox" }; },
+    consumeState: async (h) => { log.consumed.push(h); return { companyId: COMPANY, actorUserId: ACTOR, environment: "sandbox", returnPeriodYear: 2026 }; },
     oauthConfig: () => CFG,
     exchangeCode: async (...a) => { log.exchanged.push(a); return GOOD; },
     sealRefreshToken: async (t, b) => { log.sealed.push([t, b]); return sealSecret(t, KEY, b); },
     storeConnection: async (...a) => { log.stored.push(a); return "33333333-3333-3333-3333-333333333333"; },
-    returnTo: (c, s) => `https://app.example.test/workspace/${c}?qbo=${s}`,
+    returnTo: (c, y, s) => `https://app.example.test/workspace/${c}/${y}/trial-balance/review?qbo=${s}`,
     ...over,
   };
   return { deps, log };
@@ -111,7 +112,7 @@ describe("callback", () => {
   it("on success: consumes the state first, exchanges once, seals the refresh token bound to workspace + environment + realm, stores only the envelope", async () => {
     const { deps, log } = callbackDeps();
     const r = await runQboCallback(deps, QUERY);
-    expect(r).toMatchObject({ status: 302, outcome: "connected", location: `https://app.example.test/workspace/${COMPANY}?qbo=connected` });
+    expect(r).toMatchObject({ status: 302, outcome: "connected", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review?qbo=connected` });
     expect(log.consumed).toEqual([await sha(STATE)]);
     expect(log.exchanged).toEqual([["sandbox", "code-not-real", CFG.redirectUri]]);
     const binding = connectionBinding(COMPANY, QUERY.realmId, "sandbox");

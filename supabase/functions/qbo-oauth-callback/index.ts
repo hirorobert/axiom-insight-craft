@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
       const { data, error } = await service.rpc("qbo_consume_oauth_state", { p_state_hash: stateHash });
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : null;
-      return row ? { companyId: row.company_id as string, actorUserId: row.actor_user_id as string, environment: row.environment as "production" | "sandbox" } : null;
+      return row ? { companyId: row.company_id as string, actorUserId: row.actor_user_id as string, environment: row.environment as "production" | "sandbox", returnPeriodYear: Number(row.return_period_year) } : null;
     },
     oauthConfig: (environment) => config.oauth(environment),
     exchangeCode: async (environment, code, redirectUri) => {
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       if (error || typeof data !== "string") throw new Error("connection not stored");
       return data;
     },
-    returnTo: (companyId, status) => `${appUrl}/dashboard?qbo=${status}&company=${companyId}`,
+    returnTo: (companyId, periodYear, status) => `${appUrl}/workspace/${companyId}/${periodYear}/trial-balance/review?qbo=${status}`,
   }, parseCallbackQuery(new URL(req.url).searchParams)).catch(() => ({ status: 400 as const, outcome: "invalid_request" as const }));
 
   // OPERATIONAL LOG: never the code, the state, a token or an envelope.

@@ -38,15 +38,15 @@ Deno.serve(async (req) => {
     oauthConfig: (environment) => config.oauth(environment),
     randomState: () => [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join(""),
     sha256Hex,
-    startState: async (stateHash, companyId, actorUserId, environment, ttlSeconds) => {
-      const { data, error } = await service.rpc("qbo_start_oauth_state", { p_state_hash: stateHash, p_company_id: companyId, p_actor_user_id: actorUserId, p_environment: environment, p_ttl_seconds: ttlSeconds });
+    startState: async (stateHash, companyId, actorUserId, environment, ttlSeconds, returnPeriodYear) => {
+      const { data, error } = await service.rpc("qbo_start_oauth_state", { p_state_hash: stateHash, p_company_id: companyId, p_actor_user_id: actorUserId, p_environment: environment, p_ttl_seconds: ttlSeconds, p_return_period_year: returnPeriodYear });
       if (error) throw error;
       return data === "created" || data === "forbidden" ? data : "invalid";
     },
   }, parsed).catch(() => ({ status: 500 as const, outcome: "state_failed" as const }));
 
   // OPERATIONAL LOG: never the state, the hash or the address.
-  console.log(JSON.stringify({ event: "qbo.connect_start", company_id: parsed.companyId, environment: parsed.environment, actor, status: result.status, outcome: result.outcome }));
+  console.log(JSON.stringify({ event: "qbo.connect_start", company_id: parsed.companyId, period_year: parsed.periodYear, environment: parsed.environment, actor, status: result.status, outcome: result.outcome }));
   const { status, ...body } = result;
   return json(status, body);
 });
