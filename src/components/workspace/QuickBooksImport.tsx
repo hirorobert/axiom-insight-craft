@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
-  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, RECORD_PENDING_NOTE, connectionState, fetchConnections, pullFromQuickBooks, startConnect,
+  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, pullFromQuickBooks, readHandoff, startConnect,
   type QboConnectionState,
 } from "@/lib/workspace/qboConnectorClient";
 
@@ -29,8 +29,8 @@ export interface QuickBooksImportViewProps {
   state: QboConnectionState | "checking";
   environment: "sandbox" | "production";
   period: PeriodDates | "loading";
-  busy: "connect" | "import" | null;
-  /** The status word the OAuth redirect came back with, shown once. */
+  busy: "connect" | "finish" | "import" | null;
+  /** The status word the OAuth redirect came back with (or "connected" once the finish step succeeded), shown once. */
   returned: ReturnedStatus | null;
   /** The result of the last import attempt (a plain sentence) and whether it succeeded. */
   result: { ok: boolean; text: string; detail?: string } | null;
@@ -88,7 +88,7 @@ export function QuickBooksImportView(p: QuickBooksImportViewProps): JSX.Element 
         <Button type="button" variant="outline" size="sm" onClick={action.id === "connect" ? p.onConnect : p.onImport} disabled={p.busy !== null}
           className="h-auto min-h-10 w-full rounded-none px-4 py-2 text-[13px] font-semibold shadow-none sm:w-auto" data-testid="quickbooks-action" data-action={action.id}>
           {p.busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-          {p.busy === "connect" ? "Opening QuickBooks…" : p.busy === "import" ? "Importing…" : action.label}
+          {p.busy === "connect" ? "Opening QuickBooks…" : p.busy === "finish" ? "Finishing the QuickBooks connection…" : p.busy === "import" ? "Importing…" : action.label}
         </Button>
       )}
     </section>
@@ -106,19 +106,23 @@ export interface QuickBooksImportProps {
   enabled?: boolean;
 }
 
+/** Only a decline or a failure travels as a word in the address. "Connected" is never taken from the address: it is said only after the finish step answers. */
 function returnedFromAddress(): ReturnedStatus | null {
   if (typeof window === "undefined") return null;
   const v = new URLSearchParams(window.location.search).get("qbo");
-  return v === "connected" || v === "denied" || v === "failed" ? v : null;
+  return v === "denied" || v === "failed" ? v : null;
 }
+const handoffFromAddress = (): string | null => (typeof window === "undefined" ? null : readHandoff(window.location.hash));
 
 export function QuickBooksImport({ companyId, periodYear, periodId, engagementId, onImported, enabled = QBO_CONNECTOR_ENABLED }: QuickBooksImportProps): JSX.Element | null {
   const [state, setState] = useState<QboConnectionState | "checking">("checking");
   const [period, setPeriod] = useState<PeriodDates | "loading">(periodId ? "loading" : { start: null, end: null });
-  const [busy, setBusy] = useState<"connect" | "import" | null>(null);
+  const [handoff] = useState<string | null>(handoffFromAddress);
+  const [busy, setBusy] = useState<"connect" | "finish" | "import" | null>(handoff ? "finish" : null);
   const [result, setResult] = useState<{ ok: boolean; text: string; detail?: string } | null>(null);
-  const [returned] = useState<ReturnedStatus | null>(returnedFromAddress);
+  const [returned, setReturned] = useState<ReturnedStatus | null>(returnedFromAddress);
   const working = useRef(false);
+  const finished = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -136,6 +140,24 @@ export function QuickBooksImport({ companyId, periodYear, periodId, engagementId
       .then(({ data }) => { if (live) setPeriod({ start: data?.reporting_start ?? null, end: data?.reporting_end ?? null }); });
     return () => { live = false; };
   }, [enabled, periodId]);
+
+  // Back from QuickBooks with a handoff: take it out of the address FIRST (no refresh, bookmark or shared link can carry it), then finish, once.
+  // The function decides from the login whether this person started the connection; anyone else is told so and nothing is saved.
+  useEffect(() => {
+    if (!enabled || !handoff || finished.current) return;
+    finished.current = true; working.current = true;
+    if (typeof window !== "undefined") { const u = new URL(window.location.href); u.hash = ""; window.history.replaceState(null, "", u.toString()); }
+    void (async () => {
+      const r = await finishConnect(supabase as never, handoff);
+      if (r.kind === "connected") {
+        setReturned("connected");
+        setState(connectionState(await fetchConnections(supabase as never, companyId), QBO_ENVIRONMENT));
+      } else {
+        setResult({ ok: false, text: r.message });
+      }
+      setBusy(null); working.current = false;
+    })();
+  }, [enabled, handoff, companyId]);
 
   // The status word is shown once: take it out of the address so a refresh does not repeat it.
   useEffect(() => {

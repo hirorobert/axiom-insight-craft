@@ -1,6 +1,6 @@
 /**
  * qboConnectorClient — the browser's side of "Import from QuickBooks" (charter B9). It only ASKS: every financial write is made by an Edge Function
- * (qbo-connect-start, qbo-pull-trial-balance), which judges the person's right itself, and the connection's status is read through the status function that
+ * (qbo-connect-start, qbo-finish-connection, qbo-pull-trial-balance), which judges the person's right itself, and the connection's status is read through the status function that
  * never returns a token, an envelope or a key. Nothing here sees a QuickBooks password, a token or a response body.
  *
  * QBO_CONNECTOR_ENABLED is a reviewed source constant (the gate pattern of src/lib/workbench/gate.ts and TWO_PERIOD_INTAKE_ENABLED). It stays false until the
@@ -71,6 +71,8 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   period_mismatch: "QuickBooks returned a different period from the one asked for, so nothing was imported.",
   active_upload_exists: "A trial balance is already saved for this period. To replace it, use Replace trial balance and upload a file.",
   provenance_failed: "Nothing was imported, because the record of where these figures came from could not be saved. Please try again.",
+  not_yours: "This QuickBooks connection was started by someone else, so it was not saved. Nothing was shared. To connect, use Connect QuickBooks yourself.",
+  expired: "The QuickBooks connection took too long to finish, so it was not saved. Connect again to continue.",
   invalid_request: GENERIC, reserve_failed: GENERIC, store_failed: GENERIC, register_failed: GENERIC, token_unreadable: GENERIC, pull_failed: GENERIC,
 });
 export const messageFor = (outcome: string | undefined): string => (outcome && QBO_MESSAGES[outcome]) || GENERIC;
@@ -83,6 +85,31 @@ export async function startConnect(client: FnClient, a: { companyId: string; per
     return { kind: "failed", message: messageFor(typeof body?.outcome === "string" ? body.outcome : undefined) };
   } catch {
     return { kind: "failed", message: GENERIC };
+  }
+}
+
+/**
+ * The one-time handoff code the OAuth callback put in the address FRAGMENT (`#qbo_handoff=<64 hex>`), or null. A fragment is never sent to a server; the
+ * card removes it from the address before it is used, and only the person who started the connection can finish with it (qbo-finish-connection).
+ */
+export function readHandoff(hash: string): string | null {
+  if (!hash || hash[0] !== "#") return null;
+  const v = new URLSearchParams(hash.slice(1)).get("qbo_handoff");
+  return v && /^[0-9a-f]{64}$/.test(v) ? v : null;
+}
+
+const CONNECT_FAILED = "QuickBooks could not be connected. Please try again.";
+export type FinishOutcome = { kind: "connected" } | { kind: "failed"; outcome: string; message: string };
+
+/** Finishes "Connect QuickBooks" with the handoff: the function decides, from the login, whether this person may; this only reports its answer. Never throws. */
+export async function finishConnect(client: FnClient, handoff: string): Promise<FinishOutcome> {
+  try {
+    const body = await readAnswer(await client.functions.invoke("qbo-finish-connection", { body: { handoff } }));
+    const outcome = typeof body?.outcome === "string" ? body.outcome : "failed";
+    if (outcome === "connected") return { kind: "connected" };
+    return { kind: "failed", outcome, message: QBO_MESSAGES[outcome] ?? CONNECT_FAILED };
+  } catch {
+    return { kind: "failed", outcome: "failed", message: CONNECT_FAILED };
   }
 }
 

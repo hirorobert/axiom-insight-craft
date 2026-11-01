@@ -70,6 +70,9 @@ describe("Import from QuickBooks card", () => {
     const connecting = await render({ state: { kind: "none" }, busy: "connect" });
     expect(connecting).toMatch(/<button[^>]*disabled[^>]*data-action="connect"|<button[^>]*data-action="connect"[^>]*disabled/);
     expect(text(connecting)).toContain("Opening QuickBooks");
+    const finishing = await render({ state: { kind: "none" }, busy: "finish" });
+    expect(text(finishing)).toContain("Finishing the QuickBooks connection");
+    expect(finishing).toMatch(/disabled/);
     const importing = await render({ state: { kind: "connected", realmId: "1" }, busy: "import" });
     expect(text(importing)).toContain("Importing");
     expect(importing).toMatch(/disabled/);

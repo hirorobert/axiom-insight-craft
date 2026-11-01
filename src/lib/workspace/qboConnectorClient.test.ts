@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_MESSAGES, RECORD_PENDING_NOTE, connectionState, fetchConnections, messageFor, pullFromQuickBooks, startConnect, type PullInput, type QboConnectionRow } from "./qboConnectorClient";
+import { QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_MESSAGES, RECORD_PENDING_NOTE, connectionState, fetchConnections, finishConnect, messageFor, pullFromQuickBooks, readHandoff, startConnect, type PullInput, type QboConnectionRow } from "./qboConnectorClient";
 
 // Invented values only.
 const COMPANY = "11111111-1111-1111-1111-111111111111";
@@ -53,6 +53,28 @@ describe("starting a connection", () => {
     expect(await startConnect(fn(() => ({ data: { outcome: "not_configured" }, error: null })), ARGS)).toEqual({ kind: "failed", message: QBO_MESSAGES.not_configured });
     const c = { functions: { invoke: async () => { throw new Error("offline"); } } };
     expect((await startConnect(c as never, ARGS)).kind).toBe("failed");
+  });
+});
+
+describe("finishing a connection (review r2, S4)", () => {
+  const H = "cd".repeat(32);
+  it("reads the one-time handoff only from the fragment, only in its exact shape", () => {
+    expect(readHandoff(`#qbo_handoff=${H}`)).toBe(H);
+    for (const bad of ["", "#", `?qbo_handoff=${H}`, `qbo_handoff=${H}`, "#qbo_handoff=short", `#qbo_handoff=${H.toUpperCase()}`, `#other=${H}`, `#qbo_handoff=${H}x`]) expect(readHandoff(bad)).toBeNull();
+    expect(readHandoff(`#a=1&qbo_handoff=${H}`)).toBe(H);
+  });
+  it("sends exactly the handoff, nothing else (the person comes from the login), and reports 'connected'", async () => {
+    const c = fn(() => ({ data: { outcome: "connected" }, error: null }));
+    expect(await finishConnect(c, H)).toEqual({ kind: "connected" });
+    expect(c.functions.invoke).toHaveBeenCalledWith("qbo-finish-connection", { body: { handoff: H } });
+  });
+  it("says in plain words when someone else started it, when it took too long, and otherwise that it could not be connected; never throws", async () => {
+    expect(await finishConnect(fn(() => failingWith({ outcome: "not_yours" })), H)).toEqual({ kind: "failed", outcome: "not_yours", message: QBO_MESSAGES.not_yours });
+    expect(await finishConnect(fn(() => failingWith({ outcome: "expired" })), H)).toEqual({ kind: "failed", outcome: "expired", message: QBO_MESSAGES.expired });
+    expect(await finishConnect(fn(() => failingWith({ outcome: "forbidden" })), H)).toMatchObject({ message: QBO_MESSAGES.forbidden });
+    expect(await finishConnect(fn(() => failingWith({ outcome: "failed" })), H)).toMatchObject({ message: "QuickBooks could not be connected. Please try again." });
+    expect(await finishConnect({ functions: { invoke: async () => { throw new Error("offline"); } } } as never, H)).toMatchObject({ kind: "failed", message: "QuickBooks could not be connected. Please try again." });
+    expect(QBO_MESSAGES.not_yours).toContain("Nothing was shared");
   });
 });
 
