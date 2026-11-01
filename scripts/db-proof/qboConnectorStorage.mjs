@@ -43,13 +43,14 @@ const envelope = (key = "k1") => `v1.${key}.${rnd()}${rnd()}.${rnd()}${rnd()}${r
 const realm = () => String(Math.floor(1e15 + Math.random() * 9e15));
 const FN = {
   start: "SELECT public.qbo_start_oauth_state($1,$2,$3,$4,$5,$6) r",
-  consume: "SELECT * FROM public.qbo_consume_oauth_state($1)",
+  ret: "SELECT * FROM public.qbo_record_oauth_return($1,$2,$3,$4)",
+  take: "SELECT * FROM public.qbo_take_oauth_return($1,$2)",
   store: "SELECT public.qbo_store_connection($1,$2,$3,$4,$5,$6,$7) r",
   rotate: "SELECT public.qbo_rotate_refresh_token($1,$2,$3,$4,$5) r",
-  reconnect: "SELECT public.qbo_mark_reconnect_needed($1) r",
+  reconnect: "SELECT public.qbo_mark_reconnect_needed($1,$2) r",
   disconnect: "SELECT public.qbo_disconnect($1,$2) r",
   lease: "SELECT public.qbo_acquire_refresh_lease($1,$2,$3) r",
-  release: "SELECT public.qbo_release_refresh_lease($1) r",
+  release: "SELECT public.qbo_release_refresh_lease($1,$2) r",
   intent: "SELECT public.qbo_record_pull_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) r",
   complete: "SELECT public.qbo_complete_pull($1) r",
   pending: "SELECT public.qbo_complete_pending_pulls() r",
@@ -108,8 +109,8 @@ try {
     await assert.rejects(() => svc("UPDATE public.qbo_connections SET status='disconnected' WHERE id=$1", [c.id]), denied, "the service role cannot write the table directly either");
   });
   await kase("clients.cannot-call-the-writers-only-the-status-function", async () => {
-    const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600, 2026]], [FN.consume, [sha(rnd())]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
-      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid()]], [FN.disconnect, [uuid(), U.owner]], [FN.lease, [uuid(), envelope(), 60]], [FN.release, [uuid()]], [FN.intent, intentArgs(uuid())], [FN.complete, [uuid()]], [FN.pending, []], [FN.house, []], [FN.retention, ["7 years"]]];
+    const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600, 2026]], [FN.ret, [sha(rnd()), null, null, null]], [FN.take, [sha(rnd()), uuid()]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
+      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid(), envelope()]], [FN.disconnect, [uuid(), U.owner]], [FN.lease, [uuid(), envelope(), 60]], [FN.release, [uuid(), uuid()]], [FN.intent, intentArgs(uuid())], [FN.complete, [uuid()]], [FN.pending, []], [FN.house, []], [FN.retention, ["7 years"]]];
     for (const role of ["authenticated", "anon"]) for (const [sql, p] of calls) await assert.rejects(() => db.asRole(role, U.owner, sql, p), denied, `${role}: ${sql.slice(0, 40)}`);
     await assert.doesNotReject(() => db.asRole("authenticated", U.owner, "SELECT * FROM public.qbo_connection_status($1)", [W.A]));
     await assert.rejects(() => db.asRole("anon", null, "SELECT * FROM public.qbo_connection_status($1)", [W.A]), denied, "anonymous callers cannot even ask for status");
@@ -136,20 +137,20 @@ try {
   });
   await kase("state.is-single-use", async () => {
     const a = await start(W.A, ACTOR, "production");
-    const first = (await db.asRole("service_role", null, FN.consume, [a.hash]));
-    assert.equal(first.length, 1); assert.deepEqual([first[0].company_id, first[0].actor_user_id, first[0].environment, first[0].return_period_year], [W.A, ACTOR, "production", 2026]);
-    assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "the second use returns nothing");
+    const first = (await db.asRole("service_role", null, FN.ret, [a.hash, null, null, null]));
+    assert.equal(first.length, 1); assert.deepEqual(first[0], { company_id: W.A, environment: "production", return_period_year: 2026 }, "only where to send the browser comes back, not who started it");
+    assert.equal((await db.asRole("service_role", null, FN.ret, [a.hash, null, null, null])).length, 0, "the second use returns nothing");
     // two concurrent consumers: exactly one wins
     const b = await start(W.A, U.owner);
-    const both = await Promise.all([db.asRole("service_role", null, FN.consume, [b.hash]), db.asRole("service_role", null, FN.consume, [b.hash])]);
+    const both = await Promise.all([db.asRole("service_role", null, FN.ret, [b.hash, null, null, null]), db.asRole("service_role", null, FN.ret, [b.hash, null, null, null])]);
     assert.equal(both.filter((r) => r.length === 1).length, 1, "exactly one of two concurrent consumers wins");
   });
   await kase("state.expired-or-unknown-returns-nothing", async () => {
     const a = await start(W.A, U.owner);
     await db.admin.query("UPDATE public.qbo_oauth_states SET created_at = now() - interval '2 hours', expires_at = now() - interval '90 minutes' WHERE state_hash=$1", [a.hash]);
-    assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "an expired state is not accepted");
-    assert.equal((await db.asRole("service_role", null, FN.consume, [sha("never issued")])).length, 0, "an unknown state returns nothing");
-    assert.equal((await db.asRole("service_role", null, FN.consume, ["short"])).length, 0, "a malformed state returns nothing");
+    assert.equal((await db.asRole("service_role", null, FN.ret, [a.hash, null, null, null])).length, 0, "an expired state is not accepted");
+    assert.equal((await db.asRole("service_role", null, FN.ret, [sha("never issued"), null, null, null])).length, 0, "an unknown state returns nothing");
+    assert.equal((await db.asRole("service_role", null, FN.ret, ["short", null, null, null])).length, 0, "a malformed state returns nothing");
     assert.equal((await one("SELECT consumed_at FROM public.qbo_oauth_states WHERE state_hash=$1", [a.hash])).consumed_at, null, "an expired state is not marked consumed");
   });
   await kase("state.consumed-but-the-actor-lost-the-right-returns-nothing-and-cannot-be-retried", async () => {
@@ -166,14 +167,108 @@ try {
     assert.equal(a.r, "created", "the member held the right when the state was started");
     const rv = (await db.asRole("authenticated", U.owner, "SELECT * FROM public.revoke_workspace_capability($1,$2,'prepare_trial_balance')", [c, member]))[0];
     assert.ok(rv, "the right was revoked");
-    assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "the right is judged again at consumption: nothing is returned");
+    assert.equal((await db.asRole("service_role", null, FN.ret, [a.hash, null, null, null])).length, 0, "the right is judged again at consumption: nothing is returned");
     assert.ok((await one("SELECT consumed_at FROM public.qbo_oauth_states WHERE state_hash=$1", [a.hash])).consumed_at, "the state is consumed all the same");
     assert.equal((await grant()).outcome, "granted", "the right is granted again");
-    assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "and the state cannot be retried even though the right returned");
+    assert.equal((await db.asRole("service_role", null, FN.ret, [a.hash, null, null, null])).length, 0, "and the state cannot be retried even though the right returned");
   });
   await kase("state.lifetime-is-bounded-at-thirty-minutes", async () => {
     await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at) VALUES ($1,$2,$3,'sandbox', 2026, now() + interval '31 minutes')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
     await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at) VALUES ($1,$2,$3,'sandbox', 2026, now() - interval '1 minute')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
+  });
+
+  // ── the return leg (review r2, S4): only the person who started an attempt can finish it ─────────────────────────────
+  const park = async (company, actor, o = {}) => {
+    const st = await start(company, actor, o.env ?? "sandbox");
+    assert.equal(st.r, "created");
+    const h = sha(rnd()), code = envelope("k1"), rl = o.realm ?? realm();
+    const rows = await db.asRole("service_role", null, FN.ret, [st.hash, rl, code, h]);
+    return { ...st, handoff: h, code, realm: rl, rows };
+  };
+  const stateRow = (hash) => one("SELECT * FROM public.qbo_oauth_states WHERE state_hash=$1", [hash]);
+  const take = async (h, who) => (await db.asRole("service_role", null, FN.take, [h, who]))[0];
+  await kase("return.parks-the-sealed-code-once-and-gives-back-only-where-to-return", async () => {
+    const a = await park(W.A, U.owner);
+    assert.deepEqual(a.rows, [{ company_id: W.A, environment: "sandbox", return_period_year: 2026 }], "only where to send the browser comes back");
+    const row = await stateRow(a.hash);
+    assert.deepEqual([row.realm_id, row.code_envelope, row.handoff_hash, row.finished_at], [a.realm, a.code, a.handoff, null], "the sealed code, the realm and the handoff's hash are parked");
+    const life = (row.handoff_expires_at - row.consumed_at) / 1000;
+    assert.ok(life > 299 && life < 301, `the handoff lives five minutes (${life} s)`);
+    assert.equal((await db.asRole("service_role", null, FN.ret, [a.hash, realm(), envelope("k1"), sha(rnd())])).length, 0, "a second return with the same state is refused");
+    assert.equal((await stateRow(a.hash)).code_envelope, a.code, "and changes nothing");
+    const half = await start(W.A, U.owner);
+    for (const args of [[realm(), envelope("k1"), null], [realm(), null, sha(rnd())], [null, envelope("k1"), sha(rnd())]]) {
+      assert.equal((await db.asRole("service_role", null, FN.ret, [half.hash, ...args])).length, 0, "a half-filled return is refused");
+    }
+    assert.equal((await stateRow(half.hash)).consumed_at, null, "before anything changes: the state is still unused");
+    await assert.rejects(() => db.asRole("service_role", null, FN.ret, [half.hash, realm(), "a clear code", sha(rnd())]), /violates check/i, "a code that is not sealed is refused by the table");
+    assert.equal((await stateRow(half.hash)).consumed_at, null, "and the refusal leaves the state unused");
+    const declined = await start(W.A, U.owner);
+    assert.equal((await db.asRole("service_role", null, FN.ret, [declined.hash, null, null, null])).length, 1, "a declined return is accepted");
+    const d = await stateRow(declined.hash);
+    assert.ok(d.consumed_at, "the state is consumed"); assert.deepEqual([d.code_envelope, d.handoff_hash], [null, null], "nothing is parked");
+    await assert.rejects(() => db.admin.query("UPDATE public.qbo_oauth_states SET handoff_expires_at = consumed_at + interval '11 minutes' WHERE state_hash=$1", [a.hash]), /chk_qbo_state_handoff/, "a handoff never lives longer than ten minutes");
+  });
+  // A fresh member of an existing workspace (the proof world's owners are at their workspace allowance).
+  const freshMember = async (c, owner, caps) => {
+    const member = uuid();
+    await db.admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [member, `qbotaker-${member}@example.test`]);
+    await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [c, member]);
+    for (const cap of caps) await db.asRole("authenticated", owner, "SELECT * FROM public.grant_workspace_capability($1,$2,$3)", [c, member, cap]);
+    return member;
+  };
+  await kase("return.only-the-person-who-started-takes-it-and-any-answer-ends-it", async () => {
+    const c = W.A;
+    const member = await freshMember(c, U.owner, ["prepare_trial_balance", "manage_source_files"]);
+    assert.equal((await start(c, member)).r, "created", "the member holds both rights in this workspace");
+    const a = await park(c, U.owner);
+    const other = await take(a.handoff, member);
+    assert.deepEqual(other, { outcome: "not_yours", company_id: null, environment: null, realm_id: null, code_envelope: null }, "anyone else, even a person with both rights here, gets nothing");
+    const after = await stateRow(a.hash);
+    assert.deepEqual([after.code_envelope, after.finish_outcome], [null, "not_yours"], "and the parked code is deleted");
+    assert.equal((await take(a.handoff, U.owner)).outcome, "unknown", "so the starter cannot finish it afterwards either");
+    for (const who of [U.ownerB, U.viewer]) {
+      const x = await park(c, U.owner);
+      assert.equal((await take(x.handoff, who)).outcome, "not_yours", "another workspace's owner, or a viewer, gets nothing");
+    }
+    const b = await park(c, U.owner, { env: "production" });
+    assert.deepEqual(await take(b.handoff, U.owner), { outcome: "taken", company_id: c, environment: "production", realm_id: b.realm, code_envelope: b.code }, "the starter takes the sealed code back");
+    const done = await stateRow(b.hash);
+    assert.deepEqual([done.code_envelope, done.finish_outcome], [null, "taken"], "and it is deleted from the table at once");
+    assert.ok(done.finished_at, "the take is recorded");
+    assert.equal((await take(b.handoff, U.owner)).outcome, "unknown", "single use");
+    const both = await park(c, U.owner);
+    const two = await Promise.all([take(both.handoff, U.owner), take(both.handoff, U.owner)]);
+    assert.equal(two.filter((r) => r.outcome === "taken").length, 1, "of two simultaneous takes exactly one gets the code");
+    await assert.rejects(() => db.admin.query("UPDATE public.qbo_oauth_states SET code_envelope = $2 WHERE state_hash=$1", [b.hash, envelope("k1")]), /chk_qbo_state_code_only_while_open/, "a finished return can never hold a code again");
+    for (const bad of [sha("never issued"), "short", null]) assert.equal((await take(bad, U.owner)).outcome, "unknown", "an unknown or malformed handoff gets nothing");
+    assert.equal((await take(both.handoff, null)).outcome, "unknown", "and so does a missing person");
+  });
+  await kase("return.an-expired-handoff-gives-nothing-and-housekeeping-deletes-parked-codes", async () => {
+    const a = await park(W.A, U.owner), keep = await park(W.A, U.owner);
+    await db.admin.query("UPDATE public.qbo_oauth_states SET created_at = now() - interval '8 minutes', consumed_at = now() - interval '6 minutes', handoff_expires_at = now() - interval '1 minute' WHERE state_hash=$1", [a.hash]);
+    const out = (await db.asRole("service_role", null, FN.house))[0];
+    assert.ok(out.codes_cleared >= 1, "the expired handoff's code is deleted");
+    assert.equal((await stateRow(a.hash)).code_envelope, null);
+    assert.equal((await stateRow(keep.hash)).code_envelope, keep.code, "an open handoff keeps its code");
+    assert.deepEqual(await take(a.handoff, U.owner), { outcome: "expired", company_id: null, environment: null, realm_id: null, code_envelope: null }, "the starter is told it expired and gets nothing");
+    const b = await park(W.A, U.owner);
+    await db.admin.query("UPDATE public.qbo_oauth_states SET created_at = now() - interval '8 minutes', consumed_at = now() - interval '6 minutes', handoff_expires_at = now() - interval '1 second' WHERE state_hash=$1", [b.hash]);
+    assert.equal((await take(b.handoff, U.owner)).outcome, "expired", "even before housekeeping has run");
+    assert.equal((await stateRow(b.hash)).code_envelope, null, "and the take deletes it");
+  });
+  await kase("return.a-starter-who-lost-either-right-cannot-take-it", async () => {
+    const c = W.B, who = await freshMember(W.B, U.ownerB, []);
+    const grant = (cap) => db.asRole("authenticated", U.ownerB, "SELECT * FROM public.grant_workspace_capability($1,$2,$3)", [c, who, cap]);
+    const revoke = (cap) => db.asRole("authenticated", U.ownerB, "SELECT * FROM public.revoke_workspace_capability($1,$2,$3)", [c, who, cap]);
+    for (const cap of ["prepare_trial_balance", "manage_source_files"]) {
+      await grant("prepare_trial_balance"); await grant("manage_source_files");
+      const a = await park(c, who);
+      assert.equal(a.rows.length, 1, "both rights held at the return");
+      assert.ok((await revoke(cap))[0], `${cap} revoked`);
+      assert.equal((await take(a.handoff, who)).outcome, "forbidden", `losing ${cap} after the return ends it`);
+      assert.equal((await stateRow(a.hash)).code_envelope, null, "and its code is deleted");
+    }
   });
 
   // ── connections and tokens ───────────────────────────────────────────────────────────────────────────────────────
@@ -208,7 +303,7 @@ try {
     const c = await store(W.A, U.owner);
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_token_envelope = NULL WHERE id=$1", [c.id]), /chk_qbo_conn_token_iff_active/, "an active connection cannot lose its token");
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET status='reconnect_needed' WHERE id=$1", [c.id]), /chk_qbo_conn_/, "an inactive connection cannot keep one");
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET status='active' WHERE id=$1", [c.id]), /chk_qbo_conn_token_iff_active/, "it cannot be made active without a token");
   });
   await kase("rotation.is-compare-and-swap-and-only-one-concurrent-refresh-wins", async () => {
@@ -225,22 +320,42 @@ try {
     const current = (await conn(c.id)).refresh_token_envelope;
     await assert.rejects(() => svc(FN.rotate, [c.id, current, "not-an-envelope", future(1), null]), /violates check/i, "a malformed new envelope is refused");
   });
+  await kase("rotation.a-retry-whose-first-answer-was-lost-is-recognised-and-writes-nothing-twice", async () => {
+    const c = await store(W.A, U.owner);
+    const next = envelope("k1"), later = envelope("k1");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true);
+    const stored = await conn(c.id);
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true, "the same rotation, retried, is reported as stored");
+    assert.equal((await conn(c.id)).updated_at.getTime(), stored.updated_at.getTime(), "and nothing is written a second time");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, later, future(100), future(1800)])).r, false, "a different new envelope from the old expectation still loses");
+    assert.equal((await conn(c.id)).refresh_token_envelope, next);
+  });
   await kase("rotation.is-refused-for-an-inactive-connection", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     assert.equal((await svc(FN.rotate, [c.id, c.env_, envelope(), future(1), null])).r, false);
     assert.equal((await svc(FN.rotate, [uuid(), envelope(), envelope(), future(1), null])).r, false, "an unknown connection");
   });
   await kase("reconnect-needed.deletes-the-dead-token", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     const row = await conn(c.id);
     assert.equal(row.status, "reconnect_needed");
     assert.deepEqual([row.refresh_token_envelope, row.envelope_key_id, row.refresh_expires_at, row.hard_expires_at], [null, null, null, null], "no token, key id or expiry is kept");
-    assert.equal((await svc(FN.reconnect, [c.id])).r, false, "an already inactive connection is not changed again");
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, false, "an already inactive connection is not changed again");
     const again = await store(W.A, U.owner, { realm: c.realm, env_: envelope() });
     assert.equal(again.id, c.id, "reconnecting stores a fresh token on the same connection");
     assert.equal((await conn(c.id)).status, "active");
+  });
+  await kase("reconnect-needed.only-for-the-token-intuit-refused-never-a-newer-one", async () => {
+    const c = await store(W.A, U.owner);
+    const newer = envelope("k1");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, newer, future(100), future(1800)])).r, true, "another import stored a newer token");
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, false, "a refusal of the out-of-date token changes nothing");
+    const row = await conn(c.id);
+    assert.equal(row.status, "active"); assert.equal(row.refresh_token_envelope, newer, "the newer token is kept");
+    assert.equal((await svc(FN.reconnect, [c.id, null])).r, false, "a missing envelope marks nothing");
+    assert.equal((await svc(FN.reconnect, [c.id, newer])).r, true, "a refusal of the current token deletes it");
   });
   await kase("disconnect.needs-the-right-deletes-the-token-and-is-terminal", async () => {
     const c = await store(W.A, U.owner);
@@ -311,48 +426,67 @@ try {
       await grant(ACTOR, "prepare_trial_balance"); await grant(ACTOR, "manage_source_files");
       const s = await start(c, ACTOR); assert.equal(s.r, "created", "both rights held at the start");
       assert.ok((await revoke(ACTOR, cap))[0], `${cap} revoked`);
-      assert.equal((await db.asRole("service_role", null, FN.consume, [s.hash])).length, 0, `losing ${cap} ends the attempt at the callback`);
-      assert.equal((await db.asRole("service_role", null, FN.consume, [s.hash])).length, 0, "and it cannot be retried");
+      assert.equal((await db.asRole("service_role", null, FN.ret, [s.hash, null, null, null])).length, 0, `losing ${cap} ends the attempt at the callback`);
+      assert.equal((await db.asRole("service_role", null, FN.ret, [s.hash, null, null, null])).length, 0, "and it cannot be retried");
     }
   });
 
   // ── rotation lease (finding: two simultaneous refreshes must never both reach Intuit with the same token) ─────────
   await kase("lease.only-one-caller-holds-it-and-it-names-the-envelope", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.lease, [c.id, envelope("k1"), 60])).r, false, "an out-of-date envelope never gets the lease");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 5])).r, false, "too short a lease is refused");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 301])).r, false, "too long a lease is refused");
-    assert.equal((await svc(FN.lease, [uuid(), c.env_, 60])).r, false, "an unknown connection");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "the first caller takes it");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "the second is told no, without any call to Intuit");
+    assert.equal((await svc(FN.lease, [c.id, envelope("k1"), 60])).r, null, "an out-of-date envelope never gets the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 5])).r, null, "too short a lease is refused");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 301])).r, null, "too long a lease is refused");
+    assert.equal((await svc(FN.lease, [uuid(), c.env_, 60])).r, null, "an unknown connection");
+    const first = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.match(String(first), /^[0-9a-f-]{36}$/, "the first caller takes it, and is given the lease's own id");
+    assert.equal((await conn(c.id)).refresh_lease_id, first);
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "the second is told no, without any call to Intuit");
     const fresh = await store(W.A, U.owner);
     const both = await Promise.all(Array.from({ length: 8 }, () => db.asRole("service_role", null, FN.lease, [fresh.id, fresh.env_, 60])));
-    assert.equal(both.filter((rows) => rows[0].r === true).length, 1, "of eight simultaneous callers exactly one holds the lease");
+    assert.equal(both.filter((rows) => rows[0].r !== null).length, 1, "of eight simultaneous callers exactly one holds the lease");
   });
   await kase("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    assert.notEqual((await svc(FN.lease, [c.id, c.env_, 60])).r, null);
     await db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", [c.id]);
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "a lapsed lease (a crashed import) can be taken again");
-    assert.equal((await svc(FN.release, [c.id])).r, true, "released on demand");
-    assert.equal((await svc(FN.release, [c.id])).r, false, "releasing nothing changes nothing");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    const again = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.notEqual(again, null, "a lapsed lease (a crashed import) can be taken again");
+    assert.equal((await svc(FN.release, [c.id, again])).r, true, "released on demand by its holder");
+    assert.equal((await svc(FN.release, [c.id, again])).r, false, "releasing nothing changes nothing");
+    assert.notEqual((await svc(FN.lease, [c.id, c.env_, 60])).r, null);
     const next = envelope("k1");
     assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true);
-    assert.equal((await conn(c.id)).refresh_lease_until, null, "rotation clears the lease");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "and the old envelope can no longer take one");
+    const rotated = await conn(c.id);
+    assert.deepEqual([rotated.refresh_lease_until, rotated.refresh_lease_id], [null, null], "rotation clears the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "and the old envelope can no longer take one");
   });
   await kase("lease.never-outlives-an-active-token", async () => {
     const a = await store(W.A, U.owner), b = await store(W.A, U.owner), d = await store(W.A, U.owner);
-    for (const x of [a, b, d]) assert.equal((await svc(FN.lease, [x.id, x.env_, 60])).r, true);
-    assert.equal((await svc(FN.reconnect, [a.id])).r, true);
+    for (const x of [a, b, d]) assert.notEqual((await svc(FN.lease, [x.id, x.env_, 60])).r, null);
+    assert.equal((await svc(FN.reconnect, [a.id, a.env_])).r, true);
     assert.equal((await conn(a.id)).refresh_lease_until, null, "a dead token holds no lease");
     assert.equal((await svc(FN.disconnect, [b.id, U.owner])).r, "disconnected");
     assert.equal((await conn(b.id)).refresh_lease_until, null, "a disconnected connection holds no lease");
-    assert.equal((await svc(FN.lease, [a.id, a.env_, 60])).r, false, "no lease on an inactive connection");
+    assert.equal((await svc(FN.lease, [a.id, a.env_, 60])).r, null, "no lease on an inactive connection");
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = now() + interval '1 minute' WHERE id=$1", [a.id]), /violates check/i, "the table itself refuses a lease on an inactive connection");
     const again = await store(W.A, U.owner, { realm: (await conn(d.id)).realm_id });
     assert.equal((await conn(again.id)).refresh_lease_until, null, "reconnecting clears a stale lease");
+    assert.equal((await conn(again.id)).refresh_lease_id, null);
+    await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_lease_id = gen_random_uuid() WHERE id=$1", [again.id]), /chk_qbo_conn_lease_pair/, "a lease id never exists without its expiry");
+  });
+  await kase("lease.only-its-holder-releases-it-a-lapsed-holder-cannot-clear-the-next-holders-lease", async () => {
+    const c = await store(W.A, U.owner);
+    const slow = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    await db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", [c.id]);
+    const next = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.notEqual(next, null, "the lapsed lease is taken by the next import"); assert.notEqual(next, slow);
+    assert.equal((await svc(FN.release, [c.id, slow])).r, false, "the import whose lease lapsed cannot release the next holder's");
+    assert.equal((await svc(FN.release, [c.id, uuid()])).r, false, "nor can any other id");
+    assert.equal((await conn(c.id)).refresh_lease_id, next, "the next holder still holds it");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "so a third import is still told busy");
+    assert.equal((await svc(FN.release, [c.id, null])).r, false, "a missing id releases nothing");
+    assert.equal((await svc(FN.release, [c.id, next])).r, true, "the holder releases it");
   });
 
   // ── evidence: intent first, then the link to the upload ──────────────────────────────────────────────────────────
@@ -568,7 +702,7 @@ try {
     }
   });
   await kase("structure.writers-are-security-definer-with-a-pinned-search-path-and-service-role-only", async () => {
-    const writers = ["qbo_start_oauth_state", "qbo_consume_oauth_state", "qbo_store_connection", "qbo_acquire_refresh_lease", "qbo_release_refresh_lease", "qbo_rotate_refresh_token", "qbo_mark_reconnect_needed", "qbo_disconnect",
+    const writers = ["qbo_start_oauth_state", "qbo_record_oauth_return", "qbo_take_oauth_return", "qbo_store_connection", "qbo_acquire_refresh_lease", "qbo_release_refresh_lease", "qbo_rotate_refresh_token", "qbo_mark_reconnect_needed", "qbo_disconnect",
       "qbo_record_pull_intent", "qbo_complete_pull", "qbo_complete_pending_pulls", "qbo_housekeeping", "qbo_provenance_past_retention", "qbo_connection_status"];
     for (const f of writers) {
       const r = await one("SELECT p.prosecdef, p.proconfig, p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname=$1", [f]);
