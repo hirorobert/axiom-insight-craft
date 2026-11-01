@@ -224,11 +224,11 @@ financial-statements rollout.
 ## Unreleased ingestion compatibility update (2026-10-15)
 
 The historical release identities above remain unchanged. The current source dependency closure of
-`layout-assist` is now `f02bc7e0391725b306f72d335a5dfe0b310ac33f066c856169a66610fa7f9149` because the shared deterministic ingestion core recognises
+`layout-assist` is now `ca667b4bbf19c1cc35938c546dd500a2f42252acbb97f983f4d37fc261d8a6e2` because the shared deterministic ingestion core recognises
 printed-workbook metadata and control totals (tb-ingest-3.1.0), and then printed-report footers by position and structure, title-block
 evidence and the review-only rules (tb-ingest-3.2.0), and the shared reader enforces the one upload policy before any parse
 (`_shared/uploadPolicy.ts`, tb-upload-policy-3: the account bound added by the certification-capacity repair). A file refused as a whole
 (an upload-policy limit or an unreadable format) is now recorded as stopping at the "read" milestone with its reason, not as a
 failed balance (launch acceptance F). The ingestion core also gives each finding that takes a recorded decision a stable identity (its subject; the file's
-entity text; one clearing-account finding per account) for the Trial Balance workflow's finding decisions, and the shared layout module gains the bounded imbalance investigation. This is a source identity, not evidence
+entity text; one clearing-account finding per account) for the Trial Balance workflow's finding decisions, and the shared layout module gains the bounded imbalance investigation. The reader also accepts the QuickBooks Desktop trial-balance export layout (an account-name column with no heading, inferred only when exactly one candidate exists, and a final TOTAL label outside the name column, still checked against the accounts). This is a source identity, not evidence
 of hosted deployment. The layout-assist customer gate remains unchanged.
