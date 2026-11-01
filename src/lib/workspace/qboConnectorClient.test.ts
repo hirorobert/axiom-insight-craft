@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_MESSAGES, connectionState, fetchConnections, messageFor, pullFromQuickBooks, startConnect, type PullInput, type QboConnectionRow } from "./qboConnectorClient";
+import { QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, QBO_MESSAGES, RECORD_PENDING_NOTE, connectionState, fetchConnections, messageFor, pullFromQuickBooks, startConnect, type PullInput, type QboConnectionRow } from "./qboConnectorClient";
 
 // Invented values only.
 const COMPANY = "11111111-1111-1111-1111-111111111111";
@@ -59,16 +59,27 @@ describe("starting a connection", () => {
 describe("importing", () => {
   it("sends the documented keys, omits an absent period or engagement id, and returns what was imported", async () => {
     const c = fn(() => ({ data: { outcome: "imported", uploadId: "u-1", accountCount: 30, currency: "GBP" }, error: null }));
-    expect(await pullFromQuickBooks(c, PULL)).toEqual({ kind: "imported", uploadId: "u-1", accountCount: 30, currency: "GBP" });
+    expect(await pullFromQuickBooks(c, PULL)).toEqual({ kind: "imported", uploadId: "u-1", accountCount: 30, currency: "GBP", recordPending: false });
     expect(c.functions.invoke).toHaveBeenCalledWith("qbo-pull-trial-balance", { body: { companyId: COMPANY, environment: "sandbox", realmId: PULL.realmId, startDate: "2026-01-01", endDate: "2026-10-31", periodYear: 2026 } });
     await pullFromQuickBooks(c, { ...PULL, periodId: "p-1", engagementId: "e-1" });
     expect((c.functions.invoke.mock.calls[1] as unknown[])[1]).toMatchObject({ body: { periodId: "p-1", engagementId: "e-1" } });
   });
-  it("a refusal carries its plain sentence, the server's detail for a refused report, and the upload id when provenance failed", async () => {
+  it("a refusal carries its plain sentence and the server's detail for a refused report", async () => {
     const refused = await pullFromQuickBooks(fn(() => failingWith({ outcome: "report_refused", code: "UNBALANCED", message: "The report's debits and credits are not equal." })), PULL);
     expect(refused).toEqual({ kind: "failed", outcome: "report_refused", message: QBO_MESSAGES.report_refused, detail: "The report's debits and credits are not equal." });
-    const prov = await pullFromQuickBooks(fn(() => failingWith({ outcome: "provenance_failed", uploadId: "u-9" })), PULL);
-    expect(prov).toMatchObject({ kind: "failed", outcome: "provenance_failed", uploadId: "u-9" });
+  });
+  it("a failure to save the source record means NOTHING was imported (the function stores nothing unless the record is on file), and says so", async () => {
+    const prov = await pullFromQuickBooks(fn(() => failingWith({ outcome: "provenance_failed" })), PULL);
+    expect(prov).toMatchObject({ kind: "failed", outcome: "provenance_failed", message: QBO_MESSAGES.provenance_failed });
+    expect(QBO_MESSAGES.provenance_failed).toMatch(/^Nothing was imported/);
+    expect(prov).not.toHaveProperty("uploadId");
+  });
+  it("'imported_record_pending' (HTTP 202) is an import: the trial balance is saved and its record is on file, only the final link is still being finished", async () => {
+    const r = await pullFromQuickBooks(fn(() => ({ data: { outcome: "imported_record_pending", uploadId: "u-2", accountCount: 12, currency: "TZS" }, error: null })), PULL);
+    expect(r).toEqual({ kind: "imported", uploadId: "u-2", accountCount: 12, currency: "TZS", recordPending: true });
+    expect(RECORD_PENDING_NOTE).toMatch(/finishes by itself/);
+    expect(RECORD_PENDING_NOTE).not.toMatch(/token|secret|envelope|oauth|jwt|SAFISHA|HESABU|KINGA|MAONO/i);
+    expect((await pullFromQuickBooks(fn(() => ({ data: { outcome: "imported_record_pending" }, error: null })), PULL)).kind).toBe("failed");   // no upload id, no import
   });
   it("an answer that is not understood is the generic sentence, never a thrown error or a raw body", async () => {
     for (const answer of [() => ({ data: null, error: null }), () => ({ data: { outcome: "imported" }, error: null }), () => ({ data: { outcome: "something-new" }, error: null }), () => failingWith("<html>")]) {

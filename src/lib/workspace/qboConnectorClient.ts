@@ -70,7 +70,7 @@ export const QBO_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   report_refused: "The report from QuickBooks isn't one this import can read safely, so nothing was imported. Export it from QuickBooks and upload the file instead.",
   period_mismatch: "QuickBooks returned a different period from the one asked for, so nothing was imported.",
   active_upload_exists: "A trial balance is already saved for this period. To replace it, use Replace trial balance and upload a file.",
-  provenance_failed: "The trial balance was imported, but its source record could not be saved. Tell support before relying on it.",
+  provenance_failed: "Nothing was imported, because the record of where these figures came from could not be saved. Please try again.",
   invalid_request: GENERIC, reserve_failed: GENERIC, store_failed: GENERIC, register_failed: GENERIC, token_unreadable: GENERIC, pull_failed: GENERIC,
 });
 export const messageFor = (outcome: string | undefined): string => (outcome && QBO_MESSAGES[outcome]) || GENERIC;
@@ -87,8 +87,10 @@ export async function startConnect(client: FnClient, a: { companyId: string; per
 }
 
 export interface PullInput { companyId: string; environment: "sandbox" | "production"; realmId: string; startDate: string; endDate: string; periodYear: number; periodId: string | null; engagementId: string | null }
+/** Said when the trial balance is saved and its source record is already on file, but the final link between them is still being finished (HTTP 202). */
+export const RECORD_PENDING_NOTE = "The record of where these figures came from is saved and is being linked to this trial balance; that finishes by itself.";
 export type PullOutcome =
-  | { kind: "imported"; uploadId: string; accountCount: number; currency: string }
+  | { kind: "imported"; uploadId: string; accountCount: number; currency: string; recordPending: boolean }
   | { kind: "failed"; outcome: string; message: string; detail?: string; uploadId?: string };
 
 export async function pullFromQuickBooks(client: FnClient, a: PullInput): Promise<PullOutcome> {
@@ -98,8 +100,8 @@ export async function pullFromQuickBooks(client: FnClient, a: PullInput): Promis
       ...(a.periodId ? { periodId: a.periodId } : {}), ...(a.engagementId ? { engagementId: a.engagementId } : {}),
     } }));
     const outcome = typeof body?.outcome === "string" ? body.outcome : undefined;
-    if (outcome === "imported" && typeof body?.uploadId === "string") {
-      return { kind: "imported", uploadId: body.uploadId, accountCount: Number(body.accountCount) || 0, currency: typeof body.currency === "string" ? body.currency : "" };
+    if ((outcome === "imported" || outcome === "imported_record_pending") && typeof body?.uploadId === "string") {
+      return { kind: "imported", uploadId: body.uploadId, accountCount: Number(body.accountCount) || 0, currency: typeof body.currency === "string" ? body.currency : "", recordPending: outcome === "imported_record_pending" };
     }
     return {
       kind: "failed", outcome: outcome ?? "pull_failed", message: messageFor(outcome),

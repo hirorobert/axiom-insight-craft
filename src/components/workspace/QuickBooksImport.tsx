@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
-  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, connectionState, fetchConnections, pullFromQuickBooks, startConnect,
+  QBO_CONNECTOR_ENABLED, QBO_ENVIRONMENT, RECORD_PENDING_NOTE, connectionState, fetchConnections, pullFromQuickBooks, startConnect,
   type QboConnectionState,
 } from "@/lib/workspace/qboConnectorClient";
 
@@ -165,12 +165,10 @@ export function QuickBooksImport({ companyId, periodYear, periodId, engagementId
       // The same check a file upload starts: the server's check decides; this page only starts it.
       await ensureFreshSession();
       const check = await invokeProcessing(supabase as unknown as FunctionsClient, { uploadId: r.uploadId, clientRequestId: crypto.randomUUID() });
-      setResult({
-        ok: true,
-        text: check.error
-          ? `Imported ${r.accountCount} accounts (${r.currency}). The check did not finish; open the trial balance below and check again.`
-          : `Imported ${r.accountCount} accounts (${r.currency}). The check has started and its result appears below.`,
-      });
+      const base = check.error
+        ? `Imported ${r.accountCount} accounts (${r.currency}). The check did not finish; open the trial balance below and check again.`
+        : `Imported ${r.accountCount} accounts (${r.currency}). The check has started and its result appears below.`;
+      setResult({ ok: true, text: r.recordPending ? `${base} ${RECORD_PENDING_NOTE}` : base });
       onImported?.();
     } finally {
       setBusy(null); working.current = false;
