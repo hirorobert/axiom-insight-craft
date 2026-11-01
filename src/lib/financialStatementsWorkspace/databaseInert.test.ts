@@ -871,6 +871,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/ipsasAuthorityRaces.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityRaces.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasCurrency.mjs"); allowed.add("scripts/db-proof/ipsasCurrency.manifest.mjs");
     allowed.add("scripts/db-proof/sourceAccessAuthority.mjs"); allowed.add("scripts/db-proof/sourceAccessAuthority.manifest.mjs"); allowed.add("scripts/db-proof/lib/checkpoints.mjs"); allowed.add("src/lib/__tests__/proofCheckpoints.test.ts");
+    allowed.add("scripts/db-proof/qboConnectorStorage.mjs"); allowed.add("scripts/db-proof/qboConnectorStorage.manifest.mjs"); // QuickBooks connector storage proof (B9): loopback-only disposable database, no deploy behaviour
     allowed.add("scripts/release/verifyCarry.mjs"); // applies the committed carry patch to a scratch checkout of #221's head and compares bytes; local git only, no network or hosted access
     allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
