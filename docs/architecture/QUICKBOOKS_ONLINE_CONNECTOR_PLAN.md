@@ -143,12 +143,16 @@ Intuit's documentation pages are rendered by script and **could not be read dire
 | Region | Sandbox available | Sample recorded | Status |
 |---|---|---|---|
 | US | yes | **yes** (this repository's fixtures) | shape and **parity** proven |
-| UK, AU, CA | **yes**; sandboxes created 2026-10-31 (GB fa92, AU 93b8, CA c511) | **yes** (GBP, AUD, CAD; this repository's fixtures) | shape and conversion proven (control total, reader); **parity pending** (needs each sandbox's Excel export, which needs a separate download approval) |
+| UK, AU, CA | **yes**; sandboxes created 2026-10-31 (GB fa92, AU 93b8, CA c511) | **yes** (GBP, AUD, CAD; this repository's fixtures) | shape and conversion proven; **parity proven for GB** (Excel export identical); **AU and CA: the Excel exports hold the same books to the cent but the existing reader refuses them** (see 11.1) |
 | India | not offered today (a blog listed it) | no | needs a real company's report from a firm, or a sandbox if Intuit offers one |
 | France | not offered today (a blog listed it); **different endpoint (`TrialBalanceFR`)** | no | refused until a French sample exists |
 | Tanzania and any other country | none known | no | needs a real company's report from a firm (with consent), or Intuit's confirmation of the edition |
 
 Currency: the home currency comes from the report header; amounts with other than two decimals are refused until a sample for such a currency is recorded.
+
+### 11.1 Finding: QuickBooks Online's Excel export can carry floating-point noise (2026-11-01)
+
+The Excel exports of the AU and CA sandboxes contain values such as `812.429999999999` (for 812.43) and `23.2299999999996` (for 23.23): arithmetic noise that is still inside Excel's 15 significant digits, so the reader's rule that reduces a cell to 15 digits does not clean it, its two-decimal rule refuses it (`PRECISION_EXCEEDS_CURRENCY`) and its control-total check then disagrees (`TOTAL_ROW_MISMATCH`). The same books are in the file (equal to the API report to the cent, tested). The US and GB exports did not trip it, so **an Australian or Canadian QuickBooks Online user who uploads the Excel export may be refused today, while the connector path (exact decimal strings in the API JSON) is unaffected.** This is a second reason to prefer the connector for QuickBooks Online. Changing the reader's tolerance (for example snapping a numeric cell that lies within a tiny distance of a whole minor unit) changes how every upload is read, needs a version bump, a digest re-pin and the owner's decision, and is **not** done here; the limitation is pinned by a test in PR #236.
 
 ## 12. Storage design (a sketch for the owner's approval; **not a migration**, because new tables need approval under CLAUDE.md section 8.2)
 
