@@ -2,8 +2,8 @@
 // unguessable single-use state (qbo_start_oauth_state, which judges that the person may prepare a trial balance in that workspace) and answers with the authorisation
 // address for the browser to open. No token exists yet. See _shared/qboConnect.ts for the flow and _shared/qboEnv.ts for the configuration (secrets are never logged).
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/auth.ts";
 import { parseConnectStartRequest, runQboConnectStart } from "../_shared/qboConnect.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { sha256Hex } from "../_shared/qboPullSummary.ts";
