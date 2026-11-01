@@ -136,15 +136,16 @@ Intuit's documentation pages are rendered by script and **could not be read dire
 **What can be promised:** the connector is **fail-closed per region**. It reads only a response whose shape matches a **recorded sample** (`qboTrialBalance.ts`), and its request guard (`qboReadOnlyGuard.ts`) allows only the `TrialBalance` report. Anything else (another edition's shape, the French `TrialBalanceFR`, another currency exponent, nested sections) is refused with a stated reason, never guessed or repaired. A region is "supported" only when a sample from a company of that region has passed the A2 parity test.
 
 **What cannot be promised today:**
-- Intuit's pages read do not list every country with a QuickBooks Online edition, and the sources found disagree. A developer-blog summary (date unknown) lists sandbox regions **US, UK, AU, IN, CA and FR**; **Tanzania is not among them**, so no Tanzania sandbox exists to test. The portal's country list was not read (session expired).
+- Intuit's pages read do not list every country with a QuickBooks Online edition, and the sources found disagree. **The portal's own "Create a sandbox company" country list (read 2026-11-01, nothing created) offers four: United States, Australia, United Kingdom, Canada.** A developer-blog summary of unknown date had listed six (adding India and France); the portal does not offer them today, so the blog is out of date or the list varies by account. **Tanzania is not offered**, so no Tanzania sandbox can be created to test.
 - Which edition Tanzanian firms actually use is not established; it must come from the firms.
 - The partner programme's country restriction (item 7) may affect a Tanzania-based developer.
 
 | Region | Sandbox available | Sample recorded | Status |
 |---|---|---|---|
 | US | yes | **yes** (this repository's fixtures) | shape proven |
-| UK, AU, CA, IN | listed by a blog, to confirm in the portal | no | pending: create sandbox, record sample, run parity |
-| France | listed, **different endpoint (`TrialBalanceFR`)** | no | refused until a French sample exists |
+| UK, AU, CA | **yes** (offered by the portal) | no | pending: create a sandbox, record a sample, run parity |
+| India | not offered today (a blog listed it) | no | needs a real company's report from a firm, or a sandbox if Intuit offers one |
+| France | not offered today (a blog listed it); **different endpoint (`TrialBalanceFR`)** | no | refused until a French sample exists |
 | Tanzania and any other country | none known | no | needs a real company's report from a firm (with consent), or Intuit's confirmation of the edition |
 
 Currency: the home currency comes from the report header; amounts with other than two decimals are refused until a sample for such a currency is recorded.
