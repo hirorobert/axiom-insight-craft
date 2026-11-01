@@ -41,9 +41,11 @@
 --   no scheduler needed). qbo_pull_intents and qbo_pulls are evidence: append-only, no deletion mechanism ships here, and none is needed for years;
 --   qbo_provenance_past_retention() only COUNTS rows past a retention interval for the day a purge is approved. See the release record.
 --
--- ACTOR. Like the other recent workspace-authority tables (trial_balance_source_download_events), the actor is the authenticated user id recorded
---   as actor_user_id, judged through workspace_authority_basis. This differs from the older firm_members.id convention in CLAUDE.md section 4.3; it
---   follows the repository's current authority model and is flagged for the independent reviewer.
+-- ACTOR. Like the other recent workspace-authority tables (trial_balance_source_reservations, trial_balance_source_download_events), the actor is the
+--   authenticated user id recorded as actor_user_id, judged through workspace_authority_basis, and the BASIS of each right is recorded beside it
+--   (prepare_basis, source_basis: 'workspace_owner' | 'explicit_capability'). This differs from the older firm_members.id convention in CLAUDE.md
+--   section 4.3, and it must: workspace_authority_basis never reads firm_members, and an owner can act with no firm_members row at all. Flagged for the
+--   independent reviewer with the evidence in docs/release/qbo-connector-review-r1/README.md.
 
 -- ── 1. connections ──────────────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE public.qbo_connections (
@@ -123,6 +125,8 @@ CREATE TABLE public.qbo_pulls (
   upload_id uuid NOT NULL UNIQUE,  -- one import, one upload
   connection_id uuid,
   actor_user_id uuid NOT NULL,
+  prepare_basis text NOT NULL CHECK (prepare_basis IN ('workspace_owner', 'explicit_capability')),   -- on what basis prepare_trial_balance was held (as in the other authority tables)
+  source_basis text NOT NULL CHECK (source_basis IN ('workspace_owner', 'explicit_capability')),     -- and manage_source_files; a person's id is never the whole story
   realm_id text NOT NULL CHECK (realm_id ~ '^[0-9]{1,20}$'),
   environment text NOT NULL CHECK (environment IN ('production', 'sandbox')),
   report text NOT NULL CHECK (report = 'TrialBalance'),
@@ -166,6 +170,8 @@ CREATE TABLE public.qbo_pull_intents (
   company_id uuid NOT NULL,
   connection_id uuid,
   actor_user_id uuid NOT NULL,
+  prepare_basis text NOT NULL CHECK (prepare_basis IN ('workspace_owner', 'explicit_capability')),   -- on what basis prepare_trial_balance was held (as in the other authority tables)
+  source_basis text NOT NULL CHECK (source_basis IN ('workspace_owner', 'explicit_capability')),     -- and manage_source_files; a person's id is never the whole story
   realm_id text NOT NULL CHECK (realm_id ~ '^[0-9]{1,20}$'),
   environment text NOT NULL CHECK (environment IN ('production', 'sandbox')),
   report text NOT NULL CHECK (report = 'TrialBalance'),
@@ -346,6 +352,8 @@ DECLARE
   r public.trial_balance_source_reservations%ROWTYPE;
   e public.qbo_pull_intents%ROWTYPE;
   v_id uuid;
+  v_prepare text;
+  v_source text;
 BEGIN
   IF p_reservation_id IS NULL OR p_actor_user_id IS NULL THEN
     RAISE EXCEPTION 'FORBIDDEN: a reservation and an actor are required' USING ERRCODE = '42501';
@@ -354,6 +362,8 @@ BEGIN
   IF NOT FOUND OR r.actor_user_id <> p_actor_user_id OR NOT public.qbo_connector_basis(p_actor_user_id, r.company_id) THEN
     RAISE EXCEPTION 'FORBIDDEN: no right to import from QuickBooks into this workspace' USING ERRCODE = '42501';
   END IF;
+  v_prepare := public.workspace_authority_basis(p_actor_user_id, r.company_id, 'prepare_trial_balance');
+  v_source := public.workspace_authority_basis(p_actor_user_id, r.company_id, 'manage_source_files');
   SELECT * INTO e FROM public.qbo_pull_intents i WHERE i.reservation_id = p_reservation_id;
   IF FOUND THEN
     IF e.raw_sha256 = p_raw_sha256 AND e.canonical_sha256 = p_canonical_sha256 AND e.result_sha256 = p_result_sha256 THEN RETURN e.id; END IF;
@@ -362,9 +372,9 @@ BEGIN
   IF r.consumed_at IS NOT NULL OR r.expires_at <= now() THEN
     RAISE EXCEPTION 'RESERVATION_NOT_OPEN: the upload reservation is already used or has expired' USING ERRCODE = '23514';
   END IF;
-  INSERT INTO public.qbo_pull_intents (reservation_id, company_id, connection_id, actor_user_id, realm_id, environment, report, start_date, end_date, accounting_method,
-                                       minor_version, currency, account_count, raw_sha256, canonical_sha256, result_sha256)
-  VALUES (p_reservation_id, r.company_id, p_connection_id, p_actor_user_id, p_realm_id, p_environment, 'TrialBalance', p_start_date, p_end_date, p_accounting_method,
+  INSERT INTO public.qbo_pull_intents (reservation_id, company_id, connection_id, actor_user_id, prepare_basis, source_basis, realm_id, environment, report, start_date, end_date,
+                                       accounting_method, minor_version, currency, account_count, raw_sha256, canonical_sha256, result_sha256)
+  VALUES (p_reservation_id, r.company_id, p_connection_id, p_actor_user_id, v_prepare, v_source, p_realm_id, p_environment, 'TrialBalance', p_start_date, p_end_date, p_accounting_method,
           p_minor_version, p_currency, p_account_count, p_raw_sha256, p_canonical_sha256, p_result_sha256)
   RETURNING id INTO v_id;
   RETURN v_id;
@@ -389,9 +399,9 @@ BEGIN
   IF r.company_id <> i.company_id OR r.actor_user_id <> i.actor_user_id THEN
     RAISE EXCEPTION 'INTENT_MISMATCH: the reservation and the recorded intent disagree about the workspace or the person' USING ERRCODE = '23514';
   END IF;
-  INSERT INTO public.qbo_pulls (pulled_at, company_id, upload_id, connection_id, actor_user_id, realm_id, environment, report, start_date, end_date, accounting_method,
-                                minor_version, currency, account_count, raw_sha256, canonical_sha256, result_sha256)
-  VALUES (i.recorded_at, i.company_id, r.consumed_by_upload_id, i.connection_id, i.actor_user_id, i.realm_id, i.environment, i.report, i.start_date, i.end_date, i.accounting_method,
+  INSERT INTO public.qbo_pulls (pulled_at, company_id, upload_id, connection_id, actor_user_id, prepare_basis, source_basis, realm_id, environment, report, start_date, end_date,
+                                accounting_method, minor_version, currency, account_count, raw_sha256, canonical_sha256, result_sha256)
+  VALUES (i.recorded_at, i.company_id, r.consumed_by_upload_id, i.connection_id, i.actor_user_id, i.prepare_basis, i.source_basis, i.realm_id, i.environment, i.report, i.start_date, i.end_date, i.accounting_method,
           i.minor_version, i.currency, i.account_count, i.raw_sha256, i.canonical_sha256, i.result_sha256)
   ON CONFLICT (upload_id) DO NOTHING;
   GET DIAGNOSTICS n = ROW_COUNT;
