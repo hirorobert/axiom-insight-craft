@@ -286,7 +286,9 @@ describe("migration directory integrity", () => {
     // as facts, the /2 workpaper validator, context, draft and atomic commit), a NEW forward-only migration pending hosted application.
     // 206 -> 207: 20261211100000_source_access_authority_repairs.sql (independent review of #229: member removal revokes the person's explicit workspace grants
     // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(207); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000), IPSAS grants (20261208100000) and the source-access repairs (20261211100000), all pending hosted apply
+    // 207 -> 208: 20261212100000_qbo_connector_storage.sql (QuickBooks Online connector: connections with enveloped tokens, single-use OAuth state, append-only
+    // import provenance), a NEW forward-only migration pending hosted application.
+    expect(files.length).toBe(208); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000), IPSAS grants (20261208100000) and the source-access repairs (20261211100000), all pending hosted apply
   });
 });
 

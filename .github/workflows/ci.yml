@@ -688,6 +688,21 @@ jobs:
           cat proof-results/sourceAccessAuthority.present.log
           node scripts/ci/validateProofResult.mjs proof-results/sourceAccessAuthority.present.json --manifest scripts/db-proof/sourceAccessAuthority.manifest.mjs --mode present --exit-code "$code"
 
+      - name: QuickBooks connector storage proof (20261212100000 — tokens only as envelopes and none once a connection is not active, clients have no access to connections or OAuth state, single-use state, compare-and-swap rotation, terminal disconnect, append-only provenance without secrets or foreign keys; full chain on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_connector_storage
+          PROOF_RESULT_FILE: proof-results/qboConnectorStorage.present.json
+        run: |
+          createdb qbo_connector_storage
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/qboConnectorStorage.mjs > proof-results/qboConnectorStorage.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/qboConnectorStorage.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/qboConnectorStorage.present.json --manifest scripts/db-proof/qboConnectorStorage.manifest.mjs --mode present --exit-code "$code"
+
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:
           DB_PROOF_MODE: external

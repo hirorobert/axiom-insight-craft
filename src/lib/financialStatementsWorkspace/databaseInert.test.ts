@@ -161,6 +161,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261210100000_ipsas_statement_review.sql",
       // Independent review of #229: member removal revokes that person's explicit workspace grants (trigger), and an append-only record of file-link issuance decisions (new table).
       "supabase/migrations/20261211100000_source_access_authority_repairs.sql",
+      // QuickBooks Online connector storage (charter B9): connections with enveloped tokens, single-use OAuth state, append-only provenance. Additive, no financial-statements schema.
+      "supabase/migrations/20261212100000_qbo_connector_storage.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
