@@ -12,6 +12,7 @@
  * Nothing else: no other report, no query/entity endpoint, no write method, no other host (look-alikes, userinfo, ports, plain
  * http, fragments, encoded or doubled path segments are all refused), no redirect following. Revocation on disconnect is NOT on
  * the list yet: its endpoint has not been verified against Intuit's documentation, and an unverified endpoint is not added.
+ * Every call is abandoned after a fixed time (QBO_TIMEOUTS_MS), so a refresh can never outlast the refresh lease that protects it.
  *
  * Pure apart from the injected fetch; no credentials are read, stored or logged here.
  */
@@ -115,14 +116,21 @@ export interface GuardedRequest {
   headers?: Record<string, string>;
   body?: string;
 }
-type FetchLike = (url: string, init: { method: string; headers?: Record<string, string>; body?: string; redirect: "error" }) => Promise<Response>;
+type FetchLike = (url: string, init: { method: string; headers?: Record<string, string>; body?: string; redirect: "error"; signal: AbortSignal }) => Promise<Response>;
 
-/** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect. */
-export function createGuardedQboFetch(fetchImpl: FetchLike) {
+/**
+ * How long a call to Intuit may take, response body included, before it is abandoned (the caller sees a network failure). The token call is the one
+ * that matters: it runs under the 90-second refresh lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
+ * lapse while this import is still waiting for Intuit, which would let a second import present the same refresh token.
+ */
+export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000 });
+
+/** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect; never waits longer than its timeout. */
+export function createGuardedQboFetch(fetchImpl: FetchLike, timeoutsMs: Readonly<Record<QboRequestKind, number>> = QBO_TIMEOUTS_MS) {
   return async function guardedQboFetch(req: GuardedRequest): Promise<Response> {
     const verdict = classifyQboRequest(req);
     if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
     if (verdict.kind === "report" && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
-    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error" });
+    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: AbortSignal.timeout(timeoutsMs[verdict.kind]) });
   };
 }

@@ -19,14 +19,16 @@ The independent review of this migration and the response to it: **`docs/release
 | `qbo_connection_status(company)` | What a member may see: id, realm, environment, status, expiry. Never an envelope, key id or token. Returns nothing without both rights. | Authenticated, only with both rights |
 
 **Refresh tokens roll over, so two protections:** a lease taken *before* Intuit is called (a second simultaneous import is told "busy" without any call), and a compare-and-swap on the stored envelope when the new token is stored.
+The lease has its own id, returned only to the caller that took it, and only that id releases it (an import whose lease lapsed cannot clear the next holder's lease). The rotation is safe to retry (a retry after a lost answer is recognised, not reported as a lost race), and `qbo_mark_reconnect_needed` deletes only the token Intuit actually refused, never a newer one another import has stored (review r2, `docs/release/qbo-connector-review-r1/README.md` §Second pass).
 **Evidence is written first and linked after:** if the intent cannot be written nothing is stored; if only the link fails the evidence is already complete and `qbo_complete_pending_pulls` finishes it.
 
 ## Evidence
 
-`scripts/db-proof/qboConnectorStorage.mjs`: **35 of 35 cases pass** on the full migration chain in a disposable loopback database (synthetic data; no Intuit call; no real token), including a real `reserve_trial_balance_source` -> intent -> `register_trial_balance_upload` -> complete. It runs in CI
+`scripts/db-proof/qboConnectorStorage.mjs`: **38 of 38 cases pass** on the full migration chain in a disposable loopback database (synthetic data; no Intuit call; no real token), including a real `reserve_trial_balance_source` -> intent -> `register_trial_balance_upload` -> complete. It runs in CI
 (step "QuickBooks connector storage proof") and its result is validated against `qboConnectorStorage.manifest.mjs`.
 **Negative controls:** the migration was deliberately broken six ways (the evidence function without the upload right, a lease anyone can take, no append-only guard on intents, linking an upload the reservation did not vouch for, housekeeping that deletes evidence, the shared rule
 forgetting the upload right); each failed the proof at the intended case; the migration was restored after each run. Details in the review record.
+Three more for the second pass (a release that ignores the lease id, a reconnect mark that ignores which token was refused, a rotation that is not safe to retry): each failed the proof at its new case.
 
 ## Not claimed, and for the independent reviewer
 
