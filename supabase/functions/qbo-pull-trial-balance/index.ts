@@ -7,8 +7,8 @@
 // the file is stored and linked to the upload afterwards (qbo_complete_pull, idempotent and recoverable). The service-role
 // key, the tokens, the envelope key and the QuickBooks response never leave the function and are never logged. See _shared/qboPull.ts for the order and its reasons.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/auth.ts";
 import { parsePullRequest, runQboPull, type CompletePullResult } from "../_shared/qboPull.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { createGuardedQboFetch, qboReportUrl } from "../_shared/qboReadOnlyGuard.ts";

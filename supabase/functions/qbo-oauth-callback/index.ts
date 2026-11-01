@@ -6,7 +6,7 @@
 // is sent back to the app with a status word and nothing else: never the code, the state or a token. An unknown, expired or used state is a plain 400.
 // See _shared/qboConnect.ts. The service-role key and every secret stay inside the function and are never logged.
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseCallbackQuery, runQboCallback } from "../_shared/qboConnect.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { createGuardedQboFetch } from "../_shared/qboReadOnlyGuard.ts";
