@@ -13,13 +13,13 @@
  *   Section C — Wear & Tear (ITA s.34) total
  *   Net impact → Taxable Income
  *
- * CPA can add manual line items (appended via UPDATE to tax_computations JSONB).
- * Auto-detected lines are shown with badge and cannot be removed (Iron Dome).
+ * Adjustments are recorded by the engine: this workpaper READS tax_computations and never writes it (CF-03,
+ * 20261212100000_legacy_financial_write_revocation.sql revoked the browser's INSERT/UPDATE/DELETE). The former
+ * "Add Manual Adjustment" form was removed with that migration. Auto-detected lines are shown with a badge.
  *
  * Iron Dome constraints:
  *   - No deletion of auto-detected lines
- *   - Manual lines marked with { auto_detected: false, added_by: userId }
- *   - JSONB append via UPDATE — does not change other computation fields
+ *   - No write to tax_computations from the browser
  */
 
 import { useEffect, useState, useCallback } from "react";
@@ -27,9 +27,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Collapsible,
   CollapsibleContent,
@@ -38,7 +35,6 @@ import {
 import { toast } from "sonner";
 import {
   FileText,
-  Plus,
   ChevronDown,
   ChevronRight,
   Loader2,
@@ -51,18 +47,6 @@ import {
 } from "lucide-react";
 
 // ── ITA section references ─────────────────────────────────────────────────────
-
-const ITA_SECTIONS = [
-  { value: "s.11",  label: "s.11 — Non-deductible expenditure (fines, penalties)" },
-  { value: "s.11(2)",label:"s.11(2) — Entertainment (non-deductible)" },
-  { value: "s.19(2)",label:"s.19(2) — Loss carry-forward utilisation" },
-  { value: "s.24A", label: "s.24A — Thin cap interest disallowance" },
-  { value: "s.33",  label: "s.33 — Management fees (arm's length)" },
-  { value: "s.34",  label: "s.34 — Wear & tear (tax depreciation)" },
-  { value: "s.65",  label: "s.65 — Minimum tax (AMT)" },
-  { value: "s.76",  label: "TAA s.76 — Penalty on late payment" },
-  { value: "other", label: "Other (specify in description)" },
-];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -112,14 +96,6 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
   const [comp, setComp] = useState<CompData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [formType, setFormType] = useState<"add_back" | "deduction">("add_back");
-  const [submitting, setSubmitting] = useState(false);
-
-  // Form state
-  const [fDesc, setFDesc] = useState("");
-  const [fAmount, setFAmount] = useState("");
-  const [fSection, setFSection] = useState("other");
 
   const fetchComp = useCallback(async () => {
     setLoading(true);
@@ -152,57 +128,6 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
   }, [companyId, uploadId]);
 
   useEffect(() => { fetchComp(); }, [fetchComp]);
-
-  // ── Add manual line ────────────────────────────────────────────────────────
-  const handleAddLine = async () => {
-    if (!fDesc.trim()) { toast.error("Description required"); return; }
-    if (!fAmount || isNaN(parseFloat(fAmount))) { toast.error("Valid amount required"); return; }
-    if (!comp) return;
-
-    setSubmitting(true);
-    const newItem: AdjItem = {
-      description: fDesc.trim(),
-      amount_tzs: parseFloat(fAmount),
-      ita_section: fSection,
-      auto_detected: false,
-      added_by: userId,
-    };
-
-    const field = formType === "add_back" ? "add_backs" : "deductions";
-    const existing: AdjItem[] = formType === "add_back" ? comp.add_backs : comp.deductions;
-    const updated = [...existing, newItem];
-
-    // Iron Dome: only update JSONB arrays + CPA audit trail columns.
-    // NEVER recompute taxable_income_tzs or cit_at_30pct_tzs here.
-    // Only the Kinga Tax Engine writes those totals. Set is_committed=false
-    // to prevent stale committed totals from being treated as authoritative.
-    const totalField = field === "add_backs" ? "total_add_backs_tzs" : "total_deductions_tzs";
-    const newTotal   = updated.reduce((s, i) => s + i.amount_tzs, 0);
-    const note       = `Manual ${formType === "add_back" ? "add-back" : "deduction"} added: ${newItem.description}`;
-
-    const { error } = await supabase
-      .from("tax_computations")
-      .update({
-        [field]:     updated,
-        [totalField]: newTotal,
-        is_committed:           false,
-        cpa_modified_at:        new Date().toISOString(),
-        cpa_modified_by:        userId,
-        cpa_modification_note:  note,
-        // taxable_income_tzs and cit_at_30pct_tzs intentionally NOT updated here
-        // — engine must recompute them on next run
-      })
-      .eq("id", comp.id);
-
-    if (error) {
-      toast.error("Failed to save: " + error.message);
-    } else {
-      toast.success("CPA modification saved — re-run Tax Engine to update totals, then re-commit.");
-      setFDesc(""); setFAmount(""); setFSection("other"); setShowForm(false);
-      fetchComp();
-    }
-    setSubmitting(false);
-  };
 
   if (!comp && !loading) return null;
 
@@ -321,65 +246,16 @@ export function AddBacksWorkpaper({ companyId, uploadId, periodYear, companyName
               </div>
             ) : (
               <>
-                {/* Add manual line form */}
-                {showForm ? (
-                  <div className="border border-teal-200 rounded-xl bg-teal-50/30 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <Plus className="w-4 h-4 text-teal-600" />Add Manual Adjustment
-                      </h3>
-                      <Button variant="ghost" size="sm" onClick={() => setShowForm(false)} className="text-xs">Cancel</Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs font-medium">Type</Label>
-                        <Select value={formType} onValueChange={v => setFormType(v as "add_back" | "deduction")}>
-                          <SelectTrigger className="mt-1 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="add_back">Add-back (increases taxable income)</SelectItem>
-                            <SelectItem value="deduction">Deduction (reduces taxable income)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs font-medium">ITA Reference</Label>
-                        <Select value={fSection} onValueChange={setFSection}>
-                          <SelectTrigger className="mt-1 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {ITA_SECTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="col-span-2">
-                        <Label className="text-xs font-medium">Description *</Label>
-                        <Input className="mt-1 text-sm" placeholder="e.g. Disallowed management fee — exceeds arm's length" value={fDesc} onChange={e => setFDesc(e.target.value)} />
-                      </div>
-                      <div>
-                        <Label className="text-xs font-medium">Amount (TZS) *</Label>
-                        <Input type="number" min={0} className="mt-1 text-sm" placeholder="0" value={fAmount} onChange={e => setFAmount(e.target.value)} />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1 border-t border-teal-200">
-                      <Button
-                        size="sm"
-                        disabled={submitting || !fDesc || !fAmount}
-                        onClick={handleAddLine}
-                        className="bg-teal-700 hover:bg-teal-800 text-white gap-1.5"
-                      >
-                        {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                        Save Adjustment
-                      </Button>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Lock className="w-3 h-3" />
-                        Auto-detected lines cannot be removed (Iron Dome).
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => setShowForm(true)}>
-                    <Plus className="w-3.5 h-3.5" />Add Manual Adjustment
-                  </Button>
-                )}
+                {/* CF-03: adjustments are recorded by the engine, never entered here — tax_computations is server-written
+                    only (20261212100000_legacy_financial_write_revocation.sql). */}
+                <div className="rounded-xl border border-teal-200 bg-teal-50/30 px-4 py-3 flex items-start gap-2">
+                  <Lock className="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">Recorded by the engine.</span> Add-backs and deductions are
+                    written only by the tax computation; manual adjustments are no longer entered in this workpaper. Re-run the
+                    tax computation to update these figures.
+                  </p>
+                </div>
 
                 {/* CPA modification banner — shown when JSONB was manually modified */}
                 {comp.cpa_modified_at && (

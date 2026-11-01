@@ -161,6 +161,10 @@ describe("database inertness — schema and functions", () => {
       "supabase/migrations/20261210100000_ipsas_statement_review.sql",
       // Independent review of #229: member removal revokes that person's explicit workspace grants (trigger), and an append-only record of file-link issuance decisions (new table).
       "supabase/migrations/20261211100000_source_access_authority_repairs.sql",
+      // CF-03 (readiness assessment 2026-11-01): the legacy tax tables (tax_computations, tax_payments, capital_allowances,
+      // management_inputs) lose their client write policies and INSERT/UPDATE/DELETE/TRUNCATE grants; SELECT and service_role
+      // unchanged; no row changed. Privilege removal only, nothing granted.
+      "supabase/migrations/20261212100000_legacy_financial_write_revocation.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -580,6 +584,11 @@ describe("database inertness — schema and functions", () => {
       // R0: tax, notes and the management letter are withheld on the server (WITHHELD_SERVICES): the same refusal as the
       // open-defect restrictions, before authentication or any read or write. No schema, no business logic.
       "supabase/functions/_shared/openDefectRestriction.ts",
+      // CF-12 (readiness assessment 2026-11-01): the three unmetered model endpoints refuse before authentication through that
+      // same restriction (WITHHELD_SERVICES); each edit adds only the import and the refusal. No schema, no business logic.
+      "supabase/functions/policy-compass/index.ts",
+      "supabase/functions/maono-decide/index.ts",
+      "supabase/functions/maono-root-cause/index.ts",
       // ...and so does the one Comparative Assurance implementation, for both periods.
       "supabase/functions/_shared/comparativeAssurance.ts",
       // B-5: the evidence-attachment RPC error is a failure, never ignored.

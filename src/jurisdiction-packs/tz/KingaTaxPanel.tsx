@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Calculator, ChevronDown, ChevronRight, AlertTriangle,
-  CheckCircle, Info, Plus, RefreshCw, History, Lock, Unlock,
+  CheckCircle, Info, RefreshCw, History, Lock, Unlock,
   TrendingUp, ArrowUpDown, PenLine, Calendar,
 } from "lucide-react";
 import { TaxLossPanel } from "./TaxLossPanel";
@@ -40,16 +40,6 @@ import { FileDown, ShieldCheck, ShieldX, ShieldAlert } from "lucide-react";
 // Class 7: 1/useful life (rounded down to nearest 0.5 yr) — Intangible assets (PwC Tanzania Jan 2026)
 // Class 8: 100% immediate write-off — Agricultural plant & machinery; EFDs; minerals/petroleum exploration equip
 // NOTE: There is NO Class 4 in Tanzania ITA (removed Finance Act 2016).
-const ITA_CLASS_LABELS: Record<number, string> = {
-  1: "Class 1 — Computers, automobiles, buses <30 pax, construction equip (37.5% RB)",
-  2: "Class 2 — Heavy vehicles, vessels, aircraft, ag/mfg plant & machinery (25% RB)",
-  3: "Class 3 — Furniture, fixtures, equipment; all other assets (12.5% RB)",
-  5: "Class 5 — Agricultural/livestock/fish farming buildings & structures (20% SL)",
-  6: "Class 6 — Commercial & industrial buildings (all other) (5% SL)",
-  7: "Class 7 — Intangible assets (patents, trademarks, licences, software) — 1÷useful life SL",
-  8: "Class 8 — Agricultural plant & machinery; EFDs; minerals/petroleum exploration equip (100% immediate)",
-};
-
 // ── TYPES ─────────────────────────────────────────────────────────────────
 interface TaxAdjustment {
   description: string;
@@ -222,19 +212,6 @@ interface TaxResult {
   amt_computed_tzs?: number;
 }
 
-interface CapAllowanceForm {
-  asset_description: string;
-  ita_class: number;
-  cost_tzs: string;
-  ita_wdv_opening_tzs: string;
-  additions_tzs: string;
-  disposals_at_tax_cost_tzs: string;
-  disposal_proceeds_tzs: string;   // D2-FIX: actual IFRS SCF proceeds (≠ tax cost)
-  accounting_depreciation_tzs: string;
-  source_account: string;
-  notes: string;
-}
-
 interface StoredComputation {
   id: string;
   period_year: number;
@@ -282,165 +259,15 @@ function severityColor(gap: number): string {
   return "text-green-600 bg-green-50 border-green-200";
 }
 
-// ── CAPITAL ALLOWANCE MODAL ────────────────────────────────────────────────
-function AddCapAllowanceModal({
-  companyId, userId, periodYear, onSaved,
-}: {
-  companyId: string; userId: string; periodYear: number; onSaved: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState<CapAllowanceForm>({
-    asset_description: "", ita_class: 3, cost_tzs: "",
-    ita_wdv_opening_tzs: "", additions_tzs: "0",
-    disposals_at_tax_cost_tzs: "0", disposal_proceeds_tzs: "",
-    accounting_depreciation_tzs: "0", source_account: "", notes: "",
-  });
-
-  const parseNum = (s: string) => parseFloat(s.replace(/,/g, "")) || 0;
-
-  // Compute preview wear & tear — VERIFIED RATES (PwC Tanzania, Jan 2026)
-  const pool = parseNum(form.ita_wdv_opening_tzs || form.cost_tzs)
-             + parseNum(form.additions_tzs)
-             - parseNum(form.disposals_at_tax_cost_tzs);
-  const rbRates: Record<number, number> = { 1: 0.375, 2: 0.25, 3: 0.125, 8: 1.00 };
-  const wt = form.ita_class === 5
-    ? Math.round(parseNum(form.cost_tzs) * 0.20)       // 20% SL on cost
-    : form.ita_class === 6
-    ? Math.round(parseNum(form.cost_tzs) * 0.05)       // 5% SL on cost
-    : form.ita_class === 8
-    ? Math.round(pool)                                  // 100% immediate
-    : form.ita_class === 7
-    ? 0                                                  // Class 7: 1/useful_life — CPA must confirm useful life (v1.3)
-    : Math.round(pool * (rbRates[form.ita_class] ?? 0)); // RB classes 1, 2, 3
-
-  const handleSave = async () => {
-    if (!form.asset_description || !form.cost_tzs) return;
-    setSaving(true);
-    const { error } = await supabase.from("capital_allowances").insert({
-      company_id:                    companyId,
-      period_year:                   periodYear,
-      asset_description:             form.asset_description,
-      ita_class:                     form.ita_class,
-      cost_tzs:                      parseNum(form.cost_tzs),
-      ita_wdv_opening_tzs:           parseNum(form.ita_wdv_opening_tzs) || parseNum(form.cost_tzs),
-      additions_tzs:                 parseNum(form.additions_tzs),
-      disposals_at_tax_cost_tzs:     parseNum(form.disposals_at_tax_cost_tzs),
-      disposal_proceeds_tzs:         form.disposal_proceeds_tzs !== "" ? parseNum(form.disposal_proceeds_tzs) : null,
-      accounting_depreciation_tzs:   parseNum(form.accounting_depreciation_tzs),
-      wear_tear_tzs:                 wt,
-      ita_wdv_closing_tzs:           pool - wt,
-      source_account:                form.source_account || null,
-      notes:                         form.notes || null,
-      created_by:                    userId,
-    });
-    setSaving(false);
-    if (!error) {
-      setOpen(false);
-      setForm({ asset_description: "", ita_class: 3, cost_tzs: "", ita_wdv_opening_tzs: "", additions_tzs: "0", disposals_at_tax_cost_tzs: "0", disposal_proceeds_tzs: "", accounting_depreciation_tzs: "0", source_account: "", notes: "" });
-      onSaved();
-    }
-  };
-
-  const inputClass = "w-full mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
-
+// ── CAPITAL ALLOWANCES: RECORDED BY THE ENGINE ───────────────────────────
+// CF-03 (readiness assessment 2026-11-01): assets are no longer entered here. capital_allowances is written only on the
+// server (20261212100000_legacy_financial_write_revocation.sql revoked the browser's INSERT/UPDATE/DELETE); the tax
+// computation records Class 1–3 assets from the trial balance and computes wear & tear.
+function CapitalAllowancesRecordedByEngineNotice() {
   return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="gap-1">
-        <Plus className="w-3 h-3" /> Capital Allowance
-      </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
-            <div>
-              <h3 className="font-semibold text-lg">Add Capital Allowance (ITA s.34)</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Enter assets for wear & tear deduction. WDV Opening = prior year closing WDV (or cost if first year).
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600">Asset Description</label>
-                <input className={inputClass} placeholder="e.g. Office computers (HP ProBook × 12)"
-                  value={form.asset_description} onChange={e => setForm(f => ({ ...f, asset_description: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">ITA Asset Class</label>
-                <select className={inputClass} value={form.ita_class}
-                  onChange={e => setForm(f => ({ ...f, ita_class: Number(e.target.value) }))}>
-                  {Object.entries(ITA_CLASS_LABELS).map(([k, v]) =>
-                    <option key={k} value={k}>{v}</option>
-                  )}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Original Cost (TZS)</label>
-                  <input className={inputClass} placeholder="e.g. 45000000"
-                    value={form.cost_tzs} onChange={e => setForm(f => ({ ...f, cost_tzs: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">ITA WDV Opening (TZS)</label>
-                  <input className={inputClass} placeholder="Opening tax written-down value"
-                    value={form.ita_wdv_opening_tzs} onChange={e => setForm(f => ({ ...f, ita_wdv_opening_tzs: e.target.value }))} />
-                  <p className="text-xs text-gray-400 mt-0.5">Leave blank if first year (uses cost)</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Additions in Period (TZS)</label>
-                  <input className={inputClass} placeholder="0"
-                    value={form.additions_tzs} onChange={e => setForm(f => ({ ...f, additions_tzs: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Disposals at Tax Cost / WDV (TZS) — ITA s.34</label>
-                  <input className={inputClass} placeholder="0"
-                    value={form.disposals_at_tax_cost_tzs} onChange={e => setForm(f => ({ ...f, disposals_at_tax_cost_tzs: e.target.value }))} />
-                  <p className="text-xs text-gray-400 mt-0.5">ITA written-down value of disposed asset — for wear &amp; tear pool reduction.</p>
-                </div>
-              </div>
-              {/* D2-FIX: IFRS SCF disposal proceeds — separate from ITA tax cost */}
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                <label className="text-xs font-semibold text-blue-800">Disposal Proceeds — IFRS SCF (TZS)</label>
-                <input className={inputClass + " mt-1"} placeholder="Actual cash received on disposal (leave blank if no disposal)"
-                  value={form.disposal_proceeds_tzs} onChange={e => setForm(f => ({ ...f, disposal_proceeds_tzs: e.target.value }))} />
-                <p className="text-xs text-blue-600 mt-0.5">
-                  This is the <strong>actual sale proceeds</strong> for the IFRS Statement of Cash Flows (investing activities).
-                  It differs from the tax cost above. If blank and a disposal exists, the engine uses ITA WDV as a fallback and flags a warning.
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Accounting Depreciation (TZS) — for add-back reconciliation</label>
-                <input className={inputClass} placeholder="Per TB"
-                  value={form.accounting_depreciation_tzs} onChange={e => setForm(f => ({ ...f, accounting_depreciation_tzs: e.target.value }))} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">TB Account Name (optional)</label>
-                <input className={inputClass} placeholder="e.g. Office Equipment — Cost"
-                  value={form.source_account} onChange={e => setForm(f => ({ ...f, source_account: e.target.value }))} />
-              </div>
-            </div>
-            {form.ita_class === 7 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                <strong>Class 7 — CPA action required:</strong> Rate = 1 ÷ useful life (rounded down to nearest 0.5 yr per ITA Third Schedule). The engine cannot compute Class 7 wear & tear without the asset's useful life in years. Record this asset now; enter useful life in the Notes field. Deduction computation will be added in v1.3.
-              </div>
-            )}
-            {wt > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-                <strong>Preview:</strong> ITA wear & tear = <strong>TZS {wt.toLocaleString()}</strong>
-                {" "}| WDV closing = TZS {(pool - wt).toLocaleString()}
-              </div>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={handleSave} disabled={saving || !form.asset_description || !form.cost_tzs}>
-                {saving ? "Saving…" : "Save Asset"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title="Capital allowances are recorded by the tax computation; assets cannot be entered here.">
+      <ShieldCheck className="w-3 h-3" /> Capital allowances recorded by the engine
+    </span>
   );
 }
 
@@ -506,9 +333,6 @@ export function KingaTaxPanel({
   // What the person may do in this workspace (capabilities, not a job title).
   const { state: myCapabilities } = useWorkspaceCapabilities(companyId);
   const [firmMemberId, setFirmMemberId]     = useState<string | null>(null);
-  // D4-FIX: management inputs (dividends, share capital, loan movements)
-  const [mgmtInputs, setMgmtInputs]         = useState({ dividends: "", shareCapital: "", loanRepaid: "", newBorrowings: "", otherEquity: "" });
-  const [savingMgmtInputs, setSavingMgmtInputs] = useState(false);
 
   // HESABU: gate state
   // hesabuGatePassed  — latest validation run has gate_satisfied = true
@@ -593,21 +417,6 @@ export function KingaTaxPanel({
       .eq("company_id", companyId).eq("user_id", userId).maybeSingle()
       .then(({ data }) => {
         if (data) setFirmMemberId(data.id);
-      });
-
-    // D4-FIX: load saved management inputs if they exist
-    supabase
-      .from("management_inputs")
-      .select("*")
-      .eq("company_id", companyId).eq("upload_id", uploadId).maybeSingle()
-      .then(({ data }) => {
-        if (data) setMgmtInputs({
-          dividends:     String(data.dividends_declared_tzs   ?? ""),
-          shareCapital:  String(data.share_capital_issued_tzs  ?? ""),
-          loanRepaid:    String(data.loan_repayments_tzs       ?? ""),
-          newBorrowings: String(data.new_borrowings_tzs        ?? ""),
-          otherEquity:   String(data.other_equity_movements_tzs ?? ""),
-        });
       });
   }, [companyId, uploadId, periodYear, userId]);
 
@@ -711,24 +520,6 @@ export function KingaTaxPanel({
 
   const reset = () => { setPhase("idle"); setResult(null); setError(null); };
 
-  // D4-FIX: save management inputs (dividends, share capital, loan movements) before engine run
-  const saveMgmtInputs = async () => {
-    setSavingMgmtInputs(true);
-    const payload = {
-      company_id:                  companyId,
-      upload_id:                   uploadId,
-      period_year:                 periodYear,
-      dividends_declared_tzs:      parseFloat(mgmtInputs.dividends || "0") || 0,
-      share_capital_issued_tzs:    parseFloat(mgmtInputs.shareCapital || "0") || 0,
-      loan_repayments_tzs:         parseFloat(mgmtInputs.loanRepaid || "0") || 0,
-      new_borrowings_tzs:          parseFloat(mgmtInputs.newBorrowings || "0") || 0,
-      other_equity_movements_tzs:  parseFloat(mgmtInputs.otherEquity || "0") || 0,
-      created_by:                  userId,
-    };
-    await supabase.from("management_inputs").upsert(payload, { onConflict: "company_id,upload_id" });
-    setSavingMgmtInputs(false);
-  };
-
   const gapColor = result ? severityColor(result.cit_gap_tzs) : "";
   const exposureLabel = result
     ? result.total_exposure_tzs >= 50_000_000 ? "CRITICAL"
@@ -761,7 +552,7 @@ export function KingaTaxPanel({
             )}
           </CardTitle>
           <div className="flex items-center gap-2 flex-wrap">
-            <AddCapAllowanceModal companyId={companyId} userId={userId} periodYear={periodYear} onSaved={reset} />
+            <CapitalAllowancesRecordedByEngineNotice />
             {phase !== "idle" && (
               <Button variant="ghost" size="sm" onClick={reset} className="gap-1">
                 <RefreshCw className="w-3 h-3" /> Reset
@@ -783,56 +574,18 @@ export function KingaTaxPanel({
         {/* ── IDLE ───────────────────────────────────────────────── */}
         {phase === "idle" && (
           <div className="space-y-4">
-            {/* D4-FIX: Management Inputs — CPA must fill before running engine */}
-            <div className="border border-amber-200 bg-amber-50 rounded-lg p-4 space-y-3">
+            {/* CF-03: management inputs (dividends, share capital, loan movements) are recorded by the engine, never
+                entered here — management_inputs is server-written only (20261212100000_legacy_financial_write_revocation.sql). */}
+            <div className="border border-amber-200 bg-amber-50 rounded-lg p-4 space-y-1">
               <div className="flex items-center gap-2">
                 <PenLine className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-semibold text-amber-800">Management Inputs (IFRS for SMEs — SOCIE &amp; SCF Financing)</span>
+                <span className="text-sm font-semibold text-amber-800">Management inputs are recorded by the engine</span>
               </div>
               <p className="text-xs text-amber-700">
-                These items cannot be derived from the trial balance. Enter them before running the engine.
-                Zeros are used if left blank. Fields are auto-saved when you click Save.
+                Dividends declared, share capital issued, loan movements and other equity movements cannot be derived from the
+                trial balance and are no longer entered in this panel. The tax computation reads what has been recorded on the
+                server; nothing is entered or saved from the browser.
               </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Dividends Declared (TZS)</label>
-                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    placeholder="0" type="number" min="0"
-                    value={mgmtInputs.dividends}
-                    onChange={e => setMgmtInputs(m => ({ ...m, dividends: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Share Capital Issued (TZS)</label>
-                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    placeholder="0" type="number" min="0"
-                    value={mgmtInputs.shareCapital}
-                    onChange={e => setMgmtInputs(m => ({ ...m, shareCapital: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Loan Repayments (TZS)</label>
-                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    placeholder="0" type="number" min="0"
-                    value={mgmtInputs.loanRepaid}
-                    onChange={e => setMgmtInputs(m => ({ ...m, loanRepaid: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700">New Borrowings (TZS)</label>
-                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    placeholder="0" type="number" min="0"
-                    value={mgmtInputs.newBorrowings}
-                    onChange={e => setMgmtInputs(m => ({ ...m, newBorrowings: e.target.value }))} />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-700">Other Equity Movements / OCI (TZS)</label>
-                  <input className="w-full mt-0.5 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    placeholder="0 — revaluations, FX translation, etc."
-                    value={mgmtInputs.otherEquity}
-                    onChange={e => setMgmtInputs(m => ({ ...m, otherEquity: e.target.value }))} />
-                </div>
-              </div>
-              <Button size="sm" variant="outline" onClick={saveMgmtInputs} disabled={savingMgmtInputs} className="border-amber-400 text-amber-800 hover:bg-amber-100">
-                {savingMgmtInputs ? "Saving…" : "Save Management Inputs"}
-              </Button>
             </div>
 
             {/* Run Engine controls */}
