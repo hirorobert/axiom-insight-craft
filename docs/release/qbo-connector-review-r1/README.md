@@ -9,7 +9,7 @@ functionality was changed.** Every claim below names the file that backs it and 
 | 2 | Upload registered, provenance not recorded | High | **Corrected and proved** |
 | 3 | `qbo_pulls` kept after workspace deletion | Medium (privacy/legal) | Policy proposed; **needs the lawyer's written conclusion** |
 | 4 | Cleanup and seven-year retention | Medium | **Corrected for states and dead tokens; evidence purge deliberately deferred** |
-| 5 | Migration chain, negative controls, CI, authority | Evidence | **Supplied; CI to be re-read on the final head** (r2: on the last pre-r2 head `987ba97`, eight checks passed, Staging RLS is skipped by design, Disposable-DB was still running when this was written; the final head is read in #242) |
+| 5 | Migration chain, negative controls, CI, authority | Evidence | **Supplied; CI read on the final head** (r2: on `1b8f118`, run 41302179723 in #242, all nine checks passed including Disposable-DB, the real end to end and the release gate; the write-capable staging job is skipped by design) |
 | 6 | Token refresh concurrency | High | **Corrected and proved; one Intuit behaviour still unverified.** r2 found and corrected three further defects (S1–S3) |
 | 7 | The two permissions | Medium-High | **Corrected (one rule for every function) and proved** (r2: re-read, no defect) |
 | 8 | Deno type-check of #240 | Medium (unverified) | **Closed in r2:** `deno check` passes in CI (PR #242) and locally (see 8) |
@@ -143,6 +143,7 @@ The fix (`eca35fd`) imports the client the way the other 39 Edge Functions in th
 (ii) Five `TS2345`/`TS2322`/`TS2769` errors at the WebCrypto calls (`Uint8Array<ArrayBufferLike>` is not a `BufferSource` under Deno's TypeScript): fixed by type-only casts (`206d0b3`, no runtime change).
 On head `987ba97` the job *Edge function checks (Deno, process-trial-balance)* passed; its step "Type-check the QuickBooks connector functions" printed `Check` for each of the three files and no error. The check is not weakened: it is the same `deno check` of the same three entry files, against the real
 `@supabase/supabase-js` declarations. A local `deno check` (Deno 2.9.6, an empty cache) downloaded those declarations from esm.sh (`@supabase/auth-js@2.112.4`, `realtime-js`, `phoenix` and others) and exited 0, again after the r2 changes.
+On the final head `1b8f118` (which adds `qbo-finish-connection`, so the step now checks **four** entry files) the same job passed again, and so did every other required job of run 41302179723: the disposable-database contract tests, the real application end to end, the release gate, the migration audit, lint/build/type check and the golden fixtures (nine passing; the write-capable staging job is skipped by design).
 **Remaining risk.** `https://esm.sh/@supabase/supabase-js@2` is a floating major version, the same as every other function here; a future 2.x release could change types. That is the repository's existing convention, not a connector-specific gap.
 
 ## Second pass (r2): defects found beyond the existing tests
