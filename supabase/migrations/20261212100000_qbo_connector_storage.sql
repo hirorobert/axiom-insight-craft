@@ -20,11 +20,12 @@
 -- WHO MAY DO WHAT
 --   Clients (anon, authenticated) have NO access to qbo_connections or qbo_oauth_states: not to read, not to write. Only the service role, through
 --   the SECURITY DEFINER functions below, writes any of the three tables. The authority to connect, disconnect or record a pull is judged INSIDE
---   each function with public.workspace_authority_basis(actor, company, 'prepare_trial_balance'), exactly as other writes in this repository: no
---   function trusts a caller-supplied identity without that check, and an unknown company or a missing right is refused.
---   Importing needs TWO rights, both required, neither implying the other: prepare_trial_balance (the connector's own: connect, disconnect, status,
---   refresh, record) and manage_source_files (the existing upload steps reserve_trial_balance_source and register_trial_balance_upload, which judge
---   the person themself). qbo_record_pull_intent enforces both again, so the stored evidence can never be written for a person who lacks either.
+--   each function with public.qbo_connector_basis(actor, company), exactly as other writes in this repository judge a person through
+--   workspace_authority_basis: no function trusts a caller-supplied identity without that check, and an unknown company or a missing right is refused.
+--   The connector needs TWO rights, BOTH required for EVERY function (connect, consume the state, store, disconnect, status, record), neither implying
+--   the other: prepare_trial_balance (the connector's own) and manage_source_files (the existing upload steps reserve_trial_balance_source and
+--   register_trial_balance_upload, which an import runs as the person and which judge them again). One rule, so nobody can connect a source they
+--   could not then import, and the connected source cannot be chosen by a lower-privileged person.
 --   The workspace owner may read the company's provenance rows (qbo_pull_intents, qbo_pulls). Members see connection STATUS through
 --   qbo_connection_status(), which returns no secret, no envelope and no key id.
 --
@@ -191,6 +192,19 @@ CREATE TRIGGER trg_qbo_intents_append_only BEFORE UPDATE OR DELETE ON public.qbo
 CREATE TRIGGER trg_qbo_intents_no_truncate BEFORE TRUNCATE ON public.qbo_pull_intents
   FOR EACH STATEMENT EXECUTE FUNCTION public.qbo_evidence_no_truncate();
 
+-- ── 4a. the one rule for who may use the connector ──────────────────────────────────────────────────────────────────
+-- A person may connect, disconnect, see the status of, or import through a QuickBooks connection only if they hold BOTH rights, each judged by the
+-- repository's own predicate: prepare_trial_balance (the connector's) and manage_source_files (the upload steps', which an import runs as the person).
+-- Neither implies the other. One rule for every function means nobody can connect a source they could not then import, or see an Import button that
+-- cannot work, and the connected source can never be chosen by a lower-privileged person. Internal: no client or service-role grant.
+CREATE FUNCTION public.qbo_connector_basis(p_user_id uuid, p_company_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT p_user_id IS NOT NULL AND p_company_id IS NOT NULL
+     AND public.workspace_authority_basis(p_user_id, p_company_id, 'prepare_trial_balance') IS NOT NULL
+     AND public.workspace_authority_basis(p_user_id, p_company_id, 'manage_source_files') IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION public.qbo_connector_basis(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+
 -- ── 4. the only writers (service role; each judges the actor's authority itself) ─────────────────────────────────────
 
 -- Starts an authorisation: stores the state's hash. 'created' | 'forbidden' (no authority in that workspace) | 'invalid' (bad input or a repeated state).
@@ -202,7 +216,7 @@ BEGIN
      OR p_return_period_year IS NULL OR p_return_period_year NOT BETWEEN 2000 AND 2100 THEN
     RETURN 'invalid';
   END IF;
-  IF public.workspace_authority_basis(p_actor_user_id, p_company_id, 'prepare_trial_balance') IS NULL THEN RETURN 'forbidden'; END IF;
+  IF NOT public.qbo_connector_basis(p_actor_user_id, p_company_id) THEN RETURN 'forbidden'; END IF;
   INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at)
   VALUES (p_state_hash, p_company_id, p_actor_user_id, p_environment, p_return_period_year, clock_timestamp() + make_interval(secs => p_ttl_seconds));
   RETURN 'created';
@@ -223,7 +237,7 @@ BEGIN
    WHERE s.state_hash = p_state_hash AND s.consumed_at IS NULL AND s.expires_at > clock_timestamp()
   RETURNING s.company_id AS c, s.actor_user_id AS a, s.environment AS e, s.return_period_year AS y INTO r;
   IF NOT FOUND THEN RETURN; END IF;
-  IF public.workspace_authority_basis(r.a, r.c, 'prepare_trial_balance') IS NULL THEN RETURN; END IF;
+  IF NOT public.qbo_connector_basis(r.a, r.c) THEN RETURN; END IF;
   RETURN QUERY SELECT r.c, r.a, r.e, r.y;
 END;
 $$;
@@ -234,7 +248,7 @@ CREATE FUNCTION public.qbo_store_connection(p_company_id uuid, p_actor_user_id u
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_id uuid;
 BEGIN
-  IF p_company_id IS NULL OR p_actor_user_id IS NULL OR public.workspace_authority_basis(p_actor_user_id, p_company_id, 'prepare_trial_balance') IS NULL THEN
+  IF NOT public.qbo_connector_basis(p_actor_user_id, p_company_id) THEN
     RAISE EXCEPTION 'FORBIDDEN: no right to connect QuickBooks in this workspace' USING ERRCODE = '42501';
   END IF;
   SELECT id INTO v_id FROM public.qbo_connections
@@ -312,7 +326,7 @@ DECLARE c public.qbo_connections;
 BEGIN
   SELECT * INTO c FROM public.qbo_connections WHERE id = p_connection_id FOR UPDATE;
   IF NOT FOUND THEN RETURN 'unknown'; END IF;
-  IF p_actor_user_id IS NULL OR public.workspace_authority_basis(p_actor_user_id, c.company_id, 'prepare_trial_balance') IS NULL THEN RETURN 'forbidden'; END IF;
+  IF NOT public.qbo_connector_basis(p_actor_user_id, c.company_id) THEN RETURN 'forbidden'; END IF;
   IF c.status = 'disconnected' THEN RETURN 'already'; END IF;
   UPDATE public.qbo_connections SET status = 'disconnected', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL,
          refresh_lease_until = NULL, disconnected_at = clock_timestamp()
@@ -337,9 +351,7 @@ BEGIN
     RAISE EXCEPTION 'FORBIDDEN: a reservation and an actor are required' USING ERRCODE = '42501';
   END IF;
   SELECT * INTO r FROM public.trial_balance_source_reservations x WHERE x.id = p_reservation_id;
-  IF NOT FOUND OR r.actor_user_id <> p_actor_user_id
-     OR public.workspace_authority_basis(p_actor_user_id, r.company_id, 'prepare_trial_balance') IS NULL
-     OR public.workspace_authority_basis(p_actor_user_id, r.company_id, 'manage_source_files') IS NULL THEN
+  IF NOT FOUND OR r.actor_user_id <> p_actor_user_id OR NOT public.qbo_connector_basis(p_actor_user_id, r.company_id) THEN
     RAISE EXCEPTION 'FORBIDDEN: no right to import from QuickBooks into this workspace' USING ERRCODE = '42501';
   END IF;
   SELECT * INTO e FROM public.qbo_pull_intents i WHERE i.reservation_id = p_reservation_id;
@@ -444,7 +456,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
   SELECT c.id, c.realm_id, c.environment, c.status, c.refresh_expires_at, c.created_at
     FROM public.qbo_connections c
    WHERE c.company_id = p_company_id AND auth.uid() IS NOT NULL
-     AND public.workspace_authority_basis(auth.uid(), p_company_id, 'prepare_trial_balance') IS NOT NULL
+     AND public.qbo_connector_basis(auth.uid(), p_company_id)
    ORDER BY c.created_at DESC;
 $$;
 
