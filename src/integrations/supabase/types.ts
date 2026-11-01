@@ -8166,6 +8166,268 @@ export type Database = {
         }
         Relationships: []
       }
+      qbo_connections: {
+        Row: {
+          company_id: string
+          connected_by_user_id: string
+          created_at: string
+          disconnected_at: string | null
+          envelope_key_id: string | null
+          environment: string
+          hard_expires_at: string | null
+          id: string
+          realm_id: string
+          refresh_expires_at: string | null
+          refresh_lease_id: string | null
+          refresh_lease_until: string | null
+          refresh_token_envelope: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          connected_by_user_id: string
+          created_at?: string
+          disconnected_at?: string | null
+          envelope_key_id?: string | null
+          environment: string
+          hard_expires_at?: string | null
+          id?: string
+          realm_id: string
+          refresh_expires_at?: string | null
+          refresh_lease_id?: string | null
+          refresh_lease_until?: string | null
+          refresh_token_envelope?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          connected_by_user_id?: string
+          created_at?: string
+          disconnected_at?: string | null
+          envelope_key_id?: string | null
+          environment?: string
+          hard_expires_at?: string | null
+          id?: string
+          realm_id?: string
+          refresh_expires_at?: string | null
+          refresh_lease_id?: string | null
+          refresh_lease_until?: string | null
+          refresh_token_envelope?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qbo_connections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qbo_oauth_states: {
+        Row: {
+          actor_user_id: string
+          code_envelope: string | null
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          environment: string
+          expires_at: string
+          finish_outcome: string | null
+          finished_at: string | null
+          handoff_expires_at: string | null
+          handoff_hash: string | null
+          id: string
+          realm_id: string | null
+          return_period_year: number
+          state_hash: string
+        }
+        Insert: {
+          actor_user_id: string
+          code_envelope?: string | null
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          environment: string
+          expires_at: string
+          finish_outcome?: string | null
+          finished_at?: string | null
+          handoff_expires_at?: string | null
+          handoff_hash?: string | null
+          id?: string
+          realm_id?: string | null
+          return_period_year: number
+          state_hash: string
+        }
+        Update: {
+          actor_user_id?: string
+          code_envelope?: string | null
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          environment?: string
+          expires_at?: string
+          finish_outcome?: string | null
+          finished_at?: string | null
+          handoff_expires_at?: string | null
+          handoff_hash?: string | null
+          id?: string
+          realm_id?: string | null
+          return_period_year?: number
+          state_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qbo_oauth_states_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qbo_pull_intents: {
+        Row: {
+          account_count: number
+          accounting_method: string | null
+          actor_user_id: string
+          canonical_sha256: string
+          company_id: string
+          connection_id: string | null
+          currency: string
+          end_date: string
+          environment: string
+          id: string
+          minor_version: number | null
+          prepare_basis: string
+          raw_sha256: string
+          realm_id: string
+          recorded_at: string
+          report: string
+          reservation_id: string
+          result_sha256: string
+          source_basis: string
+          start_date: string
+        }
+        Insert: {
+          account_count: number
+          accounting_method?: string | null
+          actor_user_id: string
+          canonical_sha256: string
+          company_id: string
+          connection_id?: string | null
+          currency: string
+          end_date: string
+          environment: string
+          id?: string
+          minor_version?: number | null
+          prepare_basis: string
+          raw_sha256: string
+          realm_id: string
+          recorded_at?: string
+          report: string
+          reservation_id: string
+          result_sha256: string
+          source_basis: string
+          start_date: string
+        }
+        Update: {
+          account_count?: number
+          accounting_method?: string | null
+          actor_user_id?: string
+          canonical_sha256?: string
+          company_id?: string
+          connection_id?: string | null
+          currency?: string
+          end_date?: string
+          environment?: string
+          id?: string
+          minor_version?: number | null
+          prepare_basis?: string
+          raw_sha256?: string
+          realm_id?: string
+          recorded_at?: string
+          report?: string
+          reservation_id?: string
+          result_sha256?: string
+          source_basis?: string
+          start_date?: string
+        }
+        Relationships: []
+      }
+      qbo_pulls: {
+        Row: {
+          account_count: number
+          accounting_method: string | null
+          actor_user_id: string
+          canonical_sha256: string
+          company_id: string
+          connection_id: string | null
+          currency: string
+          end_date: string
+          environment: string
+          id: string
+          minor_version: number | null
+          prepare_basis: string
+          pulled_at: string
+          raw_sha256: string
+          realm_id: string
+          report: string
+          result_sha256: string
+          source_basis: string
+          start_date: string
+          upload_id: string
+        }
+        Insert: {
+          account_count: number
+          accounting_method?: string | null
+          actor_user_id: string
+          canonical_sha256: string
+          company_id: string
+          connection_id?: string | null
+          currency: string
+          end_date: string
+          environment: string
+          id?: string
+          minor_version?: number | null
+          prepare_basis: string
+          pulled_at?: string
+          raw_sha256: string
+          realm_id: string
+          report: string
+          result_sha256: string
+          source_basis: string
+          start_date: string
+          upload_id: string
+        }
+        Update: {
+          account_count?: number
+          accounting_method?: string | null
+          actor_user_id?: string
+          canonical_sha256?: string
+          company_id?: string
+          connection_id?: string | null
+          currency?: string
+          end_date?: string
+          environment?: string
+          id?: string
+          minor_version?: number | null
+          prepare_basis?: string
+          pulled_at?: string
+          raw_sha256?: string
+          realm_id?: string
+          report?: string
+          result_sha256?: string
+          source_basis?: string
+          start_date?: string
+          upload_id?: string
+        }
+        Relationships: []
+      }
       reporting_pack_issuance_events: {
         Row: {
           actor_user_id: string | null
@@ -14254,6 +14516,133 @@ export type Database = {
         Returns: {
           detail: string
           outcome: string
+        }[]
+      }
+      qbo_acquire_refresh_lease: {
+        Args: {
+          p_connection_id: string
+          p_expected_envelope: string
+          p_seconds: number
+        }
+        Returns: string
+      }
+      qbo_complete_pending_pulls: { Args: never; Returns: number }
+      qbo_complete_pull: { Args: { p_reservation_id: string }; Returns: string }
+      qbo_connection_status: {
+        Args: { p_company_id: string }
+        Returns: {
+          created_at: string
+          environment: string
+          id: string
+          realm_id: string
+          refresh_expires_at: string
+          status: string
+        }[]
+      }
+      qbo_connector_basis: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      qbo_disconnect: {
+        Args: { p_actor_user_id: string; p_connection_id: string }
+        Returns: string
+      }
+      qbo_housekeeping: {
+        Args: never
+        Returns: {
+          codes_cleared: number
+          connections_expired: number
+          states_removed: number
+        }[]
+      }
+      qbo_mark_reconnect_needed: {
+        Args: { p_connection_id: string; p_refused_envelope: string }
+        Returns: boolean
+      }
+      qbo_provenance_past_retention: {
+        Args: { p_retention: string }
+        Returns: {
+          intents: number
+          pulls: number
+        }[]
+      }
+      qbo_record_oauth_return: {
+        Args: {
+          p_code_envelope: string
+          p_handoff_hash: string
+          p_realm_id: string
+          p_state_hash: string
+        }
+        Returns: {
+          company_id: string
+          environment: string
+          return_period_year: number
+        }[]
+      }
+      qbo_record_pull_intent: {
+        Args: {
+          p_account_count: number
+          p_accounting_method: string
+          p_actor_user_id: string
+          p_canonical_sha256: string
+          p_connection_id: string
+          p_currency: string
+          p_end_date: string
+          p_environment: string
+          p_minor_version: number
+          p_raw_sha256: string
+          p_realm_id: string
+          p_reservation_id: string
+          p_result_sha256: string
+          p_start_date: string
+        }
+        Returns: string
+      }
+      qbo_release_refresh_lease: {
+        Args: { p_connection_id: string; p_lease_id: string }
+        Returns: boolean
+      }
+      qbo_rotate_refresh_token: {
+        Args: {
+          p_connection_id: string
+          p_expected_envelope: string
+          p_hard_expires_at: string
+          p_new_envelope: string
+          p_refresh_expires_at: string
+        }
+        Returns: boolean
+      }
+      qbo_start_oauth_state: {
+        Args: {
+          p_actor_user_id: string
+          p_company_id: string
+          p_environment: string
+          p_return_period_year: number
+          p_state_hash: string
+          p_ttl_seconds: number
+        }
+        Returns: string
+      }
+      qbo_store_connection: {
+        Args: {
+          p_actor_user_id: string
+          p_company_id: string
+          p_envelope: string
+          p_environment: string
+          p_hard_expires_at: string
+          p_realm_id: string
+          p_refresh_expires_at: string
+        }
+        Returns: string
+      }
+      qbo_take_oauth_return: {
+        Args: { p_actor_user_id: string; p_handoff_hash: string }
+        Returns: {
+          code_envelope: string
+          company_id: string
+          environment: string
+          outcome: string
+          realm_id: string
         }[]
       }
       reconcile_all_named_user_allowances: { Args: never; Returns: number }

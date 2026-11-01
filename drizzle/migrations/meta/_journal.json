@@ -701,6 +701,13 @@
       "when": 1793550752868,
       "tag": "0099_legacy_financial_write_revocation",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1793550874617,
+      "tag": "0100_qbo_connector_storage",
+      "breakpoints": true
     }
   ]
 }
