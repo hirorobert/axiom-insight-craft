@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { keyFromBase64, openSecret, sealSecret, TokenEnvelopeError, type EnvelopeBinding, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
+import { connectionBinding, keyFromBase64, openSecret, sealSecret, TokenEnvelopeError, type EnvelopeBinding, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 
 // Invented values only: the "tokens" below are not real, and the keys are fixed test bytes.
 const KEY_A: EnvelopeKey = { id: "k1", bytes: new Uint8Array(32).fill(7) };
@@ -76,6 +76,15 @@ describe("token envelope", () => {
     await expect(sealSecret(TOKEN, { id: "K 1", bytes: KEY_A.bytes }, BIND)).rejects.toThrow(/key id/);
     await expect(sealSecret("", KEY_A, BIND)).rejects.toThrow(/no secret/);
     await expect(sealSecret(TOKEN, KEY_A, { ...BIND, workspaceId: "" })).rejects.toThrow(/binding/);
+  });
+
+  it("binds a connection by the identity that determines it (workspace, environment, QuickBooks company), since its row id does not exist yet", async () => {
+    const b = connectionBinding("11111111-1111-1111-1111-111111111111", "9341458604136919", "sandbox");
+    expect(b).toEqual({ workspaceId: "11111111-1111-1111-1111-111111111111", connectionId: "sandbox:9341458604136919", purpose: "qbo-refresh-token" });
+    const env = await sealSecret(TOKEN, KEY_A, b);
+    expect(await openSecret(env, [KEY_A], b)).toBe(TOKEN);
+    await expect(openSecret(env, [KEY_A], connectionBinding(b.workspaceId, "9341458604136919", "production"))).rejects.toBeInstanceOf(TokenEnvelopeError);
+    await expect(openSecret(env, [KEY_A], connectionBinding(b.workspaceId, "9341458604136920", "sandbox"))).rejects.toBeInstanceOf(TokenEnvelopeError);
   });
 
   it("reads a key from a base64 secret and refuses anything that is not 32 bytes", () => {

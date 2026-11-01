@@ -286,7 +286,8 @@ describe("migration directory integrity", () => {
     // as facts, the /2 workpaper validator, context, draft and atomic commit), a NEW forward-only migration pending hosted application.
     // 206 -> 207: 20261211100000_source_access_authority_repairs.sql (independent review of #229: member removal revokes the person's explicit workspace grants
     // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
-    expect(files.length).toBe(207); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000), IPSAS grants (20261208100000) and the source-access repairs (20261211100000), all pending hosted apply
+    // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
+    expect(files.length).toBe(209);
   });
 });
 

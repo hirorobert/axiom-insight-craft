@@ -9,10 +9,9 @@
  *
  * Class subtotals + grand total at bottom.
  *
- * Add Asset form:
- *   - asset_description, ita_class, cost_tzs, ita_wdv_opening_tzs,
- *     additions_tzs, disposals_at_tax_cost_tzs, accounting_depreciation_tzs,
- *     source_account, notes
+ * Assets are recorded by the engine: the register READS capital_allowances and never writes it (CF-03,
+ * 20261212100000_legacy_financial_write_revocation.sql revoked the browser's INSERT/UPDATE/DELETE). The former
+ * "Add Asset" form was removed with that migration.
  *
  * Iron Dome constraints:
  *   - No delete. Assets marked as disposed via disposals_at_tax_cost_tzs.
@@ -32,10 +31,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Collapsible,
   CollapsibleContent,
@@ -44,7 +39,6 @@ import {
 import { toast } from "sonner";
 import {
   Calculator,
-  Plus,
   ChevronDown,
   ChevronRight,
   Loader2,
@@ -106,7 +100,6 @@ interface Props {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmt = (n: number) => n === 0 ? "—" : n.toLocaleString("en-TZ", { maximumFractionDigits: 0 });
-const parseTZS = (s: string) => parseFloat(s.replace(/,/g, "")) || 0;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -116,20 +109,7 @@ export function CapitalAllowancesRegister({
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [expandedClasses, setExpandedClasses] = useState<Set<number>>(new Set([1, 2, 3]));
-
-  // Form state
-  const [fDesc, setFDesc] = useState("");
-  const [fClass, setFClass] = useState<string>("1");
-  const [fCost, setFCost] = useState("");
-  const [fOpenWDV, setFOpenWDV] = useState("");
-  const [fAdditions, setFAdditions] = useState("");
-  const [fDisposals, setFDisposals] = useState("");
-  const [fAccDep, setFAccDep] = useState("");
-  const [fSourceAccount, setFSourceAccount] = useState("");
-  const [fNotes, setFNotes] = useState("");
 
   const fetchAssets = useCallback(async () => {
     setLoading(true);
@@ -145,52 +125,6 @@ export function CapitalAllowancesRegister({
   }, [companyId, periodYear]);
 
   useEffect(() => { fetchAssets(); }, [fetchAssets]);
-
-  // ── Submit new asset ───────────────────────────────────────────────────────
-  const handleSubmit = async () => {
-    if (!fDesc.trim()) { toast.error("Asset description required"); return; }
-    if (!fCost) { toast.error("Cost required"); return; }
-
-    setSubmitting(true);
-    const classNum = parseInt(fClass);
-    const classInfo = ITA_CLASSES.find(c => c.value === classNum);
-    const cost     = parseTZS(fCost);
-    const openWDV  = parseTZS(fOpenWDV) || cost; // default opening WDV = cost if first year
-    const additions = parseTZS(fAdditions);
-    const disposals = parseTZS(fDisposals);
-    const accDep   = parseTZS(fAccDep);
-
-    // Iron Dome: NEVER write computed W&T to DB. Engine is the sole authority.
-    // wear_tear_tzs=0 and ita_wdv_closing_tzs=0 signals "not yet engine-computed".
-    const { error } = await supabase.from("capital_allowances").insert({
-      company_id: companyId,
-      upload_id: uploadId,
-      period_year: periodYear,
-      asset_description: fDesc.trim(),
-      ita_class: classNum,
-      cost_tzs: cost,
-      ita_wdv_opening_tzs: openWDV,
-      additions_tzs: additions,
-      disposals_at_tax_cost_tzs: disposals,
-      wear_tear_tzs: 0,           // engine writes this on next run
-      ita_wdv_closing_tzs: 0,     // engine writes this on next run
-      accounting_depreciation_tzs: accDep,
-      source_account: fSourceAccount.trim() || null,
-      notes: fNotes.trim() || null,
-      created_by: userId,
-    });
-
-    if (error) {
-      toast.error("Failed to save: " + error.message);
-    } else {
-      toast.success("Asset saved — run Tax Engine to compute W&T.");
-      setFDesc(""); setFClass("1"); setFCost(""); setFOpenWDV(""); setFAdditions("");
-      setFDisposals(""); setFAccDep(""); setFSourceAccount(""); setFNotes("");
-      setShowForm(false);
-      fetchAssets();
-    }
-    setSubmitting(false);
-  };
 
   // ── CSV export ─────────────────────────────────────────────────────────────
   // The capital allowances schedule is a Reporting Pack working copy: issued by the server, built, then saved (never sealed).
@@ -276,11 +210,6 @@ export function CapitalAllowancesRegister({
               <button onClick={fetchAssets} className="p-1 rounded hover:bg-muted/50 text-muted-foreground">
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               </button>
-              {!showForm && (
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowForm(true)}>
-                  <Plus className="w-3.5 h-3.5" />Add Asset
-                </Button>
-              )}
             </div>
           </div>
 
@@ -313,79 +242,16 @@ export function CapitalAllowancesRegister({
 
         <CollapsibleContent>
           <CardContent className="space-y-4 pt-0">
-            {/* ── Add Asset form ────────────────────────────────────── */}
-            {showForm && (
-              <div className="border border-violet-200 rounded-xl bg-violet-50/30 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    <Plus className="w-4 h-4 text-violet-600" />New Asset
-                  </h3>
-                  <Button variant="ghost" size="sm" onClick={() => setShowForm(false)} className="text-xs">Cancel</Button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <Label className="text-xs font-medium">Asset Description *</Label>
-                    <Input className="mt-1 text-sm" placeholder="e.g. Dell Laptop × 3, Toyota Hiace van" value={fDesc} onChange={e => setFDesc(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">ITA Class *</Label>
-                    <Select value={fClass} onValueChange={setFClass}>
-                      <SelectTrigger className="mt-1 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {ITA_CLASSES.map(c => (
-                          <SelectItem key={c.value} value={String(c.value)}>
-                            {c.label} ({c.rate})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Cost (TZS) *</Label>
-                    <Input type="number" min={0} className="mt-1 text-sm" placeholder="0" value={fCost} onChange={e => setFCost(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Opening ITA WDV (TZS)</Label>
-                    <Input type="number" min={0} className="mt-1 text-sm" placeholder="= cost if first year" value={fOpenWDV} onChange={e => setFOpenWDV(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Additions this year (TZS)</Label>
-                    <Input type="number" min={0} className="mt-1 text-sm" placeholder="0" value={fAdditions} onChange={e => setFAdditions(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Disposals at tax cost (TZS)</Label>
-                    <Input type="number" min={0} className="mt-1 text-sm" placeholder="0" value={fDisposals} onChange={e => setFDisposals(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Accounting Depreciation (TB) (TZS)</Label>
-                    <Input type="number" min={0} className="mt-1 text-sm" placeholder="0" value={fAccDep} onChange={e => setFAccDep(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs font-medium">Source TB Account</Label>
-                    <Input className="mt-1 text-sm" placeholder="e.g. 1400 — Plant & Equipment" value={fSourceAccount} onChange={e => setFSourceAccount(e.target.value)} />
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-xs font-medium">Notes</Label>
-                    <Textarea className="mt-1 text-sm" rows={2} placeholder="e.g. Disposed Dec 2024 — tax cost TZS X" value={fNotes} onChange={e => setFNotes(e.target.value)} />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pt-1 border-t border-violet-200">
-                  <Button
-                    size="sm"
-                    disabled={submitting || !fDesc || !fCost}
-                    onClick={handleSubmit}
-                    className="bg-violet-700 hover:bg-violet-800 text-white gap-1.5"
-                  >
-                    {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5" />}
-                    Save Asset
-                  </Button>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Lock className="w-3 h-3" />
-                    W&T is computed by the tax computation — run it after saving assets.
-                  </p>
-                </div>
-              </div>
-            )}
+            {/* CF-03: assets are recorded by the engine, never entered here — capital_allowances is server-written only
+                (20261212100000_legacy_financial_write_revocation.sql). */}
+            <div className="rounded-xl border border-violet-200 bg-violet-50/30 px-4 py-3 flex items-start gap-2">
+              <Lock className="w-4 h-4 text-violet-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Recorded by the engine.</span> Assets and their wear &amp; tear are
+                written only by the tax computation, which records Class 1–3 assets from the trial balance. Nothing is entered
+                or saved from this register.
+              </p>
+            </div>
 
             {/* ── Asset register by class ───────────────────────────── */}
             {loading ? (
@@ -393,11 +259,11 @@ export function CapitalAllowancesRegister({
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Loading register…</span>
               </div>
-            ) : assets.length === 0 && !showForm ? (
+            ) : assets.length === 0 ? (
               <div className="text-center py-8">
                 <Calculator className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">No assets in register for FY{periodYear}.</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Add assets manually or run the tax computation — it auto-populates Class 1–3 assets from the trial balance.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Run the tax computation — it records Class 1–3 assets from the trial balance.</p>
               </div>
             ) : (
               <div className="space-y-3">

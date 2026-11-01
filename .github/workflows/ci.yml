@@ -198,6 +198,9 @@ jobs:
       - name: Type-check the independent statement compiler against the real Supabase client types
         run: deno check supabase/functions/compile-financial-report/index.ts
 
+      - name: Type-check the QuickBooks connector functions (connect start, OAuth callback, finish connection and trial balance pull) against the real Supabase client types
+        run: deno check supabase/functions/qbo-connect-start/index.ts supabase/functions/qbo-oauth-callback/index.ts supabase/functions/qbo-finish-connection/index.ts supabase/functions/qbo-pull-trial-balance/index.ts
+
       - name: Upload policy probe in Deno under a 150 MB V8 heap cap (invented files; the real gate and reader; each case in its own process, fits or terminated, measured)
         run: deno run --allow-read --allow-write --allow-run --allow-env --allow-net=esm.sh scripts/bench/tbUploadPolicyDenoProbe.ts 150
 
@@ -687,6 +690,21 @@ jobs:
           set -e
           cat proof-results/sourceAccessAuthority.present.log
           node scripts/ci/validateProofResult.mjs proof-results/sourceAccessAuthority.present.json --manifest scripts/db-proof/sourceAccessAuthority.manifest.mjs --mode present --exit-code "$code"
+
+      - name: QuickBooks connector storage proof (20261212100000 — tokens only as envelopes and none once a connection is not active, clients have no access to connections or OAuth state, single-use state, compare-and-swap rotation, terminal disconnect, append-only provenance without secrets or foreign keys; full chain on the same throwaway container)
+        env:
+          DB_PROOF_MODE: external
+          DB_PROOF_CONN: postgres://postgres:postgres@127.0.0.1:5432/qbo_connector_storage
+          PROOF_RESULT_FILE: proof-results/qboConnectorStorage.present.json
+        run: |
+          createdb qbo_connector_storage
+          mkdir -p proof-results
+          set +e
+          bun scripts/db-proof/qboConnectorStorage.mjs > proof-results/qboConnectorStorage.present.log 2>&1
+          code=$?
+          set -e
+          cat proof-results/qboConnectorStorage.present.log
+          node scripts/ci/validateProofResult.mjs proof-results/qboConnectorStorage.present.json --manifest scripts/db-proof/qboConnectorStorage.manifest.mjs --mode present --exit-code "$code"
 
       - name: Internal beta activation controls proof (20261203100000 — only an active commercial administrator reads the beta state or opens/closes reporting; opening is one transaction that makes the allowlist exactly the chosen companies and releases the master switch last, refusals change nothing; closing engages the master switch first; synthetic scope recorded from the database's own composition hash; open/close races never deadlock; full chain, real certification engine, on the same throwaway container)
         env:

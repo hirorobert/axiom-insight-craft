@@ -12,6 +12,7 @@
  * Nothing else: no other report, no query/entity endpoint, no write method, no other host (look-alikes, userinfo, ports, plain
  * http, fragments, encoded or doubled path segments are all refused), no redirect following. Revocation on disconnect is NOT on
  * the list yet: its endpoint has not been verified against Intuit's documentation, and an unverified endpoint is not added.
+ * Every call is abandoned after a fixed time (QBO_TIMEOUTS_MS), so a refresh can never outlast the refresh lease that protects it.
  *
  * Pure apart from the injected fetch; no credentials are read, stored or logged here.
  */
@@ -82,20 +83,54 @@ export class QboGuardRefusal extends Error {
   }
 }
 
+// ── the addresses the connector uses (they live here so that no other code names an Intuit host) ─────────────────────────────
+
+export const QBO_TOKEN_URL = `https://${QBO_TOKEN_HOST}${QBO_TOKEN_PATH}`;
+export const QBO_ACCOUNTING_SCOPE = "com.intuit.quickbooks.accounting";
+// The authorisation page is a BROWSER redirect target. The server never fetches it, so it is not on the request allow-list above.
+const QBO_AUTHORIZE_BASE = "https://appcenter.intuit.com/connect/oauth2";
+
+/** The browser address that starts authorisation: the Accounting scope only, the state we generated, the redirect address registered for the app. */
+export function qboAuthorizeUrl(a: { clientId: string; redirectUri: string; state: string }): string {
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(a.clientId)) throw new QboGuardRefusal("the client id is malformed");
+  if (!/^https:\/\/[^\s?#]+$/.test(a.redirectUri)) throw new QboGuardRefusal("the redirect address must be an https address without a query or fragment");
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(a.state)) throw new QboGuardRefusal("the state is malformed");
+  const q = new URLSearchParams({ client_id: a.clientId, response_type: "code", scope: QBO_ACCOUNTING_SCOPE, redirect_uri: a.redirectUri, state: a.state });
+  return `${QBO_AUTHORIZE_BASE}?${q.toString()}`;
+}
+
+/** The address of one Trial Balance report. Always both dates (a lone end date is ignored by QuickBooks). Refused unless the guard would allow it. */
+export function qboReportUrl(a: { environment: QboEnvironment; realmId: string; startDate: string; endDate: string; accountingMethod?: "Accrual" | "Cash"; minorVersion?: number }): string {
+  const q = new URLSearchParams({ start_date: a.startDate, end_date: a.endDate });
+  if (a.accountingMethod) q.set("accounting_method", a.accountingMethod);
+  if (a.minorVersion !== undefined) q.set("minorversion", String(a.minorVersion));
+  const url = `https://${QBO_API_HOSTS[a.environment]}/v3/company/${a.realmId}/reports/TrialBalance?${q.toString()}`;
+  const verdict = classifyQboRequest({ method: "GET", url });
+  if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
+  return url;
+}
+
 export interface GuardedRequest {
   method: string;
   url: string;
   headers?: Record<string, string>;
   body?: string;
 }
-type FetchLike = (url: string, init: { method: string; headers?: Record<string, string>; body?: string; redirect: "error" }) => Promise<Response>;
+type FetchLike = (url: string, init: { method: string; headers?: Record<string, string>; body?: string; redirect: "error"; signal: AbortSignal }) => Promise<Response>;
 
-/** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect. */
-export function createGuardedQboFetch(fetchImpl: FetchLike) {
+/**
+ * How long a call to Intuit may take, response body included, before it is abandoned (the caller sees a network failure). The token call is the one
+ * that matters: it runs under the 90-second refresh lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
+ * lapse while this import is still waiting for Intuit, which would let a second import present the same refresh token.
+ */
+export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000 });
+
+/** The only way the connector calls Intuit. Refuses before any network call; never follows a redirect; never waits longer than its timeout. */
+export function createGuardedQboFetch(fetchImpl: FetchLike, timeoutsMs: Readonly<Record<QboRequestKind, number>> = QBO_TIMEOUTS_MS) {
   return async function guardedQboFetch(req: GuardedRequest): Promise<Response> {
     const verdict = classifyQboRequest(req);
     if (!verdict.ok) throw new QboGuardRefusal(verdict.reason);
     if (verdict.kind === "report" && req.body !== undefined) throw new QboGuardRefusal("a report request has no body");
-    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error" });
+    return fetchImpl(req.url, { method: req.method, headers: req.headers, body: req.body, redirect: "error", signal: AbortSignal.timeout(timeoutsMs[verdict.kind]) });
   };
 }

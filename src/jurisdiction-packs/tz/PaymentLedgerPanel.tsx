@@ -7,10 +7,9 @@
 //   • tax_payments  → payments recorded against each obligation
 //   • companies     → name + TIN
 //
-// "Record Payment" writes a row to tax_payments with:
-//   company_id, tax_category, period_year, period_month,
-//   amount_paid_tzs, payment_date, payment_reference,
-//   payment_source (preparer_declared | efdms_matched | tra_receipt)
+// Payments are recorded by the engine. This panel READS tax_payments; it never
+// writes it (CF-03, 20261212100000_legacy_financial_write_revocation.sql: the
+// browser's INSERT/UPDATE/DELETE on tax_payments were revoked).
 //
 // CONSTRAINTS (active):
 //   • Do not delete evidence records.
@@ -25,17 +24,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader,
-  DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Banknote, AlertTriangle, CheckCircle, RefreshCw,
-  Building2, Plus, ChevronDown, ChevronRight,
+  Building2, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -94,14 +84,6 @@ interface CompanyLedger {
 }
 
 // Record payment form state
-interface PaymentForm {
-  findingKey: string;          // "category|year|month|companyId"
-  amountTzs: string;
-  paymentDate: string;
-  paymentReference: string;
-  paymentSource: PaymentSource;
-}
-
 // ── Helpers ───────────────────────────────────────────────────
 
 const fmt = (n: number) =>
@@ -113,15 +95,6 @@ function derivePeriod(periodEnd: string | null): { year: number; month: number }
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
-function today(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-const SOURCE_LABELS: Record<PaymentSource, string> = {
-  preparer_declared: "Preparer declared",
-  efdms_matched:     "EFDMS matched",
-  tra_receipt:       "TRA receipt",
-};
 
 // ── Component ─────────────────────────────────────────────────
 
@@ -130,17 +103,7 @@ export function PaymentLedgerPanel() {
   const [ledgers, setLedgers]         = useState<CompanyLedger[]>([]);
   const [loading, setLoading]         = useState(true);
   const [expanded, setExpanded]       = useState<Set<string>>(new Set());
-  const [showDialog, setShowDialog]   = useState(false);
-  const [submitting, setSubmitting]   = useState(false);
   const [allFindings, setAllFindings] = useState<EnrichedFinding[]>([]);
-  const [form, setForm] = useState<PaymentForm>({
-    findingKey:       "",
-    amountTzs:        "",
-    paymentDate:      today(),
-    paymentReference: "",
-    paymentSource:    "preparer_declared",
-  });
-
   const fetchLedger = async () => {
     if (!user) return;
     setLoading(true);
@@ -248,53 +211,6 @@ export function PaymentLedgerPanel() {
 
   // ── Record payment submit ─────────────────────────────────────
 
-  const handleSubmit = async () => {
-    if (!form.findingKey || !form.amountTzs || !form.paymentDate) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-    const amount = Number(form.amountTzs.replace(/,/g, ""));
-    if (isNaN(amount) || amount <= 0) {
-      toast.error("Amount must be a positive number");
-      return;
-    }
-
-    const [category, yearStr, monthStr, companyId] = form.findingKey.split("|");
-    setSubmitting(true);
-    try {
-      const { error } = await supabase.from("tax_payments").insert({
-        company_id:        companyId,
-        tax_category:      category,
-        period_year:       Number(yearStr),
-        period_month:      Number(monthStr),
-        amount_paid_tzs:   amount,
-        payment_date:      form.paymentDate,
-        payment_reference: form.paymentReference.trim() || null,
-        payment_source:    form.paymentSource,
-        created_by:        user?.id,
-      });
-      if (error) throw error;
-
-      toast.success("Payment recorded");
-      setShowDialog(false);
-      setForm({
-        findingKey:       "",
-        amountTzs:        "",
-        paymentDate:      today(),
-        paymentReference: "",
-        paymentSource:    "preparer_declared",
-      });
-      await fetchLedger();
-    } catch (err) {
-      console.error("Record payment error:", err);
-      toast.error("Failed to record payment");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ── Totals across all companies ───────────────────────────────
-
   const grandExposure    = ledgers.reduce((s, l) => s + l.totalExposure, 0);
   const grandPaid        = ledgers.reduce((s, l) => s + l.totalPaid, 0);
   const grandOutstanding = ledgers.reduce((s, l) => s + l.totalOutstanding, 0);
@@ -336,14 +252,11 @@ export function PaymentLedgerPanel() {
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
-              <Button
-                size="sm"
-                onClick={() => setShowDialog(true)}
-                className="gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Record Payment
-              </Button>
+              {/* CF-03: payments are recorded by the engine, never entered here — tax_payments is server-written only
+                  (20261212100000_legacy_financial_write_revocation.sql). */}
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground self-center" title="Payments are recorded by the engine; they cannot be entered here.">
+                <CheckCircle className="w-3.5 h-3.5" /> Payments recorded by the engine
+              </span>
             </div>
           </div>
 
@@ -509,168 +422,6 @@ export function PaymentLedgerPanel() {
         </CardContent>
       </Card>
 
-      {/* ── Record Payment Dialog ───────────────────────────── */}
-      <Dialog open={showDialog} onOpenChange={(o) => { if (!submitting) setShowDialog(o); }}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Banknote className="w-4 h-4 text-primary" />
-              Record Tax Payment
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 overflow-y-auto flex-1 pr-1 pt-1">
-            {/* Obligation selector */}
-            <div className="space-y-1.5">
-              <Label htmlFor="findingKey">
-                Obligation <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={form.findingKey}
-                onValueChange={(v) => {
-                  // Pre-fill amount with outstanding balance
-                  const [cat, yr, mo, cid] = v.split("|");
-                  const match = allFindings.find(
-                    (f) =>
-                      f.findingCategory === cat &&
-                      f.periodYear === Number(yr) &&
-                      f.periodMonth === Number(mo) &&
-                      f.companyId === cid
-                  );
-                  setForm((prev) => ({
-                    ...prev,
-                    findingKey: v,
-                    amountTzs: match ? String(match.outstandingTzs) : "",
-                  }));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an obligation…" />
-                </SelectTrigger>
-                <SelectContent className="max-h-52 overflow-y-auto">
-                  {ledgers.map((ldr) =>
-                    ldr.findings
-                      .filter((f) => f.outstandingTzs > 0)
-                      .map((f) => {
-                        const key = `${f.findingCategory}|${f.periodYear}|${f.periodMonth}|${f.companyId}`;
-                        return (
-                          <SelectItem key={key} value={key}>
-                            <span className="text-xs">
-                              {ldr.company.name} — {f.title} ({f.periodYear}/{String(f.periodMonth).padStart(2, "0")})
-                            </span>
-                          </SelectItem>
-                        );
-                      })
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Amount */}
-            <div className="space-y-1.5">
-              <Label htmlFor="amount">
-                Amount (TZS) <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="amount"
-                type="number"
-                min="1"
-                value={form.amountTzs}
-                onChange={(e) => setForm({ ...form, amountTzs: e.target.value })}
-                placeholder="e.g. 1500000"
-              />
-              {form.findingKey && (() => {
-                const [cat, yr, mo, cid] = form.findingKey.split("|");
-                const match = allFindings.find(
-                  (f) =>
-                    f.findingCategory === cat &&
-                    f.periodYear === Number(yr) &&
-                    f.periodMonth === Number(mo) &&
-                    f.companyId === cid
-                );
-                if (!match) return null;
-                return (
-                  <p className="text-[10px] text-muted-foreground">
-                    Outstanding: TZS {fmt(match.outstandingTzs)}
-                  </p>
-                );
-              })()}
-            </div>
-
-            {/* Payment date */}
-            <div className="space-y-1.5">
-              <Label htmlFor="paymentDate">
-                Payment Date <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="paymentDate"
-                type="date"
-                value={form.paymentDate}
-                onChange={(e) => setForm({ ...form, paymentDate: e.target.value })}
-              />
-            </div>
-
-            {/* Reference */}
-            <div className="space-y-1.5">
-              <Label htmlFor="reference">
-                Payment Reference
-                <span className="ml-1 text-xs text-muted-foreground">
-                  (TRA receipt no., EFD doc no., or bank ref)
-                </span>
-              </Label>
-              <Input
-                id="reference"
-                value={form.paymentReference}
-                onChange={(e) => setForm({ ...form, paymentReference: e.target.value })}
-                placeholder="e.g. TRA/2026/001234"
-              />
-            </div>
-
-            {/* Source */}
-            <div className="space-y-1.5">
-              <Label>Evidence Source</Label>
-              <Select
-                value={form.paymentSource}
-                onValueChange={(v) => setForm({ ...form, paymentSource: v as PaymentSource })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.entries(SOURCE_LABELS) as [PaymentSource, string][]).map(
-                    ([val, label]) => (
-                      <SelectItem key={val} value={val}>
-                        {label}
-                      </SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">
-                {form.paymentSource === "tra_receipt"
-                  ? "TRA receipt — highest evidence weight."
-                  : form.paymentSource === "efdms_matched"
-                  ? "Matched against EFDMS data."
-                  : "Preparer-declared — attach supporting document when available."}
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter className="pt-3 gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setShowDialog(false)}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={submitting} className="gap-1.5">
-              {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              {submitting ? "Recording…" : "Record Payment"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

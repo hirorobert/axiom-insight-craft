@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,6 +91,12 @@ async function validateAuth(authHeader: string | null): Promise<{ userId?: strin
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+  // Withheld on the server — refuses before authentication or any read, write or model call
+  // (_shared/openDefectRestriction.ts, WITHHELD_SERVICES: unmetered platform-billed model spend, CF-12).
+  {
+    const restricted = openDefectRefusal("policy-compass", corsHeaders);
+    if (restricted) return restricted;
   }
 
   try {

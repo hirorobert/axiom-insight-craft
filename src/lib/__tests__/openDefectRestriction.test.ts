@@ -33,9 +33,12 @@ describe("open-defect restrictions", () => {
     expect(openDefectRefusal("process-trial-balance", {})).toBeNull();
     expect(openDefectRefusal("maono-cashflow", {})).toBeNull();
   });
-  it("withholds exactly tax, notes and the management letter from R0, with the same refusal", async () => {
+  it("withholds exactly tax, notes, the management letter (R0) and the three unmetered model endpoints (CF-12), with the same refusal", async () => {
     expect(WITHHELD_SERVICES).toEqual({
       "kinga-tax-engine": "withheld-r0", "generate-disclosure-notes": "withheld-r0", "generate-management-letter": "withheld-r0",
+      // CF-12 (readiness assessment 2026-11-01): platform-billed model calls with no quota, budget, company or product gate,
+      // callable by any signed-in account; policy-compass interpolates free text into its prompt. No routed UI.
+      "policy-compass": "withheld-unmetered-llm", "maono-decide": "withheld-unmetered-llm", "maono-root-cause": "withheld-unmetered-llm",
     });
     for (const fn of Object.keys(WITHHELD_SERVICES)) {
       const r = openDefectRefusal(fn, {})!;
@@ -43,6 +46,18 @@ describe("open-defect restrictions", () => {
     }
     // Their defects are recorded for the change that releases them.
     expect(claude).toContain("DEFECT-WITHHELD-TAX-NOTES-LETTER-001");
+    expect(claude).toContain("DEFECT-UNMETERED-LLM-ENDPOINTS-001");
+  });
+  it("the three unmetered model endpoints refuse before their model client or platform key is touched", () => {
+    for (const [fn, secret] of [["policy-compass", "LOVABLE_API_KEY"], ["maono-decide", "ANTHROPIC_API_KEY"], ["maono-root-cause", "ANTHROPIC_API_KEY"]]) {
+      const src = fnSrc(fn);
+      const guard = src.indexOf(`openDefectRefusal("${fn}", corsHeaders)`);
+      const handler = src.indexOf("serve(async (req");
+      expect(guard, fn).toBeGreaterThan(handler);
+      // No model client is constructed and no key is read between the handler's start and the refusal.
+      expect(src.slice(handler, guard), fn).not.toMatch(new RegExp(`${secret}|new Anthropic\\(|ai\\.gateway\\.lovable\\.dev`));
+      expect(src.indexOf(`Deno.env.get("${secret}")`), fn).toBeGreaterThan(guard);
+    }
   });
   for (const fn of [...Object.keys(OPEN_DEFECT_RESTRICTIONS), ...Object.keys(WITHHELD_SERVICES)]) {
     it(`${fn} refuses right after the CORS preflight, before authentication, a client, or any read`, () => {
