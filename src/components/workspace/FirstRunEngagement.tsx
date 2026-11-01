@@ -54,6 +54,8 @@ import {
 import { ArrowRight, AlertCircle, RefreshCw } from "lucide-react";
 import { classifyError } from "./workspaceCreateError";
 import { CurrencySelect } from "@/components/currency/CurrencySelect";
+import { CURRENCY_REGISTRY } from "@/lib/currency/registry";
+import { ADD_COMPANY_FEATURED_CURRENCIES, orderedCurrencyOptions } from "@/lib/currency/currencyOptions";
 import { capacityCopy } from "@/lib/commercial/paidActions";
 import { parseCreateEntityOutcome } from "@/lib/commercial/entityCreation";
 
@@ -67,17 +69,8 @@ const UNIQUE_FYE_OPTIONS = [
   { value: "09-30", label: "30 September" },
 ] as const;
 
-const CURRENCY_OPTIONS = [
-  { value: "USD", label: "USD — US Dollar" },
-  { value: "EUR", label: "EUR — Euro" },
-  { value: "GBP", label: "GBP — British Pound" },
-  { value: "GHS", label: "GHS — Ghanaian Cedi" },
-  { value: "KES", label: "KES — Kenyan Shilling" },
-  { value: "NGN", label: "NGN — Nigerian Naira" },
-  { value: "TZS", label: "TZS — Tanzanian Shilling" },
-  { value: "UGX", label: "UGX — Ugandan Shilling" },
-  { value: "ZAR", label: "ZAR — South African Rand" },
-] as const;
+// Every currency the server's registry holds (ISO 4217, the same list the period-setup screen offers), the familiar nine first.
+const CURRENCY_OPTIONS = orderedCurrencyOptions(Object.keys(CURRENCY_REGISTRY), ADD_COMPANY_FEATURED_CURRENCIES);
 
 /**
  * Reporting framework options.
@@ -302,7 +295,7 @@ export default function FirstRunEngagement({
             <span className="font-normal text-muted-foreground"> — required</span>
           </Label>
           <CurrencySelect id="fr-currency" value={currency} onChange={setCurrency} required
-            options={CURRENCY_OPTIONS.map((c) => ({ code: c.value, name: c.label.split(" — ")[1] ?? null }))} />
+            options={CURRENCY_OPTIONS} />
         </div>
 
         {/* Reporting framework — optional progressive disclosure */}

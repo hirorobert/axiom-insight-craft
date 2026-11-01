@@ -24,6 +24,21 @@ export function isoCurrencyOptions(codes: readonly string[]): CurrencyOption[] {
   });
 }
 
+/** The currencies the Add company form listed before it offered the whole registry: they stay at the top, in this order. */
+export const ADD_COMPANY_FEATURED_CURRENCIES: readonly string[] = ["USD", "EUR", "GBP", "GHS", "KES", "NGN", "TZS", "UGX", "ZAR"];
+
+/**
+ * Every registry currency, with the `featured` codes first (in the order given) and the rest alphabetical by code. A featured
+ * code the registry does not hold is refused, so the list can never offer a currency the server would reject.
+ */
+export function orderedCurrencyOptions(registryCodes: readonly string[], featured: readonly string[]): CurrencyOption[] {
+  const known = new Set(registryCodes);
+  const missing = featured.filter((c) => !known.has(c));
+  if (missing.length > 0) throw new Error(`Featured currencies are not in the registry: ${missing.join(", ")}`);
+  const first = new Set(featured);
+  return isoCurrencyOptions([...featured, ...[...registryCodes].filter((c) => !first.has(c)).sort()]);
+}
+
 /** The options matching a query (code or name, case-insensitive). An empty query matches everything. */
 export function filterCurrencies(options: readonly CurrencyOption[], query: string): CurrencyOption[] {
   const q = query.trim().toLowerCase();
