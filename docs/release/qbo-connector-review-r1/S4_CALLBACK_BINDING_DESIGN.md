@@ -1,6 +1,6 @@
 # S4: binding the QuickBooks OAuth callback to the person who started it (design, not built)
 
-**Status.** Design for review. Nothing here is implemented, applied or deployed. It corrects review finding S4 (`README.md`, Second pass) and closes most of S5. Building it changes all three PRs (#239 storage, #240 functions, #241 screens) and needs the owner's go-ahead first.
+**Status.** Built on the stack (storage, functions, screens) in review r2; still unapplied and undeployed. Intuit's authorisation-code lifetime is still unverified at the primary source; the build does not depend on it (an expired code is refused by Intuit and the person connects again). It corrects review finding S4 (`README.md`, Second pass) and closes most of S5. Building it changes all three PRs (#239 storage, #240 functions, #241 screens) and needs the owner's go-ahead first.
 
 ## 1. The defect
 

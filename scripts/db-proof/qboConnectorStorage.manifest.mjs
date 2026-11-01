@@ -13,6 +13,11 @@ export const CASES = Object.freeze([
   control("state.expired-or-unknown-returns-nothing"),
   control("state.consumed-but-the-actor-lost-the-right-returns-nothing-and-cannot-be-retried"),
   control("state.lifetime-is-bounded-at-thirty-minutes"),
+  // the return leg (review r2, S4): the code is parked sealed; only the person who started the attempt takes it back
+  control("return.parks-the-sealed-code-once-and-gives-back-only-where-to-return"),
+  control("return.only-the-person-who-started-takes-it-and-any-answer-ends-it"),
+  control("return.an-expired-handoff-gives-nothing-and-housekeeping-deletes-parked-codes"),
+  control("return.a-starter-who-lost-either-right-cannot-take-it"),
   // connections and tokens
   control("connection.store-requires-the-right-and-validates-the-envelope"),
   control("connection.storing-twice-replaces-the-one-live-connection"),
