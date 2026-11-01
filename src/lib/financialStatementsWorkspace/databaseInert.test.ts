@@ -216,6 +216,11 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/paidAction.ts",
       // process-trial-balance's source-download failure path (L-1 / L-2): pure classification + checked recovery. No schema.
       "supabase/functions/_shared/processingSource.ts",
+      // QuickBooks Online trial-balance report -> canonical file: pure, imported by no Edge Function yet. No schema.
+      "supabase/functions/_shared/qboTrialBalance.ts",
+      // The connector's read-only request guard and its token envelope (AES-256-GCM): pure, imported by no Edge Function yet. No schema.
+      "supabase/functions/_shared/qboReadOnlyGuard.ts",
+      "supabase/functions/_shared/qboTokenEnvelope.ts",
       "supabase/functions/_shared/comparativeAssurance.ts",
       "supabase/functions/comparative-assurance-engine/index.ts",
       // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack

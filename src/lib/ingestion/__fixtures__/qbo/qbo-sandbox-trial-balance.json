@@ -1,0 +1,71 @@
+{
+ "Header": {
+  "Time": "2026-10-31T11:18:45-07:00",
+  "ReportName": "TrialBalance",
+  "DateMacro": "this month-to-date",
+  "ReportBasis": "Accrual",
+  "StartPeriod": "2026-10-01",
+  "EndPeriod": "2026-10-31",
+  "SummarizeColumnsBy": "Total",
+  "Currency": "USD",
+  "Option": [{"Name": "NoReportData", "Value": "false"}]
+ },
+ "Columns": {
+  "Column": [
+   {"ColTitle": "", "ColType": "Account"},
+   {"ColTitle": "Debit", "ColType": "Money"},
+   {"ColTitle": "Credit", "ColType": "Money"}
+  ]
+ },
+ "Rows": {
+  "Row": [
+   {"ColData": [{"value": "Checking", "id": "35"}, {"value": "1201.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Savings", "id": "36"}, {"value": "800.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Accounts Receivable (A/R)", "id": "84"}, {"value": "5281.52"}, {"value": ""}]},
+   {"ColData": [{"value": "Inventory Asset", "id": "81"}, {"value": "596.25"}, {"value": ""}]},
+   {"ColData": [{"value": "Undeposited Funds", "id": "4"}, {"value": "2062.52"}, {"value": ""}]},
+   {"ColData": [{"value": "Truck:Original Cost", "id": "38"}, {"value": "13495.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Accounts Payable (A/P)", "id": "33"}, {"value": ""}, {"value": "1602.67"}]},
+   {"ColData": [{"value": "Mastercard", "id": "41"}, {"value": ""}, {"value": "157.72"}]},
+   {"ColData": [{"value": "Arizona Dept. of Revenue Payable", "id": "89"}, {"value": ""}, {"value": "0.00"}]},
+   {"ColData": [{"value": "Board of Equalization Payable", "id": "90"}, {"value": ""}, {"value": "370.94"}]},
+   {"ColData": [{"value": "Loan Payable", "id": "43"}, {"value": ""}, {"value": "4000.00"}]},
+   {"ColData": [{"value": "Notes Payable", "id": "44"}, {"value": ""}, {"value": "25000.00"}]},
+   {"ColData": [{"value": "Opening Balance Equity", "id": "34"}, {"value": "9337.50"}, {"value": ""}]},
+   {"ColData": [{"value": "Design income", "id": "82"}, {"value": ""}, {"value": "2250.00"}]},
+   {"ColData": [{"value": "Discounts given", "id": "86"}, {"value": "89.50"}, {"value": ""}]},
+   {"ColData": [{"value": "Landscaping Services", "id": "45"}, {"value": ""}, {"value": "1477.50"}]},
+   {"ColData": [{"value": "Landscaping Services:Job Materials:Fountains and Garden Lighting", "id": "48"}, {"value": ""}, {"value": "2246.50"}]},
+   {"ColData": [{"value": "Landscaping Services:Job Materials:Plants and Soil", "id": "49"}, {"value": ""}, {"value": "2351.97"}]},
+   {"ColData": [{"value": "Landscaping Services:Job Materials:Sprinklers and Drip Systems", "id": "50"}, {"value": ""}, {"value": "138.00"}]},
+   {"ColData": [{"value": "Landscaping Services:Labor:Installation", "id": "52"}, {"value": ""}, {"value": "250.00"}]},
+   {"ColData": [{"value": "Landscaping Services:Labor:Maintenance and Repair", "id": "53"}, {"value": ""}, {"value": "50.00"}]},
+   {"ColData": [{"value": "Pest Control Services", "id": "54"}, {"value": ""}, {"value": "110.00"}]},
+   {"ColData": [{"value": "Sales of Product Income", "id": "79"}, {"value": ""}, {"value": "912.75"}]},
+   {"ColData": [{"value": "Services", "id": "1"}, {"value": ""}, {"value": "503.55"}]},
+   {"ColData": [{"value": "Cost of Goods Sold", "id": "80"}, {"value": "405.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Advertising", "id": "7"}, {"value": "74.86"}, {"value": ""}]},
+   {"ColData": [{"value": "Automobile", "id": "55"}, {"value": "113.96"}, {"value": ""}]},
+   {"ColData": [{"value": "Automobile:Fuel", "id": "56"}, {"value": "349.41"}, {"value": ""}]},
+   {"ColData": [{"value": "Equipment Rental", "id": "29"}, {"value": "112.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Insurance", "id": "11"}, {"value": "241.23"}, {"value": ""}]},
+   {"ColData": [{"value": "Job Expenses", "id": "58"}, {"value": "155.07"}, {"value": ""}]},
+   {"ColData": [{"value": "Job Expenses:Job Materials:Decks and Patios", "id": "64"}, {"value": "234.04"}, {"value": ""}]},
+   {"ColData": [{"value": "Job Expenses:Job Materials:Plants and Soil", "id": "66"}, {"value": "353.12"}, {"value": ""}]},
+   {"ColData": [{"value": "Job Expenses:Job Materials:Sprinklers and Drip Systems", "id": "67"}, {"value": "215.66"}, {"value": ""}]},
+   {"ColData": [{"value": "Legal & Professional Fees", "id": "12"}, {"value": "75.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Legal & Professional Fees:Accounting", "id": "69"}, {"value": "640.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Legal & Professional Fees:Bookkeeper", "id": "70"}, {"value": "55.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Legal & Professional Fees:Lawyer", "id": "71"}, {"value": "400.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Maintenance and Repair", "id": "72"}, {"value": "185.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Maintenance and Repair:Equipment Repairs", "id": "75"}, {"value": "755.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Meals and Entertainment", "id": "13"}, {"value": "28.49"}, {"value": ""}]},
+   {"ColData": [{"value": "Office Expenses", "id": "15"}, {"value": "18.08"}, {"value": ""}]},
+   {"ColData": [{"value": "Rent or Lease", "id": "17"}, {"value": "900.00"}, {"value": ""}]},
+   {"ColData": [{"value": "Utilities:Gas and Electric", "id": "76"}, {"value": "200.53"}, {"value": ""}]},
+   {"ColData": [{"value": "Utilities:Telephone", "id": "77"}, {"value": "130.86"}, {"value": ""}]},
+   {"ColData": [{"value": "Miscellaneous", "id": "14"}, {"value": "2916.00"}, {"value": ""}]},
+   {"Summary": {"ColData": [{"value": "TOTAL"}, {"value": "41421.60"}, {"value": "41421.60"}]}, "type": "Section", "group": "GrandTotal"}
+  ]
+ }
+}
