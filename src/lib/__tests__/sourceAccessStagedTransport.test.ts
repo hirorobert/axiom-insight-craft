@@ -131,11 +131,11 @@ describe("source-access exact-byte staged transport", () => {
     expect(hash("10_ipsas_3_statement_review_staged_apply.sql")).toBe(STATEMENT_FORMS.ipsas_3_statement_review_staged_apply);
   });
 
-  it("is recorded as hosted-applied (2026-10-31, hosted ids 98/99): both Drizzle mirrors and both reviewed registrations exist, nothing past 0098", () => {
+  it("is recorded as hosted-applied (2026-10-31, hosted ids 98/99): both Drizzle mirrors and both reviewed registrations exist, followed only by installed CF-03/QBO", () => {
     const journal = JSON.parse(fs.readFileSync(path.join(ROOT, "drizzle/migrations/meta/_journal.json"), "utf8")) as { entries: { tag: string }[] };
     const tags = ["0097_source_access_staged_transport", "0098_source_access_1_staged_apply"];
     expect(journal.entries.filter((e) => /source_access/i.test(e.tag)).map((e) => e.tag)).toEqual(tags);
-    expect(Math.max(...journal.entries.map((e) => Number(e.tag.slice(0, 4))))).toBe(98);
+    expect(journal.entries.filter((e) => Number(e.tag.slice(0, 4)) > 98).map(e => e.tag)).toEqual(["0099_legacy_financial_write_revocation", "0100_qbo_connector_storage"]);
     expect(Object.keys(RELEASE_JOURNAL).filter((k) => /source_access/i.test(k))).toEqual(tags);
     for (const tag of tags) {
       expect(RELEASE_JOURNAL[tag]).toMatchObject({ kind: "source_access_staged_transport" });

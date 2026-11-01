@@ -3,13 +3,14 @@
  * exactly one action at a time: Connect (or Reconnect), or Import. Everything it starts is done by an Edge Function that judges the person's right itself;
  * the page only asks, shows the plain-language answer, and then starts the same check a file upload starts.
  *
- * Hidden entirely unless QBO_CONNECTOR_ENABLED (a reviewed source constant, false until the backend is applied, deployed and configured) and unless the
+ * Hidden unless the customer release flag or the owner-only Sandbox rehearsal admits this tab, and unless the
  * connection status can be read. A QuickBooks password, token or response body is never shown, stored or logged here.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Link2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useQboSandboxAccess } from "@/hooks/useQboSandboxAccess";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
 import {
@@ -102,7 +103,7 @@ export interface QuickBooksImportProps {
   engagementId: string | null;
   /** Called after an import has been saved and its check started, so the page can show the result. */
   onImported?: () => void;
-  /** Tests and storybook only: defaults to the reviewed constant. */
+  /** Explicit test override; ordinary use follows the customer flag or the restricted platform-owner Sandbox opt-in. */
   enabled?: boolean;
 }
 
@@ -114,7 +115,16 @@ function returnedFromAddress(): ReturnedStatus | null {
 }
 const handoffFromAddress = (): string | null => (typeof window === "undefined" ? null : readHandoff(window.location.hash));
 
-export function QuickBooksImport({ companyId, periodYear, periodId, engagementId, onImported, enabled = QBO_CONNECTOR_ENABLED }: QuickBooksImportProps): JSX.Element | null {
+export function QuickBooksImport(props: QuickBooksImportProps): JSX.Element | null {
+  const sandbox = useQboSandboxAccess(props, props.enabled === undefined && !QBO_CONNECTOR_ENABLED);
+  const enabled = props.enabled ?? (QBO_CONNECTOR_ENABLED || sandbox);
+  return enabled ? <>
+    {sandbox && <p role="status" className="border border-border bg-muted/40 p-3 text-sm">Sandbox rehearsal: sample QuickBooks data only. Customer connections remain unavailable.</p>}
+    <QuickBooksImportSession key={`${props.companyId}:${props.periodYear}:${props.periodId}:${props.engagementId}`} {...props} enabled />
+  </> : null;
+}
+
+function QuickBooksImportSession({ companyId, periodYear, periodId, engagementId, onImported, enabled = QBO_CONNECTOR_ENABLED }: QuickBooksImportProps): JSX.Element | null {
   const [state, setState] = useState<QboConnectionState | "checking">("checking");
   const [period, setPeriod] = useState<PeriodDates | "loading">(periodId ? "loading" : { start: null, end: null });
   const [handoff] = useState<string | null>(handoffFromAddress);

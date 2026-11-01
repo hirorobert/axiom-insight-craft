@@ -74,7 +74,7 @@ describe("equipment exact-byte staged transport", () => {
       expect(fs.readFileSync(path.join(ROOT,"drizzle/migrations",`${tags[i]}.sql`),"utf8")).toBe(f.text);
       expect(RELEASE_JOURNAL[tags[i]]).toEqual({kind:"equipment_staged_transport",sha256:f.hashes[0]});
     }
-    expect(checkMigrationAuthority(ROOT).pending).toEqual(["20261212100000_legacy_financial_write_revocation.sql", "20261213100000_qbo_connector_storage.sql"]); // CF-03 revocation: authored, pending hosted apply
+    expect(checkMigrationAuthority(ROOT).pending).toEqual([]); // Both native installs are journalled (hosted 100/101).
   });
   it("the canonical authority accepts future real mirrors only with reviewed registrations", () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),"equipment-transport-authority-"));
