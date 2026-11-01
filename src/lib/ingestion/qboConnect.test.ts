@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { OAUTH_STATE_TTL_SECONDS, parseCallbackQuery, parseConnectStartRequest, runQboCallback, runQboConnectStart, type CallbackDeps, type ConnectStartDeps } from "../../../supabase/functions/_shared/qboConnect";
+import { OAUTH_STATE_TTL_SECONDS, oauthReturnBinding, parseCallbackQuery, parseConnectStartRequest, parseFinishRequest, runQboCallback, runQboConnectStart, runQboFinish, type CallbackDeps, type ConnectStartDeps, type FinishDeps, type ReturnBack } from "../../../supabase/functions/_shared/qboConnect";
 import { connectionBinding, openSecret, sealSecret, type EnvelopeKey } from "../../../supabase/functions/_shared/qboTokenEnvelope";
 import type { TokenResult } from "../../../supabase/functions/_shared/qboTokenClient";
 
@@ -81,82 +81,157 @@ describe("callback query", () => {
   });
 });
 
-const GOOD: TokenResult = { ok: true, tokens: { accessToken: "access-not-real", refreshToken: "refresh-not-real-0001", accessExpiresInSeconds: 3600, refreshExpiresAt: "2027-02-09T12:00:00.000Z", hardExpiresAt: "2031-11-01T12:00:00.000Z" } };
+const HANDOFF = "cd".repeat(32);
+const RETURN_URL = (c: string, y: number, back: ReturnBack) => `https://app.example.test/workspace/${c}/${y}/trial-balance/review${"handoff" in back ? `#qbo_handoff=${back.handoff}` : `?qbo=${back.status}`}`;
 function callbackDeps(over: Partial<CallbackDeps> = {}) {
-  const log = { consumed: [] as string[], exchanged: [] as unknown[][], stored: [] as unknown[][], sealed: [] as unknown[][] };
+  const log = { recorded: [] as unknown[][], sealed: [] as unknown[][] };
   const deps: CallbackDeps = {
     sha256Hex: sha,
-    consumeState: async (h) => { log.consumed.push(h); return { companyId: COMPANY, actorUserId: ACTOR, environment: "sandbox", returnPeriodYear: 2026 }; },
-    oauthConfig: () => CFG,
-    exchangeCode: async (...a) => { log.exchanged.push(a); return GOOD; },
-    sealRefreshToken: async (t, b) => { log.sealed.push([t, b]); return sealSecret(t, KEY, b); },
-    storeConnection: async (...a) => { log.stored.push(a); return "33333333-3333-3333-3333-333333333333"; },
-    returnTo: (c, y, s) => `https://app.example.test/workspace/${c}/${y}/trial-balance/review?qbo=${s}`,
+    randomHandoff: () => HANDOFF,
+    sealCode: async (c, b) => { log.sealed.push([c, b]); return sealSecret(c, KEY, b); },
+    recordReturn: async (...a) => { log.recorded.push(a); return { companyId: COMPANY, environment: "sandbox", returnPeriodYear: 2026 }; },
+    returnTo: RETURN_URL,
     ...over,
   };
   return { deps, log };
 }
 const QUERY = { state: STATE, code: "code-not-real", realmId: "9341458604136919", denied: false };
 
-describe("callback", () => {
+describe("callback: the code is parked, never exchanged, and the browser carries a one-time handoff back (review r2, S4)", () => {
   it("refuses a malformed request without touching anything", async () => {
     const { deps, log } = callbackDeps();
     expect(await runQboCallback(deps, null)).toEqual({ status: 400, outcome: "invalid_request" });
-    expect(log.consumed).toHaveLength(0);
+    expect(log.recorded).toHaveLength(0);
   });
-  it("refuses an unknown, expired or used state: a plain 400 with no redirect and no exchange", async () => {
-    const { deps, log } = callbackDeps({ consumeState: async () => null });
+  it("refuses an unknown, expired or used state (or a starter who lost a right): a plain 400 with no redirect", async () => {
+    const { deps } = callbackDeps({ recordReturn: async () => null });
     expect(await runQboCallback(deps, QUERY)).toEqual({ status: 400, outcome: "unknown_state" });
-    expect(log.exchanged).toHaveLength(0);
   });
-  it("on success: consumes the state first, exchanges once, seals the refresh token bound to workspace + environment + realm, stores only the envelope", async () => {
+  it("parks the code sealed to its handoff, with the realm, and sends the browser back with the handoff in the FRAGMENT only", async () => {
     const { deps, log } = callbackDeps();
     const r = await runQboCallback(deps, QUERY);
-    expect(r).toMatchObject({ status: 302, outcome: "connected", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review?qbo=connected` });
-    expect(log.consumed).toEqual([await sha(STATE)]);
-    expect(log.exchanged).toEqual([["sandbox", "code-not-real", CFG.redirectUri]]);
-    const binding = connectionBinding(COMPANY, QUERY.realmId, "sandbox");
-    expect(log.sealed).toEqual([["refresh-not-real-0001", binding]]);
-    const [company, actor, realm, env, envelope, refreshExpiresAt, hardExpiresAt] = log.stored[0] as string[];
-    expect([company, actor, realm, env, refreshExpiresAt, hardExpiresAt]).toEqual([COMPANY, ACTOR, QUERY.realmId, "sandbox", GOOD.ok && GOOD.tokens.refreshExpiresAt, GOOD.ok && GOOD.tokens.hardExpiresAt]);
-    expect(envelope).not.toContain("refresh-not-real");
-    expect(await openSecret(envelope, [KEY], binding)).toBe("refresh-not-real-0001");
-    // the envelope opens for no other workspace, realm or environment
-    for (const other of [connectionBinding(ACTOR, QUERY.realmId, "sandbox"), connectionBinding(COMPANY, "123", "sandbox"), connectionBinding(COMPANY, QUERY.realmId, "production")]) {
-      await expect(openSecret(envelope, [KEY], other)).rejects.toThrow();
-    }
+    expect(r).toEqual({ status: 302, outcome: "handed_back", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review#qbo_handoff=${HANDOFF}` });
+    const u = new URL((r as { location: string }).location);
+    expect(u.search).toBe(""); expect(u.hash).toBe(`#qbo_handoff=${HANDOFF}`);   // a browser never sends the fragment to a server
+    const [stateHash, parked] = log.recorded[0] as [string, { realmId: string; codeEnvelope: string; handoffHash: string }];
+    expect(stateHash).toBe(await sha(STATE));
+    expect(parked.realmId).toBe(QUERY.realmId); expect(parked.handoffHash).toBe(await sha(HANDOFF));
+    expect(parked.codeEnvelope).not.toContain("code-not-real");
+    expect(await openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha(HANDOFF)))).toBe("code-not-real");
+    await expect(openSecret(parked.codeEnvelope, [KEY], oauthReturnBinding(await sha("other")))).rejects.toThrow();   // it opens for no other handoff
+    expect(JSON.stringify(log.recorded)).not.toContain(HANDOFF);   // the database holds only the handoff's hash
   });
-  it("the browser is sent back with a status word only: no code, state, token or envelope in the redirect or the result", async () => {
+  it("never puts the code, the state, a token or an envelope in the redirect", async () => {
     const { deps } = callbackDeps();
-    const r = await runQboCallback(deps, QUERY);
-    const text = JSON.stringify(r);
-    for (const secret of [QUERY.code, STATE, "refresh-not-real", "access-not-real", "v1.k1."]) expect(text).not.toContain(secret);
+    const text = JSON.stringify(await runQboCallback(deps, QUERY));
+    for (const secret of [QUERY.code, STATE, "v1.k1."]) expect(text).not.toContain(secret);
   });
-  it("a person who declined at QuickBooks: the state is consumed, nothing is exchanged, the browser learns 'denied'", async () => {
+  it("a person who declined at QuickBooks: the state is consumed, nothing is parked, the browser learns 'denied'", async () => {
     const { deps, log } = callbackDeps();
     const r = await runQboCallback(deps, { state: STATE, code: null, realmId: null, denied: true });
-    expect(r).toMatchObject({ status: 302, outcome: "denied" });
-    expect(log.consumed).toHaveLength(1); expect(log.exchanged).toHaveLength(0); expect(log.stored).toHaveLength(0);
+    expect(r).toEqual({ status: 302, outcome: "denied", location: `https://app.example.test/workspace/${COMPANY}/2026/trial-balance/review?qbo=denied` });
+    expect(log.recorded).toEqual([[await sha(STATE), null]]); expect(log.sealed).toHaveLength(0);
   });
   it.each<[string, Partial<CallbackDeps>, Partial<typeof QUERY>]>([
     ["no code", {}, { code: null as never }],
     ["no realm", {}, { realmId: null as never }],
-    ["the app is no longer configured", { oauthConfig: () => null }, {}],
-    ["QuickBooks refuses the code", { exchangeCode: async () => ({ ok: false, reason: "invalid_grant" }) }, {}],
-    ["QuickBooks is unavailable", { exchangeCode: async () => ({ ok: false, reason: "unavailable" }) }, {}],
-    ["sealing fails (no key)", { sealRefreshToken: async () => { throw new Error("no key"); } }, {}],
-    ["the database refuses the connection (the right was lost)", { storeConnection: async () => { throw new Error("FORBIDDEN"); } }, {}],
-  ])("%s -> 'failed', nothing stored", async (_l, over, q) => {
+    ["a weak random handoff", { randomHandoff: () => "short" }, {}],
+  ])("%s -> the state is consumed, nothing is parked, 'failed'", async (_l, over, q) => {
     const { deps, log } = callbackDeps(over);
     const r = await runQboCallback(deps, { ...QUERY, ...q });
     expect(r).toMatchObject({ status: 302, outcome: "failed" });
-    expect(log.consumed).toHaveLength(1);
-    if (over.storeConnection === undefined) expect(log.stored).toHaveLength(0);
+    expect(log.recorded).toEqual([[await sha(STATE), null]]); expect(log.sealed).toHaveLength(0);
   });
-  it("the state is consumed exactly once, even when the exchange throws", async () => {
-    const { deps, log } = callbackDeps({ exchangeCode: vi.fn(async () => { throw new Error("network"); }) });
-    const r = await runQboCallback(deps, QUERY);
-    expect(r).toMatchObject({ outcome: "failed" });
-    expect(log.consumed).toHaveLength(1);
+  it("sealing fails (no key): nothing is consumed or parked, and the error leaves (the function answers a plain 400)", async () => {
+    const { deps, log } = callbackDeps({ sealCode: async () => { throw new Error("no key"); } });
+    await expect(runQboCallback(deps, QUERY)).rejects.toThrow("no key");
+    expect(log.recorded).toHaveLength(0);
+  });
+  it("the callback's dependencies offer no way to reach Intuit", () => {
+    const { deps } = callbackDeps();
+    expect(Object.keys(deps).sort()).toEqual(["randomHandoff", "recordReturn", "returnTo", "sealCode", "sha256Hex"]);
+  });
+});
+
+const GOOD: TokenResult = { ok: true, tokens: { accessToken: "access-not-real", refreshToken: "refresh-not-real-0001", accessExpiresInSeconds: 3600, refreshExpiresAt: "2027-02-09T12:00:00.000Z", hardExpiresAt: "2031-11-01T12:00:00.000Z" } };
+const OTHER = "55555555-5555-5555-5555-555555555555";
+async function finishDeps(over: Partial<FinishDeps> = {}, who: string = ACTOR) {
+  const handoffHash = await sha(HANDOFF);
+  const parked = { starter: ACTOR, envelope: await sealSecret("code-not-real", KEY, oauthReturnBinding(handoffHash)), open: true };
+  const log = { taken: [] as unknown[][], exchanged: [] as unknown[][], stored: [] as unknown[][], sealed: [] as unknown[][] };
+  const deps: FinishDeps = {
+    authenticate: async () => who,
+    sha256Hex: sha,
+    // As the database does: single use, and the code only for the starter.
+    takeReturn: async (h, actor) => {
+      log.taken.push([h, actor]);
+      if (h !== handoffHash || !parked.open) return { outcome: "unknown" };
+      parked.open = false;
+      return actor === parked.starter ? { outcome: "taken", companyId: COMPANY, environment: "sandbox", realmId: "9341458604136919", codeEnvelope: parked.envelope } : { outcome: "not_yours" };
+    },
+    openCode: async (e, b) => { try { return await openSecret(e, [KEY], b); } catch { return null; } },
+    oauthConfig: () => CFG,
+    exchangeCode: async (...a) => { log.exchanged.push(a); return GOOD; },
+    sealRefreshToken: async (t, b) => { log.sealed.push([t, b]); return sealSecret(t, KEY, b); },
+    storeConnection: async (...a) => { log.stored.push(a); return "33333333-3333-3333-3333-333333333333"; },
+    ...over,
+  };
+  return { deps, log };
+}
+
+describe("finish: only the signed-in person who started the attempt connects anything (review r2, S4)", () => {
+  it("reads exactly { handoff }, 64 hex characters", () => {
+    expect(parseFinishRequest({ handoff: HANDOFF })).toEqual({ handoff: HANDOFF });
+    for (const bad of [null, [], {}, { handoff: "short" }, { handoff: HANDOFF.toUpperCase() }, { handoff: HANDOFF, companyId: COMPANY }, { handoff: HANDOFF, actor: ACTOR }, { code: "x" }]) expect(parseFinishRequest(bad)).toBeNull();
+  });
+  it("the starter: the code is exchanged once, the refresh token sealed to workspace + environment + realm, only the envelope stored, as that person", async () => {
+    const { deps, log } = await finishDeps();
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 200, outcome: "connected" });
+    expect(log.taken).toEqual([[await sha(HANDOFF), ACTOR]]);
+    expect(log.exchanged).toEqual([["sandbox", "code-not-real", CFG.redirectUri]]);
+    const binding = connectionBinding(COMPANY, "9341458604136919", "sandbox");
+    expect(log.sealed).toEqual([["refresh-not-real-0001", binding]]);
+    const [company, actor, realm, env, envelope] = log.stored[0] as string[];
+    expect([company, actor, realm, env]).toEqual([COMPANY, ACTOR, "9341458604136919", "sandbox"]);
+    expect(await openSecret(envelope, [KEY], binding)).toBe("refresh-not-real-0001");
+  });
+  it("THE ATTACK: someone else finishes an attempt another person started. Refused before Intuit is touched; no token ever exists; the attempt is over", async () => {
+    const { deps, log } = await finishDeps({}, OTHER);
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 403, outcome: "not_yours" });
+    expect(log.exchanged).toHaveLength(0); expect(log.sealed).toHaveLength(0); expect(log.stored).toHaveLength(0);
+    const starter = await finishDeps();
+    const shared = { ...starter.deps, takeReturn: deps.takeReturn };   // the same parked return, now tried by the starter
+    expect(await runQboFinish(shared, { handoff: HANDOFF })).toEqual({ status: 410, outcome: "expired" });   // already ended: single use
+  });
+  it("single use: a second finish by the starter gets nothing", async () => {
+    const { deps, log } = await finishDeps();
+    await runQboFinish(deps, { handoff: HANDOFF });
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status: 410, outcome: "expired" });
+    expect(log.exchanged).toHaveLength(1);
+  });
+  it.each<[string, Partial<FinishDeps>, number, string, boolean]>([
+    ["no login", { authenticate: async () => null }, 401, "unauthenticated", false],
+    ["the starter lost a right", { takeReturn: async () => ({ outcome: "forbidden" }) }, 403, "forbidden", true],
+    ["the handoff expired", { takeReturn: async () => ({ outcome: "expired" }) }, 410, "expired", true],
+    ["the app is no longer configured", { oauthConfig: () => null }, 503, "not_configured", true],
+    ["the parked code cannot be opened", { openCode: async () => null }, 500, "failed", true],
+    ["QuickBooks no longer accepts the code", { exchangeCode: async () => ({ ok: false, reason: "invalid_grant" }) }, 410, "expired", true],
+    ["QuickBooks is unavailable", { exchangeCode: async () => ({ ok: false, reason: "unavailable" }) }, 503, "quickbooks_unavailable", true],
+    ["QuickBooks rejects for another reason", { exchangeCode: async () => ({ ok: false, reason: "rejected" }) }, 502, "failed", true],
+  ])("%s -> %i %s, nothing stored", async (_l, over, status, outcome, tookIt) => {
+    const { deps, log } = await finishDeps(over);
+    expect(await runQboFinish(deps, { handoff: HANDOFF })).toEqual({ status, outcome });
+    expect(log.stored).toHaveLength(0);
+    if (!tookIt) expect(log.taken).toHaveLength(0);   // without a login the database is never asked
+  });
+  it("a malformed request reaches nothing", async () => {
+    const { deps, log } = await finishDeps();
+    expect(await runQboFinish(deps, parseFinishRequest({ handoff: "x" }))).toEqual({ status: 400, outcome: "invalid_request" });
+    expect(log.taken).toHaveLength(0);
+  });
+  it("no outcome carries the handoff, the code, a token or an envelope", async () => {
+    const { deps } = await finishDeps();
+    const text = JSON.stringify(await runQboFinish(deps, { handoff: HANDOFF }));
+    for (const secret of [HANDOFF, "code-not-real", "refresh-not-real", "access-not-real", "v1.k1."]) expect(text).not.toContain(secret);
   });
 });

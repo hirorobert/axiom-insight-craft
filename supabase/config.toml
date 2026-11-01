@@ -16,9 +16,13 @@ project_id = "bvyivmmfjejbmqoydezk"
   [functions.process-trial-balance]
     verify_jwt = false
   # Intuit redirects the BROWSER here after the person approves the connection: the request carries no Supabase token, so the single-use state
-  # (consumed first, bound to the workspace and the person, valid at most 30 minutes) is the only credential.
+  # (consumed first, bound to the workspace and the person, valid at most 30 minutes) is the only credential. It exchanges nothing: it parks the sealed
+  # code and hands the browser a one-time handoff code.
   [functions.qbo-oauth-callback]
     verify_jwt = false
+  # Finishes the connection for the SIGNED-IN person who started it (review r2, S4): the caller MUST be authenticated.
+  [functions.qbo-finish-connection]
+    verify_jwt = true
   # Called by the database (pg_cron + pg_net) with a single-use, database-minted ticket; the ticket is the credential.
   [functions.trial-balance-source-sweeper]
     verify_jwt = false

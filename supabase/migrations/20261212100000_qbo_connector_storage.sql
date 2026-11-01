@@ -7,7 +7,10 @@
 --                    AES-256-GCM envelope (supabase/functions/_shared/qboTokenEnvelope.ts: key from the Edge Function runtime, bound to workspace,
 --                    connection and purpose). The database never holds a key, an access token, a client secret or a clear refresh token.
 --                    A connection that is not 'active' holds NO token at all (a dead or disconnected token is deleted, not kept).
---   qbo_oauth_states single-use, short-lived (60 s to 30 min) anti-forgery state, stored as a SHA-256 hash only.
+--   qbo_oauth_states single-use, short-lived (60 s to 30 min) anti-forgery state, stored as a SHA-256 hash only. When Intuit sends the browser back,
+--                    the callback parks the authorisation code here, SEALED, with the hash of a one-time handoff code given to the browser (at most
+--                    10 minutes). The code is exchanged only when the person who STARTED the attempt, signed in, hands that code back
+--                    (qbo_take_oauth_return): an attempt finished by anyone else never produces a token. Every answer deletes the parked code.
 --   qbo_pull_intents append-only, written BEFORE the file is stored or registered: what was asked of QuickBooks and the SHA-256 of the raw response,
 --                    of the canonical file and of the normalised accounting result, keyed by the upload reservation. If this cannot be written, nothing is
 --                    imported. If everything after it fails, the intent is the record that a report was fetched and not imported.
@@ -22,7 +25,7 @@
 --   the SECURITY DEFINER functions below, writes any of the three tables. The authority to connect, disconnect or record a pull is judged INSIDE
 --   each function with public.qbo_connector_basis(actor, company), exactly as other writes in this repository judge a person through
 --   workspace_authority_basis: no function trusts a caller-supplied identity without that check, and an unknown company or a missing right is refused.
---   The connector needs TWO rights, BOTH required for EVERY function (connect, consume the state, store, disconnect, status, record), neither implying
+--   The connector needs TWO rights, BOTH required for EVERY function (connect, the return, its take, store, disconnect, status, record), neither implying
 --   the other: prepare_trial_balance (the connector's own) and manage_source_files (the existing upload steps reserve_trial_balance_source and
 --   register_trial_balance_upload, which an import runs as the person and which judge them again). One rule, so nobody can connect a source they
 --   could not then import, and the connected source cannot be chosen by a lower-privileged person.
@@ -115,8 +118,19 @@ CREATE TABLE public.qbo_oauth_states (
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
+  -- The return leg: all NULL until the callback parks a code; set once; the parked code is deleted by any take and by housekeeping once expired.
+  realm_id text CHECK (realm_id IS NULL OR realm_id ~ '^[0-9]{1,20}$'),                 -- the QuickBooks company Intuit named in the callback
+  handoff_hash text UNIQUE CHECK (handoff_hash IS NULL OR handoff_hash ~ '^[0-9a-f]{64}$'),   -- SHA-256 of the one-time handoff code; the code itself is never stored
+  code_envelope text CHECK (code_envelope IS NULL OR code_envelope ~ '^v1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'),   -- the authorisation code, sealed
+  handoff_expires_at timestamptz,
+  finished_at timestamptz,
+  finish_outcome text CHECK (finish_outcome IS NULL OR finish_outcome IN ('taken', 'not_yours', 'expired', 'forbidden')),
   CONSTRAINT chk_qbo_state_lifetime CHECK (expires_at > created_at AND expires_at <= created_at + interval '30 minutes'),
-  CONSTRAINT chk_qbo_state_consumed CHECK (consumed_at IS NULL OR consumed_at >= created_at)
+  CONSTRAINT chk_qbo_state_consumed CHECK (consumed_at IS NULL OR consumed_at >= created_at),
+  CONSTRAINT chk_qbo_state_handoff CHECK ((handoff_hash IS NULL) = (handoff_expires_at IS NULL) AND (handoff_hash IS NULL) = (realm_id IS NULL)
+    AND (handoff_hash IS NULL OR (consumed_at IS NOT NULL AND handoff_expires_at > consumed_at AND handoff_expires_at <= consumed_at + interval '10 minutes'))),
+  CONSTRAINT chk_qbo_state_code_only_while_open CHECK (code_envelope IS NULL OR (handoff_hash IS NOT NULL AND finished_at IS NULL)),
+  CONSTRAINT chk_qbo_state_finished CHECK ((finished_at IS NULL) = (finish_outcome IS NULL) AND (finished_at IS NULL OR handoff_hash IS NOT NULL))
 );
 COMMENT ON TABLE public.qbo_oauth_states IS 'Single-use anti-forgery state for the QuickBooks authorisation redirect, stored as a SHA-256 hash, valid at most 30 minutes. Clients have no access.';
 CREATE INDEX idx_qbo_oauth_states_expiry ON public.qbo_oauth_states (expires_at);
@@ -237,20 +251,59 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$;
 
--- Consumes a state exactly once. Returns the row only if the state was unused and unexpired AND the actor still holds the right; otherwise nothing.
--- A state that was valid but whose actor lost the right is consumed all the same (it cannot be tried again).
-CREATE FUNCTION public.qbo_consume_oauth_state(p_state_hash text)
-RETURNS TABLE (company_id uuid, actor_user_id uuid, environment text, return_period_year integer)
+-- The callback's step. Consumes a state exactly once and, when Intuit sent a code, parks it SEALED with the realm and the hash of the one-time handoff code
+-- the browser is given (5 minutes). Nothing is exchanged here: the code becomes a token only when the person who started the attempt takes it back
+-- (qbo_take_oauth_return). Returns only where to send the browser, and only if the state was unused and unexpired AND its starter still holds both rights;
+-- otherwise nothing. A state whose starter lost a right is consumed all the same, with nothing parked (it cannot be tried again).
+-- A return with no code (the person declined at Intuit) passes NULL realm, envelope and handoff: the state is consumed and nothing is parked.
+-- A half-filled return (some of the three, not all) is refused before anything changes.
+CREATE FUNCTION public.qbo_record_oauth_return(p_state_hash text, p_realm_id text, p_code_envelope text, p_handoff_hash text)
+RETURNS TABLE (company_id uuid, environment text, return_period_year integer)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE r record;
+DECLARE r record; v_park boolean;
 BEGIN
   IF p_state_hash IS NULL OR p_state_hash !~ '^[0-9a-f]{64}$' THEN RETURN; END IF;
+  v_park := p_code_envelope IS NOT NULL;
+  IF v_park <> (p_realm_id IS NOT NULL) OR v_park <> (p_handoff_hash IS NOT NULL) THEN RETURN; END IF;
   UPDATE public.qbo_oauth_states s SET consumed_at = clock_timestamp()
    WHERE s.state_hash = p_state_hash AND s.consumed_at IS NULL AND s.expires_at > clock_timestamp()
-  RETURNING s.company_id AS c, s.actor_user_id AS a, s.environment AS e, s.return_period_year AS y INTO r;
+  RETURNING s.id AS i, s.company_id AS c, s.actor_user_id AS a, s.environment AS e, s.return_period_year AS y INTO r;
   IF NOT FOUND THEN RETURN; END IF;
   IF NOT public.qbo_connector_basis(r.a, r.c) THEN RETURN; END IF;
-  RETURN QUERY SELECT r.c, r.a, r.e, r.y;
+  IF v_park THEN
+    UPDATE public.qbo_oauth_states SET realm_id = p_realm_id, code_envelope = p_code_envelope, handoff_hash = p_handoff_hash,
+           handoff_expires_at = clock_timestamp() + interval '5 minutes'
+     WHERE id = r.i;
+  END IF;
+  RETURN QUERY SELECT r.c, r.e, r.y;
+END;
+$$;
+
+-- The finishing step, for the SIGNED-IN person presenting the handoff code (qbo-finish-connection derives the person from their login, never from the request).
+-- Single-use whatever the answer: the row is marked finished and the parked code deleted on every call. The sealed code is handed back only when the caller
+-- is the person who STARTED the attempt, the handoff has not expired, and that person still holds both rights.
+-- outcome: 'taken' (the code comes back) | 'not_yours' (anyone else, even a person with both rights in the same workspace) | 'expired' | 'forbidden' |
+-- 'unknown' (no such open handoff: never issued, malformed, or already finished). Nothing but the outcome is returned unless it is 'taken'.
+CREATE FUNCTION public.qbo_take_oauth_return(p_handoff_hash text, p_actor_user_id uuid)
+RETURNS TABLE (outcome text, company_id uuid, environment text, realm_id text, code_envelope text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE s public.qbo_oauth_states%ROWTYPE; v text;
+BEGIN
+  IF p_handoff_hash IS NULL OR p_handoff_hash !~ '^[0-9a-f]{64}$' OR p_actor_user_id IS NULL THEN
+    RETURN QUERY SELECT 'unknown'::text, NULL::uuid, NULL::text, NULL::text, NULL::text; RETURN;
+  END IF;
+  SELECT * INTO s FROM public.qbo_oauth_states x WHERE x.handoff_hash = p_handoff_hash AND x.finished_at IS NULL FOR UPDATE;
+  IF NOT FOUND THEN RETURN QUERY SELECT 'unknown'::text, NULL::uuid, NULL::text, NULL::text, NULL::text; RETURN; END IF;
+  v := CASE WHEN s.actor_user_id <> p_actor_user_id THEN 'not_yours'
+            WHEN s.handoff_expires_at <= clock_timestamp() OR s.code_envelope IS NULL THEN 'expired'
+            WHEN NOT public.qbo_connector_basis(p_actor_user_id, s.company_id) THEN 'forbidden'
+            ELSE 'taken' END;
+  UPDATE public.qbo_oauth_states x SET finished_at = clock_timestamp(), finish_outcome = v, code_envelope = NULL WHERE x.id = s.id;
+  IF v = 'taken' THEN
+    RETURN QUERY SELECT v, s.company_id, s.environment, s.realm_id, s.code_envelope;
+  ELSE
+    RETURN QUERY SELECT v, NULL::uuid, NULL::text, NULL::text, NULL::text;
+  END IF;
 END;
 $$;
 
@@ -446,20 +499,23 @@ BEGIN
 END;
 $$;
 
--- Housekeeping: removes OAuth states more than a day past their expiry (at most 1000 per call) and turns active connections whose refresh token has
--- expired into 'reconnect_needed' (their dead token is deleted). Evidence (qbo_pull_intents, qbo_pulls) is never touched.
+-- Housekeeping: deletes the parked authorisation code of every return whose handoff has expired unused, removes OAuth states more than a day past their
+-- expiry (at most 1000 per call) and turns active connections whose refresh token has expired into 'reconnect_needed' (their dead token is deleted).
+-- Evidence (qbo_pull_intents, qbo_pulls) is never touched.
 CREATE FUNCTION public.qbo_housekeeping()
-RETURNS TABLE (states_removed integer, connections_expired integer)
+RETURNS TABLE (states_removed integer, connections_expired integer, codes_cleared integer)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE a integer; b integer;
+DECLARE a integer; b integer; c integer;
 BEGIN
+  UPDATE public.qbo_oauth_states SET code_envelope = NULL WHERE code_envelope IS NOT NULL AND handoff_expires_at <= clock_timestamp();
+  GET DIAGNOSTICS c = ROW_COUNT;
   DELETE FROM public.qbo_oauth_states WHERE id IN (SELECT s.id FROM public.qbo_oauth_states s WHERE s.expires_at < clock_timestamp() - interval '1 day' ORDER BY s.expires_at LIMIT 1000);
   GET DIAGNOSTICS a = ROW_COUNT;
   UPDATE public.qbo_connections SET status = 'reconnect_needed', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL, refresh_lease_until = NULL,
          refresh_lease_id = NULL
    WHERE status = 'active' AND (refresh_expires_at <= clock_timestamp() OR (hard_expires_at IS NOT NULL AND hard_expires_at <= clock_timestamp()));
   GET DIAGNOSTICS b = ROW_COUNT;
-  RETURN QUERY SELECT a, b;
+  RETURN QUERY SELECT a, b, c;
 END;
 $$;
 
@@ -487,7 +543,8 @@ $$;
 
 -- Grants: the writers are for the service role only; members call only the status function.
 REVOKE ALL ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.qbo_consume_oauth_state(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.qbo_record_oauth_return(text, text, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.qbo_take_oauth_return(text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_acquire_refresh_lease(uuid, text, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_release_refresh_lease(uuid, uuid) FROM PUBLIC, anon, authenticated;
@@ -501,7 +558,8 @@ REVOKE ALL ON FUNCTION public.qbo_housekeeping() FROM PUBLIC, anon, authenticate
 REVOKE ALL ON FUNCTION public.qbo_provenance_past_retention(interval) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_connection_status(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer, integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.qbo_consume_oauth_state(text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_record_oauth_return(text, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_take_oauth_return(text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_acquire_refresh_lease(uuid, text, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_release_refresh_lease(uuid, uuid) TO service_role;
