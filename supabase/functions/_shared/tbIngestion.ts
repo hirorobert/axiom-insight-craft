@@ -128,6 +128,8 @@ export type ParsedAmount =
   | { kind: "format"; text: string };
 
 const MAX_SAFE_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
+/** Leading 0s or 9s beyond a currency's decimals that mark a number cell's excess digits as arithmetic noise (< one millionth of a minor unit). */
+const NUMBER_CELL_NOISE_DIGITS = 6;
 const DASH_ONLY = /^[-‐‑‒–—―]$/;
 // Plain digits, or 1–3 digits followed by comma- or space-separated groups of exactly three; optional fraction.
 const AMOUNT_GRAMMAR = /^(\d+|\d{1,3}(?:,\d{3})+|\d{1,3}(?: \d{3})+)(?:\.(\d+))?$/;
@@ -183,8 +185,23 @@ export function parseAmount(cell: Cell, exponent: number): ParsedAmount {
   let fraction = m[2] ?? "";
   // Trailing zeros carry no value ("1.500" is 1.5); only significant decimals count against the currency.
   fraction = fraction.replace(/0+$/, "");
+  // Arithmetic noise in a spreadsheet NUMBER cell (QuickBooks Online writes 812.429999999999 for 812.43, still inside Excel's
+  // 15 significant digits): when the digits beyond the currency's decimals are 000000… or 999999…, the value is within a
+  // millionth of one minor unit of a whole minor unit and is read as that unit. Exact digit arithmetic, never floating point.
+  // Only for number cells: the same digits typed as TEXT (a CSV cell, a text cell) are still refused, and so is anything
+  // further from a whole minor unit (0.005, 12.3400001).
+  let noiseRoundUp = false;
+  if (typeof cell === "number" && fraction.length > exponent) {
+    const excess = fraction.slice(exponent);
+    if (excess.startsWith("0".repeat(NUMBER_CELL_NOISE_DIGITS))) {
+      fraction = fraction.slice(0, exponent).replace(/0+$/, "");
+    } else if (excess.startsWith("9".repeat(NUMBER_CELL_NOISE_DIGITS))) {
+      fraction = fraction.slice(0, exponent);
+      noiseRoundUp = true;
+    }
+  }
   if (fraction.length > exponent) return { kind: "precision", text, decimals: fraction.length };
-  const minorAbs = BigInt(whole) * pow10(exponent) + (fraction ? BigInt(fraction.padEnd(exponent, "0")) : 0n);
+  const minorAbs = BigInt(whole) * pow10(exponent) + (fraction ? BigInt(fraction.padEnd(exponent, "0")) : 0n) + (noiseRoundUp ? 1n : 0n);
   if (minorAbs > MAX_SAFE_MINOR) return { kind: "range", text };
   return { kind: "amount", minor: negative ? -minorAbs : minorAbs };
 }

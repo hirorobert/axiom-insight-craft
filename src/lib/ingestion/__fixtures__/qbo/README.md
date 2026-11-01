@@ -15,10 +15,9 @@ on 2026-10-31 from the Intuit developer portal's API Explorer, which calls the s
   `end_date` (the header then says "this month-to-date"), so the regional samples were requested with both.
 - Each `.xlsx` is the same report from the QuickBooks screen, "Export to Excel" (downloaded 2026-11-01, "As of 31 Oct 2026"; the screen
   default for the UK was 1 Nov, whose totals are identical).
-- **Parity:** US and GB: the converter's file and the Excel export give the identical normalised accounting result. **AU and CA:** the Excel
-  files hold the same books to the cent (tested), but QuickBooks wrote floating-point noise into some cells (for example `812.429999999999`
-  for 812.43), and the reader's two-decimal rule refuses them (`PRECISION_EXCEEDS_CURRENCY`, then `TOTAL_ROW_MISMATCH`). That limitation is
-  pinned by a test; the JSON path (exact decimal strings) is unaffected.
+- **Parity:** for every region the converter's file and the Excel export give the identical normalised accounting result. The AU and CA
+  Excel exports carry floating-point noise from QuickBooks (for example `812.429999999999` for 812.43); the reader reads a number cell
+  within a millionth of a minor unit of a whole minor unit as that unit (`numberCellNoise.test.ts`), so they now read.
 - The GB, AU and CA reports include foreign-currency accounts (for example "Debtors - USD", "Creditors - HKD") inside a report in the
   company's home currency, and zero-balance rows.
 - They show the report's shape only. **No Tanzanian or other region's behaviour is proven by them**; Intuit's portal offers sandboxes
