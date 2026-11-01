@@ -10,7 +10,7 @@ Team (charter section 9, row B9): technical owner Hendry R Sawe, CPA; accounting
 | Object | Purpose | Who can touch it |
 |---|---|---|
 | `qbo_connections` | One live connection per company + QuickBooks company (realm) + environment. The refresh token is stored **only** as an AES-256-GCM envelope; a connection that is not `active` holds no token at all. | No client role. The service role may read it (the Edge Function opens the envelope) and writes only through the functions. |
-| `qbo_oauth_states` | Single-use anti-forgery state, stored as a SHA-256 hash, valid 60 s to 30 min. | No client role; functions only. |
+| `qbo_oauth_states` | Single-use anti-forgery state, stored as a SHA-256 hash, valid 60 s to 30 min, with the workspace period year the browser returns to. | No client role; functions only. |
 | `qbo_pulls` | Append-only provenance per import: request parameters, currency, and the SHA-256 of the raw response, the canonical file and the normalised result. No token, URL or payload; no foreign keys. | The workspace owner reads; only `qbo_record_pull` writes. |
 | `qbo_start_oauth_state`, `qbo_consume_oauth_state`, `qbo_store_connection`, `qbo_rotate_refresh_token`, `qbo_mark_reconnect_needed`, `qbo_disconnect`, `qbo_record_pull` | The only writers. SECURITY DEFINER, pinned `search_path`, service role only. Each judges the actor with `workspace_authority_basis(actor, company, 'prepare_trial_balance')`. | Service role |
 | `qbo_connection_status(company)` | What a member may see: id, realm, environment, status, expiry. Never an envelope, key id or token. | Authenticated, only with the right |
