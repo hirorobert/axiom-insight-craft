@@ -84,6 +84,7 @@ CREATE TABLE public.qbo_oauth_states (
   company_id uuid NOT NULL REFERENCES public.companies (id) ON DELETE CASCADE,
   actor_user_id uuid NOT NULL,
   environment text NOT NULL CHECK (environment IN ('production', 'sandbox')),
+  return_period_year integer NOT NULL CHECK (return_period_year BETWEEN 2000 AND 2100),   -- where the browser is sent back to: the workspace's period page
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
@@ -139,16 +140,17 @@ CREATE TRIGGER trg_qbo_pulls_no_truncate BEFORE TRUNCATE ON public.qbo_pulls
 -- ── 4. the only writers (service role; each judges the actor's authority itself) ─────────────────────────────────────
 
 -- Starts an authorisation: stores the state's hash. 'created' | 'forbidden' (no authority in that workspace) | 'invalid' (bad input or a repeated state).
-CREATE FUNCTION public.qbo_start_oauth_state(p_state_hash text, p_company_id uuid, p_actor_user_id uuid, p_environment text, p_ttl_seconds integer)
+CREATE FUNCTION public.qbo_start_oauth_state(p_state_hash text, p_company_id uuid, p_actor_user_id uuid, p_environment text, p_ttl_seconds integer, p_return_period_year integer)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF p_state_hash IS NULL OR p_state_hash !~ '^[0-9a-f]{64}$' OR p_company_id IS NULL OR p_actor_user_id IS NULL
-     OR p_environment IS NULL OR p_environment NOT IN ('production', 'sandbox') OR p_ttl_seconds IS NULL OR p_ttl_seconds NOT BETWEEN 60 AND 1800 THEN
+     OR p_environment IS NULL OR p_environment NOT IN ('production', 'sandbox') OR p_ttl_seconds IS NULL OR p_ttl_seconds NOT BETWEEN 60 AND 1800
+     OR p_return_period_year IS NULL OR p_return_period_year NOT BETWEEN 2000 AND 2100 THEN
     RETURN 'invalid';
   END IF;
   IF public.workspace_authority_basis(p_actor_user_id, p_company_id, 'prepare_trial_balance') IS NULL THEN RETURN 'forbidden'; END IF;
-  INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, expires_at)
-  VALUES (p_state_hash, p_company_id, p_actor_user_id, p_environment, clock_timestamp() + make_interval(secs => p_ttl_seconds));
+  INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at)
+  VALUES (p_state_hash, p_company_id, p_actor_user_id, p_environment, p_return_period_year, clock_timestamp() + make_interval(secs => p_ttl_seconds));
   RETURN 'created';
 EXCEPTION WHEN unique_violation THEN
   RETURN 'invalid';
@@ -158,17 +160,17 @@ $$;
 -- Consumes a state exactly once. Returns the row only if the state was unused and unexpired AND the actor still holds the right; otherwise nothing.
 -- A state that was valid but whose actor lost the right is consumed all the same (it cannot be tried again).
 CREATE FUNCTION public.qbo_consume_oauth_state(p_state_hash text)
-RETURNS TABLE (company_id uuid, actor_user_id uuid, environment text)
+RETURNS TABLE (company_id uuid, actor_user_id uuid, environment text, return_period_year integer)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE r record;
 BEGIN
   IF p_state_hash IS NULL OR p_state_hash !~ '^[0-9a-f]{64}$' THEN RETURN; END IF;
   UPDATE public.qbo_oauth_states s SET consumed_at = clock_timestamp()
    WHERE s.state_hash = p_state_hash AND s.consumed_at IS NULL AND s.expires_at > clock_timestamp()
-  RETURNING s.company_id AS c, s.actor_user_id AS a, s.environment AS e INTO r;
+  RETURNING s.company_id AS c, s.actor_user_id AS a, s.environment AS e, s.return_period_year AS y INTO r;
   IF NOT FOUND THEN RETURN; END IF;
   IF public.workspace_authority_basis(r.a, r.c, 'prepare_trial_balance') IS NULL THEN RETURN; END IF;
-  RETURN QUERY SELECT r.c, r.a, r.e;
+  RETURN QUERY SELECT r.c, r.a, r.e, r.y;
 END;
 $$;
 
@@ -268,7 +270,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 $$;
 
 -- Grants: the writers are for the service role only; members call only the status function.
-REVOKE ALL ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_consume_oauth_state(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_rotate_refresh_token(uuid, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
@@ -276,7 +278,7 @@ REVOKE ALL ON FUNCTION public.qbo_mark_reconnect_needed(uuid) FROM PUBLIC, anon,
 REVOKE ALL ON FUNCTION public.qbo_disconnect(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_record_pull(uuid, uuid, uuid, uuid, text, text, date, date, text, integer, text, integer, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_connection_status(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, integer, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_consume_oauth_state(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_rotate_refresh_token(uuid, text, text, timestamptz, timestamptz) TO service_role;

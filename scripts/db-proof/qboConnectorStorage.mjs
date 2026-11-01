@@ -42,7 +42,7 @@ const future = (days) => new Date(Date.now() + days * 864e5).toISOString();
 const envelope = (key = "k1") => `v1.${key}.${rnd()}${rnd()}.${rnd()}${rnd()}${rnd()}`;
 const realm = () => String(Math.floor(1e15 + Math.random() * 9e15));
 const FN = {
-  start: "SELECT public.qbo_start_oauth_state($1,$2,$3,$4,$5) r",
+  start: "SELECT public.qbo_start_oauth_state($1,$2,$3,$4,$5,$6) r",
   consume: "SELECT * FROM public.qbo_consume_oauth_state($1)",
   store: "SELECT public.qbo_store_connection($1,$2,$3,$4,$5,$6,$7) r",
   rotate: "SELECT public.qbo_rotate_refresh_token($1,$2,$3,$4,$5) r",
@@ -50,7 +50,7 @@ const FN = {
   disconnect: "SELECT public.qbo_disconnect($1,$2) r",
   pull: "SELECT public.qbo_record_pull($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) r",
 };
-const start = async (company, actor, env = "sandbox", ttl = 600, hash = sha(rnd())) => ({ hash, r: (await svc(FN.start, [hash, company, actor, env, ttl])).r });
+const start = async (company, actor, env = "sandbox", ttl = 600, hash = sha(rnd()), year = 2026) => ({ hash, r: (await svc(FN.start, [hash, company, actor, env, ttl, year])).r });
 const store = async (company, actor, over = {}) => {
   const o = { realm: realm(), env: "sandbox", env_: envelope(), ...over };
   return { ...o, id: (await svc(FN.store, [company, actor, o.realm, o.env, o.env_, future(100), future(1800)])).r };
@@ -88,13 +88,13 @@ try {
       }
       await assert.rejects(() => db.asRole(role, U.owner, "UPDATE public.qbo_connections SET status='disconnected' WHERE id=$1", [c.id]), denied);
       await assert.rejects(() => db.asRole(role, U.owner, "DELETE FROM public.qbo_connections WHERE id=$1", [c.id]), denied);
-      await assert.rejects(() => db.asRole(role, U.owner, "INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, expires_at) VALUES ($1,$2,$3,'sandbox', now() + interval '5 minutes')", [sha(rnd()), W.A, U.owner]), denied);
+      await assert.rejects(() => db.asRole(role, U.owner, "INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at) VALUES ($1,$2,$3,'sandbox', 2026, now() + interval '5 minutes')", [sha(rnd()), W.A, U.owner]), denied);
     }
     assert.ok((await svc("SELECT count(*)::int n FROM public.qbo_connections")).n >= 1, "the service role can read connections (the Edge Function opens the envelope)");
     await assert.rejects(() => svc("UPDATE public.qbo_connections SET status='disconnected' WHERE id=$1", [c.id]), denied, "the service role cannot write the table directly either");
   });
   await kase("clients.cannot-call-the-writers-only-the-status-function", async () => {
-    const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600]], [FN.consume, [sha(rnd())]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
+    const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600, 2026]], [FN.consume, [sha(rnd())]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
       [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid()]], [FN.disconnect, [uuid(), U.owner]], [FN.pull, pullArgs(W.A)]];
     for (const role of ["authenticated", "anon"]) for (const [sql, p] of calls) await assert.rejects(() => db.asRole(role, U.owner, sql, p), denied, `${role}: ${sql.slice(0, 40)}`);
     await assert.doesNotReject(() => db.asRole("authenticated", U.owner, "SELECT * FROM public.qbo_connection_status($1)", [W.A]));
@@ -114,14 +114,16 @@ try {
     assert.equal((await start(W.A, U.owner, "staging")).r, "invalid");
     assert.equal((await start(W.A, U.owner, "sandbox", 59)).r, "invalid", "shorter than a minute");
     assert.equal((await start(W.A, U.owner, "sandbox", 1801)).r, "invalid", "longer than thirty minutes");
-    assert.equal((await svc(FN.start, [a.hash, W.A, U.owner, "sandbox", 600])).r, "invalid", "a repeated state is refused");
+    for (const bad of [1999, 2101, null]) assert.equal((await start(W.A, U.owner, "sandbox", 600, sha(rnd()), bad)).r, "invalid", `a return year of ${bad} is refused`);
+    assert.equal(row.return_period_year, 2026, "the period page to return to is stored with the state");
+    assert.equal((await svc(FN.start, [a.hash, W.A, U.owner, "sandbox", 600, 2026])).r, "invalid", "a repeated state is refused");
     const cols = (await db.admin.query("SELECT column_name FROM information_schema.columns WHERE table_name='qbo_oauth_states'")).rows.map((r) => r.column_name);
     assert.ok(!cols.includes("state"), "the state itself is never stored, only its hash");
   });
   await kase("state.is-single-use", async () => {
     const a = await start(W.A, ACTOR, "production");
     const first = (await db.asRole("service_role", null, FN.consume, [a.hash]));
-    assert.equal(first.length, 1); assert.deepEqual([first[0].company_id, first[0].actor_user_id, first[0].environment], [W.A, ACTOR, "production"]);
+    assert.equal(first.length, 1); assert.deepEqual([first[0].company_id, first[0].actor_user_id, first[0].environment, first[0].return_period_year], [W.A, ACTOR, "production", 2026]);
     assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "the second use returns nothing");
     // two concurrent consumers: exactly one wins
     const b = await start(W.A, U.owner);
@@ -153,8 +155,8 @@ try {
     assert.equal((await db.asRole("service_role", null, FN.consume, [a.hash])).length, 0, "and the state cannot be retried even though the right returned");
   });
   await kase("state.lifetime-is-bounded-at-thirty-minutes", async () => {
-    await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, expires_at) VALUES ($1,$2,$3,'sandbox', now() + interval '31 minutes')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
-    await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, expires_at) VALUES ($1,$2,$3,'sandbox', now() - interval '1 minute')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
+    await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at) VALUES ($1,$2,$3,'sandbox', 2026, now() + interval '31 minutes')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
+    await assert.rejects(() => db.admin.query("INSERT INTO public.qbo_oauth_states (state_hash, company_id, actor_user_id, environment, return_period_year, expires_at) VALUES ($1,$2,$3,'sandbox', 2026, now() - interval '1 minute')", [sha(rnd()), W.A, U.owner]), /chk_qbo_state_lifetime/);
   });
 
   // ── connections and tokens ───────────────────────────────────────────────────────────────────────────────────────
