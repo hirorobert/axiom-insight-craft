@@ -425,6 +425,7 @@ try {
     assert.equal((await svc(FN.complete, [r.reservation_id])).r, "already", "re-running changes nothing");
     const pull = await one("SELECT * FROM public.qbo_pulls WHERE company_id=$1", [c]);
     assert.equal(pull.upload_id, reg.upload_id, "the upload id is the reservation's own, not a caller's");
+    assert.deepEqual([pull.prepare_basis, pull.source_basis], ["workspace_owner", "workspace_owner"], "the basis of each right is recorded beside the actor");
     assert.equal(pull.account_count, 31); assert.equal(pull.currency, "GBP"); assert.equal(pull.actor_user_id, U.ownerB);
     assert.equal(pull.raw_sha256, args[11]); assert.equal(pull.canonical_sha256, args[12]); assert.equal(pull.result_sha256, args[13]);
     assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls WHERE company_id=$1", [c]), 1, "one import, one upload, one row");
@@ -443,6 +444,8 @@ try {
     assert.equal((await db.asRole("authenticated", U.ownerB, "SELECT * FROM public.revoke_workspace_capability($1,$2,'prepare_trial_balance')", [c, U.partner]))[0].outcome, "revoked");
     assert.equal(await rightOf(U.partner, c, "prepare_trial_balance"), null, "the right is gone");
     assert.equal((await svc(FN.complete, [r.reservation_id])).r, "completed", "the evidence is still written: it copies facts that were authorised when they happened");
+    const kept = await one("SELECT prepare_basis, source_basis FROM public.qbo_pulls WHERE company_id=$1", [c]);
+    assert.deepEqual([kept.prepare_basis, kept.source_basis], ["explicit_capability", "explicit_capability"], "a delegate's evidence says the rights were explicit grants, and says so even after one was revoked");
   });
   await kase("recovery.completes-every-missing-link-and-nothing-else", async () => {
     const c = await company(U.ownerB, `QBO recover ${++seq}`);
@@ -504,8 +507,8 @@ try {
   });
   await kase("evidence.holds-no-secret-url-or-payload-and-no-foreign-key", async () => {
     const cols = async (t) => (await db.admin.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position", [t])).rows.map((r) => r.column_name);
-    assert.deepEqual(await cols("qbo_pulls"), ["id", "pulled_at", "company_id", "upload_id", "connection_id", "actor_user_id", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
-    assert.deepEqual(await cols("qbo_pull_intents"), ["id", "recorded_at", "reservation_id", "company_id", "connection_id", "actor_user_id", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
+    assert.deepEqual(await cols("qbo_pulls"), ["id", "pulled_at", "company_id", "upload_id", "connection_id", "actor_user_id", "prepare_basis", "source_basis", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
+    assert.deepEqual(await cols("qbo_pull_intents"), ["id", "recorded_at", "reservation_id", "company_id", "connection_id", "actor_user_id", "prepare_basis", "source_basis", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
     for (const t of ["qbo_pulls", "qbo_pull_intents"]) {
       for (const c of await cols(t)) assert.ok(!/token|secret|url|payload|body|password|key/i.test(c), `no column may hold a secret, URL or payload: ${t}.${c}`);
       assert.equal(await db.count(`SELECT count(*)::int n FROM pg_constraint WHERE conrelid='public.${t}'::regclass AND contype='f'`), 0, `${t} has no foreign keys: the record outlives uploads, connections and workspaces`);
