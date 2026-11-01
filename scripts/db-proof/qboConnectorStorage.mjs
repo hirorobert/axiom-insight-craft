@@ -81,6 +81,14 @@ try {
     const g = (await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'prepare_trial_balance')", [W.A, U.preparer]))[0];
     assert.equal(g.outcome, "granted", JSON.stringify(g));
     assert.ok(await basis(U.preparer), "the explicit grant confers the right");
+    // The connector needs both rights (qbo_connector_basis); the preparer is given the second too, so the cases below that use ACTOR exercise a full user.
+    const g2 = (await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'manage_source_files')", [W.A, U.preparer]))[0];
+    assert.equal(g2.outcome, "granted", JSON.stringify(g2));
+    const both = async (u, c = W.A) => (await one("SELECT public.qbo_connector_basis($1,$2) r", [u, c])).r;
+    assert.equal(await both(U.preparer), true, "the preparer now holds both rights");
+    assert.equal(await both(U.owner), true, "the owner holds both");
+    for (const nobody of [U.viewer, U.ownerB, uuid()]) assert.equal(await both(nobody), false, "nobody else does");
+    assert.equal(await both(null), false); assert.equal(await both(U.owner, null), false); assert.equal(await both(U.owner, uuid()), false, "an unknown workspace");
     ACTOR = U.preparer;
   });
   if (failures.length) throw new Error("setup failed");
@@ -149,7 +157,10 @@ try {
     const member = uuid();
     await db.admin.query("INSERT INTO auth.users (id,email) VALUES ($1,$2)", [member, `qbomember-${member}@example.test`]);
     await db.admin.query("INSERT INTO public.firm_members (company_id,user_id,role,accepted_at) VALUES ($1,$2,'preparer',now())", [c, member]);
-    const grant = async () => (await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'prepare_trial_balance')", [c, member]))[0];
+    const grant = async () => {
+      await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'manage_source_files')", [c, member]);   // the second right stays throughout
+      return (await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'prepare_trial_balance')", [c, member]))[0];
+    };
     assert.equal((await grant()).outcome, "granted");
     const a = await start(c, member);
     assert.equal(a.r, "created", "the member held the right when the state was started");
@@ -276,6 +287,33 @@ try {
       assert.equal(fk.ref, "companies"); assert.equal(fk.confdeltype, "c", `${t} cascades when its company is deleted`);
     }
     assert.equal(await db.count("SELECT count(*)::int n FROM pg_constraint WHERE confrelid IN ('public.qbo_connections'::regclass, 'public.qbo_oauth_states'::regclass)"), 0, "no other table references them, so nothing blocks the cascade");
+  });
+
+  // ── one rule for who may use the connector (finding 7) ──────────────────────────────────────────────────────────────
+  await kase("connector.every-function-needs-both-rights-and-neither-alone-is-enough", async () => {
+    const c = await company(U.ownerB, `QBO rights ${++seq}`);
+    const grant = (u, cap) => db.asRole("authenticated", U.ownerB, "SELECT * FROM public.grant_workspace_capability($1,$2,$3)", [c, u, cap]);
+    const revoke = (u, cap) => db.asRole("authenticated", U.ownerB, "SELECT * FROM public.revoke_workspace_capability($1,$2,$3)", [c, u, cap]);
+    await grant(ACTOR, "prepare_trial_balance");     // only the connector's own right
+    await grant(U.partner, "manage_source_files");   // only the upload steps' right
+    assert.equal((await start(c, U.ownerB)).r, "created", "the owner holds both and can start");
+    const live = await svc(FN.store, [c, U.ownerB, realm(), "sandbox", envelope(), future(100), future(1800)]);
+    assert.ok(live.r, "the owner can store a connection");
+    for (const [label, who] of [["prepare_trial_balance alone", ACTOR], ["manage_source_files alone", U.partner]]) {
+      assert.equal((await start(c, who)).r, "forbidden", `${label}: cannot start a connection`);
+      await assert.rejects(() => svc(FN.store, [c, who, realm(), "sandbox", envelope(), future(1), null]), /FORBIDDEN/, `${label}: cannot store a connection`);
+      assert.equal((await svc(FN.disconnect, [live.r, who])).r, "forbidden", `${label}: cannot disconnect`);
+      assert.equal((await db.asRole("authenticated", who, "SELECT * FROM public.qbo_connection_status($1)", [c])).length, 0, `${label}: is shown no connection, so no Import button that could not work`);
+    }
+    assert.equal((await db.asRole("authenticated", U.ownerB, "SELECT * FROM public.qbo_connection_status($1)", [c])).length, 1, "the owner sees it");
+    // Losing EITHER right between the start and the callback ends the attempt, and the state cannot be retried.
+    for (const cap of ["prepare_trial_balance", "manage_source_files"]) {
+      await grant(ACTOR, "prepare_trial_balance"); await grant(ACTOR, "manage_source_files");
+      const s = await start(c, ACTOR); assert.equal(s.r, "created", "both rights held at the start");
+      assert.ok((await revoke(ACTOR, cap))[0], `${cap} revoked`);
+      assert.equal((await db.asRole("service_role", null, FN.consume, [s.hash])).length, 0, `losing ${cap} ends the attempt at the callback`);
+      assert.equal((await db.asRole("service_role", null, FN.consume, [s.hash])).length, 0, "and it cannot be retried");
+    }
   });
 
   // ── rotation lease (finding: two simultaneous refreshes must never both reach Intuit with the same token) ─────────
