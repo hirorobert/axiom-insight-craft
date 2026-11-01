@@ -694,6 +694,13 @@
       "when": 1793462720573,
       "tag": "0098_source_access_1_staged_apply",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1793550752868,
+      "tag": "0099_legacy_financial_write_revocation",
+      "breakpoints": true
     }
   ]
 }
