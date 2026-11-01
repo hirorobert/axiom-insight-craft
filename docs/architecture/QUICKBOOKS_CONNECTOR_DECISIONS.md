@@ -36,6 +36,9 @@ Send as one message from the account that owns the developer app. Do not include
 > 7. **Fiscal-year semantics.** For the Trial Balance report with `start_date` and `end_date`, are income and expense accounts cumulative from the fiscal-year start, or from the first transaction? We observed that `start_date` had no effect on the figures.
 > 8. **Disconnect.** What is the supported token-revocation endpoint, and is there a webhook when a user disconnects the app inside QuickBooks?
 > 9. **Home currency.** In reports for a company with foreign-currency accounts, are all amounts in the home currency?
+> 10. **Concurrent refresh.** If two requests refresh the same connection's refresh token at nearly the same moment, does the second response invalidate the first response's new refresh token, or are both valid? Which one should be stored?
+>
+> _(Question 10 was not in the case as filed on 2026-11-01, and the developer portal gives customers no comment box on a case: the comments list is read-only. Include it in the reply when Intuit answers, or in the community-forum post if no answer comes within about a week.)_
 
 ## C. What only people can supply (a one-page fill-in for the team)
 
