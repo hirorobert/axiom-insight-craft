@@ -19,6 +19,8 @@ After Intuit returns the browser, a one-time line says "connected", "you chose n
 and in which currency were saved, and **the same check a file upload starts is started** (the server's check decides everything; this page only starts it). Every refusal has its own plain sentence
 (`QBO_MESSAGES`: 23 outcomes; none names an engine or a credential). If the card cannot read the connection status (the backend is not there), it shows nothing.
 
+After the independent review (`docs/release/qbo-connector-review-r1/README.md`): a failure to save the source record now means **nothing was imported** and the sentence says so; an `imported_record_pending` answer (the trial balance is saved and its record is on file, only the final link is still being finished) is shown as an import, with one extra sentence, and the check is started as usual. The card is shown connection status only to a person who holds **both** rights (prepare a trial balance and manage source files), so it never offers an Import button that could not work.
+
 The browser only asks. Every write is made by an Edge Function that judges the person's right itself; the status is read through `qbo_connection_status`, which never returns a token, an envelope or a key.
 
 ## To release it (each a deliberate step, in this order)
