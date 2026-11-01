@@ -1,5 +1,5 @@
 // qbo-connect-start: begins "Connect QuickBooks" for a workspace (charter B9). An authenticated person asks to connect; the function stores only the SHA-256 of an
-// unguessable single-use state (qbo_start_oauth_state, which judges that the person may prepare a trial balance in that workspace) and answers with the authorisation
+// unguessable single-use state (qbo_start_oauth_state, which judges that the person holds both rights the connector needs in that workspace) and answers with the authorisation
 // address for the browser to open. No token exists yet. See _shared/qboConnect.ts for the flow and _shared/qboEnv.ts for the configuration (secrets are never logged).
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
