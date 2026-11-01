@@ -47,6 +47,9 @@ Deno.serve(async (req) => {
 
   // OPERATIONAL LOG: never the state, the hash or the address.
   console.log(JSON.stringify({ event: "qbo.connect_start", company_id: parsed.companyId, period_year: parsed.periodYear, environment: parsed.environment, actor, status: result.status, outcome: result.outcome }));
+  // Opportunistic cleanup (no scheduler needed): old OAuth states are removed and connections whose refresh token has expired lose their dead token.
+  // Best effort and never part of the answer; evidence is never touched.
+  try { await service.rpc("qbo_housekeeping"); } catch { /* the next start tries again */ }
   const { status, ...body } = result;
   return json(status, body);
 });

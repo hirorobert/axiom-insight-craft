@@ -3,12 +3,13 @@
 // A connector is another SOURCE OF THE SAME FILE. The function refreshes the stored token (the new refresh token is stored by compare-and-swap BEFORE the new access
 // token is used), fetches the report through the read-only guard, converts it with qboTrialBalance (refused, never repaired, if it is not exactly the recorded shape),
 // and hands the canonical CSV to the SAME upload steps a manual file uses: reserve_trial_balance_source and register_trial_balance_upload run AS THE PERSON (their own
-// token, so each judges that person), and the existing processing and review gates then apply unchanged. Provenance (qbo_record_pull) is written last. The service-role
+// token, so each judges that person), and the existing processing and review gates then apply unchanged. The evidence (qbo_record_pull_intent) is written BEFORE
+// the file is stored and linked to the upload afterwards (qbo_complete_pull, idempotent and recoverable). The service-role
 // key, the tokens, the envelope key and the QuickBooks response never leave the function and are never logged. See _shared/qboPull.ts for the order and its reasons.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { parsePullRequest, runQboPull } from "../_shared/qboPull.ts";
+import { parsePullRequest, runQboPull, type CompletePullResult } from "../_shared/qboPull.ts";
 import { readQboEnv } from "../_shared/qboEnv.ts";
 import { createGuardedQboFetch, qboReportUrl } from "../_shared/qboReadOnlyGuard.ts";
 import { sha256Hex, summariseCanonicalCsv } from "../_shared/qboPullSummary.ts";
@@ -16,7 +17,14 @@ import { createQboTokenClient } from "../_shared/qboTokenClient.ts";
 import { openSecret, sealSecret } from "../_shared/qboTokenEnvelope.ts";
 
 const BUCKET = "trial-balance-files";
-const json = (status: number, body: unknown) =>
+/** Long enough for one refresh round trip, short enough that a crashed import never blocks the next for long. */
+const REFRESH_LEASE_SECONDS = 90;
+/** workspace_authority_basis(user, company, capability) is not null. Both rights an import needs are judged here, on the server, from the verified login. */
+async function hasCapability(service: ReturnType<typeof createClient>, userId: string, companyId: string, capability: string): Promise<boolean> {
+  const { data, error } = await service.rpc("workspace_authority_basis", { p_user_id: userId, p_company_id: companyId, p_capability: capability });
+  return !error && typeof data === "string" && data.length > 0;
+}
+const json =(status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 Deno.serve(async (req) => {
@@ -51,10 +59,15 @@ Deno.serve(async (req) => {
       actor = error ? null : data.user?.id ?? null;
       return actor;
     },
-    canPrepare: async (userId, companyId) => {
-      const { data, error } = await service.rpc("workspace_authority_basis", { p_user_id: userId, p_company_id: companyId, p_capability: "prepare_trial_balance" });
-      return !error && typeof data === "string" && data.length > 0;
+    canPrepare: (userId, companyId) => hasCapability(service, userId, companyId, "prepare_trial_balance"),
+    canManageSources: (userId, companyId) => hasCapability(service, userId, companyId, "manage_source_files"),
+    acquireRefreshLease: async (connectionId, envelope) => {
+      const { data, error } = await service.rpc("qbo_acquire_refresh_lease", { p_connection_id: connectionId, p_expected_envelope: envelope, p_seconds: REFRESH_LEASE_SECONDS });
+      if (error) throw error;
+      return data === true;
     },
+    releaseRefreshLease: async (connectionId) => { await service.rpc("qbo_release_refresh_lease", { p_connection_id: connectionId }); },
+    completePending: async () => { await service.rpc("qbo_complete_pending_pulls"); },
     findConnection: async (companyId, realmId, environment) => {
       const { data, error } = await service.from("qbo_connections").select("id, status, refresh_token_envelope")
         .eq("company_id", companyId).eq("realm_id", realmId).eq("environment", environment).neq("status", "disconnected").maybeSingle();
@@ -97,13 +110,18 @@ Deno.serve(async (req) => {
       const r = Array.isArray(data) ? data[0] : null;
       return error || !r ? { outcome: "failed", uploadId: null } : { outcome: String(r.outcome), uploadId: (r.upload_id as string | null) ?? null };
     },
-    recordPull: async (r) => {
-      const { error } = await service.rpc("qbo_record_pull", {
-        p_company_id: r.companyId, p_upload_id: r.uploadId, p_connection_id: r.connectionId, p_actor_user_id: r.actorUserId, p_realm_id: r.realmId, p_environment: r.environment,
+    recordIntent: async (r) => {
+      const { error } = await service.rpc("qbo_record_pull_intent", {
+        p_reservation_id: r.reservationId, p_connection_id: r.connectionId, p_actor_user_id: r.actorUserId, p_realm_id: r.realmId, p_environment: r.environment,
         p_start_date: r.startDate, p_end_date: r.endDate, p_accounting_method: r.accountingMethod, p_minor_version: r.minorVersion, p_currency: r.currency,
         p_account_count: r.accountCount, p_raw_sha256: r.rawSha256, p_canonical_sha256: r.canonicalSha256, p_result_sha256: r.resultSha256,
       });
       if (error) throw error;
+    },
+    completePull: async (reservationId) => {
+      const { data, error } = await service.rpc("qbo_complete_pull", { p_reservation_id: reservationId });
+      if (error) throw error;
+      return data as CompletePullResult;
     },
     minorVersion: config.minorVersion,
   }, parsed).catch(() => ({ status: 500 as const, outcome: "pull_failed" }));
