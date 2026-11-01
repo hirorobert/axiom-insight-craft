@@ -178,11 +178,11 @@ A plan missing any field in this section is not a plan.
 | B7 | | | | |
 | B8a | | | | |
 | B8b | | | | |
-| B9 ² | | | | |
+| B9 ² | Hendry R Sawe, CPA | Humphrey R Sawe, ACPA | Patrick R Sawe, CPA | |
 
 ¹ B6 accounting author and independent reviewer **named by the team on 2026-10-31** (the team's instruction, recorded here; no agent appointed them). Full names, professional qualification and registration, and the declaration that the reviewer is independent of the author are **not yet recorded** and are collected in `docs/release/ipsas-register-r1/DRAFT_REGISTER.md`. The B6 technical owner and the committed dates are still open, so B6 is **not yet a complete plan** under this section.
 
-² B9 (connector): the team named three people on **2026-11-01** (the team's instruction, recorded here; no agent appointed them): **Humphrey R Sawe, ACPA; Patrick R Sawe, CPA; Hendry R Sawe, CPA.** **The team has not yet said which role each takes**, so the three role columns stay empty. A proposed assignment and the independence-declaration requirement are in `docs/architecture/QUICKBOOKS_CONNECTOR_DECISIONS.md` section F1 (on the connector plan branch); it is a proposal, not an appointment. B9 work on the database and Edge Functions does not start until these cells are filled by the team.
+² B9 (connector): the team named three people on **2026-11-01** and **confirmed the role of each the same day** (the team's instruction, recorded here; no agent appointed them): technical owner **Hendry R Sawe, CPA** (accountable owner; engineering may be delegated); accounting author **Humphrey R Sawe, ACPA**; independent reviewer **Patrick R Sawe, CPA**. **Still outstanding:** the written declaration that the reviewer is independent of the author (the three share a surname; the team states whether any family or business relationship exists), and the committed date. The reviewer signs nothing until the declaration is on file.
 
 ---
 
