@@ -372,6 +372,7 @@ src/
       mandate.ts              ← Engagement capabilities registry (CAPABILITY_OUTCOMES) + mandate projection
       engagementScopeChange.ts ← Pure decision behind EngagementScopeDialog's three modes (declare/add/amend): added/removed capabilities, and that only a withdrawal via "amend" requires a reason
       workspaceSetupClient.ts ← ONLY client path to workspace setup RPCs (open_engagement_with_scope, data start, jurisdiction)
+      qboConnectorClient.ts   ← Browser client for "Import from QuickBooks": reads connection status, asks the connect and pull Edge Functions; gated by QBO_CONNECTOR_ENABLED (reviewed constant, off)
       workspaceAccess.ts      ← Server-decided workspace access (owner / member / Prepare-only grant) + shared-workspace discovery (PR #32)
       certificationCheckPresentation.ts ← Presentation only: 4 required certification layers counted; L5/L6 shown as neutral informational assessments (never a pass)
       certificationRevalidationGuard.ts ← Certification revalidation guard

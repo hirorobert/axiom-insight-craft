@@ -286,10 +286,8 @@ describe("migration directory integrity", () => {
     // as facts, the /2 workpaper validator, context, draft and atomic commit), a NEW forward-only migration pending hosted application.
     // 206 -> 207: 20261211100000_source_access_authority_repairs.sql (independent review of #229: member removal revokes the person's explicit workspace grants
     // in the same transaction; an append-only record of file-link issuance decisions), a NEW forward-only migration pending hosted application.
-    // 207 -> 208: 20261212100000_legacy_financial_write_revocation.sql (CF-03: tax_computations, tax_payments, capital_allowances
-    // and management_inputs lose their client write policies and INSERT/UPDATE/DELETE/TRUNCATE grants; SELECT and service_role
-    // unchanged), forward-only, pending hosted apply.
-    expect(files.length).toBe(208); // equipment preparation (20261205100000), its multi-class completion (20261206100000), IPSAS accrual preparation (20261207100000), IPSAS grants (20261208100000), the source-access repairs (20261211100000) and the legacy tax-table write revocation (20261212100000), all pending hosted apply
+    // 207 -> 209: CF-03 legacy write revocation and QuickBooks connector storage, both pending hosted apply.
+    expect(files.length).toBe(209);
   });
 });
 

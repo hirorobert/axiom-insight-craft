@@ -21,6 +21,7 @@ import { useAuditLog } from "@/hooks/useAuditLog";
 import { ensureFreshSession } from "@/lib/ensureFreshSession";
 import { registerWorkspaceUpload, uploadWorkspaceSource } from "@/lib/workspace/sourceUpload";
 import { invokeProcessing, type FunctionsClient } from "@/lib/workspace/processingInvoke";
+import { QuickBooksImport } from "@/components/workspace/QuickBooksImport";
 import {
   TWO_PERIOD_INTAKE_ENABLED, adjacentPriorPeriod, registerTwoPeriodUpload, type PeriodRow, type TwoPeriodRpcClient,
 } from "@/lib/workspace/twoPeriodIntake";
@@ -291,6 +292,11 @@ export const TrialBalanceUpload = ({
           <p className="text-[15px] font-semibold text-foreground">{isDragging ? "Drop the file to choose it" : "Upload the trial balance for this period"}</p>
           <p className="mt-1 text-[13px] text-muted-foreground">One file · .xlsx, .xls or .csv · or drag it here</p>
         </div>
+      )}
+
+      {/* Import from QuickBooks: beside the file upload, never instead of it; renders nothing until the connector is released (QBO_CONNECTOR_ENABLED). */}
+      {flow.phase === "empty" && lockedCompanyId && periodYear && (
+        <QuickBooksImport companyId={lockedCompanyId} periodYear={periodYear} periodId={periodId} engagementId={engagementId} onImported={onUploaded} />
       )}
 
       {file && (

@@ -41,6 +41,15 @@ export interface EnvelopeBinding {
 
 const KEY_ID = /^[a-z0-9-]{1,32}$/;
 
+/**
+ * The binding of a connection's refresh token. The connection row's id is assigned by the database AFTER the token is sealed, so the binding
+ * uses the identity that determines the one live connection (workspace + environment + QuickBooks company): a token sealed for one workspace,
+ * environment or realm cannot be opened as another's.
+ */
+export function connectionBinding(companyId: string, realmId: string, environment: "production" | "sandbox"): EnvelopeBinding {
+  return { workspaceId: companyId, connectionId: `${environment}:${realmId}`, purpose: "qbo-refresh-token" };
+}
+
 const b64u = {
   enc(bytes: Uint8Array): string {
     let s = "";
@@ -61,10 +70,13 @@ function aad(b: EnvelopeBinding, keyId: string): Uint8Array {
   return te.encode(parts.map((p) => `${p.length}:${p}`).join("|"));
 }
 
+/** An ordinary Uint8Array is a valid BufferSource at runtime; newer lib types call it possibly shared-buffer backed. Nothing here ever is. */
+const buf = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
+
 async function importKey(key: EnvelopeKey, usage: "encrypt" | "decrypt"): Promise<CryptoKey> {
   if (!KEY_ID.test(key.id)) throw new TokenEnvelopeError("The key id is not valid.");
   if (key.bytes.length !== 32) throw new TokenEnvelopeError("The encryption key must be exactly 32 bytes.");
-  return crypto.subtle.importKey("raw", key.bytes, { name: "AES-GCM" }, false, [usage]);
+  return crypto.subtle.importKey("raw", buf(key.bytes), { name: "AES-GCM" }, false, [usage]);
 }
 
 function checkBinding(b: EnvelopeBinding): void {
@@ -78,7 +90,7 @@ export async function sealSecret(plaintext: string, key: EnvelopeKey, binding: E
   checkBinding(binding);
   const k = await importKey(key, "encrypt");
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: aad(binding, key.id) }, k, te.encode(plaintext)));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: buf(iv), additionalData: buf(aad(binding, key.id)) }, k, buf(te.encode(plaintext))));
   return ["v1", key.id, b64u.enc(iv), b64u.enc(ct)].join(".");
 }
 
@@ -94,7 +106,7 @@ export async function openSecret(envelope: string, keys: readonly EnvelopeKey[],
     const k = await importKey(key, "decrypt");
     const iv = b64u.dec(parts[2]);
     if (iv.length !== 12) throw fail();
-    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: aad(binding, key.id) }, k, b64u.dec(parts[3]));
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf(iv), additionalData: buf(aad(binding, key.id)) }, k, buf(b64u.dec(parts[3])));
     return td.decode(pt);
   } catch {
     throw fail();

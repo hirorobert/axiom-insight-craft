@@ -165,6 +165,8 @@ describe("database inertness — schema and functions", () => {
       // management_inputs) lose their client write policies and INSERT/UPDATE/DELETE/TRUNCATE grants; SELECT and service_role
       // unchanged; no row changed. Privilege removal only, nothing granted.
       "supabase/migrations/20261212100000_legacy_financial_write_revocation.sql",
+      // QuickBooks Online connector storage (charter B9): connections with enveloped tokens, single-use OAuth state, append-only provenance. Additive, no financial-statements schema.
+      "supabase/migrations/20261213100000_qbo_connector_storage.sql",
       "supabase/functions/assistant-explain/index.ts",
       "supabase/functions/_shared/assistantFacts.ts",
       "supabase/functions/_shared/assistantResponse.ts",
@@ -225,6 +227,10 @@ describe("database inertness — schema and functions", () => {
       // The connector's read-only request guard and its token envelope (AES-256-GCM): pure, imported by no Edge Function yet. No schema.
       "supabase/functions/_shared/qboReadOnlyGuard.ts",
       "supabase/functions/_shared/qboTokenEnvelope.ts",
+      // The connector's Edge Functions and their pure cores (connect start, OAuth callback, finish connection, trial balance pull): every Intuit call goes through
+      // the read-only guard; no schema. qbo-finish-connection (review r2, S4) exchanges the parked code only for the signed-in person who started the attempt.
+      "supabase/functions/_shared/qboTokenClient.ts", "supabase/functions/_shared/qboConnect.ts", "supabase/functions/_shared/qboPull.ts", "supabase/functions/_shared/qboPullSummary.ts", "supabase/functions/_shared/qboEnv.ts",
+      "supabase/functions/qbo-connect-start/index.ts", "supabase/functions/qbo-oauth-callback/index.ts", "supabase/functions/qbo-finish-connection/index.ts", "supabase/functions/qbo-pull-trial-balance/index.ts",
       "supabase/functions/_shared/comparativeAssurance.ts",
       "supabase/functions/comparative-assurance-engine/index.ts",
       // Named-user billing suspension and invitation reservations (20260925110000), the official Reporting Pack
@@ -476,6 +482,8 @@ describe("database inertness — schema and functions", () => {
       "supabase/functions/_shared/tbInvestigation.ts",
     ]);
     const modified = new Set([
+      // QuickBooks connector: the guard gains the address builders (authorisation, report, token) and the envelope gains the connection binding. Pure; no schema.
+      "supabase/functions/_shared/qboReadOnlyGuard.ts", "supabase/functions/_shared/qboTokenEnvelope.ts",
       // #210: unapplied equipment source only; native migrator owns the transaction.
       // equipmentMigrationTransport.test.ts reconstructs the prior approved digest,
       // proving only the outer BEGIN/COMMIT lines changed. Applied history is untouched.
@@ -878,6 +886,7 @@ describe("database inertness — schema and functions", () => {
     allowed.add("scripts/db-proof/ipsasAuthorityRaces.mjs"); allowed.add("scripts/db-proof/ipsasAuthorityRaces.manifest.mjs");
     allowed.add("scripts/db-proof/ipsasCurrency.mjs"); allowed.add("scripts/db-proof/ipsasCurrency.manifest.mjs");
     allowed.add("scripts/db-proof/sourceAccessAuthority.mjs"); allowed.add("scripts/db-proof/sourceAccessAuthority.manifest.mjs"); allowed.add("scripts/db-proof/lib/checkpoints.mjs"); allowed.add("src/lib/__tests__/proofCheckpoints.test.ts");
+    allowed.add("scripts/db-proof/qboConnectorStorage.mjs"); allowed.add("scripts/db-proof/qboConnectorStorage.manifest.mjs"); // QuickBooks connector storage proof (B9): loopback-only disposable database, no deploy behaviour
     allowed.add("scripts/release/verifyCarry.mjs"); // applies the committed carry patch to a scratch checkout of #221's head and compares bytes; local git only, no network or hosted access
     allowed.add("scripts/db-proof/ipsasSearchPathBinding.mjs"); // controlled reproduction of the search_path / default-binding concern; disposable loopback database only
     // The loopback-only real-PostgreSQL proof of the internal beta activation controls. No deploy behaviour.
