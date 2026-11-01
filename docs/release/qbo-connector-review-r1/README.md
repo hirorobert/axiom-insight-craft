@@ -9,11 +9,14 @@ functionality was changed.** Every claim below names the file that backs it and 
 | 2 | Upload registered, provenance not recorded | High | **Corrected and proved** |
 | 3 | `qbo_pulls` kept after workspace deletion | Medium (privacy/legal) | Policy proposed; **needs the lawyer's written conclusion** |
 | 4 | Cleanup and seven-year retention | Medium | **Corrected for states and dead tokens; evidence purge deliberately deferred** |
-| 5 | Migration chain, negative controls, CI, authority | Evidence | **Supplied; CI to be re-read on the final head** |
-| 6 | Token refresh concurrency | High | **Corrected and proved; one Intuit behaviour still unverified** |
-| 7 | The two permissions | Medium-High | **Corrected (one rule for every function) and proved** |
-| 8 | Deno type-check of #240 | Medium (unverified) | **Open until CI runs it** (see 8) |
-| 9 | Stack and merge order | Low | **Verified** |
+| 5 | Migration chain, negative controls, CI, authority | Evidence | **Supplied; CI to be re-read on the final head** (r2: on the last pre-r2 head `987ba97`, eight checks passed, Staging RLS is skipped by design, Disposable-DB was still running when this was written; the final head is read in #242) |
+| 6 | Token refresh concurrency | High | **Corrected and proved; one Intuit behaviour still unverified.** r2 found and corrected three further defects (S1–S3) |
+| 7 | The two permissions | Medium-High | **Corrected (one rule for every function) and proved** (r2: re-read, no defect) |
+| 8 | Deno type-check of #240 | Medium (unverified) | **Closed in r2:** `deno check` passes in CI (PR #242) and locally (see 8) |
+| 9 | Stack and merge order | Low | **Verified** (r2: re-verified) |
+| S1–S5 | Second pass (lease ownership, call timeouts, swap retry, OAuth callback binding, realm check) | High to Low | S1–S3 **corrected and proved**; S4–S5 **open, registered** |
+
+Findings 1 and 3 stay open: there is no written review from Patrick Sawe and no written conclusion from the lawyer in this repository or this record. Nothing in r2 changes either.
 
 ---
 
@@ -103,7 +106,7 @@ is issued; I could not open that page (it is a dynamic site), so treat this as *
 **Correction (prevent first, recover second).**
 1. *Lease before Intuit.* `qbo_acquire_refresh_lease` is a compare-and-set on the connection row, naming the envelope the caller will present. Of eight simultaneous callers exactly one gets it; the rest are told `busy` **without any call to Intuit**. It lapses by itself (90 s) if the holder dies.
 2. *Compare-and-swap on rotation* (already there): the new token is stored only if the stored one is still the one used; the loser's token is discarded and it is told `busy`. This is the backstop if a lease lapsed.
-3. *The lease is released on every path that did not rotate* (Intuit down or refusing, an exception); rotation and "reconnect needed" clear it themselves; after a lost swap it is not ours to release.
+3. *The lease is released on every path that did not rotate* (Intuit down or refusing, an exception); rotation and "reconnect needed" clear it themselves; after a lost swap it is not ours to release. (r2: superseded by S1, the lease is now given back by its own id on every path except a stored rotation.)
 
 **Failure and recovery, case by case.**
 
@@ -116,7 +119,7 @@ is issued; I could not open that page (it is a dynamic site), so treat this as *
 | Intuit says `invalid_grant` | Connection marked `reconnect_needed`, token deleted | Reconnect |
 
 **Severity.** High. **Test.** Database: `lease.only-one-caller-holds-it...` (8-way concurrency), `lease.lapses-by-itself...`, `lease.never-outlives-an-active-token`, `rotation.is-compare-and-swap...`. Function: "two pulls at once" (3 tests: one refresh reaches Intuit; a third request is not blocked afterwards;
-with a lapsed lease the swap still lets exactly one win), plus the lease-release tests. T2 and T5 fail them. **Remaining risk.** (i) Intuit's exact behaviour is unverified at the primary source. (ii) The crash window above cannot be closed without Intuit's cooperation; it is detected, not prevented. (iii) A refresh slower than 90 s could let a second caller in; the swap still protects the stored token.
+with a lapsed lease the swap still lets exactly one win), plus the lease-release tests. T2 and T5 fail them. **Remaining risk.** (i) Intuit's exact behaviour is unverified at the primary source. (ii) The crash window above cannot be closed without Intuit's cooperation; it is detected, not prevented. (iii) A refresh slower than 90 s could let a second caller in; the swap still protects the stored token. (r2: closed by S2, the token call is abandoned after 30 s.)
 
 ## 7. The two permissions
 
@@ -133,6 +136,57 @@ function: "the right to prepare but NOT to manage source files: refused BEFORE I
 Deno is not installed on the author's machine, so there is no local type-check of the entry files either (ESLint ignores `supabase/functions`).
 **Correction.** After this push, a *draft verification pull request* from the final head into `main` runs the whole suite including `deno check`, without changing the stack. Its result is recorded below when read. The entry files were simplified to avoid a typed helper parameter whose compatibility I could not check locally.
 **Severity.** Medium until read. **Remaining risk.** Until that CI result is read, the claim "#240 type-checks under Deno" is **unproven**.
+
+**Result (r2).** The verification pull request is #242 (`feat/qbo-connector-ui` -> `main`). Its first two runs failed, and both failures were real:
+(i) `Could not find "@supabase/supabase-js" in a node_modules folder`: the three entry files imported `npm:@supabase/supabase-js@2` (and `.../cors`), which Deno 2 resolves from a `node_modules` folder when a `package.json` exists, and that job installs none.
+The fix (`eca35fd`) imports the client the way the other 39 Edge Functions in this repository do (`https://esm.sh/@supabase/supabase-js@2`) and the CORS headers from `_shared/auth.ts`; the workflow is unchanged. Provisioning `node_modules` in that job was not needed and was not added: no checked connector file uses an `npm:` specifier any more.
+(ii) Five `TS2345`/`TS2322`/`TS2769` errors at the WebCrypto calls (`Uint8Array<ArrayBufferLike>` is not a `BufferSource` under Deno's TypeScript): fixed by type-only casts (`206d0b3`, no runtime change).
+On head `987ba97` the job *Edge function checks (Deno, process-trial-balance)* passed; its step "Type-check the QuickBooks connector functions" printed `Check` for each of the three files and no error. The check is not weakened: it is the same `deno check` of the same three entry files, against the real
+`@supabase/supabase-js` declarations. A local `deno check` (Deno 2.9.6, an empty cache) downloaded those declarations from esm.sh (`@supabase/auth-js@2.112.4`, `realtime-js`, `phoenix` and others) and exited 0, again after the r2 changes.
+**Remaining risk.** `https://esm.sh/@supabase/supabase-js@2` is a floating major version, the same as every other function here; a future 2.x release could change types. That is the repository's existing convention, not a connector-specific gap.
+
+## Second pass (r2): defects found beyond the existing tests
+
+Read again, line by line, against crashes and timing rather than the happy path: the evidence-first order, reservation recovery, lease expiry, token rotation, the two-permission rule and the OAuth callback. Three defects were corrected, two are registered.
+
+**S1. The refresh lease could be released by an import that no longer held it (High; corrected).** `qbo_release_refresh_lease(connection)` cleared *any* lease on the connection. Sequence: import A takes the lease; Intuit is slow; A's lease lapses; import B takes it and is now at Intuit; A's
+refresh fails and A's `finally` releases the lease, **B's** lease; import C takes it and presents the same refresh token while B is still in flight. The lease existed to prevent exactly that. Related: `qbo_mark_reconnect_needed(connection)` deleted whatever token was stored, so a refusal of an
+*out-of-date* token (after a lapsed lease) deleted the newer, valid token another import had just stored and forced a needless reconnect.
+*Correction:* the lease has its own id (`refresh_lease_id`, returned by `qbo_acquire_refresh_lease`); `qbo_release_refresh_lease(connection, lease_id)` releases only that lease; `qbo_mark_reconnect_needed(connection, refused_envelope)` acts only if the refused envelope is still the stored one;
+`chk_qbo_conn_lease_pair` keeps the id and its expiry together. The import gives its lease back on every path except a stored rotation, by its own id (harmless when already cleared).
+*Proof:* `lease.only-its-holder-releases-it-a-lapsed-holder-cannot-clear-the-next-holders-lease`, `reconnect-needed.only-for-the-token-intuit-refused-never-a-newer-one`; `qboPull.test.ts` "an import whose lease lapsed gives back only its own lease", "a refusal of an out-of-date token never deletes a newer one".
+Negative controls: a release that ignores the id, and a mark that ignores the envelope, each fail exactly their new case (37/38).
+
+**S2. No call to Intuit had a time limit (High; corrected).** The token call went through `fetch` with no timeout, so a slow answer could outlast the 90-second lease: the window S1 depends on, and the one the r1 "remaining risk (iii)" accepted. *Correction:* the guard gives every call
+`AbortSignal.timeout` (token 30 s, report 60 s, `QBO_TIMEOUTS_MS`); an abandoned call is a network failure (`unavailable`), so the lease is given back. A unit test pins `3 x token timeout <= lease`, and another shows a hanging call is abandoned.
+*Remaining risk:* the database calls inside the lease (the swap) have no client-side limit; the lease still covers them by 60 s.
+
+**S3. A failed or unanswered token swap threw away the newest token (Medium-High; corrected).** After Intuit answered, `qbo_rotate_refresh_token` was called once; any error (a database fault, or a swap that was stored but whose answer was lost) ended the import, and a retry would have been
+reported as a lost race. Because Intuit may already have retired the token we presented, that could force a reconnect for nothing. *Correction:* the swap is safe to retry (if the stored envelope is already the new one, it answers `true` and writes nothing; every envelope has its own random IV, so no other
+writer can have stored that value) and the import retries it three times. *Proof:* `rotation.a-retry-whose-first-answer-was-lost-is-recognised-and-writes-nothing-twice`; unit tests "the swap fails for a moment...", "the swap cannot be stored at all..." (nothing fetched, lease given back,
+old token kept, no secret in the outcome). Negative control: a non-retryable swap fails exactly the new case.
+
+**The crash window between Intuit's rotation and our storage (re-examined; cannot be closed in code).** Once Intuit has answered with a new refresh token, the only durable copy is in the function's memory until `qbo_rotate_refresh_token` commits. If the process dies in that window (or Intuit's answer
+is lost on the way back, which looks the same), the database still holds the token we presented. If Intuit keeps that token valid, the next import simply works; if Intuit has retired it, the next import gets `invalid_grant`, the connection becomes `reconnect_needed` (only that token is deleted, S1)
+and the person reconnects. Nothing is imported wrongly, no token is leaked and the failure is visible. S2 and S3 shrink the window to a process death or a lost network answer; nothing on our side can remove it, because Intuit offers no idempotent refresh. Which of the two Intuit behaviours applies is
+still the open question in support case 00231947.
+
+**S4. The OAuth callback is not bound to the browser or person who started it (Medium; open, registered, not corrected here).** The single-use state is the callback's only credential, and it is tied to the *starting* person and workspace, not to the browser that completes it. A person who
+holds both rights in workspace X can start a connection, keep the authorisation address, and persuade someone else to open it and approve; that person's QuickBooks company would then be connected into workspace X. It needs social engineering and the victim's approval on Intuit's own consent screen,
+and the browser then lands in a workspace the victim cannot open, but the books would be readable by X. *Standard correction (needs a design decision):* the callback stores the result as pending and hands the browser a one-time code; the app, as the signed-in person, finishes the connection only if
+that person is the one who started it; or bind the state to a cookie set on the start request. Not attempted in this pass: it changes the flow across all three PRs and the screens.
+
+**S5. The callback's `realmId` is taken from the query string as sent (Low; open, registered).** A person completing their own authorisation could edit `realmId` before the browser reaches the callback; the token would then be stored under a QuickBooks company it does not belong to. Imports for
+that connection would fail at Intuit (a token is scoped to its company), so no wrong figures can be imported, but the connection record would name the wrong company. *Correction to consider with S4:* confirm the realm with one read after the exchange (that endpoint is not on the guard's list yet and
+is not added unverified).
+
+**Re-read with no defect found.** Evidence first: no store or register without a recorded intent; `qbo_complete_pull` takes the upload id from the reservation, never the caller; recovery skips one bad row and finishes the rest; an expired reservation with an intent stays as "fetched, not imported".
+The two rights: the import checks both before any Intuit call, and `qbo_record_pull_intent` checks them again in the database with the reservation's owner. (Two code comments, in `qbo-connect-start/index.ts` and `_shared/qboConnect.ts`, still say the start judges only "prepare a trial balance";
+the database function judges both. Wording only.) Callback: no code, state or token in a redirect or log; an unknown, expired or used state is a plain 400; the return address is built from the configured app address and a UUID.
+
+**Evidence for r2.** Storage proof 38/38 (`node scripts/db-proof/qboConnectorStorage.mjs`, disposable local PostgreSQL), validated by `scripts/ci/validateProofResult.mjs`; three negative controls each failed exactly their target case and the migration was restored (same SHA-256 as the corrected
+file). Unit tests: `src/lib/ingestion/` 28 files, 486 tests pass. `tsc --noEmit -p tsconfig.app.json` clean; ESLint clean on the touched files; `deno check` of the three entry files passes locally. Pin-list guards (`migrationAuthority`, `releaseJournal`, `databaseInert`, `migrationReplayCompatibilityGuard`,
+`claudeFileMap`): 650 pass. CI on the final head is read in PR #242, not recorded here (this file is part of that head).
 
 ## 9. Stack and merge order
 
