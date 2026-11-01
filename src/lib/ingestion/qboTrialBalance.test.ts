@@ -142,6 +142,42 @@ describe("a response that is not exactly the recorded shape is refused, never re
   });
 });
 
+// One recorded sample per region (sandbox companies created from the Intuit developer portal's country list, 2026-10-31).
+// The converter checks each report against its own control total, so a mis-copied figure would refuse the fixture.
+describe.each([
+  ["GB", "qbo-sandbox-gb-trial-balance.json", "GBP", 32, 16437777n],
+  ["AU", "qbo-sandbox-au-trial-balance.json", "AUD", 26, 10375534n],
+  ["CA", "qbo-sandbox-ca-trial-balance.json", "CAD", 32, 11549582n],
+])("regional sample %s", (_region, file, currency, accounts, totalMinor) => {
+  const raw = JSON.parse(fs.readFileSync(path.join(DIR, file), "utf8"));
+
+  it("is accepted: stated currency, explicit period, unique account ids, balanced to its own control total", () => {
+    const rep = must(raw);
+    expect(rep.currency).toBe(currency);
+    expect(rep).toMatchObject({ basis: "Accrual", startPeriod: "2026-01-01", endPeriod: "2026-10-31" });
+    expect(rep.rows).toHaveLength(accounts);
+    expect(new Set(rep.rows.map((r) => r.sourceAccountId)).size).toBe(accounts);
+    expect(rep.totals).toEqual({ debitMinor: totalMinor, creditMinor: totalMinor });
+  });
+
+  it("the converted file passes the same reader as any upload, in the report's own currency", () => {
+    const rep = must(raw);
+    const r = readTrialBalanceSource(csvBytes(toCanonicalCsv(rep)), { fileName: "qbo.csv", periodYear: 2026, currency }, XLSX as unknown as XlsxLike);
+    expect(r.blocking).toBe(false);
+    expect(r.totals).toEqual({ debitMinor: totalMinor, creditMinor: totalMinor, differenceMinor: 0n });
+    // Zero-balance rows (a foreign-currency account with no balance, for example) are skipped by the reader, never invented.
+    const zeroRows = rep.rows.filter((x) => x.debitMinor === 0n && x.creditMinor === 0n).length;
+    expect(r.accounts.length).toBe(accounts - zeroRows);
+  });
+
+  it("a one-cent change to any figure is refused against the control total", () => {
+    const j = JSON.parse(JSON.stringify(raw));
+    const row = j.Rows.Row.find((x: Mutable) => x.ColData && x.ColData[1].value !== "");
+    row.ColData[1].value = (Number(row.ColData[1].value) + 0.01).toFixed(2);
+    expect(parseQboTrialBalanceReport(j)).toMatchObject({ ok: false, code: "CONTROL_TOTAL_MISMATCH" });
+  });
+});
+
 describe("amounts are exact integers of minor units", () => {
   it("parses plain decimals and nothing else", () => {
     expect(parseMinor("")).toBe(0n);
