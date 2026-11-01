@@ -1,6 +1,6 @@
 import { EquipmentPreparation } from "./EquipmentPreparation";
-import { PreparationNotice } from "./PreparationNotice";
-import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability } from "@/lib/reporting/preparationGuidance";
+import { PreparationNotice, PreparationContextNotice } from "./PreparationNotice";
+import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability, preparationPack, PREPARATION_CONTEXT_MISMATCH, SCHEDULE_DENOMINATION_MISSING } from "@/lib/reporting/preparationGuidance";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 /**
@@ -9,11 +9,11 @@ import { ActionButton } from "@/components/feedback/ActionButton";
  * statements: closing to this year's line, opening to the approved prior year's. Entry is structured (classes, opening,
  * movements by the cited kinds, closing); the server checks each class adds up and reconciles the totals.
  */
-import { useId, useState } from "react";
-import { IFRS_FOR_SMES_2015 } from "@/lib/frameworkPacks/ifrsForSmes";
+import { useId, useRef, useState } from "react";
 import { parseAmountToMinor } from "@/lib/closeReview/adjustments";
 import { STATUS_WORDS, scheduleReconciliation, type NotesStatus, type RequirementState } from "@/lib/notes/notesStatus";
-import type { ScheduleDefinition } from "@/lib/frameworkPacks/types";
+import type { Composition } from "@/lib/statements/composition";
+import type { FrameworkPack, ScheduleDefinition } from "@/lib/frameworkPacks/types";
 import { Notice, outcomeText, useAttempt, type PageProps } from "./shared";
 
 interface ClassDraft { label: string; opening: string; closing: string; movements: Record<string, string> }
@@ -28,21 +28,33 @@ export function signedMinor(text: string, exponent: number): string | null {
 }
 
 export function SchedulesView(p: PageProps) {
+  // Keep the last coherent same-scope inputs mounted while refresh is required. Never reinterpret an in-progress monetary draft.
+  const previous = useRef<{ scope: string; notes: NotesStatus; composition: Composition; pack: FrameworkPack } | null>(null);
+  const scope = `${p.companyId}:${p.periodYear}`;
   const n = p.state.notes;
-  if (!n || n.state !== "evaluated") return <p role="status">Schedules are not available{n ? ` (${n.state})` : ""}.</p>;
-  const notes = n as NotesStatus;
-  const exponent = p.state.composition?.state === "composed" ? p.state.composition.current.exponent : 2;
-  const rows = notes.requirements.filter((r) => r.kind === "SCHEDULE");
-  return (
-    <div className="space-y-6">
-      <PreparationNotice {...p} />
-      <EquipmentPreparation {...p} />
+  const notes = n?.state === "evaluated" ? n as NotesStatus : null;
+  const c = p.state.composition;
+  const pack = notes ? preparationPack(notes, c) : null;
+  const current = notes && pack && c?.state === "composed" ? { scope, notes, composition: c, pack } : null;
+  if (current) previous.current = current;
+  const context = current ?? (previous.current?.scope === scope ? previous.current : null);
+  const message = !notes ? `Schedules are not available${n ? ` (${n.state})` : ""}.`
+    : !pack ? PREPARATION_CONTEXT_MISMATCH : SCHEDULE_DENOMINATION_MISSING;
+  if (!context) return <PreparationContextNotice message={message} refresh={p.refresh} />;
+  const exponent = context.composition.current.exponent;
+  const rows = context.notes.requirements.filter((r) => r.kind === "SCHEDULE");
+  const coherent = { ...p, state: { ...p.state, notes: context.notes, composition: context.composition } };
+  return <>
+    {!current && <PreparationContextNotice message={message} refresh={p.refresh} />}
+    <fieldset disabled={!current} hidden={!current} className="min-w-0 space-y-6 border-0 p-0">
+      <PreparationNotice {...coherent} />
+      <EquipmentPreparation {...coherent} />
       {rows.map((r) => {
-        const def = IFRS_FOR_SMES_2015.schedules.find((s) => s.requirementId === r.requirementId);
-        return def ? <Schedule key={r.requirementId} {...p} r={r} def={def} exponent={exponent} /> : null;
+        const def = context.pack.schedules.find((s) => s.requirementId === r.requirementId);
+        return def ? <Schedule key={`${scope}:${context.pack.id}:${context.composition.current.currency}:${exponent}:${r.requirementId}`} {...coherent} r={r} def={def} exponent={exponent} /> : null;
       })}
-    </div>
-  );
+    </fieldset>
+  </>;
 }
 
 function Schedule(p: PageProps & { r: RequirementState; def: ScheduleDefinition; exponent: number }) {

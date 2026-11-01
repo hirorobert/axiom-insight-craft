@@ -12,3 +12,11 @@ export function PreparationNotice(p: PageProps) {
     {!p.allowed.includes("prepare_close") && <p className="mt-1 text-muted-foreground">A member with preparation permission must correct the assignments.</p>}
   </section>;
 }
+
+/** Re-read the shared server snapshot; never repairs metadata or changes accounting state in the browser. */
+export function PreparationContextNotice({ message, refresh }: { message: string; refresh: () => Promise<void> }) {
+  return <section role="alert" className="border-l-4 border-primary bg-muted/40 p-3 text-sm">
+    <p>{message}</p>
+    <button type="button" className="mt-2 rounded-md border border-input px-3 py-1" onClick={() => void refresh()}>Refresh reporting workspace</button>
+  </section>;
+}

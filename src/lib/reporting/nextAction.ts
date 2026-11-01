@@ -6,6 +6,7 @@
 // export. Every input is a server payload; nothing is inferred beyond reading it, and an unknown state is named, never
 // treated as done. Requirements are named by the framework pack's words; their identifiers stay in technical details.
 
+import { preparationPack, PREPARATION_CONTEXT_MISMATCH } from "./preparationGuidance";
 import type { WorkbenchPageId } from "@/lib/workbench/routes";
 import type { CompositionResult } from "@/lib/statements/composition";
 import { needsWork, type NotesStatus, type NotesStatusResult } from "@/lib/notes/notesStatus";
@@ -80,6 +81,7 @@ export function nextReportingAction(i: NextActionInput): NextAction {
 
   if (!i.notes || i.notes.state !== "evaluated") return { page: "fs-notes", title: "Notes are not available", detail: i.notes ? `The server reports ${i.notes.state}.` : "The notes status has not been read yet.", tone: "blocked" };
   const ns = i.notes as NotesStatus;
+  if (!preparationPack(ns, c)) return { page: "fs-notes", title: "Refresh the reporting workspace", detail: PREPARATION_CONTEXT_MISMATCH, tone: "blocked" };
   const label = (id: string) => requirementLabel(ns.packId, id);
   const open = ns.requirements.filter((r) => r.blocking && needsWork(r));
   const schedules = open.filter((r) => r.kind === "SCHEDULE");

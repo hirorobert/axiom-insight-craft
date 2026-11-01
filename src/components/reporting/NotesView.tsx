@@ -1,5 +1,5 @@
-import { PreparationNotice } from "./PreparationNotice";
-import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability } from "@/lib/reporting/preparationGuidance";
+import { PreparationNotice, PreparationContextNotice } from "./PreparationNotice";
+import { APPLICABILITY_EXPLANATION, PROVISIONAL_APPLICABILITY, provisionalApplicability, preparationPack, PREPARATION_CONTEXT_MISMATCH } from "@/lib/reporting/preparationGuidance";
 import { useBusyState } from "@/hooks/useBusyState";
 import { ActionButton } from "@/components/feedback/ActionButton";
 /**
@@ -10,7 +10,7 @@ import { ActionButton } from "@/components/feedback/ActionButton";
  */
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { IFRS_FOR_SMES_2015, IFRS_FOR_SMES_2025 } from "@/lib/frameworkPacks/ifrsForSmes";
+import type { FrameworkPack } from "@/lib/frameworkPacks/types";
 import { STATUS_WORDS, needsWork, type NotesStatus, type RequirementState } from "@/lib/notes/notesStatus";
 import { StatusWord } from "@/components/workbench/StatusWord";
 import type { StatusTone } from "@/lib/workbench/statusWords";
@@ -27,17 +27,29 @@ export function NotesView(p: PageProps) {
   const n = p.state.notes;
   if (!n) return null;
   if (n.state !== "evaluated") return <p role="status">Notes are not available ({n.state}).</p>;
-  return <Evaluated {...p} n={n as NotesStatus} />;
+  const notes = n as NotesStatus;
+  const pack = preparationPack(notes, null);
+  if (!pack) return <PreparationContextNotice message={PREPARATION_CONTEXT_MISMATCH} refresh={p.refresh} />;
+  const mismatch = !preparationPack(notes, p.state.composition);
+  return <>
+    {mismatch && <PreparationContextNotice message={PREPARATION_CONTEXT_MISMATCH} refresh={p.refresh} />}
+    {/* Suspend, rather than unmount, same-edition edits while a refresh reconciles the snapshot. */}
+    <fieldset disabled={mismatch} hidden={mismatch} className="min-w-0 border-0 p-0">
+      <Evaluated key={`${p.companyId}:${p.periodYear}:${pack.id}`} {...p} n={notes} pack={pack} />
+    </fieldset>
+  </>;
 }
 
-function Evaluated(p: PageProps & { n: NotesStatus }) {
-  const pack = p.n.packId === "ifrs-for-smes/2025" ? IFRS_FOR_SMES_2025 : IFRS_FOR_SMES_2015;
+function Evaluated(p: PageProps & { n: NotesStatus; pack: FrameworkPack }) {
+  const pack = p.pack;
   const byId = useMemo(() => new Map(pack.requirements.map((r) => [r.id, r])), [pack]);
   const rows = p.n.requirements.filter((r) => r.kind !== "SCHEDULE");
   const open = rows.filter((r) => r.blocking && needsWork(r)).length;
   // The open count includes statements that wait only for evidence; say so, so it reconciles with the next action.
   const evidenceOpen = rows.filter((r) => r.blocking && r.status === "evidence_missing").length;
   const [selected, setSelected] = useState<string | null>(rows.find((r) => r.blocking && needsWork(r))?.requirementId ?? null);
+  // A refreshed requirement list can remove the selected item; never pass an absent row into the editor.
+  const active = rows.find((r) => r.requirementId === selected) ?? rows.find((r) => r.blocking && needsWork(r)) ?? rows[0] ?? null;
   return (
     <>
     <PreparationNotice {...p} />
@@ -54,8 +66,8 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
           {rows.map((r) => {
             const def = byId.get(r.requirementId);
             return (
-              <li key={r.requirementId} className={selected === r.requirementId ? "bg-[#eef3fb]" : ""}>
-                <button type="button" className="flex w-full flex-wrap items-baseline gap-x-3 px-2 py-2 text-left" aria-pressed={selected === r.requirementId} onClick={() => setSelected(r.requirementId)}
+              <li key={r.requirementId} className={active?.requirementId === r.requirementId ? "bg-[#eef3fb]" : ""}>
+                <button type="button" className="flex w-full flex-wrap items-baseline gap-x-3 px-2 py-2 text-left" aria-pressed={active?.requirementId === r.requirementId} onClick={() => setSelected(r.requirementId)}
                   data-requirement={r.requirementId}>
                   <span className="min-w-[14rem] flex-1">{def?.label ?? r.requirementId}{r.blocking ? "" : <span className="text-muted-foreground"> (not blocking)</span>}</span>
                   <span className="text-xs text-muted-foreground">{def?.citations.map((c) => c.paragraph).join(", ")}</span>
@@ -66,8 +78,8 @@ function Evaluated(p: PageProps & { n: NotesStatus }) {
           })}
         </ul>
       </section>
-      {selected ? <RequirementPanel key={selected} {...p} r={rows.find((x) => x.requirementId === selected)!} label={byId.get(selected)?.label ?? selected} condition={byId.get(selected)?.condition ?? null}
-        conditional={byId.get(selected)?.applicability === "CONDITIONAL"} /> : null}
+      {active ? <RequirementPanel key={active.requirementId} {...p} r={active} label={byId.get(active.requirementId)?.label ?? active.requirementId} condition={byId.get(active.requirementId)?.condition ?? null}
+        conditional={byId.get(active.requirementId)?.applicability === "CONDITIONAL"} /> : null}
     </div>
     </>
   );
