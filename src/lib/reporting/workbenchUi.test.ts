@@ -6,9 +6,13 @@ import { MemoryRouter } from "react-router-dom";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ReportingWorkbench } from "@/components/reporting/ReportingWorkbench";
+import { NotesView } from "@/components/reporting/NotesView";
+import { SchedulesView } from "@/components/reporting/SchedulesView";
+import { reportingClients } from "./reportingState";
+import type { PageProps } from "@/components/reporting/shared";
 import type { ReportingPage } from "@/components/reporting/shared";
 import { composition } from "@/lib/statements/compositionFixture";
-import { axeViolations, click, mount, type Mounted } from "@/lib/workbench/testkit/dom";
+import { axeViolations, click, mount, typeInto, type Mounted } from "@/lib/workbench/testkit/dom";
 import type { ReportingDb } from "./signoff";
 
 let m: Mounted | null = null;
@@ -207,5 +211,135 @@ describe("preparation links after asynchronous page loading", () => {
       await render(server(), "fs-statements", ["prepare_close"], "/fs-statements#h-SFP");
       expect(scrolled).toEqual([]);
     } finally { HTMLElement.prototype.scrollIntoView = original; }
+  });
+});
+
+describe("preparation stays bound to the server edition and denomination", () => {
+  it("refuses mixed editions instead of showing a 2015 note editor for a 2025 composition", async () => {
+    const thirdEdition = { ...composition, pack: { ...composition.pack, packId: "ifrs-for-smes/2025" } };
+    const db = server({ fs_statement_composition: () => thirdEdition });
+    await render(db, "fs-notes");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("edition, period or source revision do not agree");
+    expect(document.querySelector('[data-testid="wording-body"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="wording-body"]')!.closest("fieldset[hidden][disabled]")).not.toBeNull();
+    expect(db.calls.some((c) => /record|decide/.test(c))).toBe(false);
+  });
+  it("uses the 2025 note vocabulary when both server responses name that edition", async () => {
+    const thirdEdition = { ...composition, pack: { ...composition.pack, packId: "ifrs-for-smes/2025" } };
+    await render(server({ fs_statement_composition: () => thirdEdition, fs_notes_status: () => ({ ...NOTES, packId: "ifrs-for-smes/2025" }) }), "fs-notes");
+    expect(document.querySelector('#h-req')?.textContent).toContain("2025");
+    expect(document.querySelector('[data-testid="wording-body"]')).not.toBeNull();
+  });
+  it("does not turn a future unknown pack into SME 2015", async () => {
+    await render(server({ fs_notes_status: () => ({ ...NOTES, packId: "ifrs-for-smes/2099" }) }), "fs-notes");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("could not be read");
+    expect(document.querySelector('[data-testid="wording-body"]')).toBeNull();
+  });
+  it("does not assume two decimals for schedules when the statements are unavailable", async () => {
+    const schedule = { requirementId: "smes.schedule.ppe", kind: "SCHEDULE", blocking: true, status: "missing" };
+    await render(server({ fs_statement_composition: () => ({ state: "no_authority" }), fs_notes_status: () => ({ ...NOTES, requirements: [schedule] }) }), "fs-schedules");
+    expect(document.body.textContent).toContain("No currency or decimal places have been assumed");
+    expect([...document.querySelectorAll("button")].some((b) => b.textContent === "Enter the schedule")).toBe(false);
+  });
+  it("refuses a mixed-edition schedule before rendering amount entry", async () => {
+    await render(server({ fs_notes_status: () => ({ ...NOTES, packId: "ifrs-for-smes/2025", requirements: [{ requirementId: "smes.schedule.ppe", kind: "SCHEDULE", blocking: true, status: "missing" }] }) }), "fs-schedules");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("edition, period or source revision do not agree");
+    expect(document.querySelector('[data-schedule]')).toBeNull();
+  });
+});
+
+
+describe("preparation snapshot consistency and denomination", () => {
+  for (const change of [{ periodYear: 2025 }, { compositionSha256: H("d") }]) {
+    it(`does not offer note entry for another period or source: ${JSON.stringify(change)}`, async () => {
+      await render(server({ fs_notes_status: () => ({ ...NOTES, ...change }) }), "fs-notes");
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain("source revision do not agree");
+      expect(document.querySelector('[data-testid="next-action"]')?.textContent).toContain("Refresh the reporting workspace");
+      expect(document.querySelector('[data-testid="wording-body"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="wording-body"]')!.closest("fieldset[hidden][disabled]")).not.toBeNull();
+    });
+  }
+  for (const [currency, exponent, minor, expected] of [["JPY", 0, "14000", "14,000"], ["KWD", 3, "14000000", "14,000.000"]] as const) {
+    it(`formats a reconciled schedule using server ${currency} denomination`, async () => {
+      const c = { ...composition, current: { ...composition.current, currency, exponent } };
+      const schedule = { requirementId: "smes.schedule.ppe", scheduleId: "ppe", kind: "SCHEDULE", blocking: true, status: "reconciled",
+        scheduleOpeningMinor: minor, scheduleClosingMinor: minor, composedOpeningMinor: minor, composedClosingMinor: minor };
+      await render(server({ fs_statement_composition: () => c, fs_notes_status: () => ({ ...NOTES, requirements: [schedule] }) }), "fs-schedules", []);
+      const table = document.querySelector('[aria-label="Property, plant and equipment reconciliation"]');
+      expect(table).not.toBeNull();
+      expect([...table!.querySelectorAll("td")].map((td) => td.textContent)).toEqual([expected, expected, expected, expected]);
+    });
+  }
+});
+
+
+describe("preparation recovery", () => {
+  it("refreshes a mismatched snapshot through the shared reader without writing", async () => {
+    let mismatch = true;
+    const db = server({ fs_notes_status: () => ({ ...NOTES, compositionSha256: mismatch ? H("d") : composition.compositionSha256 }) });
+    await render(db, "fs-notes");
+    mismatch = false;
+    click([...document.querySelectorAll("button")].find((b) => b.textContent === "Refresh reporting workspace")!);
+    await settle();
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(document.querySelector('[data-testid="wording-body"]')).not.toBeNull();
+    expect(db.calls.some((c) => /record|decide/.test(c))).toBe(false);
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+  it("recovers selection when a confirmed save refresh removes the selected requirement", async () => {
+    let saved = false;
+    const policies = { requirementId: "smes.note.policies", kind: "DISCLOSURE", blocking: true, status: "missing" };
+    const events = { requirementId: "smes.note.events_after", kind: "DISCLOSURE", blocking: true, status: "missing" };
+    const db = server({ fs_notes_status: () => ({ ...NOTES, requirements: saved ? [events] : [policies, events] }),
+      fs_record_disclosure: () => { saved = true; return { outcome: "recorded" }; } });
+    await render(db, "fs-notes");
+    typeInto(document.querySelector('[data-testid="wording-body"]')!, "Entity-specific policy.");
+    typeInto(document.querySelector('[data-testid="wording-source"]')!, "Approved workpaper");
+    click([...document.querySelectorAll("button")].find((b) => b.textContent === "Record wording")!);
+    await settle();
+    expect(saved).toBe(true);
+    expect(document.querySelector('[data-testid="requirement-panel"] h2')?.textContent).toContain("events after");
+    expect(document.querySelector('[data-requirement="smes.note.policies"]')).toBeNull();
+  });
+});
+
+
+describe("refresh suspension preserves unfinished same-scope work", () => {
+  function props(): PageProps {
+    const db = server();
+    return { page: "fs-notes", companyId: "c1", periodYear: 2026, legalName: "Synthetic SME", db, allowed: ["prepare_close"], reportVersion: null,
+      hrefFor: (page) => `/${page}`, clients: reportingClients(db), refresh: async () => {},
+      state: { composition, notes: NOTES, comparatives: CMP, versions: [], latest: null, closeReview: null } } as unknown as PageProps;
+  }
+  it("keeps note wording through a source mismatch and recovery without exposing a writable editor", () => {
+    const p = props();
+    const show = (x: PageProps) => h(MemoryRouter, {}, h(NotesView, x));
+    m = mount(show(p));
+    typeInto(document.querySelector('[data-testid="wording-body"]')!, "Unfinished entity-specific wording");
+    m.rerender(show({ ...p, state: { ...p.state, notes: { ...NOTES, compositionSha256: H("d") } } } as unknown as PageProps));
+    const suspended = document.querySelector('[data-testid="wording-body"]') as HTMLTextAreaElement;
+    expect(suspended.closest('fieldset[hidden][disabled]')).not.toBeNull();
+    expect(suspended.value).toBe("Unfinished entity-specific wording");
+    m.rerender(show(p));
+    expect((document.querySelector('[data-testid="wording-body"]') as HTMLTextAreaElement).value).toBe("Unfinished entity-specific wording");
+    expect(document.querySelector('[data-testid="wording-body"]')!.closest('[hidden]')).toBeNull();
+  });
+  it("keeps a monetary draft suspended through missing composition, without assuming a denomination", () => {
+    const p = props();
+    const c = { ...composition, pack: { ...composition.pack, packId: "ifrs-for-smes/2025" } };
+    const n = { ...NOTES, packId: "ifrs-for-smes/2025", requirements: [{ requirementId: "smes.schedule.ppe", kind: "SCHEDULE", blocking: true, status: "missing" }] };
+    const coherent = { ...p, state: { ...p.state, composition: c, notes: n } } as unknown as PageProps;
+    const show = (x: PageProps) => h(MemoryRouter, {}, h(SchedulesView, x));
+    m = mount(show(coherent));
+    click([...document.querySelectorAll('button')].find((b) => b.textContent === "Enter the schedule")!);
+    const opening = () => [...document.querySelectorAll('label')].find((l) => l.textContent?.startsWith("Opening carrying amount"))!.querySelector('input')!;
+    typeInto(opening(), "123.45");
+    m.rerender(show({ ...coherent, state: { ...coherent.state, composition: null } }));
+    expect(opening().value).toBe("123.45");
+    expect(opening().closest('fieldset[hidden][disabled]')).not.toBeNull();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("No currency or decimal places have been assumed");
+    m.rerender(show(coherent));
+    expect(opening().value).toBe("123.45");
+    expect(opening().closest('[hidden]')).toBeNull();
   });
 });
