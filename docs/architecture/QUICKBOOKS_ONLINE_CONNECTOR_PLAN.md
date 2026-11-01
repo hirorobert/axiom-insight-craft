@@ -119,7 +119,17 @@ Intuit's documentation pages are rendered by script and **could not be read dire
 
 ### 9.3 Date range versus as-of balances (income and expense accounts)
 
-**Not yet tested** (the owner's Intuit session expired during the check; the assistant never enters credentials). The one observation so far: the API report for 2026-10-01 to 2026-10-31 and the screen's "as of 31 October 2026" report both totalled 41,421.60, which does not settle it, because the sandbox's transactions may all fall in one period. To test: run the same company for `start_date` 2026-01-01 and for 2026-10-01 with the same `end_date`, and compare the income and expense lines. Until it is settled the connector must not assume a range report equals an as-of report: it will request a start date and an end date that the user's period confirms, record both in provenance, and the parity test compares like with like.
+**Tested 2026-11-01 against the sandbox** (API Explorer, same company, `minorversion=40` in the explorer; the earlier run used 75, same shape). The report is **cumulative as of `end_date`; `start_date` had no effect**:
+
+| `start_date` | `end_date` | Result |
+|---|---|---|
+| 2026-01-01 | 2026-10-31 | 46 accounts, total 41,421.60 |
+| 2026-10-01 | 2026-10-31 | identical to the row above |
+| 2026-10-31 | 2026-10-31 (one day) | identical again, **including every income and expense account** (a one-day activity report would be near-empty) |
+| 2026-01-01 | 2026-09-30 | different, still balanced (37 accounts, total 29,500.55): the end date does decide the figures |
+| 2025-01-01 | 2025-12-31 | `NoReportData = true`: the sandbox holds nothing before 2026 |
+
+**What this settles:** a range request does not turn a trial balance into period activity. **What it cannot settle:** how income and expense accounts behave across a **fiscal-year boundary** (real QuickBooks books may restart them at the fiscal-year start). The sandbox has only one fiscal year of data, so that needs a real company with two years of history (a firm's file, with consent) or a sandbox with prior-year data. Until then the connector treats the report as "balances as of `end_date`", always sends an explicit `end_date` (and a `start_date` that records the period), stores both in provenance, and the converter refuses `NoReportData = true` (tested: `NO_REPORT_DATA`).
 
 ## 11. Countries: what "works for any QuickBooks user in any country" can and cannot mean
 
