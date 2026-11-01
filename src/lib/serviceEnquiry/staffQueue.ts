@@ -296,8 +296,10 @@ export const addEnquiryNote = async (id: string, note: string): Promise<void> =>
 /** Reply to the requester by email (queued in the outbox; its delivery state is tracked). `requestId` makes a retry safe. */
 export const replyToEnquiry = async (id: string, body: string, requestId: string): Promise<void> => {
   // 20261025100000's function is not in the generated types until they are regenerated after the migration is applied.
-  const rpc = supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
-  unwrap(await rpc("staff_reply_service_enquiry", { p_enquiry_id: id, p_body: body, p_request_id: requestId }), doneSchema);
+  // CF-02: the cast is applied at the call and the method is invoked ON the client (`rpc()` reads `this.rest`); an
+  // extracted `const rpc = supabase.rpc as …` threw on every call in production. See boundRpcWrappers.test.ts.
+  type ReplyRpc = (n: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
+  unwrap(await (supabase.rpc as unknown as ReplyRpc).call(supabase, "staff_reply_service_enquiry", { p_enquiry_id: id, p_body: body, p_request_id: requestId }), doneSchema);
 };
 
 const dispatchSchema = z.object({ claimed: z.number(), accepted: z.number(), retry: z.number(), failed: z.number(), blocked: z.number() });
