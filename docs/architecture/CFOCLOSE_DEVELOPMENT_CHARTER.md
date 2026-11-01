@@ -178,9 +178,11 @@ A plan missing any field in this section is not a plan.
 | B7 | | | | |
 | B8a | | | | |
 | B8b | | | | |
-| B9 | | | | |
+| B9 ² | | | | |
 
 ¹ B6 accounting author and independent reviewer **named by the team on 2026-10-31** (the team's instruction, recorded here; no agent appointed them). Full names, professional qualification and registration, and the declaration that the reviewer is independent of the author are **not yet recorded** and are collected in `docs/release/ipsas-register-r1/DRAFT_REGISTER.md`. The B6 technical owner and the committed dates are still open, so B6 is **not yet a complete plan** under this section.
+
+² B9 (connector): the team named three people on **2026-11-01** (the team's instruction, recorded here; no agent appointed them): **Humphrey R Sawe, ACPA; Patrick R Sawe, CPA; Hendry R Sawe, CPA.** **The team has not yet said which role each takes**, so the three role columns stay empty. A proposed assignment and the independence-declaration requirement are in `docs/architecture/QUICKBOOKS_CONNECTOR_DECISIONS.md` section F1 (on the connector plan branch); it is a proposal, not an appointment. B9 work on the database and Edge Functions does not start until these cells are filled by the team.
 
 ---
 
