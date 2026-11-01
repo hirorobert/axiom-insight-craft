@@ -46,10 +46,10 @@ const FN = {
   consume: "SELECT * FROM public.qbo_consume_oauth_state($1)",
   store: "SELECT public.qbo_store_connection($1,$2,$3,$4,$5,$6,$7) r",
   rotate: "SELECT public.qbo_rotate_refresh_token($1,$2,$3,$4,$5) r",
-  reconnect: "SELECT public.qbo_mark_reconnect_needed($1) r",
+  reconnect: "SELECT public.qbo_mark_reconnect_needed($1,$2) r",
   disconnect: "SELECT public.qbo_disconnect($1,$2) r",
   lease: "SELECT public.qbo_acquire_refresh_lease($1,$2,$3) r",
-  release: "SELECT public.qbo_release_refresh_lease($1) r",
+  release: "SELECT public.qbo_release_refresh_lease($1,$2) r",
   intent: "SELECT public.qbo_record_pull_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) r",
   complete: "SELECT public.qbo_complete_pull($1) r",
   pending: "SELECT public.qbo_complete_pending_pulls() r",
@@ -109,7 +109,7 @@ try {
   });
   await kase("clients.cannot-call-the-writers-only-the-status-function", async () => {
     const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600, 2026]], [FN.consume, [sha(rnd())]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
-      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid()]], [FN.disconnect, [uuid(), U.owner]], [FN.lease, [uuid(), envelope(), 60]], [FN.release, [uuid()]], [FN.intent, intentArgs(uuid())], [FN.complete, [uuid()]], [FN.pending, []], [FN.house, []], [FN.retention, ["7 years"]]];
+      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid(), envelope()]], [FN.disconnect, [uuid(), U.owner]], [FN.lease, [uuid(), envelope(), 60]], [FN.release, [uuid(), uuid()]], [FN.intent, intentArgs(uuid())], [FN.complete, [uuid()]], [FN.pending, []], [FN.house, []], [FN.retention, ["7 years"]]];
     for (const role of ["authenticated", "anon"]) for (const [sql, p] of calls) await assert.rejects(() => db.asRole(role, U.owner, sql, p), denied, `${role}: ${sql.slice(0, 40)}`);
     await assert.doesNotReject(() => db.asRole("authenticated", U.owner, "SELECT * FROM public.qbo_connection_status($1)", [W.A]));
     await assert.rejects(() => db.asRole("anon", null, "SELECT * FROM public.qbo_connection_status($1)", [W.A]), denied, "anonymous callers cannot even ask for status");
@@ -208,7 +208,7 @@ try {
     const c = await store(W.A, U.owner);
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_token_envelope = NULL WHERE id=$1", [c.id]), /chk_qbo_conn_token_iff_active/, "an active connection cannot lose its token");
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET status='reconnect_needed' WHERE id=$1", [c.id]), /chk_qbo_conn_/, "an inactive connection cannot keep one");
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET status='active' WHERE id=$1", [c.id]), /chk_qbo_conn_token_iff_active/, "it cannot be made active without a token");
   });
   await kase("rotation.is-compare-and-swap-and-only-one-concurrent-refresh-wins", async () => {
@@ -225,22 +225,42 @@ try {
     const current = (await conn(c.id)).refresh_token_envelope;
     await assert.rejects(() => svc(FN.rotate, [c.id, current, "not-an-envelope", future(1), null]), /violates check/i, "a malformed new envelope is refused");
   });
+  await kase("rotation.a-retry-whose-first-answer-was-lost-is-recognised-and-writes-nothing-twice", async () => {
+    const c = await store(W.A, U.owner);
+    const next = envelope("k1"), later = envelope("k1");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true);
+    const stored = await conn(c.id);
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true, "the same rotation, retried, is reported as stored");
+    assert.equal((await conn(c.id)).updated_at.getTime(), stored.updated_at.getTime(), "and nothing is written a second time");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, later, future(100), future(1800)])).r, false, "a different new envelope from the old expectation still loses");
+    assert.equal((await conn(c.id)).refresh_token_envelope, next);
+  });
   await kase("rotation.is-refused-for-an-inactive-connection", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     assert.equal((await svc(FN.rotate, [c.id, c.env_, envelope(), future(1), null])).r, false);
     assert.equal((await svc(FN.rotate, [uuid(), envelope(), envelope(), future(1), null])).r, false, "an unknown connection");
   });
   await kase("reconnect-needed.deletes-the-dead-token", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.reconnect, [c.id])).r, true);
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, true);
     const row = await conn(c.id);
     assert.equal(row.status, "reconnect_needed");
     assert.deepEqual([row.refresh_token_envelope, row.envelope_key_id, row.refresh_expires_at, row.hard_expires_at], [null, null, null, null], "no token, key id or expiry is kept");
-    assert.equal((await svc(FN.reconnect, [c.id])).r, false, "an already inactive connection is not changed again");
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, false, "an already inactive connection is not changed again");
     const again = await store(W.A, U.owner, { realm: c.realm, env_: envelope() });
     assert.equal(again.id, c.id, "reconnecting stores a fresh token on the same connection");
     assert.equal((await conn(c.id)).status, "active");
+  });
+  await kase("reconnect-needed.only-for-the-token-intuit-refused-never-a-newer-one", async () => {
+    const c = await store(W.A, U.owner);
+    const newer = envelope("k1");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, newer, future(100), future(1800)])).r, true, "another import stored a newer token");
+    assert.equal((await svc(FN.reconnect, [c.id, c.env_])).r, false, "a refusal of the out-of-date token changes nothing");
+    const row = await conn(c.id);
+    assert.equal(row.status, "active"); assert.equal(row.refresh_token_envelope, newer, "the newer token is kept");
+    assert.equal((await svc(FN.reconnect, [c.id, null])).r, false, "a missing envelope marks nothing");
+    assert.equal((await svc(FN.reconnect, [c.id, newer])).r, true, "a refusal of the current token deletes it");
   });
   await kase("disconnect.needs-the-right-deletes-the-token-and-is-terminal", async () => {
     const c = await store(W.A, U.owner);
@@ -319,40 +339,59 @@ try {
   // ── rotation lease (finding: two simultaneous refreshes must never both reach Intuit with the same token) ─────────
   await kase("lease.only-one-caller-holds-it-and-it-names-the-envelope", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.lease, [c.id, envelope("k1"), 60])).r, false, "an out-of-date envelope never gets the lease");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 5])).r, false, "too short a lease is refused");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 301])).r, false, "too long a lease is refused");
-    assert.equal((await svc(FN.lease, [uuid(), c.env_, 60])).r, false, "an unknown connection");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "the first caller takes it");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "the second is told no, without any call to Intuit");
+    assert.equal((await svc(FN.lease, [c.id, envelope("k1"), 60])).r, null, "an out-of-date envelope never gets the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 5])).r, null, "too short a lease is refused");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 301])).r, null, "too long a lease is refused");
+    assert.equal((await svc(FN.lease, [uuid(), c.env_, 60])).r, null, "an unknown connection");
+    const first = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.match(String(first), /^[0-9a-f-]{36}$/, "the first caller takes it, and is given the lease's own id");
+    assert.equal((await conn(c.id)).refresh_lease_id, first);
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "the second is told no, without any call to Intuit");
     const fresh = await store(W.A, U.owner);
     const both = await Promise.all(Array.from({ length: 8 }, () => db.asRole("service_role", null, FN.lease, [fresh.id, fresh.env_, 60])));
-    assert.equal(both.filter((rows) => rows[0].r === true).length, 1, "of eight simultaneous callers exactly one holds the lease");
+    assert.equal(both.filter((rows) => rows[0].r !== null).length, 1, "of eight simultaneous callers exactly one holds the lease");
   });
   await kase("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation", async () => {
     const c = await store(W.A, U.owner);
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    assert.notEqual((await svc(FN.lease, [c.id, c.env_, 60])).r, null);
     await db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", [c.id]);
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "a lapsed lease (a crashed import) can be taken again");
-    assert.equal((await svc(FN.release, [c.id])).r, true, "released on demand");
-    assert.equal((await svc(FN.release, [c.id])).r, false, "releasing nothing changes nothing");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    const again = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.notEqual(again, null, "a lapsed lease (a crashed import) can be taken again");
+    assert.equal((await svc(FN.release, [c.id, again])).r, true, "released on demand by its holder");
+    assert.equal((await svc(FN.release, [c.id, again])).r, false, "releasing nothing changes nothing");
+    assert.notEqual((await svc(FN.lease, [c.id, c.env_, 60])).r, null);
     const next = envelope("k1");
     assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true);
-    assert.equal((await conn(c.id)).refresh_lease_until, null, "rotation clears the lease");
-    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "and the old envelope can no longer take one");
+    const rotated = await conn(c.id);
+    assert.deepEqual([rotated.refresh_lease_until, rotated.refresh_lease_id], [null, null], "rotation clears the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "and the old envelope can no longer take one");
   });
   await kase("lease.never-outlives-an-active-token", async () => {
     const a = await store(W.A, U.owner), b = await store(W.A, U.owner), d = await store(W.A, U.owner);
-    for (const x of [a, b, d]) assert.equal((await svc(FN.lease, [x.id, x.env_, 60])).r, true);
-    assert.equal((await svc(FN.reconnect, [a.id])).r, true);
+    for (const x of [a, b, d]) assert.notEqual((await svc(FN.lease, [x.id, x.env_, 60])).r, null);
+    assert.equal((await svc(FN.reconnect, [a.id, a.env_])).r, true);
     assert.equal((await conn(a.id)).refresh_lease_until, null, "a dead token holds no lease");
     assert.equal((await svc(FN.disconnect, [b.id, U.owner])).r, "disconnected");
     assert.equal((await conn(b.id)).refresh_lease_until, null, "a disconnected connection holds no lease");
-    assert.equal((await svc(FN.lease, [a.id, a.env_, 60])).r, false, "no lease on an inactive connection");
+    assert.equal((await svc(FN.lease, [a.id, a.env_, 60])).r, null, "no lease on an inactive connection");
     await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = now() + interval '1 minute' WHERE id=$1", [a.id]), /violates check/i, "the table itself refuses a lease on an inactive connection");
     const again = await store(W.A, U.owner, { realm: (await conn(d.id)).realm_id });
     assert.equal((await conn(again.id)).refresh_lease_until, null, "reconnecting clears a stale lease");
+    assert.equal((await conn(again.id)).refresh_lease_id, null);
+    await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_lease_id = gen_random_uuid() WHERE id=$1", [again.id]), /chk_qbo_conn_lease_pair/, "a lease id never exists without its expiry");
+  });
+  await kase("lease.only-its-holder-releases-it-a-lapsed-holder-cannot-clear-the-next-holders-lease", async () => {
+    const c = await store(W.A, U.owner);
+    const slow = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    await db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", [c.id]);
+    const next = (await svc(FN.lease, [c.id, c.env_, 60])).r;
+    assert.notEqual(next, null, "the lapsed lease is taken by the next import"); assert.notEqual(next, slow);
+    assert.equal((await svc(FN.release, [c.id, slow])).r, false, "the import whose lease lapsed cannot release the next holder's");
+    assert.equal((await svc(FN.release, [c.id, uuid()])).r, false, "nor can any other id");
+    assert.equal((await conn(c.id)).refresh_lease_id, next, "the next holder still holds it");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, null, "so a third import is still told busy");
+    assert.equal((await svc(FN.release, [c.id, null])).r, false, "a missing id releases nothing");
+    assert.equal((await svc(FN.release, [c.id, next])).r, true, "the holder releases it");
   });
 
   // ── evidence: intent first, then the link to the upload ──────────────────────────────────────────────────────────

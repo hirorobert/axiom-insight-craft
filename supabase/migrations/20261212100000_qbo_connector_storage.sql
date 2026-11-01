@@ -32,8 +32,12 @@
 -- ROTATION. Intuit's refresh tokens roll over. Two protections, in this order:
 --   1 qbo_acquire_refresh_lease: a short lease (compare-and-set on the connection row) is taken BEFORE Intuit is called, so two simultaneous imports can
 --     never present the same refresh token to Intuit at the same time; the second is told "busy" without any call to Intuit.
+--     The lease has its own id, returned to the one caller that took it: only that id releases it, so a caller whose lease lapsed can never clear
+--     the lease of the caller after it.
 --   2 qbo_rotate_refresh_token is a compare-and-swap on the stored envelope: the caller names the envelope it used, and the new one is stored only if
 --     that is still the current one (and clears the lease). If the lease lapsed (a crashed import) and two refreshes did happen, only one can win.
+--     A retry whose earlier attempt was stored but whose answer was lost is recognised (the stored envelope is already the new one) and reported as stored.
+--   qbo_mark_reconnect_needed deletes only the token Intuit refused: if another import has already stored a newer one, nothing changes.
 --   A lease that is never released simply lapses (at most p_seconds, 10 to 300). What happens if Intuit has already invalidated a token that was in
 --   flight is documented in docs/release/qbo-connector-storage-r1/README.md; the recovery is always "reconnect" (the dead token is deleted).
 --
@@ -60,6 +64,7 @@ CREATE TABLE public.qbo_connections (
   refresh_expires_at timestamptz,
   hard_expires_at timestamptz,
   refresh_lease_until timestamptz,   -- held only while one import is refreshing the token; lapses by itself; never a secret
+  refresh_lease_id uuid,             -- the holder's handle: only the caller that took the lease can release it
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   disconnected_at timestamptz,
@@ -69,7 +74,8 @@ CREATE TABLE public.qbo_connections (
     OR envelope_key_id = split_part(refresh_token_envelope, '.', 2)),
   -- A token exists exactly while the connection is active; a dead or disconnected connection holds none.
   CONSTRAINT chk_qbo_conn_token_iff_active CHECK ((status = 'active') = (refresh_token_envelope IS NOT NULL AND envelope_key_id IS NOT NULL AND refresh_expires_at IS NOT NULL)),
-  CONSTRAINT chk_qbo_conn_inactive_has_no_token CHECK (status = 'active' OR (refresh_token_envelope IS NULL AND envelope_key_id IS NULL AND refresh_expires_at IS NULL AND hard_expires_at IS NULL AND refresh_lease_until IS NULL)),
+  CONSTRAINT chk_qbo_conn_inactive_has_no_token CHECK (status = 'active' OR (refresh_token_envelope IS NULL AND envelope_key_id IS NULL AND refresh_expires_at IS NULL AND hard_expires_at IS NULL AND refresh_lease_until IS NULL AND refresh_lease_id IS NULL)),
+  CONSTRAINT chk_qbo_conn_lease_pair CHECK ((refresh_lease_until IS NULL) = (refresh_lease_id IS NULL)),
   CONSTRAINT chk_qbo_conn_disconnected_at CHECK ((status = 'disconnected') = (disconnected_at IS NOT NULL))
 );
 COMMENT ON TABLE public.qbo_connections IS
@@ -261,7 +267,8 @@ BEGIN
    WHERE company_id = p_company_id AND realm_id = p_realm_id AND environment = p_environment AND status <> 'disconnected' FOR UPDATE;
   IF FOUND THEN
     UPDATE public.qbo_connections SET status = 'active', refresh_token_envelope = p_envelope, envelope_key_id = split_part(p_envelope, '.', 2),
-           refresh_expires_at = p_refresh_expires_at, hard_expires_at = p_hard_expires_at, connected_by_user_id = p_actor_user_id, refresh_lease_until = NULL
+           refresh_expires_at = p_refresh_expires_at, hard_expires_at = p_hard_expires_at, connected_by_user_id = p_actor_user_id, refresh_lease_until = NULL,
+           refresh_lease_id = NULL
      WHERE id = v_id;
   ELSE
     INSERT INTO public.qbo_connections (company_id, connected_by_user_id, realm_id, environment, status, refresh_token_envelope, envelope_key_id, refresh_expires_at, hard_expires_at)
@@ -274,52 +281,59 @@ $$;
 
 -- Takes the refresh lease BEFORE Intuit is called: true for exactly one caller at a time (compare-and-set on the row, so a concurrent second caller waits
 -- for the row lock, re-reads the lease and gets false). The lease names the envelope the caller will present, so a caller holding an out-of-date envelope
--- never gets it. Lapses by itself after p_seconds (10 to 300) if the caller dies.
+-- never gets it. Lapses by itself after p_seconds (10 to 300) if the caller dies. Returns the lease's own id (the holder's handle, the only thing that
+-- releases it) or NULL when the caller did not get it.
 CREATE FUNCTION public.qbo_acquire_refresh_lease(p_connection_id uuid, p_expected_envelope text, p_seconds integer)
-RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE n integer;
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE v_lease uuid;
 BEGIN
-  IF p_connection_id IS NULL OR p_expected_envelope IS NULL OR p_seconds IS NULL OR p_seconds NOT BETWEEN 10 AND 300 THEN RETURN false; END IF;
-  UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() + make_interval(secs => p_seconds)
+  IF p_connection_id IS NULL OR p_expected_envelope IS NULL OR p_seconds IS NULL OR p_seconds NOT BETWEEN 10 AND 300 THEN RETURN NULL; END IF;
+  UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() + make_interval(secs => p_seconds), refresh_lease_id = gen_random_uuid()
    WHERE id = p_connection_id AND status = 'active' AND refresh_token_envelope = p_expected_envelope
-     AND (refresh_lease_until IS NULL OR refresh_lease_until <= clock_timestamp());
-  GET DIAGNOSTICS n = ROW_COUNT;
-  RETURN n = 1;
+     AND (refresh_lease_until IS NULL OR refresh_lease_until <= clock_timestamp())
+  RETURNING refresh_lease_id INTO v_lease;
+  RETURN v_lease;
 END;
 $$;
 
 -- Gives the lease back when the refresh did not happen (Intuit unavailable, for example) so the next attempt need not wait for it to lapse.
-CREATE FUNCTION public.qbo_release_refresh_lease(p_connection_id uuid)
+-- Only the holder's own lease id releases it: a caller whose lease lapsed and was taken by another can never clear that other caller's lease.
+CREATE FUNCTION public.qbo_release_refresh_lease(p_connection_id uuid, p_lease_id uuid)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE n integer;
 BEGIN
-  UPDATE public.qbo_connections SET refresh_lease_until = NULL WHERE id = p_connection_id AND status = 'active' AND refresh_lease_until IS NOT NULL;
+  UPDATE public.qbo_connections SET refresh_lease_until = NULL, refresh_lease_id = NULL
+   WHERE id = p_connection_id AND status = 'active' AND refresh_lease_id = p_lease_id;
   GET DIAGNOSTICS n = ROW_COUNT;
   RETURN n = 1;
 END;
 $$;
 
 -- Compare-and-swap rotation: stores the new envelope only if p_expected_envelope is still the stored one and the connection is active. Clears the lease.
+-- Safe to retry: if an earlier attempt stored p_new_envelope but its answer was lost, the stored envelope is already the new one and the answer is true
+-- (every envelope carries its own random IV, so no other writer can have stored this exact value). Nothing is written a second time.
 CREATE FUNCTION public.qbo_rotate_refresh_token(p_connection_id uuid, p_expected_envelope text, p_new_envelope text, p_refresh_expires_at timestamptz, p_hard_expires_at timestamptz)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE n integer;
 BEGIN
   UPDATE public.qbo_connections SET refresh_token_envelope = p_new_envelope, envelope_key_id = split_part(p_new_envelope, '.', 2),
-         refresh_expires_at = p_refresh_expires_at, hard_expires_at = p_hard_expires_at, refresh_lease_until = NULL
+         refresh_expires_at = p_refresh_expires_at, hard_expires_at = p_hard_expires_at, refresh_lease_until = NULL, refresh_lease_id = NULL
    WHERE id = p_connection_id AND status = 'active' AND refresh_token_envelope = p_expected_envelope;
   GET DIAGNOSTICS n = ROW_COUNT;
-  RETURN n = 1;
+  IF n = 1 THEN RETURN true; END IF;
+  RETURN EXISTS (SELECT 1 FROM public.qbo_connections c WHERE c.id = p_connection_id AND c.status = 'active' AND c.refresh_token_envelope = p_new_envelope);
 END;
 $$;
 
--- Intuit refused the refresh token (or it expired): the dead token is deleted and the user must reconnect.
-CREATE FUNCTION public.qbo_mark_reconnect_needed(p_connection_id uuid)
+-- Intuit refused the refresh token (or it expired): the dead token is deleted and the user must reconnect. Only the token that was refused: the caller
+-- names the envelope it presented, and if another import has meanwhile stored a newer one the refusal was of an out-of-date token and nothing changes.
+CREATE FUNCTION public.qbo_mark_reconnect_needed(p_connection_id uuid, p_refused_envelope text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE n integer;
 BEGIN
   UPDATE public.qbo_connections SET status = 'reconnect_needed', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL,
-         refresh_lease_until = NULL
-   WHERE id = p_connection_id AND status = 'active';
+         refresh_lease_until = NULL, refresh_lease_id = NULL
+   WHERE id = p_connection_id AND status = 'active' AND refresh_token_envelope = p_refused_envelope;
   GET DIAGNOSTICS n = ROW_COUNT;
   RETURN n = 1;
 END;
@@ -335,7 +349,7 @@ BEGIN
   IF NOT public.qbo_connector_basis(p_actor_user_id, c.company_id) THEN RETURN 'forbidden'; END IF;
   IF c.status = 'disconnected' THEN RETURN 'already'; END IF;
   UPDATE public.qbo_connections SET status = 'disconnected', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL,
-         refresh_lease_until = NULL, disconnected_at = clock_timestamp()
+         refresh_lease_until = NULL, refresh_lease_id = NULL, disconnected_at = clock_timestamp()
    WHERE id = p_connection_id;
   RETURN 'disconnected';
 END;
@@ -441,7 +455,8 @@ DECLARE a integer; b integer;
 BEGIN
   DELETE FROM public.qbo_oauth_states WHERE id IN (SELECT s.id FROM public.qbo_oauth_states s WHERE s.expires_at < clock_timestamp() - interval '1 day' ORDER BY s.expires_at LIMIT 1000);
   GET DIAGNOSTICS a = ROW_COUNT;
-  UPDATE public.qbo_connections SET status = 'reconnect_needed', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL, refresh_lease_until = NULL
+  UPDATE public.qbo_connections SET status = 'reconnect_needed', refresh_token_envelope = NULL, envelope_key_id = NULL, refresh_expires_at = NULL, hard_expires_at = NULL, refresh_lease_until = NULL,
+         refresh_lease_id = NULL
    WHERE status = 'active' AND (refresh_expires_at <= clock_timestamp() OR (hard_expires_at IS NOT NULL AND hard_expires_at <= clock_timestamp()));
   GET DIAGNOSTICS b = ROW_COUNT;
   RETURN QUERY SELECT a, b;
@@ -475,9 +490,9 @@ REVOKE ALL ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, inte
 REVOKE ALL ON FUNCTION public.qbo_consume_oauth_state(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_acquire_refresh_lease(uuid, text, integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.qbo_release_refresh_lease(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.qbo_release_refresh_lease(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_rotate_refresh_token(uuid, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.qbo_mark_reconnect_needed(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.qbo_mark_reconnect_needed(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_disconnect(uuid, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_record_pull_intent(uuid, uuid, uuid, text, text, date, date, text, integer, text, integer, text, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.qbo_complete_pull(uuid) FROM PUBLIC, anon, authenticated;
@@ -489,9 +504,9 @@ GRANT EXECUTE ON FUNCTION public.qbo_start_oauth_state(text, uuid, uuid, text, i
 GRANT EXECUTE ON FUNCTION public.qbo_consume_oauth_state(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_store_connection(uuid, uuid, text, text, text, timestamptz, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_acquire_refresh_lease(uuid, text, integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.qbo_release_refresh_lease(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_release_refresh_lease(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_rotate_refresh_token(uuid, text, text, timestamptz, timestamptz) TO service_role;
-GRANT EXECUTE ON FUNCTION public.qbo_mark_reconnect_needed(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.qbo_mark_reconnect_needed(uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_disconnect(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_record_pull_intent(uuid, uuid, uuid, text, text, date, date, text, integer, text, integer, text, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.qbo_complete_pull(uuid) TO service_role;

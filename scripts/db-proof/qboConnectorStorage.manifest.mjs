@@ -18,8 +18,10 @@ export const CASES = Object.freeze([
   control("connection.storing-twice-replaces-the-one-live-connection"),
   control("connection.a-token-exists-exactly-while-the-connection-is-active"),
   control("rotation.is-compare-and-swap-and-only-one-concurrent-refresh-wins"),
+  control("rotation.a-retry-whose-first-answer-was-lost-is-recognised-and-writes-nothing-twice"),
   control("rotation.is-refused-for-an-inactive-connection"),
   control("reconnect-needed.deletes-the-dead-token"),
+  control("reconnect-needed.only-for-the-token-intuit-refused-never-a-newer-one"),
   control("disconnect.needs-the-right-deletes-the-token-and-is-terminal"),
   control("disconnect.then-a-new-live-connection-may-be-stored"),
   control("status.members-see-status-never-an-envelope-key-or-token"),
@@ -30,6 +32,7 @@ export const CASES = Object.freeze([
   control("lease.only-one-caller-holds-it-and-it-names-the-envelope"),
   control("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation"),
   control("lease.never-outlives-an-active-token"),
+  control("lease.only-its-holder-releases-it-a-lapsed-holder-cannot-clear-the-next-holders-lease"),
   // evidence: intent first, then the link to the upload; recoverable
   control("intent.needs-both-rights-the-actors-own-open-reservation-and-valid-facts"),
   control("intent.is-idempotent-for-the-same-facts-and-refuses-different-facts"),
