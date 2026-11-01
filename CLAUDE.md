@@ -889,6 +889,26 @@ from the code at main `ae162b5`:
 Lifting the restriction is the releasing change's own reviewed step. It
 removes the `WITHHELD_SERVICES` entry and closes the items above.
 
+**DEFECT-UNMETERED-LLM-ENDPOINTS-001** — Severity: MEDIUM — Status: OPEN /
+WITHHELD ON THE SERVER (recorded 2026-11-01 from the independent readiness
+assessment, finding CF-12; not repaired)
+
+`policy-compass` (Lovable AI gateway, `google/gemini-2.5-flash`, billed to
+the platform `LOVABLE_API_KEY`), `maono-decide` and `maono-root-cause`
+(Anthropic, `ANTHROPIC_API_KEY`, `!` non-null assert — crash if unset)
+spend platform-billed model calls with no quota, budget, company or product
+gate: any signed-in account could POST to them directly, and
+`policy-compass` interpolates free-text `question`/`context`/`financialData`
+straight into its prompt. None has a routed UI (`PolicyCompass.tsx` and the
+MAONO stage are unrouted). Whether any is deployed is unverified from this
+repository. All three are now withheld in `_shared/openDefectRestriction.ts`
+(`WITHHELD_SERVICES`, key `withheld-unmetered-llm`): HTTP 503
+`SERVICE_RESTRICTED` before authentication or any read, write or model
+call. Their business logic is unchanged. Releasing any of them is its own
+reviewed change: route the call through the metered assistant budget
+(`ai_assistant_reserve`), add a company/entitlement check, stop
+interpolating free text, and remove the entry.
+
 **DEFECT-PAYMENT-REVERSAL-UNBOUND-001** — Severity: MEDIUM — Status: FIXED IN SOURCE by `20261101100000_payment_reversal_authority.sql`
 (batch commercial-p4; APPLIED as drizzle 0054, hosted id 55, 2026-10-12; record `docs/release/PAYMENT_REVERSAL_AUTHORITY.md`). One bounded writer of
 reversals; LICENCE_ENDED now ends access; `admin_record_provider_refund` RECORDS a Snippe refund already completed outside CFOClose (it issues none; whether

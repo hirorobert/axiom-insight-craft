@@ -25,6 +25,7 @@ import { serve }       from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Anthropic        from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { requirePaidActionAsCaller } from "../_shared/paidAction.ts";
+import { openDefectRefusal } from "../_shared/openDefectRestriction.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -122,6 +123,12 @@ ${seasonalNote}`;
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Withheld on the server — refuses before authentication or any read, write or model call
+  // (_shared/openDefectRestriction.ts, WITHHELD_SERVICES: unmetered platform-billed model spend, CF-12).
+  {
+    const restricted = openDefectRefusal("maono-root-cause", corsHeaders);
+    if (restricted) return restricted;
+  }
 
   try {
     const supabase = createClient(

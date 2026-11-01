@@ -20,6 +20,16 @@
  *   generate-disclosure-notes   disclosure notes
  *   generate-management-letter  management letter
  *
+ * Three further services are WITHHELD because they spend platform-billed model calls with no quota, budget, company or
+ * product gate (DEFECT-UNMETERED-LLM-ENDPOINTS-001, CF-12 of the 2026-11-01 readiness assessment): any signed-in account
+ * could POST to them directly, and policy-compass interpolates free text into its prompt. None has a routed UI. They
+ * refuse in the same way, before authentication or any read or write; releasing one is the reviewed change that routes it
+ * through the metered assistant budget and removes the entry.
+ *
+ *   policy-compass              accounting-policy guidance (Lovable AI gateway)
+ *   maono-decide                monitoring decision paths (Anthropic)
+ *   maono-root-cause            monitoring root-cause narrative (Anthropic)
+ *
  * The answer names no internal engine or defect (customer-facing copy); the reason is logged server-side only.
  */
 
@@ -35,6 +45,9 @@ export const WITHHELD_SERVICES: Readonly<Record<string, string>> = Object.freeze
   "kinga-tax-engine": "withheld-r0",
   "generate-disclosure-notes": "withheld-r0",
   "generate-management-letter": "withheld-r0",
+  "policy-compass": "withheld-unmetered-llm",                 // DEFECT-UNMETERED-LLM-ENDPOINTS-001 (CF-12)
+  "maono-decide": "withheld-unmetered-llm",                   // DEFECT-UNMETERED-LLM-ENDPOINTS-001 (CF-12)
+  "maono-root-cause": "withheld-unmetered-llm",               // DEFECT-UNMETERED-LLM-ENDPOINTS-001 (CF-12)
 });
 
 export const SERVICE_RESTRICTED_BODY = Object.freeze({
