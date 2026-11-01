@@ -145,10 +145,10 @@ describe("a response that is not exactly the recorded shape is refused, never re
 // One recorded sample per region (sandbox companies created from the Intuit developer portal's country list, 2026-10-31).
 // The converter checks each report against its own control total, so a mis-copied figure would refuse the fixture.
 describe.each([
-  ["GB", "qbo-sandbox-gb-trial-balance.json", "GBP", 32, 16437777n],
-  ["AU", "qbo-sandbox-au-trial-balance.json", "AUD", 26, 10375534n],
-  ["CA", "qbo-sandbox-ca-trial-balance.json", "CAD", 32, 11549582n],
-])("regional sample %s", (_region, file, currency, accounts, totalMinor) => {
+  ["GB", "qbo-sandbox-gb-trial-balance.json", "GBP", 32, 16437777n, true],
+  ["AU", "qbo-sandbox-au-trial-balance.json", "AUD", 26, 10375534n, false],
+  ["CA", "qbo-sandbox-ca-trial-balance.json", "CAD", 32, 11549582n, false],
+])("regional sample %s", (_region, file, currency, accounts, totalMinor, excelReadsClean) => {
   const raw = JSON.parse(fs.readFileSync(path.join(DIR, file), "utf8"));
 
   it("is accepted: stated currency, explicit period, unique account ids, balanced to its own control total", () => {
@@ -169,6 +169,46 @@ describe.each([
     const zeroRows = rep.rows.filter((x) => x.debitMinor === 0n && x.creditMinor === 0n).length;
     expect(r.accounts.length).toBe(accounts - zeroRows);
   });
+
+  const xlsxBytes = () => new Uint8Array(fs.readFileSync(path.join(DIR, file.replace(/\.json$/, ".xlsx"))));
+  const excelRead = () => readTrialBalanceSource(xlsxBytes(), { fileName: "qbo.xlsx", periodYear: 2026, currency }, XLSX as unknown as XlsxLike);
+
+  it("the manual Excel export holds the same books: every account's amounts equal the connector's to the cent", () => {
+    const rep = must(raw);
+    const wb = XLSX.read(xlsxBytes(), { type: "array" });
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
+    const byName = new Map(rows.filter((r) => typeof r[0] === "string").map((r) => [r[0] as string, r]));
+    const cents = (v: unknown) => (typeof v === "number" ? BigInt(Math.round(v * 100)) : 0n);
+    for (const a of rep.rows) {
+      const r = byName.get(a.accountName);
+      expect(r, a.accountName).toBeDefined();
+      expect([cents(r![1]), cents(r![2])], a.accountName).toEqual([a.debitMinor, a.creditMinor]);
+    }
+  });
+
+  if (excelReadsClean) {
+    it("charter A2 parity: the same company's manual Excel export gives the identical normalised accounting result and hash", () => {
+      const rep = must(raw);
+      const viaConnector = readTrialBalanceSource(csvBytes(toCanonicalCsv(rep)), { fileName: "qbo.csv", periodYear: 2026, currency }, XLSX as unknown as XlsxLike);
+      const viaExcel = excelRead();
+      expect(viaExcel.blocking).toBe(false);
+      expect(viaExcel.totals).toEqual(viaConnector.totals);
+      const a = normalisedAccountingResult(viaConnector.accounts);
+      const b = normalisedAccountingResult(viaExcel.accounts);
+      expect(a).toBe(b);
+      expect(sha(a)).toBe(sha(b));
+    });
+  } else {
+    // KNOWN LIMITATION (not a connector defect; the JSON carries exact decimal strings): QuickBooks Online writes floating-point
+    // noise into some Excel cells (for example 812.429999999999 for 812.43), still inside Excel's 15 significant digits, so the
+    // reader's two-decimal rule refuses the file and its control-total check then disagrees. Pinned here so that fixing the reader
+    // (an owner decision: it changes how every upload is read) makes this test fail and be replaced by the parity test above.
+    it("KNOWN LIMITATION: the reader refuses this region's own Excel export because QuickBooks wrote float noise into it", () => {
+      const r = excelRead();
+      expect(r.blocking).toBe(true);
+      expect(r.issues.map((i) => i.code)).toEqual(expect.arrayContaining(["PRECISION_EXCEEDS_CURRENCY", "TOTAL_ROW_MISMATCH"]));
+    });
+  }
 
   it("a one-cent change to any figure is refused against the control total", () => {
     const j = JSON.parse(JSON.stringify(raw));
