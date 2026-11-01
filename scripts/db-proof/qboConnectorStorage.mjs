@@ -48,7 +48,13 @@ const FN = {
   rotate: "SELECT public.qbo_rotate_refresh_token($1,$2,$3,$4,$5) r",
   reconnect: "SELECT public.qbo_mark_reconnect_needed($1) r",
   disconnect: "SELECT public.qbo_disconnect($1,$2) r",
-  pull: "SELECT public.qbo_record_pull($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) r",
+  lease: "SELECT public.qbo_acquire_refresh_lease($1,$2,$3) r",
+  release: "SELECT public.qbo_release_refresh_lease($1) r",
+  intent: "SELECT public.qbo_record_pull_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) r",
+  complete: "SELECT public.qbo_complete_pull($1) r",
+  pending: "SELECT public.qbo_complete_pending_pulls() r",
+  house: "SELECT * FROM public.qbo_housekeeping()",
+  retention: "SELECT * FROM public.qbo_provenance_past_retention($1::interval)",
 };
 const start = async (company, actor, env = "sandbox", ttl = 600, hash = sha(rnd()), year = 2026) => ({ hash, r: (await svc(FN.start, [hash, company, actor, env, ttl, year])).r });
 const store = async (company, actor, over = {}) => {
@@ -57,7 +63,7 @@ const store = async (company, actor, over = {}) => {
 };
 const conn = (id) => one("SELECT * FROM public.qbo_connections WHERE id=$1", [id]);
 const company = (owner = U.owner, name = `QBO proof ${++seq}`) => W.company(owner, name);
-const pullArgs = (c, o = {}) => [c, o.upload ?? uuid(), o.connection ?? null, o.actor ?? U.owner, o.realm ?? realm(), o.env ?? "sandbox", o.start ?? "2026-01-01", o.end ?? "2026-10-31",
+const intentArgs = (reservation, o = {}) => [reservation, o.connection ?? null, o.actor ?? U.owner, o.realm ?? realm(), o.env ?? "sandbox", o.start ?? "2026-01-01", o.end ?? "2026-10-31",
   o.method ?? "Accrual", o.minor ?? 75, o.currency ?? "USD", o.count ?? 46, o.raw ?? sha("raw" + rnd()), o.canonical ?? sha("canon" + rnd()), o.result ?? sha("result" + rnd())];
 const denied = /permission denied/i;
 
@@ -95,7 +101,7 @@ try {
   });
   await kase("clients.cannot-call-the-writers-only-the-status-function", async () => {
     const calls = [[FN.start, [sha(rnd()), W.A, U.owner, "sandbox", 600, 2026]], [FN.consume, [sha(rnd())]], [FN.store, [W.A, U.owner, realm(), "sandbox", envelope(), future(1), null]],
-      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid()]], [FN.disconnect, [uuid(), U.owner]], [FN.pull, pullArgs(W.A)]];
+      [FN.rotate, [uuid(), envelope(), envelope(), future(1), null]], [FN.reconnect, [uuid()]], [FN.disconnect, [uuid(), U.owner]], [FN.lease, [uuid(), envelope(), 60]], [FN.release, [uuid()]], [FN.intent, intentArgs(uuid())], [FN.complete, [uuid()]], [FN.pending, []], [FN.house, []], [FN.retention, ["7 years"]]];
     for (const role of ["authenticated", "anon"]) for (const [sql, p] of calls) await assert.rejects(() => db.asRole(role, U.owner, sql, p), denied, `${role}: ${sql.slice(0, 40)}`);
     await assert.doesNotReject(() => db.asRole("authenticated", U.owner, "SELECT * FROM public.qbo_connection_status($1)", [W.A]));
     await assert.rejects(() => db.asRole("anon", null, "SELECT * FROM public.qbo_connection_status($1)", [W.A]), denied, "anonymous callers cannot even ask for status");
@@ -272,51 +278,240 @@ try {
     assert.equal(await db.count("SELECT count(*)::int n FROM pg_constraint WHERE confrelid IN ('public.qbo_connections'::regclass, 'public.qbo_oauth_states'::regclass)"), 0, "no other table references them, so nothing blocks the cascade");
   });
 
-  // ── provenance ───────────────────────────────────────────────────────────────────────────────────────────────────
-  await kase("pull.record-requires-the-right-validates-and-is-one-per-upload", async () => {
-    const upload = uuid();
-    await assert.rejects(() => svc(FN.pull, pullArgs(W.A, { actor: U.viewer })), /FORBIDDEN/, "a viewer cannot record an import");
-    await assert.rejects(() => svc(FN.pull, pullArgs(W.A, { actor: U.ownerB })), /FORBIDDEN/);
-    await assert.rejects(() => svc(FN.pull, pullArgs(uuid())), /FORBIDDEN/, "an unknown workspace is refused");
-    const id = (await svc(FN.pull, pullArgs(W.A, { upload, actor: ACTOR }))).r;
-    const row = await one("SELECT * FROM public.qbo_pulls WHERE id=$1", [id]);
-    assert.equal(row.report, "TrialBalance"); assert.equal(row.actor_user_id, ACTOR); assert.equal(row.currency, "USD"); assert.equal(row.account_count, 46);
-    await assert.rejects(() => svc(FN.pull, pullArgs(W.A, { upload })), /duplicate key|unique/i, "one import, one upload");
+  // ── rotation lease (finding: two simultaneous refreshes must never both reach Intuit with the same token) ─────────
+  await kase("lease.only-one-caller-holds-it-and-it-names-the-envelope", async () => {
+    const c = await store(W.A, U.owner);
+    assert.equal((await svc(FN.lease, [c.id, envelope("k1"), 60])).r, false, "an out-of-date envelope never gets the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 5])).r, false, "too short a lease is refused");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 301])).r, false, "too long a lease is refused");
+    assert.equal((await svc(FN.lease, [uuid(), c.env_, 60])).r, false, "an unknown connection");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "the first caller takes it");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "the second is told no, without any call to Intuit");
+    const fresh = await store(W.A, U.owner);
+    const both = await Promise.all(Array.from({ length: 8 }, () => db.asRole("service_role", null, FN.lease, [fresh.id, fresh.env_, 60])));
+    assert.equal(both.filter((rows) => rows[0].r === true).length, 1, "of eight simultaneous callers exactly one holds the lease");
+  });
+  await kase("lease.lapses-by-itself-is-released-on-demand-and-is-cleared-by-rotation", async () => {
+    const c = await store(W.A, U.owner);
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    await db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", [c.id]);
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true, "a lapsed lease (a crashed import) can be taken again");
+    assert.equal((await svc(FN.release, [c.id])).r, true, "released on demand");
+    assert.equal((await svc(FN.release, [c.id])).r, false, "releasing nothing changes nothing");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, true);
+    const next = envelope("k1");
+    assert.equal((await svc(FN.rotate, [c.id, c.env_, next, future(100), future(1800)])).r, true);
+    assert.equal((await conn(c.id)).refresh_lease_until, null, "rotation clears the lease");
+    assert.equal((await svc(FN.lease, [c.id, c.env_, 60])).r, false, "and the old envelope can no longer take one");
+  });
+  await kase("lease.never-outlives-an-active-token", async () => {
+    const a = await store(W.A, U.owner), b = await store(W.A, U.owner), d = await store(W.A, U.owner);
+    for (const x of [a, b, d]) assert.equal((await svc(FN.lease, [x.id, x.env_, 60])).r, true);
+    assert.equal((await svc(FN.reconnect, [a.id])).r, true);
+    assert.equal((await conn(a.id)).refresh_lease_until, null, "a dead token holds no lease");
+    assert.equal((await svc(FN.disconnect, [b.id, U.owner])).r, "disconnected");
+    assert.equal((await conn(b.id)).refresh_lease_until, null, "a disconnected connection holds no lease");
+    assert.equal((await svc(FN.lease, [a.id, a.env_, 60])).r, false, "no lease on an inactive connection");
+    await assert.rejects(() => db.admin.query("UPDATE public.qbo_connections SET refresh_lease_until = now() + interval '1 minute' WHERE id=$1", [a.id]), /violates check/i, "the table itself refuses a lease on an inactive connection");
+    const again = await store(W.A, U.owner, { realm: (await conn(d.id)).realm_id });
+    assert.equal((await conn(again.id)).refresh_lease_until, null, "reconnecting clears a stale lease");
+  });
+
+  // ── evidence: intent first, then the link to the upload ──────────────────────────────────────────────────────────
+  const reserveAs = async (user, c) => (await db.asRole("authenticated", user, "SELECT * FROM public.reserve_trial_balance_source($1,'quickbooks.csv')", [c]))[0];
+  const putObject = (p) => db.admin.query("INSERT INTO storage.objects (bucket_id, name) VALUES ('trial-balance-files', $1)", [p]);
+  const registerAs = async (user, r, year) => (await db.asRole("authenticated", user, "SELECT * FROM public.register_trial_balance_upload($1,10,$2,NULL,NULL)", [r.reservation_id, year]))[0];
+  // A reservation row for a person who could not reserve it themself (to prove the evidence function judges rights on its own).
+  const fakeReservation = async (c, actor) => {
+    const id = uuid();
+    await db.admin.query("INSERT INTO public.trial_balance_source_reservations (id, company_id, object_path, file_name, actor_user_id, authority_basis, expires_at) VALUES ($1,$2,$3,'f.csv',$4,'explicit_capability', now() + interval '10 minutes')", [id, c, `workspaces/${c}/${id}/f.csv`, actor]);
+    return id;
+  };
+  const rightOf = async (u, c, cap) => (await svc("SELECT public.workspace_authority_basis($1,$2,$3) r", [u, c, cap])).r;
+
+  await kase("intent.needs-both-rights-the-actors-own-open-reservation-and-valid-facts", async () => {
+    const c = await company(U.owner, `QBO intent ${++seq}`);
+    await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'prepare_trial_balance')", [c, ACTOR]);
+    await db.asRole("authenticated", U.owner, "SELECT * FROM public.grant_workspace_capability($1,$2,'manage_source_files')", [c, U.partner]);
+    assert.ok(await rightOf(ACTOR, c, "prepare_trial_balance"), "ACTOR holds prepare_trial_balance here");
+    assert.equal(await rightOf(ACTOR, c, "manage_source_files"), null, "ACTOR does not hold manage_source_files");
+    assert.ok(await rightOf(U.partner, c, "manage_source_files"), "the partner holds manage_source_files here");
+    assert.equal(await rightOf(U.partner, c, "prepare_trial_balance"), null, "and not prepare_trial_balance");
+    const reserved = await reserveAs(U.owner, c);
+    assert.equal(reserved.outcome, "reserved");
+    const forbid = (promise, why) => assert.rejects(() => promise, /FORBIDDEN/, why);
+    await forbid(svc(FN.intent, intentArgs(await fakeReservation(c, ACTOR), { actor: ACTOR })), "prepare_trial_balance WITHOUT manage_source_files is refused");
+    await forbid(svc(FN.intent, intentArgs(await fakeReservation(c, U.partner), { actor: U.partner })), "manage_source_files WITHOUT prepare_trial_balance is refused");
+    await forbid(svc(FN.intent, intentArgs(await fakeReservation(c, U.viewer), { actor: U.viewer })), "a viewer is refused");
+    await forbid(svc(FN.intent, intentArgs(await fakeReservation(c, U.ownerB), { actor: U.ownerB })), "another workspace's owner is refused");
+    await forbid(svc(FN.intent, intentArgs(reserved.reservation_id, { actor: ACTOR })), "a reservation belongs to the person who made it");
+    await forbid(svc(FN.intent, intentArgs(uuid())), "an unknown reservation is refused");
+    await forbid(svc(FN.intent, intentArgs(null)), "no reservation is refused");
+    const own = await fakeReservation(c, U.owner);
+    await assert.rejects(() => svc(FN.intent, intentArgs(own, { realm: "x1" })), /violates check/i, "a malformed realm");
     for (const [label, over] of [["a short hash", { raw: "abc" }], ["an upper-case hash", { canonical: sha("x").toUpperCase() }], ["a bad currency", { currency: "usd" }],
-      ["dates the wrong way round", { start: "2026-11-01", end: "2026-10-31" }], ["a negative count", { count: -1 }], ["an unknown method", { method: "Other" }],
-      ["a malformed realm", { realm: "x1" }], ["an unknown environment", { env: "test" }]]) {
-      await assert.rejects(() => svc(FN.pull, pullArgs(W.A, over)), /violates check/i, label);
+      ["dates the wrong way round", { start: "2026-11-01", end: "2026-10-31" }], ["a negative count", { count: -1 }], ["an unknown method", { method: "Other" }], ["an unknown environment", { env: "test" }]]) {
+      await assert.rejects(() => svc(FN.intent, intentArgs(reserved.reservation_id, over)), /violates check/i, label);
+    }
+    const expired = await fakeReservation(c, U.owner);
+    await db.admin.query("UPDATE public.trial_balance_source_reservations SET expires_at = now() - interval '1 minute' WHERE id=$1", [expired]);
+    await assert.rejects(() => svc(FN.intent, intentArgs(expired)), /RESERVATION_NOT_OPEN/, "an expired reservation");
+    const id = (await svc(FN.intent, intentArgs(reserved.reservation_id))).r;
+    const row = await one("SELECT * FROM public.qbo_pull_intents WHERE id=$1", [id]);
+    assert.equal(row.company_id, c, "the workspace comes from the reservation, not from the caller");
+    assert.equal(row.report, "TrialBalance"); assert.equal(row.actor_user_id, U.owner);
+  });
+  await kase("intent.is-idempotent-for-the-same-facts-and-refuses-different-facts", async () => {
+    const c = await company(U.owner, `QBO intent ${++seq}`);
+    const r = await reserveAs(U.owner, c);
+    const args = intentArgs(r.reservation_id);
+    const first = (await svc(FN.intent, args)).r;
+    assert.equal((await svc(FN.intent, args)).r, first, "a retry with the same facts returns the same row");
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pull_intents WHERE reservation_id=$1", [r.reservation_id]), 1);
+    await assert.rejects(() => svc(FN.intent, intentArgs(r.reservation_id, { canonical: sha("different") })), /INTENT_CONFLICT/, "different facts for the same reservation are refused");
+    const both = await Promise.allSettled([db.asRole("service_role", null, FN.intent, intentArgs((await reserveAs(U.owner, c)).reservation_id)), db.asRole("service_role", null, FN.intent, intentArgs((await reserveAs(U.owner, c)).reservation_id))]);
+    assert.equal(both.filter((x) => x.status === "fulfilled").length, 2, "different reservations are independent");
+  });
+  await kase("completion.links-the-intent-to-the-upload-the-reservation-itself-created", async () => {
+    const c = await company(U.ownerB, `QBO complete ${++seq}`);
+    const r = await reserveAs(U.ownerB, c);
+    const args = intentArgs(r.reservation_id, { actor: U.ownerB, count: 31, currency: "GBP" });
+    await svc(FN.intent, args);
+    assert.equal((await svc(FN.complete, [uuid()])).r, "no_intent", "no intent, nothing to link");
+    assert.equal((await svc(FN.complete, [r.reservation_id])).r, "not_registered", "before the upload exists there is nothing to link, and nothing is invented");
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls WHERE company_id=$1", [c]), 0);
+    await putObject(r.object_path);
+    const reg = await registerAs(U.ownerB, r, 2026);
+    assert.equal(reg.outcome, "registered", JSON.stringify(reg));
+    assert.equal((await svc(FN.complete, [r.reservation_id])).r, "completed");
+    assert.equal((await svc(FN.complete, [r.reservation_id])).r, "already", "re-running changes nothing");
+    const pull = await one("SELECT * FROM public.qbo_pulls WHERE company_id=$1", [c]);
+    assert.equal(pull.upload_id, reg.upload_id, "the upload id is the reservation's own, not a caller's");
+    assert.equal(pull.account_count, 31); assert.equal(pull.currency, "GBP"); assert.equal(pull.actor_user_id, U.ownerB);
+    assert.equal(pull.raw_sha256, args[11]); assert.equal(pull.canonical_sha256, args[12]); assert.equal(pull.result_sha256, args[13]);
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls WHERE company_id=$1", [c]), 1, "one import, one upload, one row");
+    const intent = await one("SELECT recorded_at FROM public.qbo_pull_intents WHERE reservation_id=$1", [r.reservation_id]);
+    assert.equal(new Date(pull.pulled_at).getTime(), new Date(intent.recorded_at).getTime(), "the pull is dated when it was fetched, not when it was linked");
+  });
+  await kase("completion.a-right-lost-after-registration-cannot-lose-the-evidence", async () => {
+    const c = await company(U.ownerB, `QBO complete ${++seq}`);
+    await db.asRole("authenticated", U.ownerB, "SELECT * FROM public.grant_workspace_capability($1,$2,'prepare_trial_balance')", [c, U.partner]);
+    await db.asRole("authenticated", U.ownerB, "SELECT * FROM public.grant_workspace_capability($1,$2,'manage_source_files')", [c, U.partner]);
+    const r = await reserveAs(U.partner, c);
+    assert.equal(r.outcome, "reserved");
+    await svc(FN.intent, intentArgs(r.reservation_id, { actor: U.partner }));
+    await putObject(r.object_path);
+    assert.equal((await registerAs(U.partner, r, 2026)).outcome, "registered");
+    assert.equal((await db.asRole("authenticated", U.ownerB, "SELECT * FROM public.revoke_workspace_capability($1,$2,'prepare_trial_balance')", [c, U.partner]))[0].outcome, "revoked");
+    assert.equal(await rightOf(U.partner, c, "prepare_trial_balance"), null, "the right is gone");
+    assert.equal((await svc(FN.complete, [r.reservation_id])).r, "completed", "the evidence is still written: it copies facts that were authorised when they happened");
+  });
+  await kase("recovery.completes-every-missing-link-and-nothing-else", async () => {
+    const c = await company(U.ownerB, `QBO recover ${++seq}`);
+    const made = [];
+    for (const year of [2024, 2025]) {
+      const r = await reserveAs(U.ownerB, c);
+      await svc(FN.intent, intentArgs(r.reservation_id, { actor: U.ownerB })); await putObject(r.object_path);
+      made.push({ r, reg: await registerAs(U.ownerB, r, year) });
+    }
+    const neverRegistered = await reserveAs(U.ownerB, c);
+    await svc(FN.intent, intentArgs(neverRegistered.reservation_id, { actor: U.ownerB }));   // fetched, never imported
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls WHERE company_id=$1", [c]), 0, "simulated failure: the link was never written");
+    assert.ok((await svc(FN.pending)).r >= 2, "recovery reports what it completed");
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls WHERE company_id=$1", [c]), 2, "exactly the two imports that exist are linked");
+    for (const m of made) assert.equal((await one("SELECT count(*)::int n FROM public.qbo_pulls WHERE upload_id=$1", [m.reg.upload_id])).n, 1);
+    assert.equal((await one("SELECT count(*)::int n FROM public.qbo_pull_intents WHERE reservation_id=$1", [neverRegistered.reservation_id])).n, 1, "the fetched-but-not-imported report keeps its intent as evidence");
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_pulls p WHERE p.company_id=$1 AND p.upload_id IS NULL", [c]), 0);
+    assert.equal((await svc(FN.pending)).r, 0, "a second run finds nothing left to do");
+  });
+  await kase("recovery.one-unlinkable-row-never-stops-the-rest", async () => {
+    const c = await company(U.ownerB, `QBO recover ${++seq}`);
+    const bad = await reserveAs(U.ownerB, c); await svc(FN.intent, intentArgs(bad.reservation_id, { actor: U.ownerB })); await putObject(bad.object_path);
+    const good = await reserveAs(U.ownerB, c); await svc(FN.intent, intentArgs(good.reservation_id, { actor: U.ownerB })); await putObject(good.object_path);
+    const regBad = await registerAs(U.ownerB, bad, 2023), regGood = await registerAs(U.ownerB, good, 2024);
+    assert.equal(regBad.outcome, "registered"); assert.equal(regGood.outcome, "registered");
+    // Corrupt the reservation of the first so its recorded person disagrees with the intent: it must be left alone, loudly, when completed directly.
+    await db.admin.query("UPDATE public.trial_balance_source_reservations SET actor_user_id=$2 WHERE id=$1", [bad.reservation_id, U.partner]);
+    await assert.rejects(() => svc(FN.complete, [bad.reservation_id]), /INTENT_MISMATCH/, "a disagreement is refused, never papered over");
+    await svc(FN.pending);
+    assert.equal((await one("SELECT count(*)::int n FROM public.qbo_pulls WHERE upload_id=$1", [regGood.upload_id])).n, 1, "the good one is completed");
+    assert.equal((await one("SELECT count(*)::int n FROM public.qbo_pulls WHERE upload_id=$1", [regBad.upload_id])).n, 0, "the mismatched one is left for a person");
+  });
+  await kase("evidence.is-append-only-even-for-the-database-owner", async () => {
+    const c = await company(U.ownerB, `QBO append ${++seq}`);
+    const r = await reserveAs(U.ownerB, c); const intentId = (await svc(FN.intent, intentArgs(r.reservation_id, { actor: U.ownerB }))).r; await putObject(r.object_path);
+    await registerAs(U.ownerB, r, 2026); await svc(FN.complete, [r.reservation_id]);
+    const pullId = (await one("SELECT id FROM public.qbo_pulls WHERE company_id=$1", [c])).id;
+    for (const [t, id] of [["qbo_pull_intents", intentId], ["qbo_pulls", pullId]]) {
+      await assert.rejects(() => db.admin.query(`UPDATE public.${t} SET account_count=1 WHERE id=$1`, [id]), /append-only/, `${t} update`);
+      await assert.rejects(() => db.admin.query(`DELETE FROM public.${t} WHERE id=$1`, [id]), /append-only/, `${t} delete`);
+      await assert.rejects(() => db.admin.query(`TRUNCATE public.${t}`), /append-only/, `${t} truncate`);
+      for (const role of ["authenticated", "service_role"]) {
+        await assert.rejects(() => db.asRole(role, U.ownerB, `UPDATE public.${t} SET account_count=1 WHERE id=$1`, [id]), denied, `${role} cannot update ${t}`);
+        await assert.rejects(() => db.asRole(role, U.ownerB, `DELETE FROM public.${t} WHERE id=$1`, [id]), denied, `${role} cannot delete ${t}`);
+        await assert.rejects(() => db.asRole(role, U.ownerB, `INSERT INTO public.${t} SELECT * FROM public.${t} WHERE id=$1`, [id]), denied, `${role} cannot insert into ${t}`);
+      }
     }
   });
-  await kase("pull.is-append-only-even-for-the-database-owner", async () => {
-    const id = (await svc(FN.pull, pullArgs(W.A))).r;
-    await assert.rejects(() => db.admin.query("UPDATE public.qbo_pulls SET account_count=1 WHERE id=$1", [id]), /append-only/);
-    await assert.rejects(() => db.admin.query("DELETE FROM public.qbo_pulls WHERE id=$1", [id]), /append-only/);
-    await assert.rejects(() => db.admin.query("TRUNCATE public.qbo_pulls"), /append-only/);
-    for (const role of ["authenticated", "service_role"]) {
-      await assert.rejects(() => db.asRole(role, U.owner, "UPDATE public.qbo_pulls SET account_count=1 WHERE id=$1", [id]), denied, `${role} cannot update`);
-      await assert.rejects(() => db.asRole(role, U.owner, "DELETE FROM public.qbo_pulls WHERE id=$1", [id]), denied, `${role} cannot delete`);
-      await assert.rejects(() => db.asRole(role, U.owner, "INSERT INTO public.qbo_pulls (company_id, upload_id, actor_user_id, realm_id, environment, report, start_date, end_date, currency, account_count, raw_sha256, canonical_sha256, result_sha256) SELECT company_id, gen_random_uuid(), actor_user_id, realm_id, environment, report, start_date, end_date, currency, account_count, raw_sha256, canonical_sha256, result_sha256 FROM public.qbo_pulls WHERE id=$1", [id]), denied, `${role} cannot insert directly`);
+  await kase("evidence.is-readable-only-by-the-workspace-owner", async () => {
+    const c = await company(U.ownerB, `QBO read ${++seq}`);
+    const r = await reserveAs(U.ownerB, c); await svc(FN.intent, intentArgs(r.reservation_id, { actor: U.ownerB })); await putObject(r.object_path);
+    await registerAs(U.ownerB, r, 2026); await svc(FN.complete, [r.reservation_id]);
+    for (const t of ["qbo_pull_intents", "qbo_pulls"]) {
+      assert.equal((await db.asRole("authenticated", U.ownerB, `SELECT id FROM public.${t} WHERE company_id=$1`, [c])).length, 1, `the workspace owner reads ${t}`);
+      assert.equal((await db.asRole("authenticated", U.owner, `SELECT id FROM public.${t} WHERE company_id=$1`, [c])).length, 0, `another workspace's owner sees nothing in ${t}`);
+      assert.equal((await db.asRole("authenticated", U.preparer, `SELECT id FROM public.${t} WHERE company_id=$1`, [c])).length, 0, `a person with no part in this workspace sees nothing in ${t}`);
+      await assert.rejects(() => db.asRole("anon", null, `SELECT id FROM public.${t}`), denied, `anonymous callers cannot read ${t}`);
     }
   });
-  await kase("pull.is-readable-only-by-the-workspace-owner", async () => {
-    const c = await company(U.owner, `QBO pulls ${++seq}`);
-    await svc(FN.pull, pullArgs(c));
-    assert.equal((await db.asRole("authenticated", U.owner, "SELECT id FROM public.qbo_pulls WHERE company_id=$1", [c])).length, 1, "the workspace owner reads its provenance");
-    assert.equal((await db.asRole("authenticated", U.ownerB, "SELECT id FROM public.qbo_pulls WHERE company_id=$1", [c])).length, 0, "another workspace's owner sees nothing");
-    assert.equal((await db.asRole("authenticated", U.preparer, "SELECT id FROM public.qbo_pulls WHERE company_id=$1", [c])).length, 0, "a person with no part in this workspace sees nothing");
-    await assert.rejects(() => db.asRole("anon", null, "SELECT id FROM public.qbo_pulls"), denied, "anonymous callers cannot read");
+  await kase("evidence.holds-no-secret-url-or-payload-and-no-foreign-key", async () => {
+    const cols = async (t) => (await db.admin.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position", [t])).rows.map((r) => r.column_name);
+    assert.deepEqual(await cols("qbo_pulls"), ["id", "pulled_at", "company_id", "upload_id", "connection_id", "actor_user_id", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
+    assert.deepEqual(await cols("qbo_pull_intents"), ["id", "recorded_at", "reservation_id", "company_id", "connection_id", "actor_user_id", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
+    for (const t of ["qbo_pulls", "qbo_pull_intents"]) {
+      for (const c of await cols(t)) assert.ok(!/token|secret|url|payload|body|password|key/i.test(c), `no column may hold a secret, URL or payload: ${t}.${c}`);
+      assert.equal(await db.count(`SELECT count(*)::int n FROM pg_constraint WHERE conrelid='public.${t}'::regclass AND contype='f'`), 0, `${t} has no foreign keys: the record outlives uploads, connections and workspaces`);
+    }
   });
-  await kase("pull.holds-no-secret-url-or-payload-and-no-foreign-key", async () => {
-    const cols = (await db.admin.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='qbo_pulls' ORDER BY ordinal_position")).rows.map((r) => r.column_name);
-    assert.deepEqual(cols, ["id", "pulled_at", "company_id", "upload_id", "connection_id", "actor_user_id", "realm_id", "environment", "report", "start_date", "end_date", "accounting_method", "minor_version", "currency", "account_count", "raw_sha256", "canonical_sha256", "result_sha256"]);
-    for (const c of cols) assert.ok(!/token|secret|url|payload|body|password|key/i.test(c), `no column may hold a secret, URL or payload: ${c}`);
-    assert.equal(await db.count("SELECT count(*)::int n FROM pg_constraint WHERE conrelid='public.qbo_pulls'::regclass AND contype='f'"), 0, "no foreign keys: the record outlives uploads, connections and workspaces");
+
+  // ── cleanup and retention ────────────────────────────────────────────────────────────────────────────────────────
+  await kase("housekeeping.removes-old-states-and-dead-connections-and-never-evidence", async () => {
+    const c = await company(U.ownerB, `QBO house ${++seq}`);
+    const old = await start(c, U.ownerB), recent = await start(c, U.ownerB), live = await store(c, U.ownerB), dead = await store(c, U.ownerB), hard = await store(c, U.ownerB);
+    await db.admin.query("UPDATE public.qbo_oauth_states SET created_at = now() - interval '3 days', expires_at = now() - interval '3 days' + interval '10 minutes' WHERE state_hash=$1", [old.hash]);
+    await db.admin.query("UPDATE public.qbo_oauth_states SET expires_at = now() - interval '1 hour', created_at = now() - interval '1 hour 10 minutes' WHERE state_hash=$1", [recent.hash]);
+    await db.admin.query("UPDATE public.qbo_connections SET refresh_expires_at = now() - interval '1 second' WHERE id=$1", [dead.id]);
+    await db.admin.query("UPDATE public.qbo_connections SET hard_expires_at = now() - interval '1 second' WHERE id=$1", [hard.id]);
+    const r = await reserveAs(U.ownerB, c); await svc(FN.intent, intentArgs(r.reservation_id, { actor: U.ownerB })); await putObject(r.object_path); await registerAs(U.ownerB, r, 2026); await svc(FN.complete, [r.reservation_id]);
+    const evidence = async () => (await one("SELECT (SELECT count(*) FROM public.qbo_pull_intents)::int i, (SELECT count(*) FROM public.qbo_pulls)::int p"));
+    const before = await evidence();
+    const out = (await db.asRole("service_role", null, FN.house))[0];
+    assert.ok(out.states_removed >= 1, "the three-day-old state is removed");
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_oauth_states WHERE state_hash=$1", [old.hash]), 0);
+    assert.equal(await db.count("SELECT count(*)::int n FROM public.qbo_oauth_states WHERE state_hash=$1", [recent.hash]), 1, "a state expired less than a day ago is kept");
+    assert.equal(out.connections_expired, 2);
+    for (const x of [dead, hard]) {
+      const row = await conn(x.id);
+      assert.equal(row.status, "reconnect_needed"); assert.equal(row.refresh_token_envelope, null, "the dead token is deleted"); assert.equal(row.refresh_lease_until, null);
+    }
+    assert.equal((await conn(live.id)).status, "active", "a live connection is untouched");
+    assert.deepEqual(await evidence(), before, "evidence is never touched");
+    assert.equal((await db.asRole("service_role", null, FN.house))[0].connections_expired, 0, "a second run finds nothing");
+  });
+  await kase("retention.only-counts-evidence-past-an-interval-of-at-least-a-year", async () => {
+    const before = await one("SELECT (SELECT count(*) FROM public.qbo_pull_intents)::int i, (SELECT count(*) FROM public.qbo_pulls)::int p");
+    const out = (await db.asRole("service_role", null, FN.retention, ["7 years"]))[0];
+    assert.equal(Number(out.intents), 0); assert.equal(Number(out.pulls), 0, "nothing in this database is seven years old");
+    const future1 = (await db.asRole("service_role", null, FN.retention, ["1 year"]))[0];
+    assert.equal(Number(future1.pulls), 0);
+    for (const bad of ["1 day", "11 months", null]) await assert.rejects(() => db.asRole("service_role", null, FN.retention, [bad]), /RETENTION_TOO_SHORT/, `refused: ${bad}`);
+    assert.deepEqual(await one("SELECT (SELECT count(*) FROM public.qbo_pull_intents)::int i, (SELECT count(*) FROM public.qbo_pulls)::int p"), before, "it deletes nothing");
+    for (const role of ["anon", "authenticated"]) await assert.rejects(() => db.asRole(role, U.owner, FN.retention, ["7 years"]), denied, `${role} cannot ask`);
   });
 
   // ── structure ────────────────────────────────────────────────────────────────────────────────────────────────────
   await kase("structure.row-level-security-on-and-no-client-grants-beyond-the-reviewed-ones", async () => {
-    for (const t of ["qbo_connections", "qbo_oauth_states", "qbo_pulls"]) {
+    for (const t of ["qbo_connections", "qbo_oauth_states", "qbo_pulls", "qbo_pull_intents"]) {
       assert.equal((await one("SELECT relrowsecurity FROM pg_class WHERE oid=$1::regclass", [`public.${t}`])).relrowsecurity, true, `${t} has row level security`);
     }
     const priv = async (role, t, p) => (await one("SELECT has_table_privilege($1,$2,$3) r", [role, `public.${t}`, p])).r;
@@ -325,12 +520,15 @@ try {
       assert.equal(await priv("service_role", "qbo_oauth_states", p), false, `service_role has no ${p} on qbo_oauth_states (functions only)`);
     }
     assert.equal(await priv("service_role", "qbo_connections", "SELECT"), true);
-    for (const p of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) for (const role of ["anon", "authenticated", "service_role"]) assert.equal(await priv(role, "qbo_pulls", p), false, `${role} has no ${p} on qbo_pulls`);
-    assert.equal(await priv("anon", "qbo_pulls", "SELECT"), false);
-    assert.equal(await priv("authenticated", "qbo_pulls", "SELECT"), true, "reads are limited by the owner policy");
+    for (const t of ["qbo_pulls", "qbo_pull_intents"]) {
+      for (const p of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) for (const role of ["anon", "authenticated", "service_role"]) assert.equal(await priv(role, t, p), false, `${role} has no ${p} on ${t}`);
+      assert.equal(await priv("anon", t, "SELECT"), false);
+      assert.equal(await priv("authenticated", t, "SELECT"), true, "reads are limited by the owner policy");
+    }
   });
   await kase("structure.writers-are-security-definer-with-a-pinned-search-path-and-service-role-only", async () => {
-    const writers = ["qbo_start_oauth_state", "qbo_consume_oauth_state", "qbo_store_connection", "qbo_rotate_refresh_token", "qbo_mark_reconnect_needed", "qbo_disconnect", "qbo_record_pull", "qbo_connection_status"];
+    const writers = ["qbo_start_oauth_state", "qbo_consume_oauth_state", "qbo_store_connection", "qbo_acquire_refresh_lease", "qbo_release_refresh_lease", "qbo_rotate_refresh_token", "qbo_mark_reconnect_needed", "qbo_disconnect",
+      "qbo_record_pull_intent", "qbo_complete_pull", "qbo_complete_pending_pulls", "qbo_housekeeping", "qbo_provenance_past_retention", "qbo_connection_status"];
     for (const f of writers) {
       const r = await one("SELECT p.prosecdef, p.proconfig, p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname=$1", [f]);
       assert.equal(r.prosecdef, true, `${f} is SECURITY DEFINER`);
