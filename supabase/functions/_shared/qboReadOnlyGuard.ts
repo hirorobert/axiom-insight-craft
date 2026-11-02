@@ -140,7 +140,7 @@ type FetchLike = (url: string, init: { method: string; headers?: Record<string, 
 
 /**
  * How long a call to Intuit may take, response body included, before it is abandoned (the caller sees a network failure). The token call is the one
- * that matters: it runs under the 90-second refresh lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
+ * that matters: it runs under the 300-second full-import lease (qboPull.REFRESH_LEASE_SECONDS), and must end well inside it so that the lease can never
  * lapse while this import is still waiting for Intuit, which would let a second import present the same refresh token.
  */
 export const QBO_TIMEOUTS_MS: Readonly<Record<QboRequestKind, number>> = Object.freeze({ token: 30_000, report: 60_000, preferences: 15_000, revoke: 15_000 });
