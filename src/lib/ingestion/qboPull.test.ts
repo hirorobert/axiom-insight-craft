@@ -333,7 +333,7 @@ describe("two pulls at once (review finding 6)", () => {
     expect([r1.outcome, r2.outcome].sort()).toEqual(["busy", "imported"]);
     expect(c.refreshes).toHaveLength(1); expect(c.fetches).toHaveLength(1); expect(c.rotated).toHaveLength(1);
   });
-  it("a third request after the first has finished is not blocked: the lease was cleared by the rotation", async () => {
+  it("the completed import releases the lease in finally, not during rotation", async () => {
     const w = await world();
     const c = counting(w);
     expect((await runQboPull(c.a, REQ)).outcome).toBe("imported");
