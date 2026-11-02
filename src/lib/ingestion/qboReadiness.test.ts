@@ -70,7 +70,7 @@ describe("outbound writes cannot leave the guard", () => {
 });
 describe("authenticated disconnect and lost-response recovery", () => {
   const world = (over: Partial<DisconnectDeps> = {}) => {
-    const d: DisconnectDeps = { authenticate: async () => ID, begin: vi.fn(async () => ({ outcome: "pending", envelope: "fixture-envelope", companyId: ID, realmId: "123", environment: "sandbox" })), open: vi.fn(async () => "FAKE-not-a-token"), revoke: vi.fn(async () => true), finish: vi.fn(async () => true), ...over };
+    const d: DisconnectDeps = { authenticate: async () => ID, begin: vi.fn(async () => ({ outcome: "pending", leaseId: RID, envelope: "fixture-envelope", companyId: ID, realmId: "123", environment: "sandbox" })), open: vi.fn(async () => "FAKE-not-a-token"), revoke: vi.fn(async () => true), finish: vi.fn(async () => true), ...over };
     return d;
   };
   const request = { connectionId: ID, requestId: RID };

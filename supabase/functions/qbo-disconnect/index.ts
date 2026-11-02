@@ -32,8 +32,8 @@ Deno.serve(async req => {
       const response = await fetcher({ method: "POST", url: QBO_REVOKE_URL, headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Basic ${btoa(`${creds.clientId}:${creds.clientSecret}`)}` }, body: JSON.stringify({ token }) });
       await response.body?.cancel(); return response.status === 200;
     },
-    finish: async (id, actor, request) => {
-      const { data, error } = await service.rpc("qbo_finish_disconnect", { p_connection: id, p_actor: actor, p_request: request }); return !error && data === true;
+    finish: async (id, actor, request, lease) => {
+      const { data, error } = await service.rpc("qbo_finish_disconnect", { p_connection: id, p_actor: actor, p_request: request, p_lease: lease }); return !error && data === true;
     },
   }, parseDisconnectRequest(await req.json().catch(() => null))).catch(() => ({ status: 503, outcome: "disconnect_unconfirmed" }));
   return json(result.status, { outcome: result.outcome });

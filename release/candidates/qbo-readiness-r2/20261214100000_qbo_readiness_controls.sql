@@ -6,6 +6,7 @@ END $$;
 CREATE TABLE public.qbo_disconnect_operations (
  connection_id uuid PRIMARY KEY, request_id uuid NOT NULL UNIQUE, actor_user_id uuid NOT NULL,
  company_id uuid NOT NULL, realm_id text NOT NULL, environment text NOT NULL CHECK(environment IN ('sandbox','production')),
+ revoke_lease_id uuid, revoke_lease_until timestamptz,
  pending_envelope text, outcome text NOT NULL CHECK(outcome IN ('pending','revoked','local_only')),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(), completed_at timestamptz
 );
@@ -34,7 +35,7 @@ BEGIN
 END $$;
 CREATE FUNCTION public.qbo_begin_disconnect(p_connection uuid,p_actor uuid,p_request uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE c public.qbo_connections; o public.qbo_disconnect_operations;
+DECLARE c public.qbo_connections; o public.qbo_disconnect_operations; ticket uuid;
 BEGIN
  SELECT * INTO c FROM public.qbo_connections WHERE id=p_connection;
  IF FOUND THEN PERFORM pg_advisory_xact_lock(hashtextextended('qbo-connect:'||c.company_id::text||':'||c.environment||':'||c.realm_id,0)); END IF;
@@ -44,7 +45,11 @@ BEGIN
  SELECT * INTO o FROM public.qbo_disconnect_operations WHERE connection_id=c.id;
  IF FOUND THEN
   IF o.request_id<>p_request OR o.actor_user_id<>p_actor THEN RETURN jsonb_build_object('outcome','request_conflict'); END IF;
-  RETURN jsonb_build_object('outcome',o.outcome,'envelope',o.pending_envelope,'companyId',c.company_id,'realmId',c.realm_id,'environment',c.environment);
+  IF o.outcome='pending' THEN
+   IF o.revoke_lease_until>clock_timestamp() THEN RETURN jsonb_build_object('outcome','revocation_busy'); END IF;
+   ticket:=gen_random_uuid(); UPDATE public.qbo_disconnect_operations SET revoke_lease_id=ticket,revoke_lease_until=clock_timestamp()+interval '45 seconds' WHERE connection_id=c.id;
+  END IF;
+  RETURN jsonb_build_object('outcome',o.outcome,'leaseId',ticket,'envelope',o.pending_envelope,'companyId',c.company_id,'realmId',c.realm_id,'environment',c.environment);
  END IF;
  IF EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE request_id=p_request) THEN RETURN jsonb_build_object('outcome','request_conflict'); END IF;
  IF c.status='disconnected' THEN RETURN jsonb_build_object('outcome','local_only'); END IF;
@@ -53,14 +58,15 @@ BEGIN
  VALUES(c.id,p_request,p_actor,c.company_id,c.realm_id,c.environment,c.refresh_token_envelope,CASE WHEN c.refresh_token_envelope IS NULL THEN 'local_only' ELSE 'pending' END);
  UPDATE public.qbo_connections SET status='disconnected',refresh_token_envelope=NULL,envelope_key_id=NULL,refresh_expires_at=NULL,hard_expires_at=NULL,
  refresh_lease_until=NULL,refresh_lease_id=NULL,disconnected_at=clock_timestamp() WHERE id=c.id;
- RETURN jsonb_build_object('outcome',CASE WHEN c.refresh_token_envelope IS NULL THEN 'local_only' ELSE 'pending' END,'envelope',c.refresh_token_envelope,'companyId',c.company_id,'realmId',c.realm_id,'environment',c.environment);
+ ticket:=gen_random_uuid(); UPDATE public.qbo_disconnect_operations SET revoke_lease_id=ticket,revoke_lease_until=clock_timestamp()+interval '45 seconds' WHERE connection_id=c.id AND outcome='pending';
+ RETURN jsonb_build_object('outcome',CASE WHEN c.refresh_token_envelope IS NULL THEN 'local_only' ELSE 'pending' END,'leaseId',ticket,'envelope',c.refresh_token_envelope,'companyId',c.company_id,'realmId',c.realm_id,'environment',c.environment);
 END $$;
-CREATE FUNCTION public.qbo_finish_disconnect(p_connection uuid,p_actor uuid,p_request uuid)
+CREATE FUNCTION public.qbo_finish_disconnect(p_connection uuid,p_actor uuid,p_request uuid,p_lease uuid)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 BEGIN
- UPDATE public.qbo_disconnect_operations SET outcome='revoked',pending_envelope=NULL,completed_at=clock_timestamp()
+ UPDATE public.qbo_disconnect_operations SET outcome='revoked',pending_envelope=NULL,revoke_lease_id=NULL,revoke_lease_until=NULL,completed_at=clock_timestamp()
  WHERE connection_id=p_connection AND request_id=p_request AND actor_user_id=p_actor
- AND public.qbo_connector_basis(p_actor,company_id) AND outcome='pending';
+ AND public.qbo_connector_basis(p_actor,company_id) AND outcome='pending' AND revoke_lease_id=p_lease AND revoke_lease_until>clock_timestamp();
  RETURN EXISTS(SELECT 1 FROM public.qbo_disconnect_operations WHERE connection_id=p_connection AND request_id=p_request AND actor_user_id=p_actor AND outcome='revoked' AND public.qbo_connector_basis(p_actor,company_id));
 END $$;
 CREATE OR REPLACE FUNCTION public.qbo_rotate_refresh_token(p_connection_id uuid, p_expected_envelope text, p_new_envelope text, p_refresh_expires_at timestamptz, p_hard_expires_at timestamptz)
@@ -149,8 +155,8 @@ REVOKE ALL ON FUNCTION public.qbo_saved_period(uuid,uuid,uuid,integer,uuid) FROM
 GRANT EXECUTE ON FUNCTION public.qbo_saved_period(uuid,uuid,uuid,integer,uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.qbo_begin_disconnect(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.qbo_begin_disconnect(uuid,uuid,uuid) TO service_role;
-REVOKE ALL ON FUNCTION public.qbo_finish_disconnect(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.qbo_finish_disconnect(uuid,uuid,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.qbo_finish_disconnect(uuid,uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.qbo_finish_disconnect(uuid,uuid,uuid,uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.qbo_record_fiscal_pull_intent(uuid,jsonb,uuid,uuid,uuid,text,text,date,date,text,integer,text,integer,text,text,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.qbo_record_fiscal_pull_intent(uuid,jsonb,uuid,uuid,uuid,text,text,date,date,text,integer,text,integer,text,text,text) TO service_role;
 REVOKE ALL ON FUNCTION public.qbo_fence_upload_registration() FROM PUBLIC,anon,authenticated,service_role;
