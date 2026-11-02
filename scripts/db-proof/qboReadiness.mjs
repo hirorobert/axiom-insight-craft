@@ -41,7 +41,7 @@ try {
   assert.equal((await svc("select public.qbo_rotate_leased_token($1,$2,$3,$4,now()+interval '100 days',null) r",[fresh,activeLease,env,next])).r,true);
  });
  const reservation=(await db.asUser(w.U.owner,"select * from public.reserve_trial_balance_source($1,'quickbooks.csv')",[w.A])).reservation_id;
- const basis={kind:'fiscal-ytd-as-of',fiscalStartMonth:1,fiscalStart:'2026-01-01',asOf:'2026-12-31',currency:'USD',accountingMethod:'Accrual',preferencesSha256:'a'.repeat(64)};
+ const basis={operationLeaseId:activeLease,kind:'fiscal-ytd-as-of',fiscalStartMonth:1,fiscalStart:'2026-01-01',asOf:'2026-12-31',currency:'USD',accountingMethod:'Accrual',preferencesSha256:'a'.repeat(64)};
  const args=[p,JSON.stringify(basis),reservation,fresh,w.U.owner,'123','sandbox','2026-01-01','2026-12-31','Accrual',75,'USD',45,'b'.repeat(64),'c'.repeat(64),'d'.repeat(64)];
  const record='select public.qbo_record_fiscal_pull_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) r';
  await check('fiscal provenance written once; changed fiscal facts fail',async()=>{

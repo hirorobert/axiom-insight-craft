@@ -66,7 +66,7 @@ export interface StoredConnection { id: string; status: "active" | "reconnect_ne
 /** The facts recorded BEFORE the file is stored, keyed by the upload reservation (the workspace comes from the reservation, never from here). */
 export interface ProvenanceRecord {
   reservationId: string; connectionId: string; actorUserId: string; realmId: string; environment: QboEnvironment; startDate: string; endDate: string;
-  fiscalBasis: QboFiscalBasis; periodId: string; accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
+  fiscalBasis: QboFiscalBasis & { operationLeaseId: string }; periodId: string; accountingMethod: string | null; minorVersion: number | null; currency: string; accountCount: number; rawSha256: string; canonicalSha256: string; resultSha256: string;
 }
 export type CompletePullResult = "completed" | "already" | "not_registered" | "no_intent" | "no_reservation";
 
@@ -205,7 +205,7 @@ export async function runQboPull(deps: PullDeps, req: PullRequest): Promise<Pull
     // and says so: there is no upload, so there is nothing that lacks its evidence (the unused reservation expires and is swept by the existing sweeper).
     const intent = await attempt(() => deps.recordIntent({
       reservationId: reserved.reservationId, connectionId: conn.id, actorUserId: userId, realmId: req.realmId, environment: req.environment,
-      startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis, periodId: period.id,
+      startDate: fiscalBasis.fiscalStart, endDate: fiscalBasis.asOf, fiscalBasis: { ...fiscalBasis, operationLeaseId: leaseId }, periodId: period.id,
       accountingMethod: fiscalBasis.accountingMethod, minorVersion: deps.minorVersion, currency: report.currency,
       accountCount: summary.accountCount, rawSha256, canonicalSha256, resultSha256: summary.resultSha256,
     }), pause);

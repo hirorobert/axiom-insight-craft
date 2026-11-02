@@ -118,6 +118,7 @@ BEGIN
  OR (p_fiscal_basis->>'kind') IS DISTINCT FROM 'fiscal-ytd-as-of'
  OR (p_fiscal_basis->>'fiscalStart') IS DISTINCT FROM p_start_date::text OR (p_fiscal_basis->>'asOf') IS DISTINCT FROM p_end_date::text
  OR (p_fiscal_basis->>'currency') IS DISTINCT FROM p_currency OR (p_fiscal_basis->>'accountingMethod') IS DISTINCT FROM p_accounting_method
+ OR (p_fiscal_basis->>'operationLeaseId') IS DISTINCT FROM c.refresh_lease_id::text
  OR coalesce(p_fiscal_basis->>'preferencesSha256','') !~ '^[a-f0-9]{64}$'
  OR coalesce(p_fiscal_basis->>'fiscalStartMonth','') !~ '^([1-9]|1[0-2])$'
  OR extract(month FROM p_start_date)::integer<>(p_fiscal_basis->>'fiscalStartMonth')::integer OR extract(day FROM p_start_date)<>1
@@ -138,7 +139,7 @@ BEGIN
  IF NOT FOUND THEN RETURN NEW; END IF;
  SELECT * INTO c FROM public.qbo_connections WHERE id=i.connection_id FOR UPDATE;
  IF NOT FOUND OR c.status<>'active' OR c.refresh_lease_until IS NULL OR c.refresh_lease_until<=clock_timestamp() THEN RAISE EXCEPTION 'QBO_CONNECTION_UNAVAILABLE'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.qbo_fiscal_pull_basis WHERE reservation_id=i.reservation_id AND period_id=NEW.period_id) THEN RAISE EXCEPTION 'QBO_FISCAL_BASIS_REQUIRED'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.qbo_fiscal_pull_basis WHERE reservation_id=i.reservation_id AND period_id=NEW.period_id AND basis->>'operationLeaseId'=c.refresh_lease_id::text) THEN RAISE EXCEPTION 'QBO_FISCAL_BASIS_REQUIRED'; END IF;
  SELECT * INTO p FROM public.fiscal_periods WHERE id=NEW.period_id AND company_id=NEW.company_id FOR SHARE;
  IF NOT FOUND OR p.reporting_start IS DISTINCT FROM i.start_date OR p.reporting_end IS DISTINCT FROM i.end_date OR p.reporting_currency IS DISTINCT FROM i.currency THEN RAISE EXCEPTION 'QBO_PERIOD_CHANGED'; END IF;
  RETURN NEW;
